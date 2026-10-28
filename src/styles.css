@@ -717,6 +717,39 @@ p {
   height: 100%;
 }
 
+.editor-stack {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-stack .code-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.editor-lsp-status {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--line);
+  padding: 4px 14px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.editor-lsp-status[data-state="loading"] {
+  color: var(--accent);
+}
+
+.editor-lsp-status[data-state="unavailable"],
+.editor-lsp-status[data-state="unsupported"],
+.editor-lsp-status[data-state="stale"],
+.editor-lsp-status[data-state="timeout"],
+.editor-lsp-status[data-state="failed"] {
+  color: var(--warning);
+}
+
 .empty-editor {
   padding: 24px;
 }

@@ -36,6 +36,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "lsp.restart",
     "lsp.didOpen",
     "lsp.didChange",
+    "lsp.completion",
+    "lsp.definition",
     "tools.install",
     "tools.retry",
     "terminal.start",
@@ -99,6 +101,57 @@ struct TrustDecision {
 enum WorkspaceKind {
     Solution,
     Project,
+}
+
+/// Everything a completion/definition answer must state, including when nothing was requested
+/// (analysis absent, capability absent, document not open). Answers are data, not errors, so
+/// they never block editing.
+struct AnalysisBase {
+    method: &'static str,
+    token: ContextToken,
+    session: u64,
+    path: String,
+    line: u64,
+    character: u64,
+    revision: Option<i64>,
+    version: Option<i64>,
+    coverage: &'static str,
+    coverage_note: Option<String>,
+}
+
+struct AnalysisRequest {
+    base: AnalysisBase,
+    lsp: Arc<lsp::Lsp>,
+    uri: String,
+}
+
+impl AnalysisBase {
+    fn answer(&self, state: &'static str, message: Option<String>) -> Value {
+        json!({
+            "method": self.method,
+            "state": state,
+            "message": message,
+            "session": self.session,
+            "workspaceId": self.token.workspace_id,
+            "contextId": self.token.context_id,
+            "path": self.path,
+            "line": self.line,
+            "character": self.character,
+            "revision": self.revision,
+            "clientRevision": self.version,
+            "documentKnown": self.version.is_some(),
+            "coverage": self.coverage,
+            "coverageNote": self.coverage_note,
+            "items": [],
+            "itemCount": 0,
+            "totalItems": 0,
+            "truncated": false,
+            "isIncomplete": false,
+            "replaceRange": Value::Null,
+            "locations": [],
+            "rejectedTargets": 0,
+        })
+    }
 }
 
 impl WorkspaceKind {
@@ -258,6 +311,12 @@ impl Host {
         }
         if method == "lsp.didChange" {
             return self.lsp_change(params);
+        }
+        if method == "lsp.completion" {
+            return self.lsp_completion(params);
+        }
+        if method == "lsp.definition" {
+            return self.lsp_definition(params);
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.executable_stub(method);
@@ -1494,6 +1553,288 @@ impl Host {
         Ok(json!({ "uri": uri, "version": version, "session": lsp.session() }))
     }
 
+    fn lsp_completion(&self, params: Value) -> HostResult<Value> {
+        let request = match self.prepare_analysis_request(
+            "lsp.completion",
+            "textDocument/completion",
+            &params,
+        )? {
+            Ok(request) => request,
+            Err(answer) => return Ok(answer),
+        };
+        let response = request.lsp.request(
+            "textDocument/completion",
+            json!({
+                "textDocument": { "uri": request.uri },
+                "position": { "line": request.base.line, "character": request.base.character },
+                "context": { "triggerKind": 1 },
+            }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        if let Some(answer) = self.analysis_invalidated(&request) {
+            return Ok(answer);
+        }
+        match response {
+            Ok(value) => match lsp::parse_completion(&value, lsp::COMPLETION_LIMIT) {
+                Some(list) => {
+                    let mut answer = request.base.answer("ok", None);
+                    answer["items"] =
+                        serde_json::to_value(&list.items).expect("completion items serialize");
+                    answer["itemCount"] = json!(list.items.len());
+                    answer["totalItems"] = json!(list.total);
+                    answer["truncated"] = json!(list.truncated);
+                    answer["isIncomplete"] = json!(list.is_incomplete);
+                    answer["replaceRange"] = lsp::completion_replace_range(&list.items);
+                    if list.truncated {
+                        answer["message"] = json!(format!(
+                            "csharp-ls returned {} items; only the first {} are shown.",
+                            list.total,
+                            list.items.len()
+                        ));
+                    }
+                    Ok(answer)
+                }
+                None => Ok(request.base.answer(
+                    "failed",
+                    Some(
+                        "csharp-ls returned a completion result this client does not understand."
+                            .to_string(),
+                    ),
+                )),
+            },
+            Err(lsp::RequestError::Timeout(timeout)) => Ok(request.base.answer(
+                "timeout",
+                Some(format!(
+                    "csharp-ls did not answer within {} seconds; nothing was applied.",
+                    timeout.as_secs()
+                )),
+            )),
+            Err(lsp::RequestError::Unavailable(message)) => {
+                Ok(request.base.answer("unavailable", Some(message)))
+            }
+            Err(lsp::RequestError::Server(message)) => Ok(request.base.answer(
+                "failed",
+                Some(format!("csharp-ls rejected the completion request: {message}")),
+            )),
+        }
+    }
+
+    fn lsp_definition(&self, params: Value) -> HostResult<Value> {
+        let request = match self.prepare_analysis_request(
+            "lsp.definition",
+            "textDocument/definition",
+            &params,
+        )? {
+            Ok(request) => request,
+            Err(answer) => return Ok(answer),
+        };
+        let response = request.lsp.request(
+            "textDocument/definition",
+            json!({
+                "textDocument": { "uri": request.uri },
+                "position": { "line": request.base.line, "character": request.base.character },
+            }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        if let Some(answer) = self.analysis_invalidated(&request) {
+            return Ok(answer);
+        }
+        match response {
+            Ok(value) => match lsp::parse_definition(&value) {
+                Some(view) => {
+                    let root = self
+                        .inner
+                        .lock()
+                        .unwrap()
+                        .workspace
+                        .as_ref()
+                        .map(|workspace| workspace.root.clone());
+                    let Some(root) = root else {
+                        return Ok(request.base.answer(
+                            "unavailable",
+                            Some(
+                                "The workspace closed while csharp-ls was answering; nothing was opened."
+                                    .to_string(),
+                            ),
+                        ));
+                    };
+                    let mut locations = Vec::new();
+                    let mut rejected = view.rejected;
+                    for target in view.targets {
+                        match definition_location(&root, &target) {
+                            Some(location) => locations.push(location),
+                            None => rejected += 1,
+                        }
+                    }
+                    let mut answer = request.base.answer("ok", None);
+                    answer["rejectedTargets"] = json!(rejected);
+                    if locations.is_empty() {
+                        answer["message"] = json!(if rejected > 0 {
+                            format!(
+                                "csharp-ls returned {rejected} location(s) outside the workspace or not on disk; nothing was opened."
+                            )
+                        } else {
+                            "csharp-ls returned no definition location.".to_string()
+                        });
+                        answer["state"] = json!(if rejected > 0 { "unavailable" } else { "ok" });
+                    } else {
+                        if rejected > 0 {
+                            answer["message"] = json!(format!(
+                                "{rejected} location(s) outside the workspace or not on disk were rejected."
+                            ));
+                        }
+                        answer["locations"] =
+                            serde_json::to_value(&locations).expect("locations serialize");
+                    }
+                    Ok(answer)
+                }
+                None => Ok(request.base.answer(
+                    "failed",
+                    Some(
+                        "csharp-ls returned a definition result this client does not understand."
+                            .to_string(),
+                    ),
+                )),
+            },
+            Err(lsp::RequestError::Timeout(timeout)) => Ok(request.base.answer(
+                "timeout",
+                Some(format!(
+                    "csharp-ls did not answer within {} seconds; no file was opened.",
+                    timeout.as_secs()
+                )),
+            )),
+            Err(lsp::RequestError::Unavailable(message)) => {
+                Ok(request.base.answer("unavailable", Some(message)))
+            }
+            Err(lsp::RequestError::Server(message)) => Ok(request.base.answer(
+                "failed",
+                Some(format!("csharp-ls rejected the definition request: {message}")),
+            )),
+        }
+    }
+
+    fn prepare_analysis_request(
+        &self,
+        method: &'static str,
+        lsp_method: &str,
+        params: &Value,
+    ) -> HostResult<Result<AnalysisRequest, Value>> {
+        let token = self.require_trust(method)?;
+        let raw = required_str(params, "path")?;
+        let line = required_u64(params, "line")?;
+        let character = required_u64(params, "character")?;
+        let revision = params.get("revision").and_then(Value::as_i64);
+        let inner = self.inner.lock().unwrap();
+        let (file, rel) = resolve_in_workspace(&inner, &raw)?;
+        let mut base = AnalysisBase {
+            method,
+            token,
+            session: 0,
+            path: rel,
+            line,
+            character,
+            revision,
+            version: None,
+            coverage: "partial",
+            coverage_note: Some(
+                "Analysis has not started; completion and definition need a live csharp-ls session."
+                    .to_string(),
+            ),
+        };
+        let Some(lsp) = inner.lsp.clone() else {
+            return Ok(Err(base.answer(
+                "unavailable",
+                Some(
+                    "Analysis is not running. Start analysis to request completion or definition."
+                        .to_string(),
+                ),
+            )));
+        };
+        let view = lsp.view();
+        base.session = view.session;
+        base.coverage = view.coverage;
+        base.coverage_note = view.coverage_note.clone();
+        if !lsp.accepts_documents() {
+            return Ok(Err(base.answer(
+                "unavailable",
+                Some(
+                    "Analysis is not ready to answer requests; csharp-ls has not finished initializing."
+                        .to_string(),
+                ),
+            )));
+        }
+        let Some(capabilities) = view.capabilities.as_ref() else {
+            return Ok(Err(base.answer(
+                "unavailable",
+                Some("csharp-ls did not report capabilities for this session.".to_string()),
+            )));
+        };
+        if !capabilities.supports(lsp_method) {
+            return Ok(Err(base.answer(
+                "unsupported",
+                Some(format!(
+                    "csharp-ls did not advertise {lsp_method} for this session; the request was not sent."
+                )),
+            )));
+        }
+        let uri = lsp::file_uri(&file);
+        let Some(version) = lsp.document_version(&uri) else {
+            return Ok(Err(base.answer(
+                "unavailable",
+                Some(
+                    "This document is not open in the analysis session; no request was sent."
+                        .to_string(),
+                ),
+            )));
+        };
+        base.version = Some(version);
+        Ok(Ok(AnalysisRequest { base, lsp, uri }))
+    }
+
+    /// Rejects an answer whose session, workspace context or document revision changed while
+    /// the request was in flight. Returning data (not an error) keeps the editor usable.
+    fn analysis_invalidated(&self, request: &AnalysisRequest) -> Option<Value> {
+        let same_session = {
+            let inner = self.inner.lock().unwrap();
+            accept_locked(&inner, request.base.token).is_ok()
+                && inner
+                    .lsp
+                    .as_ref()
+                    .is_some_and(|live| Arc::ptr_eq(live, &request.lsp))
+        };
+        if !same_session {
+            return Some(request.base.answer(
+                "stale",
+                Some(
+                    "The workspace or analysis session changed while csharp-ls was answering; the result was discarded."
+                        .to_string(),
+                ),
+            ));
+        }
+        if !request
+            .lsp
+            .response_is_current(request.base.session, &request.uri, request.base.version)
+        {
+            if request.lsp.document_version(&request.uri) != request.base.version {
+                return Some(request.base.answer(
+                    "stale",
+                    Some(
+                        "The document changed while csharp-ls was answering; the result was discarded."
+                            .to_string(),
+                    ),
+                ));
+            }
+            return Some(request.base.answer(
+                "unavailable",
+                Some(
+                    "Analysis stopped while the result was pending; nothing was applied."
+                        .to_string(),
+                ),
+            ));
+        }
+        None
+    }
+
     fn read_file(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
         let inner = self.inner.lock().unwrap();
@@ -1934,6 +2275,29 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
     })
 }
 
+fn definition_location(root: &Path, target: &lsp::DefinitionTarget) -> Option<Value> {
+    let path = PathBuf::from(lsp::uri_to_path(&target.uri)?);
+    let canonical = fs::canonicalize(&path).ok()?;
+    if !canonical.starts_with(root) || !canonical.is_file() {
+        return None;
+    }
+    let rel = canonical
+        .strip_prefix(root)
+        .ok()?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let chosen = target.selection_range.as_ref().unwrap_or(&target.range);
+    let start = chosen.get("start")?;
+    Some(json!({
+        "path": rel,
+        "uri": target.uri,
+        "line": start.get("line")?.as_u64()?,
+        "character": start.get("character")?.as_u64()?,
+        "range": target.range,
+        "selectionRange": target.selection_range,
+    }))
+}
+
 fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
     let workspace = inner
         .workspace
@@ -1984,4 +2348,49 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(path: &Path) -> lsp::DefinitionTarget {
+        lsp::DefinitionTarget {
+            uri: lsp::file_uri(path),
+            range: json!({
+                "start": { "line": 2, "character": 20 },
+                "end": { "line": 2, "character": 25 }
+            }),
+            selection_range: Some(json!({
+                "start": { "line": 2, "character": 20 },
+                "end": { "line": 2, "character": 25 }
+            })),
+        }
+    }
+
+    #[test]
+    fn definition_locations_must_exist_inside_the_workspace() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        fs::create_dir_all(root.join("src")).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let inside = root.join("src/Order.cs");
+        fs::write(&inside, "class Order {}\n").unwrap();
+        let outside = temp.path().join("Outside.cs");
+        fs::write(&outside, "class Outside {}\n").unwrap();
+
+        let location = definition_location(&root, &target(&inside)).expect("inside location");
+        assert_eq!(location["path"], "src/Order.cs");
+        assert_eq!(location["line"], 2);
+        assert_eq!(location["character"], 20);
+        assert_eq!(location["uri"], lsp::file_uri(&inside));
+
+        assert!(definition_location(&root, &target(&outside)).is_none());
+        assert!(definition_location(&root, &target(&root.join("src/Missing.cs"))).is_none());
+        let remote = lsp::DefinitionTarget {
+            uri: "https://example.com/Order.cs".to_string(),
+            ..target(&inside)
+        };
+        assert!(definition_location(&root, &remote).is_none());
+    }
 }

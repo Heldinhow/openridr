@@ -1395,8 +1395,16 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 <CodeEditor
                   key={active.path}
                   value={active.content}
+                  path={active.path}
+                  revision={active.revision}
                   onChange={(value) => updateContent(active.path, value)}
                   onSave={() => void save()}
+                  onDefinition={(location) =>
+                    void navigateTo(location.path, {
+                      line: location.line,
+                      character: location.character,
+                    })
+                  }
                   target={
                     editorTarget?.path === active.path ? editorTarget : null
                   }

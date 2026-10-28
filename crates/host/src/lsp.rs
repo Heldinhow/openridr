@@ -14,17 +14,29 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{ChildStderr, ChildStdout, ChildStdin};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const SHUTDOWN_WAIT: Duration = Duration::from_millis(3_000);
 const KILL_GRACE: Duration = Duration::from_secs(2);
 
+/// csharp-ls answers completion/definition well within this bound; a paused or wedged server
+/// returns `timeout` instead of blocking the host forever.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+pub const COMPLETION_LIMIT: usize = 200;
+
 #[derive(Debug)]
 pub enum Frame {
     Message(Value),
     Invalid(String),
+}
+
+#[derive(Debug)]
+pub enum RequestError {
+    Unavailable(String),
+    Timeout(Duration),
+    Server(String),
 }
 
 /// Reads one `Content-Length` frame. The length is bytes, not characters; headers may use
@@ -127,6 +139,208 @@ fn capabilities_of(capabilities: &Value) -> Capabilities {
         synchronization,
         summary,
     }
+}
+
+impl Capabilities {
+    /// Whether the server advertised the request this client will send.
+    pub fn supports(&self, method: &str) -> bool {
+        match method {
+            "textDocument/completion" => self.completion,
+            "textDocument/definition" => self.definition,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionItemView {
+    pub label: String,
+    pub detail: Option<String>,
+    pub kind: Option<String>,
+    pub kind_raw: Option<u64>,
+    pub insert_text: Option<String>,
+    /// Normalized to `{ range, newText }`; `range` is the replacement range the server sent.
+    pub text_edit: Option<Value>,
+    pub documentation: Option<String>,
+    pub sort_text: Option<String>,
+}
+
+pub struct CompletionView {
+    pub items: Vec<CompletionItemView>,
+    pub total: usize,
+    pub is_incomplete: bool,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefinitionTarget {
+    pub uri: String,
+    pub range: Value,
+    pub selection_range: Option<Value>,
+}
+
+pub struct DefinitionView {
+    pub targets: Vec<DefinitionTarget>,
+    pub rejected: usize,
+}
+
+/// Completion responses may be an array or a `CompletionList`. `None` means the shape was not
+/// understood, so the caller reports a failure instead of inventing an empty list.
+pub fn parse_completion(result: &Value, limit: usize) -> Option<CompletionView> {
+    let (items, is_incomplete) = match result {
+        Value::Null => (&[][..], false),
+        Value::Array(items) => (items.as_slice(), false),
+        Value::Object(map) => (
+            map.get("items")?.as_array()?.as_slice(),
+            map.get("isIncomplete")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        ),
+        _ => return None,
+    };
+    let total = items.len();
+    let items = items
+        .iter()
+        .take(limit)
+        .filter_map(completion_item)
+        .collect::<Vec<_>>();
+    Some(CompletionView {
+        items,
+        total,
+        is_incomplete,
+        truncated: total > limit,
+    })
+}
+
+fn completion_item(item: &Value) -> Option<CompletionItemView> {
+    let label = item.get("label")?.as_str()?.to_string();
+    let kind_raw = item.get("kind").and_then(Value::as_u64);
+    Some(CompletionItemView {
+        label,
+        detail: item.get("detail").and_then(Value::as_str).map(str::to_string),
+        kind: kind_raw.map(completion_kind).map(str::to_string),
+        kind_raw,
+        insert_text: item
+            .get("insertText")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        text_edit: item.get("textEdit").and_then(text_edit),
+        documentation: item.get("documentation").and_then(documentation),
+        sort_text: item.get("sortText").and_then(Value::as_str).map(str::to_string),
+    })
+}
+
+fn text_edit(value: &Value) -> Option<Value> {
+    let new_text = value.get("newText")?.as_str()?.to_string();
+    let range = value
+        .get("range")
+        .or_else(|| value.get("replace"))
+        .or_else(|| value.get("insert"))?;
+    Some(json!({
+        "range": {
+            "start": position(range.get("start")?)?,
+            "end": position(range.get("end")?)?,
+        },
+        "newText": new_text,
+    }))
+}
+
+fn position(value: &Value) -> Option<Value> {
+    Some(json!({
+        "line": value.get("line")?.as_u64()?,
+        "character": value.get("character")?.as_u64()?,
+    }))
+}
+
+fn documentation(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Object(map) => map.get("value").and_then(Value::as_str).map(str::to_string),
+        _ => None,
+    }
+}
+
+fn completion_kind(kind: u64) -> &'static str {
+    match kind {
+        2 => "method",
+        3 => "function",
+        4 => "constructor",
+        5 => "field",
+        6 => "variable",
+        7 => "class",
+        8 => "interface",
+        9 => "module",
+        10 => "property",
+        11 => "unit",
+        12 => "value",
+        13 => "enum",
+        14 => "keyword",
+        15 => "snippet",
+        16 => "color",
+        17 => "file",
+        18 => "reference",
+        19 => "folder",
+        20 => "enummember",
+        21 => "constant",
+        22 => "struct",
+        23 => "event",
+        24 => "operator",
+        25 => "type",
+        _ => "text",
+    }
+}
+
+/// The range the client should replace with the chosen item's text. csharp-ls sends one
+/// textEdit range for the list; when it sends none, the client inserts at the cursor.
+pub fn completion_replace_range(items: &[CompletionItemView]) -> Value {
+    items
+        .iter()
+        .find_map(|item| item.text_edit.as_ref())
+        .and_then(|edit| edit.get("range").cloned())
+        .unwrap_or(Value::Null)
+}
+
+/// Definitions are `null`, a single Location/LocationLink or an array of them. A malformed
+/// entry is counted as rejected instead of becoming a destination.
+pub fn parse_definition(result: &Value) -> Option<DefinitionView> {
+    let values: Vec<&Value> = match result {
+        Value::Null => Vec::new(),
+        Value::Array(items) => items.iter().collect(),
+        Value::Object(_) => vec![result],
+        _ => return None,
+    };
+    let mut targets = Vec::new();
+    let mut rejected = 0;
+    for value in values {
+        match definition_target(value) {
+            Some(target) => targets.push(target),
+            None => rejected += 1,
+        }
+    }
+    Some(DefinitionView { targets, rejected })
+}
+
+fn definition_target(value: &Value) -> Option<DefinitionTarget> {
+    let uri = value
+        .get("uri")
+        .or_else(|| value.get("targetUri"))
+        .and_then(Value::as_str)?
+        .to_string();
+    let range = value
+        .get("range")
+        .or_else(|| value.get("targetRange"))?
+        .clone();
+    let selection_range = value.get("targetSelectionRange").cloned();
+    let chosen = selection_range.as_ref().unwrap_or(&range);
+    position(chosen.get("start")?)?;
+    position(chosen.get("end")?)?;
+    Some(DefinitionTarget {
+        uri,
+        range,
+        selection_range,
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -421,6 +635,72 @@ impl Lsp {
             .collect()
     }
 
+    pub fn document_version(&self, uri: &str) -> Option<i64> {
+        self.data
+            .lock()
+            .unwrap()
+            .documents
+            .get(uri)
+            .map(|document| document.version)
+    }
+
+    /// Sends one request and waits at most `timeout`. The pending sender is keyed by the
+    /// protocol id, so a response can only reach the request it belongs to. A stop clears
+    /// pending senders, which turns an in-flight wait into `Unavailable` instead of a stale
+    /// answer.
+    pub fn request(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, RequestError> {
+        if !self.accepts_documents() {
+            return Err(RequestError::Unavailable(
+                "Analysis is not ready to answer requests.".to_string(),
+            ));
+        }
+        let Some((id, receiver)) = self.post_request(method, params, true) else {
+            return Err(RequestError::Unavailable(
+                "The language server is not accepting requests.".to_string(),
+            ));
+        };
+        match receiver.recv_timeout(timeout) {
+            Ok(response) => {
+                if let Some(error) = response.get("error") {
+                    let message = error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown error");
+                    let code = error.get("code").cloned().unwrap_or(Value::Null);
+                    self.log_line(format!("[client] {method} id {id} failed: {message} ({code})"));
+                    Err(RequestError::Server(format!("{message} ({code})")))
+                } else {
+                    self.log_line(format!("[client] {method} id {id} answered"));
+                    Ok(response.get("result").cloned().unwrap_or(Value::Null))
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                self.data.lock().unwrap().pending.remove(&id);
+                self.log_line(format!(
+                    "[client] {method} id {id} timed out after {} ms",
+                    timeout.as_millis()
+                ));
+                Err(RequestError::Timeout(timeout))
+            }
+            Err(RecvTimeoutError::Disconnected) => Err(RequestError::Unavailable(
+                "Analysis stopped while the request was pending; nothing was applied.".to_string(),
+            )),
+        }
+    }
+
+    /// True only while the request still belongs to the current session and the document has
+    /// the same client revision it had when the request was sent.
+    pub fn response_is_current(&self, session: u64, uri: &str, version: Option<i64>) -> bool {
+        self.accepts_documents()
+            && self.session() == session
+            && self.document_version(uri) == version
+    }
+
     pub fn unavailable_view() -> LspView {
         LspView {
             state: "unavailable",
@@ -647,6 +927,7 @@ impl Lsp {
                 "[client] language server exited with exit {code}; no diagnostics wait."
             ));
         }
+        data.pending.clear();
     }
 
     /// Records what the registry observed for a stop/revoke. A process that did not confirm
@@ -684,6 +965,7 @@ impl Lsp {
         data.state = "failed";
         data.error = Some(message.clone());
         data.finished_at = Some(now_ms());
+        data.pending.clear();
         data.log.push(format!("[client] analysis failed: {message}"));
     }
 
@@ -698,6 +980,7 @@ impl Lsp {
         data.error = Some(message.into());
         data.finished_at = Some(now_ms());
         data.initialize_id = None;
+        data.pending.clear();
         if let Some(kill) = data.kill_tx.take() {
             let _ = kill.send(());
         }
@@ -1260,5 +1543,170 @@ mod tests {
             file_uri(Path::new("/tmp/a;b&c.cs")),
             "file:///tmp/a%3Bb%26c.cs"
         );
+    }
+
+    fn test_lsp(session: u64) -> Arc<Lsp> {
+        Lsp::begin(
+            session,
+            1,
+            1,
+            "",
+            false,
+            false,
+            "",
+            None,
+            Vec::new(),
+            "/tmp".to_string(),
+            false,
+            "full",
+            None,
+        )
+    }
+
+    /// A real child with a pipe on stdin and nothing on stdout: requests are written, no
+    /// response ever arrives, and the pending map behaves like a live session.
+    #[cfg(unix)]
+    fn attached_lsp(session: u64) -> (Arc<Lsp>, std::process::Child) {
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("cat is available");
+        let stdin = child.stdin.take().unwrap();
+        let (kill_tx, _kill_rx) = mpsc::channel();
+        let lsp = test_lsp(session);
+        lsp.attach(0, child.id(), Some(stdin), kill_tx);
+        (lsp, child)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn requests_are_correlated_by_id_even_when_answers_arrive_out_of_order() {
+        let (lsp, mut child) = attached_lsp(1);
+        lsp.initialize_ok(json!({ "capabilities": {} }));
+        let (first_id, first) = lsp
+            .post_request("textDocument/completion", json!({}), true)
+            .expect("the pipe accepts the request");
+        let (second_id, second) = lsp
+            .post_request("textDocument/definition", json!({}), true)
+            .expect("the pipe accepts the request");
+        lsp.handle_message(json!({ "jsonrpc": "2.0", "id": second_id, "result": { "which": "two" } }));
+        assert_eq!(second.recv_timeout(Duration::from_millis(200)).unwrap()["result"]["which"], "two");
+        assert!(first.try_recv().is_err(), "the second answer reached the first request");
+        lsp.handle_message(json!({ "jsonrpc": "2.0", "id": first_id, "result": { "which": "one" } }));
+        assert_eq!(first.recv_timeout(Duration::from_millis(200)).unwrap()["result"]["which"], "one");
+        drop(lsp);
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_request_without_a_response_times_out_and_leaves_no_pending_entry() {
+        let (lsp, mut child) = attached_lsp(1);
+        lsp.initialize_ok(json!({ "capabilities": {} }));
+        let started = Instant::now();
+        let error = lsp
+            .request(
+                "textDocument/completion",
+                json!({ "textDocument": { "uri": "file:///tmp/a.cs" } }),
+                Duration::from_millis(150),
+            )
+            .expect_err("nothing answers");
+        let elapsed = started.elapsed();
+        assert!(matches!(error, RequestError::Timeout(_)), "{error:?}");
+        assert!(elapsed >= Duration::from_millis(140), "{elapsed:?}");
+        assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+        assert!(lsp.data.lock().unwrap().pending.is_empty());
+        drop(lsp);
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn a_response_is_current_only_for_the_same_session_and_document_version() {
+        let lsp = test_lsp(3);
+        lsp.initialize_ok(json!({ "capabilities": { "completionProvider": {} } }));
+        let uri = "file:///tmp/a.cs";
+        assert!(lsp.open_document(uri, "a.cs", "class A {}\n").is_err());
+        assert_eq!(lsp.document_version(uri), Some(1));
+        assert!(lsp.response_is_current(3, uri, Some(1)));
+        assert!(!lsp.response_is_current(4, uri, Some(1)));
+        assert!(!lsp.response_is_current(3, uri, None));
+
+        assert!(lsp.change_document(uri, "a.cs", "class A { int B; }\n").is_err());
+        assert_eq!(lsp.document_version(uri), Some(2));
+        assert!(!lsp.response_is_current(3, uri, Some(1)));
+        assert!(lsp.response_is_current(3, uri, Some(2)));
+    }
+
+    #[test]
+    fn capabilities_absent_or_null_gate_the_matching_request() {
+        let none = capabilities_of(&json!({}));
+        assert!(!none.completion);
+        assert!(!none.definition);
+        assert!(!none.supports("textDocument/completion"));
+        assert!(!none.supports("textDocument/definition"));
+
+        let only_definition = capabilities_of(&json!({
+            "completionProvider": null,
+            "definitionProvider": { "workDoneProgress": false }
+        }));
+        assert!(!only_definition.completion);
+        assert!(only_definition.definition);
+        assert!(!only_definition.supports("textDocument/completion"));
+        assert!(only_definition.supports("textDocument/definition"));
+    }
+
+    #[test]
+    fn completion_accepts_arrays_and_lists_and_caps_the_returned_items() {
+        let array = json!([
+            { "label": "Order", "kind": 7, "detail": "class OrderDesk.Core.Order", "insertText": "Order", "textEdit": { "range": { "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 5 } }, "newText": "Order" } },
+            { "label": "OrderId" }
+        ]);
+        let parsed = parse_completion(&array, 200).expect("array");
+        assert_eq!(parsed.total, 2);
+        assert_eq!(parsed.items[0].kind.as_deref(), Some("class"));
+        assert_eq!(parsed.items[0].kind_raw, Some(7));
+        assert_eq!(
+            parsed.items[0].text_edit.as_ref().unwrap()["range"]["end"]["character"],
+            5
+        );
+        assert!(!parsed.truncated);
+
+        let list = json!({
+            "isIncomplete": true,
+            "items": [
+                { "label": "A" }, { "label": "B" }, { "label": "C" }
+            ]
+        });
+        let capped = parse_completion(&list, 2).expect("list");
+        assert!(capped.truncated);
+        assert!(capped.is_incomplete);
+        assert_eq!(capped.total, 3);
+        assert_eq!(capped.items.len(), 2);
+        assert!(parse_completion(&json!("nope"), 2).is_none());
+    }
+
+    #[test]
+    fn definition_accepts_null_single_and_array_and_counts_malformed_entries() {
+        let range = json!({ "start": { "line": 2, "character": 20 }, "end": { "line": 2, "character": 25 } });
+        let single = json!({ "uri": "file:///tmp/Order.cs", "range": range });
+        let parsed = parse_definition(&single).expect("single");
+        assert_eq!(parsed.targets.len(), 1);
+        assert_eq!(parsed.rejected, 0);
+        assert_eq!(parsed.targets[0].uri, "file:///tmp/Order.cs");
+
+        let link = json!({
+            "targetUri": "file:///tmp/Order.cs",
+            "targetRange": range,
+            "targetSelectionRange": range
+        });
+        let parsed = parse_definition(&json!([link, { "uri": "file:///tmp/NoRange.cs" }])).expect("array");
+        assert_eq!(parsed.targets.len(), 1);
+        assert_eq!(parsed.rejected, 1);
+        assert!(parsed.targets[0].selection_range.is_some());
+
+        assert_eq!(parse_definition(&Value::Null).unwrap().targets.len(), 0);
+        assert!(parse_definition(&json!("nope")).is_none());
     }
 }

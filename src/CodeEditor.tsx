@@ -1,9 +1,23 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
+import { EditorState, type Text } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { StreamLanguage } from "@codemirror/language";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
+import {
+  autocompletion,
+  insertCompletionText,
+  pickedCompletion,
+  type Completion,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
+import {
+  call,
+  HostCallError,
+  type AnalysisResponse,
+  type DefinitionLocation,
+} from "./host/client";
 
 const theme = EditorView.theme(
   {
@@ -32,19 +46,59 @@ type Target = { path: string; line: number; character: number; nonce: number };
 
 type Props = {
   value: string;
+  path: string;
+  revision: number;
   onChange: (value: string) => void;
   onSave: () => void;
+  onDefinition: (location: DefinitionLocation) => void;
   target?: Target | null;
 };
 
-export function CodeEditor({ value, onChange, onSave, target }: Props) {
+type Status = { state: string; text: string };
+
+function messageOf(error: unknown): string {
+  if (error instanceof HostCallError || error instanceof Error) return error.message;
+  return String(error);
+}
+
+function offsetAt(doc: Text, position: { line: number; character: number }): number {
+  const lineNumber = Math.min(Math.max(position.line + 1, 1), doc.lines);
+  const line = doc.line(lineNumber);
+  return Math.min(line.from + Math.max(position.character, 0), line.to);
+}
+
+function failureText(kind: string, response: AnalysisResponse): string {
+  return `${kind} ${response.state}: ${response.message ?? "csharp-ls did not answer."}`;
+}
+
+export function CodeEditor({
+  value,
+  path,
+  revision,
+  onChange,
+  onSave,
+  onDefinition,
+  target,
+}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
+  const onDefinitionRef = useRef(onDefinition);
+  const pathRef = useRef(path);
+  const revisionRef = useRef(revision);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+  onDefinitionRef.current = onDefinition;
+  pathRef.current = path;
+  revisionRef.current = revision;
   const applyingExternal = useRef(false);
+  const completionSeq = useRef(0);
+  const definitionSeq = useRef(0);
+  const [status, setStatus] = useState<Status>({
+    state: "idle",
+    text: "Ctrl+Space: completion · Ctrl+B: go to definition",
+  });
 
   function publishCursor(instance: EditorView) {
     const position = instance.state.selection.main.head;
@@ -54,12 +108,163 @@ export function CodeEditor({ value, onChange, onSave, target }: Props) {
     }
   }
 
+  async function completionSource(context: CompletionContext): Promise<CompletionResult | null> {
+    const instance = view.current;
+    if (!instance) return null;
+    const doc = instance.state.doc;
+    const position = context.pos;
+    const line = doc.lineAt(position);
+    const requestedRevision = revisionRef.current;
+    const sequence = ++completionSeq.current;
+    setStatus({ state: "loading", text: "Completion: waiting for csharp-ls…" });
+
+    let response: AnalysisResponse;
+    try {
+      response = await call<AnalysisResponse>("lsp.completion", {
+        path: pathRef.current,
+        line: line.number - 1,
+        character: position - line.from,
+        revision: requestedRevision,
+      });
+    } catch (error) {
+      if (completionSeq.current === sequence) {
+        setStatus({
+          state: "unavailable",
+          text: `Completion unavailable: ${messageOf(error)}`,
+        });
+      }
+      return null;
+    }
+    if (completionSeq.current !== sequence) return null;
+    if (instance.state.doc !== doc || revisionRef.current !== requestedRevision) {
+      setStatus({
+        state: "stale",
+        text: "Completion discarded: the buffer changed while csharp-ls was answering.",
+      });
+      return null;
+    }
+    if (response.state !== "ok") {
+      setStatus({ state: response.state, text: failureText("Completion", response) });
+      return null;
+    }
+    if (response.items.length === 0) {
+      setStatus({
+        state: "ok",
+        text: `Completion: csharp-ls returned no items · revision ${requestedRevision}`,
+      });
+      return null;
+    }
+
+    const from = response.replaceRange ? offsetAt(doc, response.replaceRange.start) : position;
+    const to = response.replaceRange ? offsetAt(doc, response.replaceRange.end) : position;
+    const prefix = doc.sliceString(0, from);
+    const suffix = doc.sliceString(to);
+    const options: Completion[] = response.items.map((item) => {
+      const insert = item.textEdit?.newText ?? item.insertText ?? item.label;
+      const completion: Completion = {
+        label: item.label,
+        detail: item.detail ?? undefined,
+        type: item.kind ?? undefined,
+        info: item.documentation ?? undefined,
+        apply: (instance, picked, start, end) => {
+          const current = instance.state.doc;
+          // Only the text between the requested range and the cursor's filter prefix may
+          // differ; anything outside it is a concurrent edit and discards the completion.
+          if (current.sliceString(0, start) !== prefix || current.sliceString(end) !== suffix) {
+            setStatus({
+              state: "stale",
+              text: "Completion discarded: the buffer changed outside the completion range.",
+            });
+            return;
+          }
+          instance.dispatch({
+            ...insertCompletionText(instance.state, insert, start, end),
+            annotations: pickedCompletion.of(picked),
+          });
+        },
+      };
+      return completion;
+    });
+    const extras = [
+      `session ${response.session}`,
+      `revision ${requestedRevision}`,
+      response.coverage === "partial" ? "partial coverage" : null,
+      response.truncated
+        ? `${Math.max(response.totalItems - response.itemCount, 0)} not shown`
+        : null,
+    ].filter(Boolean);
+    setStatus({
+      state: "ok",
+      text: `Completion: ${response.itemCount} item${response.itemCount === 1 ? "" : "s"} from csharp-ls · ${extras.join(" · ")}`,
+    });
+    return { from, to, options, validFor: /^[\w$]*$/u };
+  }
+
+  async function requestDefinition() {
+    const instance = view.current;
+    if (!instance) return;
+    const doc = instance.state.doc;
+    const head = instance.state.selection.main.head;
+    const line = doc.lineAt(head);
+    const requestedRevision = revisionRef.current;
+    const sequence = ++definitionSeq.current;
+    setStatus({ state: "loading", text: "Definition: waiting for csharp-ls…" });
+
+    let response: AnalysisResponse;
+    try {
+      response = await call<AnalysisResponse>("lsp.definition", {
+        path: pathRef.current,
+        line: line.number - 1,
+        character: head - line.from,
+        revision: requestedRevision,
+      });
+    } catch (error) {
+      if (definitionSeq.current === sequence) {
+        setStatus({
+          state: "unavailable",
+          text: `Definition unavailable: ${messageOf(error)}`,
+        });
+      }
+      return;
+    }
+    if (definitionSeq.current !== sequence) return;
+    if (
+      instance.state.doc !== doc ||
+      instance.state.selection.main.head !== head ||
+      revisionRef.current !== requestedRevision
+    ) {
+      setStatus({
+        state: "stale",
+        text: "Definition discarded: the buffer or selection changed while csharp-ls was answering.",
+      });
+      return;
+    }
+    if (response.state !== "ok") {
+      setStatus({ state: response.state, text: failureText("Definition", response) });
+      return;
+    }
+    const location = response.locations[0];
+    if (!location) {
+      setStatus({
+        state: "ok",
+        text: `Definition: csharp-ls returned no location${response.rejectedTargets > 0 ? ` (${response.rejectedTargets} rejected)` : ""}.`,
+      });
+      return;
+    }
+    setStatus({
+      state: "ok",
+      text: `Definition: ${location.path}:${location.line + 1}:${location.character + 1} · session ${response.session}${response.message ? ` · ${response.message}` : ""}`,
+    });
+    onDefinitionRef.current(location);
+  }
+
   useEffect(() => {
     if (!host.current) return;
     const state = EditorState.create({
       doc: value,
       extensions: [
         basicSetup,
+        autocompletion({ override: [completionSource], activateOnTyping: false }),
         StreamLanguage.define(csharp),
         theme,
         EditorView.contentAttributes.of({
@@ -74,6 +279,15 @@ export function CodeEditor({ value, onChange, onSave, target }: Props) {
             preventDefault: true,
             run: () => {
               onSaveRef.current();
+              return true;
+            },
+          },
+          {
+            // Rider/IntelliJ keymap: go to declaration. The host gates trust and session.
+            key: "Mod-b",
+            preventDefault: true,
+            run: () => {
+              void requestDefinition();
               return true;
             },
           },
@@ -129,5 +343,17 @@ export function CodeEditor({ value, onChange, onSave, target }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
-  return <div className="code-editor" data-testid="editor-shell" ref={host} />;
+  return (
+    <div className="editor-stack">
+      <div className="code-editor" data-testid="editor-shell" ref={host} />
+      <div
+        className="editor-lsp-status"
+        data-testid="editor-lsp-status"
+        data-state={status.state}
+        role="status"
+      >
+        {status.text}
+      </div>
+    </div>
+  );
 }

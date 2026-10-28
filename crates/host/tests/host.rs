@@ -2457,3 +2457,141 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
     assert!(Path::new(&staging).exists() || !Path::new(&destination).exists());
     assert!(tool["log"].as_str().unwrap().contains("cancelled"));
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk complete");
+    let program = "using OrderDesk.Core;\n\nvar order = new Order(\"A-104\", 42m);\norder.\n";
+    let path = "src/OrderDesk.Cli/Program.cs";
+
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    ensure_tool(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    let restore = wait_for_restore(&host, Duration::from_secs(120));
+    assert_eq!(restore["state"], "ok", "{}", restore["log"]);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+
+    let position = json!({ "path": path, "line": 3, "character": 6, "revision": 0 });
+    let offline = host.dispatch("lsp.completion", position.clone()).unwrap();
+    assert_eq!(offline["state"], "unavailable");
+    assert_eq!(offline["documentKnown"], false);
+    assert_eq!(offline["items"], json!([]));
+    assert_eq!(offline["session"], 0);
+    assert_eq!(offline["line"], 3);
+    assert_eq!(offline["character"], 6);
+
+    host.dispatch("lsp.start", json!({})).unwrap();
+    let starting = host.dispatch("lsp.completion", position.clone()).unwrap();
+    assert_eq!(starting["state"], "unavailable");
+    assert_eq!(starting["items"], json!([]));
+    assert_eq!(starting["documentKnown"], false);
+
+    let ready = wait_lsp(
+        &host,
+        Duration::from_secs(60),
+        &["ready", "partial", "awaiting_diagnostics", "failed"],
+    );
+    assert_eq!(ready["state"], "ready", "{}", ready["log"]);
+    let session = ready["session"].as_u64().unwrap();
+
+    let not_open = host.dispatch("lsp.completion", position.clone()).unwrap();
+    assert_eq!(not_open["state"], "unavailable");
+    assert_eq!(not_open["documentKnown"], false);
+    assert_eq!(not_open["session"], session);
+    assert!(
+        not_open["message"].as_str().unwrap().contains("not open"),
+        "{}",
+        not_open["message"]
+    );
+
+    host.dispatch("lsp.didOpen", json!({ "path": path, "text": program }))
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let completion = loop {
+        let answer = host.dispatch("lsp.completion", position.clone()).unwrap();
+        assert_eq!(answer["state"], "ok", "{}", answer["message"]);
+        if answer["itemCount"].as_u64().unwrap_or(0) > 0 {
+            break answer;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "completion stayed empty: {}",
+            answer
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(completion["session"], session);
+    assert_eq!(completion["clientRevision"], 1);
+    assert_eq!(completion["revision"], 0);
+    assert_eq!(completion["documentKnown"], true);
+    assert_eq!(completion["coverage"], "full");
+    let labels: Vec<String> = completion["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["label"].as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        labels.iter().any(|label| label == "Id" || label == "Total"),
+        "members of OrderDesk.Core.Order missing: {labels:?}"
+    );
+    assert_eq!(completion["truncated"], false);
+    assert_eq!(completion["totalItems"], completion["itemCount"]);
+
+    let definition = host
+        .dispatch(
+            "lsp.definition",
+            json!({ "path": path, "line": 2, "character": 20 }),
+        )
+        .unwrap();
+    assert_eq!(definition["state"], "ok", "{}", definition);
+    let locations = definition["locations"].as_array().unwrap();
+    assert!(!locations.is_empty(), "{}", definition);
+    assert_eq!(locations[0]["path"], "src/OrderDesk.Core/Order.cs");
+    let target_line = locations[0]["line"].as_u64().unwrap() as usize;
+    let target_character = locations[0]["character"].as_u64().unwrap() as usize;
+    let library = fs::read_to_string(copy.join("src/OrderDesk.Core/Order.cs")).unwrap();
+    let declaration = library.lines().nth(target_line).expect("the line exists");
+    assert!(
+        declaration[target_character..].starts_with("Order"),
+        "definition does not point at the Order declaration: {declaration}"
+    );
+    assert_eq!(definition["rejectedTargets"], 0);
+    assert_eq!(definition["clientRevision"], 1);
+
+    // A newer buffer means the definition request must use that revision, and a restart
+    // forgets every open document instead of reusing the previous session's.
+    host.dispatch("lsp.didChange", json!({ "path": path, "text": program }))
+        .unwrap();
+    let after_change = host.dispatch("lsp.completion", position.clone()).unwrap();
+    assert_eq!(after_change["state"], "ok", "{}", after_change["message"]);
+    assert_eq!(after_change["clientRevision"], 2);
+
+    let restarted = host.dispatch("lsp.restart", json!({})).unwrap();
+    let new_session = restarted["lsp"]["session"].as_u64().unwrap();
+    assert_eq!(new_session, session + 1);
+    let after_restart = host.dispatch("lsp.completion", position.clone()).unwrap();
+    assert_eq!(after_restart["state"], "unavailable");
+    assert_eq!(after_restart["documentKnown"], false);
+    assert_eq!(after_restart["session"], new_session);
+    assert_eq!(after_restart["items"], json!([]));
+
+    host.dispatch("trust.revoke", json!({})).unwrap();
+    assert_eq!(
+        error_code(host.dispatch("lsp.completion", position.clone())),
+        "trust_required"
+    );
+    assert_eq!(
+        error_code(host.dispatch("lsp.definition", position)),
+        "trust_required"
+    );
+    assert_eq!(snapshot(&host)["trust"]["granted"], false);
+}

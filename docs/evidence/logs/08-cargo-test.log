@@ -1,0 +1,107 @@
+   Compiling openridr-host v0.1.0 (/Users/helder/Projetos/openridr/crates/host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.28s
+     Running unittests src/lib.rs (target/debug/deps/openridr_host-01eb7d097cfa6e4d)
+
+running 46 tests
+test diagnostics::tests::an_old_context_publication_is_ignored ... ok
+test diagnostics::tests::empty_publication_is_scoped_to_one_document ... ok
+test diagnostics::tests::analyzer_coverage_is_never_claimed ... ok
+test diagnostics::tests::late_publication_from_an_older_session_is_ignored ... ok
+test diagnostics::tests::a_diagnostic_without_a_range_has_no_position ... ok
+test diagnostics::tests::category_is_unknown_for_lsp_source_even_with_a_cs_code ... ok
+test diagnostics::tests::origins_are_not_merged_and_keep_their_own_counts ... ok
+test diagnostics::tests::edit_marks_awaiting_and_keeps_previous_items ... ok
+test diagnostics::tests::republication_for_the_current_revision_replaces_the_previous_one ... ok
+test diagnostics::tests::revoke_keeps_items_but_marks_them_stale ... ok
+test evaluation::tests::first_error_line_prefers_the_msbuild_error ... ok
+test diagnostics::tests::severity_comes_from_the_source_values ... ok
+test evaluation::tests::multi_tfm_outer_evaluation_has_no_target_path ... ok
+test evaluation::tests::package_versions_may_be_unknown ... ok
+test evaluation::tests::parses_solution_folders_configurations_and_skips_solution_items ... ok
+test evaluation::tests::parses_the_verified_msbuild_json_shape ... ok
+test evaluation::tests::project_kind_uses_evaluated_properties_only ... ok
+test logbuf::tests::url_credentials_are_not_kept_in_the_log ... ok
+test lsp::tests::capabilities_absent_or_null_gate_the_matching_request ... ok
+test logbuf::tests::the_log_keeps_the_tail_and_reports_truncation ... ok
+test lsp::tests::a_response_is_current_only_for_the_same_session_and_document_version ... ok
+test lsp::tests::completion_accepts_arrays_and_lists_and_caps_the_returned_items ... ok
+test lsp::tests::content_length_counts_bytes_for_multibyte_text ... ok
+test lsp::tests::definition_accepts_null_single_and_array_and_counts_malformed_entries ... ok
+test lsp::tests::file_uris_percent_encode_spaces_and_non_ascii ... ok
+test lsp::tests::reads_a_frame_split_into_tiny_chunks ... ok
+test lsp::tests::unparsable_json_is_reported_without_stopping_the_stream ... ok
+test lsp::tests::reads_merged_frames_and_lf_only_headers ... ok
+test lsp::tests::writes_the_byte_length_and_flushes ... ok
+test sdk::tests::exact_with_disable_picks_only_the_pinned_version ... ok
+test sdk::tests::feature_prefers_the_pinned_band_then_rolls_to_the_next_band ... ok
+test sdk::tests::highest_satisfying_install_wins_across_roots ... ok
+test sdk::tests::latest_major_picks_the_highest_install ... ok
+test sdk::tests::list_sdks_parsing_keeps_versions_with_paths_only ... ok
+test sdk::tests::minor_rolls_forward_within_the_same_major ... ok
+test sdk::tests::missing_has_a_distinct_message_and_never_falls_back ... ok
+test sdk::tests::patch_keeps_the_pin_then_uses_the_same_band ... ok
+test sdk::tests::prerelease_is_excluded_unless_allowed ... ok
+test restore::tests::policy_reports_every_project_without_assets ... ok
+test tools::tests::plan_is_exact_and_uses_a_local_tool_path ... ok
+test tools::tests::plan_id_changes_with_every_material_field ... ok
+test hostroot::tests::runtime_versions_are_picked_by_number_not_lexically ... ok
+test restore::tests::assets_missing_is_not_restored_and_never_success ... ok
+test tests::definition_locations_must_exist_inside_the_workspace ... ok
+test lsp::tests::requests_are_correlated_by_id_even_when_answers_arrive_out_of_order ... ok
+test lsp::tests::a_request_without_a_response_times_out_and_leaves_no_pending_entry ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/host.rs (target/debug/deps/host-4713f018d31f126f)
+
+running 41 tests
+test closing_a_trusted_workspace_clears_trust_and_the_executable_context ... ok
+test build_start_reports_restore_required_with_the_explicit_action ... ok
+test a_late_result_from_an_older_workspace_or_context_is_discarded ... ok
+test evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk ... ok
+test directory_resolution_requires_an_explicit_choice ... ok
+test evaluation_with_a_missing_project_sdk_reports_sdk_missing ... ok
+test cancelling_a_running_install_reports_termination_and_never_ready ... ok
+test file_access_is_confined_to_the_workspace ... ok
+test hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent ... ok
+test executable_methods_fail_before_trust_and_spawn_nothing ... ok
+test cancelling_a_real_hanging_restore_reports_requested_and_observed_termination ... ok
+test a_failed_evaluation_stays_in_the_model_while_other_projects_evaluate ... ok
+test evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts ... ok
+test a_failed_restore_keeps_its_log_and_retry_succeeds_after_the_fix ... ok
+test a_late_evaluation_does_not_replace_a_newer_selection ... ok
+test one_workspace_at_a_time_and_awkward_names_work ... ok
+test evaluation_returns_the_real_msbuild_model_for_every_project ... ok
+test project_sdk_missing_keeps_a_distinct_state_and_does_not_rewrite_global_json ... ok
+test redetect_is_allowed_before_and_after_trust_and_touches_no_project_file ... ok
+test keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_period ... ok
+test restore_can_target_one_project_of_a_solution ... ok
+test restore_start_and_retry_are_denied_before_trust ... ok
+test multi_tfm_needs_an_explicit_selection_for_target_path_and_sources ... ok
+test revoke_marks_a_real_child_and_terminate_reports_the_observed_exit ... ok
+test opening_and_evaluating_never_start_a_restore ... ok
+test save_reports_conflict_instead_of_overwriting_disk ... ok
+test restore_reports_the_exact_command_and_creates_real_assets ... ok
+test sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks ... ok
+test initialize_failure_surfaces_the_sdk_message_and_kills_the_process ... ok
+test switching_workspaces_marks_processes_pending_and_drops_trust ... ok
+test text_outline_reads_solution_projects_without_evaluation ... ok
+test switching_workspaces_stops_a_running_restore_and_drops_its_record ... ok
+test revoking_trust_seals_a_running_restore_and_drops_late_results ... ok
+test trust_grant_needs_an_open_workspace_and_gates_every_direct_call ... ok
+test revoking_trust_while_msbuild_runs_drops_the_late_result ... ok
+test saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale ... ok
+test lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents ... ok
+test lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke ... ok
+test lsp_start_requires_tool_sdk_and_current_restore ... ok
+test tools_install_is_real_verified_and_reused ... ok
+test tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.47s
+
+   Doc-tests openridr_host
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

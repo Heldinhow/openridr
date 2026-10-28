@@ -1,0 +1,23 @@
+evidence temp copy: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T//openridr-08-evidence-UNsB/Order Desk completion
+OPENRIDR_HOME: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home
+{"ok":true,"workspace":"OrderDesk.sln"}
+{"ok":true,"mode":"trusted"}
+{"ok":true,"evaluation":"ok"}
+{"ok":true,"restore":"running"}
+restore observed: ok
+{"ok":true,"evaluation":"ok","stale":false}
+{"ok":true,"tool":"planned","reused":false,"verified":null,"sha256":null}
+{"ok":true,"tool":"ready"}
+tool observed: ready
+{"ok":true,"code":null,"message":null,"details":null,"lsp":"starting"}
+lsp observed: ready
+{"state":"ready","session":1,"coverage":"full","capabilities":{"completion":true,"definition":true},"server":{"name":"csharp-ls","version":"0.28.0.0"}}
+{"ok":true,"version":1,"session":1}
+{"ok":true,"state":"ok","session":1,"clientRevision":1,"documentKnown":true,"itemCount":6,"totalItems":6,"truncated":false,"labels":["Equals","GetHashCode","GetType","Id","ToString","Total"],"kinds":["method","method","method","property","method","property"],"message":null}
+{"ok":true,"state":"ok","session":1,"clientRevision":1,"locations":[{"character":11,"line":4,"path":"src/OrderDesk.Core/Order.cs","range":{"end":{"character":16,"line":4},"start":{"character":11,"line":4}},"selectionRange":null,"uri":"file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-08-evidence-UNsB/Order Desk completion/src/OrderDesk.Core/Order.cs"}],"rejectedTargets":0,"message":null}
+{"ok":true,"version":2}
+{"state":"ok","clientRevision":2,"locations":[{"character":11,"line":4,"path":"src/OrderDesk.Core/Order.cs","range":{"end":{"character":16,"line":4},"start":{"character":11,"line":4}},"selectionRange":null,"uri":"file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-08-evidence-UNsB/Order Desk completion/src/OrderDesk.Core/Order.cs"}],"message":null}
+{"ok":true,"lsp":"stopped"}
+{"ok":true,"mode":"restricted"}
+{"ok":false,"code":"trust_required"}
+{"ok":true}

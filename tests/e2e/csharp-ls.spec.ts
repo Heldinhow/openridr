@@ -572,3 +572,251 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("completion and definition use the real session and discard stale answers", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk completion");
+  const programPath = "src/OrderDesk.Cli/Program.cs";
+  const libraryPath = "src/OrderDesk.Core/Order.cs";
+  const completionText =
+    'using OrderDesk.Core;\n\nvar order = new Order("A-104", 42m);\norder.\n';
+  let stoppedPid: number | null = null;
+  const resume = () => {
+    if (stoppedPid !== null) {
+      try {
+        process.kill(stoppedPid, "SIGCONT");
+      } catch {
+        // The process already exited.
+      }
+      stoppedPid = null;
+    }
+  };
+  try {
+    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    await trustWorkspace(page);
+    await enterWorkspace(page);
+    await waitForEvaluation(page);
+    await restoreAndReload(page);
+    await ensureTool(page, request);
+
+    await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+    await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
+
+    // Before analysis starts, the shortcut explains the state instead of doing nothing.
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Control+Space");
+    await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
+      "data-state",
+      "unavailable",
+    );
+    await expect(page.getByTestId("editor-lsp-status")).toContainText(
+      "Analysis is not running",
+    );
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshots, "08-completion-unavailable.png"),
+      fullPage: false,
+    });
+
+    await page.getByTestId("lsp-start").click();
+    await expect(page.getByTestId("lsp-state")).toContainText("Ready", {
+      timeout: 60_000,
+    });
+    const session = (await hostState(request)).lsp.session as number;
+
+    // The real session has to know the open document before it is asked anything.
+    await expect
+      .poll(
+        async () => {
+          const body = await hostCall(request, "lsp.completion", {
+            path: programPath,
+            line: 0,
+            character: 0,
+            revision: 0,
+          });
+          expect(body.ok, JSON.stringify(body.error)).toBe(true);
+          return body.data.documentKnown;
+        },
+        { timeout: 30_000, intervals: [100, 250, 500] },
+      )
+      .toBe(true);
+
+    // Put the cursor after a real member access and let the host discover the real list.
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+A");
+    await page.keyboard.insertText(completionText);
+    await expect
+      .poll(
+        async () => {
+          const body = await hostCall(request, "lsp.completion", {
+            path: programPath,
+            line: 3,
+            character: 6,
+            revision: 1,
+          });
+          expect(body.ok, JSON.stringify(body.error)).toBe(true);
+          return body.data.state === "ok" &&
+            (body.data.items as { label: string }[]).some(
+              (item) => item.label === "Id" || item.label === "Total",
+            );
+        },
+        { timeout: 30_000, intervals: [100, 250, 500] },
+      )
+      .toBe(true);
+    const discovered = await hostCall(request, "lsp.completion", {
+      path: programPath,
+      line: 3,
+      character: 6,
+      revision: 1,
+    });
+    expect(discovered.data.state).toBe("ok");
+    expect(discovered.data.clientRevision).toBeGreaterThanOrEqual(2);
+    expect(discovered.data.session).toBe(session);
+    const chosen = (discovered.data.items as { label: string; kind: string | null }[]).find(
+      (item) => item.label === "Id" || item.label === "Total",
+    );
+    expect(
+      chosen,
+      `real completion list: ${JSON.stringify(discovered.data.items.map((item: { label: string }) => item.label))}`,
+    ).toBeTruthy();
+    expect(chosen!.kind).toBe("property");
+
+    await page.keyboard.press("Control+Space");
+    await expect(page.locator(".cm-tooltip-autocomplete")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
+      "data-state",
+      "ok",
+    );
+    await expect(page.getByTestId("editor-lsp-status")).toContainText("Completion:");
+    await expect(page.locator(".cm-tooltip-autocomplete")).toContainText(chosen!.label);
+    await page.screenshot({
+      path: path.join(screenshots, "08-completion.png"),
+      fullPage: false,
+    });
+    await page.keyboard.type(chosen!.label);
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("editor")).toContainText(`order.${chosen!.label}`);
+    // The accepted edit is a buffer change; let the 250 ms didChange debounce reach the server
+    // before the next request so its document revision is stable.
+    await page.waitForTimeout(600);
+
+    // Definition: ask the host for the real destination, then reach it with the editor keymap.
+    const definitionCursor = { line: 2, character: 20 };
+    const expected = await hostCall(request, "lsp.definition", {
+      path: programPath,
+      ...definitionCursor,
+      revision: 1,
+    });
+    expect(expected.ok, JSON.stringify(expected.error)).toBe(true);
+    expect(expected.data.state).toBe("ok");
+    expect(expected.data.locations[0].path).toBe(libraryPath);
+    const target = expected.data.locations[0] as {
+      path: string;
+      line: number;
+      character: number;
+    };
+
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+ArrowUp");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Home");
+    for (let index = 0; index < definitionCursor.character; index += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+      "data-cursor",
+      `${definitionCursor.line}:${definitionCursor.character}`,
+    );
+    await page.keyboard.press("Meta+b");
+    await expect(
+      page.getByTestId(`tab-${libraryPath}`),
+    ).toHaveClass(/active/, { timeout: 20_000 });
+    await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+      "data-cursor",
+      `${target.line}:${target.character}`,
+    );
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshots, "08-definition.png"),
+      fullPage: false,
+    });
+
+    // A selection change while the answer is pending invalidates it: the paused server is
+    // resumed after the cursor moved, so the late location must not open a file.
+    await page.getByTestId(`tab-${programPath}`).click();
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+ArrowUp");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Home");
+    for (let index = 0; index < 20; index += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+    const paused = await hostState(request);
+    stoppedPid = paused.lsp.pid as number;
+    process.kill(stoppedPid, "SIGSTOP");
+    await page.keyboard.press("Meta+b");
+    await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
+      "data-state",
+      "loading",
+    );
+    await page.keyboard.press("ArrowRight");
+    resume();
+    await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
+      "data-state",
+      "stale",
+      { timeout: 20_000 },
+    );
+    await expect(page.getByTestId("editor-lsp-status")).toContainText(
+      "selection changed",
+    );
+    await expect(page.getByTestId(`tab-${programPath}`)).toHaveClass(/active/);
+
+    // A wedged server is a timeout, not an endless wait, and the editor stays usable.
+    const beforeTimeout = await hostState(request);
+    stoppedPid = beforeTimeout.lsp.pid as number;
+    process.kill(stoppedPid, "SIGSTOP");
+    await page.keyboard.press("Control+Space");
+    await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
+      "data-state",
+      "timeout",
+      { timeout: 20_000 },
+    );
+    await expect(page.getByTestId("editor-lsp-status")).toContainText(
+      "did not answer within 5 seconds",
+    );
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("// editing is not blocked\n");
+    await expect(page.getByTestId("editor")).toContainText(
+      "editing is not blocked",
+    );
+    resume();
+
+    // After revoke, the same shortcuts explain the missing trust instead of failing silently.
+    await page.getByTestId("trust-revoke").click();
+    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Control+Space");
+    await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
+      "data-state",
+      "unavailable",
+    );
+    await expect(page.getByTestId("editor-lsp-status")).toContainText(
+      "requires workspace trust",
+    );
+    await page.keyboard.press("Meta+b");
+    await expect(page.getByTestId("editor-lsp-status")).toContainText(
+      "requires workspace trust",
+    );
+    await expect(page.getByTestId(`tab-${programPath}`)).toHaveClass(/active/);
+  } finally {
+    resume();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});

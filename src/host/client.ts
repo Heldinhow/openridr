@@ -293,6 +293,57 @@ export type Diagnostics = {
   analysisUnavailable: string | null;
 };
 
+export type LspPosition = { line: number; character: number };
+
+export type LspRange = { start: LspPosition; end: LspPosition };
+
+export type CompletionItem = {
+  label: string;
+  detail: string | null;
+  kind: string | null;
+  kindRaw: number | null;
+  insertText: string | null;
+  textEdit: { range: LspRange; newText: string } | null;
+  documentation: string | null;
+  sortText: string | null;
+};
+
+export type DefinitionLocation = {
+  path: string;
+  uri: string;
+  line: number;
+  character: number;
+  range: LspRange;
+  selectionRange: LspRange | null;
+};
+
+/** Shared answer for `lsp.completion` and `lsp.definition`. Unavailable/unsupported answers
+ * are data with empty lists, never fabricated items. */
+export type AnalysisResponse = {
+  method: "lsp.completion" | "lsp.definition";
+  state: "ok" | "unsupported" | "unavailable" | "stale" | "timeout" | "failed";
+  message: string | null;
+  session: number;
+  workspaceId: number;
+  contextId: number;
+  path: string;
+  line: number;
+  character: number;
+  revision: number | null;
+  clientRevision: number | null;
+  documentKnown: boolean;
+  coverage: "full" | "partial";
+  coverageNote: string | null;
+  items: CompletionItem[];
+  itemCount: number;
+  totalItems: number;
+  truncated: boolean;
+  isIncomplete: boolean;
+  replaceRange: LspRange | null;
+  locations: DefinitionLocation[];
+  rejectedTargets: number;
+};
+
 export type Lsp = {
   state:
     | "unavailable"
