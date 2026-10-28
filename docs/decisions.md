@@ -209,3 +209,39 @@ A auditoria de aceitação encontrou divergências pequenas entre a SPEC/rótulo
 ## 2026-10-28 — Correções da revisão: run no gate de restore, TRX sem identidade inventada, término Windows
 
 `run.start` passou a validar `restore::require_restored` antes da avaliação/build: um build bem-sucedido não autoriza lançar com assets invalidados, e Run continua sem restaurar implicitamente. O parser TRX só atribui identidade via `TestDefinitions`; resultado sem `testId`/definição fica `unattributed` (`test_id:null`, `matched:false`, FQN vazio) e nunca casa por display name. No Windows, `Registry::terminate` passou a pedir `taskkill /T` e, após a carência, `/T /F`, com fallback rotulado ao killer do child; Unix mantém TERM→SIGKILL no grupo. O caminho Windows não foi executado e permanece não verificado. Evidência: `docs/evidence/18-review-fixes.md`.
+
+## 2026-10-28 — MVP Rider: escopo, ordem e casca (grill F1–F9)
+
+O grill do MVP fixou a ordem **F1 casca → F2 ações/keymap → F3 busca → F4 run configs → F5 tests → F6 git → F8 settings → F9 nuget → F7 código**. F1/F2 são fundação, F3 consome o registro de ações, F4/F5/F6 dependem da barra e F7 (gutter, ⌥↩, menu de contexto, rename inline, Find Usages) é a fatia mais cara em UI, coerente com o handoff ("depois NuGet e gutter icons/Alt+Enter"). Consequência: F4/F5 entregam Run/Debug/Test pela tool window e pelo widget; os ícones de gutter de run/teste ficam todos na F7, junto do gutter de breakpoint existente. Registro completo em `~/.opencode/plan/openridr-ui/GRILL-MVP.md`; spec em [SPEC-MVP-RIDER](SPEC-MVP-RIDER.md).
+
+A barra superior é **uma só, de 44 px**, e absorve projeto, branch, run config, Run/Debug, busca e Settings, mantendo Configuration/TFM/startup compactos. Não há segunda fileira: duas barras custariam 84 px de cromo em 1100×700. Na F1 o branch aparece desabilitado ("Git not connected") e o run config até a F4.
+
+**Testids são contrato**: a F1 pode mudar o DOM dos painéis, nunca os 372 nomes existentes, e a suíte E2E inteira (17 specs, 1.326 `getByTestId`) roda a cada fatia. Cada fatia adiciona seus testids e mantém `role="tab"` no cabeçalho inferior.
+
+Persistência: layout (tamanho de slot, tool window ativa) em `localStorage`; run configs e settings em JSON no app home (`settings.json`, `run-configs/<fnv1a64(caminho da solução)>.json`). Nada dentro do repo, nada de estado de domínio no webview.
+
+Casca: slots **esquerdo e inferior** apenas, uma tool window ativa por slot, sem split/detach/reordenar; o slot direito fica fora até existir tool que o use. Os 5 painéis atuais (Build, Problems, Debug, Terminal, Tests) migram para o registro na F1.
+
+## 2026-10-28 — MVP Rider: ações, teclado e busca
+
+A F2 entrega o registro central (id, título, atalho, disponibilidade, executor) e um popup próprio de **Find Action (⇧⌘A)**, que a F3 evolui para **Search Everywhere** (⌘T e Shift Shift, duplo toque de 400 ms) com All/Classes/Files/Symbols/Actions/Text. Um componente só evita dois popups e deixa a F2 testável.
+
+Teclado: quando o foco está no editor, o CodeMirror resolve primeiro; o handler global (bubble, ignora `defaultPrevented` e campos de texto, salvo ações marcadas `editor:true`) só age no que sobrou. Precedência: remap do usuário > perfil > padrão. Conflito no mesmo atalho gera warning no registro, não bloqueia o app.
+
+Busca (F3): Files = walk do root ignorando `bin/obj/.git/node_modules` (cap 5.000 arquivos, truncamento declarado); Classes/Symbols = novo `lsp.workspaceSymbol` no host sobre `workspace/symbol` do csharp-ls (handler confirmado na fonte 0.28, não exercitado no app), cap 500, separando tipo de membro pelo `kind`; sem trust/análise a aba diz "Analysis not ready" e não inventa lista vazia; Actions = registro; Text = `search.text` no host com walker próprio (sem ripgrep), cap 200 arquivos/2.000 ocorrências, pula arquivos > 1 MiB. A prévia mostra trecho + caminho e Enter abre; ⇧↩ (split) fica para S6.
+
+## 2026-10-28 — MVP Rider: run configs, testes, Git, Settings, NuGet
+
+Run config (F4): a **config ativa é a fonte da verdade** de `{project, configuration, targetFramework, args, workingDirectory, env, envFiles}`. A toolbar escreve na config ativa e dispara `evaluation.run`; nunca reusa TargetPath de outra configuração (regra do ticket 14). Default "Run <StartupProject>" derivada da avaliação é somente leitura; editar cria cópia nomeada. Run/Debug chamam `build.start` + `run.start`/`debug.start` existentes, sem pipeline novo; o gutter de Run fica para a F7.
+
+Tests (F5): a árvore agrupa por projeto > prefixo do FQN > classe > método, declarando que o agrupamento é **derivado do nome** (FQN completo em tooltip), sem parser de fonte. "Rerun failed" usa os ids `failed`/`notExecuted` do último run completo e desabilita quando stale. Quick list ⌥⇧U entra mínimo (Run all, Run selected, Debug, Rerun failed, Stop); "teste atual no cursor" fica para a F7.
+
+Git (F6): CLI `git` do PATH, sem libgit2 e sem instalar nada. Commit = `git commit --only -- <arquivos marcados>` (com `--amend` quando amend), então o index do usuário não é tocado; desmarcar não faz `restore --staged`. Checkout/pull recusam árvore suja e merge/rebase em andamento, sem auto-stash. Push só com confirmação (remote, branch, commits à frente) e sem force; credenciais do credential helper do usuário, nenhum token no app. Log = `git log --max-count=200` da branch atual com parents, sem grafo/paginação; refresh ao abrir, ao focar e por botão (sem polling). Sem repo, as tool windows dizem "Not a git repository".
+
+Settings (F8): global, sem override por projeto; tema só escuro (tokens atuais são um tema), páginas Appearance (zoom/densidade), Keymap (perfis Rider macOS/IntelliJ + remap), Editor (fonte, tamanho, indentação/tabs), Build (SDKs detectados + Redetect, sem instalar SDK) e Version Control (caminho do git, read-only). Aplica ao vivo e persiste em `settings.json`.
+
+NuGet (F9): instalados + desatualizados + update unitário com plano e confirmação. `dotnet list <csproj> package --format json` e `--outdated --format json`; update = `dotnet add <csproj> package <id> --version <v> --no-restore` seguido de restore explícito. CPM (`Directory.Packages.props`) lista mas recusa update; sem busca/instalação de pacote novo.
+
+Código (F7): gutter Run/Test, popup ⌥↩ com prévia (reusa o preview do ticket 10), menu de contexto do editor, rename inline no CodeMirror (range da palavra, Enter aplica com revalidação, Esc cancela) e `lsp.references` (⇧F12) somente leitura. **Refactor This fica fora do MVP** (S1); o menu aponta para Rename.
+
+Plataforma e ritual: Windows não executado nesta fase (release continua bloqueado, `docs/release-decision.md`); 1 commit por fatia, spec Playwright da fatia + suíte inteira verde, `/code-review` no fim. Nenhuma dependência nova (sem Zustand, cmdk, simple-git, lucide).
