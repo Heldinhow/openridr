@@ -75,7 +75,7 @@ export function DebugPanel({
             onClick={onLaunch}
             title={
               disabledReason ??
-              "Starts the evaluated managed assembly under the verified adapter (Ctrl+D on macOS, Shift+F9 on Windows)."
+              `Starts the evaluated managed assembly under the verified adapter (${snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}).`
             }
           >
             Start debugging
@@ -273,7 +273,7 @@ export function DebugPanel({
         <h3>Breakpoints</h3>
         {dap.breakpoints.length === 0 ? (
           <p className="muted" data-testid="debug-breakpoints-empty">
-            No breakpoints. Click the gutter marker column or press Ctrl/Cmd+F8 on a line.
+            No breakpoints. Click the gutter marker column or press {snapshot.app.platform === "macos" ? "Cmd+F8" : "Ctrl+F8"} on a line.
           </p>
         ) : (
           <ul>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   call,
   HostCallError,
@@ -18,6 +18,8 @@ import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
+import { Icon } from "./Icon";
+import { Splitter } from "./Splitter";
 
 type Tab = {
   path: string;
@@ -224,12 +226,23 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [bottomTab, setBottomTab] = useState<BottomTab>("build");
   const panelBodyRef = useRef<HTMLDivElement>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [outputHeight, setOutputHeight] = useState(220);
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
     path: string;
     line: number;
     character: number;
     nonce: number;
   } | null>(null);
+  const outputMax = Math.max(120, Math.min(500, Math.floor(viewportHeight * 0.42)));
+  const visibleOutputHeight = Math.min(outputHeight, outputMax);
+  useEffect(() => {
+    const resize = () => setViewportHeight(window.innerHeight);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
@@ -256,6 +269,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const renameSeq = useRef(0);
   const actionSeq = useRef(0);
   const cursorRef = useRef({ line: 0, character: 0 });
+  const [cursor, setCursor] = useState({ line: 0, character: 0 });
   const editPreviewHeading = useRef<HTMLHeadingElement | null>(null);
   const actionListHeading = useRef<HTMLHeadingElement | null>(null);
 
@@ -905,6 +919,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
   function noteCursor(position: { line: number; character: number }) {
     cursorRef.current = position;
+    setCursor(position);
     setActionList((current) => {
       if (!current) return current;
       if (current.line === position.line && current.character === position.character) {
@@ -2056,22 +2071,33 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   }`;
 
   return (
-    <main className="workspace-view">
-      <header className="chrome">
-        <span className="brand">OpenRidr · {workspace.name}</span>
-        <span
-          className={trusted ? "success" : "warning"}
-          data-testid="mode-badge"
-        >
-          {trusted ? "Trusted mode" : "Restricted mode"}
-        </span>
-      </header>
-
+    <main className="workspace-view" style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${visibleOutputHeight}px` } as CSSProperties}>
       <div className="toolbar">
-        <span>
-          {workspace.kind === "solution" ? "Solution" : "Project"}:{" "}
-          <strong>{workspace.name}</strong>
-        </span>
+        <span className="workspace-brand" title={workspace.path}><Icon name="project" /><strong>{workspace.name}</strong></span>
+        <details className="toolbar-menu trust-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
+          <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted mode" : "Restricted mode"}</summary>
+          <div className="menu-content" data-testid="trust-banner">
+            <TrustControls snapshot={snapshot} onChange={onSnapshot} />
+          </div>
+        </details>
+        <label className="eval-field toolbar-startup">
+          <span>Startup project</span>
+          <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupPath(event.target.value)}>
+            {consoleCandidates.length === 0 && <option value="">No console project</option>}
+            {consoleCandidates.length > 1 && !startupProject && <option value="">Select a startup project</option>}
+            {consoleCandidates.map((project) => <option key={project.path} value={project.path}>{project.name}</option>)}
+          </select>
+        </label>
+        <div className="toolbar-configuration">
+          <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={evaluationAvailable ? "MSBuild configuration for the evaluated project model." : "Trust the workspace and resolve the project SDK to select a configuration."}>
+            {configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}
+          </select></label>
+          <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value === "" ? null : event.target.value })} title={evaluationAvailable ? "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM." : "Trust the workspace and resolve the project SDK to select a TFM."}>
+            <option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}
+          </select></label>
+        </div>
         <span className="push" />
         <button
           data-testid="toolbar-build"
@@ -2081,10 +2107,10 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             !trusted
               ? "Trust the workspace before building; nothing runs in Restricted mode."
               : buildDisabledReason ??
-                "Builds the selected startup project (Cmd/Ctrl+F9). Unsaved buffers need an explicit decision."
+                `Builds the selected startup project (${snapshot.app.platform === "macos" ? "Cmd+F9" : "Ctrl+F9"}). Unsaved buffers need an explicit decision.`
           }
         >
-          Build
+          <Icon name="build" /> Build <kbd>{snapshot.app.platform === "macos" ? "⌘F9" : "Ctrl+F9"}</kbd>
         </button>
         <button
           data-testid="toolbar-run"
@@ -2095,7 +2121,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             `Runs the saved build (${runShortcut}); unsaved buffers are never included.`
           }
         >
-          {runRunning ? "Running…" : "Run"}
+          <Icon name="run" /> {runRunning ? "Running…" : "Run"} <kbd>{runShortcut}</kbd>
         </button>
         <button
           data-testid="toolbar-debug"
@@ -2103,10 +2129,10 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           onClick={() => void startDebug()}
           title={
             debugDisabledReason ??
-            "Starts the evaluated Debug assembly under netcoredbg (Ctrl+D on macOS, Shift+F9 on Windows)."
+            `Starts the evaluated Debug assembly under netcoredbg (${snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}).`
           }
         >
-          Debug
+          <Icon name="debug" /> Debug <kbd>{snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}</kbd>
         </button>
         {debugActive && (
           <button
@@ -2117,6 +2143,11 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             Stop debugging
           </button>
         )}
+        <details className="toolbar-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
+          <summary aria-label="Workspace actions">•••</summary>
+          <div className="menu-content">
         <button
           data-testid="sdk-redetect"
           onClick={() => void redetectSdks()}
@@ -2132,20 +2163,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         <button data-testid="close-workspace" onClick={requestCloseWorkspace}>
           Close workspace
         </button>
+          </div>
+        </details>
       </div>
 
       <div className="workspace-notices">
-      <div className={`notice ${trusted ? "" : "warning"}`} data-testid="trust-banner">
-        {!trusted && (
-          <p>
-            <strong>Blocked in Restricted mode.</strong> MSBuild, restore, LSP, tool
-            installation, terminal, build, run, debug and tests need a trusted workspace. Text
-            editing and saving stay available.
-          </p>
-        )}
-        <TrustControls snapshot={snapshot} onChange={onSnapshot} compact />
-      </div>
-
+      <details className="workspace-tools">
+        <summary data-testid="workspace-tools-toggle">Workspace tools <span className={restoreIncomplete || restore.state === "failed" ? "warning" : "muted"}>{restoreIncomplete ? "Restore required" : restoreStateLabel(restore)} · Analysis: {lsp.state}</span></summary>
       <section className="restore-panel" aria-label="Restore" data-testid="restore-panel">
         <div className="restore-head">
           <strong>Restore</strong>
@@ -2301,6 +2325,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
       <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
+      </details>
 
       {message && (
         <div
@@ -2309,6 +2334,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           data-testid="app-log"
         >
           {message.text}
+          <button className="notice-dismiss" aria-label="Dismiss notification" onClick={() => setMessage(null)}>×</button>
         </div>
       )}
 
@@ -2325,53 +2351,6 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           </div>
 
           <div className="eval-controls">
-            <label className="eval-field">
-              <span>Configuration</span>
-              <select
-                data-testid="eval-configuration"
-                value={evaluation.context.configuration}
-                disabled={!evaluationAvailable || evaluationBusy}
-                onChange={(event) =>
-                  void runEvaluation({ configuration: event.target.value })
-                }
-                title={
-                  evaluationAvailable
-                    ? "MSBuild configuration for the evaluated project model."
-                    : "Trust the workspace and resolve the project SDK to select a configuration."
-                }
-              >
-                {configurations.map((configuration) => (
-                  <option key={configuration} value={configuration}>
-                    {configuration}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="eval-field">
-              <span>TFM</span>
-              <select
-                data-testid="eval-tfm"
-                value={evaluation.context.targetFramework ?? ""}
-                disabled={!evaluationAvailable || evaluationBusy}
-                onChange={(event) =>
-                  void runEvaluation({
-                    targetFramework: event.target.value === "" ? null : event.target.value,
-                  })
-                }
-                title={
-                  evaluationAvailable
-                    ? "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM."
-                    : "Trust the workspace and resolve the project SDK to select a TFM."
-                }
-              >
-                <option value="">Not selected</option>
-                {tfmOptions.map((tfm) => (
-                  <option key={tfm} value={tfm}>
-                    {tfm}
-                  </option>
-                ))}
-              </select>
-            </label>
             <button
               data-testid="eval-run"
               disabled={!evaluationAvailable || evaluationBusy}
@@ -2397,6 +2376,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               {evaluation.stale ? " · stale" : ""}
               {evaluation.revision > 0 ? ` · revision ${evaluation.revision}` : ""}
             </span>
+            {selectedProject && <button onClick={() => setProjectDetailsOpen(!projectDetailsOpen)} aria-expanded={projectDetailsOpen}>Project details</button>}
           </div>
 
           {!evaluationAvailable && trusted && (
@@ -2448,7 +2428,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                           title={project.path}
                         >
                           <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-                          <span>{project.name}</span>
+                          <Icon name="project" /><span className="tree-name">{project.name}</span>
                           <span className="tag">{project.kind}</span>
                           {project.state === "failed" && <span className="tag error">error</span>}
                           {project.tfms.map((tfm) => (
@@ -2501,7 +2481,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                                 onClick={() => void openFile(file)}
                                 title={file}
                               >
-                                {baseName(file)}
+                                <Icon name="file" /><span className="tree-name">{baseName(file)}</span>
                               </button>
                             ))}
                             {project.sources.length === 0 && !project.error && (
@@ -2530,7 +2510,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                       title={project.path}
                     >
                       <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-                      <span>{project.name}</span>
+                      <Icon name="project" /><span className="tree-name">{project.name}</span>
                       <span className="tag">{project.kind}</span>
                       {project.tfms.map((tfm) => (
                         <span className="tag" key={tfm}>
@@ -2554,7 +2534,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                             onClick={() => void openFile(file)}
                             title={file}
                           >
-                            {baseName(file)}
+                            <Icon name="file" /><span className="tree-name">{baseName(file)}</span>
                           </button>
                         ))}
                         {project.files.length === 0 && (
@@ -2575,10 +2555,19 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </p>
           )}
         </nav>
+        <Splitter label="Solution explorer width" value={sidebarWidth} min={220} max={420} onChange={setSidebarWidth} />
 
         <section className="editor-pane" aria-label="Editor">
           <div className="tabbar">
-            <div className="tabs" role="tablist" aria-label="Open files">
+            <div className="tabs" role="tablist" aria-label="Open files" onKeyDown={(event) => {
+              if (!tabs.length || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const index = tabs.findIndex((tab) => tab.path === activePath);
+              const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+              setActivePath(tabs[next].path);
+              void checkDisk(tabs[next].path);
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+            }}>
               {tabs.map((tab) => {
                 const dirty = isDirty(tab);
                 const selected = tab.path === activePath;
@@ -2587,6 +2576,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                     <button
                       role="tab"
                       aria-selected={selected}
+                      tabIndex={selected ? 0 : -1}
+                      aria-controls="editor-content"
                       className="tab-label"
                       onClick={() => {
                         setActivePath(tab.path);
@@ -2630,7 +2621,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 "Rename the symbol at the cursor (Shift+F6); preview before applying."
               }
             >
-              Rename symbol…
+              <Icon name="rename" /><span className="editor-action-label"> Rename symbol…</span>
             </button>
             <button
               className="save"
@@ -2639,19 +2630,19 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               disabled={codeActionsDisabledReason !== null}
               title={
                 codeActionsDisabledReason ??
-                "Code actions at the cursor (Option+Enter on macOS, Alt+Enter on Windows)."
+                `Code actions at the cursor (${snapshot.app.platform === "macos" ? "Option+Enter" : "Alt+Enter"}).`
               }
             >
-              Code actions…
+              <Icon name="code" /><span className="editor-action-label"> Code actions…</span>
             </button>
             <button
               className="save"
               data-testid="save-file"
               onClick={() => void save()}
               disabled={!active || !isDirty(active)}
-              title={active ? "Save with Cmd+S (macOS) or Ctrl+S (Windows)" : "No file open"}
+              title={active ? `Save with ${snapshot.app.platform === "macos" ? "Cmd+S" : "Ctrl+S"}` : "No file open"}
             >
-              Save
+              <Icon name="save" /><span className="editor-action-label"> Save</span>
             </button>
           </div>
 
@@ -2936,11 +2927,12 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 </div>
               )}
 
-              <div className="editor-body">
+              <div className="editor-body" id="editor-content" role="tabpanel" aria-label={baseName(active.path)}>
                 <CodeEditor
                   key={active.path}
                   value={active.content}
                   path={active.path}
+                  platform={snapshot.app.platform}
                   revision={active.revision}
                   onChange={(value) => updateContent(active.path, value)}
                   onSave={() => void save()}
@@ -2964,13 +2956,22 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </>
           ) : (
             <div className="empty-editor">
-              <p>Open a file from the solution explorer to edit it.</p>
-              <p className="muted">Saving checks the disk first and never overwrites silently.</p>
+              <Icon name="code" />
+              <h1>Your code, in focus.</h1>
+              <p className="muted">Open a file from the solution explorer to start editing.</p>
+              <dl className="shortcut-list">
+                <dt>Save file</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘S" : "Ctrl+S"}</kbd></dd>
+                <dt>Go to definition</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘B" : "Ctrl+B"}</kbd></dd>
+                <dt>Rename symbol</dt><dd><kbd>Shift+F6</kbd></dd>
+                <dt>Run saved build</dt><dd><kbd>{runShortcut}</kbd></dd>
+              </dl>
+              <p className="hint">Text editing is always available. Analysis and execution require trust.</p>
             </div>
           )}
         </section>
 
-        <aside className="eval-details-pane" hidden={!selectedProject}>
+        <aside className="eval-details-pane" hidden={!selectedProject || !projectDetailsOpen} aria-label="Project inspector">
+          <button className="inspector-close" onClick={() => setProjectDetailsOpen(false)}>Close project details</button>
             {selectedProject && (
               <section
                 className="eval-details"
@@ -3082,6 +3083,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
       </div>
 
+      <Splitter label="Output panel height" value={visibleOutputHeight} min={120} max={outputMax} horizontal onChange={setOutputHeight} />
       <section
         className={`output ${
           bottomTab === "problems"
@@ -3096,12 +3098,22 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         }`}
         aria-label="Bottom panel"
       >
-        <div className="tabs bottom-tabs" role="tablist" aria-label="Output panels">
+        <div className="tabs bottom-tabs" role="tablist" aria-label="Output panels" onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const index = bottomTabs.findIndex((tab) => tab.id === bottomTab);
+          const next = event.key === "Home" ? 0 : event.key === "End" ? bottomTabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + bottomTabs.length) % bottomTabs.length;
+          setBottomTab(bottomTabs[next].id);
+          event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
+        }}>
           {bottomTabs.map((tab) => (
             <button
               key={tab.id}
               role="tab"
               aria-selected={bottomTab === tab.id}
+              tabIndex={bottomTab === tab.id ? 0 : -1}
+              id={`output-tab-${tab.id}`}
+              aria-controls="output-content"
               className={`tab-label ${bottomTab === tab.id ? "active" : ""}`}
               data-testid={`bottom-tab-${tab.id}`}
               onClick={() => setBottomTab(tab.id)}
@@ -3112,19 +3124,19 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </button>
           ))}
         </div>
-        <div className="panel-body" role="tabpanel" key={bottomTab} ref={panelBodyRef}>
+        <div className="panel-body" role="tabpanel" key={bottomTab} ref={panelBodyRef} id="output-content" aria-labelledby={`output-tab-${bottomTab}`}>
           {renderBottomContent()}
         </div>
       </section>
 
       <footer className="status">
-        <span data-testid="status-workspace">{workspace.name}</span>
+        <span data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
         <span className={trusted ? "success" : "warning"} data-testid="status-mode">
           {trusted ? "Trusted mode" : "Restricted mode"}
         </span>
-        <span data-testid="status-sdk">{sdkSummary}</span>
+        <span data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
         {showsEvaluatedTree ? (
-          <span data-testid="status-evaluation">
+          <span data-testid="status-evaluation" title={`${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`}>
             {evaluationStateLabel(evaluation.state)} · Configuration{" "}
             {evaluation.context.configuration} · TFM{" "}
             {evaluation.context.targetFramework ?? "not selected"} · revision{" "}
@@ -3142,6 +3154,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         <span className="push" data-testid="status-keymap">
           Keymap: IntelliJ / Rider
         </span>
+        <span data-testid="status-cursor">{active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}</span>
       </footer>
 
       {renamePrompt && (

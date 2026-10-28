@@ -3,6 +3,7 @@ import { call, HostCallError, type Candidate, type ProjectSdk, type Snapshot } f
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel } from "./ToolchainPanels";
+import { Icon } from "./Icon";
 
 type Props = {
   snapshot: Snapshot | null;
@@ -171,14 +172,13 @@ export function SetupScreen({
   return (
     <main className="setup-screen">
       <header className="chrome">
-        <span className="brand">OpenRidr / Toolchain</span>
+        <span className="brand"><Icon name="code" /> OpenRidr</span>
         <span className="muted">{workspace?.name ?? "No workspace open"}</span>
       </header>
       <div className="setup">
-        <h1>OpenRidr</h1>
+        <div className="welcome-heading"><span className="welcome-mark"><Icon name="code" /></span><div><p className="eyebrow">YOUR .NET WORKSPACE</p><h1>Open a solution</h1></div></div>
         <p className="muted">
-          Open one .NET solution or project. OpenRidr starts in Restricted mode; only text is
-          read until you explicitly trust the workspace.
+          Pick up where your code begins. Open a solution, project, or folder.
         </p>
 
         <form
@@ -196,6 +196,8 @@ export function SetupScreen({
               value={path}
               onChange={(event) => setPath(event.target.value)}
               placeholder="/Users/you/src/OrderDesk/OrderDesk.sln"
+              aria-describedby="workspace-path-help"
+              aria-invalid={error ? true : undefined}
               autoFocus
               spellCheck={false}
               disabled={busy}
@@ -204,7 +206,7 @@ export function SetupScreen({
               {busy ? "Opening…" : "Open workspace"}
             </button>
           </div>
-          <p className="hint">Path may point to a .sln, a .csproj or a directory containing one.</p>
+          <p className="hint" id="workspace-path-help">Absolute path to a .sln, .csproj, or folder. Opens in Restricted mode — no project code runs until you trust it.</p>
         </form>
 
         {error && (
@@ -260,16 +262,13 @@ export function SetupScreen({
 
         <section className="toolchain" aria-labelledby="toolchain-title" data-testid="toolchain">
           <h2 id="toolchain-title">Toolchain</h2>
-          <p className="muted">
-            Detected in a neutral temporary directory. This is an inventory, not a loaded
-            language service, and no project file is changed.
-          </p>
+          <p className="muted">Your local tools, checked without changing project files. Expand a tool for details.</p>
           {!sdk ? (
             <p className="muted">Detecting SDKs…</p>
           ) : (
             <div className="tool-rows">
-              <div className="tool-row">
-                <strong>Analysis host</strong>
+              <details className="tool-row" open={workspace ? true : undefined}>
+                <summary><span>Analysis host</span><span className={sdk.host.state === "found" ? "success" : "warning"}>{sdk.host.state === "found" ? `✓ SDK ${sdk.host.version}` : "! SDK 10 needed"}</span></summary>
                 <div data-testid="sdk-host">
                   {sdk.host.state === "found" ? (
                     <>
@@ -296,33 +295,33 @@ export function SetupScreen({
                     </>
                   )}
                 </div>
-              </div>
+              </details>
 
-              <div className="tool-row">
-                <strong>Project SDK</strong>
+              <details className="tool-row" open={workspace ? true : undefined}>
+                <summary><span>Project SDK</span><span className={sdk.project.state === "resolved" ? "success" : "muted"}>{sdk.project.state === "resolved" ? `✓ ${sdk.project.resolvedVersion}` : workspace ? "Review required" : "Open a workspace first"}</span></summary>
                 <div data-testid="sdk-project">
                   <ProjectSdkBody project={sdk.project} onOpenGlobalJson={onOpenGlobalJson} />
                 </div>
-              </div>
+              </details>
 
-              <div className="tool-row">
-                <strong>Project targets</strong>
+              <details className="tool-row">
+                <summary><span>Project targets</span><span className="muted">{tfms.join(", ") || "Not inspected"}</span></summary>
                 <div data-testid="sdk-tfms">
                   {tfms.length > 0
                     ? `${tfms.join(", ")} declared · not evaluated`
                     : "No TFM declared in project text · not evaluated"}
                 </div>
-              </div>
+              </details>
 
               {snapshot && (
-                <div className="tool-row">
-                  <strong>Debug adapter</strong>
+                <details className="tool-row" data-testid="debug-adapter-card">
+                  <summary><span>Debug adapter</span><span className={snapshot.debug.adapterState === "ready" ? "success" : "warning"}>{snapshot.debug.adapterState === "ready" ? "✓ Available" : "! Setup required"}</span></summary>
                   <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} />
-                </div>
+                </details>
               )}
 
-              <div className="tool-row">
-                <strong>Detection</strong>
+              <details className="tool-row">
+                <summary><span>SDK detection</span><span className="muted">{sdk.roots.length} roots checked</span></summary>
                 <div>
                   <button
                     type="button"
@@ -354,7 +353,7 @@ export function SetupScreen({
                     </ul>
                   </details>
                 </div>
-              </div>
+              </details>
             </div>
           )}
           {toolchainError && (

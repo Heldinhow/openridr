@@ -3,7 +3,8 @@ import { basicSetup } from "codemirror";
 import { EditorState, type Text } from "@codemirror/state";
 import { EditorView, GutterMarker, gutter, keymap } from "@codemirror/view";
 import { Compartment, RangeSet } from "@codemirror/state";
-import { StreamLanguage } from "@codemirror/language";
+import { HighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
 import {
   autocompletion,
@@ -43,11 +44,21 @@ const theme = EditorView.theme(
   { dark: true },
 );
 
+const syntaxColors = HighlightStyle.define([
+  { tag: tags.keyword, color: "#c6a9ed" },
+  { tag: [tags.typeName, tags.className], color: "#8ed4ca" },
+  { tag: tags.string, color: "#a7cf9b" },
+  { tag: [tags.number, tags.bool, tags.null], color: "#f0b789" },
+  { tag: tags.comment, color: "#929eac", fontStyle: "italic" },
+  { tag: tags.function(tags.variableName), color: "#f3cf7e" },
+]);
+
 type Target = { path: string; line: number; character: number; nonce: number };
 
 type Props = {
   value: string;
   path: string;
+  platform: string;
   revision: number;
   /** 1-based breakpoint lines for this file. */
   breakpoints?: number[];
@@ -139,6 +150,7 @@ function makeDebugGutter(
 export function CodeEditor({
   value,
   path,
+  platform,
   revision,
   breakpoints = [],
   currentLine = null,
@@ -181,7 +193,7 @@ export function CodeEditor({
   const definitionSeq = useRef(0);
   const [status, setStatus] = useState<Status>({
     state: "idle",
-    text: "Ctrl+Space: completion · Ctrl+B: go to definition · Shift+F6: rename · Opt/Alt+Enter: code actions",
+    text: `Ctrl+Space: completion · ${platform === "macos" ? "Cmd+B" : "Ctrl+B"}: go to definition · Shift+F6: rename · ${platform === "macos" ? "Option" : "Alt"}+Enter: code actions`,
   });
 
   function publishCursor(instance: EditorView) {
@@ -352,6 +364,7 @@ export function CodeEditor({
         autocompletion({ override: [completionSource], activateOnTyping: false }),
         StreamLanguage.define(csharp),
         theme,
+        syntaxHighlighting(syntaxColors),
         gutterCompartment.current.of(
           makeDebugGutter(
             breakpointsRef,

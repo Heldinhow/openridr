@@ -2,10 +2,11 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
-const host = "http://127.0.0.1:4317";
+import { host } from "./environment";
 const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -58,6 +59,7 @@ async function trustWorkspace(page: Page) {
 
 async function enterWorkspace(page: Page) {
   await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
@@ -476,6 +478,7 @@ public sealed class LongTests
     await expect(page.getByTestId("tests-run-state")).toContainText("Running tests", {
       timeout: 60_000,
     });
+    await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
     await expect(page.getByTestId("tests-run-sealed")).toContainText("not current", {
       timeout: 60_000,

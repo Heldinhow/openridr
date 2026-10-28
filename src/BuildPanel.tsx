@@ -105,6 +105,7 @@ export function BuildPanel({
   const running = build.state === "running";
   const runRunning = run.state === "running";
   const shortcut = runShortcutLabel(platform);
+  const buildShortcut = platform === "macos" ? "Cmd+F9" : "Ctrl+F9";
   const startup =
     candidates.find((project) => project.path === startupPath) ?? null;
 
@@ -181,7 +182,7 @@ export function BuildPanel({
             "Runs dotnet build for the selected startup project with the current evaluation. Never restores and never saves buffers."
           }
         >
-          {running ? "Building…" : build.revision > 0 ? "Rebuild (Cmd/Ctrl+F9)" : "Build (Cmd/Ctrl+F9)"}
+          {running ? "Building…" : `${build.revision > 0 ? "Rebuild" : "Build"} (${buildShortcut})`}
         </button>
         {running && (
           <button
