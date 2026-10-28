@@ -455,7 +455,7 @@ impl Host {
             return self.lsp_code_actions(params);
         }
         if EXECUTABLE_METHODS.contains(&method) {
-            return self.executable_stub(method);
+            return self.gate_unhandled_executable(method);
         }
 
         match method {
@@ -519,7 +519,9 @@ impl Host {
         accept_locked(&inner, token)
     }
 
-    fn executable_stub(&self, method: &str) -> HostResult<Value> {
+    /// Trust/restore gate for executable methods this build does not implement, so an
+    /// unhandled method still cannot bypass the policy.
+    fn gate_unhandled_executable(&self, method: &str) -> HostResult<Value> {
         let _token = self.require_trust(method)?;
         if restore::GATED_METHODS.contains(&method) {
             let inner = self.inner.lock().unwrap();
@@ -1346,17 +1348,8 @@ impl Host {
             projects,
         }));
 
-        // Separate arguments, explicit cwd/environment and its own process group. Environment
-        // values are never written to the log.
-        let mut process = Command::new(&command[0]);
-        process
-            .args(&command[1..])
-            .current_dir(&root)
-            .env("DOTNET_ROOT", &sdk_root)
-            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
-            .env("DOTNET_CLI_UI_LANGUAGE", "en")
-            .env("DOTNET_NOLOGO", "1")
-            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        // Separate arguments and cwd via the shared dotnet environment helper.
+        let process = dotnet_command(&command, &root, &sdk_root);
         let spawned = inner
             .processes
             .lock()
@@ -1585,16 +1578,8 @@ impl Host {
             saved_note,
         }));
 
-        // Separate arguments, explicit cwd/environment and its own process group.
-        let mut process = Command::new(&command[0]);
-        process
-            .args(&command[1..])
-            .current_dir(&root)
-            .env("DOTNET_ROOT", &sdk_root)
-            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
-            .env("DOTNET_CLI_UI_LANGUAGE", "en")
-            .env("DOTNET_NOLOGO", "1")
-            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        // Separate arguments and cwd via the shared dotnet environment helper.
+        let process = dotnet_command(&command, &root, &sdk_root);
         let spawned = inner.processes.lock().unwrap().spawn_piped(
             &format!("build:{project_name}"),
             token.workspace_id,
@@ -1736,16 +1721,8 @@ impl Host {
         };
         inner.tests = Arc::new(test_discovery::Tests::begin(start));
 
-        // Separate arguments, explicit cwd/environment and its own process group.
-        let mut process = Command::new(&command[0]);
-        process
-            .args(&command[1..])
-            .current_dir(&root)
-            .env("DOTNET_ROOT", &sdk_root)
-            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
-            .env("DOTNET_CLI_UI_LANGUAGE", "en")
-            .env("DOTNET_NOLOGO", "1")
-            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        // Separate arguments and cwd via the shared dotnet environment helper.
+        let process = dotnet_command(&command, &root, &sdk_root);
         let project_name = project.name.clone();
         let spawned = inner.processes.lock().unwrap().spawn_piped(
             &format!("tests:{project_name}"),
@@ -2032,15 +2009,7 @@ impl Host {
         };
         inner.test_run = Arc::new(test_run::TestRun::begin(start));
 
-        let mut process = Command::new(&command[0]);
-        process
-            .args(&command[1..])
-            .current_dir(&root)
-            .env("DOTNET_ROOT", &sdk_root)
-            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
-            .env("DOTNET_CLI_UI_LANGUAGE", "en")
-            .env("DOTNET_NOLOGO", "1")
-            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        let process = dotnet_command(&command, &root, &sdk_root);
         let project_name = project.name.clone();
         let spawned = inner.processes.lock().unwrap().spawn_piped(
             &format!("tests:run:{project_name}"),
@@ -2108,7 +2077,13 @@ impl Host {
         let Some(workspace) = inner.workspace.as_ref() else {
             return Err(HostError::new("invalid_state", "No workspace is open."));
         };
+        let is_solution = matches!(workspace.kind, WorkspaceKind::Solution);
+        let workspace_file = workspace.path.clone();
         let root = workspace.root.clone();
+
+        // Same policy as build/tests/debug: Run never restores implicitly, and a build whose
+        // restore assets were invalidated afterwards is not a licence to launch.
+        restore::require_restored(&workspace_file, &root, is_solution, "run.start")?;
 
         let evaluation = inner.evaluation.clone();
         if evaluation.stale {
@@ -2412,16 +2387,8 @@ impl Host {
             context_id: token.context_id,
         }));
 
-        // Separate arguments, explicit cwd/environment and its own process group.
-        let mut process = Command::new(&command[0]);
-        process
-            .args(&command[1..])
-            .current_dir(&project_directory)
-            .env("DOTNET_ROOT", &sdk_root)
-            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
-            .env("DOTNET_CLI_UI_LANGUAGE", "en")
-            .env("DOTNET_NOLOGO", "1")
-            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        // Separate arguments and cwd via the shared dotnet environment helper.
+        let process = dotnet_command(&command, &project_directory, &sdk_root);
         let spawned = inner.processes.lock().unwrap().spawn_piped(
             &format!("run:{}", selected.name),
             token.workspace_id,
@@ -4952,6 +4919,21 @@ fn dotnet_exe() -> &'static str {
     } else {
         "dotnet"
     }
+}
+
+/// The one environment every `dotnet` child gets: explicit SDK root, no multi-level lookup,
+/// English output and no telemetry/nologo noise. Values are never written to the log.
+fn dotnet_command(command: &[String], cwd: &Path, sdk_root: &Path) -> Command {
+    let mut process = Command::new(&command[0]);
+    process
+        .args(&command[1..])
+        .current_dir(cwd)
+        .env("DOTNET_ROOT", sdk_root)
+        .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+        .env("DOTNET_CLI_UI_LANGUAGE", "en")
+        .env("DOTNET_NOLOGO", "1")
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+    process
 }
 
 fn workspace_file(path: &Path) -> HostResult<PathBuf> {

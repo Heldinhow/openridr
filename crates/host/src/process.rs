@@ -265,20 +265,20 @@ impl Registry {
         self.refresh();
         let index = self.entries.iter().position(|entry| entry.id == id)?;
         if self.entries[index].running() {
-            self.signal(index, false);
+            let requested = self.signal(index, false);
             let mut killed_after_grace = false;
+            let mut forced = None;
             self.wait_until_exited(index, GRACE);
             if self.entries[index].running() {
                 killed_after_grace = true;
-                self.signal(index, true);
+                forced = Some(self.signal(index, true));
                 self.wait_until_exited(index, AFTER_KILL);
             }
             let entry = &mut self.entries[index];
             entry.termination = Some(Termination {
-                requested: if killed_after_grace {
-                    "SIGTERM then SIGKILL".to_string()
-                } else {
-                    "SIGTERM".to_string()
+                requested: match forced {
+                    Some(forced) => format!("{requested} then {forced}"),
+                    None => requested.to_string(),
                 },
                 observed: if entry.exited {
                     "exited".to_string()
@@ -311,7 +311,7 @@ impl Registry {
     }
 
     #[cfg(unix)]
-    fn signal(&mut self, index: usize, hard: bool) {
+    fn signal(&mut self, index: usize, hard: bool) -> &'static str {
         let entry = &mut self.entries[index];
         let pid = entry.pid;
         // Each child is spawned in its own process group, so signal the whole group.
@@ -321,20 +321,58 @@ impl Registry {
                 let _ = killer.kill();
             }
         }
+        if hard {
+            "SIGKILL"
+        } else {
+            "SIGTERM"
+        }
     }
 
-    #[cfg(not(unix))]
-    fn signal(&mut self, index: usize, _hard: bool) {
-        // Windows has no graceful SIGTERM equivalent here: the child's own killer
-        // (TerminateProcess) is reported as an observed kill and remains a documented
-        // limitation for this slice.
+    /// Windows has no process groups here, so the real tree is terminated by `taskkill /T`.
+    /// Without `/F` it asks; with `/F` it forces. If taskkill cannot run, the registry still
+    /// falls back to the child killer and says so instead of claiming a taskkill it did not do.
+    #[cfg(windows)]
+    fn signal(&mut self, index: usize, hard: bool) -> &'static str {
+        let entry = &mut self.entries[index];
+        if taskkill(entry.pid, hard) {
+            return if hard {
+                "taskkill /T /F"
+            } else {
+                "taskkill /T"
+            };
+        }
+        if let Some(killer) = entry.killer.as_mut() {
+            let _ = killer.kill();
+        } else if let Some(child) = entry.child.as_mut() {
+            let _ = child.kill();
+        }
+        "child kill (taskkill failed)"
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn signal(&mut self, index: usize, _hard: bool) -> &'static str {
         let entry = &mut self.entries[index];
         if let Some(killer) = entry.killer.as_mut() {
             let _ = killer.kill();
         } else if let Some(child) = entry.child.as_mut() {
             let _ = child.kill();
         }
+        "child kill"
     }
+}
+
+#[cfg(windows)]
+fn taskkill(pid: u32, hard: bool) -> bool {
+    let mut command = Command::new("taskkill");
+    command.arg("/PID").arg(pid.to_string()).arg("/T");
+    if hard {
+        command.arg("/F");
+    }
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    matches!(command.status(), Ok(status) if status.success())
 }
 
 /// Signals a process group that this host created. Returns false when the signal could not

@@ -589,11 +589,15 @@ export function TestsPanel({
                     {result.outcome}
                   </span>{" "}
                   <code data-testid={`test-result-name-${index}`}>
-                    {result.fullyQualifiedName}
+                    {result.fullyQualifiedName || "unattributed (no TestDefinitions identity)"}
                   </code>{" "}
                   <span className="muted">
                     {resultDuration(result)} · source {result.outcomeRaw}
-                    {result.matched ? "" : " · not matched to the discovery"}
+                    {result.matched
+                      ? ""
+                      : result.fullyQualifiedName
+                        ? " · not matched to the discovery"
+                        : ` · TRX testName only: ${result.displayName}`}
                   </span>
                   <details data-testid={`test-result-details-${index}`}>
                     <summary>Details</summary>

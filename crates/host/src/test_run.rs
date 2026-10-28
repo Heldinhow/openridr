@@ -799,6 +799,9 @@ fn parse_result(
     let outcome_raw = attribute(tag, "outcome").unwrap_or_default();
     let test_id = attribute(tag, "testId");
     let display_name = attribute(tag, "testName").unwrap_or_default();
+    // Identity comes only from TestDefinitions. A missing testId (or a definition without a
+    // usable method name) leaves the result unattributed: the display name is never promoted
+    // to an identity, because two different tests can print the same label.
     let definition = test_id.as_ref().and_then(|id| definitions.get(id));
     let fully_qualified_name = definition
         .map(|definition| {
@@ -809,14 +812,22 @@ fn parse_result(
             }
         })
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| display_name.clone());
-    let matched = items
-        .iter()
-        .find(|item| item.fully_qualified_name == fully_qualified_name);
+        .unwrap_or_default();
+    let matched = (!fully_qualified_name.is_empty())
+        .then(|| {
+            items
+                .iter()
+                .find(|item| item.fully_qualified_name == fully_qualified_name)
+        })
+        .flatten();
     let outcome = match outcome_raw.as_str() {
         "Passed" => "passed",
         "Failed" | "Error" | "Timeout" => "failed",
-        "NotExecuted" if skipped.contains(&fully_qualified_name) => "skipped",
+        "NotExecuted"
+            if !fully_qualified_name.is_empty() && skipped.contains(&fully_qualified_name) =>
+        {
+            "skipped"
+        }
         "NotExecuted" => "notExecuted",
         _ => "unknown",
     };
@@ -1150,6 +1161,29 @@ mod tests {
         let counts = counts(&parsed.results);
         assert_eq!((counts.total, counts.passed, counts.failed), (4, 1, 1));
         assert_eq!((counts.skipped, counts.not_executed), (1, 1));
+    }
+
+    #[test]
+    fn a_trx_result_without_a_definition_keeps_its_label_but_no_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let xml = r#"<TestRun><Results><UnitTestResult testName="N.C.Pass" outcome="Passed" /></Results></TestRun>"#;
+        let parsed = parse_trx(xml, &items(), temp.path());
+        assert_eq!(parsed.results.len(), 1);
+        assert_eq!(parsed.results[0].test_id, None);
+        assert!(!parsed.results[0].matched);
+        assert_eq!(parsed.results[0].fully_qualified_name, "");
+        assert_eq!(parsed.results[0].display_name, "N.C.Pass");
+    }
+
+    #[test]
+    fn a_trx_result_with_an_unknown_test_id_is_never_matched_by_display_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let xml = r#"<TestRun><Results><UnitTestResult testId="999" testName="N.C.Pass" outcome="Passed" /></Results><TestDefinitions><UnitTest name="N.C.Pass" id="1"><TestMethod className="N.C" name="Pass" /></UnitTest></TestDefinitions></TestRun>"#;
+        let parsed = parse_trx(xml, &items(), temp.path());
+        assert_eq!(parsed.results.len(), 1);
+        assert_eq!(parsed.results[0].test_id, None);
+        assert!(!parsed.results[0].matched);
+        assert_eq!(parsed.results[0].fully_qualified_name, "");
     }
 
     #[test]

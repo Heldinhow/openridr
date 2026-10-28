@@ -380,7 +380,6 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "tools.retry"
             && **method != "debug.install"
             && **method != "debug.retry"
-            && **method != "run.start"
             && **method != "terminal.start"
             && **method != "debug.start"
     }) {
@@ -420,8 +419,8 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     );
     assert_eq!(
         error_code(host.dispatch("run.start", json!({}))),
-        "invalid_state",
-        "run.start needs a current evaluation and a successful build"
+        "restore_required",
+        "run.start must pass the shared restore gate before evaluation/build checks"
     );
     let debug_start = host
         .dispatch("debug.start", json!({}))
@@ -1367,19 +1366,13 @@ fn build_start_reports_restore_required_with_the_explicit_action() {
         "the policy must not restore"
     );
 
-    for method in ["debug.start", "tests.discover", "tests.run"] {
+    for method in ["run.start", "debug.start", "tests.discover", "tests.run"] {
         assert_eq!(
             error_code(host.dispatch(method, json!({}))),
             "restore_required",
             "{method} must refuse to run without restored assets"
         );
     }
-    // Run consumes an identified successful build, so without a current evaluation it is
-    // refused before any restore policy; it still never restores.
-    assert_eq!(
-        error_code(host.dispatch("run.start", json!({}))),
-        "invalid_state"
-    );
     assert!(!workspace.path().join("obj").exists());
 }
 
@@ -3138,6 +3131,51 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
         .expect_err("a missing TargetPath cannot be launched");
     assert_eq!(missing.code, "invalid_state");
     assert_eq!(missing.details.unwrap()["reason"], "target_missing");
+}
+
+/// A successful build proves compilation, not that the restore inputs it depended on still
+/// exist. Removing them after the build must stop Run at the same explicit gate as Build.
+#[cfg(target_os = "macos")]
+#[test]
+fn run_start_reports_restore_required_when_assets_are_invalidated_after_a_build() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk run restore");
+    let assets = copy.join("src/OrderDesk.Cli/obj/project.assets.json");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(&host, Duration::from_secs(60));
+    host.dispatch("evaluation.run", json!({})).unwrap();
+
+    host.dispatch("build.start", json!({})).unwrap();
+    let built = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(built["state"], "ok", "{}", built["log"]);
+    assert!(assets.is_file(), "restore must have produced the assets file");
+
+    fs::remove_file(&assets).unwrap();
+    let refused = host
+        .dispatch("run.start", json!({}))
+        .expect_err("run must not bypass the restore policy after a build");
+    assert_eq!(refused.code, "restore_required");
+    assert!(refused.message.contains("never restores implicitly"));
+    let details = refused.details.unwrap();
+    assert_eq!(details["consumer"], "run.start");
+    assert_eq!(details["action"]["method"], "restore.start");
+    assert_eq!(details["projects"][0]["restored"], "not_restored");
+    assert!(!assets.exists(), "run.start must never restore implicitly");
+
+    let state = snapshot(&host);
+    assert_eq!(state["run"]["state"], "idle");
+    assert!(
+        !state["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"].as_str().is_some_and(|kind| kind.starts_with("run:"))),
+        "run.start must not start a process"
+    );
 }
 
 #[cfg(unix)]

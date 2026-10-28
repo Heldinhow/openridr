@@ -457,11 +457,6 @@ impl Dap {
         Ok(dap)
     }
 
-    #[allow(dead_code)]
-    pub fn session(&self) -> u64 {
-        self.data.lock().unwrap().session
-    }
-
     pub fn is_active(&self) -> bool {
         matches!(
             self.data.lock().unwrap().state,
