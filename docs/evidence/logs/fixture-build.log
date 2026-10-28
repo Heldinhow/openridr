@@ -1,0 +1,24 @@
+authoring validation only; app flows never run dotnet
+cwd: /Users/helder/Projetos/openridr/fixtures/OrderDesk
+dotnet --version: 8.0.408
+--- dotnet restore OrderDesk.sln ---
+  Determinando os projetos a serem restaurados...
+  Todos os projetos estão atualizados para restauração.
+--- dotnet build OrderDesk.sln -c Debug --no-restore ---
+  OrderDesk.Core -> /Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll
+  OrderDesk.Tests -> /Users/helder/Projetos/openridr/fixtures/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll
+  OrderDesk.Cli -> /Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+
+Compilação com êxito.
+    0 Aviso(s)
+    0 Erro(s)
+
+Tempo Decorrido 00:00:00.71
+--- dotnet test OrderDesk.sln -c Debug --no-build ---
+Execução de teste para /Users/helder/Projetos/openridr/fixtures/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+Versão do VSTest 17.11.1 (arm64)
+
+Iniciando execução de teste, espere...
+1 arquivos de teste no total corresponderam ao padrão especificado.
+
+Aprovado!  – Com falha:     0, Aprovado:     2, Ignorado:     0, Total:     2, Duração: 2 ms - OrderDesk.Tests.dll (net8.0)

@@ -1,0 +1,17 @@
+date: 2026-10-28T02:04:07Z
+build: cargo build (src-tauri), embedded dist from: 2026-10-27T23:03:24Z
+command: ./src-tauri/target/debug/openridr, pid 26649
+process: 26649 00:08 ./src-tauri/target/debug/openridr
+--- window metadata (CGWindowList) ---
+["kCGWindowLayer": 0, "kCGWindowAlpha": 1, "kCGWindowOwnerName": openridr, "kCGWindowStoreType": 1, "kCGWindowBounds": {
+    Height = 900;
+    Width = 1440;
+    X = 135;
+    Y = 60;
+}, "kCGWindowIsOnscreen": 1, "kCGWindowSharingState": 0, "kCGWindowNumber": 2844, "kCGWindowOwnerPID": 26649, "kCGWindowMemoryUsage": 2432]
+--- screencapture -x -l2844 (window) ---
+could not create image from window
+--- screencapture -x (display) ---
+could not create image from display
+--- accessibility probe ---
+40:44: execution error: System Events obteve um erro: osascript é um acesso assistivo não permitido. (-1728)

@@ -8,12 +8,16 @@
 
 **Category:** enhancement
 
-- [ ] Auditar a revisão/interfaces/licenças da base efetivamente reutilizada antes de incorporá-la; preservar avisos aplicáveis, sem código/branding proprietário. Entregar uma janela desktop funcional, não apenas os wireframes.
-- [ ] Abrir uma solução ou projeto, apenas um workspace por vez; múltiplas soluções/contextos exigem escolha explícita. Mostrar caminho completo, `Restricted mode`, trust desmarcado e `Open text only` sem ações executáveis no repositório.
-- [ ] Exibir contorno **textual**, nunca rotulado como árvore avaliada. Ler solução/projeto/global.json não aciona MSBuild, restore, LSP, tarefas, build/run/debug, testes ou shell; limites também existem na fronteira host, sem confiar só em botões desabilitados.
-- [ ] Abrir/editar/salvar texto inclusive sem solução, SDK ou LSP; árvore à esquerda, editor flexível, toolbar, painel inferior, abas/breadcrumb e modificado identificáveis. Falhas de leitura/escrita preservam buffer e mostram erro/log.
-- [ ] Desde esta fatia, fechar/substituir buffer ou trocar/fechar workspace com edição exige escolha explícita. Detectar conflito de disco antes de salvar; não sobrescrever silenciosamente nem descartar conteúdo. Um fluxo mínimo seguro pode bloquear a operação mantendo ambas as versões recuperáveis; 07 completa comparar/recarregar/preservar.
-- [ ] Aplicar [gates G1–G5](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket) pertinentes desde agora, especialmente UI inglesa, foco/teclado, motivos de bloqueio, logs locais e proteção dos dados. Comandos futuros indisponíveis não executam por atalho ou chamada direta.
+- [x] Auditar a revisão/interfaces/licenças da base efetivamente reutilizada antes de incorporá-la; preservar avisos aplicáveis, sem código/branding proprietário. Entregar uma janela desktop funcional, não apenas os wireframes. *(Nenhum código OpenIdea reutilizado; janela Tauri real criada em 1440×900. Captura e direção da janela nativa limitadas por TCC — ver evidência.)*
+- [x] Abrir uma solução ou projeto, apenas um workspace por vez; múltiplas soluções/contextos exigem escolha explícita. Mostrar caminho completo, `Restricted mode`, trust desmarcado e `Open text only` sem ações executáveis no repositório.
+- [x] Exibir contorno **textual**, nunca rotulado como árvore avaliada. Ler solução/projeto/global.json não aciona MSBuild, restore, LSP, tarefas, build/run/debug, testes ou shell; limites também existem na fronteira host, sem confiar só em botões desabilitados.
+- [x] Abrir/editar/salvar texto inclusive sem solução, SDK ou LSP; árvore à esquerda, editor flexível, toolbar, painel inferior, abas/breadcrumb e modificado identificáveis. Falhas de leitura/escrita preservam buffer e mostram erro/log.
+- [x] Desde esta fatia, fechar/substituir buffer ou trocar/fechar workspace com edição exige escolha explícita. Detectar conflito de disco antes de salvar; não sobrescrever silenciosamente nem descartar conteúdo. Um fluxo mínimo seguro pode bloquear a operação mantendo ambas as versões recuperáveis; 07 completa comparar/recarregar/preservar.
+- [x] Aplicar [gates G1–G5](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket) pertinentes desde agora, especialmente UI inglesa, foco/teclado, motivos de bloqueio, logs locais e proteção dos dados. Comandos futuros indisponíveis não executam por atalho ou chamada direta.
+
+## Evidência
+
+Implementação, comandos, resultados e limitações por ambiente: [docs/evidence/01-abertura-restrita.md](../evidence/01-abertura-restrita.md). Windows não foi executado; a janela desktop foi criada mas não dirigida (TCC de Screen Recording/Assistive Access), e a UI foi exercitada no Chrome real via ponte HTTP, que chama o mesmo host.
 
 ## Mapeamento à SPEC
 
@@ -26,3 +30,4 @@ Na UI desktop real do Mac, abrir solução/projeto e caso ambíguo, editar/salva
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+- 2026-10-28: Implementado e validado em macOS 27.2 arm64. Evidência em [docs/evidence/01-abertura-restrita.md](../evidence/01-abertura-restrita.md). Windows não executado; desktop criado mas não dirigido por limitação de TCC; nenhum trust concedido (ticket 02).
