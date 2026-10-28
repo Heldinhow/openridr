@@ -1,0 +1,82 @@
+{
+  "analysisUnavailable": null,
+  "analyzerCoverage": "not_verified",
+  "awaiting": [],
+  "counts": {
+    "error": 1,
+    "hint": 0,
+    "information": 0,
+    "unknown": 0,
+    "warning": 0
+  },
+  "coverage": "full",
+  "coverageNote": null,
+  "currentItems": 1,
+  "origin": {
+    "id": "lsp",
+    "label": "LSP \u00b7 csharp-ls"
+  },
+  "session": 1,
+  "snapshots": [
+    {
+      "clientRevision": 1,
+      "contextId": 2,
+      "currentRevision": 1,
+      "id": "lsp:1:file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-06-evidence-dau8zsx6/Order%20Desk%20problems/src/OrderDesk.Cli/Program.cs",
+      "items": [
+        {
+          "category": "unknown",
+          "code": "CS0246",
+          "codeDescription": "https://msdn.microsoft.com/query/roslyn.query?appId=roslyn&k=k(CS0246)",
+          "id": "lsp:1:file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-06-evidence-dau8zsx6/Order%20Desk%20problems/src/OrderDesk.Cli/Program.cs:0",
+          "message": "The type or namespace name 'OrderReport' could not be found (are you missing a using directive or an assembly reference?)",
+          "position": {
+            "character": 17,
+            "line": 5
+          },
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 5
+            },
+            "start": {
+              "character": 17,
+              "line": 5
+            }
+          },
+          "severity": 1,
+          "severityLabel": "error",
+          "severityRaw": 1,
+          "source": "lsp",
+          "stale": false
+        }
+      ],
+      "origin": {
+        "id": "lsp",
+        "label": "LSP \u00b7 csharp-ls"
+      },
+      "path": "src/OrderDesk.Cli/Program.cs",
+      "receivedAt": 1793163459021,
+      "revisionKnown": true,
+      "serverVersion": null,
+      "session": 1,
+      "staleReason": null,
+      "state": "current",
+      "uri": "file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-06-evidence-dau8zsx6/Order%20Desk%20problems/src/OrderDesk.Cli/Program.cs",
+      "workspaceId": 1
+    }
+  ],
+  "staleItems": 0,
+  "summaries": [
+    {
+      "currentItems": 1,
+      "origin": {
+        "id": "lsp",
+        "label": "LSP \u00b7 csharp-ls"
+      },
+      "session": 1,
+      "staleItems": 0,
+      "unavailable": null
+    }
+  ]
+}

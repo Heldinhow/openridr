@@ -416,6 +416,7 @@ struct Data {
     context_id: Option<u64>,
     started_at: Option<u64>,
     finished_at: Option<u64>,
+    installing_since: Option<u64>,
     verifying_since: Option<u64>,
     cancel_requested: bool,
     sealed: bool,
@@ -455,6 +456,7 @@ impl Tools {
                 context_id: None,
                 started_at: None,
                 finished_at: None,
+                installing_since: None,
                 verifying_since: None,
                 cancel_requested: false,
                 sealed: false,
@@ -721,6 +723,7 @@ impl Tools {
         data.context_id = Some(context_id);
         data.started_at = Some(now_ms());
         data.finished_at = None;
+        data.installing_since = None;
         data.verifying_since = None;
         data.cancel_requested = false;
         data.sealed = false;
@@ -834,11 +837,18 @@ impl Tools {
                     return;
                 }
                 data.state = "installing";
+                data.installing_since = Some(now_ms());
                 data.log.push(
                     "Install process exited 0; promoting the staging directory.".to_string(),
                 );
             }
             "installing" => {
+                // Like verifying, keep promotion observable for at least one poll interval.
+                if let Some(since) = data.installing_since {
+                    if now_ms().saturating_sub(since) < 300 {
+                        return;
+                    }
+                }
                 let destination = PathBuf::from(&data.destination);
                 let staging = PathBuf::from(&data.staging);
                 if let Err(error) = promote(&staging, &destination) {

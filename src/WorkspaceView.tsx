@@ -7,6 +7,7 @@ import {
   type OutlineProject,
 } from "./host/client";
 import { CodeEditor } from "./CodeEditor";
+import { ProblemsPanel } from "./ProblemsPanel";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { LspPanel, ToolInstaller } from "./ToolchainPanels";
@@ -105,6 +106,14 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [bottomTab, setBottomTab] = useState<BottomTab>("build");
+  const [editorTarget, setEditorTarget] = useState<{
+    path: string;
+    line: number;
+    character: number;
+    nonce: number;
+  } | null>(null);
+  const [editedAt, setEditedAt] = useState<Record<string, number>>({});
+  const navigationSeq = useRef(0);
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const autoEvaluation = useRef<number | null>(null);
@@ -228,7 +237,11 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     for (const tab of tabs) {
       if (lspSent.current.paths.has(tab.path)) continue;
       lspSent.current.paths.add(tab.path);
-      void call("lsp.didOpen", { path: tab.path, text: tab.content }).catch(() => {});
+      void call("lsp.didOpen", { path: tab.path, text: tab.content }).catch(() => {
+        if (lspSent.current.session === lsp.session) {
+          lspSent.current.paths.delete(tab.path);
+        }
+      });
     }
   }, [lsp.session, lsp.state, tabs]);
 
@@ -262,7 +275,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   async function openFile(path: string) {
     if (tabs.some((tab) => tab.path === path)) {
       setActivePath(path);
-      return;
+      return true;
     }
     try {
       const file = await call<{ path: string; content: string; hash: string }>("file.read", {
@@ -274,15 +287,29 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       ]);
       setActivePath(file.path);
       setMessage(null);
+      return true;
     } catch (error) {
       setMessage({ tone: "error", text: `Could not open ${path}: ${messageOf(error)}` });
+      return false;
     }
+  }
+
+  async function navigateTo(path: string, position: { line: number; character: number }) {
+    if (!(await openFile(path))) return;
+    navigationSeq.current += 1;
+    setEditorTarget({
+      path,
+      line: position.line,
+      character: position.character,
+      nonce: navigationSeq.current,
+    });
   }
 
   function updateContent(path: string, content: string) {
     setTabs((current) =>
       current.map((tab) => (tab.path === path ? { ...tab, content } : tab)),
     );
+    setEditedAt((current) => ({ ...current, [path]: Date.now() }));
     queueDidChange(path, content);
   }
 
@@ -507,9 +534,12 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         );
       case "problems":
         return (
-          <p className="muted" data-testid="problems-empty">
-            No analysis has run. Diagnostics from csharp-ls arrive with ticket 06.
-          </p>
+          <ProblemsPanel
+            diagnostics={snapshot.diagnostics}
+            editedAt={editedAt}
+            onNavigate={(path, position) => void navigateTo(path, position)}
+            onOpen={(path) => void openFile(path)}
+          />
         );
       case "debug":
         return <p className="muted">Debug is not available in this build (ticket 14).</p>;
@@ -1110,6 +1140,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   value={active.content}
                   onChange={(value) => updateContent(active.path, value)}
                   onSave={() => void save()}
+                  target={
+                    editorTarget?.path === active.path ? editorTarget : null
+                  }
                 />
               </div>
             </>
@@ -1233,7 +1266,10 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
       </div>
 
-      <section className="output" aria-label="Bottom panel">
+      <section
+        className={`output ${bottomTab === "problems" ? "problems-output" : ""}`}
+        aria-label="Bottom panel"
+      >
         <div className="tabs bottom-tabs" role="tablist" aria-label="Output panels">
           {bottomTabs.map((tab) => (
             <button
@@ -1244,7 +1280,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               data-testid={`bottom-tab-${tab.id}`}
               onClick={() => setBottomTab(tab.id)}
             >
-              {tab.label}
+              {tab.id === "problems" && snapshot.diagnostics.currentItems > 0
+                ? `Problems (${snapshot.diagnostics.currentItems})`
+                : tab.label}
             </button>
           ))}
         </div>

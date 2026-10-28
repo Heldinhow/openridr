@@ -1,3 +1,4 @@
+mod diagnostics;
 mod error;
 mod evaluation;
 pub mod hostroot;
@@ -44,6 +45,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "tests.discover",
     "tests.run",
     "processes.probe",
+    "diagnostics.probe",
 ];
 
 pub struct Host {
@@ -75,6 +77,7 @@ struct Inner {
     lsp: Option<Arc<lsp::Lsp>>,
     lsp_seq: u64,
     lsp_verbose: bool,
+    diagnostics: diagnostics::Store,
 }
 
 struct Workspace {
@@ -205,6 +208,7 @@ impl Host {
                 lsp: None,
                 lsp_seq: 0,
                 lsp_verbose: false,
+                diagnostics: diagnostics::Store::new(),
             }),
         }
     }
@@ -212,6 +216,9 @@ impl Host {
     pub fn dispatch(&self, method: &str, params: Value) -> HostResult<Value> {
         if method == "processes.probe" {
             return self.probe(params);
+        }
+        if method == "diagnostics.probe" {
+            return self.diagnostics_probe(params);
         }
         if method == "evaluation.run" {
             return self.run_evaluation(params);
@@ -370,11 +377,49 @@ impl Host {
             .as_ref()
             .map(|lsp| lsp.view())
             .unwrap_or_else(lsp::Lsp::unavailable_view);
-        let publications = inner
+        let documents = inner
             .lsp
             .as_ref()
-            .map(|lsp| lsp.publications())
+            .map(|lsp| lsp.document_revisions())
             .unwrap_or_default();
+        if let Some(lsp) = inner.lsp.clone() {
+            match lsp_view.state {
+                "failed" => inner.diagnostics.mark_unavailable(
+                    diagnostics::LSP_ORIGIN,
+                    format!(
+                        "Analysis failed; diagnostics from session {} are not current. {}",
+                        lsp_view.session,
+                        lsp_view
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| "See the analysis log.".to_string())
+                    ),
+                ),
+                "stopped" => inner.diagnostics.mark_unavailable(
+                    diagnostics::LSP_ORIGIN,
+                    format!(
+                        "Analysis is stopped; diagnostics from session {} are not current. {}",
+                        lsp_view.session,
+                        lsp_view
+                            .stopped_reason
+                            .clone()
+                            .unwrap_or_else(|| "Start analysis again to refresh them.".to_string())
+                    ),
+                ),
+                _ => {
+                    for publication in lsp.publications() {
+                        inner
+                            .diagnostics
+                            .ingest(&diagnostics::Origin::lsp(), &publication);
+                    }
+                }
+            }
+        }
+        let diagnostics_view = inner.diagnostics.view(
+            &documents,
+            lsp_view.coverage,
+            lsp_view.coverage_note.clone(),
+        );
         Snapshot {
             context_id: inner.context_seq,
             app: AppInfo {
@@ -413,10 +458,7 @@ impl Host {
             restore: inner.restore.view(),
             tools: json!({ tools::TOOL: inner.tools.view() }),
             lsp: lsp_view,
-            diagnostics: json!({
-                "session": inner.lsp.as_ref().map(|lsp| lsp.session()).unwrap_or(0),
-                "snapshots": publications,
-            }),
+            diagnostics: serde_json::to_value(diagnostics_view).expect("diagnostics serialize"),
         }
     }
 
@@ -454,6 +496,7 @@ impl Host {
             "Workspace changed while a restore was running; its result will not be applied to the new workspace.",
         );
         inner.lsp = None;
+        inner.diagnostics.clear();
         inner.processes.mark_awaiting();
         inner.workspace_seq += 1;
         inner.context_seq += 1;
@@ -479,6 +522,7 @@ impl Host {
             "Workspace closed while a restore was running; its result will not be applied.",
         );
         inner.lsp = None;
+        inner.diagnostics.clear();
         inner.processes.mark_awaiting();
         inner.workspace = None;
         inner.trusted = false;
@@ -535,6 +579,10 @@ impl Host {
         stop_restore(
             &mut inner,
             "Trust was revoked while this restore was running; it was stopped and its result is not current.",
+        );
+        inner.diagnostics.mark_unavailable(
+            diagnostics::LSP_ORIGIN,
+            "Trust was revoked; analysis is unavailable and these diagnostics are not current. Editing stays available.",
         );
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
         inner.evaluation = Evaluation::idle();
@@ -604,6 +652,63 @@ impl Host {
                     format!("Could not start probe process: {error}"),
                 )
             })?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Development-only boundary: publishes a diagnostic without a range for the current
+    /// session so the UI contract "no position, no navigation" can be exercised end to end.
+    fn diagnostics_probe(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("diagnostics.probe")?;
+        if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
+            return Err(HostError::new(
+                "invalid_state",
+                "diagnostics.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.",
+            ));
+        }
+        let rel = optional_str(&params, "path")
+            .unwrap_or_else(|| "diagnostics-probe/NoPosition.cs".to_string());
+        let mut inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        let lsp = inner
+            .lsp
+            .clone()
+            .ok_or_else(|| HostError::new("invalid_state", "Analysis is not running."))?;
+        if !lsp.accepts_documents() {
+            return Err(HostError::new(
+                "invalid_state",
+                "Analysis has not finished initializing; the probe was not stored.",
+            ));
+        }
+        // A synthetic document keeps the probe from replacing a real publication for an
+        // existing file; the UI contract under test is only "no position, no navigation".
+        let publication = lsp::Publication {
+            uri: "file:///openridr-probe/NoPosition.cs".to_string(),
+            path: Some(rel),
+            received_at: now_ms(),
+            client_revision: None,
+            server_version: Value::Null,
+            session: lsp.session(),
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+            items: vec![lsp::DiagnosticItem {
+                range: Value::Null,
+                severity: Some(1),
+                code: json!("PROBE0001"),
+                source: Some("lsp".to_string()),
+                message: "Development-only probe: this diagnostic has no published position."
+                    .to_string(),
+                code_description: None,
+            }],
+        };
+        if !inner
+            .diagnostics
+            .ingest(&diagnostics::Origin::lsp(), &publication)
+        {
+            return Err(HostError::new(
+                "stale_context",
+                "The probe publication did not match the current analysis session.",
+            ));
+        }
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -1191,6 +1296,12 @@ impl Host {
         let session = inner.lsp_seq + 1;
         let verbose = inner.lsp_verbose;
         let log_level = if verbose { "debug" } else { "info" };
+        inner.diagnostics.begin_session(
+            &diagnostics::Origin::lsp(),
+            session,
+            token.workspace_id,
+            token.context_id,
+        );
 
         let hostroot = match hostroot::ensure(&host_install, &project_install) {
             Ok(hostroot) => hostroot,

@@ -239,25 +239,58 @@ export type LspCapabilities = {
   summary: string[];
 };
 
-export type DiagnosticItem = {
-  range: {
-    start: { line: number; character: number };
-    end: { line: number; character: number };
-  };
+export type ProblemItem = {
+  id: string;
   severity: number | null;
+  severityLabel: "error" | "warning" | "information" | "hint" | "unknown";
+  severityRaw: number | null;
   code: string | number | null;
   source: string | null;
+  category: "compiler" | "analyzer" | "unknown";
   message: string;
+  position: { line: number; character: number } | null;
+  range: unknown;
   codeDescription: string | null;
+  stale: boolean;
 };
 
-export type DiagnosticPublication = {
+export type DiagnosticSnapshot = {
+  id: string;
+  origin: { id: string; label: string };
+  session: number;
+  workspaceId: number;
+  contextId: number;
   uri: string;
   path: string | null;
   receivedAt: number;
   clientRevision: number | null;
-  serverVersion: number | null;
-  items: DiagnosticItem[];
+  currentRevision: number | null;
+  revisionKnown: boolean;
+  serverVersion: unknown;
+  state: "current" | "awaiting" | "stale";
+  staleReason: string | null;
+  items: ProblemItem[];
+};
+
+export type Diagnostics = {
+  session: number;
+  origin: { id: string; label: string };
+  snapshots: DiagnosticSnapshot[];
+  awaiting: { origin: { id: string; label: string }; session: number; path: string; revision: number }[];
+  counts: { error: number; warning: number; information: number; hint: number; unknown: number };
+  summaries: {
+    origin: { id: string; label: string };
+    session: number;
+    currentItems: number;
+    staleItems: number;
+    unavailable: string | null;
+  }[];
+  currentItems: number;
+  staleItems: number;
+  coverage: "full" | "partial";
+  coverageNote: string | null;
+  analyzerCoverage: "not_verified";
+  analysisUnavailable: string | null;
 };
 
 export type Lsp = {
@@ -306,8 +339,6 @@ export type Lsp = {
   workspaceId: number | null;
   contextId: number | null;
 };
-
-export type Diagnostics = { session: number; snapshots: DiagnosticPublication[] };
 
 export type Snapshot = {
   contextId: number;

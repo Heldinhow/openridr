@@ -5,6 +5,7 @@
 //! write is a Content-Length frame with UTF-8 byte lengths. Late messages from an older
 //! session are dropped because a restart replaces the `Arc<Lsp>` the reader threads hold.
 
+use crate::diagnostics::DocumentRevision;
 use crate::logbuf::{self, LogBuffer};
 use crate::process::{kill_group, process_alive, Termination};
 use serde::Serialize;
@@ -148,6 +149,9 @@ pub struct Publication {
     /// Client document revision at reception. The server's publishDiagnostics has no version.
     pub client_revision: Option<i64>,
     pub server_version: Value,
+    pub session: u64,
+    pub workspace_id: u64,
+    pub context_id: u64,
     pub items: Vec<DiagnosticItem>,
 }
 
@@ -401,6 +405,20 @@ impl Lsp {
 
     pub fn publications(&self) -> Vec<Publication> {
         self.data.lock().unwrap().publications.values().cloned().collect()
+    }
+
+    /// Open documents with their client revision, so the snapshot store can tell a publication
+    /// for an older buffer apart from a current one.
+    pub fn document_revisions(&self) -> Vec<DocumentRevision> {
+        let data = self.data.lock().unwrap();
+        data.documents
+            .iter()
+            .map(|(uri, document)| DocumentRevision {
+                uri: uri.clone(),
+                path: document.path.clone(),
+                revision: document.version,
+            })
+            .collect()
     }
 
     pub fn unavailable_view() -> LspView {
@@ -959,6 +977,9 @@ impl Lsp {
             received_at: now_ms(),
             client_revision,
             server_version: params.get("version").cloned().unwrap_or(Value::Null),
+            session: data.session,
+            workspace_id: data.workspace_id,
+            context_id: data.context_id,
             items,
         };
         data.log.push(format!(

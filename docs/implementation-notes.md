@@ -66,7 +66,20 @@ A UI nunca executa processo. Toda operação passa por `dispatch(method, params)
                "startedAt": 0, "finishedAt": 0, "sealed": false, "staleReason": null },
   "tools": { "csharp-ls": { "state": "absent|planned|downloading|installing|verifying|ready|cancelled|failed", "version": "0.28.0", "destination": "...", "staging": "...", "plan": {...}, "log": "...", "sha256": "...", "verifiedVersion": "...", "error": null, "reused": false, "revision": 0, "workspaceId": null, "contextId": null } },
   "lsp": { "state": "unavailable|starting|loading|ready|partial|awaiting_diagnostics|failed|stopped", "session": 0, "logLevel": "info|debug", "log": "...", "capabilities": {...}, "serverInfo": {...}, "hostRoot": "...", "hostRootCheck": "...", "coverage": "full|partial", "coverageNote": null, "publicationCount": 0, "diagnosticItems": 0, "awaitingDocuments": [], "processId": null, "exit": null, "termination": null, "error": null, "stoppedReason": null },
-  "diagnostics": { "session": 0, "snapshots": [ { "uri": "file://...", "path": "src/...", "receivedAt": 0, "clientRevision": 1, "serverVersion": null, "items": [ {"range","severity","code","source","message","codeDescription"} ] } ] }
+  "diagnostics": { "session": 0, "origin": {"id":"lsp","label":"LSP · csharp-ls"},
+                   "snapshots": [ { "id","origin","session","workspaceId","contextId","uri","path",
+                                    "receivedAt","clientRevision","currentRevision","revisionKnown",
+                                    "serverVersion","state":"current|awaiting|stale","staleReason",
+                                    "items": [{"id","severity","severityLabel","severityRaw","code","source",
+                                               "category":"compiler|analyzer|unknown","message",
+                                               "position":{"line","character"}|null,"range",
+                                               "codeDescription","stale"}] } ],
+                   "awaiting": [{"origin","session","path","revision"}],
+                   "counts": {"error","warning","information","hint","unknown"},
+                   "summaries": [{"origin","session","currentItems","staleItems","unavailable"}],
+                   "currentItems": 0, "staleItems": 0,
+                   "coverage": "full|partial", "coverageNote": null,
+                   "analyzerCoverage": "not_verified", "analysisUnavailable": null }
 }
 ```
 
@@ -116,7 +129,7 @@ Smoke desktop sem Vite (usa `dist/` embutido): `cargo build` em `src-tauri` e ex
 
 ## Testids estáveis (E2E)
 
-`workspace-path-input`, `workspace-open`, `workspace-candidates`, `trust-checkbox`, `trust-grant`, `trust-revoke`, `trust-note`, `trust-grant-reason`, `mode-restricted`, `mode-trusted`, `mode-badge`, `open-text-only`, `tree`, `tree-project-*`, `tree-file-*`, `editor`, `tab-*`, `dirty-marker`, `save-file`, `conflict-banner`, `conflict-overwrite`, `conflict-reload`, `close-buffer`, `sdk-host`, `sdk-project`, `sdk-project-message`, `sdk-tfms`, `sdk-debug-adapter`, `sdk-apple-silicon`, `sdk-redetect`, `sdk-open-global-json`, `toolchain`, `eval-state`, `restore-panel`, `restore-action`, `restore-cancel`, `restore-retry`, `restore-reload`, `restore-state`, `restore-scope`, `restore-command`, `restore-log`, `restore-incomplete-*`, `install-panel`, `install-state`, `install-plan-open`, `install-plan`, `install-tool`, `install-source`, `install-platform`, `install-destination`, `install-staging`, `install-command`, `install-cwd`, `install-permissions`, `install-integrity`, `install-existing`, `install-confirm`, `install-cancel`, `install-retry`, `install-sha256`, `install-verified`, `install-log`, `lsp-panel`, `lsp-state`, `lsp-session`, `lsp-start`, `lsp-stop`, `lsp-restart`, `lsp-verbose`, `lsp-log`, `lsp-capabilities`, `lsp-diagnostics`, `lsp-coverage-note`, `lsp-error`, `lsp-hostroot`, `lsp-process`, `problems-list`, `problem-row-*`, `problems-empty`, `processes-panel`, `processes-row-*`, `processes-state-*`, `processes-terminate-*`, `processes-keep-*`, `processes-awaiting-*`, `processes-termination-*`, `bottom-tab-*`, `status-*`.
+`workspace-path-input`, `workspace-open`, `workspace-candidates`, `trust-checkbox`, `trust-grant`, `trust-revoke`, `trust-note`, `trust-grant-reason`, `mode-restricted`, `mode-trusted`, `mode-badge`, `open-text-only`, `tree`, `tree-project-*`, `tree-file-*`, `editor`, `tab-*`, `dirty-marker`, `save-file`, `conflict-banner`, `conflict-overwrite`, `conflict-reload`, `close-buffer`, `sdk-host`, `sdk-project`, `sdk-project-message`, `sdk-tfms`, `sdk-debug-adapter`, `sdk-apple-silicon`, `sdk-redetect`, `sdk-open-global-json`, `toolchain`, `eval-state`, `restore-panel`, `restore-action`, `restore-cancel`, `restore-retry`, `restore-reload`, `restore-state`, `restore-scope`, `restore-command`, `restore-log`, `restore-incomplete-*`, `install-panel`, `install-state`, `install-plan-open`, `install-plan`, `install-tool`, `install-source`, `install-platform`, `install-destination`, `install-staging`, `install-command`, `install-cwd`, `install-permissions`, `install-integrity`, `install-existing`, `install-confirm`, `install-cancel`, `install-retry`, `install-sha256`, `install-verified`, `install-log`, `lsp-panel`, `lsp-state`, `lsp-session`, `lsp-start`, `lsp-stop`, `lsp-restart`, `lsp-verbose`, `lsp-log`, `lsp-capabilities`, `lsp-diagnostics`, `lsp-coverage-note`, `lsp-error`, `lsp-hostroot`, `lsp-process`, `problems-list`, `problem-row-*`, `problem-stale`, `problems-empty`, `problems-details`, `problems-coverage`, `problems-counts`, `problems-filter`, `problem-navigate`, `problem-open-document`, `problem-no-position`, `editor-shell` (`data-cursor` = `line:character` 0-based), `processes-panel`, `processes-row-*`, `processes-state-*`, `processes-terminate-*`, `processes-keep-*`, `processes-awaiting-*`, `processes-termination-*`, `bottom-tab-*`, `status-*`.
 
 ## Evidência por ticket
 
@@ -133,3 +146,10 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 - Destino: `<app home>/tools/csharp-ls/0.28`, staging `0.28.staging`, HOME isolado `<app home>/toolhome`.
 - Hostroot: `<app home>/hostroot`; runtime 10 + SDK do projeto 8; marker de inputs. O SDK 10 do sistema não entra em `sdk/` (ver decisions).
 - Eventos de UI: o editor envia didOpen uma vez por sessão e didChange (texto completo) com debounce de 250 ms; restart troca a sessão e reenvia o conjunto aberto.
+
+## Diagnósticos (ticket 06)
+
+- `diagnostics::Store` (origem/sessão/workspace/contexto/URI) é alimentado pelas publicações da sessão LSP atual e reconstruído no snapshot. Publicação de sessão/contexto anterior é ignorada; restart mantém a sessão anterior como `stale`, revogação/falha/stop marcam `analysisUnavailable` e mantêm os itens.
+- `clientRevision` é atribuída na recepção (sem `version` do servidor). Mesma sessão e revisão atual maior → `awaiting` com itens retidos; outra sessão → `stale`. Categoria só vem de `source` com `compiler`/`analyzer`; caso contrário `Unknown`. `analyzerCoverage` é sempre `not_verified`.
+- Problems usa os testids acima; navegação por posição é feita no `CodeEditor` (`target`), e itens awaiting/stale/sem posição não movem o cursor. Edição local marca awaiting de imediato até a próxima publicação.
+- `diagnostics.probe {path?}` só existe com `OPENRIDR_ENABLE_PROBE=1` e trust; injeta um item sem `range` para o teste de UI. Não é usado pela UI normal.

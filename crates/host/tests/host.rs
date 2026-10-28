@@ -2133,7 +2133,8 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     let copy = fixture_copy(temp.path(), "Order Desk lsp");
     let program = copy.join("src/OrderDesk.Cli/Program.cs");
     let clean = fs::read_to_string(&program).unwrap();
-    fs::write(&program, format!("{clean}\nvar report = new OrderReport();\n")).unwrap();
+    let broken = format!("{clean}\nvar report = new OrderReport();\n");
+    fs::write(&program, &broken).unwrap();
 
     let host = Host::new();
     open(&host, &copy.join("OrderDesk.sln"));
@@ -2177,9 +2178,23 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     assert_eq!(items.len(), 1, "{}", publication);
     assert_eq!(items[0]["code"], "CS0246");
     assert_eq!(items[0]["severity"], 1);
+    assert_eq!(items[0]["severityLabel"], "error");
     assert_eq!(items[0]["source"], "lsp");
+    assert_eq!(items[0]["category"], "unknown");
     assert!(items[0]["message"].as_str().unwrap().contains("OrderReport"));
     assert!(items[0]["range"]["start"]["line"].as_u64().unwrap() >= 4);
+    let diagnostics = snapshot(&host)["diagnostics"].clone();
+    assert_eq!(diagnostics["session"], 1);
+    assert_eq!(diagnostics["origin"]["label"], "LSP · csharp-ls");
+    assert_eq!(diagnostics["analyzerCoverage"], "not_verified");
+    assert_eq!(diagnostics["snapshots"][0]["state"], "current");
+    assert_eq!(diagnostics["snapshots"][0]["clientRevision"], 1);
+    assert_eq!(diagnostics["snapshots"][0]["workspaceId"], 1);
+    assert_eq!(
+        diagnostics["snapshots"][0]["items"][0]["position"]["line"],
+        items[0]["range"]["start"]["line"]
+    );
+    assert_eq!(diagnostics["counts"]["error"], 1);
 
     let changed = host
         .dispatch(
@@ -2193,6 +2208,21 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     });
     assert_eq!(fixed["items"], json!([]));
     assert_eq!(snapshot(&host)["lsp"]["state"], "ready");
+    let current = snapshot(&host)["diagnostics"].clone();
+    assert_eq!(current["snapshots"][0]["state"], "current");
+    assert_eq!(current["snapshots"][0]["items"], json!([]));
+    assert_eq!(current["currentItems"], 0);
+
+    // A newer buffer than the last publication is awaiting, not resolved.
+    host.dispatch(
+        "lsp.didChange",
+        json!({ "path": "src/OrderDesk.Cli/Program.cs", "text": broken }),
+    )
+    .unwrap();
+    let republished_broken = wait_publication(&host, Duration::from_secs(30), |item| {
+        item["clientRevision"] == 3 && item["items"].as_array().is_some_and(|items| items.len() == 1)
+    });
+    assert_eq!(republished_broken["items"][0]["code"], "CS0246");
 
     let restarted = host
         .dispatch("lsp.restart", json!({ "verbose": true }))
@@ -2206,6 +2236,18 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     );
     assert_eq!(ready["state"], "ready", "{}", ready["log"]);
     assert_eq!(ready["publicationCount"], 0, "restart starts a new session");
+    let after_restart = snapshot(&host)["diagnostics"].clone();
+    assert_eq!(after_restart["session"], 2);
+    let stale = after_restart["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["session"] == 1)
+        .expect("the previous session stays visible");
+    assert_eq!(stale["state"], "stale");
+    assert_eq!(stale["items"][0]["code"], "CS0246");
+    assert_eq!(stale["items"][0]["stale"], true);
+    assert_eq!(after_restart["currentItems"], 0);
     host.dispatch(
         "lsp.didOpen",
         json!({ "path": "src/OrderDesk.Cli/Program.cs", "text": clean }),
@@ -2215,10 +2257,49 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
         item["clientRevision"] == 1
     });
     assert_eq!(republished["items"], json!([]));
+    let current = snapshot(&host)["diagnostics"].clone();
+    let current_session = current["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["session"] == 2)
+        .unwrap();
+    assert_eq!(current_session["state"], "current");
+    assert_eq!(current_session["items"], json!([]));
+
+    // Developer boundary: a publication without a range must not invent a position.
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let probed = host
+        .dispatch(
+            "diagnostics.probe",
+            json!({ "path": "src/OrderDesk.Cli/Program.cs" }),
+        )
+        .unwrap();
+    let probe_item = &probed["diagnostics"]["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["items"][0]["code"] == "PROBE0001")
+        .expect("the probe publication is stored")
+        ["items"][0];
+    assert_eq!(probe_item["position"], Value::Null);
+    assert_eq!(probe_item["range"], Value::Null);
+    drop(_probe);
 
     let lsp_process = snapshot(&host)["lsp"]["processId"].as_u64().unwrap();
     let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
     assert_eq!(revoked["lsp"]["state"], "stopped");
+    let revoked_diagnostics = &revoked["diagnostics"];
+    assert_eq!(
+        revoked_diagnostics["analysisUnavailable"],
+        "Trust was revoked; analysis is unavailable and these diagnostics are not current. Editing stays available."
+    );
+    assert!(revoked_diagnostics["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| item["state"] == "stale"));
+    assert_eq!(revoked_diagnostics["currentItems"], 0);
     let process = revoked["processes"]
         .as_array()
         .unwrap()

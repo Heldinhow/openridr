@@ -218,6 +218,242 @@ test("install plan is exact, cancel is inert, and the real install reaches verif
   }
 });
 
+test("problems navigate real diagnostics by revision and keep stale items", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk problems");
+  const program = path.join(copy, "src/OrderDesk.Cli/Program.cs");
+  const clean = fs.readFileSync(program, "utf8");
+  const broken = `${clean}\nvar report = new OrderReport();\n`;
+  let stoppedPid: number | null = null;
+  try {
+    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    await trustWorkspace(page);
+    await enterWorkspace(page);
+    await waitForEvaluation(page);
+    await restoreAndReload(page);
+    await ensureTool(page, request);
+
+    await page.getByTestId("lsp-start").click();
+    await expect(page.getByTestId("lsp-state")).toContainText("Ready", {
+      timeout: 60_000,
+    });
+    const startSession = (await hostState(request)).lsp.session as number;
+    await expect(page.getByTestId("lsp-session")).toContainText(
+      `session ${startSession}`,
+    );
+    await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+    await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
+
+    // The bottom Problems tab is reachable and activated by keyboard.
+    await page.getByTestId("bottom-tab-problems").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("bottom-tab-problems")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(page.getByTestId("problems-empty")).toContainText(
+      "No problems reported for src/OrderDesk.Cli/Program.cs",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("problems-empty")).toContainText(
+      "solution is not claimed clean",
+    );
+    await expect(page.getByTestId("problems-coverage")).toContainText(
+      "Analyzer coverage: not verified",
+    );
+
+    // Edit the real buffer: csharp-ls publishes a real CS0246 for the new revision.
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+A");
+    await page.keyboard.insertText(broken);
+    await expect(page.getByTestId("bottom-tab-problems")).toContainText(
+      "Problems (1)",
+      { timeout: 30_000 },
+    );
+    const brokenState = (await hostState(request)).diagnostics;
+    const brokenSnapshot = brokenState.snapshots.find(
+      (snapshot: { items: { code: string }[] }) =>
+        snapshot.items.some((item) => item.code === "CS0246"),
+    );
+    expect(brokenSnapshot).toBeTruthy();
+    const brokenItem = brokenSnapshot.items.find(
+      (item: { code: string }) => item.code === "CS0246",
+    );
+    expect(brokenSnapshot.origin.label).toBe("LSP · csharp-ls");
+    expect(brokenItem.category).toBe("unknown");
+    expect(brokenItem.source).toBe("lsp");
+    expect(brokenSnapshot.serverVersion).toBeNull();
+    expect(brokenSnapshot.clientRevision).toBeGreaterThanOrEqual(2);
+    expect(brokenSnapshot.state).toBe("current");
+    expect(brokenItem.position).not.toBeNull();
+
+    const row = page.getByTestId("problem-row-0");
+    await expect(row).toContainText("CS0246");
+    await expect(row).toContainText("LSP · csharp-ls");
+    await expect(row).toContainText("unknown");
+    await row.click();
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+      "data-cursor",
+      `${brokenItem.position.line}:${brokenItem.position.character}`,
+    );
+    const cursorAtDiagnostic = await page
+      .getByTestId("editor-shell")
+      .getAttribute("data-cursor");
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshots, "06-problems.png"),
+      fullPage: false,
+    });
+
+    // Pause the real server to hold the waiting state: the old item stays visible, labelled
+    // awaiting, and navigation is refused instead of moving the cursor.
+    const beforePause = await hostState(request);
+    stoppedPid = beforePause.lsp.pid as number;
+    process.kill(stoppedPid, "SIGSTOP");
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+A");
+    await page.keyboard.insertText(`${broken}\nvar extra = new AlsoMissing();\n`);
+    await expect(page.getByTestId("problem-stale")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("bottom-tab-problems")).toHaveText("Problems", {
+      timeout: 5_000,
+    });
+    const awaitingRow = page.getByTestId("problem-row-0");
+    await expect(awaitingRow).toContainText("Awaiting diagnostics");
+    await expect(awaitingRow).toContainText("CS0246");
+    const cursorBeforeAwaitingClick = await page
+      .getByTestId("editor-shell")
+      .getAttribute("data-cursor");
+    await awaitingRow.click();
+    await expect(page.getByTestId("problem-details-state")).toContainText(
+      "Awaiting diagnostics",
+    );
+    await expect(page.getByTestId("problem-navigate")).toBeDisabled();
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+      "data-cursor",
+      cursorBeforeAwaitingClick!,
+    );
+    await page.screenshot({
+      path: path.join(screenshots, "06-problems-awaiting.png"),
+      fullPage: false,
+    });
+    process.kill(stoppedPid, "SIGCONT");
+    stoppedPid = null;
+
+    // The real republication replaces the coverage for the new revision.
+    await expect(page.getByTestId("bottom-tab-problems")).toContainText(
+      "Problems (2)",
+      { timeout: 30_000 },
+    );
+    const republished = (await hostState(request)).diagnostics;
+    const republishedSnapshot = republished.snapshots.find(
+      (snapshot: { state: string }) => snapshot.state === "current",
+    );
+    expect(republishedSnapshot.clientRevision).toBeGreaterThan(
+      brokenSnapshot.clientRevision,
+    );
+    expect(republishedSnapshot.currentRevision).toBe(
+      republishedSnapshot.clientRevision,
+    );
+
+    // Restart: items from the previous session stay identified as stale.
+    await page.getByTestId("lsp-restart").click();
+    await expect(page.getByTestId("lsp-session")).toContainText(
+      `session ${startSession + 1}`,
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("lsp-state")).toContainText("Ready", {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("problem-stale")).toBeVisible({ timeout: 10_000 });
+    const restarted = (await hostState(request)).diagnostics;
+    const staleSnapshot = restarted.snapshots.find(
+      (snapshot: { session: number }) => snapshot.session === startSession,
+    );
+    expect(staleSnapshot.state).toBe("stale");
+    expect(staleSnapshot.items.length).toBeGreaterThan(0);
+    const staleRow = page
+      .locator('[data-testid^="problem-row-"][data-state="stale"]')
+      .first();
+    await expect(staleRow).toContainText("Stale");
+    const cursorBeforeStaleClick = await page
+      .getByTestId("editor-shell")
+      .getAttribute("data-cursor");
+    await staleRow.click();
+    await expect(page.getByTestId("problem-details-state")).toContainText("Stale");
+    await expect(page.getByTestId("problem-navigate")).toBeDisabled();
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+      "data-cursor",
+      cursorBeforeStaleClick!,
+    );
+
+    // Fix the buffer. Only the current document/publication is claimed clean.
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+A");
+    await page.keyboard.insertText(clean);
+    await expect(page.getByTestId("problems-empty")).toContainText(
+      "No problems reported for src/OrderDesk.Cli/Program.cs",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("problems-empty")).toContainText(
+      "solution is not claimed clean",
+    );
+    await expect(page.getByTestId("problems-coverage")).toContainText(
+      "No solution-wide clean state is claimed",
+    );
+
+    // Developer boundary: a real publication without a range must not offer navigation.
+    const probe = await hostCall(request, "diagnostics.probe", {
+      path: "diagnostics-probe/NoPosition.cs",
+    });
+    expect(probe.ok, JSON.stringify(probe.error)).toBe(true);
+    const probedRow = page
+      .locator('[data-testid^="problem-row-"]')
+      .filter({ hasText: "PROBE0001" })
+      .first();
+    await expect(probedRow).toBeVisible({ timeout: 10_000 });
+    const cursorBeforeProbeClick = await page
+      .getByTestId("editor-shell")
+      .getAttribute("data-cursor");
+    await probedRow.click();
+    await expect(page.getByTestId("problem-no-position")).toContainText(
+      "No position was published",
+    );
+    await expect(page.getByTestId("problem-navigate")).toBeDisabled();
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+      "data-cursor",
+      cursorBeforeProbeClick!,
+    );
+
+    // Revoke: analysis is unavailable, items keep their session as stale, editing works.
+    await page.getByTestId("trust-revoke").click();
+    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("problem-stale")).toContainText("Trust was revoked");
+    await expect(
+      page.locator('[data-testid^="problem-row-"]').first(),
+    ).toHaveAttribute("data-state", "stale");
+    const afterRevokeText = `${clean}// editing after revoke\n`;
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+A");
+    await page.keyboard.insertText(afterRevokeText);
+    await page.keyboard.press("Meta+s");
+    await expect(page.getByTestId("app-log")).toContainText(
+      "Saved src/OrderDesk.Cli/Program.cs",
+    );
+    expect(fs.readFileSync(program, "utf8")).toContain("editing after revoke");
+  } finally {
+    if (stoppedPid !== null) {
+      try {
+        process.kill(stoppedPid, "SIGCONT");
+      } catch {
+        // The process already exited.
+      }
+    }
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("analysis loads, republishes diagnostics, survives a crash and stops on revoke", async ({
   page,
   request,
@@ -243,7 +479,10 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
     await expect(page.getByTestId("lsp-capabilities")).toContainText("rename");
     await expect(page.getByTestId("lsp-capabilities")).toContainText("code actions");
     await expect(page.getByTestId("lsp-hostroot")).toContainText("hostroot");
-    await expect(page.getByTestId("lsp-session")).toContainText("session 1");
+    const startSession = (await hostState(request)).lsp.session as number;
+    await expect(page.getByTestId("lsp-session")).toContainText(
+      `session ${startSession}`,
+    );
 
     await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
     await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
@@ -282,7 +521,7 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
     });
     await expect(page.getByTestId("lsp-error")).toContainText("exited");
     await page.getByText("LSP log · server/stdout/stderr").click();
-    await expect(page.getByTestId("lsp-log")).toContainText("session 1");
+    await expect(page.getByTestId("lsp-log")).toContainText(`session ${startSession}`);
 
     const afterCrashText = `${clean}\n// editor survived the analysis failure\n`;
     await page.getByTestId("editor").click();
@@ -295,9 +534,10 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
     expect(fs.readFileSync(program, "utf8")).toContain("editor survived the analysis failure");
 
     await page.getByTestId("lsp-restart").click();
-    await expect(page.getByTestId("lsp-session")).toContainText("session 2", {
-      timeout: 30_000,
-    });
+    await expect(page.getByTestId("lsp-session")).toContainText(
+      `session ${startSession + 1}`,
+      { timeout: 30_000 },
+    );
     await expect(page.getByTestId("lsp-state")).toContainText("Ready", {
       timeout: 60_000,
     });

@@ -8,12 +8,12 @@
 
 **Category:** enhancement
 
-- [ ] Mostrar severidade da fonte/configuração, código, mensagem, posição quando conhecida, documento, escopo/sessão e revisão; separar origem `LSP · csharp-ls` de categoria Compiler/Analyzer/Unknown. Sem inferir Analyzer apenas pelo nome/código nem prometer cobertura não observada.
-- [ ] Clicar diagnóstico com posição abre documento e posição corretos; sem posição, oferecer mensagem/log sem inventar navegação. Documento alterado não recebe navegação/estado como se snapshot velho fosse atual.
-- [ ] Editar marca diagnóstico anterior obsoleto/`Awaiting diagnostics`, sem declarar correção. Publicação vazia atual permite `No problems reported` apenas no documento/revisão cobertos; restore parcial e analyzers não verificados continuam explícitos.
-- [ ] Guardar snapshots por origem/contexto/revisão sem mesclar silenciosamente; chegada tardia de sessão/documento/contexto anterior não limpa o atual. A estrutura permite contribuição Build identificada em 11, mas nenhum build é pré-requisito desta entrega.
-- [ ] Falha, espera, reinício LSP e revogação preservam logs/edição e deixam diagnósticos antigos identificados; não converter ausência de servidor/publicação em solução limpa.
-- [ ] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), incluindo teclado/foco/nome acessível na lista e detalhes, sem depender só de cor.
+- [x] Mostrar severidade da fonte/configuração, código, mensagem, posição quando conhecida, documento, escopo/sessão e revisão; separar origem `LSP · csharp-ls` de categoria Compiler/Analyzer/Unknown. Sem inferir Analyzer apenas pelo nome/código nem prometer cobertura não observada.
+- [x] Clicar diagnóstico com posição abre documento e posição corretos; sem posição, oferecer mensagem/log sem inventar navegação. Documento alterado não recebe navegação/estado como se snapshot velho fosse atual.
+- [x] Editar marca diagnóstico anterior obsoleto/`Awaiting diagnostics`, sem declarar correção. Publicação vazia atual permite `No problems reported` apenas no documento/revisão cobertos; restore parcial e analyzers não verificados continuam explícitos.
+- [x] Guardar snapshots por origem/contexto/revisão sem mesclar silenciosamente; chegada tardia de sessão/documento/contexto anterior não limpa o atual. A estrutura permite contribuição Build identificada em 11, mas nenhum build é pré-requisito desta entrega.
+- [x] Falha, espera, reinício LSP e revogação preservam logs/edição e deixam diagnósticos antigos identificados; não converter ausência de servidor/publicação em solução limpa.
+- [x] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), incluindo teclado/foco/nome acessível na lista e detalhes, sem depender só de cor.
 
 ## Mapeamento à SPEC
 
@@ -26,3 +26,8 @@ Pela UI Mac, na fixture real provocar diagnóstico, navegar, editar e observar o
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+- 2026-10-28: Implementado e verificado em macOS 27.2 arm64 com csharp-ls 0.28.0 real. `diagnostics::Store` mantém snapshots por origem/sessão/URI/revisão; publicação vazia é só do documento, edição rebaixa para `awaiting`, publicação de sessão/contexto anterior é ignorada e revogação mantém os itens como stale. Categoria de `source:"lsp"` permanece `Unknown` (sem inferir pelo código CS); analyzer coverage nunca é prometida. Problems navega por CodeMirror na posição publicada e recusa navegação sem posição ou fora da revisão atual. Evidência: [docs/evidence/06-diagnosticos.md](../evidence/06-diagnosticos.md). Windows x64, macOS Intel e CRLF/colunas não executados.
+
+## Evidência
+
+Snapshot store com testes unitários, publicação CS0246 real, navegação por posição, awaiting/stale, restart/revogação, publicação vazia por documento, probe sem range, E2E real e limitações por ambiente: [docs/evidence/06-diagnosticos.md](../evidence/06-diagnosticos.md). Verificado em macOS 27.2 arm64; Windows x64 e macOS Intel não executados.

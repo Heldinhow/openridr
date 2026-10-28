@@ -724,6 +724,161 @@ p {
   background: var(--bg);
 }
 
+.output.problems-output {
+  flex-basis: 300px;
+}
+
+.problems {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.78rem;
+  min-height: 0;
+}
+
+.problems-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.problems-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.problems-filter select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 4px;
+  max-width: 260px;
+}
+
+.problems-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 10px;
+  min-height: 0;
+}
+
+.problems-list-wrap {
+  min-width: 0;
+}
+
+.problems-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 190px;
+  overflow: auto;
+}
+
+.problem-row {
+  display: grid;
+  grid-template-columns: 68px 62px minmax(140px, 1fr) 64px minmax(120px, 1fr) 120px 70px 82px 108px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  text-align: left;
+  font-size: 0.75rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.problem-row:hover:not(.problem-head) {
+  background: var(--panel);
+  border-color: var(--line);
+}
+
+.problem-row[aria-current="true"] {
+  background: var(--select);
+  border-color: var(--accent);
+}
+
+.problem-head {
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  cursor: default;
+}
+
+.problem-message,
+.problem-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problem-severity {
+  font-weight: 600;
+}
+
+.problem-severity.severity-error {
+  color: var(--error);
+}
+
+.problem-severity.severity-warning {
+  color: var(--warning);
+}
+
+.problem-severity.severity-information {
+  color: var(--info);
+}
+
+.problem-severity.severity-hint,
+.problem-severity.severity-unknown {
+  color: var(--muted);
+}
+
+.problem-state.state-awaiting,
+.problem-state.state-stale {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.problem-state.state-current {
+  color: var(--success);
+}
+
+.problem-details {
+  border-left: 1px solid var(--line);
+  padding-left: 10px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.problem-details dl {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 2px 8px;
+}
+
+.problem-details dt {
+  color: var(--muted);
+}
+
+.problem-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.problem-details-message {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.problems-empty p {
+  margin: 2px 0;
+}
+
+
 .bottom-tabs {
   flex: 0 0 auto;
   background: var(--panel);
