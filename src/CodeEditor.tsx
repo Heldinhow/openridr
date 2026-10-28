@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
+import { indentWithTab } from "@codemirror/commands";
 import { EditorState, type Text } from "@codemirror/state";
 import { EditorView, GutterMarker, gutter, keymap } from "@codemirror/view";
 import { Compartment, RangeSet } from "@codemirror/state";
@@ -379,6 +380,7 @@ export function CodeEditor({
           spellcheck: "false",
         }),
         keymap.of([
+          indentWithTab,
           {
             key: "Mod-s",
             preventDefault: true,

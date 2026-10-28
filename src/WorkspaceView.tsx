@@ -23,9 +23,24 @@ import { Splitter } from "./Splitter";
 import { BottomToolWindow } from "./shell/BottomToolWindow";
 import { StatusBar } from "./shell/StatusBar";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
+import { FindAction } from "./actions/FindAction";
+import { KeymapDialog } from "./actions/KeymapDialog";
+import {
+  defaultSettings,
+  normalizeSettings,
+  type AppSettings,
+  type Keymap,
+} from "./actions/keymap";
+import {
+  firstActionFor,
+  resolveActions,
+  type Action,
+  type ResolvedAction,
+} from "./actions/registry";
 import {
   loadShellLayout,
   saveShellLayout,
+  toolWindows,
   toolWindowsIn,
   type BottomToolId,
   type ShellLayout,
@@ -231,6 +246,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [settingsPath, setSettingsPath] = useState<string | null>(null);
+  const [findActionOpen, setFindActionOpen] = useState(false);
+  const [keymapOpen, setKeymapOpen] = useState(false);
   const [activeSlot, setActiveSlot] = useState<ToolWindowSlot>("bottom");
   const bottomTab = layout.bottom.active as BottomToolId;
   const bottomOpen = layout.bottom.open;
@@ -256,6 +275,22 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   useEffect(() => {
     saveShellLayout(layout);
   }, [layout]);
+  useEffect(() => {
+    let active = true;
+    call<{ path: string; settings: unknown }>("settings.read")
+      .then((result) => {
+        if (!active) return;
+        setSettingsPath(result.path);
+        setSettings(normalizeSettings(result.settings));
+      })
+      .catch((error) => {
+        // Defaults keep the app usable; the Keymap dialog shows the write failure if any.
+        if (active) setMessage({ tone: "error", text: `Settings could not be read: ${messageOf(error)}` });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function setBottomTab(tab: BottomToolId) {
     setActiveSlot("bottom");
@@ -282,24 +317,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.key !== "Escape" || !event.shiftKey) return;
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("input, textarea") || target?.isContentEditable) return;
-      const other: ToolWindowSlot = activeSlot === "left" ? "bottom" : "left";
-      const slot: ToolWindowSlot | null = layout[activeSlot].open ? activeSlot : layout[other].open ? other : null;
-      if (!slot) return;
-      event.preventDefault();
-      setLayout((current) => {
-        const state = current[slot];
-        const next = { ...state, open: false };
-        return slot === "left" ? { ...current, left: next } : { ...current, bottom: next };
-      });
-      document.querySelector<HTMLElement>('[data-testid="editor"]')?.focus();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeSlot, layout]);
+    // Poll the host so process states and appending trust decisions are not stale. The
+    // interval is local to this screen and cheap against the local host.
+    const timer = setInterval(() => {
+      call<Snapshot>("workspace.state")
+        .then(onSnapshot)
+        .catch(() => {});
+    }, 400);
+    return () => clearInterval(timer);
+  }, []);
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
@@ -465,7 +491,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   useEffect(() => {
     panelBodyRef.current?.scrollTo(0, 0);
   }, [bottomTab]);
-  const requestBuildRef = useRef<() => void>(() => {});
   const tests = snapshot.tests;
   const testDiscovery = tests.discovery;
   const testCandidates = evaluatedProjects.filter(
@@ -528,12 +553,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                               : savedSourceAfterBuild
                                 ? "Sources were saved after this build; rebuild before running."
                                 : null;
-  const requestRunRef = useRef<() => void>(() => {});
-  const requestDebugRef = useRef<() => void>(() => {});
-  const debugStepOverRef = useRef<() => void>(() => {});
-  const debugStepIntoRef = useRef<() => void>(() => {});
-  const toggleBreakpointAtRef = useRef<(line: number) => void>(() => {});
-  const dapPausedRef = useRef(false);
   const dap = snapshot.dap;
   const debugActive = ["preparing", "running", "paused"].includes(dap.state);
   const debugDisabledReason = !trusted
@@ -1897,59 +1916,325 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  requestBuildRef.current = requestBuild;
-  requestRunRef.current = requestRun;
-  requestDebugRef.current = () => void startDebug();
-  debugStepOverRef.current = () => void debugAction("debug.stepOver");
-  debugStepIntoRef.current = () => void debugAction("debug.stepInto");
-  toggleBreakpointAtRef.current = (line) => void toggleBreakpoint(line);
-  dapPausedRef.current = snapshot.dap.state === "paused";
+  function hideActiveToolWindow() {
+    const other: ToolWindowSlot = activeSlot === "left" ? "bottom" : "left";
+    const slot: ToolWindowSlot | null = layout[activeSlot].open
+      ? activeSlot
+      : layout[other].open
+        ? other
+        : null;
+    if (!slot) return;
+    setLayout((current) => {
+      const state = current[slot];
+      const next = { ...state, open: false };
+      return slot === "left" ? { ...current, left: next } : { ...current, bottom: next };
+    });
+    document.querySelector<HTMLElement>('[data-testid="editor"]')?.focus();
+  }
+
+  function stopExecution() {
+    if (debugActive) {
+      void stopDebug();
+    } else if (runRunning) {
+      void cancelRun();
+    }
+  }
+
+  function openFindAction() {
+    setKeymapOpen(false);
+    setFindActionOpen(true);
+  }
+
+  function openKeymap() {
+    setFindActionOpen(false);
+    setKeymapOpen(true);
+  }
+
+  async function saveKeymap(keymap: Keymap): Promise<string | null> {
+    const next = { ...settings, keymap };
+    try {
+      const result = await call<{ path: string; settings: unknown }>("settings.write", {
+        settings: next,
+      });
+      setSettingsPath(result.path);
+      setSettings(normalizeSettings(result.settings));
+      return null;
+    } catch (error) {
+      return `Settings were not saved: ${messageOf(error)}`;
+    }
+  }
+
+  function define(action: Omit<Action, "editor"> & { editor?: boolean }): Action {
+    return { editor: true, ...action };
+  }
+
+  const actions: Action[] = [
+    define({
+      id: "view.findAction",
+      title: "Find Action",
+      group: "General",
+      execute: openFindAction,
+    }),
+    define({
+      id: "view.keymap",
+      title: "Keymap: change shortcuts",
+      group: "General",
+      execute: openKeymap,
+    }),
+    define({
+      id: "file.save",
+      title: "Save",
+      group: "File",
+      execute: () => void save(),
+      disabledReason: active ? null : "Open a file to save.",
+    }),
+    define({
+      id: "toolWindow.hideActive",
+      title: "Hide Active Tool Window",
+      group: "Tool Windows",
+      editor: false,
+      execute: hideActiveToolWindow,
+      disabledReason:
+        layout.left.open || layout.bottom.open ? null : "No tool window is open.",
+    }),
+    ...toolWindows.map((tool) =>
+      define({
+        id: `toolWindow.${tool.id}`,
+        title: tool.title,
+        group: "Tool Windows",
+        execute: () => toggleToolWindow(tool.slot, tool.id),
+      }),
+    ),
+    define({
+      id: "build.start",
+      title: "Build",
+      group: "Build",
+      execute: requestBuild,
+      disabledReason: buildDisabledReason,
+    }),
+    define({
+      id: "run.start",
+      title: "Run",
+      group: "Run",
+      execute: requestRun,
+      disabledReason: runDisabledReason,
+    }),
+    define({
+      id: "debug.start",
+      title: "Debug",
+      group: "Debug",
+      execute: () => void startDebug(),
+      disabledReason: debugDisabledReason,
+    }),
+    define({
+      id: "run.stop",
+      title: "Stop",
+      group: "Run",
+      execute: stopExecution,
+      disabledReason:
+        debugActive || runRunning ? null : "Nothing is running; there is no session to stop.",
+    }),
+    define({
+      id: "debug.stepOver",
+      title: "Step Over",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "paused") void debugAction("debug.stepOver");
+      },
+      disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.stepInto",
+      title: "Step Into",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "paused") void debugAction("debug.stepInto");
+      },
+      disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.toggleBreakpoint",
+      title: "Toggle Breakpoint",
+      group: "Debug",
+      execute: () => void toggleBreakpoint(cursorRef.current.line + 1),
+      disabledReason: !active
+        ? "Open a file to set a breakpoint."
+        : !active.path.endsWith(".cs")
+          ? "Breakpoints are supported for C# sources only."
+          : null,
+    }),
+    define({
+      id: "code.goToDeclaration",
+      title: "Go to Declaration",
+      group: "Code",
+      execute: () => undefined,
+      disabledReason: "Go to Declaration with F12 arrives in F7; Ctrl+B works in the editor.",
+    }),
+    define({
+      id: "code.findUsages",
+      title: "Find Usages",
+      group: "Code",
+      execute: () => undefined,
+      disabledReason: "Find Usages arrives in F7.",
+    }),
+    define({
+      id: "code.contextActions",
+      title: "Show Context Actions",
+      group: "Code",
+      execute: () => void requestCodeActions(),
+      disabledReason: codeActionsDisabledReason,
+    }),
+    define({
+      id: "code.rename",
+      title: "Rename Symbol",
+      group: "Code",
+      execute: () => requestRename(),
+      disabledReason: renameDisabledReason,
+    }),
+    define({
+      id: "search.everywhere",
+      title: "Search Everywhere",
+      group: "Search",
+      execute: () => undefined,
+      disabledReason: "Search Everywhere arrives in F3.",
+    }),
+    define({
+      id: "search.file",
+      title: "Go to File",
+      group: "Search",
+      execute: () => undefined,
+      disabledReason: "Go to File arrives in F3.",
+    }),
+    define({
+      id: "search.symbol",
+      title: "Go to Symbol",
+      group: "Search",
+      execute: () => undefined,
+      disabledReason: "Go to Symbol arrives in F3.",
+    }),
+    define({
+      id: "search.text",
+      title: "Find in Path",
+      group: "Search",
+      execute: () => undefined,
+      disabledReason: "Find in Path arrives in F3.",
+    }),
+    define({
+      id: "search.line",
+      title: "Go to Line",
+      group: "Search",
+      execute: () => undefined,
+      disabledReason: "Go to Line arrives in F3.",
+    }),
+    define({
+      id: "tests.runAll",
+      title: "Run All Tests",
+      group: "Tests",
+      execute: () => undefined,
+      disabledReason: "Test actions arrive in F5.",
+    }),
+    define({
+      id: "tests.quickList",
+      title: "Show Test Quick List",
+      group: "Tests",
+      execute: () => undefined,
+      disabledReason: "The test quick list arrives in F5.",
+    }),
+    define({
+      id: "git.commit",
+      title: "Commit…",
+      group: "Git",
+      execute: () => undefined,
+      disabledReason: "Version control arrives in F6.",
+    }),
+    define({
+      id: "git.push",
+      title: "Push…",
+      group: "Git",
+      execute: () => undefined,
+      disabledReason: "Version control arrives in F6.",
+    }),
+    define({
+      id: "git.update",
+      title: "Update Project…",
+      group: "Git",
+      execute: () => undefined,
+      disabledReason: "Version control arrives in F6.",
+    }),
+    define({
+      id: "git.branchCreate",
+      title: "New Branch…",
+      group: "Git",
+      execute: () => undefined,
+      disabledReason: "Version control arrives in F6.",
+    }),
+    define({
+      id: "run.configure",
+      title: "Edit Run Configurations…",
+      group: "Run",
+      execute: () => undefined,
+      disabledReason: "Run configurations arrive in F4.",
+    }),
+    define({
+      id: "settings.open",
+      title: "Open Settings",
+      group: "Settings",
+      execute: () => undefined,
+      disabledReason: "Settings arrive in F8.",
+    }),
+    define({
+      id: "sdk.redetect",
+      title: "Redetect SDKs",
+      group: "Build",
+      execute: () => void redetectSdks(),
+    }),
+    define({
+      id: "sdk.openGlobalJson",
+      title: "Open global.json",
+      group: "Build",
+      execute: () => {
+        if (projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json") {
+          openGlobalJson();
+        }
+      },
+      disabledReason:
+        projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json"
+          ? null
+          : "global.json is valid or no project SDK is pinned.",
+    }),
+    define({
+      id: "workspace.close",
+      title: "Close Workspace",
+      group: "Workspace",
+      execute: requestCloseWorkspace,
+    }),
+  ];
+  const resolvedActions = resolveActions(
+    actions,
+    settings.keymap,
+    snapshot.app.platform,
+  );
+  const actionById = new Map(resolvedActions.map((action) => [action.id, action]));
+  const actionsRef = useRef<ResolvedAction[]>([]);
+  actionsRef.current = resolvedActions;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "F9" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        requestBuildRef.current();
-        return;
-      }
-      const platform = snapshot.app.platform;
-      const toggleBreakpointShortcut =
-        event.key === "F8" && (platform === "windows" ? event.ctrlKey : event.metaKey);
-      if (toggleBreakpointShortcut) {
-        event.preventDefault();
-        toggleBreakpointAtRef.current(cursorRef.current.line + 1);
-        return;
-      }
-      const debugLaunchShortcut =
-        platform === "windows"
-          ? event.shiftKey && event.key === "F9"
-          : event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "d";
-      if (debugLaunchShortcut) {
-        event.preventDefault();
-        requestDebugRef.current();
-        return;
-      }
-      if (event.key === "F8" && !event.metaKey && !event.ctrlKey) {
-        if (dapPausedRef.current) {
-          event.preventDefault();
-          debugStepOverRef.current();
-        }
-        return;
-      }
-      if (event.key === "F7" && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        if (dapPausedRef.current) {
-          event.preventDefault();
-          debugStepIntoRef.current();
-        }
-        return;
-      }
-      const runShortcut =
-        platform === "windows"
-          ? event.shiftKey && event.key === "F10"
-          : event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "r";
-      if (!runShortcut) return;
+      if (event.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest("input, textarea, select")) return;
+      const inEditor = Boolean(target?.closest(".cm-editor"));
+      // Contenteditable outside CodeMirror is a text field, not the editor.
+      if (target?.isContentEditable && !inEditor) return;
+      const action = firstActionFor(actionsRef.current, event, snapshot.app.platform);
+      if (!action) return;
+      if (inEditor && !action.editor) return;
+      // Bubble, CodeMirror first: a consumed key never reaches this handler as an action.
       event.preventDefault();
-      requestRunRef.current();
+      // A disabled action still reports its own reason when reached by a shortcut; the
+      // palette and menus keep it disabled.
+      action.execute();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -2158,6 +2443,22 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
+  const buildAction = actionById.get("build.start")!;
+  const runAction = actionById.get("run.start")!;
+  const debugStartAction = actionById.get("debug.start")!;
+  const stopAction = actionById.get("run.stop")!;
+  const searchAction = actionById.get("search.everywhere")!;
+  const settingsAction = actionById.get("settings.open")!;
+  const findActionAction = actionById.get("view.findAction")!;
+  const keymapAction = actionById.get("view.keymap")!;
+  const redetectAction = actionById.get("sdk.redetect")!;
+  const openGlobalJsonAction = actionById.get("sdk.openGlobalJson")!;
+  const commitAction = actionById.get("git.commit")!;
+  const closeWorkspaceAction = actionById.get("workspace.close")!;
+  const renameAction = actionById.get("code.rename")!;
+  const contextActionsAction = actionById.get("code.contextActions")!;
+  const saveAction = actionById.get("file.save")!;
+
   return (
     <main
       className={`workspace-view ${leftOpen ? "" : "left-closed"} ${bottomOpen ? "" : "bottom-closed"}`}
@@ -2223,7 +2524,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             type="button"
             data-testid="toolbar-run-config"
             disabled
-            aria-label="Run configuration — run configurations arrive in F4."
+            aria-label="Run configuration — Run configurations arrive in F4."
             title="Run configurations arrive in F4."
           >
             <Icon name="runconfig" /> Run config
@@ -2231,44 +2532,43 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         </span>
         <button
           data-testid="toolbar-build"
-          disabled={!trusted}
-          onClick={requestBuild}
+          disabled={buildAction.disabledReason !== null}
+          onClick={buildAction.execute}
           title={
-            !trusted
-              ? "Trust the workspace before building; nothing runs in Restricted mode."
-              : buildDisabledReason ??
-                `Builds the selected startup project (${snapshot.app.platform === "macos" ? "Cmd+F9" : "Ctrl+F9"}). Unsaved buffers need an explicit decision.`
+            buildAction.disabledReason ??
+            `Builds the selected startup project (${buildAction.shortcutTexts.join(" or ")}). Unsaved buffers need an explicit decision.`
           }
         >
-          <Icon name="build" /> Build <kbd>{snapshot.app.platform === "macos" ? "⌘F9" : "Ctrl+F9"}</kbd>
+          <Icon name="build" /> Build <kbd>{buildAction.shortcutLabels[0] ?? ""}</kbd>
         </button>
         <button
           data-testid="toolbar-run"
-          disabled={runDisabledReason !== null || runRunning}
-          onClick={requestRun}
+          disabled={runAction.disabledReason !== null}
+          onClick={runAction.execute}
           title={
-            runDisabledReason ??
-            `Runs the saved build (${runShortcut}); unsaved buffers are never included.`
+            runAction.disabledReason ??
+            `Runs the saved build (${runAction.shortcutTexts.join(" or ")}); unsaved buffers are never included.`
           }
         >
-          <Icon name="run" /> {runRunning ? "Running…" : "Run"} <kbd>{runShortcut}</kbd>
+          <Icon name="run" /> {runRunning ? "Running…" : "Run"}{" "}
+          <kbd>{runAction.shortcutLabels[0] ?? ""}</kbd>
         </button>
         <button
           data-testid="toolbar-debug"
-          disabled={debugDisabledReason !== null}
-          onClick={() => void startDebug()}
+          disabled={debugStartAction.disabledReason !== null}
+          onClick={debugStartAction.execute}
           title={
-            debugDisabledReason ??
-            `Starts the evaluated Debug assembly under netcoredbg (${snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}).`
+            debugStartAction.disabledReason ??
+            `Starts the evaluated Debug assembly under netcoredbg (${debugStartAction.shortcutTexts.join(" or ")}).`
           }
         >
-          <Icon name="debug" /> Debug <kbd>{snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}</kbd>
+          <Icon name="debug" /> Debug <kbd>{debugStartAction.shortcutLabels[0] ?? ""}</kbd>
         </button>
         {debugActive && (
           <button
             data-testid="toolbar-debug-stop"
-            onClick={() => void stopDebug()}
-            title="Stops the adapter group and reports what was observed."
+            onClick={stopAction.execute}
+            title={stopAction.disabledReason ?? "Stops the adapter group and reports what was observed."}
           >
             Stop
           </button>
@@ -2278,9 +2578,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             type="button"
             className="toolbar-icon-button"
             data-testid="toolbar-search"
-            disabled
-            aria-label="Search — Search Everywhere arrives in F3."
-            title="Search Everywhere arrives in F3."
+            disabled={searchAction.disabledReason !== null}
+            aria-label={`Search — ${searchAction.disabledReason ?? searchAction.title}`}
+            title={searchAction.disabledReason ?? searchAction.title}
+            onClick={searchAction.execute}
           >
             <Icon name="search" />
           </button>
@@ -2290,33 +2591,56 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             type="button"
             className="toolbar-icon-button"
             data-testid="toolbar-settings"
-            disabled
-            aria-label="Settings — Settings arrive in F8."
-            title="Settings arrive in F8."
+            disabled={settingsAction.disabledReason !== null}
+            aria-label={`Settings — ${settingsAction.disabledReason ?? settingsAction.title}`}
+            title={settingsAction.disabledReason ?? settingsAction.title}
+            onClick={settingsAction.execute}
           >
             <Icon name="settings" />
           </button>
         </span>
-        <details className="toolbar-menu" onKeyDown={(event) => {
+        <details className="toolbar-menu" data-testid="workspace-actions-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
           <summary aria-label="Workspace actions">•••</summary>
           <div className="menu-content">
-        <button
-          data-testid="sdk-redetect"
-          onClick={() => void redetectSdks()}
-          title="Re-runs only the SDK inventory; it never touches project files."
-        >
-          Redetect SDKs
-        </button>
-        {(projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json") && (
-          <button data-testid="sdk-open-global-json" onClick={openGlobalJson}>
-            Open global.json
-          </button>
-        )}
-        <button data-testid="close-workspace" onClick={requestCloseWorkspace}>
-          Close workspace
-        </button>
+            <button data-testid="open-find-action" onClick={(event) => {
+              event.currentTarget.closest("details")?.removeAttribute("open");
+              findActionAction.execute();
+            }} title={findActionAction.shortcutTexts.join(" or ")}>
+              Find Action <kbd>{findActionAction.shortcutLabels[0] ?? ""}</kbd>
+            </button>
+            <button data-testid="open-keymap" onClick={(event) => {
+              event.currentTarget.closest("details")?.removeAttribute("open");
+              keymapAction.execute();
+            }}>
+              {keymapAction.title}
+            </button>
+            <button
+              data-testid="sdk-redetect"
+              onClick={redetectAction.execute}
+              title={redetectAction.disabledReason ?? "Re-runs only the SDK inventory; it never touches project files."}
+            >
+              {redetectAction.title}
+            </button>
+            <button
+              data-testid="sdk-open-global-json"
+              onClick={openGlobalJsonAction.execute}
+              disabled={openGlobalJsonAction.disabledReason !== null}
+              title={openGlobalJsonAction.disabledReason ?? openGlobalJsonAction.title}
+            >
+              {openGlobalJsonAction.title}
+            </button>
+            <button
+              data-testid="git-commit-action"
+              disabled={commitAction.disabledReason !== null}
+              title={commitAction.disabledReason ?? commitAction.title}
+            >
+              {commitAction.title}
+            </button>
+            <button data-testid="close-workspace" onClick={closeWorkspaceAction.execute}>
+              {closeWorkspaceAction.title}
+            </button>
           </div>
         </details>
       </div>
@@ -2499,17 +2823,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         <ToolWindowBand
           slot="left"
           items={toolWindowsIn("left")}
+          actions={resolvedActions}
           activeId={layout.left.active}
           open={leftOpen}
-          onToggle={(id) => toggleToolWindow("left", id)}
         />
         <span className="push" />
         <ToolWindowBand
           slot="bottom"
           items={bottomTools}
+          actions={resolvedActions}
           activeId={bottomTab}
           open={bottomOpen}
-          onToggle={(id) => toggleToolWindow("bottom", id)}
         />
       </div>
 
@@ -2790,11 +3114,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             <button
               className="save"
               data-testid="rename-open"
-              onClick={() => requestRename()}
-              disabled={renameDisabledReason !== null}
+              onClick={renameAction.execute}
+              disabled={renameAction.disabledReason !== null}
               title={
-                renameDisabledReason ??
-                "Rename the symbol at the cursor (Shift+F6); preview before applying."
+                renameAction.disabledReason ??
+                `Rename the symbol at the cursor (${renameAction.shortcutTexts.join(" or ")}); preview before applying.`
               }
             >
               <Icon name="rename" /><span className="editor-action-label"> Rename symbol…</span>
@@ -2802,11 +3126,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             <button
               className="save"
               data-testid="code-actions-open"
-              onClick={() => void requestCodeActions()}
-              disabled={codeActionsDisabledReason !== null}
+              onClick={contextActionsAction.execute}
+              disabled={contextActionsAction.disabledReason !== null}
               title={
-                codeActionsDisabledReason ??
-                `Code actions at the cursor (${snapshot.app.platform === "macos" ? "Option+Enter" : "Alt+Enter"}).`
+                contextActionsAction.disabledReason ??
+                `Code actions at the cursor (${contextActionsAction.shortcutTexts.join(" or ")}).`
               }
             >
               <Icon name="code" /><span className="editor-action-label"> Code actions…</span>
@@ -2814,9 +3138,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             <button
               className="save"
               data-testid="save-file"
-              onClick={() => void save()}
-              disabled={!active || !isDirty(active)}
-              title={active ? `Save with ${snapshot.app.platform === "macos" ? "Cmd+S" : "Ctrl+S"}` : "No file open"}
+              onClick={saveAction.execute}
+              disabled={saveAction.disabledReason !== null || !active || !isDirty(active)}
+              title={
+                saveAction.disabledReason ??
+                `Save with ${saveAction.shortcutTexts.join(" or ")}`
+              }
             >
               <Icon name="save" /><span className="editor-action-label"> Save</span>
             </button>
@@ -3266,6 +3593,30 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         {renderBottomContent()}
       </BottomToolWindow>
         </>
+      )}
+
+      {findActionOpen && (
+        <FindAction
+          actions={resolvedActions}
+          platform={snapshot.app.platform}
+          profile={settings.keymap.profile}
+          onExecute={(action) => {
+            setFindActionOpen(false);
+            if (!action.disabledReason) action.execute();
+          }}
+          onClose={() => setFindActionOpen(false)}
+        />
+      )}
+
+      {keymapOpen && (
+        <KeymapDialog
+          actions={resolvedActions}
+          keymap={settings.keymap}
+          path={settingsPath}
+          platform={snapshot.app.platform}
+          onChange={saveKeymap}
+          onClose={() => setKeymapOpen(false)}
+        />
       )}
 
       <StatusBar

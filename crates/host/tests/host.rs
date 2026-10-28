@@ -3730,3 +3730,45 @@ fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_
         .filter(|process| process["kind"].as_str().unwrap_or_default().starts_with("terminal:"))
         .all(|process| process["state"] == "exited"));
 }
+
+#[test]
+fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let host = Host::new();
+
+    // No workspace and no trust: settings are app-scoped, not workspace-scoped.
+    let empty = host.dispatch("settings.read", json!({})).unwrap();
+    assert_eq!(empty["settings"], json!({}));
+    assert_eq!(empty["path"], home.path().join("settings.json").to_string_lossy().as_ref());
+
+    let settings = json!({
+        "keymap": {
+            "profile": "intellij",
+            "overrides": { "run.start": [{ "key": "f5", "control": true }] }
+        }
+    });
+    let written = host
+        .dispatch("settings.write", json!({ "settings": settings }))
+        .unwrap();
+    assert_eq!(written["settings"], settings);
+    let text = fs::read_to_string(home.path().join("settings.json")).unwrap();
+    assert!(serde_json::from_str::<Value>(&text).is_ok());
+    assert_eq!(
+        host.dispatch("settings.read", json!({})).unwrap()["settings"],
+        settings
+    );
+
+    for invalid in [json!({ "settings": [] }), json!({ "settings": { "keymap": { "profile": "vscode" } } })] {
+        assert_eq!(
+            error_code(host.dispatch("settings.write", invalid)),
+            "invalid_settings"
+        );
+    }
+    assert_eq!(
+        host.dispatch("settings.read", json!({})).unwrap()["settings"],
+        settings,
+        "an invalid payload replaced the previous settings"
+    );
+}

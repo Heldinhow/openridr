@@ -12,6 +12,7 @@ pub mod process;
 mod restore;
 pub mod sdk;
 mod run;
+mod settings;
 mod terminal;
 #[path = "test_discovery.rs"]
 mod test_discovery;
@@ -473,6 +474,8 @@ impl Host {
             "processes.keep" => self.keep_process(params),
             "file.read" => self.read_file(params),
             "file.write" => self.write_file(params),
+            "settings.read" => settings::read(),
+            "settings.write" => settings::write(&params),
             _ => Err(HostError::new(
                 "not_found",
                 format!("Unknown host method: {method}"),
