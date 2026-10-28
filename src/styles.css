@@ -441,7 +441,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   height: 100%;
   display: grid;
   grid-template-columns: var(--sidebar-width, 280px) 4px minmax(0, 1fr);
-  grid-template-rows: 44px auto minmax(0, 1fr) 4px minmax(120px, min(var(--output-height, 220px), 42vh)) 24px;
+  grid-template-rows: 44px auto minmax(0, 1fr) 4px var(--output-height, 220px) 24px;
   overflow: hidden;
   position: relative;
 }
@@ -464,9 +464,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   display: contents;
 }
 
-.workspace-grid.with-details {
-  grid-template-columns: 280px minmax(0, 1fr) 340px;
-}
 
 .eval-details-pane {
   min-width: 0;
@@ -828,7 +825,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .editor-pane .save { min-width: 34px; padding: 4px 8px; }
 .tab.active { background: var(--bg); }
 .tab-label { font-size: 12px; }
-.workspace-tools > summary { display: flex; align-items: center; gap: 16px; cursor: pointer; padding: 6px 12px; background: var(--panel); font-size: 12px; }
+.workspace-tools > summary { display: flex; align-items: center; gap: 16px; cursor: pointer; padding: 6px 12px; background: var(--panel); font-size: 12px; position: sticky; top: 0; z-index: 3; }
 .workspace-tools > summary::before { content: "▸"; }
 .workspace-tools[open] > summary::before { content: "▾"; }
 .workspace-tools > summary span { margin-left: auto; }
@@ -1201,9 +1198,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 }
 
 @media (max-width: 900px) {
-  .workspace-grid {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
   .conflict-compare-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1270,13 +1264,8 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   max-height: 220px;
 }
 
-/* Notices and panels above the editor must never squeeze it out of the window. */
-.workspace-notices {
-  flex: 0 0 auto;
-  max-height: 46vh;
-  overflow-y: auto;
-  border-bottom: 1px solid var(--line);
-}
+/* Expanded workspace tools scroll without consuming the editor. */
+.workspace-notices { min-height: 0; overflow-y: auto; border-bottom: 1px solid var(--line); }
 
 .workspace-notices .process-panel {
   max-height: 140px;
@@ -1344,19 +1333,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .plain-list {
   margin: 0;
   padding-left: 16px;
-}
-
-/* Keep the editor usable when tool/analysis notices grow: they scroll, the grid keeps room. */
-.workspace-notices {
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: 30vh;
-  overflow-y: auto;
-}
-
-.workspace-grid {
-  flex: 1 1 auto;
-  min-height: 220px;
 }
 
 /* Build (ticket 11): controls, raw log and the Build-origin Problems section. */

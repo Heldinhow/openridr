@@ -227,6 +227,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [bottomTab, setBottomTab] = useState<BottomTab>("build");
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [outputHeight, setOutputHeight] = useState(220);
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
     path: string;
@@ -234,6 +235,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     character: number;
     nonce: number;
   } | null>(null);
+  const outputMax = Math.max(120, Math.min(500, Math.floor(viewportHeight * 0.42)));
+  const visibleOutputHeight = Math.min(outputHeight, outputMax);
+  useEffect(() => {
+    const resize = () => setViewportHeight(window.innerHeight);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
@@ -2059,10 +2067,12 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   }`;
 
   return (
-    <main className="workspace-view" style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${outputHeight}px` } as CSSProperties}>
+    <main className="workspace-view" style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${visibleOutputHeight}px` } as CSSProperties}>
       <div className="toolbar">
         <span className="workspace-brand" title={workspace.path}><Icon name="project" /><strong>{workspace.name}</strong></span>
-        <details className="toolbar-menu trust-menu">
+        <details className="toolbar-menu trust-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
           <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted mode" : "Restricted mode"}</summary>
           <div className="menu-content" data-testid="trust-banner">
             <TrustControls snapshot={snapshot} onChange={onSnapshot} />
@@ -2071,7 +2081,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         <label className="eval-field toolbar-startup">
           <span>Startup project</span>
           <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupPath(event.target.value)}>
-            <option value="">{consoleCandidates.length ? "Select startup project" : "No console project"}</option>
+            {consoleCandidates.length === 0 && <option value="">No console project</option>}
+            {consoleCandidates.length > 1 && !startupProject && <option value="">Select a startup project</option>}
             {consoleCandidates.map((project) => <option key={project.path} value={project.path}>{project.name}</option>)}
           </select>
         </label>
@@ -2080,7 +2091,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             {configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}
           </select></label>
           <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value === "" ? null : event.target.value })}>
-            <option value="">TFM: auto</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}
+            <option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}
           </select></label>
         </div>
         <span className="push" />
@@ -2092,7 +2103,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             !trusted
               ? "Trust the workspace before building; nothing runs in Restricted mode."
               : buildDisabledReason ??
-                "Builds the selected startup project (Cmd/Ctrl+F9). Unsaved buffers need an explicit decision."
+                `Builds the selected startup project (${snapshot.app.platform === "macos" ? "Cmd+F9" : "Ctrl+F9"}). Unsaved buffers need an explicit decision.`
           }
         >
           <Icon name="build" /> Build <kbd>{snapshot.app.platform === "macos" ? "⌘F9" : "Ctrl+F9"}</kbd>
@@ -2114,7 +2125,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           onClick={() => void startDebug()}
           title={
             debugDisabledReason ??
-            "Starts the evaluated Debug assembly under netcoredbg (Ctrl+D on macOS, Shift+F9 on Windows)."
+            `Starts the evaluated Debug assembly under netcoredbg (${snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}).`
           }
         >
           <Icon name="debug" /> Debug <kbd>{snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}</kbd>
@@ -2128,7 +2139,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             Stop debugging
           </button>
         )}
-        <details className="toolbar-menu">
+        <details className="toolbar-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
           <summary aria-label="Workspace actions">•••</summary>
           <div className="menu-content">
         <button
@@ -2542,7 +2555,15 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
         <section className="editor-pane" aria-label="Editor">
           <div className="tabbar">
-            <div className="tabs" role="tablist" aria-label="Open files">
+            <div className="tabs" role="tablist" aria-label="Open files" onKeyDown={(event) => {
+              if (!tabs.length || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const index = tabs.findIndex((tab) => tab.path === activePath);
+              const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+              setActivePath(tabs[next].path);
+              void checkDisk(tabs[next].path);
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+            }}>
               {tabs.map((tab) => {
                 const dirty = isDirty(tab);
                 const selected = tab.path === activePath;
@@ -2551,6 +2572,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                     <button
                       role="tab"
                       aria-selected={selected}
+                      tabIndex={selected ? 0 : -1}
+                      aria-controls="editor-content"
                       className="tab-label"
                       onClick={() => {
                         setActivePath(tab.path);
@@ -2603,7 +2626,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               disabled={codeActionsDisabledReason !== null}
               title={
                 codeActionsDisabledReason ??
-                "Code actions at the cursor (Option+Enter on macOS, Alt+Enter on Windows)."
+                `Code actions at the cursor (${snapshot.app.platform === "macos" ? "Option+Enter" : "Alt+Enter"}).`
               }
             >
               <Icon name="code" /><span className="editor-action-label"> Code actions…</span>
@@ -2613,7 +2636,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               data-testid="save-file"
               onClick={() => void save()}
               disabled={!active || !isDirty(active)}
-              title={active ? "Save with Cmd+S (macOS) or Ctrl+S (Windows)" : "No file open"}
+              title={active ? `Save with ${snapshot.app.platform === "macos" ? "Cmd+S" : "Ctrl+S"}` : "No file open"}
             >
               <Icon name="save" /><span className="editor-action-label"> Save</span>
             </button>
@@ -2900,11 +2923,12 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 </div>
               )}
 
-              <div className="editor-body">
+              <div className="editor-body" id="editor-content" role="tabpanel" aria-label={baseName(active.path)}>
                 <CodeEditor
                   key={active.path}
                   value={active.content}
                   path={active.path}
+                  platform={snapshot.app.platform}
                   revision={active.revision}
                   onChange={(value) => updateContent(active.path, value)}
                   onSave={() => void save()}
@@ -3055,7 +3079,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
       </div>
 
-      <Splitter label="Output panel height" value={outputHeight} min={120} max={500} horizontal onChange={setOutputHeight} />
+      <Splitter label="Output panel height" value={visibleOutputHeight} min={120} max={outputMax} horizontal onChange={setOutputHeight} />
       <section
         className={`output ${
           bottomTab === "problems"

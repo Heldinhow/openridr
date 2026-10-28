@@ -40,6 +40,7 @@ async function trustWorkspace(page: Page) {
 
 async function enterWorkspace(page: Page) {
   await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
@@ -91,6 +92,7 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("eval-configuration")).toHaveValue("Debug");
 
   await page.getByTestId("tree-project-OrderDesk.Cli").click();
+  await page.getByRole("button", { name: "Project details", exact: true }).click();
   await expect(page.getByTestId("eval-details")).toBeVisible();
   await expect(page.getByTestId("eval-details-state")).toHaveText("Evaluated");
   const target = (await page.getByTestId("eval-target-path").textContent()) ?? "";
@@ -133,6 +135,7 @@ test("a broken import stays in the tree with cause, log, open and retry", async 
     });
 
     await expect(page.getByTestId("tree-project-BrokenImport")).toContainText("error");
+    await page.getByRole("button", { name: "Project details", exact: true }).click();
     await expect(page.getByTestId("eval-details")).toBeVisible();
     await expect(page.getByTestId("eval-error")).toContainText("MSB4019");
     await expect(page.getByTestId("eval-project-log")).toContainText("Missing.props");
@@ -175,6 +178,7 @@ test("saving a project file in a temp copy marks the model stale and re-evaluate
     ).toBe(false);
 
     await page.getByTestId("tree-project-OrderDesk.Cli").click();
+    await page.getByRole("button", { name: "Project details", exact: true }).click();
     await page.getByTestId("eval-open-project").click();
     await expect(page.getByTestId("editor")).toContainText("ProjectReference");
     const original = fs.readFileSync(path.join(copy, projectFile), "utf8");

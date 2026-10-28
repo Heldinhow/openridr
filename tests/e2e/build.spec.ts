@@ -34,6 +34,7 @@ async function openTrustedEvaluated(page: Page, copy: string) {
   await page.getByTestId("trust-grant").click();
   await expect(page.getByTestId("mode-trusted")).toBeVisible();
   await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", {
     timeout: 30_000,

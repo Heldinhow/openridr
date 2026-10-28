@@ -35,6 +35,7 @@ async function trustWorkspace(page: Page) {
 
 async function enterWorkspace(page: Page) {
   await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 

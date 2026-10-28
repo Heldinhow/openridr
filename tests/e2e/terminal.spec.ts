@@ -36,6 +36,7 @@ test("a restricted workspace explains the terminal and starts no shell", async (
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
     await page.getByTestId("open-text-only").click();
+    await page.getByTestId("workspace-tools-toggle").click();
     await expect(page.getByTestId("tree")).toBeVisible();
     await page.getByTestId("bottom-tab-terminal").click();
     await expect(page.getByTestId("terminal-disabled-reason")).toContainText(
@@ -81,6 +82,7 @@ test("a real shell runs in the workspace, interrupts a child with Ctrl+C and clo
     await page.getByTestId("trust-grant").click();
     await expect(page.getByTestId("mode-trusted")).toBeVisible();
     await page.getByTestId("open-text-only").click();
+    await page.getByTestId("workspace-tools-toggle").click();
     await expect(page.getByTestId("tree")).toBeVisible();
     fs.mkdirSync(screenshots, { recursive: true });
 

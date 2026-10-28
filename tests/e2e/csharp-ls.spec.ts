@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const host = "http://127.0.0.1:4317";
@@ -74,6 +75,7 @@ async function trustWorkspace(page: Page) {
 
 async function enterWorkspace(page: Page) {
   await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
@@ -458,6 +460,7 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     );
 
     // Revoke: analysis is unavailable, items keep their session as stale, editing works.
+    await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
     await expect(page.getByTestId("mode-restricted")).toBeVisible();
     await expect(page.getByTestId("problem-stale")).toContainText("Trust was revoked");
@@ -576,6 +579,7 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
       timeout: 30_000,
     });
 
+    await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
     await expect(page.getByTestId("lsp-state")).toContainText("Stopped", {
       timeout: 30_000,
@@ -830,6 +834,7 @@ test("completion and definition use the real session and discard stale answers",
     resume();
 
     // After revoke, the same shortcuts explain the missing trust instead of failing silently.
+    await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
     await expect(page.getByTestId("mode-restricted")).toBeVisible();
     await page.getByTestId("editor").click();
@@ -1164,6 +1169,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     await expect(page.getByTestId("rename-preview")).toBeVisible({
       timeout: 30_000,
     });
+    await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
     await expect(page.getByTestId("mode-restricted")).toBeVisible();
     await page.getByTestId("rename-apply").click();
@@ -1414,6 +1420,7 @@ test("code action lists and previews are invalidated before any write", async ({
       .getByRole("button", { name: "Convert to positional record", exact: true })
       .click();
     await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
     await expect(page.getByTestId("mode-restricted")).toBeVisible();
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);

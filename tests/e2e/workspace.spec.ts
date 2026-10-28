@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
@@ -46,6 +47,7 @@ async function openWorkspace(page: Page, target: string) {
 
 async function enterTextOnly(page: Page) {
   await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
@@ -97,7 +99,7 @@ test("opens the fixture in restricted mode with trust available", async ({ page 
   );
 
   await enterTextOnly(page);
-  await expect(page.getByText(/Blocked in Restricted mode/)).toBeVisible();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
   await expect(page.getByTestId("tree")).toContainText("Text outline · not evaluated");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
@@ -227,12 +229,14 @@ test("closing a modified buffer or workspace requires an explicit choice", async
 
   await openProgram(page);
   await replaceEditorText(page, "// workspace buffer\n");
+  await reveal(page.getByTestId("close-workspace"));
   await page.getByTestId("close-workspace").click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Close workspace with unsaved changes?");
   await page.getByTestId("confirm-keep").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 
+  await reveal(page.getByTestId("close-workspace"));
   await page.getByTestId("close-workspace").click();
   await page.getByTestId("confirm-discard").click();
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
@@ -298,6 +302,7 @@ test("saves every modified buffer from the workspace close dialog", async ({ pag
   await replaceEditorText(page, "// save all core\n");
   await expect(page.getByTestId("status-dirty")).toContainText("2 modified buffers");
 
+  await reveal(page.getByTestId("close-workspace"));
   await page.getByTestId("close-workspace").click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Close workspace with unsaved changes?");

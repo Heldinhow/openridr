@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { reveal } from "./disclosures";
 
 /**
  * Ticket 13: the approved netcoredbg release has no verified compatible adapter on this
@@ -27,6 +28,7 @@ async function openWorkspace(page: Page) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(fixture);
   await page.getByTestId("workspace-open").click();
+  await reveal(page.getByTestId("sdk-debug-adapter"));
   await expect(page.getByTestId("sdk-debug-adapter")).toBeVisible();
 }
 
@@ -74,6 +76,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   );
 
   // Plan details carry every material field and the blocked reason.
+  await reveal(page.getByTestId("debug-plan-open"));
   await page.getByTestId("debug-plan-open").click();
   await expect(page.getByTestId("debug-plan")).toBeVisible();
   await page.getByTestId("debug-plan").locator("summary").click();
@@ -126,6 +129,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   );
 
   // Explicit, separate experimental opt-in: acknowledged by checkbox, then enabled.
+  await reveal(page.getByTestId("debug-flag-checkbox"));
   await page.getByTestId("debug-flag-checkbox").check();
   await expect(page.getByTestId("debug-flag-enable")).toBeEnabled();
   await page.getByTestId("debug-flag-enable").click();
@@ -142,6 +146,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   await expect(page.getByTestId("debug-install")).toBeEnabled();
   await expect(page.getByTestId("debug-plan-blocked")).toHaveCount(0);
   expect(fs.existsSync(debugToolDir)).toBe(false);
+  await reveal(page.getByTestId("debug-plan-open"));
   await page.getByTestId("debug-plan-open").click();
   await page.getByTestId("debug-plan").locator("summary").click();
   await expect(page.getByTestId("debug-plan-asset")).toContainText(
@@ -154,6 +159,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
 
   // Analysis, Run and the editor stay available: the debugger limit does not block them.
   await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
   await expect(page.getByTestId("toolbar-debug")).toHaveAttribute(
@@ -261,6 +267,7 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await page.getByTestId("trust-grant").click();
     await expect(page.getByTestId("mode-trusted")).toBeVisible();
     await page.getByTestId("open-text-only").click();
+    await page.getByTestId("workspace-tools-toggle").click();
     await expect(page.getByTestId("tree")).toBeVisible();
     await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
 
@@ -284,6 +291,7 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.getByTestId("mode-trusted")).toBeVisible({ timeout: 20_000 });
     if (!(await page.getByTestId("tree").isVisible())) {
       await page.getByTestId("open-text-only").click();
+      await page.getByTestId("workspace-tools-toggle").click();
     }
     await expect(page.getByTestId("tree")).toBeVisible();
     await page.getByTestId("restore-action").click();
