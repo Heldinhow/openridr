@@ -61,3 +61,11 @@ O registro guarda `state running|exited`, `exit: null` como desconhecido, `await
 ## 2026-10-28 — Ticket 02: trust compacto no workspace e painel de processos
 
 A tela Toolchain mantém o card completo de trust e as linhas de SDK; dentro do workspace, o mesmo estado aparece numa faixa compacta para não esmagar árvore/editor. O painel de processos aparece no setup após fechar workspace (pendência visível) e no workspace apenas para processos daquele workspace, evitando que histórico de outro workspace ocupe a área do editor.
+
+## 2026-10-28 — Ticket 03: avaliação por projeto, sem restore
+
+`.sln` recusa `-getProperty`/`-getItem` (MSB1063), então a solução só fornece lista de projetos, configurações e pastas (parse textual); cada `.csproj` roda um único `dotnet msbuild ... -getProperty... -getItem...` com o muxer da raiz do SDK do projeto (8.0.408), cwd no diretório do projeto e `-p:Configuration`/`-p:TargetFramework` explícitos. Sem MSBuild para soluções, sem restore/build/tasks. O TargetPath é sempre o valor avaliado; multi-TFM sem seleção fica sem TargetPath e pede TFM, nunca escolhe um. `restored` é tri-estado (`restored`/`not_restored`/`unknown`) derivado de `obj/project.assets.json` vs. mtime do `.csproj`; `unknown` não vira banner de solução limpa.
+
+## 2026-10-28 — Ticket 03: invalidação sem resposta tardia
+
+O host publica `running` antes de executar (fora do lock), marca `stale` quando `file.write` toca `.csproj/.props/.targets/.sln/global.json` (incrementando o contexto), e no polling compara mtime/tamanho de projeto, `Directory.Build.*`, `Directory.Packages.props` e `global.json`. Revogar/trocar/fechar zera a avaliação; o token capturado antes rejeita o resultado tardio (`stale_context`). A UI avalia uma vez por contexto confiável e só refaz por seleção explícita de configuração/TFM, Re-evaluate ou retry — nunca aplica resultado antigo. Detalhes do projeto ficam numa coluna própria (visível sem esconder a árvore).

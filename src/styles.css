@@ -416,6 +416,23 @@ p {
   grid-template-columns: 280px minmax(0, 1fr);
 }
 
+.workspace-grid.with-details {
+  grid-template-columns: 280px minmax(0, 1fr) 340px;
+}
+
+.eval-details-pane {
+  min-width: 0;
+  overflow: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+
+.eval-details-pane .panel-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .side {
   display: flex;
   flex-direction: column;
@@ -476,6 +493,118 @@ p {
 
 .tree .l2 {
   padding-left: 38px;
+}
+
+.tree .l3 {
+  padding-left: 58px;
+}
+
+.tree-folder {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding-top: 4px;
+}
+
+.eval-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.eval-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.eval-field select {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--fg);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 2px 4px;
+  max-width: 140px;
+}
+
+.eval-controls button {
+  font-size: 0.78rem;
+  padding: 3px 8px;
+}
+
+.eval-stale {
+  border: 1px solid var(--warning);
+  padding: 8px 10px;
+  font-size: 0.78rem;
+}
+
+.eval-details {
+  border-top: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.eval-details dl {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 2px 8px;
+  margin: 8px 12px;
+  font-size: 0.75rem;
+}
+
+.eval-details dt {
+  color: var(--muted);
+}
+
+.eval-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.eval-details .notice {
+  border: 1px solid var(--line);
+  margin: 8px 12px;
+  padding: 8px;
+  font-size: 0.78rem;
+}
+
+.eval-pre {
+  margin: 8px 12px;
+  padding: 6px;
+  max-height: 160px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 0.7rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.eval-log {
+  border-top: 1px solid var(--line);
+  font-size: 0.78rem;
+}
+
+.eval-log summary {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.tag.error {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.tag.warning {
+  color: var(--warning);
+  border-color: var(--warning);
 }
 
 .tree-note {

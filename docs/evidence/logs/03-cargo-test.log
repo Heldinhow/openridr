@@ -1,0 +1,58 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/openridr_host-e530e89a03b55969)
+
+running 15 tests
+test evaluation::tests::project_kind_uses_evaluated_properties_only ... ok
+test evaluation::tests::first_error_line_prefers_the_msbuild_error ... ok
+test evaluation::tests::package_versions_may_be_unknown ... ok
+test sdk::tests::exact_with_disable_picks_only_the_pinned_version ... ok
+test evaluation::tests::multi_tfm_outer_evaluation_has_no_target_path ... ok
+test evaluation::tests::parses_solution_folders_configurations_and_skips_solution_items ... ok
+test sdk::tests::feature_prefers_the_pinned_band_then_rolls_to_the_next_band ... ok
+test evaluation::tests::parses_the_verified_msbuild_json_shape ... ok
+test sdk::tests::highest_satisfying_install_wins_across_roots ... ok
+test sdk::tests::latest_major_picks_the_highest_install ... ok
+test sdk::tests::list_sdks_parsing_keeps_versions_with_paths_only ... ok
+test sdk::tests::minor_rolls_forward_within_the_same_major ... ok
+test sdk::tests::missing_has_a_distinct_message_and_never_falls_back ... ok
+test sdk::tests::patch_keeps_the_pin_then_uses_the_same_band ... ok
+test sdk::tests::prerelease_is_excluded_unless_allowed ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/host.rs (target/debug/deps/host-a057390f899d0afd)
+
+running 24 tests
+test closing_a_trusted_workspace_clears_trust_and_the_executable_context ... ok
+test a_late_result_from_an_older_workspace_or_context_is_discarded ... ok
+test evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk ... ok
+test directory_resolution_requires_an_explicit_choice ... ok
+test evaluation_with_a_missing_project_sdk_reports_sdk_missing ... ok
+test file_access_is_confined_to_the_workspace ... ok
+test one_workspace_at_a_time_and_awkward_names_work ... ok
+test project_sdk_missing_keeps_a_distinct_state_and_does_not_rewrite_global_json ... ok
+test redetect_is_allowed_before_and_after_trust_and_touches_no_project_file ... ok
+test revoke_marks_a_real_child_and_terminate_reports_the_observed_exit ... ok
+test executable_methods_fail_before_trust_and_spawn_nothing ... ok
+test save_reports_conflict_instead_of_overwriting_disk ... ok
+test a_failed_evaluation_stays_in_the_model_while_other_projects_evaluate ... ok
+test sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks ... ok
+test switching_workspaces_marks_processes_pending_and_drops_trust ... ok
+test text_outline_reads_solution_projects_without_evaluation ... ok
+test trust_grant_needs_an_open_workspace_and_gates_every_direct_call ... ok
+test evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts ... ok
+test multi_tfm_needs_an_explicit_selection_for_target_path_and_sources ... ok
+test a_late_evaluation_does_not_replace_a_newer_selection ... ok
+test evaluation_returns_the_real_msbuild_model_for_every_project ... ok
+test keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_period ... ok
+test revoking_trust_while_msbuild_runs_drops_the_late_result ... ok
+test saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.20s
+
+   Doc-tests openridr_host
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

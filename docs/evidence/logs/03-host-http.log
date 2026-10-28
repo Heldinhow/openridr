@@ -1,0 +1,172 @@
+# Host HTTP evidence — ticket 03 — 2026-10-28T02:51:33.282866+00:00
+
+$ POST /call {"method":"workspace.open","params":{"path":"fixtures/OrderDesk/OrderDesk.sln"}}  [selected fields]
+{
+  "ok": true,
+  "mode": "restricted",
+  "trust": false,
+  "evaluation": {
+    "state": "idle",
+    "configurations": [
+      "Debug",
+      "Release"
+    ],
+    "availableTfms": [
+      "net8.0"
+    ],
+    "projects": []
+  }
+}
+
+$ POST /call {"method":"evaluation.run","params":{}}  (before trust)
+{
+  "error": {
+    "code": "trust_required",
+    "message": "evaluation.run requires workspace trust; no process was started."
+  },
+  "ok": false
+}
+
+$ POST /call {"method":"trust.grant","params":{}}  [selected fields]
+{
+  "ok": true,
+  "trust": {
+    "decidedAt": 1793155893308,
+    "granted": true,
+    "revokedAt": null,
+    "workspaceId": 1
+  },
+  "projectSdk": {
+    "state": "resolved",
+    "resolvedVersion": "8.0.408",
+    "root": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408"
+  }
+}
+
+$ POST /call {"method":"evaluation.run","params":{"targetFramework":"net8.0;Configuration=Release"}}  (injected property)
+{
+  "error": {
+    "code": "invalid_state",
+    "message": "Configuration and TFM selections must not contain `;`, `=`, quotes or line breaks; MSBuild was not run."
+  },
+  "ok": false
+}
+evaluation state after rejected selection: idle
+
+$ POST /call {"method":"evaluation.run","params":{}}
+HTTP 200 ok: True
+state: ok | revision: 1 | workspaceId: 1 | contextId: 2
+context: {'configuration': 'Debug', 'targetFramework': None} | stale: False
+configurations: ['Debug', 'Release'] | availableTfms: ['net8.0']
+
+{
+  "name": "OrderDesk.Cli",
+  "path": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+  "folder": "src",
+  "state": "ok",
+  "kind": "console",
+  "tfms": [
+    "net8.0"
+  ],
+  "evaluatedTfm": "net8.0",
+  "targetPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
+  "outputType": "Exe",
+  "projectRefs": [
+    {
+      "name": "OrderDesk.Core",
+      "path": "src/OrderDesk.Core/OrderDesk.Core.csproj"
+    }
+  ],
+  "packages": [],
+  "sources": [
+    "src/OrderDesk.Cli/Program.cs"
+  ],
+  "exit": 0,
+  "restored": "restored",
+  "restoredReason": null,
+  "note": null
+}
+{
+  "name": "OrderDesk.Core",
+  "path": "src/OrderDesk.Core/OrderDesk.Core.csproj",
+  "folder": "src",
+  "state": "ok",
+  "kind": "library",
+  "tfms": [
+    "net8.0"
+  ],
+  "evaluatedTfm": "net8.0",
+  "targetPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll",
+  "outputType": "Library",
+  "projectRefs": [],
+  "packages": [],
+  "sources": [
+    "src/OrderDesk.Core/Order.cs"
+  ],
+  "exit": 0,
+  "restored": "restored",
+  "restoredReason": null,
+  "note": null
+}
+{
+  "name": "OrderDesk.Tests",
+  "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+  "folder": "tests",
+  "state": "ok",
+  "kind": "test",
+  "tfms": [
+    "net8.0"
+  ],
+  "evaluatedTfm": "net8.0",
+  "targetPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll",
+  "outputType": "Exe",
+  "projectRefs": [
+    {
+      "name": "OrderDesk.Core",
+      "path": "src/OrderDesk.Core/OrderDesk.Core.csproj"
+    }
+  ],
+  "packages": [
+    "Microsoft.NET.Test.Sdk 17.11.1",
+    "xunit 2.9.2",
+    "xunit.runner.visualstudio 2.8.2"
+  ],
+  "sources": [
+    "tests/OrderDesk.Tests/OrderTests.cs"
+  ],
+  "exit": 0,
+  "restored": "restored",
+  "restoredReason": null,
+  "note": null
+}
+
+global evaluation log:
+Project SDK 8.0.408 · /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408
+Workspace /Users/helder/Projetos/openridr/fixtures/OrderDesk/OrderDesk.sln · Configuration Debug · TFM not selected
+Evaluating 3 project(s); no restore, no build, no tasks.
+[OrderDesk.Cli] ok · exit 0 · 1 project reference(s) · 0 package reference(s) · 1 source(s)
+[OrderDesk.Core] ok · exit 0 · 0 project reference(s) · 0 package reference(s) · 1 source(s)
+[OrderDesk.Tests] ok · exit 0 · 1 project reference(s) · 3 package reference(s) · 1 source(s)
+
+$ POST /call {"method":"evaluation.run","params":{"configuration":"Release"}}  [selected clips]
+{
+  "state": "ok",
+  "revision": 2,
+  "context": {
+    "configuration": "Release",
+    "targetFramework": null
+  },
+  "cliTargetPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Release/net8.0/OrderDesk.Cli.dll",
+  "cliEvaluatedTfm": "net8.0"
+}
+
+TargetPath comparison (Debug evaluation above vs raw MSBuild):
+raw msbuild (logs/03-msbuild-json.log): /Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+
+$ POST /call {"method":"workspace.close","params":{}}
+{
+  "ok": true,
+  "workspace": null,
+  "evaluation": "idle",
+  "projects": 0
+}

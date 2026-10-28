@@ -77,6 +77,46 @@ export type ProcessInfo = {
   };
 };
 
+export type EvaluatedProjectRef = { name: string; path: string };
+export type EvaluatedPackageRef = { name: string; version: string | null };
+
+export type EvaluationProject = {
+  name: string;
+  path: string;
+  folder: string | null;
+  state: "ok" | "failed";
+  kind: "console" | "library" | "test" | "unknown";
+  tfms: string[];
+  evaluatedTfm: string | null;
+  targetPath: string | null;
+  outputType: string | null;
+  projectRefs: EvaluatedProjectRef[];
+  packageRefs: EvaluatedPackageRef[];
+  sources: string[];
+  error: string | null;
+  log: string;
+  exit: number | null;
+  restored: "restored" | "not_restored" | "unknown";
+  restoredReason: string | null;
+  note: string | null;
+};
+
+export type Evaluation = {
+  state: "idle" | "running" | "ok" | "partial" | "failed";
+  context: { configuration: string; targetFramework: string | null };
+  configurations: string[];
+  availableTfms: string[];
+  projects: EvaluationProject[];
+  log: string;
+  stale: boolean;
+  staleReason: string | null;
+  revision: number;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+};
+
 export type Snapshot = {
   contextId: number;
   app: { home: string; platform: string; arch: string; version: string };
@@ -110,6 +150,7 @@ export type Snapshot = {
     adapterMessage: string;
     appleSiliconExperimental: boolean;
   };
+  evaluation: Evaluation;
   processes: ProcessInfo[];
 };
 

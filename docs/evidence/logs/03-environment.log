@@ -1,0 +1,46 @@
+# Ticket 03 environment (macOS ARM64) — 2026-10-28 02:41:58Z
+
+## OS / toolchain
+ProductName:		macOS
+ProductVersion:		27.2
+BuildVersion:		26B118
+arm64
+node v26.10.0 · bun 1.3.9
+cargo 1.99.0 (5f94df478 2026-08-27)
+rustc 1.99.0 (b940084d7 2026-09-28)
+
+## Git
+93c493a feat(trust): separate host and project SDKs behind explicit trust
+89adba0 feat(workspace): open solution in restricted mode with safe text editing
+e304c57 docs: add P0 tickets
+ M crates/host/src/lib.rs
+ M crates/host/tests/host.rs
+ M src/WorkspaceView.tsx
+ M src/host/client.ts
+ M src/styles.css
+?? crates/host/src/evaluation.rs
+?? docs/evidence/logs/03-environment.log
+?? docs/evidence/screenshots/03-evaluated-tree.png
+?? fixtures/BrokenImport/
+?? tests/e2e/evaluation.spec.ts
+
+## .NET SDK roots
+8.0.416 [/usr/local/share/dotnet/sdk]
+10.0.100 [/usr/local/share/dotnet/sdk]
+8.0.408 [/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/sdk]
+
+## Fixture files (BrokenImport is outside OrderDesk.sln)
+fixtures/BrokenImport/.gitignore
+fixtures/BrokenImport/BrokenImport.csproj
+fixtures/BrokenImport/Program.cs
+fixtures/BrokenImport/global.json
+0
+
+## Fixture project.assets.json timestamps (evaluation must not rewrite them)
+1793152258 fixtures/OrderDesk/src/OrderDesk.Cli/obj/project.assets.json
+1793152249 fixtures/OrderDesk/src/OrderDesk.Cli/OrderDesk.Cli.csproj
+
+## global.json hashes
+73a4f8508555c87f74878628dfe5f39f1d0f7442b32a2241aa4d0845cf223ab4  fixtures/OrderDesk/global.json
+73a4f8508555c87f74878628dfe5f39f1d0f7442b32a2241aa4d0845cf223ab4  fixtures/BrokenImport/global.json
+f1b3d83e4e4105cae165eaf06b6f550d3c5a9011c1678f13a6b93a50d9859252  fixtures/MissingSdk/global.json

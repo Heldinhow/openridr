@@ -1,0 +1,106 @@
+# Raw MSBuild evaluation of OrderDesk.Cli (ticket 03) — 2026-10-28 02:42:04Z
+
+$ DOTNET_ROOT="/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408" DOTNET_MULTILEVEL_LOOKUP=0 DOTNET_CLI_UI_LANGUAGE=en "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet" msbuild fixtures/OrderDesk/src/OrderDesk.Cli/OrderDesk.Cli.csproj -nologo \
+    -getProperty:Configuration -getProperty:TargetFramework -getProperty:TargetFrameworks -getProperty:TargetPath \
+    -getProperty:OutputType -getProperty:MSBuildProjectName -getProperty:IsTestProject \
+    -getItem:ProjectReference -getItem:PackageReference -getItem:Compile -p:Configuration=Debug
+
+{
+  "Properties": {
+    "Configuration": "Debug",
+    "TargetFramework": "net8.0",
+    "TargetFrameworks": "",
+    "TargetPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
+    "OutputType": "Exe",
+    "MSBuildProjectName": "OrderDesk.Cli",
+    "IsTestProject": ""
+  },
+  "Items": {
+    "ProjectReference": [
+      {
+        "Identity": "../OrderDesk.Core/OrderDesk.Core.csproj",
+        "Targets": "",
+        "OutputItemType": "",
+        "ReferenceSourceTarget": "ProjectReference",
+        "FullPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Core/OrderDesk.Core.csproj",
+        "RootDir": "/",
+        "Filename": "OrderDesk.Core",
+        "Extension": ".csproj",
+        "RelativeDir": "../OrderDesk.Core/",
+        "Directory": "Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Core/",
+        "RecursiveDir": "",
+        "ModifiedTime": "",
+        "CreatedTime": "",
+        "AccessedTime": "",
+        "DefiningProjectFullPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+        "DefiningProjectDirectory": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/",
+        "DefiningProjectName": "OrderDesk.Cli",
+        "DefiningProjectExtension": ".csproj"
+      }
+    ],
+    "PackageReference": [],
+    "Compile": [
+      {
+        "Identity": "Program.cs",
+        "FullPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/Program.cs",
+        "RootDir": "/",
+        "Filename": "Program",
+        "Extension": ".cs",
+        "RelativeDir": "",
+        "Directory": "Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/",
+        "RecursiveDir": "",
+        "ModifiedTime": "",
+        "CreatedTime": "",
+        "AccessedTime": "",
+        "DefiningProjectFullPath": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/sdk/8.0.408/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.DefaultItems.props",
+        "DefiningProjectDirectory": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/sdk/8.0.408/Sdks/Microsoft.NET.Sdk/targets/",
+        "DefiningProjectName": "Microsoft.NET.Sdk.DefaultItems",
+        "DefiningProjectExtension": ".props"
+      }
+    ]
+  }
+}
+exit=0
+
+## Multi-TFM without -p:TargetFramework (exit 0 with empty TargetPath)
+{
+  "Properties": {
+    "TargetFramework": "",
+    "TargetFrameworks": "net8.0;netstandard2.0",
+    "TargetPath": ""
+  },
+  "Items": {
+    "Compile": []
+  }
+}
+exit=0
+
+## Same project with -p:TargetFramework=netstandard2.0
+{
+  "Properties": {
+    "TargetFramework": "netstandard2.0",
+    "TargetPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/msbuild-check/multi/bin/Debug/netstandard2.0/Multi.dll"
+  },
+  "Items": {
+    "Compile": [
+      {
+        "Identity": "C.cs",
+        "FullPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/msbuild-check/multi/C.cs",
+        "RootDir": "/",
+        "Filename": "C",
+        "Extension": ".cs",
+        "RelativeDir": "",
+        "Directory": "private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/msbuild-check/multi/",
+        "RecursiveDir": "",
+        "ModifiedTime": "2026-10-27 23:31:28.6342078",
+        "CreatedTime": "2026-10-27 23:31:28.6341542",
+        "AccessedTime": "2026-10-27 23:31:28.6341542",
+        "DefiningProjectFullPath": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/sdk/8.0.408/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.DefaultItems.props",
+        "DefiningProjectDirectory": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/sdk/8.0.408/Sdks/Microsoft.NET.Sdk/targets/",
+        "DefiningProjectName": "Microsoft.NET.Sdk.DefaultItems",
+        "DefiningProjectExtension": ".props"
+      }
+    ]
+  }
+}
+exit=0

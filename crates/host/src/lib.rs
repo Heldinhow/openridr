@@ -1,9 +1,11 @@
 mod error;
+mod evaluation;
 mod outline;
 pub mod process;
 pub mod sdk;
 
 pub use error::{HostError, HostResult};
+pub use evaluation::{Evaluation, EvaluationContext};
 pub use outline::{GlobalJson, Outline, OutlineProject};
 
 use outline::build_outline;
@@ -54,6 +56,7 @@ struct Inner {
     inventory: Option<Inventory>,
     project_sdk: ProjectSdk,
     processes: Registry,
+    evaluation: Evaluation,
 }
 
 struct Workspace {
@@ -150,6 +153,7 @@ struct Snapshot {
     trust: TrustView,
     sdk: SdkView,
     debug: DebugView,
+    evaluation: Evaluation,
     processes: Vec<Value>,
 }
 
@@ -171,6 +175,7 @@ impl Host {
                 inventory: None,
                 project_sdk: ProjectSdk::no_workspace(),
                 processes: Registry::new(),
+                evaluation: Evaluation::idle(),
             }),
         }
     }
@@ -178,6 +183,9 @@ impl Host {
     pub fn dispatch(&self, method: &str, params: Value) -> HostResult<Value> {
         if method == "processes.probe" {
             return self.probe(params);
+        }
+        if method == "evaluation.run" {
+            return self.run_evaluation(params);
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.executable_stub(method);
@@ -258,6 +266,10 @@ impl Host {
     fn snapshot(&self, inner: &mut Inner) -> Snapshot {
         inner.ensure_inventory();
         inner.processes.refresh();
+        let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
+        if let Some(root) = root {
+            inner.evaluation.check_external_changes(&root);
+        }
         let inventory = inner.inventory.as_ref().expect("inventory was initialized");
         let sdk = SdkView {
             host: HostSdk::from_inventory(&inventory.installs),
@@ -297,6 +309,7 @@ impl Host {
                 adapter_message: "Installation and platform gates arrive with ticket 13.",
                 apple_silicon_experimental: false,
             },
+            evaluation: inner.evaluation.clone(),
             processes: inner.processes.views(),
         }
     }
@@ -320,6 +333,11 @@ impl Host {
         };
 
         let mut workspace = load_workspace(&workspace_path)?;
+        let evaluation = Evaluation::for_workspace(
+            &workspace.path,
+            matches!(workspace.kind, WorkspaceKind::Solution),
+            outline_tfms(&workspace.outline),
+        );
         let mut inner = self.inner.lock().unwrap();
         inner.processes.mark_awaiting();
         inner.workspace_seq += 1;
@@ -330,6 +348,7 @@ impl Host {
         inner.workspace = Some(workspace);
         inner.trusted = false;
         inner.trust_decision = None;
+        inner.evaluation = evaluation;
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -342,6 +361,7 @@ impl Host {
         inner.workspace_seq += 1;
         inner.context_seq += 1;
         inner.project_sdk = ProjectSdk::no_workspace();
+        inner.evaluation = Evaluation::idle();
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -384,6 +404,7 @@ impl Host {
             decision.revoked_at = Some(now_ms());
         }
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
+        inner.evaluation = Evaluation::idle();
         // Services started by later tickets stop here; the controlled child processes of this
         // slice become awaiting decisions instead of a cleanup claim.
         inner.processes.mark_awaiting();
@@ -405,6 +426,9 @@ impl Host {
                     .and_then(|workspace| global_json_request(&workspace.outline));
                 inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
             }
+            inner
+                .evaluation
+                .mark_stale("SDK inventory refreshed; re-evaluate the project model.");
         }
         Ok(self.snapshot_value(&mut inner))
     }
@@ -472,6 +496,179 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
+    /// Evaluates every project of the open solution (or the single project) with one MSBuild
+    /// process per project. Never restores, builds or runs targets.
+    fn run_evaluation(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("evaluation.run")?;
+
+        let mut inner = self.inner.lock().unwrap();
+        let Some(workspace) = inner.workspace.as_ref() else {
+            return Err(HostError::new("invalid_state", "No workspace is open."));
+        };
+        let is_solution = matches!(workspace.kind, WorkspaceKind::Solution);
+        let workspace_file = workspace.path.clone();
+        let root = workspace.root.clone();
+        let plan = evaluation::plan_workspace(&workspace_file, &root, is_solution);
+
+        let context = EvaluationContext {
+            configuration: optional_str(&params, "configuration")
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| inner.evaluation.context.configuration.clone()),
+            target_framework: match params.get("targetFramework") {
+                Some(Value::String(value)) if !value.trim().is_empty() => {
+                    Some(value.trim().to_string())
+                }
+                Some(_) => None,
+                None => inner.evaluation.context.target_framework.clone(),
+            },
+        };
+
+        if !valid_selection(&context.configuration)
+            || context
+                .target_framework
+                .as_deref()
+                .is_some_and(|tfm| !valid_selection(tfm))
+        {
+            return Err(HostError::new(
+                "invalid_state",
+                "Configuration and TFM selections must not contain `;`, `=`, quotes or line breaks; MSBuild was not run.",
+            ));
+        }
+
+        let sdk = inner.project_sdk.clone();
+        if sdk.state != "resolved" {
+            let message = format!(
+                "MSBuild was not run: the project SDK is not resolved ({}). {}",
+                sdk.state,
+                sdk.message
+                    .clone()
+                    .unwrap_or_else(|| "Resolve the project SDK before evaluating.".to_string())
+            );
+            inner.evaluation = Evaluation::failed_context(context, message.clone());
+            inner.evaluation.configurations = plan.configurations.clone();
+            inner.evaluation.workspace_id = Some(token.workspace_id);
+            inner.evaluation.context_id = Some(token.context_id);
+            let code = if sdk.state == "sdk_missing" {
+                "sdk_missing"
+            } else {
+                "invalid_state"
+            };
+            return Err(HostError::new(code, message));
+        }
+        let available_tfms = inner.evaluation.available_tfms.clone();
+        let Some(sdk_root) = sdk.root.clone().map(PathBuf::from) else {
+            let message = "MSBuild was not run: the resolved project SDK has no root path.";
+            inner.evaluation = Evaluation::failed_context(context, message.to_string());
+            inner.evaluation.configurations = plan.configurations.clone();
+            inner.evaluation.available_tfms = available_tfms;
+            inner.evaluation.workspace_id = Some(token.workspace_id);
+            inner.evaluation.context_id = Some(token.context_id);
+            return Err(HostError::new("invalid_state", message));
+        };
+        let muxer = sdk_root.join(dotnet_exe());
+        if !muxer.is_file() {
+            let message = format!(
+                "MSBuild was not run: {} does not contain a .NET muxer.",
+                sdk_root.to_string_lossy()
+            );
+            inner.evaluation = Evaluation::failed_context(context, message.clone());
+            inner.evaluation.configurations = plan.configurations.clone();
+            inner.evaluation.available_tfms = available_tfms;
+            inner.evaluation.workspace_id = Some(token.workspace_id);
+            inner.evaluation.context_id = Some(token.context_id);
+            return Err(HostError::new("sdk_missing", message));
+        }
+
+        let available_tfms = inner.evaluation.available_tfms.clone();
+        inner.evaluation.begin(
+            context.clone(),
+            plan.configurations.clone(),
+            available_tfms,
+            token.workspace_id,
+            token.context_id,
+        );
+        let run_revision = inner.evaluation.revision;
+        // Evaluation runs outside the lock so snapshots can observe `running` and revoke/close
+        // can invalidate the context while MSBuild is working.
+        drop(inner);
+
+        let mut projects = Vec::new();
+        let mut lines = vec![
+            format!(
+                "Project SDK {} · {}",
+                sdk.resolved_version.clone().unwrap_or_else(|| "unknown".to_string()),
+                sdk_root.to_string_lossy()
+            ),
+            format!(
+                "Workspace {} · Configuration {} · TFM {}",
+                workspace_file.to_string_lossy(),
+                context.configuration,
+                context
+                    .target_framework
+                    .clone()
+                    .unwrap_or_else(|| "not selected".to_string())
+            ),
+            format!(
+                "Evaluating {} project(s); no restore, no build, no tasks.",
+                plan.projects.len()
+            ),
+        ];
+        for plan_project in &plan.projects {
+            let project = evaluation::evaluate_project(
+                &muxer,
+                &sdk_root,
+                &root,
+                plan_project,
+                &context.configuration,
+                context.target_framework.as_deref(),
+            );
+            lines.push(format!(
+                "[{}] {} · exit {} · {} project reference(s) · {} package reference(s) · {} source(s)",
+                project.name,
+                project.state,
+                project
+                    .exit
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                project.project_refs.len(),
+                project.package_refs.len(),
+                project.sources.len()
+            ));
+            projects.push(project);
+        }
+        let mut available_tfms: Vec<String> = Vec::new();
+        for project in &projects {
+            for tfm in &project.tfms {
+                if !available_tfms.contains(tfm) {
+                    available_tfms.push(tfm.clone());
+                }
+            }
+        }
+        let unrestored = projects
+            .iter()
+            .filter(|project| project.restored != "restored")
+            .count();
+        if unrestored > 0 {
+            lines.push(format!(
+                "Restore not requested for {unrestored} project(s); package dependencies and analysis are incomplete."
+            ));
+        }
+        let watched = evaluation::watch_paths(&workspace_file, &root, &plan.projects);
+
+        let mut inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        if inner.evaluation.revision != run_revision || inner.evaluation.state != "running" {
+            return Err(HostError::new(
+                "stale_context",
+                "An older evaluation result was discarded; it did not replace the current evaluation.",
+            ));
+        }
+        inner
+            .evaluation
+            .complete(projects, lines.join("\n"), watched, available_tfms);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
     fn read_file(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
         let inner = self.inner.lock().unwrap();
@@ -490,7 +687,7 @@ impl Host {
         let raw = required_str(&params, "path")?;
         let content = required_str(&params, "content")?;
         let expected_hash = required_str(&params, "expected_hash")?;
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
         let (path, rel) = resolve_in_workspace(&inner, &raw)?;
 
         let current = fs::read_to_string(&path).map_err(|error| {
@@ -528,6 +725,13 @@ impl Host {
                 "operation_failed",
                 format!("Could not replace {rel}: {error}"),
             ));
+        }
+        if is_evaluation_input(&rel)
+            && inner
+                .evaluation
+                .mark_stale(format!("{rel} was saved; the evaluated project model is stale."))
+        {
+            inner.context_seq += 1;
         }
         Ok(json!({ "path": rel, "hash": content_hash(&content) }))
     }
@@ -647,6 +851,53 @@ fn required_u64(params: &Value, key: &str) -> HostResult<u64> {
             format!("Missing numeric parameter `{key}`."),
         )
     })
+}
+
+fn optional_str(params: &Value, key: &str) -> Option<String> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// MSBuild's `-p:` syntax also accepts `;name=value`, so a selection from the UI boundary
+/// must never smuggle a second property. Spaces stay valid for existing solution configurations.
+fn valid_selection(value: &str) -> bool {
+    !value.trim().is_empty()
+        && value
+            .chars()
+            .all(|c| !matches!(c, ';' | '=' | '"' | '\'' | '\n' | '\r'))
+}
+
+fn outline_tfms(outline: &Outline) -> Vec<String> {
+    let mut tfms = Vec::new();
+    for project in &outline.projects {
+        for tfm in &project.tfms {
+            if !tfms.contains(tfm) {
+                tfms.push(tfm.clone());
+            }
+        }
+    }
+    tfms
+}
+
+/// Saving these files can change the MSBuild model; source files cannot.
+fn is_evaluation_input(rel: &str) -> bool {
+    let lower = rel.to_ascii_lowercase();
+    lower.ends_with(".csproj")
+        || lower.ends_with(".props")
+        || lower.ends_with(".targets")
+        || lower.ends_with(".sln")
+        || lower.ends_with("/global.json")
+        || lower == "global.json"
+}
+
+fn dotnet_exe() -> &'static str {
+    if cfg!(windows) {
+        "dotnet.exe"
+    } else {
+        "dotnet"
+    }
 }
 
 fn workspace_file(path: &Path) -> HostResult<PathBuf> {

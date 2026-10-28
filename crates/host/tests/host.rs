@@ -34,6 +34,30 @@ fn error_code(result: Result<Value, openridr_host::HostError>) -> String {
     result.expect_err("expected host error").code
 }
 
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if name == "bin" || name == "obj" {
+            continue;
+        }
+        let target = to.join(&name);
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+/// A fixture copy outside the repository, used whenever a test saves project files.
+fn fixture_copy(parent: &Path, name: &str) -> PathBuf {
+    let copy = parent.join(name);
+    copy_tree(&fixture(), &copy);
+    copy
+}
+
 #[test]
 fn text_outline_reads_solution_projects_without_evaluation() {
     let host = Host::new();
@@ -338,13 +362,21 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     assert_eq!(trusted["workspace"]["mode"], "trusted");
     assert_eq!(trusted["sdk"]["project"]["state"], "no_global_json");
 
-    for method in EXECUTABLE_METHODS.iter().filter(|method| **method != "processes.probe") {
+    for method in EXECUTABLE_METHODS.iter().filter(|method| {
+        **method != "processes.probe" && **method != "evaluation.run"
+    }) {
         assert_eq!(
             error_code(host.dispatch(method, json!({}))),
             "invalid_state",
             "{method} passes the gate but is not implemented in this slice"
         );
     }
+    assert_eq!(
+        error_code(host.dispatch("evaluation.run", json!({}))),
+        "invalid_state",
+        "evaluation.run needs a resolved project SDK"
+    );
+    assert_eq!(snapshot(&host)["evaluation"]["state"], "failed");
 
     let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
     assert_eq!(revoked["trust"]["granted"], false);
@@ -651,4 +683,504 @@ fn switching_workspaces_marks_processes_pending_and_drops_trust() {
 
     host.dispatch("processes.terminate", json!({ "id": id }))
         .unwrap();
+}
+
+#[test]
+fn evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["NoSdk.csproj"]);
+    open(&host, &workspace.path().join("NoSdk.csproj"));
+
+    assert_eq!(
+        error_code(host.dispatch("evaluation.run", json!({}))),
+        "trust_required"
+    );
+    let trusted = grant(&host);
+    assert_eq!(trusted["sdk"]["project"]["state"], "no_global_json");
+    for params in [
+        json!({ "configuration": "Debug;TargetPath=/tmp/injected" }),
+        json!({ "targetFramework": "net8.0;Configuration=Release" }),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("evaluation.run", params)),
+            "invalid_state"
+        );
+    }
+    assert_eq!(
+        error_code(host.dispatch("evaluation.run", json!({}))),
+        "invalid_state"
+    );
+    let state = snapshot(&host);
+    assert_eq!(state["evaluation"]["state"], "failed");
+    assert_eq!(state["evaluation"]["projects"], json!([]));
+    assert!(state["evaluation"]["log"]
+        .as_str()
+        .unwrap()
+        .contains("not resolved"));
+    for artifact in ["bin", "obj"] {
+        assert!(
+            !workspace.path().join(artifact).exists(),
+            "{artifact} was created without a resolved SDK"
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn evaluation_with_a_missing_project_sdk_reports_sdk_missing() {
+    let fixture = fs::canonicalize(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"),
+    )
+    .expect("fixture MissingSdk exists");
+    let global_json = fixture.join("global.json");
+    let before = fs::read(&global_json).unwrap();
+
+    let host = Host::new();
+    open(&host, &fixture.join("MissingSdk.csproj"));
+    grant(&host);
+    let error = host
+        .dispatch("evaluation.run", json!({}))
+        .expect_err("a missing project SDK blocks evaluation");
+    assert_eq!(error.code, "sdk_missing");
+    assert!(error.message.contains("8.0.999"));
+    let state = snapshot(&host);
+    assert_eq!(state["evaluation"]["state"], "failed");
+    assert_eq!(state["evaluation"]["projects"], json!([]));
+    assert_eq!(fs::read(&global_json).unwrap(), before);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn evaluation_returns_the_real_msbuild_model_for_every_project() {
+    let host = Host::new();
+    open(&host, &fixture());
+    grant(&host);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    let evaluation = &evaluated["evaluation"];
+
+    assert_eq!(evaluation["state"], "ok", "{}", evaluation["log"]);
+    assert_eq!(evaluation["context"]["configuration"], "Debug");
+    assert_eq!(evaluation["context"]["targetFramework"], Value::Null);
+    assert_eq!(evaluation["configurations"], json!(["Debug", "Release"]));
+    assert_eq!(evaluation["revision"], 1);
+    assert_eq!(evaluation["stale"], false);
+    assert!(evaluation["workspaceId"].as_u64().is_some());
+    assert!(evaluation["contextId"].as_u64().is_some());
+    let projects = evaluation["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 3);
+
+    let project = |name: &str| {
+        projects
+            .iter()
+            .find(|project| project["name"] == name)
+            .unwrap()
+    };
+    let cli = project("OrderDesk.Cli");
+    assert_eq!(cli["state"], "ok");
+    assert_eq!(cli["kind"], "console");
+    assert_eq!(cli["folder"], "src");
+    assert_eq!(cli["tfms"], json!(["net8.0"]));
+    assert_eq!(cli["evaluatedTfm"], "net8.0");
+    assert_eq!(cli["outputType"], "Exe");
+    assert_eq!(cli["restored"], "restored");
+    assert!(cli["targetPath"]
+        .as_str()
+        .unwrap()
+        .ends_with("src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll"));
+    assert_eq!(cli["projectRefs"][0]["name"], "OrderDesk.Core");
+    assert_eq!(
+        cli["projectRefs"][0]["path"],
+        "src/OrderDesk.Core/OrderDesk.Core.csproj"
+    );
+    assert_eq!(cli["packageRefs"], json!([]));
+    assert!(cli["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|source| source == "src/OrderDesk.Cli/Program.cs"));
+
+    let core = project("OrderDesk.Core");
+    assert_eq!(core["kind"], "library");
+    assert_eq!(core["folder"], "src");
+
+    let tests = project("OrderDesk.Tests");
+    assert_eq!(tests["kind"], "test");
+    assert_eq!(tests["folder"], "tests");
+    assert_eq!(tests["packageRefs"].as_array().unwrap().len(), 3);
+    assert_eq!(tests["packageRefs"][1]["name"], "xunit");
+    assert_eq!(tests["packageRefs"][1]["version"], "2.9.2");
+    assert!(tests["targetPath"]
+        .as_str()
+        .unwrap()
+        .ends_with("tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll"));
+
+    for project in projects {
+        for source in project["sources"].as_array().unwrap() {
+            let source = source.as_str().unwrap();
+            assert!(!source.contains("/obj/") && !source.contains("/bin/"), "{source}");
+        }
+    }
+
+    let release = host
+        .dispatch("evaluation.run", json!({ "configuration": "Release" }))
+        .unwrap();
+    assert_eq!(release["evaluation"]["context"]["configuration"], "Release");
+    assert_eq!(release["evaluation"]["revision"], 2);
+    let cli = release["evaluation"]["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|project| project["name"] == "OrderDesk.Cli")
+        .unwrap();
+    assert!(cli["targetPath"]
+        .as_str()
+        .unwrap()
+        .contains("/bin/Release/net8.0/OrderDesk.Cli.dll"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk ; & copy");
+
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    let evaluation = &evaluated["evaluation"];
+    assert_eq!(evaluation["state"], "ok", "{}", evaluation["log"]);
+    for project in evaluation["projects"].as_array().unwrap() {
+        assert_eq!(project["restored"], "not_restored", "{}", project["name"]);
+        assert_eq!(project["log"].as_str().unwrap().contains("exit 0"), true);
+        let target = project["targetPath"].as_str().unwrap();
+        assert!(target.contains("Order Desk ; & copy"), "{target}");
+        assert!(target.contains("/bin/Debug/net8.0/"), "{target}");
+        assert!(!project["sources"].as_array().unwrap().is_empty());
+    }
+    for project in ["src/OrderDesk.Cli", "src/OrderDesk.Core", "tests/OrderDesk.Tests"] {
+        assert!(
+            !copy.join(project).join("obj").join("project.assets.json").exists(),
+            "evaluation restored {project}"
+        );
+    }
+    assert!(evaluation["log"]
+        .as_str()
+        .unwrap()
+        .contains("Restore not requested"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn multi_tfm_needs_an_explicit_selection_for_target_path_and_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("global.json"),
+        "{\"sdk\":{\"version\":\"8.0.408\",\"rollForward\":\"disable\"}}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("Multi.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks></PropertyGroup></Project>\n",
+    )
+    .unwrap();
+    fs::write(root.join("C.cs"), "class C {}\n").unwrap();
+
+    let host = Host::new();
+    open(&host, &root.join("Multi.csproj"));
+    grant(&host);
+    let first = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(first["evaluation"]["state"], "ok");
+    let project = &first["evaluation"]["projects"][0];
+    assert_eq!(project["tfms"], json!(["net8.0", "netstandard2.0"]));
+    assert_eq!(project["evaluatedTfm"], Value::Null);
+    assert_eq!(project["targetPath"], Value::Null);
+    assert_eq!(project["sources"], json!([]));
+    assert!(project["note"].as_str().unwrap().contains("Select a TFM"));
+
+    let selected = host
+        .dispatch(
+            "evaluation.run",
+            json!({ "targetFramework": "netstandard2.0" }),
+        )
+        .unwrap();
+    assert_eq!(
+        selected["evaluation"]["context"]["targetFramework"],
+        "netstandard2.0"
+    );
+    let project = &selected["evaluation"]["projects"][0];
+    assert_eq!(project["evaluatedTfm"], "netstandard2.0");
+    assert!(project["targetPath"]
+        .as_str()
+        .unwrap()
+        .ends_with("/bin/Debug/netstandard2.0/Multi.dll"));
+    assert_eq!(project["sources"], json!(["C.cs"]));
+
+    let not_declared = host
+        .dispatch("evaluation.run", json!({ "targetFramework": "net9.0" }))
+        .unwrap();
+    let project = &not_declared["evaluation"]["projects"][0];
+    assert_eq!(project["targetPath"], Value::Null);
+    assert!(project["note"].as_str().unwrap().contains("not declared"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_failed_evaluation_stays_in_the_model_while_other_projects_evaluate() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("global.json"),
+        "{\"sdk\":{\"version\":\"8.0.408\",\"rollForward\":\"disable\"}}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("Good.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
+    )
+    .unwrap();
+    fs::write(root.join("Good.cs"), "class Good {}\n").unwrap();
+    fs::write(
+        root.join("Broken.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup><Import Project=\"build/Missing.props\" /></Project>\n",
+    )
+    .unwrap();
+    fs::write(root.join("Broken.cs"), "class Broken {}\n").unwrap();
+    fs::write(
+        root.join("Mixed.sln"),
+        "Microsoft Visual Studio Solution File, Format Version 12.00\n\
+Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Good\", \"Good.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\nEndProject\n\
+Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Broken\", \"Broken.csproj\", \"{22222222-2222-2222-2222-222222222222}\"\nEndProject\n\
+Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+    )
+    .unwrap();
+
+    let host = Host::new();
+    open(&host, &root.join("Mixed.sln"));
+    grant(&host);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    let evaluation = &evaluated["evaluation"];
+    assert_eq!(evaluation["state"], "partial", "{}", evaluation["log"]);
+    let projects = evaluation["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 2);
+    let good = projects.iter().find(|project| project["name"] == "Good").unwrap();
+    assert_eq!(good["state"], "ok");
+    assert!(good["targetPath"].as_str().unwrap().ends_with("Good.dll"));
+    let broken = projects
+        .iter()
+        .find(|project| project["name"] == "Broken")
+        .unwrap();
+    assert_eq!(broken["state"], "failed");
+    assert_eq!(broken["kind"], "unknown");
+    assert_eq!(broken["targetPath"], Value::Null);
+    assert_eq!(broken["restored"], "not_restored");
+    assert_eq!(broken["exit"], 1);
+    assert!(broken["error"].as_str().unwrap().contains("MSB4019"));
+    assert!(broken["log"].as_str().unwrap().contains("Missing.props"));
+    assert!(evaluation["log"].as_str().unwrap().contains("[Broken] failed"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn revoking_trust_while_msbuild_runs_drops_the_late_result() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("global.json"),
+        "{\"sdk\":{\"version\":\"8.0.408\",\"rollForward\":\"disable\"}}\n",
+    )
+    .unwrap();
+    let mut sln = String::from(
+        "Microsoft Visual Studio Solution File, Format Version 12.00\nGlobal\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+    );
+    for index in 0..8 {
+        let name = format!("P{index}");
+        fs::write(
+            root.join(format!("{name}.csproj")),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
+        )
+        .unwrap();
+        fs::write(root.join(format!("{name}.cs")), "class C {}\n").unwrap();
+        sln.push_str(&format!(
+            "Project(\"{{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}}\") = \"{name}\", \"{name}.csproj\", \"{{00000000-0000-0000-0000-{index:012}}}\"\nEndProject\n"
+        ));
+    }
+    fs::write(root.join("Many.sln"), sln).unwrap();
+
+    let host = Host::new();
+    open(&host, &root.join("Many.sln"));
+    grant(&host);
+    std::thread::scope(|scope| {
+        let handle = scope.spawn(|| host.dispatch("evaluation.run", json!({})));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let state = snapshot(&host);
+            if state["evaluation"]["state"] == "running" {
+                break;
+            }
+            assert!(Instant::now() < deadline, "evaluation never reported running");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        host.dispatch("trust.revoke", json!({})).unwrap();
+        let late = handle.join().unwrap();
+        assert_eq!(error_code(late), "stale_context");
+    });
+
+    let state = snapshot(&host);
+    assert_eq!(state["trust"]["granted"], false);
+    assert_eq!(state["evaluation"]["state"], "idle");
+    assert_eq!(state["evaluation"]["projects"], json!([]));
+    assert_eq!(
+        error_code(host.dispatch("evaluation.run", json!({}))),
+        "trust_required"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "OrderDesk stale");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let first = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(first["evaluation"]["revision"], 1);
+    assert_eq!(first["evaluation"]["stale"], false);
+    let context_before = first["contextId"].as_u64().unwrap();
+
+    // A source edit does not invalidate the project model.
+    let program = host
+        .dispatch("file.read", json!({ "path": "src/OrderDesk.Cli/Program.cs" }))
+        .unwrap();
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "src/OrderDesk.Cli/Program.cs",
+            "content": format!("// harmless\n{}", program["content"].as_str().unwrap()),
+            "expected_hash": program["hash"],
+        }),
+    )
+    .unwrap();
+    assert_eq!(snapshot(&host)["evaluation"]["stale"], false);
+
+    // Saving the project file through the app marks the model stale and moves the context.
+    let project_file = "src/OrderDesk.Cli/OrderDesk.Cli.csproj";
+    let read = host
+        .dispatch("file.read", json!({ "path": project_file }))
+        .unwrap();
+    let content = read["content"]
+        .as_str()
+        .unwrap()
+        .replace(
+            "</Project>",
+            "  <PropertyGroup><Description>stale check</Description></PropertyGroup>\n</Project>",
+        );
+    host.dispatch(
+        "file.write",
+        json!({ "path": project_file, "content": content, "expected_hash": read["hash"] }),
+    )
+    .unwrap();
+    let stale = snapshot(&host);
+    assert_eq!(stale["evaluation"]["stale"], true);
+    assert!(stale["evaluation"]["staleReason"]
+        .as_str()
+        .unwrap()
+        .contains("was saved"));
+    assert!(stale["contextId"].as_u64().unwrap() > context_before);
+    assert_eq!(stale["evaluation"]["projects"].as_array().unwrap().len(), 3);
+
+    let second = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(second["evaluation"]["stale"], false);
+    assert_eq!(second["evaluation"]["revision"], 2);
+
+    // An external edit is detected by the mtime watch on the state refresh.
+    std::thread::sleep(Duration::from_millis(20));
+    let file = copy.join(project_file);
+    let mut text = fs::read_to_string(&file).unwrap();
+    text.push('\n');
+    fs::write(&file, text).unwrap();
+    let external = snapshot(&host);
+    assert_eq!(external["evaluation"]["stale"], true);
+    assert!(external["evaluation"]["staleReason"]
+        .as_str()
+        .unwrap()
+        .contains("changed on disk"));
+
+    // Changing the configuration re-evaluates; the old TargetPath is not current anymore.
+    let release = host
+        .dispatch("evaluation.run", json!({ "configuration": "Release" }))
+        .unwrap();
+    assert_eq!(release["evaluation"]["stale"], false);
+    assert_eq!(release["evaluation"]["context"]["configuration"], "Release");
+    let cli = release["evaluation"]["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|project| project["name"] == "OrderDesk.Cli")
+        .unwrap();
+    assert!(cli["targetPath"]
+        .as_str()
+        .unwrap()
+        .contains("/bin/Release/net8.0/OrderDesk.Cli.dll"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_late_evaluation_does_not_replace_a_newer_selection() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("global.json"),
+        "{\"sdk\":{\"version\":\"8.0.408\",\"rollForward\":\"disable\"}}\n",
+    )
+    .unwrap();
+
+    let project = |name: &str| {
+        fs::write(
+            root.join(format!("{name}.csproj")),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
+        )
+        .unwrap();
+        fs::write(root.join(format!("{name}.cs")), "class C {}\n").unwrap();
+    };
+    project("Cli");
+    let mut sln = String::from(
+        "Microsoft Visual Studio Solution File, Format Version 12.00\nProject(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Cli\", \"Cli.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\nEndProject\nGlobal\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\t\tRelease|Any CPU = Release|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+    );
+    for index in 0..5 {
+        let name = format!("Lib{index}");
+        project(&name);
+        sln.push_str(&format!(
+            "Project(\"{{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}}\") = \"{name}\", \"{name}.csproj\", \"{{00000000-0000-0000-0000-{index:012}}}\"\nEndProject\n"
+        ));
+    }
+    fs::write(root.join("Many.sln"), sln).unwrap();
+
+    let host = Host::new();
+    open(&host, &root.join("Many.sln"));
+    grant(&host);
+    std::thread::scope(|scope| {
+        let older = scope.spawn(|| host.dispatch("evaluation.run", json!({})));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if snapshot(&host)["evaluation"]["state"] == "running" {
+                break;
+            }
+            assert!(Instant::now() < deadline, "evaluation never reported running");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let newer = host
+            .dispatch("evaluation.run", json!({ "configuration": "Release" }))
+            .unwrap();
+        assert_eq!(newer["evaluation"]["revision"], 2);
+        assert_eq!(newer["evaluation"]["context"]["configuration"], "Release");
+        assert_eq!(error_code(older.join().unwrap()), "stale_context");
+    });
+
+    let state = snapshot(&host);
+    assert_eq!(state["evaluation"]["revision"], 2);
+    assert_eq!(state["evaluation"]["context"]["configuration"], "Release");
+    assert_eq!(state["evaluation"]["state"], "ok");
 }
