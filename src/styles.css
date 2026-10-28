@@ -1042,15 +1042,20 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .status {
   display: flex;
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 5px 12px;
+  gap: 14px;
+  flex-wrap: nowrap;
+  padding: 0 12px;
   color: var(--muted);
   background: var(--panel);
   border-top: 1px solid var(--line);
-  font-size: 0.75rem;
+  font-size: 11px;
   flex: 0 0 auto;
 }
+.status > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.status > [data-testid="status-mode"], .status > [data-testid="status-keymap"], .status > [data-testid="status-cursor"] { flex: 0 0 auto; }
+.status > [data-testid="status-evaluation"] { flex: 0 1 240px; }
+.status > [data-testid="status-sdk"] { flex: 0 1 auto; }
+.status > [data-testid="status-workspace"] { max-width: 160px; }
 
 .modal-backdrop {
   position: fixed;

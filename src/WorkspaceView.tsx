@@ -260,6 +260,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const renameSeq = useRef(0);
   const actionSeq = useRef(0);
   const cursorRef = useRef({ line: 0, character: 0 });
+  const [cursor, setCursor] = useState({ line: 0, character: 0 });
   const editPreviewHeading = useRef<HTMLHeadingElement | null>(null);
   const actionListHeading = useRef<HTMLHeadingElement | null>(null);
 
@@ -906,6 +907,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
   function noteCursor(position: { line: number; character: number }) {
     cursorRef.current = position;
+    setCursor(position);
     setActionList((current) => {
       if (!current) return current;
       if (current.line === position.line && current.character === position.character) {
@@ -2061,7 +2063,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       <div className="toolbar">
         <span className="workspace-brand" title={workspace.path}><Icon name="project" /><strong>{workspace.name}</strong></span>
         <details className="toolbar-menu trust-menu">
-          <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted" : "Restricted"}</summary>
+          <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted mode" : "Restricted mode"}</summary>
           <div className="menu-content" data-testid="trust-banner">
             <TrustControls snapshot={snapshot} onChange={onSnapshot} />
           </div>
@@ -3100,13 +3102,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       </section>
 
       <footer className="status">
-        <span data-testid="status-workspace">{workspace.name}</span>
+        <span data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
         <span className={trusted ? "success" : "warning"} data-testid="status-mode">
           {trusted ? "Trusted mode" : "Restricted mode"}
         </span>
-        <span data-testid="status-sdk">{sdkSummary}</span>
+        <span data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
         {showsEvaluatedTree ? (
-          <span data-testid="status-evaluation">
+          <span data-testid="status-evaluation" title={`${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`}>
             {evaluationStateLabel(evaluation.state)} · Configuration{" "}
             {evaluation.context.configuration} · TFM{" "}
             {evaluation.context.targetFramework ?? "not selected"} · revision{" "}
@@ -3124,6 +3126,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         <span className="push" data-testid="status-keymap">
           Keymap: IntelliJ / Rider
         </span>
+        <span data-testid="status-cursor">{active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}</span>
       </footer>
 
       {renamePrompt && (
