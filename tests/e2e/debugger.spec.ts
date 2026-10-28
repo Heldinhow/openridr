@@ -56,7 +56,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   );
   await expect(page.getByTestId("debug-source")).toContainText("approved version 3.2.0-1092");
   await expect(page.getByTestId("debug-source")).toContainText("Samsung/netcoredbg");
-  await expect(page.getByTestId("debug-source")).toContainText("DAP proven: no");
+  await expect(page.getByTestId("debug-source")).toContainText("DAP proven by installation: no");
   await expect(page.getByTestId("debug-message")).toContainText(
     "The official 3.2.0-1092 osx-arm64 asset exists",
   );
@@ -64,7 +64,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   await expect(page.getByTestId("debug-message")).toContainText(
     "installation stays refused until you enable the experimental flag",
   );
-  await expect(page.getByTestId("debug-dap")).toContainText("not implemented in this build");
+  await expect(page.getByTestId("debug-dap")).toContainText("DAP launch is implemented");
   await expect(page.getByTestId("debug-flag-note")).toContainText(
     "neither installs netcoredbg nor proves compatibility",
   );
@@ -226,4 +226,199 @@ test("host gates consent, trust and plan identity before any download", async ({
       2,
     ),
   );
+});
+
+/**
+ * Ticket 14: a real DAP session with the installed netcoredbg, driven through the UI. The
+ * E2E home receives a copy of the operator-installed adapter (the ticket-13 install flow's
+ * verified artifact) so no download happens here.
+ */
+test("debugs a real build with breakpoints, frames, locals, steps, continue and stop", async ({
+  page,
+  request,
+}) => {
+  const realAdapter = path.join(
+    process.env.HOME ?? "",
+    "Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092",
+  );
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-"));
+  const copy = path.join(base, "Order Desk debug");
+  fs.cpSync(fixture, copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  fs.rmSync(debugToolDir, { recursive: true, force: true });
+  fs.mkdirSync(debugToolDir, { recursive: true });
+  fs.cpSync(realAdapter, path.join(debugToolDir, "3.2.0-1092"), { recursive: true });
+
+  try {
+    await page.goto("/");
+    await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-checkbox").check();
+    await page.getByTestId("trust-grant").click();
+    await expect(page.getByTestId("mode-trusted")).toBeVisible();
+    await page.getByTestId("open-text-only").click();
+    await expect(page.getByTestId("tree")).toBeVisible();
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+
+    // Session-scoped opt-in and the real verified adapter: installing again reuses it.
+    const flagged = await hostCall(request, "debug.flag", { enabled: true, confirm: true });
+    expect(flagged.ok, JSON.stringify(flagged.error)).toBe(true);
+    const planned = await hostCall(request, "debug.plan");
+    expect(planned.ok, JSON.stringify(planned.error)).toBe(true);
+    const installed = await hostCall(request, "debug.install", {
+      planId: planned.data.debug.plan.planId,
+      confirm: true,
+    });
+    expect(installed.ok, JSON.stringify(installed.error)).toBe(true);
+    expect(installed.data.debug.adapterState).toBe("ready");
+    expect(installed.data.debug.reused).toBe(true);
+    expect(installed.data.debug.appleSiliconExperimental).toBe(true);
+
+    await page.reload();
+    const afterReload = await hostCall(request, "workspace.state");
+    expect(afterReload.data.debug.appleSiliconExperimental).toBe(true);
+    await expect(page.getByTestId("mode-trusted")).toBeVisible({ timeout: 20_000 });
+    if (!(await page.getByTestId("tree").isVisible())) {
+      await page.getByTestId("open-text-only").click();
+    }
+    await expect(page.getByTestId("tree")).toBeVisible();
+    await page.getByTestId("restore-action").click();
+    await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
+      timeout: 60_000,
+    });
+    await page.getByTestId("restore-reload").click();
+    await expect(page.getByTestId("eval-state")).toContainText("revision 2", { timeout: 30_000 });
+
+    // The Debug launch stays blocked until a successful Debug build exists.
+    await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
+    await expect(page.getByTestId("toolbar-debug")).toHaveAttribute(
+      "title",
+      /Build the startup project in Debug first/,
+    );
+
+    // Breakpoint in Program.cs through the real editor. The gutter marker column is a
+    // separate column from the line numbers.
+    await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+    await page.getByTestId("editor").click();
+    await page.locator(".cm-line").nth(2).click();
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", /^2:/);
+    await page.keyboard.press("Meta+F8");
+    await page.getByTestId("bottom-tab-debug").click();
+    await expect(page.getByTestId("debug-breakpoints")).toContainText(
+      "src/OrderDesk.Cli/Program.cs:3",
+    );
+    await expect(page.getByTestId("debug-breakpoints")).toContainText("pending");
+    await expect(page.locator(".cm-lineNumbers")).toBeVisible();
+    await expect(page.locator(".cm-debug-gutter")).toBeVisible();
+    expect(await page.locator(".cm-debug-marker").count()).toBe(1);
+
+    // A mouse click on the marker column removes the same breakpoint; the shortcut adds it back.
+    await page.locator(".cm-debug-marker").first().click();
+    await expect(page.getByTestId("debug-breakpoints")).toContainText("No breakpoints");
+    await page.locator(".cm-line").nth(2).click();
+    await page.keyboard.press("Meta+F8");
+    await expect(page.getByTestId("debug-breakpoints")).toContainText(
+      "src/OrderDesk.Cli/Program.cs:3",
+    );
+    await expect(page.locator(".cm-debug-marker")).toHaveCount(1);
+
+    await page.getByTestId("bottom-tab-build").click();
+    await page.getByTestId("build-action").click();
+    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("toolbar-debug")).toBeEnabled();
+
+    // Launch with Ctrl+D; the real adapter must hit the breakpoint on line 3.
+    await page.keyboard.press("Control+d");
+    const pauseDeadline = Date.now() + 30_000;
+    let pausedState: { dap: { state: string; phase: string; log: string } } | null = null;
+    while (Date.now() < pauseDeadline) {
+      const polled = await hostCall(request, "workspace.state");
+      pausedState = polled.data;
+      if (pausedState?.dap.state === "paused") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    expect(pausedState?.dap.state, pausedState?.dap.log).toBe("paused");
+    await page.getByTestId("bottom-tab-debug").click();
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 30_000 });
+    await expect(page.getByTestId("dap-session")).toContainText("1");
+    await expect(page.getByTestId("dap-build-id")).toContainText("build:");
+    await expect(page.getByTestId("dap-assembly")).toContainText("OrderDesk.Cli.dll");
+    await expect(page.getByTestId("dap-adapter")).toContainText("3.2.0");
+    await expect(page.getByTestId("dap-adapter")).toContainText("--interpreter=vscode");
+    await expect(page.getByTestId("dap-thread-list")).toContainText("Main Thread");
+    await expect(page.getByTestId("debug-frames")).toContainText("Program.<Main>$()");
+    await expect(page.getByTestId("debug-locals")).toContainText("order");
+    await expect(page.getByTestId("debug-breakpoints")).toContainText("verified by the adapter");
+    await expect(page.getByTestId("dap-log")).toContainText("event stopped · reason breakpoint");
+    await page.screenshot({ path: path.join(screenshots, "14-dap-paused.png"), fullPage: true });
+
+    // F8 steps over line 3; the frame and locals must move to line 4.
+    await page.keyboard.press("F8");
+    await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:4", {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("debug-locals")).not.toContainText('order … null');
+    await page.screenshot({ path: path.join(screenshots, "14-dap-stepped.png"), fullPage: true });
+
+    // Continue runs to the real exit; the exit code is observed, not assumed.
+    await page.getByTestId("debug-continue").click();
+    await expect(page.getByTestId("dap-state")).toContainText("Terminated", { timeout: 30_000 });
+    await expect(page.getByTestId("dap-exit")).toHaveText("exit 0");
+    await expect(page.getByTestId("dap-output")).toContainText("Order A-104");
+    await expect(page.getByTestId("dap-log")).toContainText("event exited · exit 0");
+
+    // Second session from the Debug tab itself; stop while paused, with requested vs
+    // observed termination.
+    await page.getByTestId("debug-launch").click();
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 30_000 });
+    await page.getByTestId("debug-stop").click();
+    await expect(page.getByTestId("dap-state")).toContainText("Cancelled", { timeout: 30_000 });
+    await expect(page.getByTestId("dap-termination")).toContainText("Termination requested:");
+    await expect(page.getByTestId("dap-termination")).toContainText("Observed: exited");
+    await expect(page.getByTestId("dap-log")).toContainText("Stopped by the user");
+    await page.screenshot({ path: path.join(screenshots, "14-dap-stopped.png"), fullPage: true });
+
+    let state = await hostCall(request, "workspace.state");
+    const deadline = Date.now() + 5000;
+    while (
+      Date.now() < deadline &&
+      state.data.processes.some(
+        (process: { kind: string; state: string }) =>
+          process.kind.startsWith("debug:") && process.state !== "exited",
+      )
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      state = await hostCall(request, "workspace.state");
+    }
+    const debugProcesses = state.data.processes.filter((process: { kind: string }) =>
+      process.kind.startsWith("debug:"),
+    );
+    expect(debugProcesses.length).toBeGreaterThan(0);
+    for (const process of debugProcesses) {
+      expect(process.state).toBe("exited");
+    }
+    fs.writeFileSync(
+      path.join(logs, "14-e2e-debug-session.json"),
+      JSON.stringify(
+        {
+          debug: state.data.dap,
+          processes: debugProcesses,
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    await page.request.post(`${host}/call`, {
+      data: { method: "workspace.close", params: {} },
+    });
+    fs.rmSync(base, { recursive: true, force: true });
+  }
 });

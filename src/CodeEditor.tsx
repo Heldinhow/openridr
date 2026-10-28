@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { EditorState, type Text } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, GutterMarker, gutter, keymap } from "@codemirror/view";
+import { Compartment, RangeSet } from "@codemirror/state";
 import { StreamLanguage } from "@codemirror/language";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
 import {
@@ -48,6 +49,11 @@ type Props = {
   value: string;
   path: string;
   revision: number;
+  /** 1-based breakpoint lines for this file. */
+  breakpoints?: number[];
+  /** 1-based line of the current pause, when this file is the paused frame. */
+  currentLine?: number | null;
+  onToggleBreakpoint?: (line: number) => void;
   onChange: (value: string) => void;
   onSave: () => void;
   onDefinition: (location: DefinitionLocation) => void;
@@ -74,10 +80,69 @@ function failureText(kind: string, response: AnalysisResponse): string {
   return `${kind} ${response.state}: ${response.message ?? "csharp-ls did not answer."}`;
 }
 
+class DebugMarker extends GutterMarker {
+  constructor(
+    private readonly text: string,
+    private readonly kind: string,
+  ) {
+    super();
+  }
+
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = `cm-debug-marker cm-debug-${this.kind}`;
+    span.textContent = this.text;
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  }
+}
+
+function makeDebugGutter(
+  breakpointsRef: { current: number[] },
+  currentLineRef: { current: number | null },
+  onToggleBreakpointRef: { current: ((line: number) => void) | undefined },
+) {
+  return gutter({
+    class: "cm-debug-gutter",
+    markers: (view) => {
+      const markers = [];
+      const lines = new Set<number>(breakpointsRef.current);
+      const current = currentLineRef.current;
+      if (current !== null) lines.add(current);
+      for (const line of lines) {
+        if (line < 1 || line > view.state.doc.lines) continue;
+        const isBreakpoint = breakpointsRef.current.includes(line);
+        const isCurrent = current === line;
+        const text = `${isBreakpoint ? "●" : " "}${isCurrent ? "▶" : " "}`;
+        markers.push(
+          new DebugMarker(
+            text,
+            isBreakpoint && isCurrent
+              ? "both"
+              : isBreakpoint
+                ? "breakpoint"
+                : "current",
+          ).range(view.state.doc.line(line).from),
+        );
+      }
+      return RangeSet.of(markers, true);
+    },
+    domEventHandlers: {
+      mousedown(view, line) {
+        onToggleBreakpointRef.current?.(view.state.doc.lineAt(line.from).number);
+        return true;
+      },
+    },
+  });
+}
+
 export function CodeEditor({
   value,
   path,
   revision,
+  breakpoints = [],
+  currentLine = null,
+  onToggleBreakpoint,
   onChange,
   onSave,
   onDefinition,
@@ -94,6 +159,13 @@ export function CodeEditor({
   const onRenameRef = useRef(onRename);
   const onCodeActionsRef = useRef(onCodeActions);
   const onCursorRef = useRef(onCursor);
+  const breakpointsRef = useRef<number[]>(breakpoints);
+  const currentLineRef = useRef<number | null>(currentLine);
+  const onToggleBreakpointRef = useRef(onToggleBreakpoint);
+  const gutterCompartment = useRef(new Compartment());
+  breakpointsRef.current = breakpoints;
+  currentLineRef.current = currentLine;
+  onToggleBreakpointRef.current = onToggleBreakpoint;
   const pathRef = useRef(path);
   const revisionRef = useRef(revision);
   onChangeRef.current = onChange;
@@ -280,6 +352,13 @@ export function CodeEditor({
         autocompletion({ override: [completionSource], activateOnTyping: false }),
         StreamLanguage.define(csharp),
         theme,
+        gutterCompartment.current.of(
+          makeDebugGutter(
+            breakpointsRef,
+            currentLineRef,
+            onToggleBreakpointRef,
+          ),
+        ),
         EditorView.contentAttributes.of({
           "aria-label": "Editor",
           "aria-multiline": "true",
@@ -355,6 +434,16 @@ export function CodeEditor({
     // The editor is remounted with a key per file; external values are applied below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance) return;
+    instance.dispatch({
+      effects: gutterCompartment.current.reconfigure(
+        makeDebugGutter(breakpointsRef, currentLineRef, onToggleBreakpointRef),
+      ),
+    });
+  }, [breakpoints.join(","), currentLine]);
 
   useEffect(() => {
     const instance = view.current;

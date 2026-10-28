@@ -1,0 +1,91 @@
+$ workspace.open {"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread"}
+$ trust.grant {}
+$ debug.flag {"enabled":true,"confirm":true}
+$ evaluation.run {}
+$ restore.start {}
+$ workspace.state {}
+$ workspace.state {}
+$ workspace.state {}
+$ workspace.state {}
+restore ok exit 0
+$ evaluation.run {}
+$ build.start {}
+$ workspace.state {}
+$ workspace.state {}
+$ workspace.state {}
+$ workspace.state {}
+build ok exit 0 id build:3:2
+$ debug.setBreakpoints {"path":"Program.cs","lines":[21,46]}
+$ debug.start {}
+debug.start preparing adapter pid 88923
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+async-breakpoint: stopped={"allThreadsStopped":true,"reason":"breakpoint","threadId":12568355} threads=[{"id":12568355,"name":"Main Thread"}] frames=[{"id":0,"name":"Program.<SumAsync>d__1.MoveNext()","line":21,"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/Program.cs"},{"id":1,"name":"System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start<Program.<SumAsync>d__1>()","line":0,"path":null},{"id":2,"name":"System.Runtime.CompilerServices.AsyncTaskMethodBuilder<int>.Start<Program.<SumAsync>d__1>()","line":0,"path":null},{"id":3,"name":"Program.SumAsync()","line":0,"path":null},{"id":4,"name":"Program.<Main>d__0.MoveNext()","line":11,"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/Program.cs"},{"id":5,"name":"System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start<Program.<Main>d__0>()","line":0,"path":null},{"id":6,"name":"Program.Main()","line":0,"path":null},{"id":7,"name":"Program.<Main>()","line":0,"path":null}] locals={"frameId":0,"scopes":[{"expensive":false,"name":"Locals","variables":[{"name":"count","type":"int","value":"5","variablesReference":0},{"name":"sum","type":"int","value":"0","variablesReference":0},{"name":"results","type":"int[]","value":"null","variablesReference":0},{"name":"i","type":"int","value":"1","variablesReference":0}]}]}
+$ debug.stepOver {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+step-over: stopped={"allThreadsStopped":true,"reason":"step","threadId":12568586} threads=[{"id":12568355,"name":"Main Thread"},{"id":12568407,"name":"<No name>"},{"id":12568545,"name":".NET Timer"},{"id":12568586,"name":".NET TP Worker"},{"id":12568589,"name":".NET TP Gate"},{"id":12568603,"name":".NET TP Worker"}] frames=[{"id":8,"name":"Program.<SumAsync>d__1.MoveNext()","line":22,"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/Program.cs"},{"id":9,"name":"System.Threading.ExecutionContext.RunInternal()","line":0,"path":null},{"id":10,"name":"System.Runtime.CompilerServices.AsyncTaskMethodBuilder<int>.AsyncStateMachineBox<System.Runtime.CompilerServices.IAsyncStateMachine>.MoveNext()","line":0,"path":null},{"id":11,"name":"System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction()","line":0,"path":null},{"id":12,"name":"System.Threading.Tasks.Task.RunContinuations()","line":0,"path":null},{"id":13,"name":"System.Threading.Tasks.Task.TrySetResult()","line":0,"path":null},{"id":14,"name":"System.Threading.Tasks.Task.DelayPromise.CompleteTimedOut()","line":0,"path":null},{"id":15,"name":"System.Threading.TimerQueueTimer.Fire()","line":0,"path":null},{"id":16,"name":"System.Threading.TimerQueue.FireNextTimers()","line":0,"path":null},{"id":17,"name":"System.Threading.ThreadPoolWorkQueue.Dispatch()","line":0,"path":null},{"id":18,"name":"System.Threading.PortableThreadPool.WorkerThread.WorkerThreadStart()","line":0,"path":null},{"id":19,"name":"System.Threading.Thread.StartCallback()","line":0,"path":null}] locals={"frameId":8,"scopes":[{"expensive":false,"name":"Locals","variables":[{"name":"count","type":"int","value":"5","variablesReference":0},{"name":"sum","type":"int","value":"0","variablesReference":0},{"name":"results","type":"int[]","value":"null","variablesReference":0},{"name":"i","type":"int","value":"1","variablesReference":0}]}]}
+$ debug.stepInto {}
+$ debug.state {}
+$ debug.state {}
+step-into: stopped={"allThreadsStopped":true,"reason":"step","threadId":12568586} threads=[{"id":12568355,"name":"Main Thread"},{"id":12568407,"name":"<No name>"},{"id":12568545,"name":".NET Timer"},{"id":12568586,"name":".NET TP Worker"},{"id":12568589,"name":".NET TP Gate"},{"id":12568603,"name":".NET TP Worker"}] frames=[{"id":20,"name":"Program.Bump()","line":29,"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/Program.cs"},{"id":21,"name":"Program.<SumAsync>d__1.MoveNext()","line":22,"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/Program.cs"},{"id":22,"name":"System.Threading.ExecutionContext.RunInternal()","line":0,"path":null},{"id":23,"name":"System.Runtime.CompilerServices.AsyncTaskMethodBuilder<int>.AsyncStateMachineBox<System.Runtime.CompilerServices.IAsyncStateMachine>.MoveNext()","line":0,"path":null},{"id":24,"name":"System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction()","line":0,"path":null},{"id":25,"name":"System.Threading.Tasks.Task.RunContinuations()","line":0,"path":null},{"id":26,"name":"System.Threading.Tasks.Task.TrySetResult()","line":0,"path":null},{"id":27,"name":"System.Threading.Tasks.Task.DelayPromise.CompleteTimedOut()","line":0,"path":null},{"id":28,"name":"System.Threading.TimerQueueTimer.Fire()","line":0,"path":null},{"id":29,"name":"System.Threading.TimerQueue.FireNextTimers()","line":0,"path":null},{"id":30,"name":"System.Threading.ThreadPoolWorkQueue.Dispatch()","line":0,"path":null},{"id":31,"name":"System.Threading.PortableThreadPool.WorkerThread.WorkerThreadStart()","line":0,"path":null},{"id":32,"name":"System.Threading.Thread.StartCallback()","line":0,"path":null}] locals={"frameId":20,"scopes":[{"expensive":false,"name":"Locals","variables":[{"name":"value","type":"int","value":"1","variablesReference":0}]}]}
+$ debug.stepOver {}
+$ debug.state {}
+$ debug.state {}
+step-over-after-into: stopped={"allThreadsStopped":true,"reason":"step","threadId":12568586} threads=[{"id":12568355,"name":"Main Thread"},{"id":12568407,"name":"<No name>"},{"id":12568545,"name":".NET Timer"},{"id":12568586,"name":".NET TP Worker"},{"id":12568589,"name":".NET TP Gate"},{"id":12568603,"name":".NET TP Worker"}] frames=[{"id":33,"name":"Program.<SumAsync>d__1.MoveNext()","line":22,"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/Program.cs"},{"id":34,"name":"System.Threading.ExecutionContext.RunInternal()","line":0,"path":null},{"id":35,"name":"System.Runtime.CompilerServices.AsyncTaskMethodBuilder<int>.AsyncStateMachineBox<System.Runtime.CompilerServices.IAsyncStateMachine>.MoveNext()","line":0,"path":null},{"id":36,"name":"System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction()","line":0,"path":null},{"id":37,"name":"System.Threading.Tasks.Task.RunContinuations()","line":0,"path":null},{"id":38,"name":"System.Threading.Tasks.Task.TrySetResult()","line":0,"path":null},{"id":39,"name":"System.Threading.Tasks.Task.DelayPromise.CompleteTimedOut()","line":0,"path":null},{"id":40,"name":"System.Threading.TimerQueueTimer.Fire()","line":0,"path":null},{"id":41,"name":"System.Threading.TimerQueue.FireNextTimers()","line":0,"path":null},{"id":42,"name":"System.Threading.ThreadPoolWorkQueue.Dispatch()","line":0,"path":null},{"id":43,"name":"System.Threading.PortableThreadPool.WorkerThread.WorkerThreadStart()","line":0,"path":null},{"id":44,"name":"System.Threading.Thread.StartCallback()","line":0,"path":null}] locals={"frameId":33,"scopes":[{"expensive":false,"name":"Locals","variables":[{"name":"count","type":"int","value":"5","variablesReference":0},{"name":"sum","type":"int","value":"0","variablesReference":0},{"name":"results","type":"int[]","value":"null","variablesReference":0},{"name":"i","type":"int","value":"1","variablesReference":0}]}]}
+$ debug.continue {}
+$ debug.state {}
+$ debug.state {}
+$ debug.continue {}
+$ debug.state {}
+$ debug.state {}
+$ debug.continue {}
+$ debug.state {}
+$ debug.state {}
+$ debug.continue {}
+$ debug.state {}
+$ debug.state {}
+$ debug.continue {}
+$ debug.state {}
+$ debug.state {}
+worker-breakpoint: stopped={"allThreadsStopped":true,"reason":"breakpoint","threadId":12568840} threads=[{"id":12568355,"name":"Main Thread"},{"id":12568407,"name":"<No name>"},{"id":12568545,"name":".NET Timer"},{"id":12568586,"name":".NET TP Worker"},{"id":12568589,"name":".NET TP Gate"},{"id":12568603,"name":".NET TP Worker"},{"id":12568840,"name":".NET TP Worker"},{"id":12568841,"name":".NET TP Worker"}] frames=[{"id":93,"name":"Program.<>c.<RunWorkerAsync>b__4_0()","line":46,"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/Program.cs"},{"id":94,"name":"System.Threading.Tasks.Task<int>.InnerInvoke()","line":0,"path":null},{"id":95,"name":"System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop()","line":0,"path":null},{"id":96,"name":"System.Threading.Tasks.Task.ExecuteWithThreadLocal()","line":0,"path":null},{"id":97,"name":"System.Threading.ThreadPoolWorkQueue.Dispatch()","line":0,"path":null},{"id":98,"name":"System.Threading.PortableThreadPool.WorkerThread.WorkerThreadStart()","line":0,"path":null},{"id":99,"name":"System.Threading.Thread.StartCallback()","line":0,"path":null}] locals={"frameId":93,"scopes":[{"expensive":false,"name":"Locals","variables":[{"name":"threadId","type":"int","value":"8","variablesReference":0},{"name":"sum","type":"int","value":"0","variablesReference":0},{"name":"i","type":"int","value":"0","variablesReference":0}]}]}
+thread ids observed: [12568355,12568586,12568840]
+$ debug.stop {}
+stop: state=cancelled termination={"exit":0,"killedAfterGrace":false,"observed":"exited","requested":"DAP disconnect (terminateDebuggee)"} exit=0 exitKnown=true adapterExit=0
+$ workspace.state {}
+after stop: dap=cancelled adapterExit=0 processes=[{"awaitingDecision":false,"exit":0,"id":3,"kept":false,"kind":"debug:OrderDesk.Cli","pid":88824,"state":"exited","termination":null,"workspaceId":1},{"awaitingDecision":false,"exit":0,"id":6,"kept":false,"kind":"debug:AsyncProbe","pid":88923,"state":"exited","termination":null,"workspaceId":3}]
+$ trust.revoke {}
+revoke first session: state=cancelled sealed=true termination={"exit":0,"killedAfterGrace":false,"observed":"exited","requested":"DAP disconnect (terminateDebuggee)"}
+$ workspace.state {}
+$ trust.grant {}
+$ evaluation.run {}
+$ build.start {}
+$ workspace.state {}
+$ workspace.state {}
+$ workspace.state {}
+$ workspace.state {}
+rebuild ok exit 0 id build:3:3
+$ debug.setBreakpoints {"path":"Program.cs","lines":[46]}
+$ debug.start {}
+debug.start again preparing pid 89212
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+$ debug.state {}
+worker-before-revoke: stopped={"allThreadsStopped":true,"reason":"breakpoint","threadId":12569465} threads=[{"id":12568976,"name":"Main Thread"},{"id":12569017,"name":"<No name>"},{"id":12569026,"name":".NET Timer"},{"id":12569031,"name":".NET TP Worker"},{"id":12569043,"name":".NET TP Gate"},{"id":12569064,"name":".NET TP Worker"},{"id":12569465,"name":".NET TP Worker"},{"id":12569468,"name":".NET TP Worker"}] frames=[{"id":0,"name":"Program.<>c.<RunWorkerAsync>b__4_0()","line":46,"path":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/Program.cs"},{"id":1,"name":"System.Threading.Tasks.Task<int>.InnerInvoke()","line":0,"path":null},{"id":2,"name":"System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop()","line":0,"path":null},{"id":3,"name":"System.Threading.Tasks.Task.ExecuteWithThreadLocal()","line":0,"path":null},{"id":4,"name":"System.Threading.ThreadPoolWorkQueue.Dispatch()","line":0,"path":null},{"id":5,"name":"System.Threading.PortableThreadPool.WorkerThread.WorkerThreadStart()","line":0,"path":null},{"id":6,"name":"System.Threading.Thread.StartCallback()","line":0,"path":null}] locals={"frameId":0,"scopes":[{"expensive":false,"name":"Locals","variables":[{"name":"threadId","type":"int","value":"8","variablesReference":0},{"name":"sum","type":"int","value":"0","variablesReference":0},{"name":"i","type":"int","value":"0","variablesReference":0}]}]}
+$ trust.revoke {}
+revoke: state=cancelled sealed=true termination={"exit":0,"killedAfterGrace":false,"observed":"exited","requested":"DAP disconnect (terminateDebuggee)"} adapterExit=0
+$ workspace.state {}

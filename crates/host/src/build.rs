@@ -738,11 +738,11 @@ pub fn select_startup_for<'a>(
                 ),
             ));
         }
-        if project.state != "ok" || project.target_path.is_none() {
+        if project.state != "ok" || project.assembly_path.is_none() {
             return Err(HostError::new(
                 "invalid_state",
                 format!(
-                    "{} has no evaluated TargetPath; re-evaluate the project model before running it.",
+                    "{} has no evaluated managed assembly (TargetPath); re-evaluate the project model before running it.",
                     project.name
                 ),
             ));
@@ -753,7 +753,7 @@ pub fn select_startup_for<'a>(
     let candidates: Vec<&EvaluatedProject> = projects
         .iter()
         .filter(|project| project.kind == "console" && project.state == "ok")
-        .filter(|project| project.target_path.is_some())
+        .filter(|project| project.assembly_path.is_some())
         .collect();
     match candidates.as_slice() {
         [only] => Ok(only),
@@ -935,6 +935,7 @@ mod tests {
             tfms: vec!["net8.0".to_string()],
             evaluated_tfm: Some("net8.0".to_string()),
             target_path: target.map(str::to_string),
+            assembly_path: target.map(str::to_string),
             output_type: None,
             project_refs: Vec::new(),
             package_refs: Vec::new(),

@@ -48,6 +48,8 @@ pub struct EvaluatedProject {
     /// The TFM actually used for this evaluation's TargetPath, straight from MSBuild.
     pub evaluated_tfm: Option<String>,
     pub target_path: Option<String>,
+    /// Managed assembly to launch under the debugger: `TargetPath` or `TargetDir/TargetFileName`.
+    pub assembly_path: Option<String>,
     pub output_type: Option<String>,
     pub project_refs: Vec<ProjectRef>,
     pub package_refs: Vec<PackageRef>,
@@ -251,6 +253,8 @@ pub struct MsbuildResult {
     pub target_framework: Option<String>,
     pub target_frameworks: Option<String>,
     pub target_path: Option<String>,
+    pub target_dir: Option<String>,
+    pub target_file_name: Option<String>,
     pub output_type: Option<String>,
     pub is_test_project: Option<String>,
     pub project_refs: Vec<(String, String)>, // (name, absolute path)
@@ -469,6 +473,17 @@ pub fn evaluate_project(
         .as_deref()
         .filter(|path| !path.trim().is_empty())
         .map(str::to_string);
+    let assembly_path = target_path.clone().or_else(|| {
+        let dir = result
+            .target_dir
+            .as_deref()
+            .filter(|dir| !dir.trim().is_empty())?;
+        let name = result
+            .target_file_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())?;
+        Some(PathBuf::from(dir).join(name).to_string_lossy().to_string())
+    });
     let output_type = result
         .output_type
         .as_deref()
@@ -513,6 +528,7 @@ pub fn evaluate_project(
         tfms,
         evaluated_tfm,
         target_path,
+        assembly_path,
         output_type,
         project_refs,
         package_refs,
@@ -543,6 +559,7 @@ fn failed_project(
         tfms: Vec::new(),
         evaluated_tfm: None,
         target_path: None,
+        assembly_path: None,
         output_type: None,
         project_refs: Vec::new(),
         package_refs: Vec::new(),
@@ -574,6 +591,8 @@ fn invoke(
         .arg("-getProperty:TargetFramework")
         .arg("-getProperty:TargetFrameworks")
         .arg("-getProperty:TargetPath")
+        .arg("-getProperty:TargetDir")
+        .arg("-getProperty:TargetFileName")
         .arg("-getProperty:OutputType")
         .arg("-getProperty:MSBuildProjectName")
         .arg("-getProperty:IsTestProject")
@@ -714,6 +733,8 @@ pub fn parse_msbuild_json(stdout: &str) -> Result<MsbuildResult, String> {
         target_framework: property("TargetFramework"),
         target_frameworks: property("TargetFrameworks"),
         target_path: property("TargetPath"),
+        target_dir: property("TargetDir"),
+        target_file_name: property("TargetFileName"),
         output_type: property("OutputType"),
         is_test_project: property("IsTestProject"),
         project_refs,

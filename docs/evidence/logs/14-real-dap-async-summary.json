@@ -1,0 +1,232 @@
+{
+  "build": {
+    "state": "ok",
+    "exit": 0,
+    "buildId": "build:3:2",
+    "command": [
+      "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+      "build",
+      "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/AsyncProbe.csproj",
+      "-c",
+      "Debug",
+      "-nologo",
+      "-v:minimal",
+      "--no-restore"
+    ]
+  },
+  "launch": {
+    "adapter": {
+      "argv": [
+        "/Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg",
+        "--interpreter=vscode"
+      ],
+      "binary": "/Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg",
+      "platform": "osx-arm64",
+      "version": "3.2.0"
+    },
+    "pid": 88923,
+    "assembly": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/async-multithread/bin/Debug/net8.0/AsyncProbe.dll",
+    "processId": 6
+  },
+  "async": {
+    "state": "paused",
+    "stopped": {
+      "allThreadsStopped": true,
+      "reason": "breakpoint",
+      "threadId": 12568355
+    },
+    "threads": [
+      "Main Thread(12568355)"
+    ],
+    "frames": [
+      "Program.<SumAsync>d__1.MoveNext()@21",
+      "System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start<Program.<SumAsync>d__1>()@0"
+    ],
+    "locals": [
+      [
+        "count=5",
+        "sum=0",
+        "results=null",
+        "i=1"
+      ]
+    ]
+  },
+  "stepOver": {
+    "state": "paused",
+    "stopped": {
+      "allThreadsStopped": true,
+      "reason": "step",
+      "threadId": 12568586
+    },
+    "threads": [
+      "Main Thread(12568355)",
+      "<No name>(12568407)",
+      ".NET Timer(12568545)",
+      ".NET TP Worker(12568586)",
+      ".NET TP Gate(12568589)",
+      ".NET TP Worker(12568603)"
+    ],
+    "frames": [
+      "Program.<SumAsync>d__1.MoveNext()@22",
+      "System.Threading.ExecutionContext.RunInternal()@0"
+    ],
+    "locals": [
+      [
+        "count=5",
+        "sum=0",
+        "results=null",
+        "i=1"
+      ]
+    ]
+  },
+  "stepInto": {
+    "state": "paused",
+    "stopped": {
+      "allThreadsStopped": true,
+      "reason": "step",
+      "threadId": 12568586
+    },
+    "threads": [
+      "Main Thread(12568355)",
+      "<No name>(12568407)",
+      ".NET Timer(12568545)",
+      ".NET TP Worker(12568586)",
+      ".NET TP Gate(12568589)",
+      ".NET TP Worker(12568603)"
+    ],
+    "frames": [
+      "Program.Bump()@29",
+      "Program.<SumAsync>d__1.MoveNext()@22"
+    ],
+    "locals": [
+      [
+        "value=1"
+      ]
+    ]
+  },
+  "worker": {
+    "state": "paused",
+    "stopped": {
+      "allThreadsStopped": true,
+      "reason": "breakpoint",
+      "threadId": 12568840
+    },
+    "threads": [
+      "Main Thread(12568355)",
+      "<No name>(12568407)",
+      ".NET Timer(12568545)",
+      ".NET TP Worker(12568586)",
+      ".NET TP Gate(12568589)",
+      ".NET TP Worker(12568603)",
+      ".NET TP Worker(12568840)",
+      ".NET TP Worker(12568841)"
+    ],
+    "frames": [
+      "Program.<>c.<RunWorkerAsync>b__4_0()@46",
+      "System.Threading.Tasks.Task<int>.InnerInvoke()@0"
+    ],
+    "locals": [
+      [
+        "threadId=8",
+        "sum=0",
+        "i=0"
+      ]
+    ]
+  },
+  "threadIds": [
+    12568355,
+    12568586,
+    12568840
+  ],
+  "stop": {
+    "state": "cancelled",
+    "termination": {
+      "exit": 0,
+      "killedAfterGrace": false,
+      "observed": "exited",
+      "requested": "DAP disconnect (terminateDebuggee)"
+    },
+    "exit": 0,
+    "adapterExit": 0,
+    "pid": 88923,
+    "debuggeePid": 88924,
+    "processes": [
+      {
+        "awaitingDecision": false,
+        "exit": 0,
+        "id": 3,
+        "kept": false,
+        "kind": "debug:OrderDesk.Cli",
+        "pid": 88824,
+        "state": "exited",
+        "termination": null,
+        "workspaceId": 1
+      },
+      {
+        "awaitingDecision": false,
+        "exit": 0,
+        "id": 6,
+        "kept": false,
+        "kind": "debug:AsyncProbe",
+        "pid": 88923,
+        "state": "exited",
+        "termination": null,
+        "workspaceId": 3
+      }
+    ]
+  },
+  "afterStop": {
+    "state": "cancelled",
+    "exit": 0,
+    "exitKnown": true,
+    "adapterExit": 0
+  },
+  "revoke": {
+    "state": "cancelled",
+    "sealed": true,
+    "termination": {
+      "exit": 0,
+      "killedAfterGrace": false,
+      "observed": "exited",
+      "requested": "DAP disconnect (terminateDebuggee)"
+    },
+    "adapterExit": 0,
+    "debuggeePid": 89213
+  },
+  "processesAfterFinalRevoke": [
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 3,
+      "kept": false,
+      "kind": "debug:OrderDesk.Cli",
+      "pid": 88824,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 1
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 6,
+      "kept": false,
+      "kind": "debug:AsyncProbe",
+      "pid": 88923,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 8,
+      "kept": false,
+      "kind": "debug:AsyncProbe",
+      "pid": 89212,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    }
+  ],
+  "debuggeePid": 88924
+}

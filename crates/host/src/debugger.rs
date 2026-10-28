@@ -635,6 +635,58 @@ fn verify_binary(binary: &Path) -> Existing {
     }
 }
 
+/// A verified adapter executable, the only thing that may be spawned for a DAP session.
+#[derive(Debug, Clone)]
+pub struct ReadyAdapter {
+    pub binary: PathBuf,
+    pub version: String,
+    pub platform: String,
+}
+
+/// Launch gate: the platform must allow the adapter, the experimental flag must be on where
+/// required, and the installed executable must really answer `--version` with 3.2.0. Installing
+/// or planning never runs here.
+pub fn ready_adapter(os: &str, arch: &str, experimental: bool) -> HostResult<ReadyAdapter> {
+    let (_os, _arch, platform, gate, _) = current(os, arch, experimental);
+    if !gate.installable {
+        return Err(HostError::new(
+            gate.code.unwrap_or("unsupported_platform"),
+            format!("Debug was not started: {}", gate.message),
+        ));
+    }
+    let Some(binary) = existing_binary(&platform) else {
+        return Err(HostError::with_details(
+            "tool_missing",
+            format!(
+                "Debug was not started: netcoredbg {VERSION} is not installed at {}.",
+                destination().to_string_lossy()
+            ),
+            json!({ "action": { "method": "debug.plan", "params": {} } }),
+        ));
+    };
+    let verified = verify_binary(&binary);
+    if verified.state != "ready" {
+        return Err(HostError::with_details(
+            "tool_missing",
+            format!(
+                "Debug was not started: the installed netcoredbg did not verify as {VERSION} ({}).",
+                verified
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "no verified version".to_string())
+            ),
+            json!({ "action": { "method": "debug.plan", "params": {} } }),
+        ));
+    }
+    Ok(ReadyAdapter {
+        binary,
+        version: verified
+            .verified_version
+            .unwrap_or_else(|| "3.2.0".to_string()),
+        platform,
+    })
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
@@ -775,7 +827,7 @@ impl Debugger {
         let (log, log_truncated) = data.log.text();
         let gate_reason = if state == "ready" {
             Some(
-                "Adapter executable and version are verified, but DAP launch is not implemented in this build (ticket 14)."
+                "Adapter executable and version are verified. This does not prove DAP; the Debug tab reports the real session, exit and processes."
                     .to_string(),
             )
         } else {
@@ -1667,6 +1719,14 @@ mod tests {
         assert!(!gate("macos", "x86_64", true, false).installable);
         assert!(gate("windows", "x86_64", false, false).installable);
         assert!(!gate("linux", "x86_64", true, false).installable);
+    }
+
+    #[test]
+    fn launch_gate_refuses_wrong_platform_and_a_disabled_flag() {
+        let intel = ready_adapter("macos", "x86_64", true).unwrap_err();
+        assert_eq!(intel.code, "unsupported_platform");
+        let flag_off = ready_adapter("macos", "aarch64", false).unwrap_err();
+        assert_eq!(flag_off.code, "experimental_required");
     }
 
     #[test]

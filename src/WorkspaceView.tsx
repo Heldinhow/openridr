@@ -15,6 +15,7 @@ import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
+import { DebugPanel } from "./DebugPanel";
 
 type Tab = {
   path: string;
@@ -429,6 +430,67 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                                 ? "Sources were saved after this build; rebuild before running."
                                 : null;
   const requestRunRef = useRef<() => void>(() => {});
+  const requestDebugRef = useRef<() => void>(() => {});
+  const debugStepOverRef = useRef<() => void>(() => {});
+  const debugStepIntoRef = useRef<() => void>(() => {});
+  const toggleBreakpointAtRef = useRef<(line: number) => void>(() => {});
+  const dapPausedRef = useRef(false);
+  const dap = snapshot.dap;
+  const debugActive = ["preparing", "running", "paused"].includes(dap.state);
+  const debugDisabledReason = !trusted
+    ? "Trust the workspace before debugging; nothing runs in Restricted mode."
+    : snapshot.debug.adapterState !== "ready"
+      ? `The debug adapter is not ready: ${snapshot.debug.gateReason ?? snapshot.debug.adapterMessage}`
+      : snapshot.app.platform === "macos" &&
+          snapshot.app.arch === "arm64" &&
+          !snapshot.debug.appleSiliconExperimental
+        ? "Enable the Apple Silicon experimental flag before debugging; nothing was launched."
+        : projectSdk.state !== "resolved"
+          ? "Resolve the project SDK before debugging; the host SDK is never substituted."
+          : evaluation.state === "running"
+            ? "Wait for the evaluation to finish before debugging."
+            : evaluation.stale
+              ? "The evaluated project model is stale; re-evaluate before debugging."
+              : !["ok", "partial"].includes(evaluation.state)
+                ? "Evaluate the project model before debugging; Debug uses its managed assembly."
+                : consoleCandidates.length === 0
+                  ? "No console executable project is available in the current evaluation."
+                  : !startupProject
+                    ? "More than one console project; choose the startup project explicitly."
+                    : buildRunning
+                      ? "A build is running; wait for it to finish before debugging."
+                      : build.revision === 0
+                        ? "Build the startup project in Debug first; Debug never builds or restores implicitly."
+                        : build.configuration.toLowerCase() !== "debug"
+                          ? "The saved build is not a Debug build; build with Debug before debugging."
+                          : build.sealed
+                            ? "The saved build belongs to a previous context; rebuild before debugging."
+                            : build.stale
+                              ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
+                              : build.state !== "ok" || build.exit !== 0
+                                ? `The last build did not succeed (${
+                                    build.exit === null ? "exit unknown" : `exit ${build.exit}`
+                                  }); fix it and rebuild.`
+                                : build.project?.path !== startupProject.path
+                                  ? "The saved build is for another startup project; build the selected one."
+                                  : savedSourceAfterBuild
+                                    ? "Sources were saved after this build; rebuild before debugging."
+                                    : debugActive
+                                      ? "A debug session is already active."
+                                      : null;
+  const debugCurrentFrame =
+    dap.frames.find((frame) => frame.id === dap.selectedFrameId) ?? dap.frames[0] ?? null;
+  const activeBreakpoints = active
+    ? dap.breakpoints
+        .filter((breakpoint) => breakpoint.path === active.path)
+        .map((breakpoint) => breakpoint.line)
+    : [];
+  const debugCurrentLine =
+    active && debugCurrentFrame?.path
+      ? debugCurrentFrame.path.replace(/\\/g, "/").endsWith(`/${active.path}`)
+        ? debugCurrentFrame.line
+        : null
+      : null;
 
   useEffect(() => {
     // Evaluate automatically once per trusted context; a stale model always needs an
@@ -1610,8 +1672,78 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
+  async function startDebug() {
+    if (debugDisabledReason) {
+      setMessage({ tone: "error", text: `Debug unavailable: ${debugDisabledReason}` });
+      return;
+    }
+    setBottomTab("debug");
+    try {
+      onSnapshot(
+        await call<Snapshot>("debug.start", {
+          project: startupProject?.path,
+          configuration: evaluation.context.configuration,
+          targetFramework: evaluation.context.targetFramework,
+        }),
+      );
+      setMessage(null);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Debug could not start: ${messageOf(error)}` });
+      try {
+        onSnapshot(await call<Snapshot>("workspace.state"));
+      } catch {
+        // The message above already explains the failure.
+      }
+    }
+  }
+
+  async function stopDebug() {
+    try {
+      onSnapshot(await call<Snapshot>("debug.stop"));
+    } catch (error) {
+      setMessage({ tone: "error", text: `Debug stop failed: ${messageOf(error)}` });
+    }
+  }
+
+  async function toggleBreakpoint(line: number) {
+    if (!active) {
+      setMessage({ tone: "error", text: "Open a file before setting a breakpoint." });
+      return;
+    }
+    if (!active.path.endsWith(".cs")) {
+      setMessage({ tone: "error", text: "Breakpoints are supported for C# sources only." });
+      return;
+    }
+    const next = activeBreakpoints.includes(line)
+      ? activeBreakpoints.filter((value) => value !== line)
+      : [...activeBreakpoints, line];
+    try {
+      onSnapshot(
+        await call<Snapshot>("debug.setBreakpoints", {
+          path: active.path,
+          lines: next.sort((left, right) => left - right),
+        }),
+      );
+    } catch (error) {
+      setMessage({ tone: "error", text: `Breakpoint could not be set: ${messageOf(error)}` });
+    }
+  }
+
+  async function debugAction(method: "debug.continue" | "debug.stepOver" | "debug.stepInto") {
+    try {
+      onSnapshot(await call<Snapshot>(method));
+    } catch (error) {
+      setMessage({ tone: "error", text: `Debug action failed: ${messageOf(error)}` });
+    }
+  }
+
   requestBuildRef.current = requestBuild;
   requestRunRef.current = requestRun;
+  requestDebugRef.current = () => void startDebug();
+  debugStepOverRef.current = () => void debugAction("debug.stepOver");
+  debugStepIntoRef.current = () => void debugAction("debug.stepInto");
+  toggleBreakpointAtRef.current = (line) => void toggleBreakpoint(line);
+  dapPausedRef.current = snapshot.dap.state === "paused";
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1620,8 +1752,39 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         requestBuildRef.current();
         return;
       }
+      const platform = snapshot.app.platform;
+      const toggleBreakpointShortcut =
+        event.key === "F8" && (platform === "windows" ? event.ctrlKey : event.metaKey);
+      if (toggleBreakpointShortcut) {
+        event.preventDefault();
+        toggleBreakpointAtRef.current(cursorRef.current.line + 1);
+        return;
+      }
+      const debugLaunchShortcut =
+        platform === "windows"
+          ? event.shiftKey && event.key === "F9"
+          : event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "d";
+      if (debugLaunchShortcut) {
+        event.preventDefault();
+        requestDebugRef.current();
+        return;
+      }
+      if (event.key === "F8" && !event.metaKey && !event.ctrlKey) {
+        if (dapPausedRef.current) {
+          event.preventDefault();
+          debugStepOverRef.current();
+        }
+        return;
+      }
+      if (event.key === "F7" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (dapPausedRef.current) {
+          event.preventDefault();
+          debugStepIntoRef.current();
+        }
+        return;
+      }
       const runShortcut =
-        snapshot.app.platform === "windows"
+        platform === "windows"
           ? event.shiftKey && event.key === "F10"
           : event.metaKey && event.key.toLowerCase() === "r";
       if (!runShortcut) return;
@@ -1745,11 +1908,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       case "debug":
         return (
           <div data-testid="debug-tab">
-            <p className="muted">{snapshot.debug.adapterMessage}</p>
-            <p className="muted">
-              DAP is not implemented in this build (ticket 14). A verified adapter alone is not
-              DAP evidence.
-            </p>
+            <DebugPanel
+              snapshot={snapshot}
+              disabledReason={debugDisabledReason}
+              onLaunch={() => void startDebug()}
+              onSnapshot={onSnapshot}
+              onError={(text) => setMessage({ tone: "error", text })}
+            />
           </div>
         );
       case "terminal":
@@ -1819,16 +1984,24 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         </button>
         <button
           data-testid="toolbar-debug"
-          disabled
+          disabled={debugDisabledReason !== null}
+          onClick={() => void startDebug()}
           title={
-            !trusted
-              ? "Trust the workspace before debugging; the debug adapter also has to be available for this platform."
-              : snapshot.debug.gateReason ??
-                "Debug is not implemented in this build (ticket 14)."
+            debugDisabledReason ??
+            "Starts the evaluated Debug assembly under netcoredbg (Ctrl+D on macOS, Shift+F9 on Windows)."
           }
         >
           Debug
         </button>
+        {debugActive && (
+          <button
+            data-testid="toolbar-debug-stop"
+            onClick={() => void stopDebug()}
+            title="Stops the adapter group and reports what was observed."
+          >
+            Stop debugging
+          </button>
+        )}
         <button
           data-testid="sdk-redetect"
           onClick={() => void redetectSdks()}
@@ -2665,6 +2838,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   onRename={(position) => requestRename(position)}
                   onCodeActions={(position) => void requestCodeActions(position)}
                   onCursor={noteCursor}
+                  breakpoints={activeBreakpoints}
+                  currentLine={debugCurrentLine}
+                  onToggleBreakpoint={(line) => void toggleBreakpoint(line)}
                   target={
                     editorTarget?.path === active.path ? editorTarget : null
                   }

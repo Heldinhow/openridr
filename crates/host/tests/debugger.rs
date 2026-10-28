@@ -659,7 +659,7 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
     assert_eq!(server.requests(), requests, "reuse must not download");
     assert_eq!(
         reused["gateReason"].as_str().unwrap(),
-        "Adapter executable and version are verified, but DAP launch is not implemented in this build (ticket 14)."
+        "Adapter executable and version are verified. This does not prove DAP; the Debug tab reports the real session, exit and processes."
     );
 }
 

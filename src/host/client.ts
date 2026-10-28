@@ -89,6 +89,7 @@ export type EvaluationProject = {
   tfms: string[];
   evaluatedTfm: string | null;
   targetPath: string | null;
+  assemblyPath: string | null;
   outputType: string | null;
   projectRefs: EvaluatedProjectRef[];
   packageRefs: EvaluatedPackageRef[];
@@ -416,6 +417,90 @@ export type DebugAdapter = {
   busy: boolean;
 };
 
+export type DapBreakpoint = {
+  path: string;
+  line: number;
+  verified: boolean;
+  message: string | null;
+};
+
+export type DapThread = { id: number; name: string };
+
+export type DapFrame = {
+  id: number;
+  name: string;
+  line: number;
+  column: number;
+  path: string | null;
+  sourceName: string | null;
+};
+
+export type DapVariable = {
+  name: string;
+  value: string;
+  type: string | null;
+  variablesReference: number;
+};
+
+export type DapScope = {
+  name: string;
+  expensive: boolean;
+  variables: DapVariable[];
+};
+
+export type DapLocals = { frameId: number; scopes: DapScope[] };
+
+/** One real DAP session. `exitKnown:false` means the adapter never reported an exit code. */
+export type Dap = {
+  state: "idle" | "preparing" | "running" | "paused" | "terminated" | "cancelled" | "failed";
+  phase: string;
+  session: number;
+  project: { name: string; path: string } | null;
+  buildId: string | null;
+  assembly: string | null;
+  configuration: string;
+  targetFramework: string | null;
+  adapter: { binary: string; version: string; platform: string; argv: string[] };
+  command: string[];
+  cwd: string;
+  processId: number | null;
+  pid: number | null;
+  debuggeePid: number | null;
+  exit: number | null;
+  exitKnown: boolean;
+  adapterExit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  threads: DapThread[];
+  frames: DapFrame[];
+  selectedFrameId: number | null;
+  locals: DapLocals | null;
+  stopped: null | { reason: string; threadId: number | null; allThreadsStopped: boolean };
+  breakpoints: DapBreakpoint[];
+  terminals: {
+    processId: number;
+    pid: number;
+    command: string[];
+    state: string;
+    exit: number | null;
+  }[];
+  log: string;
+  logTruncated: boolean;
+  output: string;
+  outputTruncated: boolean;
+  revision: number;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  sealed: boolean;
+  staleReason: string | null;
+};
+
 export type LspCapabilities = {
   completion: boolean;
   definition: boolean;
@@ -683,6 +768,7 @@ export type Snapshot = {
   restore: Restore;
   build: Build;
   run: Run;
+  dap: Dap;
   tools: { "csharp-ls": ToolInstall };
   lsp: Lsp;
   diagnostics: Diagnostics;

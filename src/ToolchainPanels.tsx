@@ -453,7 +453,7 @@ export function DebugAdapterPanel({
         </strong>
         <p className="muted" data-testid="debug-source">
           Source: <a href={debug.source.url} target="_blank" rel="noreferrer noopener">{debug.source.name}</a>{" "}
-          · approved version {debug.version} · DAP proven: {debug.dapProven ? "yes" : "no"}
+          · approved version {debug.version} · DAP proven by installation: {debug.dapProven ? "yes" : "no"}
         </p>
         <p className={debug.adapterState === "failed" ? "error" : "muted"} data-testid="debug-message">
           {debug.adapterMessage}
@@ -498,8 +498,9 @@ export function DebugAdapterPanel({
         </p>
       )}
       <p className="muted" data-testid="debug-dap">
-        DAP is not implemented in this build (ticket 14). A verified executable or a successful
-        install is not proof that debugging works.
+        DAP launch is implemented (ticket 14). A verified executable or a successful install is
+        still not proof that a session will succeed; the Debug tab reports the real adapter
+        messages, exit code, processes and preserved logs.
       </p>
 
       {appleSilicon && (

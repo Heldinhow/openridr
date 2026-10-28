@@ -1342,3 +1342,41 @@ p {
   border-radius: 0;
   cursor: default;
 }
+
+/* Ticket 14: breakpoint/current-line gutter column, separate from line numbers. */
+.cm-debug-gutter {
+  width: 2.2rem;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+.cm-debug-marker {
+  display: inline-block;
+  width: 2.2rem;
+  text-align: center;
+  font-size: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+.cm-debug-breakpoint { color: var(--danger, #e05555); }
+.cm-debug-current { color: var(--accent); }
+.cm-debug-both { color: var(--accent); }
+
+.debug-panel { display: flex; flex-direction: column; gap: 0.5rem; }
+.debug-identity { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.75rem; }
+.debug-identity dt { color: var(--muted); }
+.debug-identity dd { margin: 0; overflow-wrap: anywhere; }
+.debug-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+.debug-columns ul { margin: 0.25rem 0; padding-left: 1.1rem; }
+.debug-log-block pre {
+  max-height: 14rem;
+  overflow: auto;
+  background: var(--panel);
+  padding: 0.5rem;
+}
+@media (max-width: 900px) {
+  .debug-columns { grid-template-columns: minmax(0, 1fr); }
+}

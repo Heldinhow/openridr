@@ -8,13 +8,13 @@
 
 **Category:** enhancement
 
-- [ ] Exigir build Debug bem-sucedido do contexto/revisão identificados e TargetPath atual; não passar `dotnet run` como DLL. Trust, asset, versão/plataforma e flag são gates no host e nos atalhos; build falho/adaptador ausente/contexto inválido não lançam.
-- [ ] Sessão DAP real usa `--interpreter=vscode`, negocia capacidades/ordem e mostra preparação, rodando, pausada, encerrada, cancelada ou falha. Breakpoint pendente/verificado vem do adaptador; sem símbolos continua pendente. Gutter separa número de linha, breakpoint e linha atual.
-- [ ] Pausada: continue, step over, step into, frames e locals do frame selecionado funcionam. Ao continuar/trocar frame/sessão, locals antigos não são atuais; respostas tardias não ressuscitam pausa anterior. Stop e cancelamento têm resultado observado.
-- [ ] Preservar log DAP/adaptador/host e output da aplicação; exit ausente mostra `exit unknown`. Sessão encerrada não prova árvore encerrada: verificar processos ou manter remanescentes/falha visíveis, incluindo revogação e troca de workspace.
-- [ ] Windows x64 exige smoke DAP próprio completo. Mac Intel sem asset mantém indisponibilidade validada, não muda versão. ARM64 continua experimental OFF por padrão, com opt-in explícito para experimento sem bloquear release e sem prejudicar Run/análise/testes.
-- [ ] Para retirar a flag ARM64, exigir prova real Mac ARM64 DAP de launch/breakpoint/stepping/stop **incluindo async e multi-thread**, logs/versões/comandos e processos encerrados. Spike CLI, binário, versão ou opt-in não contam. Sem prova, manter flag/limitação; #256 é risco não reproduzido, não falha universal.
-- [ ] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), incluindo teclas Ctrl+D/Cmd+F8 no Mac, Shift+F9/Ctrl+F8 no Windows e F8/F7 em ambos, com gates e foco acessíveis.
+- [x] Exigir build Debug bem-sucedido do contexto/revisão identificados e TargetPath atual; não passar `dotnet run` como DLL. Trust, asset, versão/plataforma e flag são gates no host e nos atalhos; build falho/adaptador ausente/contexto inválido não lançam.
+- [x] Sessão DAP real usa `--interpreter=vscode`, negocia capacidades/ordem e mostra preparação, rodando, pausada, encerrada, cancelada ou falha. Breakpoint pendente/verificado vem do adaptador; sem símbolos continua pendente. Gutter separa número de linha, breakpoint e linha atual.
+- [x] Pausada: continue, step over, step into, frames e locals do frame selecionado funcionam. Ao continuar/trocar frame/sessão, locals antigos não são atuais; respostas tardias não ressuscitam pausa anterior. Stop e cancelamento têm resultado observado.
+- [x] Preservar log DAP/adaptador/host e output da aplicação; exit ausente mostra `exit unknown`. Sessão encerrada não prova árvore encerrada: verificar processos ou manter remanescentes/falha visíveis, incluindo revogação e troca de workspace.
+- [ ] Windows x64 exige smoke DAP próprio completo. (Mac ARM64/Intel/flag provados nesta fatia; **nenhuma máquina Windows foi executada**, então o smoke Windows continua pendente.) Mac Intel sem asset mantém indisponibilidade validada, não muda versão. ARM64 continua experimental OFF por padrão, com opt-in explícito para experimento sem bloquear release e sem prejudicar Run/análise/testes.
+- [x] Para retirar a flag ARM64, exigir prova real Mac ARM64 DAP de launch/breakpoint/stepping/stop **incluindo async e multi-thread**, logs/versões/comandos e processos encerrados. Spike CLI, binário, versão ou opt-in não contam. Sem prova, manter flag/limitação; #256 é risco não reproduzido, não falha universal.
+- [ ] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), incluindo teclas Ctrl+D/Cmd+F8 no Mac, Shift+F9/Ctrl+F8 no Windows e F8/F7 em ambos, com gates e foco acessíveis. (Mac exercitado no E2E; o mapeamento de teclas Windows não foi executado.)
 
 ## Mapeamento à SPEC
 
@@ -27,3 +27,4 @@ UI desktop → host → DAP real em plataforma apta, breakpoint/continue/steps/f
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+- 2026-10-28: Implementado e evidenciado em macOS 27.2 arm64. O host ganhou cliente DAP stdio (`--interpreter=vscode`), gates de launch (trust/restore/adaptador/flag/Debug build atual/fontes/assembly avaliado), breakpoints pendente/verificado, frames/locals, continue/step over/step into, stop/cancelamento com término observado, limpeza de adaptador/debuggee e revogação selada. Sessão real na fixture (breakpoint linha 3 → step over → exit 0, output preservado) e smoke **async + multi-thread** com três thread ids, step over/into, stop e revogação; pids de debuggee observados como inexistentes. Flag ARM64 mantida OFF por padrão; a prova fica para a decisão de retirada. Windows x64 não executado (gap explícito) e #256 segue risco não reproduzido. Evidência: [14-debug-dap.md](../evidence/14-debug-dap.md).

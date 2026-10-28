@@ -381,6 +381,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "debug.install"
             && **method != "debug.retry"
             && **method != "run.start"
+            && **method != "debug.start"
     }) {
         let code = error_code(host.dispatch(method, json!({})));
         if openridr_host::RESTORE_GATED_METHODS.contains(method) {
@@ -421,6 +422,19 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
         "invalid_state",
         "run.start needs a current evaluation and a successful build"
     );
+    let debug_start = host
+        .dispatch("debug.start", json!({}))
+        .expect_err("debug.start needs the platform flag, a verified adapter and a build");
+    assert!(
+        matches!(
+            debug_start.code.as_str(),
+            "experimental_required" | "tool_missing" | "unsupported_platform" | "restore_required"
+        ),
+        "{}: {}",
+        debug_start.code,
+        debug_start.message
+    );
+    assert_eq!(snapshot(&host)["processes"], json!([]));
     assert_eq!(snapshot(&host)["evaluation"]["state"], "failed");
 
     let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
@@ -3291,4 +3305,130 @@ fn revoking_trust_seals_a_running_program_and_drops_its_late_exit() {
         error_code(host.dispatch("run.start", json!({}))),
         "trust_required"
     );
+}
+
+#[cfg(unix)]
+fn write_netcoredbg(path: &Path, version: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        path,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"NET Core debugger {version}-1 (controlled test artifact, Release)\"\n  exit 0\nfi\nexit 0\n"
+        ),
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    if std::env::consts::ARCH != "aarch64" {
+        return;
+    }
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let adapter = home
+        .path()
+        .join("tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg");
+    write_netcoredbg(&adapter, "3.2.0");
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_console_project(&root, "Debugged", "");
+    let source = root.join("Debugged.cs");
+    let host = Host::new();
+    open(&host, &root.join("Debugged.csproj"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+
+    // Debug consumes restored assets and never restores implicitly.
+    let needs_restore = host.dispatch("debug.start", json!({})).expect_err("no restore");
+    assert_eq!(needs_restore.code, "restore_required");
+    assert_eq!(needs_restore.details.unwrap()["consumer"], "debug.start");
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(&host, Duration::from_secs(60));
+    host.dispatch("evaluation.run", json!({})).unwrap();
+
+    // The platform flag is a real gate even with a verified adapter and trust.
+    let flag_off = host.dispatch("debug.start", json!({})).expect_err("flag off");
+    assert_eq!(flag_off.code, "experimental_required");
+    assert!(flag_off.message.contains("experimental"), "{}", flag_off.message);
+    host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap();
+
+    // No build yet: nothing is launched.
+    let no_build = host.dispatch("debug.start", json!({})).expect_err("no build");
+    assert_eq!(no_build.code, "invalid_state");
+    assert_eq!(no_build.details.unwrap()["reason"], "no_build");
+
+    // Breakpoints can be prepared before the session; without an adapter they stay pending.
+    let pending = host
+        .dispatch(
+            "debug.setBreakpoints",
+            json!({ "path": "Debugged.cs", "lines": [2] }),
+        )
+        .unwrap();
+    assert_eq!(pending["dap"]["breakpoints"][0]["line"], 2);
+    assert_eq!(pending["dap"]["breakpoints"][0]["verified"], false);
+    assert_eq!(pending["dap"]["state"], "idle");
+    assert!(
+        !snapshot(&host)["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("debug:"))),
+        "preparing breakpoints must not spawn the adapter"
+    );
+
+    host.dispatch("build.start", json!({})).unwrap();
+    let built = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(built["state"], "ok", "{}", built["log"]);
+    assert_eq!(built["configuration"], "Debug");
+
+    // A saved source changed after the build is refused before any adapter is spawned.
+    fs::write(&source, "System.Console.WriteLine(\"changed\");\n").unwrap();
+    let changed = host.dispatch("debug.start", json!({})).expect_err("source changed");
+    assert_eq!(changed.code, "build_stale");
+    assert_eq!(changed.details.unwrap()["reason"], "source_changed");
+    assert_eq!(snapshot(&host)["dap"]["state"], "idle");
+
+    // A failed build never authorizes a launch.
+    fs::write(&source, "this is not C#\n").unwrap();
+    host.dispatch("build.start", json!({})).unwrap();
+    let failed = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(failed["state"], "failed", "{}", failed["log"]);
+    let failed_start = host.dispatch("debug.start", json!({})).expect_err("failed build");
+    assert_eq!(failed_start.code, "invalid_state");
+    assert_eq!(failed_start.details.unwrap()["reason"], "build_failed");
+
+    // A version that is not the approved one is not a debugger.
+    write_netcoredbg(&adapter, "3.1.0");
+    let wrong_version = host.dispatch("debug.start", json!({})).expect_err("wrong version");
+    assert_eq!(wrong_version.code, "tool_missing");
+    assert!(
+        wrong_version.message.contains("3.2.0"),
+        "{}",
+        wrong_version.message
+    );
+
+    // A re-detected SDK/context invalidates the evaluated model before any launch.
+    write_netcoredbg(&adapter, "3.2.0");
+    fs::write(&source, "System.Console.WriteLine(\"ready\");\n").unwrap();
+    host.dispatch("build.start", json!({})).unwrap();
+    let rebuilt = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(rebuilt["state"], "ok", "{}", rebuilt["log"]);
+    host.dispatch("sdk.redetect", json!({})).unwrap();
+    let stale = host.dispatch("debug.start", json!({})).expect_err("stale evaluation");
+    assert_eq!(stale.code, "invalid_state");
+    assert_eq!(stale.details.unwrap()["reason"], "evaluation_stale");
+    assert_eq!(snapshot(&host)["dap"]["state"], "idle");
+    assert!(snapshot(&host)["dap"]["assembly"].is_null());
 }

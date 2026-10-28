@@ -1,4 +1,5 @@
 mod build;
+mod dap;
 mod debugger;
 mod diagnostics;
 mod error;
@@ -52,6 +53,11 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "build.start",
     "run.start",
     "debug.start",
+    "debug.continue",
+    "debug.stepOver",
+    "debug.stepInto",
+    "debug.setBreakpoints",
+    "debug.variables",
     "tests.discover",
     "tests.run",
     "processes.probe",
@@ -79,7 +85,9 @@ struct Inner {
     trust_decision: Option<TrustDecision>,
     inventory: Option<Inventory>,
     project_sdk: ProjectSdk,
-    processes: Registry,
+    processes: Arc<Mutex<Registry>>,
+    dap: Arc<dap::Dap>,
+    dap_seq: u64,
     evaluation: Evaluation,
     restore: Arc<restore::Restore>,
     restore_seq: u64,
@@ -249,6 +257,7 @@ struct Snapshot {
     restore: RestoreView,
     build: build::BuildView,
     run: run::RunView,
+    dap: dap::DapView,
     tools: Value,
     lsp: lsp::LspView,
     diagnostics: Value,
@@ -271,7 +280,9 @@ impl Host {
                 trust_decision: None,
                 inventory: None,
                 project_sdk: ProjectSdk::no_workspace(),
-                processes: Registry::new(),
+                processes: Arc::new(Mutex::new(Registry::new())),
+                dap: Arc::new(dap::Dap::idle()),
+                dap_seq: 0,
                 evaluation: Evaluation::idle(),
                 restore: Arc::new(restore::Restore::idle()),
                 restore_seq: 0,
@@ -349,6 +360,27 @@ impl Host {
         }
         if method == "debug.flag" {
             return self.flag_debugger(params);
+        }
+        if method == "debug.start" {
+            return self.start_debug(params);
+        }
+        if method == "debug.stop" {
+            return self.stop_debug_session();
+        }
+        if method == "debug.continue" {
+            return self.control_debug("continue");
+        }
+        if method == "debug.stepOver" {
+            return self.control_debug("stepOver");
+        }
+        if method == "debug.stepInto" {
+            return self.control_debug("stepInto");
+        }
+        if method == "debug.setBreakpoints" {
+            return self.set_debug_breakpoints(params);
+        }
+        if method == "debug.variables" {
+            return self.debug_variables(params);
         }
         if method == "lsp.start" {
             return self.start_lsp(params);
@@ -468,10 +500,11 @@ impl Host {
 
     fn snapshot(&self, inner: &mut Inner) -> Snapshot {
         inner.ensure_inventory();
-        inner.processes.refresh();
+        inner.processes.lock().unwrap().refresh();
         inner.sync_restore();
         inner.sync_build();
         inner.sync_run();
+        inner.sync_dap();
         inner.sync_tools();
         inner.sync_lsp();
         let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
@@ -573,10 +606,11 @@ impl Host {
             sdk,
             debug: inner.debugger.view(inner.debugger_experimental),
             evaluation: inner.evaluation.clone(),
-            processes: inner.processes.views(),
+            processes: inner.processes.lock().unwrap().views(),
             restore: inner.restore.view(),
             build: inner.build.view(),
             run: inner.run.view(),
+            dap: inner.dap.view(),
             tools: json!({ tools::TOOL: inner.tools.view() }),
             lsp: lsp_view,
             diagnostics: serde_json::to_value(diagnostics_view).expect("diagnostics serialize"),
@@ -626,7 +660,7 @@ impl Host {
         );
         inner.lsp = None;
         inner.diagnostics.clear();
-        inner.processes.mark_awaiting();
+        inner.processes.lock().unwrap().mark_awaiting();
         inner.workspace_seq += 1;
         inner.context_seq += 1;
         workspace.id = inner.workspace_seq;
@@ -640,6 +674,7 @@ impl Host {
         inner.restore = Arc::new(restore::Restore::idle());
         inner.build = Arc::new(build::Build::idle());
         inner.run = Arc::new(run::Run::idle());
+        inner.dap = Arc::new(dap::Dap::idle());
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -663,7 +698,7 @@ impl Host {
         );
         inner.lsp = None;
         inner.diagnostics.clear();
-        inner.processes.mark_awaiting();
+        inner.processes.lock().unwrap().mark_awaiting();
         inner.workspace = None;
         inner.trusted = false;
         inner.debugger_experimental = false;
@@ -674,6 +709,7 @@ impl Host {
         inner.evaluation = Evaluation::idle();
         inner.build = Arc::new(build::Build::idle());
         inner.run = Arc::new(run::Run::idle());
+        inner.dap = Arc::new(dap::Dap::idle());
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -737,7 +773,7 @@ impl Host {
         );
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
         inner.evaluation = Evaluation::idle();
-        inner.processes.mark_awaiting();
+        inner.processes.lock().unwrap().mark_awaiting();
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -799,6 +835,8 @@ impl Host {
         accept_locked(&inner, token)?;
         inner
             .processes
+            .lock()
+            .unwrap()
             .spawn(&format!("probe:{kind}"), token.workspace_id, command)
             .map_err(|error| {
                 HostError::new(
@@ -869,7 +907,7 @@ impl Host {
     fn terminate_process(&self, params: Value) -> HostResult<Value> {
         let id = required_u64(&params, "id")?;
         let mut inner = self.inner.lock().unwrap();
-        if inner.processes.terminate(id).is_none() {
+        if inner.processes.lock().unwrap().terminate(id).is_none() {
             return Err(HostError::new(
                 "not_found",
                 format!("No tracked process with id {id}."),
@@ -881,7 +919,7 @@ impl Host {
     fn keep_process(&self, params: Value) -> HostResult<Value> {
         let id = required_u64(&params, "id")?;
         let mut inner = self.inner.lock().unwrap();
-        if inner.processes.keep(id).is_none() {
+        if inner.processes.lock().unwrap().keep(id).is_none() {
             return Err(HostError::new(
                 "not_found",
                 format!("No tracked process with id {id}."),
@@ -1205,10 +1243,12 @@ impl Host {
             .env("DOTNET_CLI_UI_LANGUAGE", "en")
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
-        let piped = match inner
+        let spawned = inner
             .processes
-            .spawn_piped(&format!("restore:{scope}"), token.workspace_id, process)
-        {
+            .lock()
+            .unwrap()
+            .spawn_piped(&format!("restore:{scope}"), token.workspace_id, process);
+        let piped = match spawned {
             Ok(piped) => piped,
             Err(error) => {
                 inner
@@ -1236,7 +1276,7 @@ impl Host {
             return Err(HostError::new("invalid_state", "No restore is running."));
         };
         inner.restore.request_cancel();
-        let status = inner.processes.terminate_status(process_id);
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
         if let Some(status) = &status {
             inner.restore.observe(status);
         }
@@ -1441,11 +1481,12 @@ impl Host {
             .env("DOTNET_CLI_UI_LANGUAGE", "en")
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
-        let piped = match inner.processes.spawn_piped(
+        let spawned = inner.processes.lock().unwrap().spawn_piped(
             &format!("build:{project_name}"),
             token.workspace_id,
             process,
-        ) {
+        );
+        let piped = match spawned {
             Ok(piped) => piped,
             Err(error) => {
                 inner.build.fail(format!("Could not start dotnet build: {error}"));
@@ -1473,7 +1514,7 @@ impl Host {
             return Err(HostError::new("invalid_state", "No build is running."));
         };
         inner.build.request_cancel();
-        let status = inner.processes.terminate_status(process_id);
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
         if let Some(status) = &status {
             inner.build.observe(status);
         }
@@ -1818,11 +1859,12 @@ impl Host {
             .env("DOTNET_CLI_UI_LANGUAGE", "en")
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
-        let piped = match inner.processes.spawn_piped(
+        let spawned = inner.processes.lock().unwrap().spawn_piped(
             &format!("run:{}", selected.name),
             token.workspace_id,
             process,
-        ) {
+        );
+        let piped = match spawned {
             Ok(piped) => piped,
             Err(error) => {
                 inner
@@ -1852,7 +1894,7 @@ impl Host {
             return Err(HostError::new("invalid_state", "No program is running."));
         };
         inner.run.request_cancel();
-        let status = inner.processes.terminate_status(process_id);
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
         if let Some(status) = &status {
             inner.run.observe(status);
         }
@@ -1903,7 +1945,7 @@ impl Host {
             current,
             token.workspace_id,
             token.context_id,
-            &mut inner.processes,
+            &mut inner.processes.lock().unwrap(),
         )?;
         Ok(self.snapshot_value(&mut inner))
     }
@@ -1933,7 +1975,7 @@ impl Host {
             current,
             token.workspace_id,
             token.context_id,
-            &mut inner.processes,
+            &mut inner.processes.lock().unwrap(),
         )?;
         Ok(self.snapshot_value(&mut inner))
     }
@@ -1941,7 +1983,7 @@ impl Host {
     fn cancel_tool(&self) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
         let tools = inner.tools.clone();
-        tools.cancel(&mut inner.processes)?;
+        tools.cancel(&mut inner.processes.lock().unwrap())?;
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -2015,6 +2057,409 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let debugger = inner.debugger.clone();
         debugger.cancel()?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Launches the evaluated managed assembly under the verified adapter. Every gate is
+    /// evaluated here: trust, adapter/platform/flag, a current successful Debug build with the
+    /// same identity as the current evaluation, unchanged saved sources, and a managed
+    /// assembly path from the evaluation. A failure names the reason and spawns nothing.
+    fn start_debug(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("debug.start")?;
+        let mut inner = self.inner.lock().unwrap();
+        if inner.dap.is_active() {
+            return Err(HostError::new(
+                "invalid_state",
+                "A debug session is already active; stop it before starting another.",
+            ));
+        }
+        if let Some(process_id) = inner.build.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!("A build is running (process {process_id}); wait for it to finish."),
+            ));
+        }
+        if inner.restore.running_process_id().is_some() {
+            return Err(HostError::new(
+                "invalid_state",
+                "A restore is running; wait for it to finish before debugging.",
+            ));
+        }
+
+        let Some(workspace) = inner.workspace.as_ref() else {
+            return Err(HostError::new("invalid_state", "No workspace is open."));
+        };
+        let root = workspace.root.clone();
+        // Same restore policy as every executable consumer: Debug never restores implicitly.
+        restore::require_restored(
+            &workspace.path,
+            &root,
+            matches!(workspace.kind, WorkspaceKind::Solution),
+            "debug.start",
+        )?;
+
+        let adapter = debugger::ready_adapter(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            inner.debugger_experimental,
+        )?;
+        let evaluation = inner.evaluation.clone();
+        let build_action = |project: &str, configuration: &str, tfm: Option<&str>| {
+            json!({
+                "method": "build.start",
+                "params": {
+                    "project": project,
+                    "configuration": configuration,
+                    "targetFramework": tfm,
+                },
+            })
+        };
+        if evaluation.stale {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Debug was not started: the evaluated project model is stale ({}). Re-evaluate before debugging.",
+                    evaluation
+                        .stale_reason
+                        .clone()
+                        .unwrap_or_else(|| "no current evaluation".to_string())
+                ),
+                json!({ "reason": "evaluation_stale", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        if !matches!(evaluation.state, "ok" | "partial")
+            || evaluation.workspace_id != Some(token.workspace_id)
+            || evaluation.context_id != Some(token.context_id)
+        {
+            return Err(HostError::with_details(
+                "invalid_state",
+                "Debug was not started: the current evaluation is not valid for this workspace/context. Evaluate the project model again.",
+                json!({ "reason": "evaluation_required", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        let configuration = optional_str(&params, "configuration")
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| evaluation.context.configuration.clone());
+        if !valid_selection(&configuration) || configuration != evaluation.context.configuration {
+            return Err(HostError::with_details(
+                "invalid_state",
+                "Debug was not started: the configuration has not been evaluated. Re-evaluate with that configuration first.",
+                json!({ "reason": "configuration_not_evaluated", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        if !configuration.eq_ignore_ascii_case("Debug") {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Debug was not started: the evaluated configuration is {configuration}. Debug requires a Debug build; select Debug and evaluate again."
+                ),
+                json!({ "reason": "debug_configuration_required", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        let target_framework = match params.get("targetFramework") {
+            Some(Value::String(value)) if !value.trim().is_empty() => Some(value.trim().to_string()),
+            Some(_) => None,
+            None => evaluation.context.target_framework.clone(),
+        };
+        if target_framework
+            .as_deref()
+            .is_some_and(|tfm| !valid_selection(tfm))
+            || target_framework != evaluation.context.target_framework
+        {
+            return Err(HostError::with_details(
+                "invalid_state",
+                "Debug was not started: the TFM has not been evaluated. Re-evaluate with that TFM first.",
+                json!({ "reason": "tfm_not_evaluated", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        let requested = optional_str(&params, "project").filter(|value| !value.trim().is_empty());
+        let selected = build::select_startup_for(&evaluation.projects, requested.as_deref(), "debug")?;
+        let Some(assembly) = selected.assembly_path.clone() else {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Debug was not started: {} has no evaluated managed assembly. Re-evaluate the project model.",
+                    selected.name
+                ),
+                json!({ "reason": "assembly_missing", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        };
+        let build = inner.build.view();
+        let action = build_action(
+            &selected.path,
+            &configuration,
+            target_framework.as_deref(),
+        );
+        if build.revision == 0 {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Debug was not started: there is no build of {} yet. Build it first; Debug never builds or restores implicitly.",
+                    selected.name
+                ),
+                json!({ "reason": "no_build", "action": action }),
+            ));
+        }
+        if build.sealed || build.stale {
+            return Err(HostError::with_details(
+                "build_stale",
+                format!(
+                    "Debug was not started: the saved build is stale ({}). Rebuild before debugging.",
+                    build
+                        .stale_reason
+                        .clone()
+                        .unwrap_or_else(|| "stale build".to_string())
+                ),
+                json!({
+                    "reason": "build_stale",
+                    "buildId": build.build_id,
+                    "staleReason": build.stale_reason,
+                    "buildLog": log_tail(&build.log, 30),
+                    "action": action,
+                }),
+            ));
+        }
+        if build.state != "ok" || build.exit != Some(0) {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Debug was not started: the last build did not succeed ({}). Fix the build before debugging.",
+                    if build.state == "idle" {
+                        "no build".to_string()
+                    } else {
+                        let exit = build
+                            .exit
+                            .map(|exit| format!("exit {exit}"))
+                            .unwrap_or_else(|| "exit unknown".to_string());
+                        format!("{} · {exit}", build.state)
+                    }
+                ),
+                json!({
+                    "reason": "build_failed",
+                    "buildId": build.build_id,
+                    "exit": build.exit,
+                    "buildLog": log_tail(&build.log, 30),
+                    "action": action,
+                }),
+            ));
+        }
+        if build.workspace_id != Some(token.workspace_id)
+            || build.context_id != Some(token.context_id)
+        {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Debug was not started: the saved build belongs to an older workspace or context. Rebuild before debugging.",
+                json!({ "reason": "context_changed", "buildId": build.build_id, "action": action }),
+            ));
+        }
+        if !build.configuration.eq_ignore_ascii_case("Debug") {
+            return Err(HostError::with_details(
+                "build_stale",
+                format!(
+                    "Debug was not started: the saved build used {}. Build with Debug before debugging.",
+                    build.configuration
+                ),
+                json!({ "reason": "build_not_debug", "buildId": build.build_id, "action": action }),
+            ));
+        }
+        if inner.build.evaluation_revision() != evaluation.revision {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Debug was not started: the project model was re-evaluated after this build. Rebuild before debugging.",
+                json!({ "reason": "evaluation_changed", "buildId": build.build_id, "action": action }),
+            ));
+        }
+        let Some(build_project) = build.project.as_ref() else {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Debug was not started: the saved build has no startup project identity. Rebuild before debugging.",
+                json!({ "reason": "build_project_missing", "action": action }),
+            ));
+        };
+        if build_project.path != selected.path
+            || build.configuration != configuration
+            || build.target_framework != target_framework
+        {
+            return Err(HostError::with_details(
+                "build_stale",
+                format!(
+                    "Debug was not started: the saved build is not the current {} / {}{}. Build the selected startup project before debugging.",
+                    selected.name,
+                    configuration,
+                    target_framework
+                        .clone()
+                        .map(|tfm| format!(" / {tfm}"))
+                        .unwrap_or_default()
+                ),
+                json!({ "reason": "build_context_mismatch", "buildId": build.build_id, "action": action }),
+            ));
+        }
+        if build_project.target_path.as_deref() != selected.target_path.as_deref() {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Debug was not started: the evaluated TargetPath changed after the build. Rebuild before debugging.",
+                json!({ "reason": "target_changed", "buildId": build.build_id, "action": action }),
+            ));
+        }
+        let changed = inner.build.changed_sources(&root);
+        if !changed.is_empty() {
+            return Err(HostError::with_details(
+                "build_stale",
+                format!(
+                    "Debug was not started: {} saved source{} changed after this build ({}). Rebuild before debugging.",
+                    changed.len(),
+                    if changed.len() == 1 { "" } else { "s" },
+                    changed.join(", ")
+                ),
+                json!({
+                    "reason": "source_changed",
+                    "buildId": build.build_id,
+                    "changedSources": changed,
+                    "action": action,
+                }),
+            ));
+        }
+        let assembly_path = PathBuf::from(&assembly);
+        if !assembly_path.is_file() {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Debug was not started: the evaluated assembly {} is not on disk. Rebuild before debugging.",
+                    assembly
+                ),
+                json!({ "reason": "assembly_missing", "action": action }),
+            ));
+        }
+        let sdk = inner.project_sdk.clone();
+        if sdk.state != "resolved" {
+            return Err(HostError::new(
+                if sdk.state == "sdk_missing" {
+                    "sdk_missing"
+                } else {
+                    "invalid_state"
+                },
+                format!(
+                    "Debug was not started: the project SDK is not resolved ({}). {}",
+                    sdk.state,
+                    sdk.message.clone().unwrap_or_else(|| {
+                        "Resolve the project SDK before debugging.".to_string()
+                    })
+                ),
+            ));
+        }
+        let Some(sdk_root) = sdk.root.clone().map(PathBuf::from) else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Debug was not started: the resolved project SDK has no root path.",
+            ));
+        };
+        let Some(project_directory) = root.join(&selected.path).parent().map(Path::to_path_buf) else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Debug was not started: the startup project has no directory.",
+            ));
+        };
+
+        inner.dap_seq += 1;
+        let session = inner.dap_seq;
+        let launch = dap::Launch {
+            session,
+            project_name: selected.name.clone(),
+            project_path: selected.path.clone(),
+            build_id: build.build_id.clone().unwrap_or_default(),
+            assembly: assembly.clone(),
+            configuration: configuration.clone(),
+            target_framework: target_framework.clone(),
+            cwd: project_directory,
+            root: root.clone(),
+            sdk_root: sdk_root.clone(),
+            adapter_binary: adapter.binary.to_string_lossy().to_string(),
+            adapter_version: adapter.version.clone(),
+            adapter_platform: adapter.platform.clone(),
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+            breakpoints: inner.dap.breakpoints(),
+        };
+        let mut command = Command::new(&adapter.binary);
+        command.arg("--interpreter=vscode");
+        let dap = dap::Dap::begin(launch, command, inner.processes.clone())?;
+        inner.dap = dap;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Safety action: stops the adapter group and the debuggee, then reports requested vs
+    /// observed termination and keeps the logs. Allowed without trust.
+    fn stop_debug_session(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        if !dap.is_active() && dap.state() != "preparing" {
+            return Err(HostError::new("invalid_state", "No debug session is active."));
+        }
+        let processes = inner.processes.clone();
+        if let Err(error) = dap.shutdown(&processes, "Stopped by the user.", false) {
+            return Err(error);
+        }
+        inner.sync_dap();
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn control_debug(&self, action: &str) -> HostResult<Value> {
+        let _token = self.require_trust("debug.continue")?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        match action {
+            "continue" => dap.continue_()?,
+            "stepOver" => dap.step_over()?,
+            "stepInto" => dap.step_into()?,
+            _ => {
+                return Err(HostError::new("invalid_state", "Unknown debug action."));
+            }
+        }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn set_debug_breakpoints(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.setBreakpoints")?;
+        let raw = required_str(&params, "path")?;
+        let mut lines = Vec::new();
+        if let Some(values) = params.get("lines").and_then(Value::as_array) {
+            for value in values {
+                let Some(line) = value.as_i64() else {
+                    return Err(HostError::new(
+                        "invalid_state",
+                        "Breakpoint lines must be positive integers.",
+                    ));
+                };
+                if line < 1 {
+                    return Err(HostError::new(
+                        "invalid_state",
+                        "Breakpoint lines must be positive integers.",
+                    ));
+                }
+                lines.push(line);
+            }
+        }
+        if lines.len() > 500 {
+            return Err(HostError::new(
+                "invalid_state",
+                "At most 500 breakpoints are accepted per source.",
+            ));
+        }
+        let mut inner = self.inner.lock().unwrap();
+        let (_, relative) = resolve_in_workspace(&inner, &raw)?;
+        inner.dap.set_breakpoints(&relative, &lines);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_variables(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.variables")?;
+        let frame_id = params
+            .get("frameId")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| HostError::new("invalid_state", "debug.variables needs frameId."))?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        dap.load_locals(frame_id)?;
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -2248,10 +2693,12 @@ impl Host {
             .env_remove("NUGET_HTTP_CACHE_PATH")
             .env_remove("DOTNET_CLI_HOME");
         let solution = is_solution.then(|| workspace_path.to_string_lossy().to_string());
-        let piped = match inner
+        let spawned = inner
             .processes
-            .spawn_piped("lsp:csharp-ls", token.workspace_id, command)
-        {
+            .lock()
+            .unwrap()
+            .spawn_piped("lsp:csharp-ls", token.workspace_id, command);
+        let piped = match spawned {
             Ok(piped) => piped,
             Err(error) => {
                 let failed = lsp::Lsp::begin(
@@ -3158,7 +3605,7 @@ impl Inner {
     }
 
     fn sync_tools(&mut self) {
-        self.tools.sync(&mut self.processes);
+        self.tools.sync(&mut self.processes.lock().unwrap());
     }
 
     fn sync_lsp(&mut self) {
@@ -3168,8 +3615,9 @@ impl Inner {
         let Some(process_id) = lsp.process_id() else {
             return;
         };
-        self.processes.refresh();
-        let Some(status) = self.processes.status(process_id) else {
+        let mut processes = self.processes.lock().unwrap();
+        processes.refresh();
+        let Some(status) = processes.status(process_id) else {
             return;
         };
         if status.state == "exited" {
@@ -3177,7 +3625,7 @@ impl Inner {
         } else if lsp.state() == "failed" {
             // Fallback for platforms where the reader cannot signal the child (Windows): a
             // failed session is never left running.
-            let status = self.processes.terminate_status(process_id);
+            let status = processes.terminate_status(process_id);
             if let Some(status) = status {
                 lsp.observe_termination(&status);
             }
@@ -3190,8 +3638,9 @@ impl Inner {
         let Some(process_id) = self.restore.running_process_id() else {
             return;
         };
-        self.processes.refresh();
-        let Some(status) = self.processes.status(process_id) else {
+        let mut processes = self.processes.lock().unwrap();
+        processes.refresh();
+        let Some(status) = processes.status(process_id) else {
             return;
         };
         if status.state != "exited" {
@@ -3221,8 +3670,9 @@ impl Inner {
         let Some(process_id) = self.build.running_process_id() else {
             return;
         };
-        self.processes.refresh();
-        let Some(status) = self.processes.status(process_id) else {
+        let mut processes = self.processes.lock().unwrap();
+        processes.refresh();
+        let Some(status) = processes.status(process_id) else {
             return;
         };
         if status.state != "exited" {
@@ -3231,14 +3681,38 @@ impl Inner {
         self.build.complete(&status);
     }
 
+    /// Observes the debug adapter exit. The session is finished only by what the registry and
+    /// the adapter events reported; a missing exit code stays unknown.
+    fn sync_dap(&mut self) {
+        let dap = self.dap.clone();
+        let Some(process_id) = dap.process_id() else {
+            return;
+        };
+        let status = {
+            let mut processes = self.processes.lock().unwrap();
+            processes.refresh();
+            processes.status(process_id)
+        };
+        if status.as_ref().is_some_and(|status| status.state == "exited") {
+            dap.observe_adapter_exit(
+                status.as_ref().and_then(|status| status.exit),
+                status
+                    .as_ref()
+                    .and_then(|status| status.termination.as_ref()),
+            );
+        }
+        dap.refresh_terminals(&self.processes);
+    }
+
     /// Observes the exit of a running program. `exited` is not `ok`: the exit code, when
     /// the registry got one, is exactly what is published.
     fn sync_run(&mut self) {
         let Some(process_id) = self.run.running_process_id() else {
             return;
         };
-        self.processes.refresh();
-        let Some(status) = self.processes.status(process_id) else {
+        let mut processes = self.processes.lock().unwrap();
+        processes.refresh();
+        let Some(status) = processes.status(process_id) else {
             return;
         };
         if status.state != "exited" {
@@ -3252,7 +3726,7 @@ impl Inner {
 /// was observed. The record is sealed so its late exit cannot become another context's build.
 fn stop_build(inner: &mut Inner, reason: &str) {
     if let Some(process_id) = inner.build.running_process_id() {
-        let status = inner.processes.terminate_status(process_id);
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
         inner.build.seal(reason, status.as_ref());
     } else {
         inner.build.mark_stale(reason);
@@ -3263,7 +3737,7 @@ fn stop_build(inner: &mut Inner, reason: &str) {
 /// what was observed. The record is sealed so its late exit cannot become another context's.
 fn stop_run(inner: &mut Inner, reason: &str) {
     if let Some(process_id) = inner.run.running_process_id() {
-        let status = inner.processes.terminate_status(process_id);
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
         inner.run.seal(reason, status.as_ref());
     } else {
         inner.run.seal(reason, None);
@@ -3276,7 +3750,7 @@ fn stop_restore(inner: &mut Inner, reason: &str) {
     let Some(process_id) = inner.restore.running_process_id() else {
         return;
     };
-    let status = inner.processes.terminate_status(process_id);
+    let status = inner.processes.lock().unwrap().terminate_status(process_id);
     inner.restore.seal(reason, status.as_ref());
 }
 
@@ -3294,15 +3768,15 @@ fn stop_lsp_inner(inner: &mut Inner, reason: &str) {
         // Give the server the chance to honour `exit` and exit 0 before the host signals the
         // group. The registry is the only observer of the child.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
-        let mut status = inner.processes.status(process_id);
+        let mut status = inner.processes.lock().unwrap().status(process_id);
         while std::time::Instant::now() < deadline
             && status.as_ref().is_some_and(|status| status.state != "exited")
         {
             std::thread::sleep(std::time::Duration::from_millis(50));
-            status = inner.processes.status(process_id);
+            status = inner.processes.lock().unwrap().status(process_id);
         }
         if status.as_ref().is_some_and(|status| status.state != "exited") {
-            status = inner.processes.terminate_status(process_id);
+            status = inner.processes.lock().unwrap().terminate_status(process_id);
         }
         if let Some(status) = status {
             lsp.observe_termination(&status);
@@ -3315,8 +3789,29 @@ fn stop_lsp_inner(inner: &mut Inner, reason: &str) {
 fn stop_services(inner: &mut Inner, reason: &str) {
     stop_lsp_inner(inner, reason);
     let tools = inner.tools.clone();
-    tools.seal(reason, None, &mut inner.processes);
+    tools.seal(reason, None, &mut inner.processes.lock().unwrap());
     inner.debugger.seal(reason);
+    stop_debug(inner, reason, true);
+}
+
+/// A workspace boundary stops the adapter group and its debuggee, then seals the record so
+/// later DAP events cannot reach the new context. What the registry observed stays visible.
+fn stop_debug(inner: &mut Inner, reason: &str, seal: bool) {
+    let dap = inner.dap.clone();
+    if dap.view().session == 0 {
+        return;
+    }
+    if !dap.is_active() && !seal {
+        return;
+    }
+    match dap.shutdown(&inner.processes, reason, seal) {
+        Ok(()) => {}
+        Err(_) => {
+            if let Some(process_id) = dap.process_id() {
+                let _ = inner.processes.lock().unwrap().terminate_status(process_id);
+            }
+        }
+    }
 }
 
 fn accept_locked(inner: &Inner, token: ContextToken) -> HostResult<()> {
