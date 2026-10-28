@@ -69,3 +69,15 @@ A tela Toolchain mantém o card completo de trust e as linhas de SDK; dentro do 
 ## 2026-10-28 — Ticket 03: invalidação sem resposta tardia
 
 O host publica `running` antes de executar (fora do lock), marca `stale` quando `file.write` toca `.csproj/.props/.targets/.sln/global.json` (incrementando o contexto), e no polling compara mtime/tamanho de projeto, `Directory.Build.*`, `Directory.Packages.props` e `global.json`. Revogar/trocar/fechar zera a avaliação; o token capturado antes rejeita o resultado tardio (`stale_context`). A UI avalia uma vez por contexto confiável e só refaz por seleção explícita de configuração/TFM, Re-evaluate ou retry — nunca aplica resultado antigo. Detalhes do projeto ficam numa coluna própria (visível sem esconder a árvore).
+
+## 2026-10-28 — Ticket 04: restore é uma ação única, com processo registrado
+
+`restore.start`/`restore.retry` só rodam com trust e SDK do projeto resolvido; `restore.cancel` pode parar o processo sem trust (é ação de segurança, como `processes.terminate`). O comando é sempre o argv separado `[<root>/dotnet, "restore", <sln|csproj>, "-nologo", "-v:minimal"]`, cwd na raiz do workspace, `DOTNET_ROOT` da raiz do SDK do projeto e grupo de processos próprio. O child entra no mesmo `Registry` dos outros processos, então cancelar/revogar/trocar workspace usa TERM→KILL e reporta o que observou; a UI mostra "requested" e "observed" separados e `exit` nulo vira "exit unknown".
+
+Um restore por vez: com outro em execução, `restore.start` devolve `invalid_state` em vez de enfileirar. O log guarda as últimas 400 linhas/60k caracteres e diz quando truncou; stdout vem cru e stderr com prefixo `[stderr]`. Credenciais em URL de feed são mascaradas (`https://***@host/...`) e o ambiente nunca é logado. `restore.start {project?}` permite restaurar um projeto da solução; a UI sempre usa o escopo do workspace (solution ou project).
+
+`restored` deixa de ser só mtime: `obj/project.assets.json` mais novo que o `.csproj` **e** `obj/project.nuget.cache` com `success: true`. O NuGet reescreve o assets mesmo em falha (NU1100), então mtime sozinho declararia sucesso falso; cache ausente/ilegível resulta `unknown`.
+
+Sucesso marca a avaliação como stale (mesmo contexto confiável, sem incrementar `contextId`) e a UI só recarrega pelo botão explícito, que chama `evaluation.run` com configuração/TFM atuais; o TargetPath antigo aparece rotulado como avaliação anterior. Falha/cancelamento também marcam stale e preservam log e marcadores por projeto. Revogar/fechar/trocar durante restore termina o grupo, sela o registro (`sealed`, `staleReason`) para que um exit tardio não vire resultado do contexto novo e mantém o processo visível no painel; ao trocar de workspace o registro selado é descartado da UI, mas o processo continua no registry com o término observado.
+
+Build/run/debug/testes passam por `restore::require_restored` antes de qualquer ferramenta: com assets ausentes/velhos ou restore falho devolvem `restore_required` com `details.action = {method:"restore.start"}` e nunca restauram. Implementar os consumidores reais fica nos tickets 11/12/16/17, que devem chamar a mesma política.

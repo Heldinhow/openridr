@@ -54,7 +54,16 @@ A UI nunca executa processo. Toda operação passa por `dispatch(method, params)
                                  "note": null }],
                   "log": "...", "stale": false, "staleReason": null, "revision": 1,
                   "workspaceId": 1, "contextId": 2, "startedAt": 0, "finishedAt": 0 },
-  "restore": { "state": "idle|running|ok|failed|cancelled", "log": "...", "exit": null },
+  "restore": { "state": "idle|running|ok|failed|cancelled", "scope": "solution|project",
+               "target": "/abs/OrderDesk.sln", "command": ["/abs/sdk/8.0.408/dotnet","restore","<target>","-nologo","-v:minimal"],
+               "cwd": "/abs/root", "sdkRoot": "/abs/sdk/8.0.408", "sdkVersion": "8.0.408",
+               "log": "...", "logTruncated": false, "exit": null,
+               "termination": null|{"requested","observed","exit","killedAfterGrace"},
+               "processId": 1, "awaitingDecision": false,
+               "projects": [{ "name","path","state":"restored|not_restored|unknown","reason",
+                              "assetsPath","assetsModifiedAt","projectModifiedAt" }],
+               "revision": 1, "workspaceId": 1, "contextId": 2,
+               "startedAt": 0, "finishedAt": 0, "sealed": false, "staleReason": null },
   "tools": { "csharp-ls": { "state": "absent|planned|downloading|installing|verifying|ready|failed|cancelled", "version": "0.28.0", "log": "..." } },
   "lsp": { "state": "unavailable|starting|loading|ready|partial|failed|stopped", "log": "...", "diagnostics": {...} },
   "diagnostics": { "snapshots": [...], "items": [...] }
@@ -66,7 +75,7 @@ A UI nunca executa processo. Toda operação passa por `dispatch(method, params)
 1. `dispatch` valida trust para: MSBuild/evaluation, restore, instalação, LSP, PTY, build/run/debug/testes. Antes de trust: só `workspace.*`, `file.read/write`, `outline`, inventário de SDK (`sdk.redetect`) e leitura de logs. O gate único é `require_trust`; chamadas diretas (HTTP/testes) recebem a mesma resposta. Operações que possam terminar depois capturam `ContextToken` e chamam `accept_result` antes de gravar (`stale_context`).
 2. Paths de leitura/escrita sempre canonicalizados e contidos no workspace; recusar `..`, symlink para fora, caminho absoluto externo. Nome com espaços/`;`/`&` é válido; nada é interpolado em shell.
 3. Processos: `Command` com args separados, cwd explícito e env explícito; no Unix `process_group(0)` + `killpg` (TERM, depois KILL após 2 s); exit ausente = `null` (UI mostra `exit unknown`). O registro expõe `awaitingDecision`/`kept` e não declara limpeza sem observação. `processes.probe` existe só para testes/desenvolvimento com `OPENRIDR_ENABLE_PROBE=1`; não é PTY nem UI.
-4. Operação longa roda em thread própria e publica progresso no estado; cancelamento é pedido distinto de término observado.
+4. Operação longa roda em thread própria e publica progresso no estado; cancelamento é pedido distinto de término observado. Restore é o primeiro consumidor assíncrono: o child fica no `Registry`, duas threads drenam stdout/stderr para um log limitado e o snapshot observa o exit (nunca presume código zero).
 5. Resposta tardia carrega `workspaceId`/`contextId`; ao gravar no estado, descartar se não for o atual. O snapshot expõe `contextId` e a UI ignora snapshots com contexto menor.
 6. Trust em memória; revogar/trocar/fechar workspace invalida tudo e encerra serviços (LSP, restore, evaluation). Processos ativos viram `awaiting decision` visíveis. SDK do projeto só é resolvido após trust; `sdk_missing` nunca cai para o SDK 10 nem reescreve `global.json`; host e projeto são linhas separadas.
 7. Logs: manter stdout/stderr brutos, sem apagar em falha/cancelamento. Não logar env completo (segredos/feed credentials).
@@ -107,7 +116,7 @@ Smoke desktop sem Vite (usa `dist/` embutido): `cargo build` em `src-tauri` e ex
 
 ## Testids estáveis (E2E)
 
-`workspace-path-input`, `workspace-open`, `workspace-candidates`, `trust-checkbox`, `trust-grant`, `trust-revoke`, `trust-note`, `trust-grant-reason`, `mode-restricted`, `mode-trusted`, `mode-badge`, `open-text-only`, `tree`, `tree-project-*`, `tree-file-*`, `editor`, `tab-*`, `dirty-marker`, `save-file`, `conflict-banner`, `conflict-overwrite`, `conflict-reload`, `close-buffer`, `sdk-host`, `sdk-project`, `sdk-project-message`, `sdk-tfms`, `sdk-debug-adapter`, `sdk-apple-silicon`, `sdk-redetect`, `sdk-open-global-json`, `toolchain`, `eval-state`, `restore-start`, `restore-log`, `install-plan`, `install-confirm`, `install-cancel`, `lsp-state`, `problems-list`, `problem-row-*`, `problems-empty`, `processes-panel`, `processes-row-*`, `processes-state-*`, `processes-terminate-*`, `processes-keep-*`, `processes-awaiting-*`, `processes-termination-*`, `bottom-tab-*`, `status-*`.
+`workspace-path-input`, `workspace-open`, `workspace-candidates`, `trust-checkbox`, `trust-grant`, `trust-revoke`, `trust-note`, `trust-grant-reason`, `mode-restricted`, `mode-trusted`, `mode-badge`, `open-text-only`, `tree`, `tree-project-*`, `tree-file-*`, `editor`, `tab-*`, `dirty-marker`, `save-file`, `conflict-banner`, `conflict-overwrite`, `conflict-reload`, `close-buffer`, `sdk-host`, `sdk-project`, `sdk-project-message`, `sdk-tfms`, `sdk-debug-adapter`, `sdk-apple-silicon`, `sdk-redetect`, `sdk-open-global-json`, `toolchain`, `eval-state`, `restore-panel`, `restore-action`, `restore-cancel`, `restore-retry`, `restore-reload`, `restore-state`, `restore-scope`, `restore-command`, `restore-log`, `restore-incomplete-*`, `install-plan`, `install-confirm`, `install-cancel`, `lsp-state`, `problems-list`, `problem-row-*`, `problems-empty`, `processes-panel`, `processes-row-*`, `processes-state-*`, `processes-terminate-*`, `processes-keep-*`, `processes-awaiting-*`, `processes-termination-*`, `bottom-tab-*`, `status-*`.
 
 ## Evidência por ticket
 

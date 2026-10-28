@@ -793,3 +793,82 @@ p {
     grid-template-columns: 220px minmax(0, 1fr);
   }
 }
+
+.restore-panel {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 6px 12px 2px;
+  font-size: 0.78rem;
+}
+
+.restore-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.restore-head button {
+  font-size: 0.78rem;
+  padding: 3px 8px;
+}
+
+.restore-panel .tag {
+  padding: 1px 6px;
+}
+
+.restore-meta {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 2px 8px;
+  margin: 6px 0 4px;
+  font-size: 0.72rem;
+}
+
+.restore-meta dt {
+  color: var(--muted);
+}
+
+.restore-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.restore-panel .notice {
+  border: 1px solid var(--warning);
+  margin: 6px 0;
+  padding: 6px 8px;
+}
+
+.restore-panel .notice ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.restore-panel .eval-log {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+}
+
+.restore-panel .eval-pre {
+  margin: 0 0 6px;
+  max-height: 220px;
+}
+
+/* Notices and panels above the editor must never squeeze it out of the window. */
+.workspace-notices {
+  flex: 0 0 auto;
+  max-height: 46vh;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-notices .process-panel {
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.workspace-notices .notice,
+.workspace-notices .process-panel {
+  margin: 6px 0 0;
+}

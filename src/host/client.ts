@@ -117,6 +117,45 @@ export type Evaluation = {
   finishedAt: number | null;
 };
 
+export type RestoreProject = {
+  name: string;
+  path: string;
+  state: "restored" | "not_restored" | "unknown";
+  reason: string | null;
+  assetsPath: string | null;
+  assetsModifiedAt: number | null;
+  projectModifiedAt: number | null;
+};
+
+export type Restore = {
+  state: "idle" | "running" | "ok" | "failed" | "cancelled";
+  scope: "solution" | "project";
+  target: string;
+  command: string[];
+  cwd: string;
+  sdkRoot: string | null;
+  sdkVersion: string | null;
+  log: string;
+  logTruncated: boolean;
+  exit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  processId: number | null;
+  awaitingDecision: boolean;
+  projects: RestoreProject[];
+  revision: number;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  sealed: boolean;
+  staleReason: string | null;
+};
+
 export type Snapshot = {
   contextId: number;
   app: { home: string; platform: string; arch: string; version: string };
@@ -152,6 +191,7 @@ export type Snapshot = {
   };
   evaluation: Evaluation;
   processes: ProcessInfo[];
+  restore: Restore;
 };
 
 export type ReadFile = { path: string; content: string; hash: string };

@@ -8,12 +8,12 @@
 
 **Category:** enhancement
 
-- [ ] Oferecer ação explícita de restore com workspace/projeto/contexto e comando visíveis, autorizada pelo host apenas enquanto trusted. Abrir, avaliar ou carregar contexto não inicia restore silencioso.
-- [ ] Apresentar andamento real, stdout/stderr, resultado, erro, cancelamento e retry explícito; falha/restore incompleto preserva edição e sinaliza dependências/análise parciais, nunca sucesso por falta de diagnóstico.
-- [ ] Sucesso invalida avaliação e TargetPath anteriores e permite recarregar o modelo real; mudança de configuração/TFM, projeto ou imports também invalida. Durante recarga não reutilizar saída antiga como atual; resposta tardia de restore não reativa outro contexto.
-- [ ] Estabelecer e testar na boundary a política usada por build/run/test: comandos e pré-condições impedem restore implícito; se necessário informar restore pendente e oferecer a ação explícita, sem contornar a decisão. Cada consumidor posterior valida a política com sua ferramenta real.
-- [ ] Cancelamento/revogação distinguem pedido de término, processo observado e exit conhecido/unknown; manter logs e remanescentes visíveis, sem registrar credenciais de feeds nem upload automático.
-- [ ] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), com controles acessíveis e SDK/global.json preservados.
+- [x] Oferecer ação explícita de restore com workspace/projeto/contexto e comando visíveis, autorizada pelo host apenas enquanto trusted. Abrir, avaliar ou carregar contexto não inicia restore silencioso.
+- [x] Apresentar andamento real, stdout/stderr, resultado, erro, cancelamento e retry explícito; falha/restore incompleto preserva edição e sinaliza dependências/análise parciais, nunca sucesso por falta de diagnóstico.
+- [x] Sucesso invalida avaliação e TargetPath anteriores e permite recarregar o modelo real; mudança de configuração/TFM, projeto ou imports também invalida. Durante recarga não reutilizar saída antiga como atual; resposta tardia de restore não reativa outro contexto.
+- [x] Estabelecer e testar na boundary a política usada por build/run/test: comandos e pré-condições impedem restore implícito; se necessário informar restore pendente e oferecer a ação explícita, sem contornar a decisão. Cada consumidor posterior valida a política com sua ferramenta real.
+- [x] Cancelamento/revogação distinguem pedido de término, processo observado e exit conhecido/unknown; manter logs e remanescentes visíveis, sem registrar credenciais de feeds nem upload automático.
+- [x] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), com controles acessíveis e SDK/global.json preservados.
 
 ## Mapeamento à SPEC
 
@@ -26,3 +26,7 @@ UI real Mac: fixture sem restore → solicitar → sucesso/recarga; falha contro
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+
+## Evidência
+
+Implementação, comandos, saídas reais de sucesso/falha/cancelamento, timestamps de assets, testes Rust/Playwright e limitações por ambiente: [docs/evidence/04-restore-explicito.md](../evidence/04-restore-explicito.md). Verificado em macOS 27.2 arm64 com SDK de projeto 8.0.408 e host 10.0.100; Windows x64 e macOS Intel não executados. Consumidores reais de build/run/debug/testes ficam nos tickets 11/12/16/17 e devem chamar a mesma política `restore_required`.

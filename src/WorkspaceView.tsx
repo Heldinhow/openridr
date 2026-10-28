@@ -74,6 +74,22 @@ function evaluationStateLabel(state: Snapshot["evaluation"]["state"]) {
   }
 }
 
+function restoreStateLabel(restore: Snapshot["restore"]) {
+  const exit = restore.exit === null ? "exit unknown" : `exit ${restore.exit}`;
+  switch (restore.state) {
+    case "running":
+      return "Restoring…";
+    case "ok":
+      return `Restore succeeded · ${exit}`;
+    case "failed":
+      return `Restore failed · ${exit}`;
+    case "cancelled":
+      return `Restore cancelled · ${exit}`;
+    default:
+      return "Restore not requested";
+  }
+}
+
 export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
@@ -108,8 +124,26 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   );
   const evaluationAvailable = trusted && projectSdk.state === "resolved";
   const evaluationBusy = evaluating || evaluation.state === "running";
+  const restore = snapshot.restore;
+  const restoring = restore.state === "running";
+  const restoreDisabledReason = !trusted
+    ? "Trust the workspace before restoring; nothing runs in Restricted mode."
+    : projectSdk.state !== "resolved"
+      ? "Resolve the project SDK before restoring; the host SDK is never substituted."
+      : restoring
+        ? "A restore is already running."
+        : null;
+  const restoreAvailable = restoreDisabledReason === null;
+  const restoreIncompleteAfterRun =
+    restore.revision > 0 && restore.projects.some((project) => project.state !== "restored");
   const restoreIncomplete =
-    showsEvaluatedTree && evaluatedProjects.some((project) => project.restored !== "restored");
+    restore.state !== "running" &&
+    (restore.revision > 0
+      ? restoreIncompleteAfterRun
+      : showsEvaluatedTree && evaluatedProjects.some((project) => project.restored !== "restored"));
+  const restoreProjectState = new Map(
+    restore.projects.map((project) => [project.path, project.state]),
+  );
   const baseConfigurations =
     evaluation.configurations.length > 0 ? evaluation.configurations : ["Debug", "Release"];
   const configurations = baseConfigurations.includes(evaluation.context.configuration)
@@ -383,6 +417,23 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     void openFile(projectSdk.globalJsonPath ?? "global.json");
   }
 
+  async function startRestore(method: "restore.start" | "restore.retry") {
+    try {
+      onSnapshot(await call<Snapshot>(method, {}));
+      setMessage(null);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Restore could not start: ${messageOf(error)}` });
+    }
+  }
+
+  async function cancelRestore() {
+    try {
+      onSnapshot(await call<Snapshot>("restore.cancel"));
+    } catch (error) {
+      setMessage({ tone: "error", text: `Restore cancellation failed: ${messageOf(error)}` });
+    }
+  }
+
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
       setConfirm({ kind: "workspace" });
@@ -486,6 +537,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         </button>
       </div>
 
+      <div className="workspace-notices">
       <div className={`notice ${trusted ? "" : "warning"}`} data-testid="trust-banner">
         {!trusted && (
           <p>
@@ -497,11 +549,155 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         <TrustControls snapshot={snapshot} onChange={onSnapshot} compact />
       </div>
 
+      <section className="restore-panel" aria-label="Restore" data-testid="restore-panel">
+        <div className="restore-head">
+          <strong>Restore</strong>
+          <span
+            className={`tag ${restore.state === "failed" ? "error" : ""}`}
+            data-testid="restore-state"
+            role="status"
+          >
+            {restoreStateLabel(restore)}
+          </span>
+          <span className="muted" data-testid="restore-scope">
+            Scope: {workspace.kind === "solution" ? "Solution" : "Project"} ·{" "}
+            {restore.revision > 0 ? baseName(restore.target) : workspace.name}
+          </span>
+          <span className="push" />
+          {!restoring && (
+            <button
+              data-testid="restore-action"
+              disabled={!restoreAvailable}
+              onClick={() => void startRestore("restore.start")}
+              title={
+                restoreDisabledReason ??
+                "Runs dotnet restore for this workspace with the project SDK. Nothing restores automatically."
+              }
+            >
+              {restore.state === "ok" ? "Restore again" : "Restore"}
+            </button>
+          )}
+          {restoring && (
+            <button
+              data-testid="restore-cancel"
+              onClick={() => void cancelRestore()}
+              title="Requests termination of the restore process group and reports what was observed."
+            >
+              Cancel restore
+            </button>
+          )}
+          {(restore.state === "failed" || restore.state === "cancelled") && (
+            <button
+              data-testid="restore-retry"
+              disabled={!restoreAvailable}
+              onClick={() => void startRestore("restore.retry")}
+              title={
+                restoreDisabledReason ??
+                "Runs the explicit restore again; nothing is fixed or restored silently."
+              }
+            >
+              Retry restore
+            </button>
+          )}
+          {restore.state === "ok" && (
+            <button
+              data-testid="restore-reload"
+              disabled={!restoreAvailable || evaluationBusy}
+              onClick={() => void runEvaluation()}
+              title="Calls evaluation.run with the current configuration and TFM; the old TargetPath is not current until then."
+            >
+              Reload evaluated model
+            </button>
+          )}
+        </div>
+        {!restoreAvailable && !restoring && (
+          <p className="muted" data-testid="restore-disabled-reason">
+            {restoreDisabledReason}
+          </p>
+        )}
+        {restore.revision > 0 && (
+          <>
+            <dl className="restore-meta">
+              <dt>Target</dt>
+              <dd>
+                <code>{restore.target}</code>
+              </dd>
+              <dt>Command</dt>
+              <dd>
+                <code data-testid="restore-command">{restore.command.join(" ")}</code>
+              </dd>
+              <dt>Working directory</dt>
+              <dd>
+                <code>{restore.cwd}</code>
+              </dd>
+              <dt>Project SDK</dt>
+              <dd>
+                {restore.sdkVersion ?? "unknown"} · <code>{restore.sdkRoot ?? "unknown"}</code>
+              </dd>
+            </dl>
+            {restore.sealed && (
+              <p className="warning" data-testid="restore-sealed">
+                Previous restore, not current: {restore.staleReason}
+              </p>
+            )}
+            {restore.termination && (
+              <p className="muted" data-testid="restore-termination">
+                Termination requested: {restore.termination.requested}. Observed:{" "}
+                {restore.termination.observed}
+                {restore.termination.killedAfterGrace ? " after the grace period" : ""}.
+              </p>
+            )}
+            {restore.awaitingDecision && (
+              <p className="warning" data-testid="restore-awaiting">
+                Still running; the host has not confirmed termination. Decide in the process
+                panel.
+              </p>
+            )}
+            {restoreIncompleteAfterRun && (
+              <div className="notice warning" data-testid="restore-incomplete">
+                <strong>Dependencies incomplete.</strong> Editing stays available; analysis and
+                later build/run/test steps need these projects restored.
+                <ul>
+                  {restore.projects
+                    .filter((project) => project.state !== "restored")
+                    .map((project) => (
+                      <li key={project.path} data-testid={`restore-incomplete-${project.name}`}>
+                        {project.name} —{" "}
+                        {project.state === "unknown" ? "restore unknown" : "not restored"}:{" "}
+                        {project.reason ?? "obj/project.assets.json is missing or stale"}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+            {restore.projects.length > 0 && !restoreIncompleteAfterRun && (
+              <p className="muted" data-testid="restore-projects">
+                {restore.projects.length} project
+                {restore.projects.length === 1 ? "" : "s"} report restored assets.
+              </p>
+            )}
+            <details className="eval-log" open={restore.state === "running" || restore.state === "failed"}>
+              <summary>
+                Restore log · stdout/stderr{restore.logTruncated ? " · truncated" : ""}
+              </summary>
+              <pre className="eval-pre" data-testid="restore-log">
+                {restore.log || "No output yet."}
+              </pre>
+            </details>
+          </>
+        )}
+      </section>
+
       {restoreIncomplete && (
         <div className="notice warning" data-testid="eval-restore-banner" role="status">
-          <strong>Restore not requested — package dependencies and analysis are incomplete.</strong>{" "}
-          OpenRidr evaluated the project model without restoring packages; explicit restore
-          arrives with ticket 04.
+          <strong>
+            {restore.revision > 0
+              ? "Restore incomplete — package dependencies and analysis are incomplete."
+              : "Restore not requested — package dependencies and analysis are incomplete."}
+          </strong>{" "}
+          {restore.revision > 0
+            ? "Fix the cause and retry the explicit restore; editing stays available."
+            : "Opening or evaluating never restores. Use Restore to run it explicitly, then reload the evaluated model."}
         </div>
       )}
 
@@ -516,6 +712,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       )}
 
       {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
+      </div>
 
       <div className={`workspace-grid ${selectedProject ? "with-details" : ""}`}>
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
@@ -663,6 +860,10 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                               {project.restored === "unknown" ? "restore unknown" : "partial context"}
                             </span>
                           )}
+                          {restore.revision > 0 &&
+                            restoreProjectState.get(project.path) !== "restored" && (
+                              <span className="tag warning">restore incomplete</span>
+                            )}
                         </button>
                         {open && (
                           <>

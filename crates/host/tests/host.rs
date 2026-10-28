@@ -363,13 +363,23 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     assert_eq!(trusted["sdk"]["project"]["state"], "no_global_json");
 
     for method in EXECUTABLE_METHODS.iter().filter(|method| {
-        **method != "processes.probe" && **method != "evaluation.run"
+        **method != "processes.probe"
+            && **method != "evaluation.run"
+            && **method != "restore.start"
+            && **method != "restore.retry"
     }) {
-        assert_eq!(
-            error_code(host.dispatch(method, json!({}))),
-            "invalid_state",
-            "{method} passes the gate but is not implemented in this slice"
-        );
+        let code = error_code(host.dispatch(method, json!({})));
+        if openridr_host::RESTORE_GATED_METHODS.contains(method) {
+            assert_eq!(
+                code, "restore_required",
+                "{method} must require an explicit restore instead of running"
+            );
+        } else {
+            assert_eq!(
+                code, "invalid_state",
+                "{method} passes the gate but is not implemented in this slice"
+            );
+        }
     }
     assert_eq!(
         error_code(host.dispatch("evaluation.run", json!({}))),
@@ -1183,4 +1193,466 @@ fn a_late_evaluation_does_not_replace_a_newer_selection() {
     assert_eq!(state["evaluation"]["revision"], 2);
     assert_eq!(state["evaluation"]["context"]["configuration"], "Release");
     assert_eq!(state["evaluation"]["state"], "ok");
+}
+
+fn global_json_8(dir: &Path) {
+    fs::write(
+        dir.join("global.json"),
+        "{\"sdk\":{\"version\":\"8.0.408\",\"rollForward\":\"disable\"}}\n",
+    )
+    .unwrap();
+}
+
+fn write_project(dir: &Path, name: &str, extra: &str) {
+    fs::write(
+        dir.join(format!("{name}.csproj")),
+        format!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>{extra}</Project>\n"
+        ),
+    )
+    .unwrap();
+    fs::write(dir.join(format!("{name}.cs")), "class C {}\n").unwrap();
+}
+
+/// Local TCP server that accepts NuGet requests and never answers, so `dotnet restore`
+/// waits on it until the host terminates the process.
+#[cfg(unix)]
+fn holding_server() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => held.push(stream),
+                Err(_) => break,
+            }
+        }
+        drop(held);
+    });
+    format!("http://{address}/v3/index.json")
+}
+
+#[cfg(unix)]
+fn write_hanging_project(dir: &Path, source: &str) {
+    global_json_8(dir);
+    fs::write(
+        dir.join("NuGet.config"),
+        format!(
+            "<configuration><packageSources><clear /><add key=\"hold\" value=\"{source}\" /></packageSources></configuration>\n"
+        ),
+    )
+    .unwrap();
+    write_project(
+        dir,
+        "Hang",
+        "<ItemGroup><PackageReference Include=\"xunit\" Version=\"2.9.2\" /></ItemGroup>",
+    );
+}
+
+fn wait_for_restore(host: &Host, timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let state = snapshot(host);
+        let restore = state["restore"].clone();
+        if restore["state"] != "running" {
+            return restore;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "restore did not finish: {}",
+            restore["log"]
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn restore_start_and_retry_are_denied_before_trust() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["RestoreGate.csproj"]);
+    open(&host, &workspace.path().join("RestoreGate.csproj"));
+
+    for method in ["restore.start", "restore.retry"] {
+        assert_eq!(
+            error_code(host.dispatch(method, json!({}))),
+            "trust_required",
+            "{method} must be denied before trust"
+        );
+    }
+    assert_eq!(snapshot(&host)["restore"]["revision"], 0);
+    assert!(!workspace.path().join("obj").exists());
+}
+
+#[test]
+fn build_start_reports_restore_required_with_the_explicit_action() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["Policy.csproj"]);
+    open(&host, &workspace.path().join("Policy.csproj"));
+    grant(&host);
+
+    let error = host
+        .dispatch("build.start", json!({}))
+        .expect_err("a project without assets must not build");
+    assert_eq!(error.code, "restore_required");
+    assert!(error.message.contains("never restores implicitly"));
+    let details = error.details.unwrap();
+    assert_eq!(details["consumer"], "build.start");
+    assert_eq!(details["action"]["method"], "restore.start");
+    assert_eq!(details["projects"][0]["name"], "Policy");
+    assert_eq!(details["projects"][0]["restored"], "not_restored");
+    assert!(
+        !workspace.path().join("obj").exists(),
+        "the policy must not restore"
+    );
+
+    for method in ["run.start", "debug.start", "tests.discover", "tests.run"] {
+        assert_eq!(
+            error_code(host.dispatch(method, json!({}))),
+            "restore_required",
+            "{method} must refuse to run without restored assets"
+        );
+    }
+    assert!(!workspace.path().join("obj").exists());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn restore_reports_the_exact_command_and_creates_real_assets() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_project(&root, "Honest", "");
+
+    let host = Host::new();
+    open(&host, &root.join("Honest.csproj"));
+    grant(&host);
+    let started = host.dispatch("restore.start", json!({})).unwrap();
+    let restore = &started["restore"];
+    assert_eq!(restore["state"], "running");
+    assert_eq!(restore["scope"], "project");
+    assert_eq!(restore["revision"], 1);
+    assert_eq!(
+        restore["target"].as_str().unwrap(),
+        root.join("Honest.csproj").to_string_lossy()
+    );
+    assert_eq!(
+        restore["cwd"].as_str().unwrap(),
+        root.to_string_lossy()
+    );
+    assert_eq!(restore["sdkVersion"], "8.0.408");
+    assert!(restore["sdkRoot"]
+        .as_str()
+        .unwrap()
+        .ends_with("OpenRidr/sdks/8.0.408"));
+    let command: Vec<String> = restore["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(command.len(), 5, "{command:?}");
+    assert!(command[0].ends_with("/dotnet"), "{}", command[0]);
+    assert_eq!(command[1], "restore");
+    assert_eq!(command[2], root.join("Honest.csproj").to_string_lossy());
+    assert_eq!(command[3], "-nologo");
+    assert_eq!(command[4], "-v:minimal");
+    assert!(!command.iter().any(|arg| arg.contains("--no-restore")));
+
+    let finished = wait_for_restore(&host, Duration::from_secs(60));
+    assert_eq!(finished["state"], "ok", "{}", finished["log"]);
+    assert_eq!(finished["exit"], 0);
+    assert!(finished["log"]
+        .as_str()
+        .unwrap()
+        .contains("Honest.csproj"));
+    assert_eq!(finished["projects"][0]["state"], "restored");
+    assert!(root.join("obj/project.assets.json").exists());
+
+    // The policy now passes; the consumer itself is still a ticket-11+ feature.
+    assert_eq!(
+        error_code(host.dispatch("build.start", json!({}))),
+        "invalid_state"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn opening_and_evaluating_never_start_a_restore() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk no restore");
+    let host = Host::new();
+    let opened = open(&host, &copy.join("OrderDesk.sln"));
+    assert_eq!(opened["restore"]["state"], "idle");
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    let state = snapshot(&host);
+    assert_eq!(state["restore"]["revision"], 0);
+    assert_eq!(state["restore"]["state"], "idle");
+    assert_eq!(state["processes"], json!([]));
+    for project in ["src/OrderDesk.Cli", "src/OrderDesk.Core", "tests/OrderDesk.Tests"] {
+        assert!(
+            !copy.join(project).join("obj/project.assets.json").exists(),
+            "evaluation restored {project}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_a_real_hanging_restore_reports_requested_and_observed_termination() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let source = holding_server();
+    write_hanging_project(&root, &source);
+
+    let host = Host::new();
+    open(&host, &root.join("Hang.csproj"));
+    grant(&host);
+    let started = host.dispatch("restore.start", json!({})).unwrap();
+    let process_id = started["restore"]["processId"].as_u64().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let state = snapshot(&host);
+        let log = state["restore"]["log"].as_str().unwrap().to_string();
+        if log.contains("Determining projects to restore") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "restore never reached NuGet: {log}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let started = Instant::now();
+    let cancelled = host.dispatch("restore.cancel", json!({})).unwrap();
+    assert!(started.elapsed() < Duration::from_secs(6));
+    let restore = &cancelled["restore"];
+    assert_eq!(restore["state"], "cancelled");
+    assert_eq!(restore["awaitingDecision"], false);
+    assert!(restore["termination"]["requested"]
+        .as_str()
+        .unwrap()
+        .contains("SIGTERM"));
+    assert_eq!(restore["termination"]["observed"], "exited");
+    assert!(restore["log"]
+        .as_str()
+        .unwrap()
+        .contains("Determining projects to restore"));
+    let process = cancelled["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"].as_u64() == Some(process_id))
+        .unwrap();
+    assert_eq!(process["state"], "exited");
+    // The reported exit is exactly what the registry observed; a signal kill stays unknown.
+    assert_eq!(restore["exit"], process["exit"]);
+    assert_ne!(restore["exit"], json!(0));
+    assert_eq!(
+        error_code(host.dispatch("restore.cancel", json!({}))),
+        "invalid_state"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn revoking_trust_seals_a_running_restore_and_drops_late_results() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let source = holding_server();
+    write_hanging_project(&root, &source);
+
+    let host = Host::new();
+    open(&host, &root.join("Hang.csproj"));
+    grant(&host);
+    let started = host.dispatch("restore.start", json!({})).unwrap();
+    let process_id = started["restore"]["processId"].as_u64().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let state = snapshot(&host);
+        if state["restore"]["log"]
+            .as_str()
+            .unwrap()
+            .contains("Determining projects to restore")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "restore never reached NuGet");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
+    assert_eq!(revoked["trust"]["granted"], false);
+    let restore = &revoked["restore"];
+    assert_eq!(restore["sealed"], true);
+    assert!(restore["staleReason"].as_str().unwrap().contains("Trust"));
+    assert_eq!(restore["state"], "cancelled");
+    assert_eq!(restore["termination"]["observed"], "exited");
+    let process = revoked["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"].as_u64() == Some(process_id))
+        .unwrap();
+    assert_eq!(process["state"], "exited");
+
+    // A late write from the old process must not rewrite the sealed record.
+    std::thread::sleep(Duration::from_millis(500));
+    let later = snapshot(&host);
+    assert_eq!(later["restore"]["state"], "cancelled");
+    assert_eq!(later["restore"]["sealed"], true);
+    assert_eq!(later["restore"]["finishedAt"], restore["finishedAt"]);
+    assert_eq!(later["trust"]["granted"], false);
+    assert_eq!(later["evaluation"]["state"], "idle");
+    assert_eq!(
+        error_code(host.dispatch("restore.start", json!({}))),
+        "trust_required"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_failed_restore_keeps_its_log_and_retry_succeeds_after_the_fix() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    fs::write(
+        root.join("NuGet.config"),
+        "<configuration><packageSources><clear /></packageSources></configuration>\n",
+    )
+    .unwrap();
+    write_project(
+        &root,
+        "Broken",
+        "<ItemGroup><PackageReference Include=\"xunit\" Version=\"9.9.999\" /></ItemGroup>",
+    );
+
+    let host = Host::new();
+    open(&host, &root.join("Broken.csproj"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    let failed = wait_for_restore(&host, Duration::from_secs(60));
+    assert_eq!(failed["state"], "failed", "{}", failed["log"]);
+    assert_eq!(failed["exit"], 1);
+    let log = failed["log"].as_str().unwrap();
+    assert!(log.contains("error NU1100"), "{log}");
+    assert!(log.contains("Failed to restore"), "{log}");
+    assert_eq!(failed["projects"][0]["state"], "not_restored");
+    // NuGet writes an assets file even on failure; the cache records the failed result and
+    // the host must not present it as restored.
+    assert!(fs::read_to_string(root.join("obj/project.nuget.cache"))
+        .unwrap()
+        .contains("\"success\": false"));
+
+    let stale = snapshot(&host);
+    assert_eq!(stale["evaluation"]["stale"], true);
+    assert!(stale["evaluation"]["staleReason"]
+        .as_str()
+        .unwrap()
+        .contains("Restore failed"));
+
+    write_project(
+        &root,
+        "Broken",
+        "<ItemGroup><PackageReference Include=\"xunit\" Version=\"2.9.2\" /></ItemGroup>",
+    );
+    host.dispatch("restore.retry", json!({})).unwrap();
+    let retried = wait_for_restore(&host, Duration::from_secs(60));
+    assert_eq!(retried["state"], "ok", "{}", retried["log"]);
+    assert_eq!(retried["revision"], 2);
+    assert_eq!(retried["exit"], 0);
+    assert_eq!(retried["projects"][0]["state"], "restored");
+    assert!(root.join("obj/project.assets.json").exists());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn restore_can_target_one_project_of_a_solution() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_project(&root, "One", "");
+    fs::create_dir_all(root.join("lib")).unwrap();
+    write_project(&root.join("lib"), "Two", "");
+    fs::write(
+        root.join("Pair.sln"),
+        "Microsoft Visual Studio Solution File, Format Version 12.00\n\
+Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"One\", \"One.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\nEndProject\n\
+Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Two\", \"lib\\Two.csproj\", \"{22222222-2222-2222-2222-222222222222}\"\nEndProject\n\
+Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+    )
+    .unwrap();
+
+    let host = Host::new();
+    open(&host, &root.join("Pair.sln"));
+    grant(&host);
+    let started = host
+        .dispatch("restore.start", json!({ "project": "lib/Two.csproj" }))
+        .unwrap();
+    let restore = &started["restore"];
+    assert_eq!(restore["scope"], "project");
+    assert_eq!(
+        restore["target"].as_str().unwrap(),
+        root.join("lib/Two.csproj").to_string_lossy()
+    );
+    assert_eq!(restore["projects"].as_array().unwrap().len(), 0);
+    let command = restore["command"].as_array().unwrap();
+    assert_eq!(command[2], restore["target"]);
+    let finished = wait_for_restore(&host, Duration::from_secs(60));
+    assert_eq!(finished["state"], "ok", "{}", finished["log"]);
+    assert_eq!(finished["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(finished["projects"][0]["name"], "Two");
+    assert!(root.join("lib/obj/project.assets.json").exists());
+    assert!(!root.join("obj/project.assets.json").exists());
+
+    let outside = host
+        .dispatch("restore.start", json!({ "project": "../Outside.csproj" }))
+        .expect_err("a project outside the solution is rejected");
+    assert_eq!(outside.code, "invalid_state");
+}
+
+#[cfg(unix)]
+#[test]
+fn switching_workspaces_stops_a_running_restore_and_drops_its_record() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let source = holding_server();
+    write_hanging_project(&root, &source);
+    let other = temp_workspace(&["Other.csproj"]);
+
+    let host = Host::new();
+    open(&host, &root.join("Hang.csproj"));
+    grant(&host);
+    let started = host.dispatch("restore.start", json!({})).unwrap();
+    let process_id = started["restore"]["processId"].as_u64().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if snapshot(&host)["restore"]["log"]
+            .as_str()
+            .unwrap()
+            .contains("Determining projects to restore")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "restore never reached NuGet");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let switched = open(&host, &other.path().join("Other.csproj"));
+    assert_eq!(switched["workspace"]["name"], "Other.csproj");
+    assert_eq!(switched["trust"]["granted"], false);
+    assert_eq!(switched["restore"]["revision"], 0);
+    assert_eq!(switched["restore"]["state"], "idle");
+    let process = switched["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"].as_u64() == Some(process_id))
+        .unwrap();
+    assert_eq!(process["state"], "exited");
+    assert_eq!(process["termination"]["observed"], "exited");
+    assert_eq!(
+        error_code(host.dispatch("restore.start", json!({}))),
+        "trust_required"
+    );
 }

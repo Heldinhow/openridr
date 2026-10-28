@@ -389,7 +389,7 @@ pub fn evaluate_project(
     target_framework: Option<&str>,
 ) -> EvaluatedProject {
     let (restored, restored_reason) = match project.abs_path.as_deref() {
-        Some(path) => restore_state(path),
+        Some(path) => crate::restore::state(path),
         None => ("unknown", Some("The project was not evaluated.".to_string())),
     };
 
@@ -728,44 +728,6 @@ pub fn first_error_line(text: &str) -> Option<String> {
         .filter(|line| !line.is_empty())
         .find(|line| line.to_ascii_lowercase().contains("error"))
         .map(str::to_string)
-}
-
-fn restore_state(project_file: &Path) -> (&'static str, Option<String>) {
-    let Some(dir) = project_file.parent() else {
-        return ("unknown", Some("The project has no directory.".to_string()));
-    };
-    let assets = dir.join("obj").join("project.assets.json");
-    let assets_meta = match fs::metadata(&assets) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return (
-                "not_restored",
-                Some("obj/project.assets.json is missing; restore was not requested.".to_string()),
-            )
-        }
-        Err(error) => {
-            return (
-                "unknown",
-                Some(format!("Could not read obj/project.assets.json: {error}")),
-            )
-        }
-    };
-    let project_time = fs::metadata(project_file).and_then(|meta| meta.modified());
-    let assets_time = assets_meta.modified();
-    match (project_time, assets_time) {
-        (Ok(project_time), Ok(assets_time)) if assets_time < project_time => (
-            "not_restored",
-            Some(
-                "obj/project.assets.json is older than the project file; restore was not requested."
-                    .to_string(),
-            ),
-        ),
-        (Ok(_), Ok(_)) => ("restored", None),
-        _ => (
-            "unknown",
-            Some("Could not compare the assets and project timestamps.".to_string()),
-        ),
-    }
 }
 
 fn project_kind(is_test: Option<&str>, output_type: Option<&str>) -> &'static str {

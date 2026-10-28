@@ -1,0 +1,71 @@
+# Ticket 04 evidence — explicit restore success (real dotnet, host HTTP bridge)
+# date: 2026-10-28 00:12:36 -03
+# os: macOS 27.2 (26B118) arm64
+
+$ workspace.open path=/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/OrderDesk.sln
+{"ok":true,"mode":"restricted","restore":"idle"}
+$ trust.grant
+{"ok":true,"projectSdk":"8.0.408","root":"/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408"}
+$ evaluation.run (opening/evaluating never restores)
+{"ok":true,"state":"ok","revision":1,"restored":["not_restored","not_restored","not_restored"],"restoreState":"idle","restoreRevision":0}
+$ find $copy -name project.assets.json   # before clicking Restore
+
+$ restore.start
+{
+  "state": "running",
+  "scope": "solution",
+  "revision": 1,
+  "command": [
+    "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+    "restore",
+    "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/OrderDesk.sln",
+    "-nologo",
+    "-v:minimal"
+  ],
+  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore",
+  "sdkVersion": "8.0.408",
+  "sdkRoot": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+  "processId": 1
+}
+
+$ workspace.state   # terminal restore state
+{
+  "state": "ok",
+  "exit": 0,
+  "logTruncated": false,
+  "log": "  Determining projects to restore...\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/src/OrderDesk.Core/OrderDesk.Core.csproj (in 36 ms).\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/src/OrderDesk.Cli/OrderDesk.Cli.csproj (in 39 ms).\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/tests/OrderDesk.Tests/OrderDesk.Tests.csproj (in 153 ms).",
+  "projects": [
+    {
+      "name": "OrderDesk.Cli",
+      "path": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+      "state": "restored",
+      "assetsModifiedAt": 1793157158785,
+      "projectModifiedAt": 1793152249000
+    },
+    {
+      "name": "OrderDesk.Core",
+      "path": "src/OrderDesk.Core/OrderDesk.Core.csproj",
+      "state": "restored",
+      "assetsModifiedAt": 1793157158784,
+      "projectModifiedAt": 1793152249000
+    },
+    {
+      "name": "OrderDesk.Tests",
+      "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+      "state": "restored",
+      "assetsModifiedAt": 1793157158900,
+      "projectModifiedAt": 1793152249000
+    }
+  ]
+}
+
+$ stat -f '%Sm %N' assets files
+2026-10-28 00:12:38 /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/src/OrderDesk.Cli/obj/project.assets.json
+2026-10-28 00:12:38 /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/src/OrderDesk.Core/obj/project.assets.json
+2026-10-28 00:12:38 /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/tests/OrderDesk.Tests/obj/project.assets.json
+
+$ evaluation.run   # explicit reload (the UI calls it from 'Reload evaluated model')
+{"ok":true,"state":"ok","revision":2,"stale":false,"cliTargetPath":"/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Order Desk restore/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll","restored":[{"name":"OrderDesk.Cli","restored":"restored"},{"name":"OrderDesk.Core","restored":"restored"},{"name":"OrderDesk.Tests","restored":"restored"}]}
+
+$ build.start   # policy: assets are current, so the consumer passes; build itself is ticket 11
+{"ok":false,"error":{"code":"invalid_state","message":"build.start is not implemented in this build."}}

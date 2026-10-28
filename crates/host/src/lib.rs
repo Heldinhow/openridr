@@ -2,11 +2,13 @@ mod error;
 mod evaluation;
 mod outline;
 pub mod process;
+mod restore;
 pub mod sdk;
 
 pub use error::{HostError, HostResult};
 pub use evaluation::{Evaluation, EvaluationContext};
 pub use outline::{GlobalJson, Outline, OutlineProject};
+pub use restore::{RestoreView, GATED_METHODS as RESTORE_GATED_METHODS};
 
 use outline::build_outline;
 use process::Registry;
@@ -15,7 +17,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Methods that may start a process or touch executable project state. Every one of them
@@ -23,6 +26,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const EXECUTABLE_METHODS: &[&str] = &[
     "evaluation.run",
     "restore.start",
+    "restore.retry",
     "lsp.start",
     "tools.install",
     "terminal.start",
@@ -57,6 +61,8 @@ struct Inner {
     project_sdk: ProjectSdk,
     processes: Registry,
     evaluation: Evaluation,
+    restore: Arc<restore::Restore>,
+    restore_seq: u64,
 }
 
 struct Workspace {
@@ -155,6 +161,7 @@ struct Snapshot {
     debug: DebugView,
     evaluation: Evaluation,
     processes: Vec<Value>,
+    restore: RestoreView,
 }
 
 impl Default for Host {
@@ -176,6 +183,8 @@ impl Host {
                 project_sdk: ProjectSdk::no_workspace(),
                 processes: Registry::new(),
                 evaluation: Evaluation::idle(),
+                restore: Arc::new(restore::Restore::idle()),
+                restore_seq: 0,
             }),
         }
     }
@@ -186,6 +195,15 @@ impl Host {
         }
         if method == "evaluation.run" {
             return self.run_evaluation(params);
+        }
+        if method == "restore.start" {
+            return self.start_restore(params, false);
+        }
+        if method == "restore.retry" {
+            return self.start_restore(params, true);
+        }
+        if method == "restore.cancel" {
+            return self.cancel_restore();
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.executable_stub(method);
@@ -253,6 +271,19 @@ impl Host {
 
     fn executable_stub(&self, method: &str) -> HostResult<Value> {
         let _token = self.require_trust(method)?;
+        if restore::GATED_METHODS.contains(&method) {
+            let inner = self.inner.lock().unwrap();
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+            restore::require_restored(
+                &workspace.path,
+                &workspace.root,
+                matches!(workspace.kind, WorkspaceKind::Solution),
+                method,
+            )?;
+        }
         Err(HostError::new(
             "invalid_state",
             format!("{method} is not implemented in this build."),
@@ -266,6 +297,7 @@ impl Host {
     fn snapshot(&self, inner: &mut Inner) -> Snapshot {
         inner.ensure_inventory();
         inner.processes.refresh();
+        inner.sync_restore();
         let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
         if let Some(root) = root {
             inner.evaluation.check_external_changes(&root);
@@ -311,6 +343,7 @@ impl Host {
             },
             evaluation: inner.evaluation.clone(),
             processes: inner.processes.views(),
+            restore: inner.restore.view(),
         }
     }
 
@@ -339,6 +372,10 @@ impl Host {
             outline_tfms(&workspace.outline),
         );
         let mut inner = self.inner.lock().unwrap();
+        stop_restore(
+            &mut inner,
+            "Workspace changed while a restore was running; its result will not be applied to the new workspace.",
+        );
         inner.processes.mark_awaiting();
         inner.workspace_seq += 1;
         inner.context_seq += 1;
@@ -349,11 +386,16 @@ impl Host {
         inner.trusted = false;
         inner.trust_decision = None;
         inner.evaluation = evaluation;
+        inner.restore = Arc::new(restore::Restore::idle());
         Ok(self.snapshot_value(&mut inner))
     }
 
     fn close_workspace(&self) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
+        stop_restore(
+            &mut inner,
+            "Workspace closed while a restore was running; its result will not be applied.",
+        );
         inner.processes.mark_awaiting();
         inner.workspace = None;
         inner.trusted = false;
@@ -403,6 +445,10 @@ impl Host {
         if let Some(decision) = inner.trust_decision.as_mut() {
             decision.revoked_at = Some(now_ms());
         }
+        stop_restore(
+            &mut inner,
+            "Trust was revoked while this restore was running; it was stopped and its result is not current.",
+        );
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
         inner.evaluation = Evaluation::idle();
         // Services started by later tickets stop here; the controlled child processes of this
@@ -669,6 +715,175 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
+    /// Explicit `dotnet restore` only. Opening a workspace or evaluating never calls it, and
+    /// build/run/test consumers are stopped by `restore_required` instead of restoring.
+    fn start_restore(&self, params: Value, retry: bool) -> HostResult<Value> {
+        let method = if retry { "restore.retry" } else { "restore.start" };
+        let token = self.require_trust(method)?;
+        let mut inner = self.inner.lock().unwrap();
+
+        if let Some(process_id) = inner.restore.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "A restore is already running (process {process_id}). Cancel it before starting another."
+                ),
+            ));
+        }
+        let Some(workspace) = inner.workspace.as_ref() else {
+            return Err(HostError::new("invalid_state", "No workspace is open."));
+        };
+        let sdk = inner.project_sdk.clone();
+        if sdk.state != "resolved" {
+            return Err(HostError::new(
+                if sdk.state == "sdk_missing" {
+                    "sdk_missing"
+                } else {
+                    "invalid_state"
+                },
+                format!(
+                    "Restore was not started: the project SDK is not resolved ({}). {}",
+                    sdk.state,
+                    sdk.message.clone().unwrap_or_else(|| {
+                        "Resolve the project SDK before restoring.".to_string()
+                    })
+                ),
+            ));
+        }
+        let Some(sdk_root) = sdk.root.clone().map(PathBuf::from) else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Restore was not started: the resolved project SDK has no root path.",
+            ));
+        };
+        let muxer = sdk_root.join(dotnet_exe());
+        if !muxer.is_file() {
+            return Err(HostError::new(
+                "sdk_missing",
+                format!(
+                    "Restore was not started: {} does not contain a .NET muxer.",
+                    sdk_root.to_string_lossy()
+                ),
+            ));
+        }
+
+        let is_solution = matches!(workspace.kind, WorkspaceKind::Solution);
+        let workspace_file = workspace.path.clone();
+        let root = workspace.root.clone();
+        let plan = evaluation::plan_workspace(&workspace_file, &root, is_solution);
+        let planned = |project: &evaluation::PlanProject| {
+            project
+                .abs_path
+                .clone()
+                .map(|path| (project.name.clone(), path))
+        };
+        let (scope, target, projects) =
+            match optional_str(&params, "project").filter(|value| !value.trim().is_empty()) {
+                Some(requested) => {
+                    let normalized = requested
+                        .replace('\\', "/")
+                        .trim_start_matches("./")
+                        .to_string();
+                    let Some(project) = plan.projects.iter().find(|p| p.path == normalized) else {
+                        return Err(HostError::new(
+                            "invalid_state",
+                            format!("{requested} is not a project of this workspace."),
+                        ));
+                    };
+                    let Some(path) = project.abs_path.clone() else {
+                        return Err(HostError::new(
+                            "not_found",
+                            project
+                                .error
+                                .clone()
+                                .unwrap_or_else(|| format!("{requested} is not on disk.")),
+                        ));
+                    };
+                    ("project", path.clone(), vec![(project.name.clone(), path)])
+                }
+                None => (
+                    if is_solution { "solution" } else { "project" },
+                    workspace_file.clone(),
+                    plan.projects.iter().filter_map(planned).collect(),
+                ),
+            };
+
+        let revision = inner.restore_seq + 1;
+        inner.restore_seq = revision;
+        let command = vec![
+            muxer.to_string_lossy().to_string(),
+            "restore".to_string(),
+            target.to_string_lossy().to_string(),
+            "-nologo".to_string(),
+            "-v:minimal".to_string(),
+        ];
+        inner.restore = Arc::new(restore::Restore::begin(restore::Start {
+            revision,
+            scope,
+            target,
+            command: command.clone(),
+            cwd: root.clone(),
+            sdk_root: sdk_root.clone(),
+            sdk_version: sdk
+                .resolved_version
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+            root: root.clone(),
+            projects,
+        }));
+
+        // Separate arguments, explicit cwd/environment and its own process group. Environment
+        // values are never written to the log.
+        let mut process = Command::new(&command[0]);
+        process
+            .args(&command[1..])
+            .current_dir(&root)
+            .env("DOTNET_ROOT", &sdk_root)
+            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+            .env("DOTNET_CLI_UI_LANGUAGE", "en")
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        let piped = match inner
+            .processes
+            .spawn_piped(&format!("restore:{scope}"), token.workspace_id, process)
+        {
+            Ok(piped) => piped,
+            Err(error) => {
+                inner
+                    .restore
+                    .fail(format!("Could not start dotnet restore: {error}"));
+                return Ok(self.snapshot_value(&mut inner));
+            }
+        };
+        inner.restore.note_process(piped.id, piped.pid);
+        let shared = inner.restore.clone();
+        if let Some(stdout) = piped.stdout {
+            let sink = shared.clone();
+            std::thread::spawn(move || restore::pump(stdout, sink, false));
+        }
+        if let Some(stderr) = piped.stderr {
+            let sink = shared.clone();
+            std::thread::spawn(move || restore::pump(stderr, sink, true));
+        }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn cancel_restore(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let Some(process_id) = inner.restore.running_process_id() else {
+            return Err(HostError::new("invalid_state", "No restore is running."));
+        };
+        inner.restore.request_cancel();
+        let status = inner.processes.terminate_status(process_id);
+        if let Some(status) = &status {
+            inner.restore.observe(status);
+        }
+        inner.sync_restore();
+        Ok(self.snapshot_value(&mut inner))
+    }
+
     fn read_file(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
         let inner = self.inner.lock().unwrap();
@@ -743,6 +958,45 @@ impl Inner {
             self.inventory = Some(sdk::inventory());
         }
     }
+
+    /// Observes the exit of a running restore (the registry is the only owner of the child)
+    /// and invalidates the evaluated model exactly once, only for the current context.
+    fn sync_restore(&mut self) {
+        let Some(process_id) = self.restore.running_process_id() else {
+            return;
+        };
+        self.processes.refresh();
+        let Some(status) = self.processes.status(process_id) else {
+            return;
+        };
+        if status.state != "exited" {
+            return;
+        }
+        let outcome = self.restore.complete(&status);
+        let current = self.workspace.as_ref().map(|workspace| workspace.id)
+            == self.restore.workspace_id()
+            && self.restore.context_id() == Some(self.context_seq);
+        if !current {
+            return;
+        }
+        let reason = match outcome {
+            "ok" => "Restore completed; reload the evaluated model before using TargetPath or packages.",
+            "cancelled" => "Restore was cancelled; package dependencies and analysis may be incomplete.",
+            "failed" => "Restore failed; package dependencies and analysis may be incomplete.",
+            _ => return,
+        };
+        self.evaluation.mark_stale(reason);
+    }
+}
+
+/// A workspace boundary (revoke, close, switch) terminates a real restore and keeps only
+/// what was observed. The record is sealed so its late exit cannot become another context's.
+fn stop_restore(inner: &mut Inner, reason: &str) {
+    let Some(process_id) = inner.restore.running_process_id() else {
+        return;
+    };
+    let status = inner.processes.terminate_status(process_id);
+    inner.restore.seal(reason, status.as_ref());
 }
 
 fn accept_locked(inner: &Inner, token: ContextToken) -> HostResult<()> {

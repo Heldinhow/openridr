@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::io;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const GRACE: Duration = Duration::from_secs(2);
@@ -9,11 +9,29 @@ const AFTER_KILL: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Termination {
-    requested: String,
-    observed: String,
-    exit: Option<i32>,
-    killed_after_grace: bool,
+pub struct Termination {
+    pub requested: String,
+    pub observed: String,
+    pub exit: Option<i32>,
+    pub killed_after_grace: bool,
+}
+
+/// What the registry observed for one tracked process, without inventing a clean exit.
+#[derive(Debug, Clone)]
+pub struct ProcessStatus {
+    pub state: &'static str,
+    pub exit: Option<i32>,
+    pub termination: Option<Termination>,
+    pub awaiting_decision: bool,
+}
+
+/// A tracked child whose output the caller streams. The child stays in the registry, so
+/// termination/awaiting-decision semantics are the same as every other process.
+pub struct PipedChild {
+    pub id: u64,
+    pub pid: u32,
+    pub stdout: Option<ChildStdout>,
+    pub stderr: Option<ChildStderr>,
 }
 
 struct Entry {
@@ -93,9 +111,48 @@ impl Registry {
             command.process_group(0);
         }
         let child = command.spawn()?;
+        let id = self.register(kind, workspace_id, child);
+        Ok(self
+            .entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .expect("just registered")
+            .view())
+    }
+
+    /// Same tracked process, but stdout/stderr are piped back to the caller for streaming.
+    pub fn spawn_piped(
+        &mut self,
+        kind: &str,
+        workspace_id: u64,
+        mut command: Command,
+    ) -> io::Result<PipedChild> {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let mut child = command.spawn()?;
+        let pid = child.id();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let id = self.register(kind, workspace_id, child);
+        Ok(PipedChild {
+            id,
+            pid,
+            stdout,
+            stderr,
+        })
+    }
+
+    fn register(&mut self, kind: &str, workspace_id: u64, child: Child) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
-        let entry = Entry {
+        self.entries.push(Entry {
             id,
             kind: kind.to_string(),
             pid: child.id(),
@@ -106,10 +163,18 @@ impl Registry {
             awaiting_decision: false,
             kept: false,
             termination: None,
-        };
-        let view = entry.view();
-        self.entries.push(entry);
-        Ok(view)
+        });
+        id
+    }
+
+    pub fn status(&mut self, id: u64) -> Option<ProcessStatus> {        self.refresh();
+        let entry = self.entries.iter().find(|entry| entry.id == id)?;
+        Some(ProcessStatus {
+            state: if entry.exited { "exited" } else { "running" },
+            exit: entry.exit,
+            termination: entry.termination.clone(),
+            awaiting_decision: entry.awaiting_decision,
+        })
     }
 
     pub fn views(&mut self) -> Vec<Value> {
@@ -173,6 +238,13 @@ impl Registry {
             });
         }
         Some(self.entries[index].view())
+    }
+
+    /// Same real termination as `terminate`, reported through the typed status used by
+    /// callers that must distinguish requested/observed/exit without parsing JSON.
+    pub fn terminate_status(&mut self, id: u64) -> Option<ProcessStatus> {
+        self.terminate(id)?;
+        self.status(id)
     }
 
     fn wait_until_exited(&mut self, index: usize, limit: Duration) {

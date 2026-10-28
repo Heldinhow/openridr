@@ -1,0 +1,37 @@
+# Ticket 04 evidence — cancel a REAL hanging restore (localhost NuGet source that accepts and delays)
+# date: 2026-10-28 00:12:41 -03
+
+holding NuGet source: http://127.0.0.1:59601/v3/index.json (accepts, never answers)
+$ workspace.open /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Hang/Hang.csproj + trust.grant + restore.start
+{"ok":true,"mode":"restricted"}
+{"ok":true,"projectSdk":"8.0.408"}
+{"state":"running","command":["/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet","restore","/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Hang/Hang.csproj","-nologo","-v:minimal"],"processId":4}
+
+$ workspace.state   # still running, real stdout
+{"restore":{"state":"running","exit":null,"log":"  Determining projects to restore...\n/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Hang/Hang.csproj : warning NU1803: You are running the 'restore' operation with an 'HTTP' source, 'http://127.0.0.1:59601/v3/index.json'. Non-HTTPS access will be removed in a future version. Consider migrating to an 'HTTPS' source."},"processes":[{"id":1,"kind":"restore:solution","state":"exited","exit":0},{"id":2,"kind":"restore:solution","state":"exited","exit":1},{"id":3,"kind":"restore:solution","state":"exited","exit":0},{"id":4,"kind":"restore:project","state":"running","exit":null}]}
+
+$ restore.cancel   00:12:43
+{
+  "state": "cancelled",
+  "exit": 143,
+  "awaitingDecision": false,
+  "termination": {
+    "exit": 143,
+    "killedAfterGrace": false,
+    "observed": "exited",
+    "requested": "SIGTERM"
+  },
+  "log": "  Determining projects to restore...\n/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/tmp.i8ktaUc8OU/Hang/Hang.csproj : warning NU1803: You are running the 'restore' operation with an 'HTTP' source, 'http://127.0.0.1:59601/v3/index.json'. Non-HTTPS access will be removed in a future version. Consider migrating to an 'HTTPS' source.",
+  "projects": [
+    {
+      "name": "Hang",
+      "state": "not_restored"
+    }
+  ]
+}
+
+$ workspace.state   # process entry after the observed termination
+[{"id":1,"state":"exited","exit":0,"termination":null},{"id":2,"state":"exited","exit":1,"termination":null},{"id":3,"state":"exited","exit":0,"termination":null},{"id":4,"state":"exited","exit":143,"termination":{"exit":143,"killedAfterGrace":false,"observed":"exited","requested":"SIGTERM"}}]
+
+$ restore.cancel again
+{"ok":false,"error":{"code":"invalid_state","message":"No restore is running."}}
