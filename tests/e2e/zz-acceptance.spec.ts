@@ -9,6 +9,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const host = "http://127.0.0.1:4317";
@@ -77,8 +78,15 @@ async function openWorkspace(page: Page, target: string) {
 }
 
 async function closeWorkspace(page: Page) {
-  await page.getByTestId("close-workspace").click();
+  await clickTestId(page, "close-workspace");
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
+}
+
+// Controls the compact shell keeps inside a closed disclosure (toolbar menu, workspace tools).
+async function clickTestId(page: Page, testid: string) {
+  const target = page.getByTestId(testid);
+  await reveal(target);
+  await target.click();
 }
 
 async function grantTrust(page: Page) {
@@ -108,11 +116,11 @@ async function ensureCsharpLs(page: Page, request: APIRequestContext) {
     await expect(page.getByTestId("install-ready")).toBeVisible();
     return before;
   }
-  await page.getByTestId("install-plan-open").click();
+  await clickTestId(page, "install-plan-open");
   await expect(page.getByTestId("install-plan")).toBeVisible();
   await expect(page.getByTestId("install-tool")).toContainText("csharp-ls 0.28.0");
   await expect(page.getByTestId("install-source")).toContainText("NuGet");
-  await page.getByTestId("install-confirm").click();
+  await clickTestId(page, "install-confirm");
   await expect
     .poll(
       async () => (await hostState(request)).tools["csharp-ls"].state,
@@ -276,11 +284,14 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await expect(page.getByTestId("tree")).not.toContainText("/bin/");
     await expect(page.getByTestId("tree")).not.toContainText("/obj/");
     await page.getByTestId("tree-project-OrderDesk.Cli").click();
+    await page.getByRole("button", { name: "Project details" }).click();
     await expect(page.getByTestId("eval-details")).toBeVisible();
     await expect(page.getByTestId("eval-target-path")).toContainText(
       "src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
     );
     await screenshot(page, "18-screen-03-solution-explorer.png");
+    await page.getByRole("button", { name: "Close project details" }).click();
+    await expect(page.getByTestId("eval-details")).toBeHidden();
     step("trusted evaluation revision 1 with three evaluated projects and TargetPath");
 
     // ---- Explicit restore, never triggered by build/run/tests.
@@ -289,7 +300,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
       "Dependencies are not restored",
     );
     await expect(page.getByTestId("build-restore-required")).toBeVisible();
-    await page.getByTestId("restore-action").click();
+    await clickTestId(page, "restore-action");
     await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
       timeout: 120_000,
     });
@@ -297,7 +308,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await expect(page.getByTestId("restore-command")).toContainText("dotnet restore");
     await expect(page.getByTestId("restore-command")).toContainText("8.0.408");
     await expect(page.getByTestId("restore-log")).not.toBeEmpty();
-    await page.getByTestId("restore-reload").click();
+    await clickTestId(page, "restore-reload");
     await waitEvaluation(page, 2);
     const restored = await hostState(request);
     snapshot("18-restore.json", restored.restore);
@@ -305,7 +316,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
 
     // ---- Real csharp-ls session: diagnostics, completion, definition, rename, code actions.
     await ensureCsharpLs(page, request);
-    await page.getByTestId("lsp-start").click();
+    await clickTestId(page, "lsp-start");
     await expect(page.getByTestId("lsp-state")).toContainText("Ready", { timeout: 90_000 });
     await expect(page.getByTestId("lsp-capabilities")).toContainText("completion");
     await expect(page.getByTestId("lsp-capabilities")).toContainText("definition");
@@ -766,7 +777,7 @@ public sealed class LongTests
     await replaceEditor(page, `${originalLibrary}\n// unsaved across revoke\n`, false);
     await expect(page.getByTestId("dirty-marker")).toBeVisible();
     const beforeRevoke = await hostState(request);
-    await page.getByTestId("trust-revoke").click();
+    await clickTestId(page, "trust-revoke");
     await expect(page.getByTestId("mode-restricted")).toBeVisible();
     await expect(page.getByTestId("editor")).toContainText("unsaved across revoke");
     await expect(page.getByTestId("toolbar-build")).toBeDisabled();
@@ -840,6 +851,8 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
     const local =
       url.startsWith("http://localhost:1420") ||
       url.startsWith("ws://localhost:1420") ||
+      url.startsWith("http://127.0.0.1:1420") ||
+      url.startsWith("ws://127.0.0.1:1420") ||
       url.startsWith("http://127.0.0.1:4317") ||
       url.startsWith("ws://127.0.0.1:4317");
     if (!local) externalRequests.push(url);
@@ -873,6 +886,9 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
     const accessibleName = async () =>
       page.evaluate(() => {
         const visible = (element: Element) => {
+          // A closed disclosure keeps its content out of the render tree; its name is not
+          // observable until the user opens it.
+          if (element.closest("details:not([open]) > *:not(summary)")) return false;
           const rect = element.getBoundingClientRect();
           const style = getComputedStyle(element);
           return (
@@ -957,7 +973,7 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
     // Documented macOS shortcut labels; Windows is source-inspected only on this machine.
     await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: IntelliJ / Rider");
     await page.getByTestId("bottom-tab-build").click();
-    await expect(page.getByTestId("build-action")).toContainText("Cmd/Ctrl+F9");
+    await expect(page.getByTestId("build-action")).toContainText(/Cmd\+F9|Ctrl\+F9/);
     await expect(page.getByTestId("build-disabled-reason")).toContainText(
       "Dependencies are not restored",
     );
