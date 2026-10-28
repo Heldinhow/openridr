@@ -12,6 +12,7 @@ pub mod process;
 mod restore;
 pub mod sdk;
 mod run;
+mod terminal;
 mod tools;
 
 pub use error::{HostError, HostResult};
@@ -50,6 +51,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.install",
     "debug.retry",
     "terminal.start",
+    "terminal.write",
+    "terminal.resize",
     "build.start",
     "run.start",
     "debug.start",
@@ -95,6 +98,8 @@ struct Inner {
     build_seq: u64,
     run: Arc<run::Run>,
     run_seq: u64,
+    terminal: Arc<terminal::Terminal>,
+    terminal_seq: u64,
     tools: Arc<tools::Tools>,
     debugger: Arc<debugger::Debugger>,
     debugger_experimental: bool,
@@ -257,6 +262,7 @@ struct Snapshot {
     restore: RestoreView,
     build: build::BuildView,
     run: run::RunView,
+    terminal: terminal::TerminalView,
     dap: dap::DapView,
     tools: Value,
     lsp: lsp::LspView,
@@ -290,6 +296,8 @@ impl Host {
                 build_seq: 0,
                 run: Arc::new(run::Run::idle()),
                 run_seq: 0,
+                terminal: Arc::new(terminal::Terminal::idle()),
+                terminal_seq: 0,
                 tools: Arc::new(tools::Tools::new()),
                 debugger: Arc::new(debugger::Debugger::new()),
                 debugger_experimental: false,
@@ -333,6 +341,18 @@ impl Host {
         }
         if method == "run.cancel" {
             return self.cancel_run();
+        }
+        if method == "terminal.start" {
+            return self.start_terminal(params);
+        }
+        if method == "terminal.write" {
+            return self.write_terminal(params);
+        }
+        if method == "terminal.resize" {
+            return self.resize_terminal(params);
+        }
+        if method == "terminal.stop" {
+            return self.stop_terminal_session(params);
         }
         if method == "tools.plan" {
             return self.plan_tool(params);
@@ -414,7 +434,8 @@ impl Host {
         }
 
         match method {
-            "app.state" | "workspace.state" | "tools.state" | "debug.state" | "lsp.state" => {
+            "app.state" | "workspace.state" | "tools.state" | "debug.state" | "lsp.state"
+            | "terminal.state" => {
                 let mut inner = self.inner.lock().unwrap();
                 Ok(self.snapshot_value(&mut inner))
             }
@@ -504,6 +525,7 @@ impl Host {
         inner.sync_restore();
         inner.sync_build();
         inner.sync_run();
+        inner.sync_terminal();
         inner.sync_dap();
         inner.sync_tools();
         inner.sync_lsp();
@@ -610,6 +632,7 @@ impl Host {
             restore: inner.restore.view(),
             build: inner.build.view(),
             run: inner.run.view(),
+            terminal: inner.terminal.view(),
             dap: inner.dap.view(),
             tools: json!({ tools::TOOL: inner.tools.view() }),
             lsp: lsp_view,
@@ -658,6 +681,10 @@ impl Host {
             &mut inner,
             "Workspace changed while a program was running; it was stopped and its result will not be applied to the new workspace.",
         );
+        stop_terminal(
+            &mut inner,
+            "Workspace changed while the shell was running; it was stopped and its output will not be attached to the new workspace.",
+        );
         inner.lsp = None;
         inner.diagnostics.clear();
         inner.processes.lock().unwrap().mark_awaiting();
@@ -674,6 +701,7 @@ impl Host {
         inner.restore = Arc::new(restore::Restore::idle());
         inner.build = Arc::new(build::Build::idle());
         inner.run = Arc::new(run::Run::idle());
+        inner.terminal = Arc::new(terminal::Terminal::idle());
         inner.dap = Arc::new(dap::Dap::idle());
         Ok(self.snapshot_value(&mut inner))
     }
@@ -696,6 +724,10 @@ impl Host {
             &mut inner,
             "Workspace closed while a program was running; it was stopped and its result is not current.",
         );
+        stop_terminal(
+            &mut inner,
+            "Workspace closed while the shell was running; it was stopped and its output is not current.",
+        );
         inner.lsp = None;
         inner.diagnostics.clear();
         inner.processes.lock().unwrap().mark_awaiting();
@@ -709,6 +741,7 @@ impl Host {
         inner.evaluation = Evaluation::idle();
         inner.build = Arc::new(build::Build::idle());
         inner.run = Arc::new(run::Run::idle());
+        inner.terminal = Arc::new(terminal::Terminal::idle());
         inner.dap = Arc::new(dap::Dap::idle());
         Ok(self.snapshot_value(&mut inner))
     }
@@ -766,6 +799,10 @@ impl Host {
         stop_run(
             &mut inner,
             "Trust was revoked while this program was running; it was stopped and its result is not current.",
+        );
+        stop_terminal(
+            &mut inner,
+            "Trust was revoked while the shell was running; it was stopped and its output is not current.",
         );
         inner.diagnostics.mark_unavailable(
             diagnostics::LSP_ORIGIN,
@@ -925,6 +962,7 @@ impl Host {
                 format!("No tracked process with id {id}."),
             ));
         }
+        inner.terminal.keep(id);
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -1899,6 +1937,135 @@ impl Host {
             inner.run.observe(status);
         }
         inner.sync_run();
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// One real PTY shell after trust. The gate runs before anything observable: a direct
+    /// call in Restricted mode spawns no shell. Shell and cwd are explicit in the record.
+    fn start_terminal(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("terminal.start")?;
+        let (cols, rows) = terminal::clamp_size(
+            params.get("cols").and_then(Value::as_u64),
+            params.get("rows").and_then(Value::as_u64),
+        );
+        let mut inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        if let Some(process_id) = inner.terminal.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "A shell is already running (process {process_id}). Close it before starting another."
+                ),
+            ));
+        }
+        let root = inner
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root.clone())
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+        let shell = terminal::discover_shell()?;
+        let revision = inner.terminal_seq + 1;
+        let start = terminal::Start {
+            revision,
+            shell,
+            cwd: root,
+            cols,
+            rows,
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+        };
+        let name = start
+            .shell
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| "shell".to_string());
+        let session = match terminal::spawn(start.clone()) {
+            Ok(session) => session,
+            Err(error) => {
+                inner.terminal = Arc::new(terminal::Terminal::failed(start, error.message));
+                return Ok(self.snapshot_value(&mut inner));
+            }
+        };
+        let terminal = Arc::new(session.terminal);
+        let (process_id, exit_slot) = inner.processes.lock().unwrap().register_pty(
+            &format!("terminal:{name}"),
+            token.workspace_id,
+            session.pid,
+            session.killer,
+        );
+        terminal.note_process(process_id);
+        let sink = terminal.clone();
+        std::thread::spawn(move || terminal::pump(session.reader, sink));
+        let mut child = session.child;
+        std::thread::spawn(move || {
+            // The waiter is the only observer of the shell exit; the registry reads the slot.
+            // A shell killed by a signal has no exit code, so `exit` stays unknown (null).
+            let exit = match child.wait() {
+                Ok(status) if status.signal().is_none() => Some(status.exit_code() as i32),
+                Ok(_) => None,
+                Err(_) => None,
+            };
+            *exit_slot.lock().unwrap() = Some(exit);
+        });
+        inner.terminal_seq = revision;
+        inner.terminal = terminal;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Raw bytes to the PTY. The UI sends the typed line plus `\r`; Ctrl+C is byte 0x03.
+    fn write_terminal(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("terminal.write")?;
+        let data = required_str(&params, "data")?;
+        if data.is_empty() {
+            return Err(HostError::new(
+                "invalid_state",
+                "Nothing was sent: the data is empty.",
+            ));
+        }
+        if data.len() > 8_192 {
+            return Err(HostError::new(
+                "invalid_state",
+                "Nothing was sent: one write is limited to 8192 bytes.",
+            ));
+        }
+        let mut inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        inner.terminal.write(&data)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn resize_terminal(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("terminal.resize")?;
+        let cols = required_u64(&params, "cols")?;
+        let rows = required_u64(&params, "rows")?;
+        let (cols, rows) = terminal::clamp_size(Some(cols), Some(rows));
+        let mut inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        inner.terminal.resize(cols, rows)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Safety action: allowed without trust, exactly like `run.cancel`. It terminates the
+    /// shell group, reports what the registry observed and keeps the log and exit.
+    fn stop_terminal_session(&self, params: Value) -> HostResult<Value> {
+        if params.get("confirm") != Some(&Value::Bool(true)) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "Closing a running shell needs an explicit confirmation; keep the terminal or terminate the shell.",
+            ));
+        }
+        let mut inner = self.inner.lock().unwrap();
+        let Some(process_id) = inner.terminal.running_process_id() else {
+            return Err(HostError::new(
+                "invalid_state",
+                "The shell is not running; there is nothing to close.",
+            ));
+        };
+        inner.terminal.signal_foreground();
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
+        if let Some(status) = &status {
+            inner.terminal.complete(status);
+        }
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -3720,6 +3887,24 @@ impl Inner {
         }
         self.run.complete(&status);
     }
+
+    /// Observes the shell: the waiter publishes the exit into the registry, and only an
+    /// exit the registry observed can finish the session. A missing code stays unknown.
+    fn sync_terminal(&mut self) {
+        let Some(process_id) = self.terminal.running_process_id() else {
+            return;
+        };
+        let mut processes = self.processes.lock().unwrap();
+        processes.refresh();
+        let Some(status) = processes.status(process_id) else {
+            return;
+        };
+        if status.state == "exited" {
+            self.terminal.complete(&status);
+        } else {
+            self.terminal.observe_decision(status.awaiting_decision);
+        }
+    }
 }
 
 /// A workspace boundary (revoke, close, switch) terminates a real build and keeps only what
@@ -3741,6 +3926,19 @@ fn stop_run(inner: &mut Inner, reason: &str) {
         inner.run.seal(reason, status.as_ref());
     } else {
         inner.run.seal(reason, None);
+    }
+}
+
+/// A workspace boundary (revoke, close, switch) terminates the shell group. The record is
+/// sealed so output or an exit arriving later cannot be attached to the new workspace; the
+/// termination shown is the observed one (a failure stays visible, never a claimed cleanup).
+fn stop_terminal(inner: &mut Inner, reason: &str) {
+    if let Some(process_id) = inner.terminal.running_process_id() {
+        inner.terminal.signal_foreground();
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
+        inner.terminal.seal(reason, status.as_ref());
+    } else {
+        inner.terminal.seal(reason, None);
     }
 }
 

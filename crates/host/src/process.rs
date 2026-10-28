@@ -1,8 +1,14 @@
+use portable_pty::ChildKiller;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::io;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Where the PTY waiter thread publishes the exit it observed. `None` means the shell has not
+/// exited; `Some(None)` means it exited without a code the host could read.
+pub type ExitSlot = Arc<Mutex<Option<Option<i32>>>>;
 
 const GRACE: Duration = Duration::from_secs(2);
 const AFTER_KILL: Duration = Duration::from_secs(1);
@@ -41,6 +47,9 @@ struct Entry {
     pid: u32,
     workspace_id: u64,
     child: Option<Child>,
+    /// A PTY shell is waited on by its own thread; the registry reads that result here.
+    external_exit: Option<ExitSlot>,
+    killer: Option<Box<dyn ChildKiller + Send + Sync>>,
     exited: bool,
     exit: Option<i32>,
     awaiting_decision: bool,
@@ -67,14 +76,21 @@ impl Entry {
         if self.exited {
             return;
         }
-        let Some(child) = self.child.as_mut() else {
+        if let Some(child) = self.child.as_mut() {
+            if let Ok(Some(status)) = child.try_wait() {
+                self.exited = true;
+                self.exit = status.code();
+                // Once the host has observed the exit there is no termination decision left.
+                self.awaiting_decision = false;
+            }
             return;
-        };
-        if let Ok(Some(status)) = child.try_wait() {
-            self.exited = true;
-            self.exit = status.code();
-            // Once the host has observed the exit there is no termination decision left.
-            self.awaiting_decision = false;
+        }
+        if let Some(slot) = &self.external_exit {
+            if let Some(code) = *slot.lock().unwrap() {
+                self.exited = true;
+                self.exit = code;
+                self.awaiting_decision = false;
+            }
         }
     }
 
@@ -162,6 +178,8 @@ impl Registry {
             pid: child.id(),
             workspace_id,
             child: Some(child),
+            external_exit: None,
+            killer: None,
             exited: false,
             exit: None,
             awaiting_decision: false,
@@ -169,6 +187,36 @@ impl Registry {
             termination: None,
         });
         id
+    }
+
+    /// Registers the shell of a PTY. The caller owns the blocking wait and publishes the
+    /// observed exit into the returned slot; termination/awaiting-decision stay the same as
+    /// every other tracked process.
+    pub fn register_pty(
+        &mut self,
+        kind: &str,
+        workspace_id: u64,
+        pid: u32,
+        killer: Box<dyn ChildKiller + Send + Sync>,
+    ) -> (u64, ExitSlot) {
+        let id = self.next_id;
+        self.next_id += 1;
+        let slot = ExitSlot::default();
+        self.entries.push(Entry {
+            id,
+            kind: kind.to_string(),
+            pid,
+            workspace_id,
+            child: None,
+            external_exit: Some(slot.clone()),
+            killer: Some(killer),
+            exited: false,
+            exit: None,
+            awaiting_decision: false,
+            kept: false,
+            termination: None,
+        });
+        (id, slot)
     }
 
     pub fn status(&mut self, id: u64) -> Option<ProcessStatus> {        self.refresh();
@@ -264,16 +312,26 @@ impl Registry {
 
     #[cfg(unix)]
     fn signal(&mut self, index: usize, hard: bool) {
-        let pid = self.entries[index].pid;
+        let entry = &mut self.entries[index];
+        let pid = entry.pid;
         // Each child is spawned in its own process group, so signal the whole group.
-        kill_group(pid, hard);
+        if !kill_group(pid, hard) {
+            // Fallback for a child that is no longer a group leader.
+            if let Some(killer) = entry.killer.as_mut() {
+                let _ = killer.kill();
+            }
+        }
     }
 
     #[cfg(not(unix))]
     fn signal(&mut self, index: usize, _hard: bool) {
-        // Windows has no graceful SIGTERM equivalent here: TerminateProcess is reported as
-        // an observed kill and remains a documented limitation for this slice.
-        if let Some(child) = self.entries[index].child.as_mut() {
+        // Windows has no graceful SIGTERM equivalent here: the child's own killer
+        // (TerminateProcess) is reported as an observed kill and remains a documented
+        // limitation for this slice.
+        let entry = &mut self.entries[index];
+        if let Some(killer) = entry.killer.as_mut() {
+            let _ = killer.kill();
+        } else if let Some(child) = entry.child.as_mut() {
             let _ = child.kill();
         }
     }

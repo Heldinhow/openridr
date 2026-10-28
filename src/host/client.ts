@@ -250,8 +250,37 @@ export type Run = {
   staleReason: string | null;
 };
 
-export type InstallSource = { name: string; url: string; packageUrl: string };
-export type InstallExisting = {
+/** One real PTY shell. `exit:null` and `exit unknown` are the same fact: never a success. */
+export type Terminal = {
+  state: "idle" | "running" | "exited" | "stopped" | "failed";
+  shell: string;
+  command: string[];
+  cwd: string;
+  cols: number;
+  rows: number;
+  log: string;
+  logTruncated: boolean;
+  outputSeq: number;
+  exit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  processId: number | null;
+  awaitingDecision: boolean;
+  kept: boolean;
+  revision: number;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  staleReason: string | null;
+  sealed: boolean;
+};
+
+export type InstallSource = { name: string; url: string; packageUrl: string };export type InstallExisting = {
   state: "present" | "absent" | "ready";
   binary: string;
   verifiedVersion: string | null;
@@ -768,6 +797,7 @@ export type Snapshot = {
   restore: Restore;
   build: Build;
   run: Run;
+  terminal: Terminal;
   dap: Dap;
   tools: { "csharp-ls": ToolInstall };
   lsp: Lsp;

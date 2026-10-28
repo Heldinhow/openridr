@@ -16,6 +16,7 @@ import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
+import { TerminalPanel } from "./TerminalPanel";
 
 type Tab = {
   path: string;
@@ -1918,7 +1919,16 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           </div>
         );
       case "terminal":
-        return <p className="muted">Terminal is not available in this build (ticket 15).</p>;
+        return (
+          <TerminalPanel
+            snapshot={snapshot}
+            disabledReason={
+              trusted ? null : "Trust the workspace before starting a terminal; no shell is spawned in Restricted mode."
+            }
+            onSnapshot={onSnapshot}
+            onError={(text) => setMessage({ tone: "error", text })}
+          />
+        );
       case "tests":
         return <p className="muted">Tests are not available in this build (ticket 17).</p>;
     }
@@ -2973,7 +2983,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             ? "problems-output"
             : bottomTab === "build"
               ? "build-output"
-              : ""
+              : bottomTab === "terminal"
+                ? "terminal-output-panel"
+                : ""
         }`}
         aria-label="Bottom panel"
       >

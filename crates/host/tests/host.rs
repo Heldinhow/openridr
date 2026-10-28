@@ -381,6 +381,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "debug.install"
             && **method != "debug.retry"
             && **method != "run.start"
+            && **method != "terminal.start"
             && **method != "debug.start"
     }) {
         let code = error_code(host.dispatch(method, json!({})));
@@ -3431,4 +3432,263 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     assert_eq!(stale.details.unwrap()["reason"], "evaluation_stale");
     assert_eq!(snapshot(&host)["dap"]["state"], "idle");
     assert!(snapshot(&host)["dap"]["assembly"].is_null());
+}
+
+fn wait_for_terminal_output(host: &Host, needle: &str, timeout: Duration) -> String {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let log = snapshot(host)["terminal"]["log"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        if log.contains(needle) {
+            return log;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal never logged {needle}: {log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Stops the shell even when an assertion fails, so a failed test leaves no stray child.
+struct TerminalCleanup<'a>(&'a Host);
+
+impl Drop for TerminalCleanup<'_> {
+    fn drop(&mut self) {
+        let _ = self
+            .0
+            .dispatch("terminal.stop", json!({ "confirm": true }));
+    }
+}
+
+/// Restores `SHELL` after the test, before the environment lock is released.
+struct ShellEnv(Option<String>);
+
+impl ShellEnv {
+    fn use_posix_sh() -> Self {
+        let previous = std::env::var("SHELL").ok();
+        std::env::set_var("SHELL", "/bin/sh");
+        Self(previous)
+    }
+}
+
+impl Drop for ShellEnv {
+    fn drop(&mut self) {
+        match &self.0 {
+            Some(value) => std::env::set_var("SHELL", value),
+            None => std::env::remove_var("SHELL"),
+        }
+    }
+}
+
+#[test]
+fn terminal_start_needs_trust_and_spawns_no_shell() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["Gate.csproj"]);
+    open(&host, &workspace.path().join("Gate.csproj"));
+
+    for method in ["terminal.start", "terminal.write", "terminal.resize"] {
+        assert_eq!(
+            error_code(host.dispatch(method, json!({}))),
+            "trust_required",
+            "{method} must be denied by the host gate"
+        );
+    }
+    let state = snapshot(&host);
+    assert_eq!(state["terminal"]["state"], "idle");
+    assert_eq!(state["terminal"]["revision"], 0);
+    assert_eq!(state["terminal"]["processId"], Value::Null);
+    assert_eq!(state["terminal"]["shell"], "");
+    assert_eq!(state["processes"], json!([]));
+    assert!(!workspace.path().join("bin").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _env = ShellEnv::use_posix_sh();
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    fs::write(
+        root.join("Pty.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
+    )
+    .unwrap();
+    let host = Host::new();
+    open(&host, &root.join("Pty.csproj"));
+    grant(&host);
+    let _cleanup = TerminalCleanup(&host);
+
+    let started = host
+        .dispatch("terminal.start", json!({ "cols": 120, "rows": 40 }))
+        .unwrap();
+    let terminal = &started["terminal"];
+    assert_eq!(terminal["state"], "running");
+    assert_eq!(terminal["shell"], "/bin/sh");
+    assert_eq!(terminal["command"], json!(["/bin/sh"]));
+    assert_eq!(terminal["cwd"], root.to_string_lossy().to_string());
+    assert_eq!(terminal["cols"], 120);
+    assert_eq!(terminal["rows"], 40);
+    assert_eq!(terminal["exit"], Value::Null);
+    let process_id = terminal["processId"].as_u64().unwrap();
+    let tracked = started["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"].as_u64() == Some(process_id))
+        .unwrap();
+    assert_eq!(tracked["kind"], "terminal:sh");
+    assert_eq!(tracked["state"], "running");
+    assert_eq!(tracked["workspaceId"], started["workspace"]["id"]);
+
+    host.dispatch(
+        "terminal.write",
+        json!({ "data": "pwd; echo terminal-$((6*7))\r" }),
+    )
+    .unwrap();
+    let log = wait_for_terminal_output(&host, "terminal-42", Duration::from_secs(10));
+    assert!(
+        log.contains(&root.to_string_lossy().to_string()),
+        "pwd must print the workspace root: {log}"
+    );
+
+    // Ctrl+C is byte 0x03 to the PTY: the foreground child dies and the prompt comes back.
+    let began = Instant::now();
+    host.dispatch("terminal.write", json!({ "data": "sleep 30 && echo slept\r" }))
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    host.dispatch("terminal.write", json!({ "data": "\u{3}" })).unwrap();
+    host.dispatch("terminal.write", json!({ "data": "echo prompt-back\r" }))
+        .unwrap();
+    let log = wait_for_terminal_output(&host, "prompt-back", Duration::from_secs(10));
+    assert!(began.elapsed() < Duration::from_secs(20), "Ctrl+C did not interrupt sleep");
+    // The typed line is echoed once; a second occurrence would be the finished command.
+    assert_eq!(
+        log.matches("slept").count(),
+        1,
+        "the interrupted command must not finish: {log}"
+    );
+    assert_eq!(snapshot(&host)["terminal"]["state"], "running");
+
+    host.dispatch("terminal.resize", json!({ "cols": 100, "rows": 30 }))
+        .unwrap();
+    let resized = snapshot(&host);
+    assert_eq!(resized["terminal"]["cols"], 100);
+    assert_eq!(resized["terminal"]["rows"], 30);
+
+    // A foreground job is a real child of the shell; closing the terminal must reach it.
+    host.dispatch(
+        "terminal.write",
+        json!({ "data": "sh -c 'echo sleep-pid=$$; exec sleep 30'\r" }),
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let sleep_pid = loop {
+        let log = snapshot(&host)["terminal"]["log"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        if let Some(pid) = log.lines().find_map(|line| {
+            line.trim()
+                .strip_prefix("sleep-pid=")
+                .filter(|pid| !pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit()))
+        }) {
+            break pid.to_string();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the foreground child never printed its pid: {log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!process_gone(&sleep_pid), "the foreground child is running");
+
+    // Closing needs the explicit decision; the observed result and the log stay.
+    assert_eq!(
+        error_code(host.dispatch("terminal.stop", json!({}))),
+        "confirmation_required"
+    );
+    assert_eq!(snapshot(&host)["terminal"]["state"], "running");
+    let stopped = host.dispatch("terminal.stop", json!({ "confirm": true })).unwrap();
+    let terminal = &stopped["terminal"];
+    assert_eq!(terminal["state"], "stopped");
+    assert_eq!(terminal["termination"]["observed"], "exited");
+    assert!(terminal["termination"]["requested"]
+        .as_str()
+        .unwrap()
+        .contains("SIGTERM"));
+    assert!(terminal["log"].as_str().unwrap().contains("prompt-back"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !process_gone(&sleep_pid) {
+        assert!(
+            Instant::now() < deadline,
+            "the foreground child survived the close: {sleep_pid}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let process = stopped["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"].as_u64() == Some(process_id))
+        .unwrap();
+    assert_eq!(process["state"], "exited");
+    assert_eq!(terminal["exit"], process["exit"]);
+    assert_eq!(
+        error_code(host.dispatch("terminal.stop", json!({ "confirm": true }))),
+        "invalid_state"
+    );
+
+    host.dispatch("terminal.write", json!({ "data": "echo late\r" }))
+        .expect_err("a stopped shell accepts no input");
+}
+
+#[cfg(unix)]
+#[test]
+fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_it() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let host = Host::new();
+    let first = temp_workspace(&["A.csproj"]);
+    let second = temp_workspace(&["B.csproj"]);
+    open(&host, &first.path().join("A.csproj"));
+    grant(&host);
+    let _cleanup = TerminalCleanup(&host);
+    host.dispatch("terminal.start", json!({})).unwrap();
+    host.dispatch("terminal.write", json!({ "data": "echo sealed-marker\r" }))
+        .unwrap();
+    wait_for_terminal_output(&host, "sealed-marker", Duration::from_secs(10));
+
+    let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
+    let terminal = &revoked["terminal"];
+    assert_eq!(terminal["sealed"], true);
+    assert_eq!(terminal["state"], "stopped");
+    assert!(terminal["staleReason"].as_str().unwrap().contains("Trust"));
+    assert!(terminal["log"].as_str().unwrap().contains("sealed-marker"));
+    let finished_at = terminal["finishedAt"].clone();
+    std::thread::sleep(Duration::from_millis(300));
+    let later = snapshot(&host);
+    assert_eq!(later["terminal"]["sealed"], true);
+    assert_eq!(later["terminal"]["finishedAt"], finished_at);
+    assert_eq!(
+        error_code(host.dispatch("terminal.start", json!({}))),
+        "trust_required"
+    );
+
+    // Switching workspaces starts from an idle record; the old shell stays in the process
+    // panel with the termination the registry observed.
+    grant(&host);
+    host.dispatch("terminal.start", json!({})).unwrap();
+    let switched = host.dispatch("workspace.open", json!({ "path": second.path().join("B.csproj") })).unwrap();
+    assert_eq!(switched["terminal"]["state"], "idle");
+    assert_eq!(switched["terminal"]["revision"], 0);
+    assert!(switched["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|process| process["kind"].as_str().unwrap_or_default().starts_with("terminal:"))
+        .all(|process| process["state"] == "exited"));
 }

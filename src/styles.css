@@ -1380,3 +1380,81 @@ p {
 @media (max-width: 900px) {
   .debug-columns { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Terminal (ticket 15): a real PTY shell; controls stay visible while output scrolls. */
+.output.terminal-output-panel {
+  flex-basis: 460px;
+}
+
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  height: 100%;
+  font-size: 0.78rem;
+}
+
+.terminal-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  overflow-wrap: anywhere;
+}
+
+.terminal-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.terminal-confirm {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.terminal-confirm p {
+  margin: 0;
+  flex: 1 1 240px;
+}
+
+.output.terminal-output-panel .panel-body {
+  overflow: hidden;
+}
+
+.terminal-output {
+  flex: 1 1 0;
+  min-height: 120px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  user-select: text;
+}
+
+.terminal-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.terminal-input-row {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.terminal-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
