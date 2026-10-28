@@ -18,6 +18,7 @@ import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
+import { Icon } from "./Icon";
 
 type Tab = {
   path: string;
@@ -2053,21 +2054,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
   return (
     <main className="workspace-view">
-      <header className="chrome">
-        <span className="brand">OpenRidr · {workspace.name}</span>
-        <span
-          className={trusted ? "success" : "warning"}
-          data-testid="mode-badge"
-        >
-          {trusted ? "Trusted mode" : "Restricted mode"}
-        </span>
-      </header>
-
       <div className="toolbar">
-        <span>
-          {workspace.kind === "solution" ? "Solution" : "Project"}:{" "}
-          <strong>{workspace.name}</strong>
-        </span>
+        <span className="workspace-brand" title={workspace.path}><Icon name="project" /><strong>{workspace.name}</strong></span>
         <span className="push" />
         <button
           data-testid="toolbar-build"
@@ -2080,7 +2068,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 "Builds the selected startup project (Cmd/Ctrl+F9). Unsaved buffers need an explicit decision."
           }
         >
-          Build
+          <Icon name="build" /> Build <kbd>{snapshot.app.platform === "macos" ? "⌘F9" : "Ctrl+F9"}</kbd>
         </button>
         <button
           data-testid="toolbar-run"
@@ -2091,7 +2079,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             `Runs the saved build (${runShortcut}); unsaved buffers are never included.`
           }
         >
-          {runRunning ? "Running…" : "Run"}
+          <Icon name="run" /> {runRunning ? "Running…" : "Run"} <kbd>{runShortcut}</kbd>
         </button>
         <button
           data-testid="toolbar-debug"
@@ -2102,7 +2090,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             "Starts the evaluated Debug assembly under netcoredbg (Ctrl+D on macOS, Shift+F9 on Windows)."
           }
         >
-          Debug
+          <Icon name="debug" /> Debug <kbd>{snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}</kbd>
         </button>
         {debugActive && (
           <button
@@ -2113,6 +2101,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             Stop debugging
           </button>
         )}
+        <details className="toolbar-menu">
+          <summary aria-label="Workspace actions">•••</summary>
+          <div className="menu-content">
         <button
           data-testid="sdk-redetect"
           onClick={() => void redetectSdks()}
@@ -2128,6 +2119,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         <button data-testid="close-workspace" onClick={requestCloseWorkspace}>
           Close workspace
         </button>
+          </div>
+        </details>
       </div>
 
       <div className="workspace-notices">

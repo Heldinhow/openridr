@@ -3,7 +3,7 @@
   --bg: #101216;
   --panel: #191d23;
   --raised: #232932;
-  --line: #414954;
+  --line: #303640;
   --fg: #edf0f4;
   --muted: #b5beca;
   --accent: #f0a079;
@@ -30,7 +30,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 13.5px/1.5 var(--sans);
+  font: 13px/1.5 var(--sans);
 }
 
 button,
@@ -41,8 +41,8 @@ input {
 button {
   color: var(--fg);
   background: var(--raised);
-  border: 1px solid #667383;
-  border-radius: 3px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
   padding: 4px 10px;
   white-space: nowrap;
   cursor: pointer;
@@ -145,12 +145,25 @@ p {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-height: 44px;
   padding: 6px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
 }
+
+.icon { flex: 0 0 auto; vertical-align: middle; }
+.workspace-brand { display: flex; align-items: center; gap: 8px; min-width: 100px; max-width: 240px; }
+.workspace-brand strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-brand .icon { color: var(--accent); }
+.toolbar > button { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; }
+kbd { font: 11px var(--sans); color: var(--muted); }
+.toolbar-menu { position: relative; flex: 0 0 auto; }
+.toolbar-menu > summary { cursor: pointer; list-style: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; }
+.toolbar-menu > summary::-webkit-details-marker { display: none; }
+.menu-content { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: 240px; padding: 6px; display: grid; gap: 4px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 24px #0006; }
+.menu-content button { text-align: left; }
 
 .notice {
   padding: 8px 14px;
