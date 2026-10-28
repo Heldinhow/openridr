@@ -1,0 +1,53 @@
+{
+  "platform": "osx-arm64",
+  "plan": {
+    "arch": "aarch64",
+    "asset": {
+      "archive": "zip",
+      "availability": "unverified",
+      "name": "netcoredbg-osx-arm64.zip",
+      "platform": "osx-arm64",
+      "reason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
+      "sha256": "f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea",
+      "size": 3389504,
+      "support": "community",
+      "testOverride": false,
+      "url": "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-osx-arm64.zip"
+    },
+    "availability": "unverified",
+    "availabilityReason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
+    "blockedReason": "Apple Silicon debugger: experimental · disabled. Unavailable on macOS arm64: no verified compatible netcoredbg 3.2.0-1092 adapter. The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14). Opting in only acknowledges the experiment; it does not install the adapter and does not prove DAP.",
+    "destination": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092",
+    "existing": {
+      "binary": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092/netcoredbg",
+      "reason": "No netcoredbg executable at the destination.",
+      "sha256": null,
+      "state": "absent",
+      "verifiedVersion": null
+    },
+    "integrity": "Official release metadata publishes SHA-256 f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea for netcoredbg-osx-arm64.zip. The download is hashed and compared with the SHA-256 published in the official release metadata; the extracted executable must print 3.2.0 from --version before promotion. OpenRidr verifies no code signature or notarization and claims none. The archive layout inside the release is not verified here.",
+    "limits": [
+      "download ≤ 20 MiB, extracted tree ≤ 200 MiB and ≤ 200 entries",
+      "≤ 5 redirects, each to an official host and HTTPS",
+      "zip entries with traversal, absolute paths, symlinks or special modes are rejected; corruption fails the install",
+      "progress is reported only as bytes observed; no percentage is invented"
+    ],
+    "operation": "Download the official asset over HTTPS, verify its published SHA-256, extract the zip into staging (no traversal, absolute path, symlink or special file; bounded size and entry count), run --version on the extracted executable, and only then promote staging to the destination.",
+    "os": "macos",
+    "permissions": [
+      "network: https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092 asset hosts over HTTPS (github.com, objects.githubusercontent.com, release-assets.githubusercontent.com)",
+      "write: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg",
+      "create a temporary .download file next to the staging directory",
+      "no elevation, no global install, no SDK installer, no PATH change, no repository changes"
+    ],
+    "planId": "fnv1a64:4cc51043186395da",
+    "platform": "osx-arm64",
+    "source": {
+      "name": "Samsung/netcoredbg (official GitHub release)",
+      "url": "https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092"
+    },
+    "staging": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092.staging",
+    "tool": "netcoredbg",
+    "version": "3.2.0-1092"
+  }
+}

@@ -1,4 +1,5 @@
 mod build;
+mod debugger;
 mod diagnostics;
 mod error;
 mod evaluation;
@@ -45,6 +46,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "lsp.codeActions",
     "tools.install",
     "tools.retry",
+    "debug.install",
+    "debug.retry",
     "terminal.start",
     "build.start",
     "run.start",
@@ -85,6 +88,8 @@ struct Inner {
     run: Arc<run::Run>,
     run_seq: u64,
     tools: Arc<tools::Tools>,
+    debugger: Arc<debugger::Debugger>,
+    debugger_experimental: bool,
     lsp: Option<Arc<lsp::Lsp>>,
     lsp_seq: u64,
     lsp_verbose: bool,
@@ -231,14 +236,6 @@ struct SdkView {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DebugView {
-    adapter_state: &'static str,
-    adapter_message: &'static str,
-    apple_silicon_experimental: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct Snapshot {
     context_id: u64,
     app: AppInfo,
@@ -246,7 +243,7 @@ struct Snapshot {
     outline: Option<Outline>,
     trust: TrustView,
     sdk: SdkView,
-    debug: DebugView,
+    debug: debugger::View,
     evaluation: Evaluation,
     processes: Vec<Value>,
     restore: RestoreView,
@@ -283,6 +280,8 @@ impl Host {
                 run: Arc::new(run::Run::idle()),
                 run_seq: 0,
                 tools: Arc::new(tools::Tools::new()),
+                debugger: Arc::new(debugger::Debugger::new()),
+                debugger_experimental: false,
                 lsp: None,
                 lsp_seq: 0,
                 lsp_verbose: false,
@@ -336,6 +335,21 @@ impl Host {
         if method == "tools.cancel" {
             return self.cancel_tool();
         }
+        if method == "debug.plan" {
+            return self.plan_debugger();
+        }
+        if method == "debug.install" {
+            return self.install_debugger(params);
+        }
+        if method == "debug.retry" {
+            return self.retry_debugger();
+        }
+        if method == "debug.cancel" {
+            return self.cancel_debugger();
+        }
+        if method == "debug.flag" {
+            return self.flag_debugger(params);
+        }
         if method == "lsp.start" {
             return self.start_lsp(params);
         }
@@ -368,7 +382,7 @@ impl Host {
         }
 
         match method {
-            "app.state" | "workspace.state" | "tools.state" | "lsp.state" => {
+            "app.state" | "workspace.state" | "tools.state" | "debug.state" | "lsp.state" => {
                 let mut inner = self.inner.lock().unwrap();
                 Ok(self.snapshot_value(&mut inner))
             }
@@ -557,11 +571,7 @@ impl Host {
                     .and_then(|decision| decision.revoked_at),
             },
             sdk,
-            debug: DebugView {
-                adapter_state: "not_checked",
-                adapter_message: "Installation and platform gates arrive with ticket 13.",
-                apple_silicon_experimental: false,
-            },
+            debug: inner.debugger.view(inner.debugger_experimental),
             evaluation: inner.evaluation.clone(),
             processes: inner.processes.views(),
             restore: inner.restore.view(),
@@ -624,6 +634,7 @@ impl Host {
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
         inner.workspace = Some(workspace);
         inner.trusted = false;
+        inner.debugger_experimental = false;
         inner.trust_decision = None;
         inner.evaluation = evaluation;
         inner.restore = Arc::new(restore::Restore::idle());
@@ -655,6 +666,7 @@ impl Host {
         inner.processes.mark_awaiting();
         inner.workspace = None;
         inner.trusted = false;
+        inner.debugger_experimental = false;
         inner.trust_decision = None;
         inner.workspace_seq += 1;
         inner.context_seq += 1;
@@ -1933,6 +1945,101 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
+    fn plan_debugger(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let plan = debugger::plan(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            inner.debugger_experimental,
+        );
+        inner.debugger.set_plan(plan);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn install_debugger(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("debug.install")?;
+        if params.get("confirm") != Some(&Value::Bool(true)) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "Installing netcoredbg needs an explicit confirmation of the current plan.",
+            ));
+        }
+        let plan_id = required_str(&params, "planId")?;
+        let mut inner = self.inner.lock().unwrap();
+        let plan = debugger::plan(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            inner.debugger_experimental,
+        );
+        if plan.plan_id != plan_id {
+            inner.debugger.set_plan(plan.clone());
+            return Err(HostError::with_details(
+                "confirmation_required",
+                "The netcoredbg install plan changed since it was shown; review and confirm the new plan. Nothing was downloaded or executed.",
+                json!({ "plan": plan }),
+            ));
+        }
+        let debugger = inner.debugger.clone();
+        debugger.begin_install(plan, token.workspace_id, token.context_id)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn retry_debugger(&self) -> HostResult<Value> {
+        let token = self.require_trust("debug.retry")?;
+        let mut inner = self.inner.lock().unwrap();
+        let plan = debugger::plan(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            inner.debugger_experimental,
+        );
+        let Some(confirmed) = inner.debugger.confirmed_plan_id() else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Review and confirm the netcoredbg install plan before retrying; no plan was confirmed.",
+            ));
+        };
+        if plan.plan_id != confirmed {
+            inner.debugger.set_plan(plan.clone());
+            return Err(HostError::with_details(
+                "confirmation_required",
+                "The netcoredbg install plan changed since it was confirmed; review and confirm the new plan. Nothing was downloaded or executed.",
+                json!({ "plan": plan }),
+            ));
+        }
+        let debugger = inner.debugger.clone();
+        debugger.begin_install(plan, token.workspace_id, token.context_id)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn cancel_debugger(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let debugger = inner.debugger.clone();
+        debugger.cancel()?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn flag_debugger(&self, params: Value) -> HostResult<Value> {
+        let enabled = params
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| {
+                HostError::new(
+                    "invalid_state",
+                    "debug.flag needs enabled:true or enabled:false.",
+                )
+            })?;
+        if enabled && params.get("confirm") != Some(&Value::Bool(true)) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "Enabling the Apple Silicon experimental flag needs an explicit confirmation. It does not install the adapter and does not prove compatibility.",
+            ));
+        }
+        let mut inner = self.inner.lock().unwrap();
+        inner.debugger_experimental = enabled;
+        inner.debugger.log_flag(enabled);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
     fn start_lsp(&self, _params: Value) -> HostResult<Value> {
         let token = self.require_trust("lsp.start")?;
         let mut inner = self.inner.lock().unwrap();
@@ -3198,6 +3305,7 @@ fn stop_services(inner: &mut Inner, reason: &str) {
     stop_lsp_inner(inner, reason);
     let tools = inner.tools.clone();
     tools.seal(reason, None, &mut inner.processes);
+    inner.debugger.seal(reason);
 }
 
 fn accept_locked(inner: &Inner, token: ContextToken) -> HostResult<()> {

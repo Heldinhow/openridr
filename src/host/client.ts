@@ -319,6 +319,102 @@ export type ToolInstall = {
   destinationPresent: boolean;
 };
 
+/** netcoredbg asset as published by the approved official release. Only assets actually
+ * present in the release metadata are listed; `availability` never implies DAP support. */
+export type DebugAsset = {
+  platform: string;
+  name: string;
+  size: number;
+  sha256: string;
+  archive: string;
+  support: string;
+  availability: "available" | "unverified" | "unsupported_archive" | "absent";
+  reason: string | null;
+  url: string;
+  testOverride: boolean;
+};
+
+export type DebugExisting = {
+  state: "present" | "absent" | "ready";
+  binary: string;
+  verifiedVersion: string | null;
+  sha256: string | null;
+  reason: string | null;
+};
+
+export type DebugPlan = {
+  tool: string;
+  version: string;
+  source: { name: string; url: string };
+  os: string;
+  arch: string;
+  platform: string;
+  asset: DebugAsset | null;
+  availability: DebugAsset["availability"];
+  availabilityReason: string | null;
+  destination: string;
+  staging: string;
+  operation: string;
+  permissions: string[];
+  integrity: string;
+  limits: string[];
+  blockedReason: string | null;
+  existing: DebugExisting;
+  planId: string;
+};
+
+/** The debugger adapter state. `ready` proves the executable and version, never DAP. */
+export type DebugAdapter = {
+  adapterState:
+    | "not_checked"
+    | "unavailable"
+    | "not_installed"
+    | "planned"
+    | "downloading"
+    | "installing"
+    | "verifying"
+    | "ready"
+    | "cancelled"
+    | "failed"
+    | "experimental_disabled";
+  adapterMessage: string;
+  appleSiliconExperimental: boolean;
+  version: string;
+  source: { name: string; url: string };
+  platform: string;
+  os: string;
+  arch: string;
+  assets: DebugAsset[];
+  asset: DebugAsset | null;
+  availability: DebugAsset["availability"];
+  availabilityReason: string | null;
+  installable: boolean;
+  gateReason: string | null;
+  dapProven: false;
+  destination: string;
+  staging: string;
+  plan: DebugPlan | null;
+  log: string;
+  logTruncated: boolean;
+  progress: { downloaded: number; total: number | null } | null;
+  sha256: string | null;
+  verifiedVersion: string | null;
+  verifiedOutput: string | null;
+  error: string | null;
+  note: string | null;
+  reused: boolean;
+  revision: number;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  sealed: boolean;
+  staleReason: string | null;
+  stagingPresent: boolean;
+  destinationPresent: boolean;
+  busy: boolean;
+};
+
 export type LspCapabilities = {
   completion: boolean;
   definition: boolean;
@@ -580,11 +676,7 @@ export type Snapshot = {
     roots: SdkRoot[];
     inspectedAt: number | null;
   };
-  debug: {
-    adapterState: "not_checked";
-    adapterMessage: string;
-    appleSiliconExperimental: boolean;
-  };
+  debug: DebugAdapter;
   evaluation: Evaluation;
   processes: ProcessInfo[];
   restore: Restore;

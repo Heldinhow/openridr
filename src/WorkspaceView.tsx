@@ -14,7 +14,7 @@ import { ProblemsPanel } from "./ProblemsPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
-import { LspPanel, ToolInstaller } from "./ToolchainPanels";
+import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 
 type Tab = {
   path: string;
@@ -1743,7 +1743,15 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           />
         );
       case "debug":
-        return <p className="muted">Debug is not available in this build (ticket 14).</p>;
+        return (
+          <div data-testid="debug-tab">
+            <p className="muted">{snapshot.debug.adapterMessage}</p>
+            <p className="muted">
+              DAP is not implemented in this build (ticket 14). A verified adapter alone is not
+              DAP evidence.
+            </p>
+          </div>
+        );
       case "terminal":
         return <p className="muted">Terminal is not available in this build (ticket 15).</p>;
       case "tests":
@@ -1809,7 +1817,16 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         >
           {runRunning ? "Running…" : "Run"}
         </button>
-        <button disabled title="Debug is not available in this ticket (ticket 14).">
+        <button
+          data-testid="toolbar-debug"
+          disabled
+          title={
+            !trusted
+              ? "Trust the workspace before debugging; the debug adapter also has to be available for this platform."
+              : snapshot.debug.gateReason ??
+                "Debug is not implemented in this build (ticket 14)."
+          }
+        >
           Debug
         </button>
         <button
@@ -1993,6 +2010,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         </div>
       )}
 
+      <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
       <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
 

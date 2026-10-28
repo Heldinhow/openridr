@@ -284,6 +284,376 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
   );
 }
 
+function debugStateLabel(state: Snapshot["debug"]["adapterState"]) {
+  switch (state) {
+    case "unavailable":
+      return "Unavailable";
+    case "experimental_disabled":
+      return "Experimental · disabled";
+    case "not_installed":
+      return "Not installed";
+    case "planned":
+      return "Plan ready — nothing downloaded yet";
+    case "downloading":
+      return "Downloading…";
+    case "installing":
+      return "Extracting…";
+    case "verifying":
+      return "Verifying executable and version…";
+    case "ready":
+      return "Adapter verified — DAP not proven";
+    case "cancelled":
+      return "Cancelled";
+    case "failed":
+      return "Failed";
+    default:
+      return "Not checked yet";
+  }
+}
+
+export function DebugAdapterPanel({
+  snapshot,
+  onChange,
+  compact = false,
+}: Props & { compact?: boolean }) {
+  const debug = snapshot.debug;
+  const plan = debug.plan;
+  const trusted = snapshot.trust.granted;
+  const active =
+    debug.busy || ["downloading", "installing", "verifying"].includes(debug.adapterState);
+  const appleSilicon = debug.os === "macos" && debug.arch === "aarch64";
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const installBlocker = !debug.installable
+    ? debug.adapterMessage
+    : !trusted
+      ? "Trust the workspace before installing a debug adapter; trust and installation are separate decisions."
+      : busy || active
+        ? "An install attempt is still running or winding down."
+        : !plan
+          ? "Review the exact install plan before confirming."
+          : plan.blockedReason
+            ? plan.blockedReason
+            : null;
+  const canCancel =
+    debug.adapterState === "planned" ||
+    debug.adapterState === "failed" ||
+    ["downloading", "installing", "verifying"].includes(debug.adapterState);
+  const canRetry =
+    (debug.adapterState === "failed" || debug.adapterState === "cancelled") &&
+    debug.revision > 0;
+
+  async function run(action: () => Promise<Snapshot>) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      onChange(await action());
+    } catch (error) {
+      setMessage(messageOf(error));
+      try {
+        onChange(await call<Snapshot>("workspace.state"));
+      } catch {
+        // The action message already explains the failure.
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      className={`analysis-panel debug-panel${compact ? " compact" : ""}`}
+      aria-label="Debug adapter"
+      data-testid="debug-panel"
+    >
+      <div className="analysis-head">
+        <strong>
+          Debug adapter · {debug.version}
+        </strong>
+        <span
+          className={`tag ${
+            debug.adapterState === "failed"
+              ? "error"
+              : debug.adapterState === "ready"
+                ? ""
+                : "warning"
+          }`}
+          data-testid="debug-state"
+          role="status"
+        >
+          {debugStateLabel(debug.adapterState)}
+        </span>
+        <span className="muted" data-testid="debug-platform">
+          {debug.os} / {debug.arch}
+        </span>
+        <span className="push" />
+        <button
+          data-testid="debug-plan-open"
+          disabled={busy}
+          onClick={() => void run(() => call<Snapshot>("debug.plan"))}
+          title="Shows the approved version, official source, platform asset, destination, operation, permissions, integrity and limits. It does not download or execute anything."
+        >
+          Review install plan
+        </button>
+        {canCancel && (
+          <button
+            data-testid="debug-cancel"
+            disabled={busy}
+            onClick={() => void run(() => call<Snapshot>("debug.cancel"))}
+            title={
+              active
+                ? "Requests cancellation of the download/extraction; a partial staging directory is never reported ready."
+                : "Cancels the plan; no download and no process were started."
+            }
+          >
+            {active ? "Cancel install" : "Cancel plan"}
+          </button>
+        )}
+        {canRetry && (
+          <button
+            data-testid="debug-retry"
+            disabled={busy || active || !trusted}
+            onClick={() => void run(() => call<Snapshot>("debug.retry"))}
+            title={
+              !trusted
+                ? "Trust the workspace before retrying an installation."
+                : "Runs the confirmed plan again; a changed plan requires a new confirmation."
+            }
+          >
+            Retry install
+          </button>
+        )}
+        {!active && (
+          <button
+            className="primary"
+            data-testid="debug-install"
+            disabled={busy || installBlocker !== null}
+            onClick={() =>
+              void run(() =>
+                call<Snapshot>("debug.install", { planId: plan?.planId, confirm: true }),
+              )
+            }
+            title={
+              installBlocker ??
+              "Downloads the official asset, verifies its published SHA-256, extracts it safely and only then verifies and promotes it."
+            }
+          >
+            {debug.adapterState === "ready" ? "Reuse verified adapter" : "Confirm and install"}
+          </button>
+        )}
+      </div>
+
+      <div data-testid="sdk-debug-adapter">
+        <strong data-testid="debug-asset-state">
+          {debug.asset
+            ? `${debug.asset.name} · ${debug.availability}`
+            : `No asset · ${debug.availability}`}
+        </strong>
+        <p className="muted" data-testid="debug-source">
+          Source: <a href={debug.source.url} target="_blank" rel="noreferrer noopener">{debug.source.name}</a>{" "}
+          · approved version {debug.version} · DAP proven: {debug.dapProven ? "yes" : "no"}
+        </p>
+        <p className={debug.adapterState === "failed" ? "error" : "muted"} data-testid="debug-message">
+          {debug.adapterMessage}
+        </p>
+      </div>
+
+      {installBlocker && !active && (
+        <p className="muted" data-testid="debug-disabled-reason">
+          {installBlocker}
+        </p>
+      )}
+      {debug.error && (
+        <p className="error" role="alert" data-testid="debug-error">
+          {debug.error}
+        </p>
+      )}
+      {debug.note && (
+        <p className="muted" data-testid="debug-note">
+          {debug.note}
+        </p>
+      )}
+      {message && (
+        <p className="error" role="alert" data-testid="debug-message-error">
+          {message}
+        </p>
+      )}
+      {debug.progress && (
+        <p className="muted" data-testid="debug-progress">
+          Downloaded {debug.progress.downloaded} of{" "}
+          {debug.progress.total === null ? "an unknown total" : `${debug.progress.total}`} bytes
+          (measured; no percentage)
+        </p>
+      )}
+      {debug.sha256 && (
+        <p className="muted" data-testid="debug-sha256">
+          SHA-256 of the installed executable: <code>{debug.sha256}</code>
+        </p>
+      )}
+      {debug.verifiedOutput && (
+        <p className="muted" data-testid="debug-verified">
+          <code>{debug.verifiedOutput}</code>
+        </p>
+      )}
+      <p className="muted" data-testid="debug-dap">
+        DAP is not implemented in this build (ticket 14). A verified executable or a successful
+        install is not proof that debugging works.
+      </p>
+
+      {appleSilicon && (
+        <div data-testid="sdk-apple-silicon">
+          <strong>Apple Silicon debugger</strong>{" "}
+          <span className="tag">
+            {debug.appleSiliconExperimental ? "experimental · enabled" : "experimental · disabled"}
+          </span>
+          <p className="muted" data-testid="debug-flag-note">
+            The opt-in is independent of trust and installation. It neither installs netcoredbg
+            nor proves compatibility, and it does not remove this platform's limit.
+          </p>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              data-testid="debug-flag-checkbox"
+              checked={acknowledged}
+              disabled={busy || debug.appleSiliconExperimental}
+              onChange={(event) => setAcknowledged(event.target.checked)}
+            />
+            I understand the experimental flag does not install or prove the adapter
+          </label>
+          {debug.appleSiliconExperimental ? (
+            <button
+              data-testid="debug-flag-disable"
+              disabled={busy}
+              onClick={() =>
+                void run(() => call<Snapshot>("debug.flag", { enabled: false }))
+              }
+              title="Disables the experimental flag. It never installed or claimed compatibility."
+            >
+              Disable experimental flag
+            </button>
+          ) : (
+            <button
+              data-testid="debug-flag-enable"
+              disabled={busy || !acknowledged}
+              onClick={() =>
+                void run(() =>
+                  call<Snapshot>("debug.flag", { enabled: true, confirm: true }),
+                )
+              }
+              title={
+                acknowledged
+                  ? "Records the experimental opt-in for this session only. Nothing is installed and no DAP support is claimed."
+                  : "Acknowledge the limitation before enabling the experimental flag."
+              }
+            >
+              Enable experimental flag
+            </button>
+          )}
+        </div>
+      )}
+
+      {plan && (
+        <details className="eval-log analysis-plan" data-testid="debug-plan">
+          <summary>Install plan details</summary>
+          <dl className="restore-meta">
+            <dt>Tool</dt>
+            <dd data-testid="debug-plan-tool">
+              {plan.tool} {plan.version}
+            </dd>
+            <dt>Source</dt>
+            <dd data-testid="debug-plan-source">
+              {plan.source.name} · <code>{plan.source.url}</code>
+            </dd>
+            <dt>Asset</dt>
+            <dd data-testid="debug-plan-asset">
+              {plan.asset ? (
+                <>
+                  <code>{plan.asset.name}</code> · {plan.availability}
+                  <br />
+                  {plan.asset.size > 0 ? `${plan.asset.size} bytes · ` : ""}
+                  <code>{plan.asset.url}</code>
+                  <br />
+                  SHA-256 <code>{plan.asset.sha256}</code>
+                  {plan.asset.testOverride ? " · controlled test artifact" : ""}
+                  {plan.asset.reason ? <p className="muted">{plan.asset.reason}</p> : null}
+                </>
+              ) : (
+                <>No asset. {plan.availabilityReason}</>
+              )}
+            </dd>
+            <dt>Platform</dt>
+            <dd data-testid="debug-plan-platform">
+              {plan.os} / {plan.arch} ({plan.platform})
+            </dd>
+            <dt>Destination</dt>
+            <dd data-testid="debug-plan-destination">
+              <code>{plan.destination}</code>
+            </dd>
+            <dt>Staging</dt>
+            <dd data-testid="debug-plan-staging">
+              <code>{plan.staging}</code>
+            </dd>
+            <dt>Operation</dt>
+            <dd data-testid="debug-plan-operation">{plan.operation}</dd>
+            <dt>Permissions</dt>
+            <dd data-testid="debug-plan-permissions">
+              <ul className="plain-list">
+                {plan.permissions.map((permission) => (
+                  <li key={permission}>{permission}</li>
+                ))}
+              </ul>
+            </dd>
+            <dt>Integrity</dt>
+            <dd data-testid="debug-plan-integrity">{plan.integrity}</dd>
+            <dt>Limits</dt>
+            <dd data-testid="debug-plan-limits">
+              <ul className="plain-list">
+                {plan.limits.map((limit) => (
+                  <li key={limit}>{limit}</li>
+                ))}
+              </ul>
+            </dd>
+            <dt>Existing</dt>
+            <dd data-testid="debug-plan-existing">
+              {plan.existing.state === "present"
+                ? `A destination exists; confirming verifies and reuses it when valid (${plan.existing.reason ?? "unverified"}).`
+                : "No adapter at the destination."}
+            </dd>
+            {plan.blockedReason && (
+              <>
+                <dt>Blocked</dt>
+                <dd className="warning" data-testid="debug-plan-blocked">
+                  {plan.blockedReason}
+                </dd>
+              </>
+            )}
+            <dt>Plan id</dt>
+            <dd>
+              <code>{plan.planId}</code>
+            </dd>
+          </dl>
+        </details>
+      )}
+
+      {(debug.log || debug.revision > 0) && (
+        <details
+          className="eval-log"
+          open={active || debug.adapterState === "failed" || debug.adapterState === "cancelled"}
+        >
+          <summary>
+            Debug adapter log{debug.logTruncated ? " · truncated" : ""}
+          </summary>
+          <pre className="eval-pre" data-testid="debug-log">
+            {debug.log || "No output yet."}
+          </pre>
+        </details>
+      )}
+    </section>
+  );
+}
+
 export function LspPanel({ snapshot, onChange }: Props) {
   const lsp = snapshot.lsp;
   const tool = snapshot.tools["csharp-ls"];

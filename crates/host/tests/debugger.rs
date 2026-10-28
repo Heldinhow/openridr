@@ -1,0 +1,865 @@
+//! Boundary tests for the netcoredbg installer (ticket 13).
+//!
+//! The real asset of the approved release cannot be installed on this macOS arm64 host (the
+//! only osx-arm64 build is community supported and unverified). These tests therefore use a
+//! deterministic local HTTP server and a controlled zip whose executable is a shell script that
+//! prints `NET Core debugger 3.2.0-1 (controlled test artifact)`. It is executed only here, to
+//! exercise extraction and verification; it is not an official Samsung asset.
+
+use openridr_host::{Host, EXECUTABLE_METHODS};
+use serde_json::{json, Value};
+use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// A failing test must not poison the environment guard for the whole binary.
+fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+const ARTIFACT: &[u8] =
+    b"#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1 (controlled test artifact, Release)\\n'\n";
+const WRONG_VERSION: &[u8] =
+    b"#!/bin/sh\nprintf 'NET Core debugger 3.1.1-1000 (controlled test artifact, Release)\\n'\n";
+
+fn temp_workspace() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("Debug.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("Program.cs"), "class C {}\n").unwrap();
+    dir
+}
+
+fn open(host: &Host, dir: &Path) -> Value {
+    host.dispatch("workspace.open", json!({ "path": dir.join("Debug.csproj") }))
+        .expect("workspace opens")
+}
+
+fn state(host: &Host) -> Value {
+    host.dispatch("debug.state", json!({})).unwrap()["debug"].clone()
+}
+
+fn error_code(result: Result<Value, openridr_host::HostError>) -> String {
+    result.expect_err("expected host error").code
+}
+
+fn wait_for(host: &Host, states: &[&str], timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let debug = state(host);
+        if states.contains(&debug["adapterState"].as_str().unwrap_or("")) {
+            return debug;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "netcoredbg never reached {states:?}: state {} log {}",
+            debug["adapterState"],
+            debug["log"]
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// Minimal deterministic HTTP server: one route table, request counter and a clean shutdown.
+struct Server {
+    port: u16,
+    requests: Arc<AtomicUsize>,
+    stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Server {
+    fn start(routes: Vec<(&'static str, Route)>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let counter = Arc::clone(&requests);
+        let stopping = Arc::clone(&stop);
+        let handle = std::thread::spawn(move || {
+            while !stopping.load(Ordering::SeqCst) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut buffer = [0u8; 2048];
+                        let read = stream.read(&mut buffer).unwrap_or(0);
+                        let request = String::from_utf8_lossy(&buffer[..read]);
+                        let path = request
+                            .lines()
+                            .next()
+                            .and_then(|line| line.split_whitespace().nth(1))
+                            .unwrap_or("/")
+                            .to_string();
+                        counter.fetch_add(1, Ordering::SeqCst);
+                        let route = routes
+                            .iter()
+                            .find(|(name, _)| *name == path)
+                            .map(|(_, route)| route);
+                        match route {
+                            Some(Route::Ok(body)) => {
+                                let header = format!(
+                                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                    body.len()
+                                );
+                                let _ = stream.write_all(header.as_bytes());
+                                let _ = stream.write_all(body);
+                            }
+                            Some(Route::Slow(body)) => {
+                                let header = format!(
+                                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                    body.len()
+                                );
+                                let _ = stream.write_all(header.as_bytes());
+                                let half = body.len() / 2;
+                                let _ = stream.write_all(&body[..half]);
+                                let _ = stream.flush();
+                                std::thread::sleep(Duration::from_millis(400));
+                                let _ = stream.write_all(&body[half..]);
+                            }
+                            Some(Route::Redirect(location)) => {
+                                let header = format!(
+                                    "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                                );
+                                let _ = stream.write_all(header.as_bytes());
+                            }
+                            None => {
+                                let _ = stream
+                                    .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                            }
+                        }
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            port,
+            requests,
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("http://127.0.0.1:{}{path}", self.port)
+    }
+
+    fn requests(&self) -> usize {
+        self.requests.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+enum Route {
+    Ok(Vec<u8>),
+    Slow(Vec<u8>),
+    Redirect(&'static str),
+}
+
+/// Builds a zip with explicit names and unix modes, so traversal and symlink entries can be
+/// expressed exactly as a hostile archive would.
+fn zip_bytes(entries: &[(&str, &[u8], Option<u32>)]) -> Vec<u8> {
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    {
+        let mut writer = zip::ZipWriter::new(&mut buffer);
+        for (name, data, mode) in entries {
+            let mut options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            if let Some(mode) = mode {
+                options = options.unix_permissions(*mode);
+            }
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(data).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+    buffer.into_inner()
+}
+
+
+/// A single stored entry with an explicit external mode. The zip crate normalizes permissions,
+/// so a hostile symlink/absolute entry is expressed byte by byte here.
+fn raw_zip(name: &str, data: &[u8], mode: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    let name = name.as_bytes();
+    let size = data.len() as u32;
+    // Local file header, stored (method 0), CRC left 0: the mode is rejected before any read.
+    out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+    out.extend_from_slice(&20u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(name);
+    out.extend_from_slice(data);
+    let central_offset = out.len() as u32;
+    out.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+    out.extend_from_slice(&0x031eu16.to_le_bytes());
+    out.extend_from_slice(&20u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&(mode << 16).to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(name);
+    let central_size = out.len() as u32 - central_offset;
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&central_size.to_le_bytes());
+    out.extend_from_slice(&central_offset.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+fn artifact_zip(executable: &[u8]) -> Vec<u8> {
+    zip_bytes(&[
+        ("netcoredbg.exe", executable, Some(0o755)),
+        (
+            "README.txt",
+            b"controlled test artifact for ticket 13; not an official Samsung release\n",
+            Some(0o644),
+        ),
+    ])
+}
+
+struct EnvVar {
+    key: &'static str,
+    old: Option<std::ffi::OsString>,
+}
+
+impl EnvVar {
+    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let old = std::env::var_os(key);
+        std::env::set_var(key, value);
+        Self { key, old }
+    }
+}
+
+impl Drop for EnvVar {
+    fn drop(&mut self) {
+        match &self.old {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
+struct Seam {
+    _home: EnvVar,
+    _probe: EnvVar,
+    _platform: EnvVar,
+    _url: EnvVar,
+    _sha: EnvVar,
+    home: tempfile::TempDir,
+}
+
+impl Seam {
+    fn new(url: &str, sha: &str) -> Self {
+        let home = tempfile::tempdir().unwrap();
+        Self {
+            _home: EnvVar::set("OPENRIDR_HOME", home.path()),
+            _probe: EnvVar::set("OPENRIDR_ENABLE_PROBE", "1"),
+            _platform: EnvVar::set("OPENRIDR_DEBUG_PLATFORM", "windows/x86_64"),
+            _url: EnvVar::set("OPENRIDR_DEBUG_ASSET_URL", url),
+            _sha: EnvVar::set("OPENRIDR_DEBUG_ASSET_SHA256", sha),
+            home,
+        }
+    }
+}
+
+fn tool_dir(home: &Path) -> PathBuf {
+    home.join("tools/netcoredbg")
+}
+
+#[test]
+fn macos_arm64_has_no_verified_adapter_and_never_downloads() {
+    let _guard = env_guard();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
+    let host = Host::new();
+    let workspace = temp_workspace();
+    let opened = open(&host, workspace.path());
+    let debug = &opened["debug"];
+    // The plan is read-only and allowed before trust.
+    assert_eq!(debug["adapterState"], "experimental_disabled");
+    assert_eq!(debug["appleSiliconExperimental"], false);
+    assert_eq!(debug["version"], "3.2.0-1092");
+    assert_eq!(
+        debug["source"]["url"],
+        "https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092"
+    );
+    assert_eq!(
+        debug["gateReason"].as_str().unwrap(),
+        debug["adapterMessage"].as_str().unwrap()
+    );
+    assert!(debug["adapterMessage"]
+        .as_str()
+        .unwrap()
+        .contains("no verified compatible netcoredbg 3.2.0-1092 adapter"));
+    assert_eq!(debug["dapProven"], false);
+    assert_eq!(debug["gateReason"].as_str().unwrap().contains("Unavailable on macOS arm64"), true);
+
+    let planned = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
+    assert_eq!(planned["platform"], "osx-arm64");
+    assert_eq!(planned["asset"]["name"], "netcoredbg-osx-arm64.zip");
+    assert_eq!(planned["availability"], "unverified");
+    assert!(planned["plan"]["blockedReason"].as_str().unwrap().contains("community supported"));
+    assert!(planned["plan"]["integrity"]
+        .as_str()
+        .unwrap()
+        .contains("f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea"));
+    assert!(planned["plan"]["destination"]
+        .as_str()
+        .unwrap()
+        .ends_with("tools/netcoredbg/3.2.0-1092"));
+    assert!(planned["plan"]["staging"]
+        .as_str()
+        .unwrap()
+        .ends_with("3.2.0-1092.staging"));
+    assert!(!tool_dir(home.path()).exists());
+
+    // The experimental opt-in is independent of trust and install, and blocks nothing by
+    // itself; on macOS arm64 it must not install or claim compatibility.
+    assert_eq!(
+        error_code(host.dispatch("debug.flag", json!({ "enabled": true }))),
+        "confirmation_required"
+    );
+    let flagged = host
+        .dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap();
+    assert_eq!(flagged["debug"]["appleSiliconExperimental"], true);
+    assert_eq!(flagged["debug"]["adapterState"], "unavailable");
+    assert!(flagged["debug"]["adapterMessage"]
+        .as_str()
+        .unwrap()
+        .contains("neither installs the adapter nor proves compatibility"));
+    assert_eq!(flagged["debug"]["installable"], false);
+    assert!(!tool_dir(home.path()).exists());
+
+    // Trust + confirmation still cannot install an unverified asset.
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let refused = host
+        .dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .expect_err("macOS arm64 is blocked");
+    assert_eq!(refused.code, "unsupported_platform");
+    assert!(refused.message.contains("Nothing was downloaded"));
+    assert!(!tool_dir(home.path()).exists());
+    assert_eq!(state(&host)["log"].as_str().unwrap().contains("attempt"), false);
+}
+
+#[test]
+fn install_requires_trust_confirmation_and_an_unchanged_plan() {
+    let _guard = env_guard();
+    let zip = artifact_zip(ARTIFACT);
+    let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
+    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+
+    assert_eq!(
+        error_code(host.dispatch("debug.install", json!({}))),
+        "trust_required"
+    );
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let planned = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
+    assert_eq!(planned["adapterState"], "planned");
+    let plan = planned["plan"].clone();
+    let plan_id = plan["planId"].as_str().unwrap().to_string();
+    assert_eq!(plan["asset"]["testOverride"], true);
+    assert_eq!(plan["os"], "windows");
+    assert_eq!(plan["arch"], "x86_64");
+    assert_eq!(server.requests(), 0, "planning must not download");
+
+    assert_eq!(
+        error_code(host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": false })
+        )),
+        "confirmation_required"
+    );
+    assert_eq!(
+        error_code(host.dispatch(
+            "debug.install",
+            json!({ "planId": "fnv1a64:0000000000000000", "confirm": true })
+        )),
+        "confirmation_required"
+    );
+    assert_eq!(server.requests(), 0);
+    assert!(!tool_dir(seam.home.path()).exists());
+    assert_eq!(state(&host)["adapterState"], "planned");
+}
+
+#[test]
+fn a_changed_plan_after_confirmation_downloads_nothing() {
+    let _guard = env_guard();
+    let zip = artifact_zip(ARTIFACT);
+    let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
+    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A material change between plan and confirm: the expected hash is different.
+    std::env::set_var("OPENRIDR_DEBUG_ASSET_SHA256", "0".repeat(64));
+    let changed = host
+        .dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .expect_err("the plan changed");
+    assert_eq!(changed.code, "confirmation_required");
+    assert!(changed.message.contains("Nothing was downloaded"));
+    assert!(changed.details.unwrap()["plan"]["planId"].as_str().unwrap() != plan_id);
+    assert_eq!(server.requests(), 0);
+    assert!(!tool_dir(seam.home.path()).exists());
+    assert_eq!(state(&host)["adapterState"], "planned");
+}
+
+#[test]
+fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
+    let _guard = env_guard();
+    let zip = artifact_zip(ARTIFACT);
+    let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
+    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    host.dispatch(
+        "debug.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .unwrap();
+
+    let mut seen = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let finished = loop {
+        let debug = state(&host);
+        let current = debug["adapterState"].as_str().unwrap().to_string();
+        if seen.last() != Some(&current) {
+            seen.push(current.clone());
+        }
+        if matches!(current.as_str(), "ready" | "failed" | "cancelled") {
+            break debug;
+        }
+        assert!(Instant::now() < deadline, "install stuck: {}", debug["log"]);
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(finished["adapterState"], "ready", "{}", finished["log"]);
+    eprintln!(
+        "controlled netcoredbg install: states {seen:?}, verifiedVersion {:?}, sha256 {:?}, server requests {}",
+        finished["verifiedVersion"], finished["sha256"], server.requests()
+    );
+    assert_eq!(
+        seen,
+        ["downloading", "installing", "verifying", "ready"],
+        "states were not all observable: {seen:?}"
+    );
+    assert_eq!(finished["verifiedVersion"], "3.2.0");
+    assert!(finished["verifiedOutput"]
+        .as_str()
+        .unwrap()
+        .contains("controlled test artifact"));
+    assert_eq!(finished["sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(finished["reused"], false);
+    assert_eq!(finished["dapProven"], false);
+    assert!(finished["log"]
+        .as_str()
+        .unwrap()
+        .contains("sha256") );
+    assert!(finished["log"].as_str().unwrap().contains("matched the plan"));
+    assert_eq!(finished["destinationPresent"], true);
+    assert_eq!(finished["stagingPresent"], false);
+    let destination = PathBuf::from(finished["destination"].as_str().unwrap());
+    assert!(destination.join("netcoredbg.exe").is_file());
+    assert!(destination.join("README.txt").is_file());
+    assert!(destination.starts_with(seam.home.path()));
+    let requests = server.requests();
+    assert_eq!(requests, 1);
+
+    // A valid installation is reused; the server is not contacted again.
+    let planned = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
+    assert_eq!(planned["adapterState"], "ready");
+    assert_eq!(planned["plan"]["existing"]["state"], "present");
+    let reused = host
+        .dispatch(
+            "debug.install",
+            json!({ "planId": planned["plan"]["planId"], "confirm": true }),
+        )
+        .unwrap()["debug"]
+        .clone();
+    assert_eq!(reused["adapterState"], "ready");
+    assert_eq!(reused["reused"], true);
+    assert_eq!(reused["sha256"], finished["sha256"]);
+    assert_eq!(server.requests(), requests, "reuse must not download");
+    assert_eq!(
+        reused["gateReason"].as_str().unwrap(),
+        "Adapter executable and version are verified, but DAP launch is not implemented in this build (ticket 14)."
+    );
+}
+
+#[test]
+fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
+    let _guard = env_guard();
+    let zip = artifact_zip(ARTIFACT);
+
+    // 1. Hash mismatch: the controlled expected digest is wrong on purpose.
+    {
+        let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
+        let seam = Seam::new(&server.url("/asset.zip"), &"1".repeat(64));
+        let host = Host::new();
+        let workspace = temp_workspace();
+        open(&host, workspace.path());
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+            .unwrap();
+        let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+        assert!(failed["error"].as_str().unwrap().contains("SHA-256 mismatch"));
+        assert_eq!(failed["stagingPresent"], false);
+        assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+    }
+
+    // 2. Wrong version: the archive is valid but the executable is not 3.2.0.
+    {
+        let wrong = artifact_zip(WRONG_VERSION);
+        let server = Server::start(vec![("/asset.zip", Route::Ok(wrong.clone()))]);
+        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&wrong));
+        let host = Host::new();
+        let workspace = temp_workspace();
+        open(&host, workspace.path());
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+            .unwrap();
+        let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+        assert!(failed["error"].as_str().unwrap().contains("Verification failed"));
+        assert!(failed["log"].as_str().unwrap().contains("3.1.1"));
+        assert_eq!(failed["stagingPresent"], true, "staging stays as evidence");
+        assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+    }
+
+    // 3. Corrupt archive: valid hash for bytes that are not a zip.
+    {
+        let corrupt = b"this is not a zip archive".to_vec();
+        let server = Server::start(vec![("/asset.zip", Route::Ok(corrupt.clone()))]);
+        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&corrupt));
+        let host = Host::new();
+        let workspace = temp_workspace();
+        open(&host, workspace.path());
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+            .unwrap();
+        let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+        assert!(failed["error"].as_str().unwrap().contains("not a readable zip"));
+        assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+    }
+
+    // 4. Traversal entry: rejected before anything is written outside staging.
+    {
+        let evil = zip_bytes(&[("../escape.txt", b"escaped\n", Some(0o644))]);
+        let server = Server::start(vec![("/asset.zip", Route::Ok(evil.clone()))]);
+        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&evil));
+        let host = Host::new();
+        let workspace = temp_workspace();
+        open(&host, workspace.path());
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+            .unwrap();
+        let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+        assert!(
+            failed["error"]
+                .as_str()
+                .unwrap()
+                .contains("escapes the extraction directory"),
+            "{}",
+            failed["error"]
+        );
+        assert!(!tool_dir(seam.home.path()).join("escape.txt").exists());
+        assert!(!seam.home.path().join("escape.txt").exists());
+        assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+    }
+
+    // 5. Symlink entry: never extracted, not even as a link inside staging.
+    {
+        let link = raw_zip("link", b"/etc/passwd", 0o120777);
+        let server = Server::start(vec![("/asset.zip", Route::Ok(link.clone()))]);
+        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&link));
+        let host = Host::new();
+        let workspace = temp_workspace();
+        open(&host, workspace.path());
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+            .unwrap();
+        let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+        assert!(
+            failed["error"].as_str().unwrap().contains("symlinks are not extracted"),
+            "{}",
+            failed["error"]
+        );
+        assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+    }
+
+    // 6. Absolute path entry: rejected as an escape.
+    {
+        let absolute = raw_zip("/tmp/openridr-evil.txt", b"x", 0o100644);
+        let server = Server::start(vec![("/asset.zip", Route::Ok(absolute.clone()))]);
+        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&absolute));
+        let host = Host::new();
+        let workspace = temp_workspace();
+        open(&host, workspace.path());
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+            .unwrap();
+        let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+        assert!(
+            failed["error"].as_str().unwrap().contains("escapes the extraction directory"),
+            "{}",
+            failed["error"]
+        );
+        assert!(!Path::new("/tmp/openridr-evil.txt").exists());
+        assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+    }
+}
+
+#[test]
+fn origins_and_redirects_are_checked_before_any_download() {
+    let _guard = env_guard();
+    let zip = artifact_zip(ARTIFACT);
+
+    // A URL that is not the official host and not the loopback test seam is refused.
+    {
+        let seam = Seam::new("https://example.invalid/netcoredbg-win64.zip", &sha256(&zip));
+        let host = Host::new();
+        let workspace = temp_workspace();
+        open(&host, workspace.path());
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+            .unwrap();
+        let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+        assert!(failed["error"]
+            .as_str()
+            .unwrap()
+            .contains("only HTTPS on the official release hosts"));
+        assert_eq!(failed["error"].as_str().unwrap().contains("example.invalid"), true);
+        assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+    }
+
+    // A redirect that leaves the official hosts is rejected after the first hop.
+    {
+        let server = Server::start(vec![(
+            "/asset.zip",
+            Route::Redirect("https://example.invalid/payload.zip"),
+        )]);
+        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+        let host = Host::new();
+        let workspace = temp_workspace();
+        open(&host, workspace.path());
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+            .unwrap();
+        let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+        assert!(failed["error"]
+            .as_str()
+            .unwrap()
+            .contains("Refused to download from https://example.invalid/payload.zip"));
+        assert_eq!(server.requests(), 1, "only the initial request was made");
+        assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+    }
+}
+
+#[test]
+fn cancel_keeps_partial_state_and_retry_completes() {
+    let _guard = env_guard();
+    let zip = artifact_zip(ARTIFACT);
+    let server = Server::start(vec![
+        ("/slow.zip", Route::Slow(zip.clone())),
+        ("/asset.zip", Route::Ok(zip.clone())),
+    ]);
+    let seam = Seam::new(&server.url("/slow.zip"), &sha256(&zip));
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+
+    // A planned install can be cancelled before trust: cancellation is a safety action.
+    host.dispatch("debug.plan", json!({})).unwrap();
+    assert_eq!(state(&host)["adapterState"], "planned");
+    let cancelled = host.dispatch("debug.cancel", json!({})).unwrap()["debug"].clone();
+    assert_eq!(cancelled["adapterState"], "cancelled");
+    assert!(cancelled["log"].as_str().unwrap().contains("Plan cancelled"));
+    assert_eq!(server.requests(), 0);
+
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let planned = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
+    let plan_id = planned["plan"]["planId"].as_str().unwrap().to_string();
+    host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+        .unwrap();
+    wait_for(&host, &["downloading"], Duration::from_secs(10));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let debug = state(&host);
+        if debug["progress"]["downloaded"].as_u64().unwrap_or(0) > 0 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no bytes were observed");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    host.dispatch("debug.cancel", json!({})).unwrap();
+    wait_for(&host, &["cancelled"], Duration::from_secs(10));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while state(&host)["busy"].as_bool().unwrap_or(false) {
+        assert!(Instant::now() < deadline, "the cancelled worker never stopped");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let stopped = state(&host);
+    assert!(stopped["error"].is_null());
+    assert_eq!(stopped["stagingPresent"], false);
+    assert_eq!(stopped["destinationPresent"], false);
+    assert!(stopped["log"].as_str().unwrap().contains("Cancellation requested"));
+    assert_eq!(
+        error_code(host.dispatch("debug.cancel", json!({}))),
+        "invalid_state"
+    );
+
+    // Retry with a changed plan: a new confirmation is required, nothing is downloaded.
+    std::env::set_var("OPENRIDR_DEBUG_ASSET_URL", server.url("/asset.zip"));
+    assert_eq!(
+        error_code(host.dispatch("debug.retry", json!({}))),
+        "confirmation_required"
+    );
+    let replanned = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
+    assert!(replanned["plan"]["blockedReason"].is_null());
+    let retried = host
+        .dispatch(
+            "debug.install",
+            json!({ "planId": replanned["plan"]["planId"], "confirm": true }),
+        )
+        .unwrap();
+    assert_eq!(retried["debug"]["adapterState"], "downloading");
+    let finished = wait_for(&host, &["ready", "failed"], Duration::from_secs(30));
+    assert_eq!(finished["adapterState"], "ready", "{}", finished["log"]);
+    assert!(finished["revision"].as_u64().unwrap() >= 2);
+    assert!(finished["log"].as_str().unwrap().contains("== attempt 2 =="));
+    assert!(Path::new(finished["destination"].as_str().unwrap())
+        .join("netcoredbg.exe")
+        .is_file());
+    assert!(Path::new(finished["destination"].as_str().unwrap()).starts_with(seam.home.path()));
+}
+
+#[test]
+fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
+    let _guard = env_guard();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+    for method in EXECUTABLE_METHODS.iter().filter(|method| method.starts_with("debug.")) {
+        assert_eq!(
+            error_code(host.dispatch(method, json!({ "planId": "none", "confirm": true }))),
+            "trust_required",
+            "{method}"
+        );
+    }
+    assert!(!tool_dir(home.path()).exists());
+    // Planning and reading the state stay read-only and trust-free.
+    assert_eq!(
+        host.dispatch("debug.plan", json!({})).unwrap()["debug"]["adapterState"],
+        "experimental_disabled"
+    );
+    assert_eq!(
+        host.dispatch("debug.state", json!({})).unwrap()["debug"]["version"],
+        "3.2.0-1092"
+    );
+}

@@ -1,0 +1,16 @@
+$ curl -sS https://api.github.com/repos/Samsung/netcoredbg/releases/tags/3.2.0-1092
+$ python3 - ...
+3.2.0-1092 3.2.0-1092 2026-06-25T14:40:46Z prerelease=False draft=False
+netcoredbg-linux-amd64.tar.gz	3510717	sha256:080eb3b2d2152465f599d3b33d1ee6e747794e11cc0a3773ec689f5e5f2c5afa
+netcoredbg-linux-arm64.tar.gz	3424271	sha256:065ff49badec8a695dbea2de6ab6a330c774a191e426a217ab8cc05250627ccb
+netcoredbg-osx-arm64.zip	3389504	sha256:f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea
+netcoredbg-win64.zip	3524161	sha256:3c410a45fa502415203a94fcb88654af65bf8e3dac158a5527a722e7a6b9274a
+
+$ curl -sS https://raw.githubusercontent.com/Samsung/netcoredbg/3.2.0-1092/README.md | grep -n -i "arm64"
+113:*Note: the MacOS arm64 build (M1) is community supported and may not work as expected, as well as some tests possibly failing.*
+
+$ uname -m; sw_vers
+arm64
+ProductName:		macOS
+ProductVersion:		27.2
+BuildVersion:		26B118

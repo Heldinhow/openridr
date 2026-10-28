@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.01s
+     Running tests/debugger.rs (target/debug/deps/debugger-3dbc06e6f065569a)
+
+running 1 test
+controlled netcoredbg install: states ["downloading", "installing", "verifying", "ready"], verifiedVersion String("3.2.0"), sha256 String("cf028bf7b6fbdfda333b360023f31793b9cbde18ae64607e582479027fb36825"), server requests 1
+test a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.67s
+

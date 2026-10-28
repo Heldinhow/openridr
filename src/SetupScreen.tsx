@@ -2,6 +2,7 @@ import { useState } from "react";
 import { call, HostCallError, type Candidate, type ProjectSdk, type Snapshot } from "./host/client";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
+import { DebugAdapterPanel } from "./ToolchainPanels";
 
 type Props = {
   snapshot: Snapshot | null;
@@ -128,7 +129,6 @@ export function SetupScreen({
   const tfms = [...new Set(outline?.projects.flatMap((project) => project.tfms) ?? [])];
   const sdk = snapshot?.sdk;
   const trusted = snapshot?.trust.granted ?? false;
-  const appleSilicon = snapshot?.app.platform === "macos" && snapshot?.app.arch === "aarch64";
 
   async function open(target: string) {
     if (!target.trim()) {
@@ -314,25 +314,10 @@ export function SetupScreen({
                 </div>
               </div>
 
-              <div className="tool-row">
-                <strong>Debug adapter</strong>
-                <div data-testid="sdk-debug-adapter">
-                  Not checked in this slice.
-                  <br />
-                  <span className="muted">{snapshot?.debug.adapterMessage}</span>
-                </div>
-              </div>
-
-              {appleSilicon && (
+              {snapshot && (
                 <div className="tool-row">
-                  <strong>Apple Silicon debugger</strong>
-                  <div data-testid="sdk-apple-silicon">
-                    <strong>experimental · disabled</strong> (OFF by default)
-                    <br />
-                    <span className="muted">
-                      This slice does not install or enable the experimental debugger.
-                    </span>
-                  </div>
+                  <strong>Debug adapter</strong>
+                  <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} />
                 </div>
               )}
 

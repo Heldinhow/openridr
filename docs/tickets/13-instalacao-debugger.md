@@ -8,12 +8,12 @@
 
 **Category:** enhancement
 
-- [ ] Plano informa versão aprovada/release 3.2.0-1092, URL/asset oficial Samsung, SO/arquitetura, destino absoluto fora do repo, operação e permissões. Sem asset compatível verificado, origem válida ou consentimento, não baixar/instalar; não substituir versão silenciosamente.
-- [ ] Aplicar integralmente G3: validar origem e redirects, destino e extração segura sem escape, mecanismos de integridade/autenticidade disponíveis com limites explícitos. Bloquear divergência/corrupção e uso não verificado; sem global install/elevação implícita/SDK installer; plano alterado exige reconfirmação.
-- [ ] Exercitar plano pendente/downloading/installing/verifying/ready/cancelled/failed, logs duráveis, cancelamento, retry e parcial não pronta, preservando ferramenta válida. Progresso só medido; sucesso verifica executável/versão, não declara DAP funcional.
-- [ ] Mac ARM64 inicia `Apple Silicon debugger: experimental · disabled`, flag OFF, Debug bloqueado e Run independente. Opt-in separado de trust e consentimento não instala nem comprova compatibilidade; só 14/18 podem reunir prova para futura retirada da flag.
-- [ ] Mac Intel sem asset 3.2 compatível verificado mostra indisponível e bloqueia instalação/launch, sem baixar outra versão. Windows x64 requer asset adequado e posteriormente smoke DAP próprio. Limites não desabilitam análise/Run/testes disponíveis.
-- [ ] Host aplica consentimento/plataforma/flag/trust quando pertinentes, inclusive chamadas diretas. Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), incluindo auditoria MIT/avisos e UI acessível. Este ticket independe do instalador csharp-ls.
+- [x] Plano informa versão aprovada/release 3.2.0-1092, URL/asset oficial Samsung, SO/arquitetura, destino absoluto fora do repo, operação e permissões. Sem asset compatível verificado, origem válida ou consentimento, não baixar/instalar; não substituir versão silenciosamente.
+- [x] Aplicar integralmente G3: validar origem e redirects, destino e extração segura sem escape, mecanismos de integridade/autenticidade disponíveis com limites explícitos. Bloquear divergência/corrupção e uso não verificado; sem global install/elevação implícita/SDK installer; plano alterado exige reconfirmação.
+- [x] Exercitar plano pendente/downloading/installing/verifying/ready/cancelled/failed, logs duráveis, cancelamento, retry e parcial não pronta, preservando ferramenta válida. Progresso só medido; sucesso verifica executável/versão, não declara DAP funcional.
+- [x] Mac ARM64 inicia `Apple Silicon debugger: experimental · disabled`, flag OFF, Debug bloqueado e Run independente. Opt-in separado de trust e consentimento não instala nem comprova compatibilidade; só 14/18 podem reunir prova para futura retirada da flag.
+- [ ] Mac Intel sem asset 3.2 compatível verificado mostra indisponível e bloqueia instalação/launch, sem baixar outra versão. Windows x64 requer asset adequado e posteriormente smoke DAP próprio. Limites não desabilitam análise/Run/testes disponíveis. (Gate/plano e ausência de asset provados em teste de host e no E2E desta máquina; nenhuma máquina Intel ou Windows foi executada.)
+- [x] Host aplica consentimento/plataforma/flag/trust quando pertinentes, inclusive chamadas diretas. Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), incluindo auditoria MIT/avisos e UI acessível. Este ticket independe do instalador csharp-ls.
 
 ## Mapeamento à SPEC
 
@@ -26,3 +26,4 @@ UI real Mac para plano/recusa/flag/estados e instalação oficial somente onde a
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+- 2026-10-28: Implementado e evidenciado em macOS 27.2 arm64. A release oficial 3.2.0-1092 publica `netcoredbg-osx-arm64.zip`, mas o README da mesma tag o declara “community supported and may not work as expected” e não há prova DAP; `debug.install` devolve `unsupported_platform` e nada é baixado. Plano/consentimento/flag/origem/extração/hash/estados/retry/cancel foram exercitados com servidor local determinístico e zip controlado (nunca o asset oficial). Faltam: instalação/launch reais do netcoredbg em Mac arm64/Intel, instalação e smoke do asset Windows, e DAP (ticket 14) — ver [evidência](../evidence/13-instalacao-debugger.md).

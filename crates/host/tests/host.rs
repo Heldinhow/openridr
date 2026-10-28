@@ -378,6 +378,8 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "lsp.didChange"
             && **method != "tools.install"
             && **method != "tools.retry"
+            && **method != "debug.install"
+            && **method != "debug.retry"
             && **method != "run.start"
     }) {
         let code = error_code(host.dispatch(method, json!({})));
@@ -396,6 +398,8 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     for (method, code) in [
         ("tools.install", "confirmation_required"),
         ("tools.retry", "invalid_state"),
+        ("debug.install", "confirmation_required"),
+        ("debug.retry", "invalid_state"),
         ("lsp.start", "tool_missing"),
         ("lsp.restart", "tool_missing"),
         ("lsp.didOpen", "invalid_state"),

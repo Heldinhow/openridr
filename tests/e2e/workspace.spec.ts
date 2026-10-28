@@ -88,8 +88,9 @@ test("opens the fixture in restricted mode with trust available", async ({ page 
   );
   await expect(page.getByTestId("sdk-host")).toContainText("10.0.100");
   await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
+  await expect(page.getByTestId("sdk-debug-adapter")).toContainText("netcoredbg");
   await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
-    "Not checked in this slice",
+    "no verified compatible netcoredbg 3.2.0-1092 adapter",
   );
 
   await enterTextOnly(page);
