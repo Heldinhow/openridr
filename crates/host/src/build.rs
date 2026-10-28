@@ -24,6 +24,8 @@ pub const MAX_PROBLEMS: usize = 200;
 pub struct Start {
     pub revision: u64,
     pub build_id: String,
+    pub evaluation_revision: u64,
+    pub sources: Vec<SourceHash>,
     pub project_name: String,
     pub project_path: String,
     pub project_kind: &'static str,
@@ -120,6 +122,10 @@ struct Data {
     revision: u64,
     state: &'static str,
     build_id: String,
+    evaluation_revision: u64,
+    /// Saved source files and their content hashes when this build started. Run uses them
+    /// to refuse launching a build whose sources changed afterwards.
+    sources: Vec<SourceHash>,
     project: Option<BuildProject>,
     configuration: String,
     target_framework: Option<String>,
@@ -153,6 +159,59 @@ pub struct Build {
     data: Mutex<Data>,
 }
 
+/// One saved source as it was read when the build started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceHash {
+    pub path: String,
+    pub hash: Option<String>,
+}
+
+/// Hashes the saved sources of the startup project and its referenced projects at build
+/// start. A source that cannot be read keeps `None`, which run treats as changed.
+pub fn capture_sources(
+    root: &Path,
+    startup: &str,
+    projects: &[EvaluatedProject],
+) -> Vec<SourceHash> {
+    let by_path: HashMap<&str, &EvaluatedProject> = projects
+        .iter()
+        .map(|project| (project.path.as_str(), project))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut queue = vec![startup.to_string()];
+    let mut sources: Vec<SourceHash> = Vec::new();
+    while let Some(path) = queue.pop() {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let Some(project) = by_path.get(path.as_str()) else {
+            continue;
+        };
+        for source in &project.sources {
+            sources.push(SourceHash {
+                path: source.clone(),
+                hash: hash_file(&root.join(source)),
+            });
+        }
+        for reference in &project.project_refs {
+            queue.push(reference.path.clone());
+        }
+    }
+    sources.sort_by(|left, right| left.path.cmp(&right.path));
+    sources.dedup_by(|left, right| left.path == right.path);
+    sources
+}
+
+fn hash_file(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    Some(format!("fnv1a64:{hash:016x}"))
+}
+
 impl Build {
     pub fn idle() -> Self {
         Self {
@@ -160,6 +219,8 @@ impl Build {
                 revision: 0,
                 state: "idle",
                 build_id: String::new(),
+                evaluation_revision: 0,
+                sources: Vec::new(),
                 project: None,
                 configuration: String::new(),
                 target_framework: None,
@@ -195,6 +256,8 @@ impl Build {
                 revision: start.revision,
                 state: "running",
                 build_id: start.build_id,
+                evaluation_revision: start.evaluation_revision,
+                sources: start.sources,
                 project: Some(BuildProject {
                     name: start.project_name,
                     path: start.project_path,
@@ -268,6 +331,22 @@ impl Build {
             return;
         }
         data.process_id = Some(id);
+    }
+
+    pub fn evaluation_revision(&self) -> u64 {
+        self.data.lock().unwrap().evaluation_revision
+    }
+
+    /// Saved sources whose content no longer matches the build start, by workspace path.
+    pub fn changed_sources(&self, root: &Path) -> Vec<String> {
+        let data = self.data.lock().unwrap();
+        data.sources
+            .iter()
+            .filter(|source| {
+                source.hash.is_none() || source.hash != hash_file(&root.join(&source.path))
+            })
+            .map(|source| source.path.clone())
+            .collect()
     }
 
     /// Process id of the build that may still be cancelled or observed, if any.
@@ -630,6 +709,15 @@ pub fn select_startup<'a>(
     projects: &'a [EvaluatedProject],
     requested: Option<&str>,
 ) -> HostResult<&'a EvaluatedProject> {
+    select_startup_for(projects, requested, "build")
+}
+
+/// Same selection for another consumer (run), so its refusal names what was refused.
+pub fn select_startup_for<'a>(
+    projects: &'a [EvaluatedProject],
+    requested: Option<&str>,
+    consumer: &str,
+) -> HostResult<&'a EvaluatedProject> {
     if let Some(requested) = requested {
         let normalized = requested
             .replace('\\', "/")
@@ -645,7 +733,7 @@ pub fn select_startup<'a>(
             return Err(HostError::new(
                 "invalid_state",
                 format!(
-                    "{} is a {} project; only a console executable project can be the build startup project.",
+                    "{} is a {} project; only a console executable project can be the {consumer} startup project.",
                     project.name, project.kind
                 ),
             ));
@@ -654,7 +742,7 @@ pub fn select_startup<'a>(
             return Err(HostError::new(
                 "invalid_state",
                 format!(
-                    "{} has no evaluated TargetPath; re-evaluate the project model before building.",
+                    "{} has no evaluated TargetPath; re-evaluate the project model before running it.",
                     project.name
                 ),
             ));
@@ -671,12 +759,14 @@ pub fn select_startup<'a>(
         [only] => Ok(only),
         [] => Err(HostError::new(
             "invalid_state",
-            "No console executable project is available in the current evaluation; select a solution with an executable project and re-evaluate.",
+            format!(
+                "No console executable project is available in the current evaluation; select a solution with an executable project and re-evaluate before {consumer}."
+            ),
         )),
         many => Err(HostError::with_details(
             "invalid_state",
             format!(
-                "This workspace has {} console projects ({}); choose the startup project explicitly.",
+                "This workspace has {} console projects ({}); choose the {consumer} startup project explicitly.",
                 many.len(),
                 many.iter()
                     .map(|project| project.name.as_str())
@@ -724,6 +814,7 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     fn root() -> PathBuf {
         PathBuf::from("/work/Order Desk")
@@ -929,6 +1020,8 @@ mod tests {
         let build = Build::begin(Start {
             revision: 1,
             build_id: "build:1:1".to_string(),
+            evaluation_revision: 2,
+            sources: Vec::new(),
             project_name: "App".to_string(),
             project_path: "App.csproj".to_string(),
             project_kind: "console",
@@ -980,6 +1073,8 @@ mod tests {
         let build = std::sync::Arc::new(Build::begin(Start {
             revision: 1,
             build_id: "build:1:crlf".to_string(),
+            evaluation_revision: 2,
+            sources: Vec::new(),
             project_name: "App".to_string(),
             project_path: "App.csproj".to_string(),
             project_kind: "console",
@@ -1016,10 +1111,67 @@ mod tests {
     }
 
     #[test]
+    fn captured_sources_cover_the_startup_and_its_references_and_detect_a_saved_edit() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        fs::create_dir_all(root.join("src/Cli")).unwrap();
+        fs::create_dir_all(root.join("src/Core")).unwrap();
+        fs::write(root.join("src/Cli/Program.cs"), "class Program {}\n").unwrap();
+        fs::write(root.join("src/Core/Order.cs"), "class Order {}\n").unwrap();
+        let mut cli = evaluated(
+            "Cli",
+            "src/Cli/Cli.csproj",
+            "console",
+            Some("/work/Cli.dll"),
+        );
+        cli.sources = vec!["src/Cli/Program.cs".to_string()];
+        cli.project_refs = vec![crate::evaluation::ProjectRef {
+            name: "Core".to_string(),
+            path: "src/Core/Core.csproj".to_string(),
+        }];
+        let mut core = evaluated("Core", "src/Core/Core.csproj", "library", None);
+        core.sources = vec!["src/Core/Order.cs".to_string()];
+        let sources = capture_sources(&root, "src/Cli/Cli.csproj", &[cli, core]);
+        assert_eq!(
+            sources
+                .iter()
+                .map(|source| source.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["src/Cli/Program.cs", "src/Core/Order.cs"]
+        );
+
+        let build = Build::begin(Start {
+            revision: 1,
+            build_id: "build:1:1".to_string(),
+            evaluation_revision: 1,
+            sources,
+            project_name: "Cli".to_string(),
+            project_path: "src/Cli/Cli.csproj".to_string(),
+            project_kind: "console",
+            target_path: Some("/work/Cli.dll".to_string()),
+            configuration: "Debug".to_string(),
+            target_framework: None,
+            command: vec!["dotnet".to_string(), "build".to_string()],
+            cwd: root.clone(),
+            sdk_root: root.clone(),
+            sdk_version: "8.0.408".to_string(),
+            workspace_id: 1,
+            context_id: 1,
+            root: root.clone(),
+            saved_note: None,
+        });
+        assert!(build.changed_sources(&root).is_empty());
+        fs::write(root.join("src/Core/Order.cs"), "class Order { int Id; }\n").unwrap();
+        assert_eq!(build.changed_sources(&root), vec!["src/Core/Order.cs"]);
+    }
+
+    #[test]
     fn cancel_is_requested_not_observed_and_a_sealed_record_drops_late_output() {
         let build = Build::begin(Start {
             revision: 2,
             build_id: "build:1:2".to_string(),
+            evaluation_revision: 2,
+            sources: Vec::new(),
             project_name: "App".to_string(),
             project_path: "App.csproj".to_string(),
             project_kind: "console",

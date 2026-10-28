@@ -1,0 +1,18 @@
+{
+  "code": "invalid_state",
+  "details": {
+    "action": {
+      "method": "build.start",
+      "params": {
+        "configuration": "Debug",
+        "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+        "targetFramework": null
+      }
+    },
+    "buildId": "build:1:2",
+    "buildLog": "  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll\n/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/Program.cs(1,15): error CS1513: } expected [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/OrderDesk.Cli.csproj]\nBuild FAILED.\n/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/Program.cs(1,15): error CS1513: } expected [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/OrderDesk.Cli.csproj]\n    0 Warning(s)\n    1 Error(s)\nTime Elapsed 00:00:00.38",
+    "exit": 1,
+    "reason": "build_failed"
+  },
+  "message": "Run was not started: the last build did not succeed (failed · exit 1). Fix the build before running."
+}

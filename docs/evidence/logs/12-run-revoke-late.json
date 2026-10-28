@@ -1,0 +1,36 @@
+{
+  "awaitingDecision": false,
+  "buildId": "build:2:4",
+  "command": [
+    "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+    "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Long Runner/bin/Debug/net8.0/LongRunner.dll"
+  ],
+  "configuration": "Debug",
+  "contextId": 4,
+  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Long Runner",
+  "exit": 143,
+  "finishedAt": 1793177005696,
+  "log": "parent 58238 child 58239\nlong-running",
+  "logTruncated": false,
+  "processId": 9,
+  "project": {
+    "name": "LongRunner",
+    "path": "LongRunner.csproj"
+  },
+  "revision": 3,
+  "runId": "run:2:3",
+  "sealed": true,
+  "stale": true,
+  "staleReason": "Trust was revoked while this program was running; it was stopped and its result is not current.",
+  "startedAt": 1793177005527,
+  "state": "cancelled",
+  "targetFramework": null,
+  "targetPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Long Runner/bin/Debug/net8.0/LongRunner.dll",
+  "termination": {
+    "exit": 143,
+    "killedAfterGrace": false,
+    "observed": "exited",
+    "requested": "SIGTERM"
+  },
+  "workspaceId": 2
+}

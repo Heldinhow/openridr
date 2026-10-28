@@ -1,0 +1,20 @@
+{
+  "code": "build_stale",
+  "details": {
+    "action": {
+      "method": "build.start",
+      "params": {
+        "configuration": "Debug",
+        "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+        "targetFramework": null
+      }
+    },
+    "buildId": "build:1:1",
+    "buildLog": "  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll\n  OrderDesk.Cli -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\nTime Elapsed 00:00:00.60",
+    "changedSources": [
+      "src/OrderDesk.Cli/Program.cs"
+    ],
+    "reason": "source_changed"
+  },
+  "message": "Run was not started: 1 saved source changed after this build (src/OrderDesk.Cli/Program.cs). Rebuild before running."
+}

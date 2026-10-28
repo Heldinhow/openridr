@@ -8,12 +8,12 @@
 
 **Category:** enhancement
 
-- [ ] Run exige projeto executável/configuração/TFM explícitos e build válido bem-sucedido desse contexto. Build falho, avaliação/TargetPath inválido ou biblioteca startup bloqueiam launch com motivo e navegação/log pertinentes.
-- [ ] Lançar saída gerenciada obtida da avaliação atual, nunca caminho presumido; expor comando, cwd/contexto, revisão salva/build e logs stdout/stderr/estado. Run não dispara restore implícito nem ignora SDK/regras do projeto.
-- [ ] Buffer ou conteúdo salvo alterado depois do build recebe aviso; oferecer decisão explícita para salvar/reconstruir ou usar snapshot anterior identificado quando cabível. Nunca afirmar fonte atual verificado nem sobrescrever edições sem decisão.
-- [ ] No console real, observar saída esperada e exit quando fornecido; preservar log após término/falha/cancelamento. Exit ausente é unknown, não sucesso presumido.
-- [ ] Cancelar solicita término da árvore real, incluindo filhos; distinguir solicitação, resultado observado, falha/remanescentes e exit. Revogação bloqueia novas execuções no host e oferece confirmação de término mantendo processos visíveis enquanto pendente.
-- [ ] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket); Run permanece independente de debugger/flag e o atalho Ctrl+R Mac/Shift+F10 Windows respeita os mesmos gates.
+- [x] Run exige projeto executável/configuração/TFM explícitos e build válido bem-sucedido desse contexto. Build falho, avaliação/TargetPath inválido ou biblioteca startup bloqueiam launch com motivo e navegação/log pertinentes.
+- [x] Lançar saída gerenciada obtida da avaliação atual, nunca caminho presumido; expor comando, cwd/contexto, revisão salva/build e logs stdout/stderr/estado. Run não dispara restore implícito nem ignora SDK/regras do projeto.
+- [x] Buffer ou conteúdo salvo alterado depois do build recebe aviso; oferecer decisão explícita para salvar/reconstruir ou usar snapshot anterior identificado quando cabível. Nunca afirmar fonte atual verificado nem sobrescrever edições sem decisão.
+- [x] No console real, observar saída esperada e exit quando fornecido; preservar log após término/falha/cancelamento. Exit ausente é unknown, não sucesso presumido.
+- [x] Cancelar solicita término da árvore real, incluindo filhos; distinguir solicitação, resultado observado, falha/remanescentes e exit. Revogação bloqueia novas execuções no host e oferece confirmação de término mantendo processos visíveis enquanto pendente.
+- [x] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket); Run permanece independente de debugger/flag e o atalho Ctrl+R Mac/Shift+F10 Windows respeita os mesmos gates.
 
 ## Mapeamento à SPEC
 
@@ -26,3 +26,4 @@ UI Mac → build/run real da fixture, alterar buffer e salvo após build, trocar
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+- 2026-10-28: Implementado e verificado em macOS arm64 com dotnet 8.0.408 real; evidência em [12-run.md](../evidence/12-run.md). Run é de um console por vez, sem debugger/stdin/PTY; Windows e macOS Intel não executados (ticket 18). O atalho Shift+F10 está implementado pelo `app.platform`, mas só o Cmd+R foi exercitado.

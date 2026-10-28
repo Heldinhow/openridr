@@ -216,6 +216,39 @@ export type Build = {
   problemsTruncated: boolean;
 };
 
+/** The program launched from the identified successful build. `exited` is neutral: the
+ * exit code is shown as observed and `null` stays unknown. */
+export type Run = {
+  state: "idle" | "running" | "exited" | "failed" | "cancelled";
+  project: { name: string; path: string } | null;
+  targetPath: string | null;
+  buildId: string | null;
+  configuration: string;
+  targetFramework: string | null;
+  command: string[];
+  cwd: string;
+  log: string;
+  logTruncated: boolean;
+  exit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  processId: number | null;
+  awaitingDecision: boolean;
+  revision: number;
+  runId: string | null;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  sealed: boolean;
+  stale: boolean;
+  staleReason: string | null;
+};
+
 export type InstallSource = { name: string; url: string; packageUrl: string };
 export type InstallExisting = {
   state: "present" | "absent" | "ready";
@@ -556,6 +589,7 @@ export type Snapshot = {
   processes: ProcessInfo[];
   restore: Restore;
   build: Build;
+  run: Run;
   tools: { "csharp-ls": ToolInstall };
   lsp: Lsp;
   diagnostics: Diagnostics;

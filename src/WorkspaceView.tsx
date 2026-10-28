@@ -11,7 +11,7 @@ import {
 } from "./host/client";
 import { CodeEditor } from "./CodeEditor";
 import { ProblemsPanel } from "./ProblemsPanel";
-import { BuildPanel, isBuildObsolete } from "./BuildPanel";
+import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { LspPanel, ToolInstaller } from "./ToolchainPanels";
@@ -227,6 +227,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     nonce: number;
   } | null>(null);
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
+  const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -238,6 +239,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
   const [buildDecision, setBuildDecision] = useState(false);
+  const [runDecision, setRunDecision] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
   const autoEvaluation = useRef<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(
@@ -386,6 +388,47 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                     ? "A build is already running."
                     : null;
   const requestBuildRef = useRef<() => void>(() => {});
+  const run = snapshot.run;
+  const runRunning = run.state === "running";
+  const runShortcut = runShortcutLabel(snapshot.app.platform);
+  const buildReference = build.finishedAt ?? build.startedAt ?? 0;
+  const savedSourceAfterBuild = Object.entries(savedAt).some(
+    ([path, saved]) => path.endsWith(".cs") && saved > buildReference,
+  );
+  const runDisabledReason = !trusted
+    ? "Trust the workspace before running; nothing runs in Restricted mode."
+    : projectSdk.state !== "resolved"
+      ? "Resolve the project SDK before running; the host SDK is never substituted."
+      : evaluation.state === "running"
+        ? "Wait for the evaluation to finish before running."
+        : evaluation.stale
+          ? "The evaluated project model is stale; re-evaluate before running."
+          : !["ok", "partial"].includes(evaluation.state)
+            ? "Evaluate the project model before running; Run uses the saved build's TargetPath."
+            : consoleCandidates.length === 0
+              ? "No console executable project is available in the current evaluation; libraries and test projects cannot be run."
+              : !startupProject
+                ? "More than one console project; choose the startup project explicitly."
+                : buildRunning
+                  ? "A build is running; wait for it to finish before running."
+                  : runRunning
+                    ? "A program is already running."
+                    : build.revision === 0
+                      ? "Build the startup project first; Run never builds or restores implicitly."
+                      : build.sealed
+                        ? "The saved build belongs to a previous context; rebuild before running."
+                        : build.stale
+                          ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
+                          : build.state !== "ok" || build.exit !== 0
+                            ? `The last build did not succeed (${
+                                build.exit === null ? "exit unknown" : `exit ${build.exit}`
+                              }); fix it and rebuild.`
+                            : build.project?.path !== startupProject.path
+                              ? "The saved build is for another startup project; build the selected one."
+                              : savedSourceAfterBuild
+                                ? "Sources were saved after this build; rebuild before running."
+                                : null;
+  const requestRunRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     // Evaluate automatically once per trusted context; a stale model always needs an
@@ -738,6 +781,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             : item,
         ),
       );
+      setSavedAt((current) => ({ ...current, [tab.path]: Date.now() }));
       setMessage({ tone: "info", text: `Saved ${tab.path}` });
       return { ok: true };
     } catch (error) {
@@ -1333,6 +1377,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             : item,
         ),
       );
+      setSavedAt((current) => ({ ...current, [tab.path]: Date.now() }));
       setMessage({ tone: "info", text: `Overwrote ${tab.path} with the buffer.` });
     } catch (error) {
       if (error instanceof HostCallError && error.code === "conflict") {
@@ -1507,17 +1552,85 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
+  async function startRun() {
+    if (!startupProject) {
+      setMessage({
+        tone: "error",
+        text: "Choose a console startup project before running.",
+      });
+      return;
+    }
+    setBottomTab("build");
+    try {
+      onSnapshot(
+        await call<Snapshot>("run.start", {
+          project: startupProject.path,
+          configuration: evaluation.context.configuration,
+          targetFramework: evaluation.context.targetFramework,
+        }),
+      );
+      setMessage(null);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Run could not start: ${messageOf(error)}` });
+      try {
+        onSnapshot(await call<Snapshot>("workspace.state"));
+      } catch {
+        // The message above already explains the failure.
+      }
+    }
+  }
+
+  function requestRun() {
+    if (runDisabledReason) {
+      setMessage({ tone: "error", text: `Run unavailable: ${runDisabledReason}` });
+      return;
+    }
+    if (dirtyCount > 0) {
+      setRunDecision(true);
+      return;
+    }
+    void startRun();
+  }
+
+  async function saveAllAndRebuild() {
+    setRunDecision(false);
+    await saveAllAndBuild();
+  }
+
+  function runSavedBuild() {
+    setRunDecision(false);
+    void startRun();
+  }
+
+  async function cancelRun() {
+    try {
+      onSnapshot(await call<Snapshot>("run.cancel"));
+    } catch (error) {
+      setMessage({ tone: "error", text: `Run cancellation failed: ${messageOf(error)}` });
+    }
+  }
+
   requestBuildRef.current = requestBuild;
+  requestRunRef.current = requestRun;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "F9" || !(event.metaKey || event.ctrlKey)) return;
+      if (event.key === "F9" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        requestBuildRef.current();
+        return;
+      }
+      const runShortcut =
+        snapshot.app.platform === "windows"
+          ? event.shiftKey && event.key === "F10"
+          : event.metaKey && event.key.toLowerCase() === "r";
+      if (!runShortcut) return;
       event.preventDefault();
-      requestBuildRef.current();
+      requestRunRef.current();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [snapshot.app.platform]);
 
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
@@ -1598,6 +1711,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         return (
           <BuildPanel
             build={build}
+            run={run}
+            platform={snapshot.app.platform}
+            dirtyCount={dirtyCount}
+            runDisabledReason={runDisabledReason}
+            onRun={requestRun}
+            onCancelRun={() => void cancelRun()}
+            onSaveAndRebuild={() => void saveAllAndRebuild()}
             evaluation={evaluation}
             startupPath={startupPath}
             onStartup={setStartupPath}
@@ -1678,8 +1798,16 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         >
           Build
         </button>
-        <button disabled title="Run is not available in this ticket (ticket 12).">
-          Run
+        <button
+          data-testid="toolbar-run"
+          disabled={runDisabledReason !== null || runRunning}
+          onClick={requestRun}
+          title={
+            runDisabledReason ??
+            `Runs the saved build (${runShortcut}); unsaved buffers are never included.`
+          }
+        >
+          {runRunning ? "Running…" : "Run"}
         </button>
         <button disabled title="Debug is not available in this ticket (ticket 14).">
           Debug
@@ -2800,6 +2928,41 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 excluded)
               </button>
               <button data-testid="build-decision-cancel" onClick={() => setBuildDecision(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {runDecision && (
+        <div className="modal-backdrop">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="run-decision-title"
+            data-testid="run-dirty-dialog"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setRunDecision(false);
+            }}
+          >
+            <h2 id="run-decision-title">Run the saved build with unsaved buffers?</h2>
+            <p>
+              {countLabel(dirtyCount, "modified buffer")}{" "}
+              {dirtyCount === 1 ? "is" : "are"} not saved. Running the saved build;{" "}
+              {dirtyCount} unsaved buffer{dirtyCount === 1 ? "" : "s"}{" "}
+              {dirtyCount === 1 ? "is" : "are"} not included. OpenRidr never saves or
+              overwrites a buffer silently.
+            </p>
+            <div className="actions">
+              <button data-testid="run-saved-build" onClick={runSavedBuild}>
+                Run saved build
+              </button>
+              <button data-testid="run-save-rebuild" onClick={() => void saveAllAndRebuild()}>
+                Save all and rebuild
+              </button>
+              <button data-testid="run-decision-cancel" onClick={() => setRunDecision(false)}>
                 Cancel
               </button>
             </div>

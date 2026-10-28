@@ -378,6 +378,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "lsp.didChange"
             && **method != "tools.install"
             && **method != "tools.retry"
+            && **method != "run.start"
     }) {
         let code = error_code(host.dispatch(method, json!({})));
         if openridr_host::RESTORE_GATED_METHODS.contains(method) {
@@ -410,6 +411,11 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
         error_code(host.dispatch("evaluation.run", json!({}))),
         "invalid_state",
         "evaluation.run needs a resolved project SDK"
+    );
+    assert_eq!(
+        error_code(host.dispatch("run.start", json!({}))),
+        "invalid_state",
+        "run.start needs a current evaluation and a successful build"
     );
     assert_eq!(snapshot(&host)["evaluation"]["state"], "failed");
 
@@ -1320,6 +1326,11 @@ fn build_start_reports_restore_required_with_the_explicit_action() {
         error_code(host.dispatch("build.cancel", json!({}))),
         "invalid_state"
     );
+    // Cancelling a run is a safety action too: not trust-gated, only "nothing is running".
+    assert_eq!(
+        error_code(host.dispatch("run.cancel", json!({}))),
+        "invalid_state"
+    );
     grant(&host);
 
     let error = host
@@ -1337,13 +1348,19 @@ fn build_start_reports_restore_required_with_the_explicit_action() {
         "the policy must not restore"
     );
 
-    for method in ["run.start", "debug.start", "tests.discover", "tests.run"] {
+    for method in ["debug.start", "tests.discover", "tests.run"] {
         assert_eq!(
             error_code(host.dispatch(method, json!({}))),
             "restore_required",
             "{method} must refuse to run without restored assets"
         );
     }
+    // Run consumes an identified successful build, so without a current evaluation it is
+    // refused before any restore policy; it still never restores.
+    assert_eq!(
+        error_code(host.dispatch("run.start", json!({}))),
+        "invalid_state"
+    );
     assert!(!workspace.path().join("obj").exists());
 }
 
@@ -2897,13 +2914,18 @@ fn hanging_build_workspace() -> tempfile::TempDir {
 }
 
 #[cfg(unix)]
-fn ready_for_build(host: &Host, root: &Path) {
-    open(host, &root.join("Slow.csproj"));
+fn ready_project(host: &Host, root: &Path, project: &str) {
+    open(host, &root.join(project));
     grant(host);
     host.dispatch("evaluation.run", json!({})).unwrap();
     host.dispatch("restore.start", json!({})).unwrap();
     wait_for_restore(host, Duration::from_secs(60));
     host.dispatch("evaluation.run", json!({})).unwrap();
+}
+
+#[cfg(unix)]
+fn ready_for_build(host: &Host, root: &Path) {
+    ready_project(host, root, "Slow.csproj");
 }
 
 #[cfg(unix)]
@@ -2969,6 +2991,300 @@ fn revoking_trust_seals_a_running_build_and_drops_its_late_exit() {
     assert_eq!(later["build"]["finishedAt"], finished_at);
     assert_eq!(
         error_code(host.dispatch("build.start", json!({}))),
+        "trust_required"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_build() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk run");
+    let program = copy.join("src/OrderDesk.Cli/Program.cs");
+    let dll = copy.join("src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(&host, Duration::from_secs(60));
+    host.dispatch("evaluation.run", json!({})).unwrap();
+
+    let built = host.dispatch("build.start", json!({})).unwrap();
+    let build_id = built["build"]["buildId"].clone();
+    let built = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(built["state"], "ok", "{}", built["log"]);
+
+    let library = host
+        .dispatch(
+            "run.start",
+            json!({ "project": "src/OrderDesk.Core/OrderDesk.Core.csproj" }),
+        )
+        .expect_err("a library is not runnable");
+    assert_eq!(library.code, "invalid_state");
+    assert!(
+        library.message.contains("library") && library.message.contains("console"),
+        "{}",
+        library.message
+    );
+
+    let started = host.dispatch("run.start", json!({})).unwrap();
+    let run = &started["run"];
+    assert_eq!(run["state"], "running");
+    assert_eq!(run["buildId"], build_id);
+    assert!(run["targetPath"]
+        .as_str()
+        .unwrap()
+        .ends_with("src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll"));
+    let command: Vec<String> = run["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(command.len(), 2, "{command:?}");
+    assert!(command[0].ends_with("/dotnet"), "{}", command[0]);
+    assert_eq!(command[1], run["targetPath"].as_str().unwrap());
+    assert!(
+        run["cwd"]
+            .as_str()
+            .unwrap()
+            .ends_with("Order Desk run/src/OrderDesk.Cli"),
+        "{}",
+        run["cwd"]
+    );
+
+    let finished = wait_for_run(&host, Duration::from_secs(30));
+    assert_eq!(finished["state"], "exited", "{}", finished["log"]);
+    assert_eq!(finished["exit"], 0);
+    assert!(
+        finished["log"].as_str().unwrap().contains("Order A-104:"),
+        "{}",
+        finished["log"]
+    );
+
+    // A saved source change after the build refuses the launch, even though the build is
+    // still marked successful: Run would otherwise execute old code and claim it is current.
+    let original = fs::read_to_string(&program).unwrap();
+    fs::write(&program, format!("{original}\n// edited after the build\n")).unwrap();
+    let changed = host
+        .dispatch("run.start", json!({}))
+        .expect_err("a saved source change makes the build stale for run");
+    assert_eq!(changed.code, "build_stale");
+    let details = changed.details.unwrap();
+    assert_eq!(details["reason"], "source_changed");
+    assert!(details["changedSources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|source| source == "src/OrderDesk.Cli/Program.cs"));
+    assert!(details["action"]["method"] == "build.start");
+
+    // The rebuild produces new output, which proves the run below used the new build.
+    fs::write(
+        &program,
+        "using OrderDesk.Core;\nvar order = new Order(\"A-999\", 7m);\nSystem.Console.WriteLine($\"Order {order.Id}: {order.Total:C}\");\n",
+    )
+    .unwrap();
+    host.dispatch("build.start", json!({})).unwrap();
+    let rebuilt = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(rebuilt["state"], "ok", "{}", rebuilt["log"]);
+    host.dispatch("run.start", json!({})).unwrap();
+    let rerun = wait_for_run(&host, Duration::from_secs(30));
+    assert_eq!(rerun["state"], "exited");
+    assert!(rerun["log"].as_str().unwrap().contains("Order A-999:"));
+    assert_ne!(rerun["buildId"], build_id);
+
+    // A failed build is never runnable, and its log is in the refusal details.
+    fs::write(&program, "class Broken {\n").unwrap();
+    host.dispatch("build.start", json!({})).unwrap();
+    let failed = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(failed["state"], "failed", "{}", failed["log"]);
+    let refused = host
+        .dispatch("run.start", json!({}))
+        .expect_err("a failed build is not runnable");
+    assert_eq!(refused.code, "invalid_state");
+    let details = refused.details.unwrap();
+    assert_eq!(details["reason"], "build_failed");
+    assert!(details["buildLog"].as_str().unwrap().contains("error CS"));
+
+    // A real successful build whose TargetPath disappeared is refused, not replaced.
+    fs::write(&program, original).unwrap();
+    host.dispatch("build.start", json!({})).unwrap();
+    let fixed = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(fixed["state"], "ok", "{}", fixed["log"]);
+    fs::remove_file(&dll).unwrap();
+    let missing = host
+        .dispatch("run.start", json!({}))
+        .expect_err("a missing TargetPath cannot be launched");
+    assert_eq!(missing.code, "invalid_state");
+    assert_eq!(missing.details.unwrap()["reason"], "target_missing");
+}
+
+#[cfg(unix)]
+fn sleeper_project(dir: &Path) {
+    global_json_8(dir);
+    write_console_project(dir, "Sleeper", "");
+    fs::write(
+        dir.join("Sleeper.cs"),
+        "using System.Diagnostics;\n\
+         var child = Process.Start(\"/bin/sleep\", \"60\");\n\
+         System.Console.WriteLine($\"parent {System.Environment.ProcessId} child {child!.Id}\");\n\
+         System.Console.WriteLine(\"sleeping\");\n\
+         System.Threading.Thread.Sleep(60_000);\n",
+    )
+    .unwrap();
+}
+
+#[cfg(unix)]
+fn wait_for_run(host: &Host, timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let state = snapshot(host);
+        let run = state["run"].clone();
+        if run["state"] != "running" {
+            return run;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "run did not finish: {}",
+            run["log"]
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_run_output(host: &Host, needle: &str, timeout: Duration) -> String {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let state = snapshot(host);
+        let log = state["run"]["log"].as_str().unwrap_or_default().to_string();
+        if log.contains(needle) {
+            return log;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "run never logged {needle}: {log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(unix)]
+fn process_gone(pid: &str) -> bool {
+    std::process::Command::new("/bin/ps")
+        .args(["-o", "pid=", "-p", pid])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().is_empty())
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_a_real_run_observes_termination_of_the_group_including_its_child() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    sleeper_project(&root);
+    let host = Host::new();
+    ready_project(&host, &root, "Sleeper.csproj");
+    host.dispatch("build.start", json!({})).unwrap();
+    let built = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(built["state"], "ok", "{}", built["log"]);
+
+    let started = host.dispatch("run.start", json!({})).unwrap();
+    let process_id = started["run"]["processId"].as_u64().unwrap();
+    let log = wait_for_run_output(&host, "sleeping", Duration::from_secs(20));
+    let pids: Vec<&str> = log
+        .lines()
+        .find(|line| line.starts_with("parent "))
+        .expect("pid line")
+        .split_whitespace()
+        .collect();
+    let parent = pids[1].to_string();
+    let child = pids[3].to_string();
+    assert_eq!(
+        started["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|process| process["id"].as_u64() == Some(process_id))
+            .unwrap()["pid"]
+            .as_u64(),
+        Some(parent.parse().unwrap())
+    );
+
+    assert_eq!(
+        error_code(host.dispatch("run.start", json!({}))),
+        "invalid_state",
+        "only one program runs at a time"
+    );
+
+    let cancelled = host.dispatch("run.cancel", json!({})).unwrap();
+    let run = &cancelled["run"];
+    assert_eq!(run["state"], "cancelled");
+    assert_eq!(run["awaitingDecision"], false);
+    assert!(run["termination"]["requested"]
+        .as_str()
+        .unwrap()
+        .contains("SIGTERM"));
+    assert_eq!(run["termination"]["observed"], "exited");
+    assert_ne!(run["exit"], json!(0));
+    assert!(run["log"].as_str().unwrap().contains("sleeping"));
+    let process = cancelled["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"].as_u64() == Some(process_id))
+        .unwrap();
+    assert_eq!(process["state"], "exited");
+    assert_eq!(run["exit"], process["exit"]);
+    assert_eq!(
+        error_code(host.dispatch("run.cancel", json!({}))),
+        "invalid_state"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !(process_gone(&parent) && process_gone(&child)) {
+        assert!(
+            Instant::now() < deadline,
+            "process tree still alive: parent {parent} child {child}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn revoking_trust_seals_a_running_program_and_drops_its_late_exit() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    sleeper_project(&root);
+    let host = Host::new();
+    ready_project(&host, &root, "Sleeper.csproj");
+    host.dispatch("build.start", json!({})).unwrap();
+    let built = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(built["state"], "ok", "{}", built["log"]);
+    host.dispatch("run.start", json!({})).unwrap();
+    wait_for_run_output(&host, "sleeping", Duration::from_secs(20));
+
+    let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
+    let run = &revoked["run"];
+    assert_eq!(run["sealed"], true);
+    assert_eq!(run["stale"], true);
+    assert!(run["staleReason"].as_str().unwrap().contains("Trust"));
+    assert_eq!(run["state"], "cancelled");
+    assert_eq!(run["termination"]["observed"], "exited");
+    assert!(run["log"].as_str().unwrap().contains("sleeping"));
+    let finished_at = run["finishedAt"].clone();
+
+    std::thread::sleep(Duration::from_millis(500));
+    let later = snapshot(&host);
+    assert_eq!(later["run"]["sealed"], true);
+    assert_eq!(later["run"]["state"], "cancelled");
+    assert_eq!(later["run"]["finishedAt"], finished_at);
+    assert_eq!(
+        error_code(host.dispatch("run.start", json!({}))),
         "trust_required"
     );
 }

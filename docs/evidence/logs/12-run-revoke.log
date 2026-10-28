@@ -1,0 +1,5 @@
+trust.revoke while the program was sleeping
+state: cancelled · sealed True · stale True
+staleReason: Trust was revoked while this program was running; it was stopped and its result is not current.
+termination: {"exit": 143, "killedAfterGrace": false, "observed": "exited", "requested": "SIGTERM"}
+0.7 s later: state cancelled · finishedAt unchanged True · log has late lines: False

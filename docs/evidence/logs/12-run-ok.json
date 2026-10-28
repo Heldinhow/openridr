@@ -1,0 +1,31 @@
+{
+  "awaitingDecision": false,
+  "buildId": "build:1:1",
+  "command": [
+    "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+    "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll"
+  ],
+  "configuration": "Debug",
+  "contextId": 2,
+  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli",
+  "exit": 0,
+  "finishedAt": 1793177002344,
+  "log": "Order A-104: R$ 42,00",
+  "logTruncated": false,
+  "processId": 3,
+  "project": {
+    "name": "OrderDesk.Cli",
+    "path": "src/OrderDesk.Cli/OrderDesk.Cli.csproj"
+  },
+  "revision": 1,
+  "runId": "run:1:1",
+  "sealed": false,
+  "stale": false,
+  "staleReason": null,
+  "startedAt": 1793177002229,
+  "state": "exited",
+  "targetFramework": null,
+  "targetPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
+  "termination": null,
+  "workspaceId": 1
+}

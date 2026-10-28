@@ -9,6 +9,7 @@ mod outline;
 pub mod process;
 mod restore;
 pub mod sdk;
+mod run;
 mod tools;
 
 pub use error::{HostError, HostResult};
@@ -81,6 +82,8 @@ struct Inner {
     restore_seq: u64,
     build: Arc<build::Build>,
     build_seq: u64,
+    run: Arc<run::Run>,
+    run_seq: u64,
     tools: Arc<tools::Tools>,
     lsp: Option<Arc<lsp::Lsp>>,
     lsp_seq: u64,
@@ -248,6 +251,7 @@ struct Snapshot {
     processes: Vec<Value>,
     restore: RestoreView,
     build: build::BuildView,
+    run: run::RunView,
     tools: Value,
     lsp: lsp::LspView,
     diagnostics: Value,
@@ -276,6 +280,8 @@ impl Host {
                 restore_seq: 0,
                 build: Arc::new(build::Build::idle()),
                 build_seq: 0,
+                run: Arc::new(run::Run::idle()),
+                run_seq: 0,
                 tools: Arc::new(tools::Tools::new()),
                 lsp: None,
                 lsp_seq: 0,
@@ -311,6 +317,12 @@ impl Host {
         }
         if method == "build.cancel" {
             return self.cancel_build();
+        }
+        if method == "run.start" {
+            return self.start_run(params);
+        }
+        if method == "run.cancel" {
+            return self.cancel_run();
         }
         if method == "tools.plan" {
             return self.plan_tool(params);
@@ -445,6 +457,7 @@ impl Host {
         inner.processes.refresh();
         inner.sync_restore();
         inner.sync_build();
+        inner.sync_run();
         inner.sync_tools();
         inner.sync_lsp();
         let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
@@ -553,6 +566,7 @@ impl Host {
             processes: inner.processes.views(),
             restore: inner.restore.view(),
             build: inner.build.view(),
+            run: inner.run.view(),
             tools: json!({ tools::TOOL: inner.tools.view() }),
             lsp: lsp_view,
             diagnostics: serde_json::to_value(diagnostics_view).expect("diagnostics serialize"),
@@ -596,6 +610,10 @@ impl Host {
             &mut inner,
             "Workspace changed while a build was running; it was stopped and its result will not be applied to the new workspace.",
         );
+        stop_run(
+            &mut inner,
+            "Workspace changed while a program was running; it was stopped and its result will not be applied to the new workspace.",
+        );
         inner.lsp = None;
         inner.diagnostics.clear();
         inner.processes.mark_awaiting();
@@ -610,6 +628,7 @@ impl Host {
         inner.evaluation = evaluation;
         inner.restore = Arc::new(restore::Restore::idle());
         inner.build = Arc::new(build::Build::idle());
+        inner.run = Arc::new(run::Run::idle());
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -627,6 +646,10 @@ impl Host {
             &mut inner,
             "Workspace closed while a build was running; it was stopped and its result is not current.",
         );
+        stop_run(
+            &mut inner,
+            "Workspace closed while a program was running; it was stopped and its result is not current.",
+        );
         inner.lsp = None;
         inner.diagnostics.clear();
         inner.processes.mark_awaiting();
@@ -638,6 +661,7 @@ impl Host {
         inner.project_sdk = ProjectSdk::no_workspace();
         inner.evaluation = Evaluation::idle();
         inner.build = Arc::new(build::Build::idle());
+        inner.run = Arc::new(run::Run::idle());
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -690,6 +714,10 @@ impl Host {
         stop_build(
             &mut inner,
             "Trust was revoked while this build was running; it was stopped and its result is not current.",
+        );
+        stop_run(
+            &mut inner,
+            "Trust was revoked while this program was running; it was stopped and its result is not current.",
         );
         inner.diagnostics.mark_unavailable(
             diagnostics::LSP_ORIGIN,
@@ -1352,6 +1380,7 @@ impl Host {
         inner.build_seq += 1;
         let build_id = format!("build:{}:{}", token.workspace_id, inner.build_seq);
         let project_name = selected.name.clone();
+        let sources = build::capture_sources(&root, &selected.path, &evaluation.projects);
         let mut command = vec![
             muxer.to_string_lossy().to_string(),
             "build".to_string(),
@@ -1369,6 +1398,8 @@ impl Host {
         inner.build = Arc::new(build::Build::begin(build::Start {
             revision: inner.build_seq,
             build_id,
+            evaluation_revision: evaluation.revision,
+            sources,
             project_name: selected.name.clone(),
             project_path: selected.path.clone(),
             project_kind: selected.kind,
@@ -1435,6 +1466,385 @@ impl Host {
             inner.build.observe(status);
         }
         inner.sync_build();
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn start_run(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("run.start")?;
+        let mut inner = self.inner.lock().unwrap();
+
+        if let Some(process_id) = inner.run.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "A program is already running (process {process_id}). Stop it before starting another."
+                ),
+            ));
+        }
+        if let Some(process_id) = inner.build.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "A build is running (process {process_id}); wait for it to finish before running."
+                ),
+            ));
+        }
+        let Some(workspace) = inner.workspace.as_ref() else {
+            return Err(HostError::new("invalid_state", "No workspace is open."));
+        };
+        let root = workspace.root.clone();
+
+        let evaluation = inner.evaluation.clone();
+        if evaluation.stale {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Run was not started: the evaluated project model is stale ({}). Re-evaluate before running.",
+                    evaluation
+                        .stale_reason
+                        .clone()
+                        .unwrap_or_else(|| "no current evaluation".to_string())
+                ),
+                json!({ "reason": "evaluation_stale", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        if !matches!(evaluation.state, "ok" | "partial")
+            || evaluation.workspace_id != Some(token.workspace_id)
+            || evaluation.context_id != Some(token.context_id)
+        {
+            return Err(HostError::with_details(
+                "invalid_state",
+                "Run was not started: the current evaluation is not valid for this workspace/context. Evaluate the project model again.",
+                json!({ "reason": "evaluation_required", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+
+        let configuration = optional_str(&params, "configuration")
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| evaluation.context.configuration.clone());
+        if !valid_selection(&configuration) {
+            return Err(HostError::new(
+                "invalid_state",
+                "Configuration must not contain `;`, `=`, quotes or line breaks; no program was started.",
+            ));
+        }
+        if configuration != evaluation.context.configuration {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Run was not started: configuration {configuration} has not been evaluated. Re-evaluate with that configuration first."
+                ),
+                json!({ "reason": "configuration_not_evaluated", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        let target_framework = match params.get("targetFramework") {
+            Some(Value::String(value)) if !value.trim().is_empty() => {
+                Some(value.trim().to_string())
+            }
+            Some(_) => None,
+            None => evaluation.context.target_framework.clone(),
+        };
+        if target_framework
+            .as_deref()
+            .is_some_and(|tfm| !valid_selection(tfm))
+        {
+            return Err(HostError::new(
+                "invalid_state",
+                "TFM must not contain `;`, `=`, quotes or line breaks; no program was started.",
+            ));
+        }
+        if target_framework != evaluation.context.target_framework {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Run was not started: TFM {} has not been evaluated. Re-evaluate with that TFM first.",
+                    target_framework.unwrap_or_else(|| "not selected".to_string())
+                ),
+                json!({ "reason": "tfm_not_evaluated", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+
+        let requested = optional_str(&params, "project").filter(|value| !value.trim().is_empty());
+        let selected =
+            build::select_startup_for(&evaluation.projects, requested.as_deref(), "run")?;
+        let Some(evaluated_target) = selected.target_path.clone() else {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Run was not started: {} has no evaluated TargetPath. Re-evaluate the project model.",
+                    selected.name
+                ),
+                json!({ "reason": "target_missing", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        };
+
+        let build_action = json!({
+            "method": "build.start",
+            "params": {
+                "project": selected.path,
+                "configuration": configuration,
+                "targetFramework": target_framework,
+            },
+        });
+        let build = inner.build.view();
+        if build.revision == 0 {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Run was not started: there is no build of {} yet. Build it first; Run never builds or restores implicitly.",
+                    selected.name
+                ),
+                json!({ "reason": "no_build", "action": build_action }),
+            ));
+        }
+        if build.sealed || build.stale {
+            return Err(HostError::with_details(
+                "build_stale",
+                format!(
+                    "Run was not started: the saved build is stale ({}). Rebuild before running.",
+                    build
+                        .stale_reason
+                        .clone()
+                        .unwrap_or_else(|| "stale build".to_string())
+                ),
+                json!({
+                    "reason": "build_stale",
+                    "buildId": build.build_id,
+                    "staleReason": build.stale_reason,
+                    "buildLog": log_tail(&build.log, 30),
+                    "action": build_action,
+                }),
+            ));
+        }
+        if build.state != "ok" || build.exit != Some(0) {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Run was not started: the last build did not succeed ({}). Fix the build before running.",
+                    if build.state == "idle" {
+                        "no build".to_string()
+                    } else {
+                        let exit = build
+                            .exit
+                            .map(|exit| format!("exit {exit}"))
+                            .unwrap_or_else(|| "exit unknown".to_string());
+                        format!("{} · {exit}", build.state)
+                    }
+                ),
+                json!({
+                    "reason": "build_failed",
+                    "buildId": build.build_id,
+                    "exit": build.exit,
+                    "buildLog": log_tail(&build.log, 30),
+                    "action": build_action,
+                }),
+            ));
+        }
+        if build.workspace_id != Some(token.workspace_id)
+            || build.context_id != Some(token.context_id)
+        {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Run was not started: the saved build belongs to an older workspace or context. Rebuild before running.",
+                json!({
+                    "reason": "context_changed",
+                    "buildId": build.build_id,
+                    "action": build_action,
+                }),
+            ));
+        }
+        if inner.build.evaluation_revision() != evaluation.revision {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Run was not started: the project model was re-evaluated after this build. Rebuild before running.",
+                json!({
+                    "reason": "evaluation_changed",
+                    "buildId": build.build_id,
+                    "evaluationRevision": evaluation.revision,
+                    "action": build_action,
+                }),
+            ));
+        }
+        let Some(build_project) = build.project.as_ref() else {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Run was not started: the saved build has no startup project identity. Rebuild before running.",
+                json!({ "reason": "build_project_missing", "action": build_action }),
+            ));
+        };
+        if build_project.path != selected.path {
+            return Err(HostError::with_details(
+                "build_stale",
+                format!(
+                    "Run was not started: the saved build is for {}, not {}. Build the selected startup project before running.",
+                    build_project.name, selected.name
+                ),
+                json!({
+                    "reason": "project_changed",
+                    "buildId": build.build_id,
+                    "buildProject": build_project.path,
+                    "action": build_action,
+                }),
+            ));
+        }
+        if build.configuration != configuration || build.target_framework != target_framework {
+            return Err(HostError::with_details(
+                "build_stale",
+                format!(
+                    "Run was not started: the saved build used {} / {}; rebuild with the current configuration and TFM.",
+                    build.configuration,
+                    build
+                        .target_framework
+                        .clone()
+                        .unwrap_or_else(|| "not selected".to_string())
+                ),
+                json!({
+                    "reason": "build_context_mismatch",
+                    "buildId": build.build_id,
+                    "action": build_action,
+                }),
+            ));
+        }
+        let Some(built_target) = build_project.target_path.clone() else {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Run was not started: the saved build has no TargetPath. Rebuild before running.",
+                json!({ "reason": "target_missing", "buildId": build.build_id, "action": build_action }),
+            ));
+        };
+        if built_target != evaluated_target {
+            return Err(HostError::with_details(
+                "build_stale",
+                "Run was not started: the evaluated TargetPath changed after the build. Rebuild before running.",
+                json!({
+                    "reason": "target_changed",
+                    "buildId": build.build_id,
+                    "targetPath": built_target,
+                    "evaluatedTargetPath": evaluated_target,
+                    "action": build_action,
+                }),
+            ));
+        }
+        let changed = inner.build.changed_sources(&root);
+        if !changed.is_empty() {
+            return Err(HostError::with_details(
+                "build_stale",
+                format!(
+                    "Run was not started: {} saved source{} changed after this build ({}). Rebuild before running.",
+                    changed.len(),
+                    if changed.len() == 1 { "" } else { "s" },
+                    changed.join(", ")
+                ),
+                json!({
+                    "reason": "source_changed",
+                    "buildId": build.build_id,
+                    "changedSources": changed,
+                    "buildLog": log_tail(&build.log, 30),
+                    "action": build_action,
+                }),
+            ));
+        }
+
+        let sdk = inner.project_sdk.clone();
+        if sdk.state != "resolved" {
+            return Err(HostError::with_details(
+                if sdk.state == "sdk_missing" {
+                    "sdk_missing"
+                } else {
+                    "invalid_state"
+                },
+                format!(
+                    "Run was not started: the project SDK is not resolved ({}). {}",
+                    sdk.state,
+                    sdk.message.clone().unwrap_or_else(|| {
+                        "Resolve the project SDK before running.".to_string()
+                    })
+                ),
+                json!({ "reason": "sdk_unresolved", "action": { "method": "build.start", "params": {} } }),
+            ));
+        }
+        let Some(sdk_root) = sdk.root.clone().map(PathBuf::from) else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Run was not started: the resolved project SDK has no root path.",
+            ));
+        };
+        let muxer = sdk_root.join(dotnet_exe());
+        let command = run::launch_command(Path::new(&built_target), &muxer)?;
+        let Some(project_directory) = root.join(&selected.path).parent().map(Path::to_path_buf)
+        else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Run was not started: the startup project has no directory.",
+            ));
+        };
+
+        inner.run_seq += 1;
+        let run_id = format!("run:{}:{}", token.workspace_id, inner.run_seq);
+        inner.run = Arc::new(run::Run::begin(run::Start {
+            revision: inner.run_seq,
+            run_id,
+            project_name: selected.name.clone(),
+            project_path: selected.path.clone(),
+            target_path: built_target,
+            build_id: build.build_id.clone().unwrap_or_default(),
+            configuration: configuration.clone(),
+            target_framework: target_framework.clone(),
+            command: command.clone(),
+            cwd: project_directory.to_string_lossy().to_string(),
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+        }));
+
+        // Separate arguments, explicit cwd/environment and its own process group.
+        let mut process = Command::new(&command[0]);
+        process
+            .args(&command[1..])
+            .current_dir(&project_directory)
+            .env("DOTNET_ROOT", &sdk_root)
+            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+            .env("DOTNET_CLI_UI_LANGUAGE", "en")
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        let piped = match inner.processes.spawn_piped(
+            &format!("run:{}", selected.name),
+            token.workspace_id,
+            process,
+        ) {
+            Ok(piped) => piped,
+            Err(error) => {
+                inner
+                    .run
+                    .fail(format!("Could not start the program: {error}"));
+                return Ok(self.snapshot_value(&mut inner));
+            }
+        };
+        inner.run.note_process(piped.id);
+        let shared = inner.run.clone();
+        if let Some(stdout) = piped.stdout {
+            let sink = shared.clone();
+            std::thread::spawn(move || run::pump(stdout, sink, false));
+        }
+        if let Some(stderr) = piped.stderr {
+            let sink = shared.clone();
+            std::thread::spawn(move || run::pump(stderr, sink, true));
+        }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Safety action: allowed without trust. It requests group termination and reports what
+    /// the registry observed, keeping the log and the exit code (or its absence).
+    fn cancel_run(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let Some(process_id) = inner.run.running_process_id() else {
+            return Err(HostError::new("invalid_state", "No program is running."));
+        };
+        inner.run.request_cancel();
+        let status = inner.processes.terminate_status(process_id);
+        if let Some(status) = &status {
+            inner.run.observe(status);
+        }
+        inner.sync_run();
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -2702,6 +3112,22 @@ impl Inner {
         }
         self.build.complete(&status);
     }
+
+    /// Observes the exit of a running program. `exited` is not `ok`: the exit code, when
+    /// the registry got one, is exactly what is published.
+    fn sync_run(&mut self) {
+        let Some(process_id) = self.run.running_process_id() else {
+            return;
+        };
+        self.processes.refresh();
+        let Some(status) = self.processes.status(process_id) else {
+            return;
+        };
+        if status.state != "exited" {
+            return;
+        }
+        self.run.complete(&status);
+    }
 }
 
 /// A workspace boundary (revoke, close, switch) terminates a real build and keeps only what
@@ -2712,6 +3138,17 @@ fn stop_build(inner: &mut Inner, reason: &str) {
         inner.build.seal(reason, status.as_ref());
     } else {
         inner.build.mark_stale(reason);
+    }
+}
+
+/// A workspace boundary (revoke, close, switch) terminates a real program and keeps only
+/// what was observed. The record is sealed so its late exit cannot become another context's.
+fn stop_run(inner: &mut Inner, reason: &str) {
+    if let Some(process_id) = inner.run.running_process_id() {
+        let status = inner.processes.terminate_status(process_id);
+        inner.run.seal(reason, status.as_ref());
+    } else {
+        inner.run.seal(reason, None);
     }
 }
 
@@ -3293,6 +3730,13 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+/// A bounded excerpt kept in refusal details, so a failed/stale build still shows why.
+fn log_tail(log: &str, lines: usize) -> String {
+    let all: Vec<&str> = log.lines().collect();
+    let start = all.len().saturating_sub(lines);
+    all[start..].join("\n")
 }
 
 #[cfg(test)]

@@ -1,0 +1,12 @@
+{
+  "code": "invalid_state",
+  "details": {
+    "action": {
+      "method": "build.start",
+      "params": {}
+    },
+    "reason": "target_missing",
+    "targetPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll"
+  },
+  "message": "Run was not started: the built TargetPath /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-12-lkqvt6pr/Order Desk run evidence/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll is missing (No such file or directory (os error 2)). Rebuild before running."
+}
