@@ -234,7 +234,9 @@ export function FindAction({
       type: "action",
       action,
       title: action.title,
-      detail: `${action.group} · ${action.shortcutLabels.join(" / ") || "No shortcut"}`,
+      detail: `${action.group} · ${
+        action.shortcutLabels.join(" / ") || action.chordLabels.join(" ") || "No shortcut"
+      }`,
     }));
     const fileHits: Hit[] = fileMatches.map((path) => ({
       key: `file:${path}`,
@@ -499,7 +501,7 @@ export function FindAction({
                       >
                         {action.shortcutLabels.length > 0
                           ? action.shortcutLabels.join(" / ")
-                          : "No shortcut"}
+                          : action.chordLabels.join(" ") || "No shortcut"}
                       </span>
                       {action.conflicts.length > 0 && (
                         <span

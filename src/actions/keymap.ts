@@ -136,7 +136,30 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
     "rider-macos": binding([shortcut("g", { primary: true })]),
     intellij: binding([shortcut("l", { primary: true })]),
   },
-  "tests.runAll": both([shortcut("u", { primary: true })]),
+  // Rider uses the approved two-key chords (⌘U then the key); only the IntelliJ profile has
+  // single keys for the same actions. Chords are not remappable yet.
+  "tests.runAll": {
+    "rider-macos": binding([]),
+    intellij: binding([shortcut("f10", { shift: true })], [shortcut("f10", { control: true, shift: true })]),
+  },
+  "tests.runSelected": {
+    "rider-macos": binding([]),
+    intellij: binding(
+      [shortcut("f10", { control: true, shift: true })],
+      [shortcut("f10", { alt: true, shift: true })],
+    ),
+  },
+  "tests.debugSelected": {
+    "rider-macos": binding([]),
+    intellij: binding([shortcut("f9", { shift: true })], [shortcut("f9", { control: true, shift: true })]),
+  },
+  "tests.rerunFailed": {
+    "rider-macos": binding([]),
+    intellij: binding(
+      [shortcut("r", { alt: true, shift: true })],
+      [shortcut("r", { control: true, alt: true })],
+    ),
+  },
   "tests.quickList": both([shortcut("u", { alt: true, shift: true })]),
   "git.commit": {
     "rider-macos": binding([shortcut("k", { primary: true, alt: true, shift: true })]),
@@ -158,6 +181,41 @@ export function shortcutsFor(
   const selected = defaults?.[keymap.profile] ?? defaults?.["rider-macos"];
   if (!selected) return [];
   return platform === "macos" ? selected.mac : selected.windows;
+}
+
+/** Approved Rider chords: ⌘U then R (run selected), D (debug), L (run all), F (rerun failed).
+ * The IntelliJ profile has no chords and uses each action's own key instead. */
+const chordTable: Partial<
+  Record<ProfileId, { prefix: Shortcut; keys: Record<string, string> }>
+> = {
+  "rider-macos": {
+    prefix: shortcut("u", { primary: true }),
+    keys: {
+      r: "tests.runSelected",
+      d: "tests.debugSelected",
+      l: "tests.runAll",
+      f: "tests.rerunFailed",
+    },
+  },
+};
+
+export function chordFor(id: string, profile: ProfileId): Shortcut[] {
+  const table = chordTable[profile];
+  if (!table) return [];
+  const key = Object.keys(table.keys).find((candidate) => table.keys[candidate] === id);
+  return key ? [table.prefix, shortcut(key)] : [];
+}
+
+export function chordLabelsFor(id: string, profile: ProfileId, platform: Platform): string[] {
+  return chordFor(id, profile).map((item) => formatShortcut(item, platform));
+}
+
+export function chordPrefixFor(profile: ProfileId): Shortcut | null {
+  return chordTable[profile]?.prefix ?? null;
+}
+
+export function chordTarget(profile: ProfileId, key: string): string | null {
+  return chordTable[profile]?.keys[normalizeKey(key)] ?? null;
 }
 
 function keyLabel(key: string): string {

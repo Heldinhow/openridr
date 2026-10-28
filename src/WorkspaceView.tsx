@@ -14,7 +14,14 @@ import {
 import { CodeEditor } from "./CodeEditor";
 import { ProblemsPanel } from "./ProblemsPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
-import { TestsPanel } from "./TestsPanel";
+import {
+  TestsPanel,
+  failedTestIds,
+  rerunFailedReason,
+  testDebugUnavailable,
+  testRunBlockedReason,
+} from "./TestsPanel";
+import { TestsQuickList } from "./TestsQuickList";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
@@ -35,7 +42,10 @@ import {
   type RunConfigView,
 } from "./runConfigs";
 import {
+  chordPrefixFor,
+  chordTarget,
   defaultSettings,
+  matches,
   normalizeSettings,
   type AppSettings,
   type Keymap,
@@ -260,6 +270,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [findActionOpen, setFindActionOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
   const [keymapOpen, setKeymapOpen] = useState(false);
+  const [quickListOpen, setQuickListOpen] = useState(false);
+  const [testProjectPath, setTestProjectPath] = useState("");
+  const [testSelected, setTestSelected] = useState<Set<string>>(new Set());
   const [activeSlot, setActiveSlot] = useState<ToolWindowSlot>("bottom");
   const bottomTab = layout.bottom.active as BottomToolId;
   const bottomOpen = layout.bottom.open;
@@ -550,6 +563,28 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 : testDiscovery.state === "discovering"
                   ? "A test discovery is already running."
                   : null;
+  const testDiscoveryKey = `${testDiscovery.discoveryId ?? "none"}:${testDiscovery.revision}`;
+  useEffect(() => {
+    if (testCandidates.some((project) => project.path === testProjectPath)) return;
+    setTestProjectPath(testCandidates.length === 1 ? testCandidates[0].path : "");
+    // Selection follows the evaluated project list, not typing.
+  }, [testCandidates.map((project) => project.path).join("|"), testProjectPath]);
+  useEffect(() => {
+    setTestSelected(new Set());
+  }, [testDiscoveryKey]);
+  const testProject = testCandidates.find((project) => project.path === testProjectPath) ?? null;
+  const testRunBlocked = testRunBlockedReason({
+    disabledReason: testsDisabledReason,
+    discovery: testDiscovery,
+    run: snapshot.tests.run,
+    editedAt,
+  });
+  const testRerunBlocked = rerunFailedReason({
+    disabledReason: testsDisabledReason,
+    discovery: testDiscovery,
+    run: snapshot.tests.run,
+    editedAt,
+  });
   const run = snapshot.run;
   const runRunning = run.state === "running";
   const runShortcut = runShortcutLabel(snapshot.app.platform);
@@ -1980,6 +2015,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
+  function toggleTestSelected(id: string) {
+    setTestSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   async function startRun() {
     const invalid = invalidRunConfigReason();
     if (invalid) {
@@ -2370,15 +2414,78 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "tests.runAll",
       title: "Run All Tests",
       group: "Tests",
-      execute: () => undefined,
-      disabledReason: "Test actions arrive in F5.",
+      execute: () => {
+        if (testProject) void startTestRun(testProject.path, "all", []);
+      },
+      disabledReason: testRunBlocked,
+    }),
+    define({
+      id: "tests.runSelected",
+      title: "Run Selected Tests",
+      group: "Tests",
+      execute: () => {
+        if (testProject) void startTestRun(testProject.path, "selected", Array.from(testSelected));
+      },
+      disabledReason:
+        testRunBlocked ??
+        (testSelected.size === 0
+          ? "Select at least one discovered test; an empty selection never runs all tests."
+          : null),
+    }),
+    define({
+      id: "tests.debugSelected",
+      title: "Debug Selected Tests",
+      group: "Tests",
+      execute: () =>
+        setMessage({ tone: "error", text: `Debug selected unavailable: ${testDebugUnavailable}` }),
+      disabledReason: testDebugUnavailable,
+    }),
+    define({
+      id: "tests.rerunFailed",
+      title: "Rerun Failed Tests",
+      group: "Tests",
+      execute: () => {
+        if (testProject) {
+          void startTestRun(
+            testProject.path,
+            "selected",
+            failedTestIds(snapshot.tests.run, testDiscovery),
+          );
+        }
+      },
+      disabledReason: testRerunBlocked,
+    }),
+    define({
+      id: "tests.stop",
+      title: "Stop Test Run",
+      group: "Tests",
+      execute: () => {
+        if (testDiscovery.state === "discovering") void cancelTestDiscovery();
+        else if (snapshot.tests.run.state === "running") void cancelTestRun();
+      },
+      disabledReason:
+        testDiscovery.state === "discovering" || snapshot.tests.run.state === "running"
+          ? null
+          : "No test discovery or run is active.",
+    }),
+    define({
+      id: "tests.refresh",
+      title: "Refresh Tests",
+      group: "Tests",
+      execute: () => {
+        if (testProject) void startTestDiscovery(testProject.path);
+      },
+      disabledReason:
+        testsDisabledReason ??
+        (testProject
+          ? null
+          : "Select an evaluated test project explicitly; discovery never guesses."),
     }),
     define({
       id: "tests.quickList",
       title: "Show Test Quick List",
       group: "Tests",
-      execute: () => undefined,
-      disabledReason: "The test quick list arrives in F5.",
+      execute: () => setQuickListOpen(true),
     }),
     define({
       id: "git.commit",
@@ -2454,9 +2561,28 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     snapshot.app.platform,
   );
   const actionById = new Map(resolvedActions.map((action) => [action.id, action]));
+  const testQuickItems = [
+    { id: "tests.runAll", title: "Run all" },
+    { id: "tests.runSelected", title: "Run selected" },
+    { id: "tests.debugSelected", title: "Debug" },
+    { id: "tests.rerunFailed", title: "Rerun failed" },
+    { id: "tests.stop", title: "Stop" },
+  ].map(({ id, title }) => {
+    const action = actionById.get(id);
+    return {
+      id,
+      title,
+      shortcut:
+        [...(action?.shortcutLabels ?? []), ...(action?.chordLabels ?? [])].join(" ") ||
+        "No shortcut",
+      disabledReason: action ? (action.disabledReason ?? null) : "Action unavailable.",
+      execute: () => action?.execute(),
+    };
+  });
   const actionsRef = useRef<ResolvedAction[]>([]);
   actionsRef.current = resolvedActions;
   const lastShift = useRef<number | null>(null);
+  const chordPending = useRef<number | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2483,6 +2609,23 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         return;
       }
       if (textField) return;
+      const profile = settings.keymap.profile;
+      const pending = chordPending.current;
+      chordPending.current = null;
+      if (pending !== null && performance.now() - pending <= 1500) {
+        const target = chordTarget(profile, event.key);
+        if (target && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+          event.preventDefault();
+          actionsRef.current.find((candidate) => candidate.id === target)?.execute();
+          return;
+        }
+      }
+      const prefix = chordPrefixFor(profile);
+      if (prefix && matches(event, prefix, snapshot.app.platform)) {
+        event.preventDefault();
+        chordPending.current = performance.now();
+        return;
+      }
       const action = firstActionFor(actionsRef.current, event, snapshot.app.platform);
       if (!action) return;
       if (inEditor && !action.editor) return;
@@ -2494,7 +2637,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [snapshot.app.platform]);
+  }, [snapshot.app.platform, settings.keymap.profile]);
 
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
@@ -2636,6 +2779,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             evaluation={evaluation}
             editedAt={editedAt}
             disabledReason={testsDisabledReason}
+            projectPath={testProjectPath}
+            onProjectChange={setTestProjectPath}
+            selected={testSelected}
+            onToggleSelected={toggleTestSelected}
             restoreRequired={restoreIncomplete}
             restoreDisabledReason={restoreDisabledReason}
             onRestore={() => void startRestore("restore.start")}
@@ -3883,6 +4030,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onChange={saveKeymap}
           onClose={() => setKeymapOpen(false)}
         />
+      )}
+
+      {quickListOpen && (
+        <TestsQuickList items={testQuickItems} onClose={() => setQuickListOpen(false)} />
       )}
 
       <StatusBar

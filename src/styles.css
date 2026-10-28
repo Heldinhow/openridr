@@ -1589,6 +1589,126 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   margin-top: 2px;
 }
 
+.tests-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 12px 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.tests-filter-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  color: var(--fg);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.test-tree {
+  margin: 6px 12px;
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.test-tree .test-list {
+  margin: 0;
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+}
+
+.test-group {
+  border-bottom: 1px solid var(--line);
+}
+
+.test-group:last-child {
+  border-bottom: none;
+}
+
+.test-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 0.74rem;
+  text-align: left;
+}
+
+.test-group-title:hover {
+  background: var(--raised);
+}
+
+.test-group-chevron {
+  width: 10px;
+  color: var(--muted);
+}
+
+.test-group-body {
+  padding-left: 12px;
+}
+
+.quick-list {
+  width: min(560px, 100%);
+}
+
+.quick-list-items {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quick-list-items button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.quick-list-items button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.quick-list-index {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
+.quick-list-keys {
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.quick-list-reason {
+  margin: 2px 0 6px 30px;
+  font-size: 0.72rem;
+}
+
 .find-action {
   width: min(960px, 100%);
 }

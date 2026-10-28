@@ -1,4 +1,5 @@
 import {
+  chordLabelsFor,
   formatShortcut,
   formatShortcutText,
   matches,
@@ -24,6 +25,8 @@ export type ResolvedAction = Action & {
   shortcuts: Shortcut[];
   shortcutLabels: string[];
   shortcutTexts: string[];
+  /** Two-key chords (⌘U R…) that are active but not remappable yet. */
+  chordLabels: string[];
   conflicts: string[];
 };
 
@@ -39,6 +42,7 @@ export function resolveActions(
       shortcuts,
       shortcutLabels: shortcuts.map((shortcut) => formatShortcut(shortcut, platform)),
       shortcutTexts: shortcuts.map((shortcut) => formatShortcutText(shortcut, platform)),
+      chordLabels: chordLabelsFor(action.id, keymap.profile, platform),
       conflicts: [] as string[],
     };
   });

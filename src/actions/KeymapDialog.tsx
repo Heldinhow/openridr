@@ -111,7 +111,7 @@ export function KeymapDialog({
               <span className="action-keys" data-testid={`keymap-shortcut-${action.id}`}>
                 {action.shortcutLabels.length > 0
                   ? action.shortcutLabels.join(" / ")
-                  : "No shortcut"}
+                  : action.chordLabels.join(" ") || "No shortcut"}
               </span>
               {action.conflicts.length > 0 && (
                 <span
