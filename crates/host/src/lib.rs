@@ -12,6 +12,7 @@ pub mod process;
 mod restore;
 pub mod sdk;
 mod run;
+mod run_configs;
 mod search;
 mod settings;
 mod terminal;
@@ -486,6 +487,8 @@ impl Host {
             "file.write" => self.write_file(params),
             "settings.read" => settings::read(),
             "settings.write" => settings::write(&params),
+            "runConfigs.read" => run_configs::read(&params),
+            "runConfigs.write" => run_configs::write(&params),
             _ => Err(HostError::new(
                 "not_found",
                 format!("Unknown host method: {method}"),
@@ -2094,6 +2097,10 @@ impl Host {
         let workspace_file = workspace.path.clone();
         let root = workspace.root.clone();
 
+        // The active configuration's argv, cwd and environment are validated before any
+        // restore/build gate so an invalid launch explains its own field first.
+        let options = run_configs::launch_options(&params, &root)?;
+
         // Same policy as build/tests/debug: Run never restores implicitly, and a build whose
         // restore assets were invalidated afterwards is not a licence to launch.
         restore::require_restored(&workspace_file, &root, is_solution, "run.start")?;
@@ -2374,7 +2381,6 @@ impl Host {
             ));
         };
         let muxer = sdk_root.join(dotnet_exe());
-        let command = run::launch_command(Path::new(&built_target), &muxer)?;
         let Some(project_directory) = root.join(&selected.path).parent().map(Path::to_path_buf)
         else {
             return Err(HostError::new(
@@ -2382,6 +2388,12 @@ impl Host {
                 "Run was not started: the startup project has no directory.",
             ));
         };
+        let project_directory = options
+            .working_directory
+            .clone()
+            .unwrap_or(project_directory);
+        let mut command = run::launch_command(Path::new(&built_target), &muxer)?;
+        command.extend(options.args.iter().cloned());
 
         inner.run_seq += 1;
         let run_id = format!("run:{}:{}", token.workspace_id, inner.run_seq);
@@ -2401,7 +2413,10 @@ impl Host {
         }));
 
         // Separate arguments and cwd via the shared dotnet environment helper.
-        let process = dotnet_command(&command, &project_directory, &sdk_root);
+        let mut process = dotnet_command(&command, &project_directory, &sdk_root);
+        for (key, value) in &options.env {
+            process.env(key, value);
+        }
         let spawned = inner.processes.lock().unwrap().spawn_piped(
             &format!("run:{}", selected.name),
             token.workspace_id,
@@ -2762,6 +2777,9 @@ impl Host {
             return Err(HostError::new("invalid_state", "No workspace is open."));
         };
         let root = workspace.root.clone();
+        // The active configuration is validated before the adapter/build gates so a bad cwd,
+        // argument or .env line is reported as that field instead of an unrelated failure.
+        let options = run_configs::launch_options(&params, &root)?;
         // Same restore policy as every executable consumer: Debug never restores implicitly.
         restore::require_restored(
             &workspace.path,
@@ -3031,6 +3049,9 @@ impl Host {
                 "Debug was not started: the startup project has no directory.",
             ));
         };
+        let project_directory = options
+            .working_directory
+            .unwrap_or(project_directory);
 
         inner.dap_seq += 1;
         let session = inner.dap_seq;
@@ -3043,6 +3064,8 @@ impl Host {
             configuration: configuration.clone(),
             target_framework: target_framework.clone(),
             cwd: project_directory,
+            args: options.args,
+            env: options.env,
             root: root.clone(),
             sdk_root: sdk_root.clone(),
             adapter_binary: adapter.binary.to_string_lossy().to_string(),

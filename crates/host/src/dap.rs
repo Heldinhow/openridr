@@ -39,6 +39,11 @@ pub struct Launch {
     pub configuration: String,
     pub target_framework: Option<String>,
     pub cwd: PathBuf,
+    /// Program argv from the active run configuration; passed to the adapter as a separate
+    /// list, never through a shell.
+    pub args: Vec<String>,
+    /// Merged `.env` + explicit environment, applied after the adapter defaults.
+    pub env: Vec<(String, String)>,
     pub root: PathBuf,
     pub sdk_root: PathBuf,
     pub adapter_binary: String,
@@ -50,10 +55,32 @@ pub struct Launch {
     pub breakpoints: BTreeMap<String, Vec<i64>>,
 }
 
+/// The exact `launch` request sent to the adapter: the evaluated assembly, the configured
+/// cwd/argv and the merged environment, with explicit values winning over the defaults.
+fn launch_parameters(launch: &Launch) -> Value {
+    let mut env = json!({
+        "DOTNET_ROOT": launch.sdk_root.to_string_lossy(),
+        "DOTNET_MULTILEVEL_LOOKUP": "0",
+        "DOTNET_CLI_UI_LANGUAGE": "en",
+    });
+    if let Some(values) = env.as_object_mut() {
+        for (key, value) in &launch.env {
+            values.insert(key.clone(), Value::String(value.clone()));
+        }
+    }
+    json!({
+        "program": launch.assembly,
+        "cwd": launch.cwd.to_string_lossy(),
+        "args": launch.args,
+        "env": env,
+        "stopAtEntry": false,
+        "console": "internalConsole",
+    })
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BreakpointView {
-    pub path: String,
+pub struct BreakpointView {    pub path: String,
     pub line: i64,
     pub verified: bool,
     pub message: Option<String>,
@@ -647,19 +674,7 @@ impl Dap {
             self.fail(format!("DAP initialize failed: {error}"));
             return;
         }
-        let launch_params = json!({
-            "program": launch.assembly,
-            "cwd": launch.cwd.to_string_lossy(),
-            "args": [],
-            "env": {
-                "DOTNET_ROOT": launch.sdk_root.to_string_lossy(),
-                "DOTNET_MULTILEVEL_LOOKUP": "0",
-                "DOTNET_CLI_UI_LANGUAGE": "en",
-            },
-            "stopAtEntry": false,
-            "console": "internalConsole",
-        });
-        if let Err(error) = self.request("launch", launch_params, LAUNCH_TIMEOUT) {
+        if let Err(error) = self.request("launch", launch_parameters(&launch), LAUNCH_TIMEOUT) {
             self.fail(format!("DAP launch failed: {error}"));
             return;
         }
@@ -2010,6 +2025,8 @@ while True:
             configuration: "Debug".to_string(),
             target_framework: None,
             cwd: dir.clone(),
+            args: Vec::new(),
+            env: Vec::new(),
             root: dir.clone(),
             sdk_root: dir.clone(),
             adapter_binary: script.to_string_lossy().to_string(),
@@ -2064,5 +2081,39 @@ while True:
         assert!(late.frames.is_empty());
         assert!(late.locals.is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn launch_parameters_keep_argv_and_env_with_explicit_values_winning() {
+        let dir = std::env::temp_dir();
+        let launch = Launch {
+            session: 1,
+            project_name: "App".to_string(),
+            project_path: "App.csproj".to_string(),
+            build_id: "build:1:1".to_string(),
+            assembly: "/work/bin/App.dll".to_string(),
+            configuration: "Debug".to_string(),
+            target_framework: Some("net8.0".to_string()),
+            cwd: dir.join("work"),
+            args: vec!["--first".to_string(), "two words".to_string()],
+            env: vec![
+                ("DOTNET_ROOT".to_string(), "/custom/sdk".to_string()),
+                ("OPENRIDR_F4".to_string(), "explicit".to_string()),
+            ],
+            root: dir.clone(),
+            sdk_root: dir.join("sdk"),
+            adapter_binary: "/tools/netcoredbg".to_string(),
+            adapter_version: "3.2.0".to_string(),
+            adapter_platform: "osx-arm64".to_string(),
+            workspace_id: 1,
+            context_id: 1,
+            breakpoints: BTreeMap::new(),
+        };
+        let params = launch_parameters(&launch);
+        assert_eq!(params["program"], "/work/bin/App.dll");
+        assert_eq!(params["cwd"], dir.join("work").to_string_lossy().as_ref());
+        assert_eq!(params["args"], json!(["--first", "two words"]));
+        assert_eq!(params["env"]["OPENRIDR_F4"], "explicit");
+        assert_eq!(params["env"]["DOTNET_ROOT"], "/custom/sdk");
     }
 }

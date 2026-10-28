@@ -6,6 +6,8 @@ import {
   type CodeActionsResponse,
   type EvaluationProject,
   type RenameResponse,
+  type RunConfig,
+  type RunConfigStore,
   type Snapshot,
   type OutlineProject,
 } from "./host/client";
@@ -25,6 +27,13 @@ import { StatusBar } from "./shell/StatusBar";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
 import { FindAction, type SearchTab } from "./actions/FindAction";
 import { KeymapDialog } from "./actions/KeymapDialog";
+import {
+  DEFAULT_RUN_CONFIG_ID,
+  RunConfigDialog,
+  RunConfigWidget,
+  deriveDefaultRunConfig,
+  type RunConfigView,
+} from "./runConfigs";
 import {
   defaultSettings,
   normalizeSettings,
@@ -339,6 +348,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const diskEpoch = useRef(new Map<string, number>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
+  const [runConfigStore, setRunConfigStore] = useState<RunConfigStore | null>(null);
+  const [runConfigsLoaded, setRunConfigsLoaded] = useState(false);
+  const [runConfigOpen, setRunConfigOpen] = useState(false);
+  const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [buildDecision, setBuildDecision] = useState(false);
   const [runDecision, setRunDecision] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
@@ -465,9 +478,28 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const consoleCandidates = evaluatedProjects.filter(
     (project) => project.kind === "console" && project.state === "ok" && project.targetPath,
   );
-  const startupProject =
+  const defaultStartupProject =
     consoleCandidates.find((project) => project.path === startupPath) ??
     (consoleCandidates.length === 1 ? consoleCandidates[0] : null);
+  const activeNamedConfig =
+    runConfigStore && runConfigStore.activeId !== DEFAULT_RUN_CONFIG_ID
+      ? runConfigStore.configs.find((config) => config.id === runConfigStore.activeId) ?? null
+      : null;
+  const startupProject = activeNamedConfig
+    ? consoleCandidates.find((project) => project.path === activeNamedConfig.project) ?? null
+    : defaultStartupProject;
+  const defaultRunConfig = deriveDefaultRunConfig(defaultStartupProject, evaluation);
+  const activeRunConfig: RunConfigView | null = activeNamedConfig ?? defaultRunConfig;
+  const activeRunConfigIssues = activeRunConfig
+    ? (runConfigStore?.issues ?? []).filter(
+        (issue) => issue.configId === activeRunConfig.id,
+      )
+    : [];
+  const activeConfigEvaluated =
+    !activeNamedConfig ||
+    (activeNamedConfig.configuration === evaluation.context.configuration &&
+      (activeNamedConfig.targetFramework ?? null) ===
+        (evaluation.context.targetFramework ?? null));
   const buildRunning = build.state === "running";
   const buildObsolete = isBuildObsolete(build, editedAt);
   const buildDisabledReason = !trusted
@@ -480,15 +512,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           ? "The evaluated project model is stale; re-evaluate before building."
           : !["ok", "partial"].includes(evaluation.state)
             ? "Evaluate the project model before building; the build uses its TargetPath."
-            : restoreIncomplete
+            : !activeConfigEvaluated
+              ? "The active run configuration has not been evaluated yet; re-evaluate the project model."
+              : restoreIncomplete
               ? "Dependencies are not restored; run the explicit restore first."
               : consoleCandidates.length === 0
                 ? "No console executable project is available in the current evaluation; libraries and test projects cannot be startup projects."
-                : !startupProject
-                  ? "More than one console project; choose the startup project explicitly."
-                  : buildRunning
-                    ? "A build is already running."
-                    : null;
+                : activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)
+                  ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
+                  : !startupProject
+                    ? "More than one console project; choose the startup project explicitly."
+                    : buildRunning
+                      ? "A build is already running."
+                      : null;
   useEffect(() => {
     panelBodyRef.current?.scrollTo(0, 0);
   }, [bottomTab]);
@@ -531,10 +567,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           ? "The evaluated project model is stale; re-evaluate before running."
           : !["ok", "partial"].includes(evaluation.state)
             ? "Evaluate the project model before running; Run uses the saved build's TargetPath."
-            : consoleCandidates.length === 0
+            : !activeConfigEvaluated
+              ? "The active run configuration has not been evaluated yet; re-evaluate the project model."
+              : consoleCandidates.length === 0
               ? "No console executable project is available in the current evaluation; libraries and test projects cannot be run."
-              : !startupProject
-                ? "More than one console project; choose the startup project explicitly."
+              : activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)
+                ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
+                : !startupProject
+                  ? "More than one console project; choose the startup project explicitly."
                 : buildRunning
                   ? "A build is running; wait for it to finish before running."
                   : runRunning
@@ -572,10 +612,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               ? "The evaluated project model is stale; re-evaluate before debugging."
               : !["ok", "partial"].includes(evaluation.state)
                 ? "Evaluate the project model before debugging; Debug uses its managed assembly."
-                : consoleCandidates.length === 0
+                : !activeConfigEvaluated
+                  ? "The active run configuration has not been evaluated yet; re-evaluate the project model."
+                  : consoleCandidates.length === 0
                   ? "No console executable project is available in the current evaluation."
-                  : !startupProject
-                    ? "More than one console project; choose the startup project explicitly."
+                  : activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)
+                    ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
+                    : !startupProject
+                      ? "More than one console project; choose the startup project explicitly."
                     : buildRunning
                       ? "A build is running; wait for it to finish before debugging."
                       : build.revision === 0
@@ -612,8 +656,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       : null;
 
   useEffect(() => {
-    // Evaluate automatically once per trusted context; a stale model always needs an
-    // explicit re-evaluate so a late result cannot be mistaken for the latest one.
+    // The active configuration is the source of truth, so the first evaluation waits for the
+    // per-solution store and uses its Configuration/TFM instead of a second default.
+    if (!runConfigsLoaded) return;
     if (!evaluationAvailable || evaluation.state !== "idle" || evaluation.staleReason) {
       return;
     }
@@ -621,8 +666,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       return;
     }
     autoEvaluation.current = snapshot.contextId;
-    void runEvaluation();
-  }, [evaluationAvailable, evaluation.state, evaluation.staleReason, snapshot.contextId]);
+    void evaluateContext(
+      activeNamedConfig?.configuration ?? evaluation.context.configuration,
+      activeNamedConfig?.targetFramework ?? evaluation.context.targetFramework,
+    );
+  }, [
+    evaluationAvailable,
+    evaluation.state,
+    evaluation.staleReason,
+    snapshot.contextId,
+    runConfigsLoaded,
+  ]);
 
   useEffect(() => {
     if (evaluation.revision === 0) return;
@@ -1616,15 +1670,42 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  async function runEvaluation(next?: {
-    configuration?: string;
-    targetFramework?: string | null;
-  }) {
-    const configuration = next?.configuration ?? evaluation.context.configuration;
-    const targetFramework =
-      next && "targetFramework" in next
-        ? next.targetFramework ?? null
-        : evaluation.context.targetFramework;
+  useEffect(() => {
+    let alive = true;
+    call<RunConfigStore>("runConfigs.read", { solution: workspace.path })
+      .then((store) => {
+        if (alive) setRunConfigStore(store);
+      })
+      .catch((error) => {
+        if (alive) {
+          setMessage({
+            tone: "error",
+            text: `Run configurations could not be read: ${messageOf(error)}`,
+          });
+        }
+      })
+      .finally(() => {
+        if (alive) setRunConfigsLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [workspace.path]);
+
+  async function commitRunConfigs(configs: RunConfig[], activeId: string) {
+    const store = await call<RunConfigStore>("runConfigs.write", {
+      solution: workspace.path,
+      activeId,
+      configs,
+    });
+    setRunConfigStore(store);
+    return store;
+  }
+
+  async function evaluateContext(
+    configuration: string,
+    targetFramework: string | null,
+  ) {
     setEvaluating(true);
     try {
       onSnapshot(
@@ -1640,6 +1721,110 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       }
     } finally {
       setEvaluating(false);
+    }
+  }
+
+  async function runEvaluation(next?: {
+    configuration?: string;
+    targetFramework?: string | null;
+  }) {
+    const configuration = next?.configuration ?? evaluation.context.configuration;
+    const targetFramework =
+      next && "targetFramework" in next
+        ? next.targetFramework ?? null
+        : evaluation.context.targetFramework;
+    if (
+      activeNamedConfig &&
+      (activeNamedConfig.configuration !== configuration ||
+        (activeNamedConfig.targetFramework ?? null) !== targetFramework)
+    ) {
+      // Every toolbar/panel Configuration or TFM change writes the active configuration;
+      // the evaluation follows it so there is a single source of truth.
+      const configs = (runConfigStore?.configs ?? []).map((config) =>
+        config.id === activeNamedConfig.id
+          ? { ...config, configuration, targetFramework }
+          : config,
+      );
+      try {
+        await commitRunConfigs(configs, activeNamedConfig.id);
+      } catch (error) {
+        setMessage({
+          tone: "error",
+          text: `The active run configuration could not be updated: ${messageOf(error)}`,
+        });
+      }
+    }
+    await evaluateContext(configuration, targetFramework);
+  }
+
+  function openRunConfigDialog(id?: string) {
+    setRunConfigInitialId(id ?? activeRunConfig?.id ?? DEFAULT_RUN_CONFIG_ID);
+    setRunConfigOpen(true);
+  }
+
+  async function selectRunConfig(id: string) {
+    try {
+      const store = await commitRunConfigs(runConfigStore?.configs ?? [], id);
+      setMessage(null);
+      const selected = store.configs.find((config) => config.id === id);
+      if (
+        selected &&
+        (selected.configuration !== evaluation.context.configuration ||
+          (selected.targetFramework ?? null) !==
+            (evaluation.context.targetFramework ?? null))
+      ) {
+        await evaluateContext(selected.configuration, selected.targetFramework ?? null);
+      }
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: `The run configuration could not be selected: ${messageOf(error)}`,
+      });
+    }
+  }
+
+  async function commitRunConfigDialog(configs: RunConfig[], activeId: string) {
+    const store = await commitRunConfigs(configs, activeId);
+    const selected = store.configs.find((config) => config.id === activeId);
+    if (
+      selected &&
+      (selected.configuration !== evaluation.context.configuration ||
+        (selected.targetFramework ?? null) !==
+          (evaluation.context.targetFramework ?? null))
+    ) {
+      await evaluateContext(selected.configuration, selected.targetFramework ?? null);
+    }
+    return store.issues;
+  }
+
+  function setStartupProject(path: string) {
+    if (!activeNamedConfig) {
+      setStartupPath(path);
+      return;
+    }
+    const configs = (runConfigStore?.configs ?? []).map((config) =>
+      config.id === activeNamedConfig.id ? { ...config, project: path } : config,
+    );
+    void commitRunConfigs(configs, activeNamedConfig.id).catch((error) =>
+      setMessage({
+        tone: "error",
+        text: `The run configuration could not be updated: ${messageOf(error)}`,
+      }),
+    );
+  }
+
+  function invalidRunConfigReason() {
+    if (!activeRunConfig || activeRunConfigIssues.length === 0) return null;
+    return `The active run configuration “${activeRunConfig.name}” cannot run: ${activeRunConfigIssues
+      .map((issue) => issue.message)
+      .join(" ")} Edit the configuration before running.`;
+  }
+
+  function openConfigOnFieldError(error: unknown) {
+    if (!(error instanceof HostCallError)) return;
+    const field = (error.details as { field?: string } | undefined)?.field;
+    if (["args", "workingDirectory", "env", "envFiles"].includes(field ?? "")) {
+      openRunConfigDialog(activeRunConfig?.id);
     }
   }
 
@@ -1677,8 +1862,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       onSnapshot(
         await call<Snapshot>("build.start", {
           project: startupProject.path,
-          configuration: evaluation.context.configuration,
-          targetFramework: evaluation.context.targetFramework,
+          configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
+          targetFramework:
+            activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
           savedNote,
         }),
       );
@@ -1795,6 +1981,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   async function startRun() {
+    const invalid = invalidRunConfigReason();
+    if (invalid) {
+      setMessage({ tone: "error", text: invalid });
+      openRunConfigDialog(activeRunConfig?.id);
+      return;
+    }
     if (!startupProject) {
       setMessage({
         tone: "error",
@@ -1807,13 +1999,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       onSnapshot(
         await call<Snapshot>("run.start", {
           project: startupProject.path,
-          configuration: evaluation.context.configuration,
-          targetFramework: evaluation.context.targetFramework,
+          configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
+          targetFramework:
+            activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
+          args: activeRunConfig?.args ?? [],
+          workingDirectory: activeRunConfig?.workingDirectory ?? "",
+          env: activeRunConfig?.env ?? {},
+          envFiles: activeRunConfig?.envFiles ?? [],
         }),
       );
       setMessage(null);
     } catch (error) {
       setMessage({ tone: "error", text: `Run could not start: ${messageOf(error)}` });
+      openConfigOnFieldError(error);
       try {
         onSnapshot(await call<Snapshot>("workspace.state"));
       } catch {
@@ -1825,6 +2023,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   function requestRun() {
     if (runDisabledReason) {
       setMessage({ tone: "error", text: `Run unavailable: ${runDisabledReason}` });
+      return;
+    }
+    const invalid = invalidRunConfigReason();
+    if (invalid) {
+      setMessage({ tone: "error", text: invalid });
+      openRunConfigDialog(activeRunConfig?.id);
       return;
     }
     if (dirtyCount > 0) {
@@ -1857,18 +2061,30 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       setMessage({ tone: "error", text: `Debug unavailable: ${debugDisabledReason}` });
       return;
     }
+    const invalid = invalidRunConfigReason();
+    if (invalid) {
+      setMessage({ tone: "error", text: invalid });
+      openRunConfigDialog(activeRunConfig?.id);
+      return;
+    }
     setBottomTab("debug");
     try {
       onSnapshot(
         await call<Snapshot>("debug.start", {
           project: startupProject?.path,
-          configuration: evaluation.context.configuration,
-          targetFramework: evaluation.context.targetFramework,
+          configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
+          targetFramework:
+            activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
+          args: activeRunConfig?.args ?? [],
+          workingDirectory: activeRunConfig?.workingDirectory ?? "",
+          env: activeRunConfig?.env ?? {},
+          envFiles: activeRunConfig?.envFiles ?? [],
         }),
       );
       setMessage(null);
     } catch (error) {
       setMessage({ tone: "error", text: `Debug could not start: ${messageOf(error)}` });
+      openConfigOnFieldError(error);
       try {
         onSnapshot(await call<Snapshot>("workspace.state"));
       } catch {
@@ -2196,8 +2412,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "run.configure",
       title: "Edit Run Configurations…",
       group: "Run",
-      execute: () => undefined,
-      disabledReason: "Run configurations arrive in F4.",
+      execute: () => openRunConfigDialog(),
     }),
     define({
       id: "settings.open",
@@ -2368,8 +2583,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             onCancelRun={() => void cancelRun()}
             onSaveAndRebuild={() => void saveAllAndRebuild()}
             evaluation={evaluation}
-            startupPath={startupPath}
-            onStartup={setStartupPath}
+            startupPath={startupProject?.path ?? null}
+            onStartup={setStartupProject}
             onEvaluate={(next) => void runEvaluation(next)}
             onBuild={requestBuild}
             onCancel={() => void cancelBuild()}
@@ -2545,9 +2760,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         </span>
         <label className="eval-field toolbar-startup">
           <span>Startup project</span>
-          <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupPath(event.target.value)}>
-            {consoleCandidates.length === 0 && <option value="">No console project</option>}
-            {consoleCandidates.length > 1 && !startupProject && <option value="">Select a startup project</option>}
+          <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupProject(event.target.value)}>
+            {!startupProject && <option value="">{consoleCandidates.length === 0 ? "No console project" : "Select a startup project"}</option>}
             {consoleCandidates.map((project) => <option key={project.path} value={project.path}>{project.name}</option>)}
           </select>
         </label>
@@ -2560,17 +2774,24 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           </select></label>
         </div>
         <span className="push" />
-        <span className="toolbar-disabled" title="Run configurations arrive in F4. The toolbar keeps using the evaluated startup project, Configuration and TFM until then.">
-          <button
-            type="button"
-            data-testid="toolbar-run-config"
-            disabled
-            aria-label="Run configuration — Run configurations arrive in F4."
-            title="Run configurations arrive in F4."
-          >
-            <Icon name="runconfig" /> Run config
-          </button>
-        </span>
+        <RunConfigWidget
+          configs={runConfigStore?.configs ?? []}
+          defaultConfig={defaultRunConfig}
+          activeId={activeRunConfig?.id ?? DEFAULT_RUN_CONFIG_ID}
+          disabledReason={
+            !trusted
+              ? "Trust the workspace before choosing a run configuration; nothing runs in Restricted mode."
+              : !["ok", "partial"].includes(evaluation.state)
+                ? "Evaluate the project model before choosing a run configuration."
+                : consoleCandidates.length === 0
+                  ? "No evaluated console project is available for a run configuration."
+                  : !startupProject && !activeNamedConfig
+                    ? "More than one console project; choose the startup project explicitly."
+                    : null
+          }
+          onSelect={(id) => void selectRunConfig(id)}
+          onEdit={() => openRunConfigDialog()}
+        />
         <button
           data-testid="toolbar-build"
           disabled={buildAction.disabledReason !== null}
@@ -3811,6 +4032,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             </div>
           </div>
         </div>
+      )}
+
+      {runConfigOpen && (
+        <RunConfigDialog
+          evaluation={evaluation}
+          configs={runConfigStore?.configs ?? []}
+          defaultConfig={defaultRunConfig}
+          activeId={runConfigStore?.activeId ?? DEFAULT_RUN_CONFIG_ID}
+          issues={runConfigStore?.issues ?? []}
+          initialId={runConfigInitialId}
+          onCommit={commitRunConfigDialog}
+          onClose={() => setRunConfigOpen(false)}
+        />
       )}
 
       {confirm && (

@@ -3095,16 +3095,60 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     // The rebuild produces new output, which proves the run below used the new build.
     fs::write(
         &program,
-        "using OrderDesk.Core;\nvar order = new Order(\"A-999\", 7m);\nSystem.Console.WriteLine($\"Order {order.Id}: {order.Total:C}\");\n",
+        "using OrderDesk.Core;\nvar order = new Order(\"A-999\", 7m);\nSystem.Console.WriteLine($\"Order {order.Id}: {order.Total:C}\");\nSystem.Console.WriteLine($\"args=[{string.Join(\"|\", args)}]\");\nSystem.Console.WriteLine($\"env={System.Environment.GetEnvironmentVariable(\"OPENRIDR_F4\")}\");\nSystem.Console.WriteLine($\"override={System.Environment.GetEnvironmentVariable(\"OPENRIDR_OVERRIDE\")}\");\nSystem.Console.WriteLine($\"cwd={System.Environment.CurrentDirectory}\");\n",
+    )
+    .unwrap();
+    fs::write(
+        copy.join("run.env"),
+        "# values for the active configuration\nOPENRIDR_F4=from-file\nOPENRIDR_OVERRIDE=file\n",
     )
     .unwrap();
     host.dispatch("build.start", json!({})).unwrap();
     let rebuilt = wait_for_build(&host, Duration::from_secs(60));
     assert_eq!(rebuilt["state"], "ok", "{}", rebuilt["log"]);
-    host.dispatch("run.start", json!({})).unwrap();
+    let configured = host
+        .dispatch(
+            "run.start",
+            json!({
+                "args": ["--first", "two words"],
+                "workingDirectory": "src",
+                "envFiles": ["run.env"],
+                "env": { "OPENRIDR_F4": "explicit" },
+            }),
+        )
+        .unwrap();
+    let configured_run = &configured["run"];
+    let configured_command: Vec<&str> = configured_run["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        &configured_command[2..],
+        ["--first", "two words"],
+        "{configured_command:?}"
+    );
+    assert!(
+        configured_run["cwd"]
+            .as_str()
+            .unwrap()
+            .ends_with("/src"),
+        "{}",
+        configured_run["cwd"]
+    );
     let rerun = wait_for_run(&host, Duration::from_secs(30));
     assert_eq!(rerun["state"], "exited");
-    assert!(rerun["log"].as_str().unwrap().contains("Order A-999:"));
+    let log = rerun["log"].as_str().unwrap();
+    assert!(log.contains("Order A-999:"), "{log}");
+    assert!(log.contains("args=[--first|two words]"), "{log}");
+    assert!(log.contains("env=explicit"), "explicit env must win over .env: {log}");
+    assert!(log.contains("override=file"), "the .env file must be applied: {log}");
+    assert!(
+        log.lines()
+            .any(|line| line.starts_with("cwd=") && line.ends_with("/src")),
+        "{log}"
+    );
     assert_ne!(rerun["buildId"], build_id);
 
     // A failed build is never runnable, and its log is in the refusal details.
@@ -3771,4 +3815,167 @@ fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
         settings,
         "an invalid payload replaced the previous settings"
     );
+}
+
+#[test]
+fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let workspaces = tempfile::tempdir().unwrap();
+    let solution = fs::canonicalize(
+        fixture_copy(workspaces.path(), "Configs").join("OrderDesk.sln"),
+    )
+    .unwrap();
+    let other = fixture_copy(workspaces.path(), "Other");
+    let host = Host::new();
+
+    // No workspace and no trust: the store is app-scoped but keyed by the solution.
+    let empty = host
+        .dispatch("runConfigs.read", json!({ "solution": solution }))
+        .unwrap();
+    assert_eq!(empty["configs"], json!([]));
+    assert_eq!(empty["activeId"], "default");
+    assert!(empty["path"]
+        .as_str()
+        .unwrap()
+        .starts_with(home.path().join("run-configs").to_string_lossy().as_ref()));
+    assert!(!empty["path"].as_str().unwrap().starts_with(fixture().to_string_lossy().as_ref()));
+
+    fs::write(
+        solution.parent().unwrap().join("local.env"),
+        "OPENRIDR_F4=file\n",
+    )
+    .unwrap();
+    let configs = json!([{
+        "id": "cfg-1",
+        "name": "Local run",
+        "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+        "configuration": "Debug",
+        "targetFramework": "net8.0",
+        "args": ["--first"],
+        "workingDirectory": "src",
+        "env": { "OPENRIDR_F4": "explicit" },
+        "envFiles": ["local.env"]
+    }]);
+    let written = host
+        .dispatch(
+            "runConfigs.write",
+            json!({ "solution": solution, "activeId": "cfg-1", "configs": configs }),
+        )
+        .unwrap();
+    assert_eq!(written["activeId"], "cfg-1");
+    assert_eq!(written["configs"], configs);
+    assert_eq!(written["issues"], json!([]));
+    let path = written["path"].as_str().unwrap().to_string();
+    assert!(Path::new(&path).is_file());
+    let stored: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(stored["solution"], solution.to_string_lossy().as_ref());
+
+    // Another solution never sees this store; the file is not written inside the repository.
+    let separate = host
+        .dispatch(
+            "runConfigs.read",
+            json!({ "solution": other.join("OrderDesk.sln") }),
+        )
+        .unwrap();
+    assert_eq!(separate["configs"], json!([]));
+    assert_ne!(separate["path"], written["path"]);
+    assert!(fs::read_dir(fixture()).unwrap().all(|entry| {
+        let name = entry.unwrap().file_name();
+        name != "run-configs" && !name.to_string_lossy().ends_with(".run-config.json")
+    }));
+
+    // An invalid shape is refused with its field and leaves the saved store untouched.
+    let before = fs::read_to_string(&path).unwrap();
+    for (payload, field) in [
+        (
+            json!([{ "id": "cfg-1", "name": "", "project": "a.csproj", "configuration": "Debug" }]),
+            "name",
+        ),
+        (
+            json!([{ "id": "cfg-1", "name": "One", "project": "a.csproj", "configuration": "Debug", "env": { "BAD KEY": "x" } }]),
+            "env",
+        ),
+        (
+            json!([
+                { "id": "cfg-1", "name": "One", "project": "a.csproj", "configuration": "Debug" },
+                { "id": "cfg-1", "name": "Two", "project": "a.csproj", "configuration": "Debug" }
+            ]),
+            "id",
+        ),
+    ] {
+        let error = host
+            .dispatch(
+                "runConfigs.write",
+                json!({ "solution": solution, "activeId": "default", "configs": payload }),
+            )
+            .expect_err("invalid store");
+        assert_eq!(error.code, "invalid_run_configs", "{error:?}");
+        assert_eq!(error.details.unwrap()["field"], field);
+    }
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
+
+    // Missing files are reported as issues on save instead of blocking the edit.
+    let issues = host
+        .dispatch(
+            "runConfigs.write",
+            json!({
+                "solution": solution,
+                "activeId": "cfg-1",
+                "configs": [{
+                    "id": "cfg-1",
+                    "name": "Local run",
+                    "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+                    "configuration": "Debug",
+                    "workingDirectory": "missing",
+                    "envFiles": ["missing.env"]
+                }]
+            }),
+        )
+        .unwrap();
+    let issues = issues["issues"].as_array().unwrap();
+    assert_eq!(issues.len(), 2);
+    assert!(issues.iter().any(|issue| issue["field"] == "workingDirectory"));
+    assert!(issues.iter().any(|issue| issue["field"] == "envFiles"));
+}
+
+#[test]
+fn run_and_debug_validate_launch_options_before_any_process() {
+    let temp = temp_workspace(&["App.csproj"]);
+    fs::write(temp.path().join("bad.env"), "NOT A LINE\n").unwrap();
+    let host = Host::new();
+    open(&host, &temp.path().join("App.csproj"));
+    grant(&host);
+
+    let missing = host
+        .dispatch("run.start", json!({ "workingDirectory": "missing" }))
+        .expect_err("a missing cwd is refused before build/restore");
+    assert_eq!(missing.code, "invalid_state");
+    assert_eq!(missing.details.unwrap()["field"], "workingDirectory");
+
+    let bad_env = host
+        .dispatch("run.start", json!({ "envFiles": ["bad.env"] }))
+        .expect_err("an invalid .env line is refused");
+    assert_eq!(bad_env.code, "invalid_state");
+    let details = bad_env.details.unwrap();
+    assert_eq!(details["field"], "envFiles");
+    assert!(bad_env.message.contains("line 1"), "{}", bad_env.message);
+
+    let debug_missing = host
+        .dispatch("debug.start", json!({ "workingDirectory": "missing" }))
+        .expect_err("debug validates the same options");
+    assert_eq!(debug_missing.code, "invalid_state");
+    assert_eq!(
+        debug_missing.details.unwrap()["field"],
+        "workingDirectory"
+    );
+
+    let state = snapshot(&host);
+    assert_eq!(state["run"]["state"], "idle");
+    assert!(state["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|process| process["state"] == "exited"));
 }

@@ -935,6 +935,33 @@ export type Lsp = {
   contextId: number | null;
 };
 
+export type RunConfig = {
+  id: string;
+  name: string;
+  project: string;
+  configuration: string;
+  targetFramework: string | null;
+  args: string[];
+  workingDirectory: string;
+  env: Record<string, string>;
+  envFiles: string[];
+};
+
+export type RunConfigIssue = {
+  configId: string;
+  field: string;
+  reason: string;
+  message: string;
+};
+
+export type RunConfigStore = {
+  solution: string;
+  path: string;
+  activeId: string;
+  configs: RunConfig[];
+  issues: RunConfigIssue[];
+};
+
 export type Snapshot = {
   contextId: number;
   app: { home: string; appHome: string; platform: string; arch: string; version: string };

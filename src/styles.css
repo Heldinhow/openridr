@@ -1597,6 +1597,111 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   width: min(760px, 100%);
 }
 
+.run-config-menu .menu-content {
+  width: 300px;
+}
+
+.run-config-menu > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+}
+
+.run-config-menu [data-testid="run-config-active"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-config-tag {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.run-config-dialog {
+  width: min(780px, 100%);
+}
+
+.run-config-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.run-config-list {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.run-config-list button {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.run-config-list button[aria-current="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.run-config-form {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.run-config-field {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.run-config-field > input,
+.run-config-field > select,
+.run-config-field > textarea,
+.run-config-row > input {
+  width: 100%;
+  padding: 4px 6px;
+  color: var(--fg);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.run-config-field > textarea {
+  resize: vertical;
+}
+
+.run-config-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 4px;
+}
+
+.run-config-form .actions {
+  justify-content: flex-start;
+}
+
+@media (max-width: 720px) {
+  .run-config-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-config-list {
+    grid-auto-flow: column;
+    overflow-x: auto;
+  }
+}
+
 .find-action > input {
   width: 100%;
 }

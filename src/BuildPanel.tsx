@@ -127,9 +127,10 @@ export function BuildPanel({
                   : "Console executable project evaluated for this context."
             }
           >
-            {candidates.length === 0 && <option value="">No console project</option>}
-            {candidates.length > 1 && !startup && (
-              <option value="">Select a startup project</option>
+            {!startup && (
+              <option value="">
+                {candidates.length === 0 ? "No console project" : "Select a startup project"}
+              </option>
             )}
             {candidates.map((project) => (
               <option key={project.path} value={project.path}>
