@@ -2087,10 +2087,10 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           </select>
         </label>
         <div className="toolbar-configuration">
-          <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })}>
+          <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={evaluationAvailable ? "MSBuild configuration for the evaluated project model." : "Trust the workspace and resolve the project SDK to select a configuration."}>
             {configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}
           </select></label>
-          <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value === "" ? null : event.target.value })}>
+          <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value === "" ? null : event.target.value })} title={evaluationAvailable ? "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM." : "Trust the workspace and resolve the project SDK to select a TFM."}>
             <option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}
           </select></label>
         </div>

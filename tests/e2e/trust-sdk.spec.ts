@@ -108,6 +108,8 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await expect(page.getByTestId("status-sdk")).toHaveText(
     "Host SDK 10.0.100 · Project SDK 8.0.408",
   );
+  await expect(page.getByTestId("eval-configuration")).toHaveAttribute("title", "MSBuild configuration for the evaluated project model.");
+  await expect(page.getByTestId("eval-tfm")).toHaveAttribute("title", "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM.");
 
   await page.getByTestId(`tree-file-${programTab}`).click();
   await expect(page.getByTestId("editor")).toBeVisible();
@@ -121,6 +123,10 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await reveal(page.getByTestId("trust-revoke"));
   await page.getByTestId("trust-revoke").click();
   await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  for (const [id, selection] of [["eval-configuration", "a configuration"], ["eval-tfm", "a TFM"]]) {
+    await expect(page.getByTestId(id)).toBeDisabled();
+    await expect(page.getByTestId(id)).toHaveAttribute("title", `Trust the workspace and resolve the project SDK to select ${selection}.`);
+  }
   await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
   await expect(page.getByTestId("status-sdk")).toHaveText(
     "Host SDK 10.0.100 · Project SDK not inspected",
@@ -195,6 +201,10 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(page.getByTestId("editor")).toContainText("8.0.999");
   await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  for (const [id, selection] of [["eval-configuration", "a configuration"], ["eval-tfm", "a TFM"]]) {
+    await expect(page.getByTestId(id)).toBeDisabled();
+    await expect(page.getByTestId(id)).toHaveAttribute("title", `Trust the workspace and resolve the project SDK to select ${selection}.`);
+  }
   expect(hashOf(missingGlobal)).toBe(before);
 
   expect(fs.existsSync(path.join(missingFixture, "bin"))).toBe(false);
