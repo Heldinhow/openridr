@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** done — commit local. Verificado com `tests/e2e/git.spec.ts`, `shell.spec.ts` e `zz-acceptance.spec.ts`.
+**Status:** done — commit `dc701c9`; specs de Git/ações/busca/shell/aceitação verdes (suíte completa 70/72 antes do ajuste de asserção, 13/13 depois).
 
 - [x] O widget de branch mostra a branch atual e abre popup com busca, nova branch, checkout de branch local/remota, Update (pull) e Commit; itens indisponíveis explicam o motivo (título e texto), inclusive árvore suja, operação em andamento, sem upstream e sem remote.
 - [x] Commit marca arquivos por checkbox, mostra o diff real do arquivo e commita **somente os marcados** com `git commit --only -- <caminhos>`; o index do usuário não é alterado (o staged existente permanece staged) e desmarcar não faz `restore --staged`.
