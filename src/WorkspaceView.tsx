@@ -3053,6 +3053,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
       </div>
 
+      <Splitter label="Output panel height" value={outputHeight} min={120} max={500} horizontal onChange={setOutputHeight} />
       <section
         className={`output ${
           bottomTab === "problems"
@@ -3067,12 +3068,22 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         }`}
         aria-label="Bottom panel"
       >
-        <div className="tabs bottom-tabs" role="tablist" aria-label="Output panels">
+        <div className="tabs bottom-tabs" role="tablist" aria-label="Output panels" onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const index = bottomTabs.findIndex((tab) => tab.id === bottomTab);
+          const next = event.key === "Home" ? 0 : event.key === "End" ? bottomTabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + bottomTabs.length) % bottomTabs.length;
+          setBottomTab(bottomTabs[next].id);
+          event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
+        }}>
           {bottomTabs.map((tab) => (
             <button
               key={tab.id}
               role="tab"
               aria-selected={bottomTab === tab.id}
+              tabIndex={bottomTab === tab.id ? 0 : -1}
+              id={`output-tab-${tab.id}`}
+              aria-controls="output-content"
               className={`tab-label ${bottomTab === tab.id ? "active" : ""}`}
               data-testid={`bottom-tab-${tab.id}`}
               onClick={() => setBottomTab(tab.id)}
@@ -3083,7 +3094,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </button>
           ))}
         </div>
-        <div className="panel-body" role="tabpanel">
+        <div className="panel-body" role="tabpanel" id="output-content" aria-labelledby={`output-tab-${bottomTab}`}>
           {renderBottomContent()}
         </div>
       </section>
