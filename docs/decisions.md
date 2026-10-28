@@ -245,3 +245,7 @@ NuGet (F9): instalados + desatualizados + update unitário com plano e confirma�
 Código (F7): gutter Run/Test, popup ⌥↩ com prévia (reusa o preview do ticket 10), menu de contexto do editor, rename inline no CodeMirror (range da palavra, Enter aplica com revalidação, Esc cancela) e `lsp.references` (⇧F12) somente leitura. **Refactor This fica fora do MVP** (S1); o menu aponta para Rename.
 
 Plataforma e ritual: Windows não executado nesta fase (release continua bloqueado, `docs/release-decision.md`); 1 commit por fatia, spec Playwright da fatia + suíte inteira verde, `/code-review` no fim. Nenhuma dependência nova (sem Zustand, cmdk, simple-git, lucide).
+
+## 2026-10-28 — F1: recentes só de sessão, faixas no rail e slot esquerdo
+
+O popup do projeto lista as soluções abertas nesta sessão; nenhum caminho recente é gravado, porque a F1 persiste apenas layout e a decisão anterior proíbe estado de domínio no webview. Abrir outra solução pelo popup exige zero buffers sujos e a WorkspaceView remonta por `workspace.id`, então abas do workspace anterior não sobrevivem. O slot esquerdo é o Solution Explorer; o inferior, Build/Problems/Debug/Terminal/Tests. As duas faixas dividem um rail fixo de 34 px à esquerda para continuarem clicáveis com a tool window oculta; clicar no ícone ativo alterna a visibilidade e ⇧Esc oculta a última ativa (exceto em input/textarea/contenteditable).

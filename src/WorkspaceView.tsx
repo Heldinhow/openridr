@@ -20,6 +20,18 @@ import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { Icon } from "./Icon";
 import { Splitter } from "./Splitter";
+import { BottomToolWindow } from "./shell/BottomToolWindow";
+import { StatusBar } from "./shell/StatusBar";
+import { ToolWindowBand } from "./shell/ToolWindowBand";
+import {
+  loadShellLayout,
+  saveShellLayout,
+  toolWindowsIn,
+  type BottomToolId,
+  type ShellLayout,
+  type ToolWindowId,
+  type ToolWindowSlot,
+} from "./shell/toolWindows";
 
 type Tab = {
   path: string;
@@ -90,22 +102,16 @@ type Confirmation =
   | { kind: "workspace" }
   | { kind: "window" };
 
-type BottomTab = "build" | "problems" | "debug" | "terminal" | "tests";
-
 type Props = {
   snapshot: Snapshot;
   initialFile: string | null;
+  recentSolutions: string[];
+  onOpenRecent: (path: string) => Promise<void>;
   onSnapshot: (snapshot: Snapshot) => void;
   onClosed: (snapshot: Snapshot) => void;
 };
 
-const bottomTabs: { id: BottomTab; label: string }[] = [
-  { id: "build", label: "Build" },
-  { id: "problems", label: "Problems" },
-  { id: "debug", label: "Debug" },
-  { id: "terminal", label: "Terminal" },
-  { id: "tests", label: "Tests" },
-];
+const bottomTools = toolWindowsIn("bottom");
 
 function baseName(path: string) {
   return path.split("/").pop() ?? path;
@@ -210,7 +216,7 @@ function restoreStateLabel(restore: Snapshot["restore"]) {
   }
 }
 
-export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: Props) {
+export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRecent, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
   const trusted = snapshot.trust.granted;
@@ -224,10 +230,14 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [bottomTab, setBottomTab] = useState<BottomTab>("build");
+  const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
+  const [activeSlot, setActiveSlot] = useState<ToolWindowSlot>("bottom");
+  const bottomTab = layout.bottom.active as BottomToolId;
+  const bottomOpen = layout.bottom.open;
+  const leftOpen = layout.left.open;
+  const sidebarWidth = layout.left.size;
+  const outputHeight = layout.bottom.size;
   const panelBodyRef = useRef<HTMLDivElement>(null);
-  const [sidebarWidth, setSidebarWidth] = useState(280);
-  const [outputHeight, setOutputHeight] = useState(220);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
@@ -243,6 +253,53 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
+  useEffect(() => {
+    saveShellLayout(layout);
+  }, [layout]);
+
+  function setBottomTab(tab: BottomToolId) {
+    setActiveSlot("bottom");
+    setLayout((current) => ({ ...current, bottom: { ...current.bottom, active: tab, open: true } }));
+  }
+
+  function setSidebarWidth(value: number) {
+    setLayout((current) => ({ ...current, left: { ...current.left, size: value } }));
+  }
+
+  function setOutputHeight(value: number) {
+    setLayout((current) => ({ ...current, bottom: { ...current.bottom, size: value } }));
+  }
+
+  function toggleToolWindow(slot: ToolWindowSlot, id: ToolWindowId) {
+    setActiveSlot(slot);
+    setLayout((current) => {
+      const state = current[slot];
+      const next = state.active === id
+        ? { ...state, open: !state.open }
+        : { ...state, active: id, open: true };
+      return slot === "left" ? { ...current, left: next } : { ...current, bottom: next };
+    });
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== "Escape" || !event.shiftKey) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest("input, textarea") || target?.isContentEditable) return;
+      const other: ToolWindowSlot = activeSlot === "left" ? "bottom" : "left";
+      const slot: ToolWindowSlot | null = layout[activeSlot].open ? activeSlot : layout[other].open ? other : null;
+      if (!slot) return;
+      event.preventDefault();
+      setLayout((current) => {
+        const state = current[slot];
+        const next = { ...state, open: false };
+        return slot === "left" ? { ...current, left: next } : { ...current, bottom: next };
+      });
+      document.querySelector<HTMLElement>('[data-testid="editor"]')?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeSlot, layout]);
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
@@ -2070,10 +2127,67 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               : "Project SDK unresolved"
   }`;
 
+  const bottomTabLabels = bottomTools.map(({ id, title }) => ({
+    id: id as BottomToolId,
+    label: id === "problems" && snapshot.diagnostics.currentItems > 0 ? `Problems (${snapshot.diagnostics.currentItems})` : title,
+  }));
+  const breadcrumbProject = activeEvaluationProject?.name ?? activeProject?.name ?? null;
+  const statusBreadcrumb = [
+    workspace.name,
+    breadcrumbProject && breadcrumbProject !== workspace.name ? breadcrumbProject : null,
+    active ? baseName(active.path) : null,
+  ].filter((part): part is string => Boolean(part)).join(" > ");
+  const evaluationStatus = showsEvaluatedTree
+    ? {
+        testId: "status-evaluation",
+        title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`,
+        text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`,
+      }
+    : { text: "Text outline · not evaluated" };
+
+  async function openSolution(solution: string) {
+    if (solution === workspace.path) return;
+    if (dirtyCount > 0) {
+      setMessage({ tone: "error", text: "Save or close modified buffers before opening another solution." });
+      return;
+    }
+    try {
+      await onOpenRecent(solution);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Could not open ${solution}: ${messageOf(error)}` });
+    }
+  }
+
   return (
-    <main className="workspace-view" style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${visibleOutputHeight}px` } as CSSProperties}>
+    <main
+      className={`workspace-view ${leftOpen ? "" : "left-closed"} ${bottomOpen ? "" : "bottom-closed"}`}
+      style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${visibleOutputHeight}px` } as CSSProperties}
+    >
       <div className="toolbar">
-        <span className="workspace-brand" title={workspace.path}><Icon name="project" /><strong>{workspace.name}</strong></span>
+        <details className="toolbar-menu project-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
+          <summary className="workspace-brand" title={workspace.path} data-testid="toolbar-project" aria-label={`Project: ${workspace.name}. Open recent solutions.`}>
+            <Icon name="project" /><strong>{workspace.name}</strong>
+          </summary>
+          <div className="menu-content" data-testid="toolbar-project-menu">
+            <span className="menu-heading">Recent solutions</span>
+            <span className="menu-note">This session only; recent solutions are not persisted yet.</span>
+            {recentSolutions.map((solution, index) => (
+              <button
+                key={solution}
+                type="button"
+                data-testid={`recent-solution-${index}`}
+                aria-current={solution === workspace.path ? "true" : undefined}
+                title={solution}
+                onClick={() => void openSolution(solution)}
+              >
+                {baseName(solution)}{solution === workspace.path ? " (current)" : ""}
+              </button>
+            ))}
+            {recentSolutions.length === 0 && <span className="menu-note">No recent solutions.</span>}
+          </div>
+        </details>
         <details className="toolbar-menu trust-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
@@ -2082,6 +2196,11 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             <TrustControls snapshot={snapshot} onChange={onSnapshot} />
           </div>
         </details>
+        <span className="toolbar-disabled" title="Git not connected. Version control arrives in F6.">
+          <button type="button" data-testid="toolbar-branch" disabled title="Git not connected. Version control arrives in F6.">
+            <Icon name="git" /> Git not connected
+          </button>
+        </span>
         <label className="eval-field toolbar-startup">
           <span>Startup project</span>
           <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupPath(event.target.value)}>
@@ -2099,6 +2218,17 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           </select></label>
         </div>
         <span className="push" />
+        <span className="toolbar-disabled" title="Run configurations arrive in F4. The toolbar keeps using the evaluated startup project, Configuration and TFM until then.">
+          <button
+            type="button"
+            data-testid="toolbar-run-config"
+            disabled
+            aria-label="Run configuration — run configurations arrive in F4."
+            title="Run configurations arrive in F4."
+          >
+            <Icon name="runconfig" /> Run config
+          </button>
+        </span>
         <button
           data-testid="toolbar-build"
           disabled={!trusted}
@@ -2140,9 +2270,33 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             onClick={() => void stopDebug()}
             title="Stops the adapter group and reports what was observed."
           >
-            Stop debugging
+            Stop
           </button>
         )}
+        <span className="toolbar-disabled" title="Search Everywhere arrives in F3.">
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            data-testid="toolbar-search"
+            disabled
+            aria-label="Search — Search Everywhere arrives in F3."
+            title="Search Everywhere arrives in F3."
+          >
+            <Icon name="search" />
+          </button>
+        </span>
+        <span className="toolbar-disabled" title="Settings arrive in F8.">
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            data-testid="toolbar-settings"
+            disabled
+            aria-label="Settings — Settings arrive in F8."
+            title="Settings arrive in F8."
+          >
+            <Icon name="settings" />
+          </button>
+        </span>
         <details className="toolbar-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
@@ -2341,7 +2495,27 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
       </div>
 
+      <div className="toolrail" data-testid="tool-windows">
+        <ToolWindowBand
+          slot="left"
+          items={toolWindowsIn("left")}
+          activeId={layout.left.active}
+          open={leftOpen}
+          onToggle={(id) => toggleToolWindow("left", id)}
+        />
+        <span className="push" />
+        <ToolWindowBand
+          slot="bottom"
+          items={bottomTools}
+          activeId={bottomTab}
+          open={bottomOpen}
+          onToggle={(id) => toggleToolWindow("bottom", id)}
+        />
+      </div>
+
       <div className={`workspace-grid ${selectedProject ? "with-details" : ""}`}>
+        {leftOpen && (
+          <>
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
           <div className="panel-title">
             Solution Explorer{" "}
@@ -2556,6 +2730,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           )}
         </nav>
         <Splitter label="Solution explorer width" value={sidebarWidth} min={220} max={420} onChange={setSidebarWidth} />
+          </>
+        )}
 
         <section className="editor-pane" aria-label="Editor">
           <div className="tabbar">
@@ -3083,79 +3259,24 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
       </div>
 
+      {bottomOpen && (
+        <>
       <Splitter label="Output panel height" value={visibleOutputHeight} min={120} max={outputMax} horizontal onChange={setOutputHeight} />
-      <section
-        className={`output ${
-          bottomTab === "problems"
-            ? "problems-output"
-            : bottomTab === "build"
-              ? "build-output"
-              : bottomTab === "terminal"
-                ? "terminal-output-panel"
-                : bottomTab === "tests"
-                  ? "tests-output"
-                  : ""
-        }`}
-        aria-label="Bottom panel"
-      >
-        <div className="tabs bottom-tabs" role="tablist" aria-label="Output panels" onKeyDown={(event) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const index = bottomTabs.findIndex((tab) => tab.id === bottomTab);
-          const next = event.key === "Home" ? 0 : event.key === "End" ? bottomTabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + bottomTabs.length) % bottomTabs.length;
-          setBottomTab(bottomTabs[next].id);
-          event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
-        }}>
-          {bottomTabs.map((tab) => (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={bottomTab === tab.id}
-              tabIndex={bottomTab === tab.id ? 0 : -1}
-              id={`output-tab-${tab.id}`}
-              aria-controls="output-content"
-              className={`tab-label ${bottomTab === tab.id ? "active" : ""}`}
-              data-testid={`bottom-tab-${tab.id}`}
-              onClick={() => setBottomTab(tab.id)}
-            >
-              {tab.id === "problems" && snapshot.diagnostics.currentItems > 0
-                ? `Problems (${snapshot.diagnostics.currentItems})`
-                : tab.label}
-            </button>
-          ))}
-        </div>
-        <div className="panel-body" role="tabpanel" key={bottomTab} ref={panelBodyRef} id="output-content" aria-labelledby={`output-tab-${bottomTab}`}>
-          {renderBottomContent()}
-        </div>
-      </section>
+      <BottomToolWindow tabs={bottomTabLabels} active={bottomTab} onSelect={setBottomTab} panelRef={panelBodyRef}>
+        {renderBottomContent()}
+      </BottomToolWindow>
+        </>
+      )}
 
-      <footer className="status">
-        <span data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
-        <span className={trusted ? "success" : "warning"} data-testid="status-mode">
-          {trusted ? "Trusted mode" : "Restricted mode"}
-        </span>
-        <span data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
-        {showsEvaluatedTree ? (
-          <span data-testid="status-evaluation" title={`${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`}>
-            {evaluationStateLabel(evaluation.state)} · Configuration{" "}
-            {evaluation.context.configuration} · TFM{" "}
-            {evaluation.context.targetFramework ?? "not selected"} · revision{" "}
-            {evaluation.revision}
-            {evaluation.stale ? " · stale" : ""}
-          </span>
-        ) : (
-          <span>Text outline · not evaluated</span>
-        )}
-        {dirtyCount > 0 && (
-          <span data-testid="status-dirty">
-            {dirtyCount} modified buffer{dirtyCount === 1 ? "" : "s"}
-          </span>
-        )}
-        <span className="push" data-testid="status-keymap">
-          Keymap: IntelliJ / Rider
-        </span>
-        <span data-testid="status-cursor">{active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}</span>
-      </footer>
+      <StatusBar
+        workspace={workspace}
+        trusted={trusted}
+        sdkSummary={sdkSummary}
+        evaluation={evaluationStatus}
+        dirtyCount={dirtyCount}
+        breadcrumb={statusBreadcrumb}
+        cursor={active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}
+      />
 
       {renamePrompt && (
         <div className="modal-backdrop">

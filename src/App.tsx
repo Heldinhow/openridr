@@ -8,6 +8,7 @@ export default function App() {
   const [stage, setStage] = useState<"setup" | "workspace">("setup");
   const [lastPath, setLastPath] = useState("");
   const [pendingFile, setPendingFile] = useState<string | null>(null);
+  const [recentSolutions, setRecentSolutions] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -24,6 +25,14 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const path = snapshot?.workspace?.path;
+    if (!path) return;
+    setRecentSolutions((current) =>
+      current[0] === path ? current : [path, ...current.filter((item) => item !== path)].slice(0, 6),
+    );
+  }, [snapshot?.workspace?.path]);
 
   function handleSnapshot(next: Snapshot) {
     // Ignore a response produced by an older host context (including the initial
@@ -50,6 +59,11 @@ export default function App() {
     setPendingFile(null);
   }
 
+  async function openRecent(path: string) {
+    // Opening another workspace resets trust in the host; the view remounts on the new id.
+    handleOpened(await call<Snapshot>("workspace.open", { path }));
+  }
+
   function openGlobalJson() {
     setPendingFile(snapshot?.sdk.project.globalJsonPath ?? "global.json");
     setStage("workspace");
@@ -58,8 +72,11 @@ export default function App() {
   if (stage === "workspace" && snapshot?.workspace) {
     return (
       <WorkspaceView
+        key={snapshot.workspace.id}
         snapshot={snapshot}
         initialFile={pendingFile}
+        recentSolutions={recentSolutions}
+        onOpenRecent={openRecent}
         onSnapshot={handleSnapshot}
         onClosed={handleClosed}
       />
