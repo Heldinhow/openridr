@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** done — commit `feat(F4): add run configurations wired to build, run and debug`; `cargo test -p openridr-host` e os specs de build/run/debugger/evaluation/run-configs/aceitação verdes.
+**Status:** done — commit `b10ca72`; `cargo test -p openridr-host` e os specs de build/run/debugger/evaluation/run-configs/aceitação verdes. Suíte completa: 66/67, com uma falha intermitente em `trust-sdk` (clique na árvore não abriu o editor); o spec passou 6/6 em duas repetições isoladas e fica sob observação.
 
 - [x] Existe uma configuração padrão "Run <StartupProject>" derivada da avaliação, somente leitura; editar cria uma cópia nomeada.
 - [x] O diálogo permite criar, editar, duplicar e remover configuração com nome, projeto, Configuration, TFM, argumentos, diretório de trabalho, variáveis e arquivos `.env`; valida campo e explica o erro antes de executar.
