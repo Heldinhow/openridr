@@ -1,0 +1,42 @@
+{
+  "awaitingDecision": false,
+  "buildId": "build:3:2",
+  "command": [
+    "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+    "build",
+    "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+    "-c",
+    "Debug",
+    "-nologo",
+    "-v:minimal",
+    "--no-restore"
+  ],
+  "configuration": "Debug",
+  "contextId": 4,
+  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance",
+  "exit": 0,
+  "finishedAt": 1793199754926,
+  "log": "  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll\n  OrderDesk.Cli -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll\nBuild succeeded.\n    0 Warning(s)\n    0 Error(s)\nTime Elapsed 00:00:00.55",
+  "logTruncated": false,
+  "problems": [],
+  "problemsTruncated": false,
+  "processId": 4,
+  "project": {
+    "kind": "console",
+    "name": "OrderDesk.Cli",
+    "path": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+    "targetPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll"
+  },
+  "revision": 2,
+  "savedNote": "Built saved content; no unsaved buffers were open.",
+  "sdkRoot": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+  "sdkVersion": "8.0.408",
+  "sealed": false,
+  "stale": false,
+  "staleReason": null,
+  "startedAt": 1793199753970,
+  "state": "ok",
+  "targetFramework": null,
+  "termination": null,
+  "workspaceId": 3
+}

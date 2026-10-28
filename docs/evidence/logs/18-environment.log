@@ -1,0 +1,28 @@
+date: 2026-10-28T15:00:41Z
+sw_vers:
+ProductName:		macOS
+ProductVersion:		27.2
+BuildVersion:		26B118
+uname: Darwin MacBook-Air-de-Helder-2.local 27.2.0 Darwin Kernel Version 27.2.0: Wed Oct 14 23:48:16 PDT 2026; root:xnu-13432.41.4~25/RELEASE_ARM64_T8112 arm64
+bun: 1.3.9
+node: v26.10.0
+cargo: cargo 1.99.0 (5f94df478 2026-08-27)
+rustc: rustc 1.99.0 (b940084d7 2026-09-28)
+chrome: Google Chrome 155.0.8059.85 
+playwright: 1.64.1
+dotnet --version: 10.0.100
+dotnet --list-sdks:
+8.0.416 [/usr/local/share/dotnet/sdk]
+10.0.100 [/usr/local/share/dotnet/sdk]
+dotnet --list-runtimes:
+Microsoft.AspNetCore.App 8.0.22 [/usr/local/share/dotnet/shared/Microsoft.AspNetCore.App]
+Microsoft.AspNetCore.App 10.0.0 [/usr/local/share/dotnet/shared/Microsoft.AspNetCore.App]
+Microsoft.NETCore.App 8.0.22 [/usr/local/share/dotnet/shared/Microsoft.NETCore.App]
+Microsoft.NETCore.App 10.0.0 [/usr/local/share/dotnet/shared/Microsoft.NETCore.App]
+project sdk:
+8.0.408
+csharp-ls:
+csharp-ls, 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
+netcoredbg:
+NET Core debugger 3.2.0-1 (9744e1f, Release)
+

@@ -1,0 +1,75 @@
+# cargo metadata --format-version 1 (workspace + src-tauri), license field
+# generated 2026-10-28
+direct_host_and_tauri:
+openridr	0.1.0	Apache-2.0
+openridr-host	0.1.0	Apache-2.0
+direct_runtime_and_dev:
+portable-pty	0.9.0	MIT
+serde	1.0.229	MIT OR Apache-2.0
+serde_json	1.0.154	MIT OR Apache-2.0
+sha2	0.10.9	MIT OR Apache-2.0
+ureq	2.12.1	MIT OR Apache-2.0
+zip	2.6.1	MIT
+libc	0.2.191	MIT OR Apache-2.0
+tempfile	3.27.0	MIT OR Apache-2.0
+macos_aarch64_graph_name_license_pairs:
+     233
+license_expressions:
+ 101 MIT OR Apache-2.0
+  41 MIT
+  24 Apache-2.0 OR MIT
+  18 Unicode-3.0
+   9 MIT/Apache-2.0
+   6 Zlib OR Apache-2.0 OR MIT
+   5 MPL-2.0
+   4 Apache-2.0
+   3 Unlicense OR MIT
+   3 BSD-3-Clause
+   2 Unlicense/MIT
+   2 MIT OR Apache-2.0 OR Zlib
+   2 ISC
+   1 Zlib
+   1 MIT OR Zlib OR Apache-2.0
+   1 CDLA-Permissive-2.0
+   1 CC0-1.0 OR MIT-0 OR Apache-2.0
+   1 BSD-3-Clause/MIT
+   1 BSD-3-Clause AND MIT
+   1 BSD-2-Clause OR Apache-2.0
+   1 Apache-2.0 OR ISC OR MIT
+   1 Apache-2.0 AND MIT
+   1 Apache-2.0 AND ISC
+   1 Apache-2.0 / MIT
+   1 0BSD OR MIT OR Apache-2.0
+   1 (MIT OR Apache-2.0) AND Unicode-3.0
+mpl:
+cssparser	MPL-2.0
+cssparser-macros	MPL-2.0
+dtoa-short	MPL-2.0
+option-ext	MPL-2.0
+selectors	MPL-2.0
+gpl_agpl:
+none
+npm_lock_entries:
+157
+npm_installed:
+      96
+npm_licenses:
+  81 MIT
+   5 ISC
+   5 Apache-2.0
+   3 Apache-2.0 OR MIT
+   1 CC-BY-4.0
+   1 BSD-3-Clause
+icon:
+0f22b5fe5390aa9172a4b2a8b1acdba0c87fa16821c71d4ecffcd6f2b4fa0143  src-tauri/icons/icon.png
+  pixelWidth: 512
+  pixelHeight: 512
+bundle:
+{
+  "active": false,
+  "targets": "all"
+}
+license_files:
+dist_license_files:
+dist_caniuse: 0 files
+dist_browserslist: 0 files

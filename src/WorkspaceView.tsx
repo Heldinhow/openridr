@@ -223,6 +223,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [bottomTab, setBottomTab] = useState<BottomTab>("build");
+  const panelBodyRef = useRef<HTMLDivElement>(null);
   const [editorTarget, setEditorTarget] = useState<{
     path: string;
     line: number;
@@ -390,6 +391,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   : buildRunning
                     ? "A build is already running."
                     : null;
+  useEffect(() => {
+    panelBodyRef.current?.scrollTo(0, 0);
+  }, [bottomTab]);
   const requestBuildRef = useRef<() => void>(() => {});
   const tests = snapshot.tests;
   const testDiscovery = tests.discovery;
@@ -1870,7 +1874,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       const runShortcut =
         platform === "windows"
           ? event.shiftKey && event.key === "F10"
-          : event.metaKey && event.key.toLowerCase() === "r";
+          : event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "r";
       if (!runShortcut) return;
       event.preventDefault();
       requestRunRef.current();
@@ -3108,7 +3112,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </button>
           ))}
         </div>
-        <div className="panel-body" role="tabpanel">
+        <div className="panel-body" role="tabpanel" key={bottomTab} ref={panelBodyRef}>
           {renderBottomContent()}
         </div>
       </section>

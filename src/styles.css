@@ -755,8 +755,8 @@ p {
 }
 
 .output {
-  flex: 0 0 200px;
-  min-height: 0;
+  flex: 0 1 200px;
+  min-height: 120px;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--line);
@@ -1255,7 +1255,7 @@ p {
 /* Keep the editor usable when tool/analysis notices grow: they scroll, the grid keeps room. */
 .workspace-notices {
   flex: 0 1 auto;
-  min-height: 0;
+  min-height: 90px;
   max-height: 30vh;
   overflow-y: auto;
 }
@@ -1430,7 +1430,7 @@ p {
 }
 
 .output.terminal-output-panel .panel-body {
-  overflow: hidden;
+  overflow: auto;
 }
 
 .terminal-output {

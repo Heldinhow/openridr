@@ -139,7 +139,7 @@ test("a real run shows the saved build output and refuses a source saved after t
       "Sources were saved after this build",
     );
     await expect(page.getByTestId("run-action")).toBeDisabled();
-    await page.keyboard.press("Meta+R");
+    await page.keyboard.press("Control+R");
     await expect(page.getByTestId("app-log")).toContainText(
       "Run unavailable: Sources were saved after this build",
     );
@@ -152,9 +152,9 @@ test("a real run shows the saved build output and refuses a source saved after t
     await expect(page.getByTestId("run-log")).toContainText("Order B-777:");
     await expect(page.getByTestId("run-log")).not.toContainText("Order A-104:");
 
-    // Ctrl+R (Cmd on macOS) uses the same gate and launches the saved build.
+    // Ctrl+R uses the same gate and launches the saved build.
     const beforeShortcut = (await page.getByTestId("run-identity").textContent()) ?? "";
-    await page.keyboard.press("Meta+R");
+    await page.keyboard.press("Control+R");
     await expect(page.getByTestId("run-state")).toContainText("Running", {
       timeout: 15_000,
     });

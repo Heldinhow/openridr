@@ -716,7 +716,11 @@ export function LspPanel({ snapshot, onChange }: Props) {
           role="status"
         >
           {lspStateLabel(lsp.state)}
-          {lsp.coverage === "partial" && lsp.state !== "unavailable" ? " · partial coverage" : ""}
+          {lsp.coverage === "partial" &&
+          lsp.state !== "partial" &&
+          lsp.state !== "unavailable"
+            ? " · partial coverage"
+            : ""}
         </span>
         <span className="muted" data-testid="lsp-session">
           session {lsp.session} · {lsp.logLevel} log
@@ -829,7 +833,7 @@ export function LspPanel({ snapshot, onChange }: Props) {
         <span data-testid="lsp-process">
           {lsp.processId
             ? `process ${lsp.processId} · pid ${lsp.pid ?? "unknown"} · exit ${
-                lsp.exit === null ? "unknown" : lsp.exit
+                lsp.exit === null ? "not observed" : lsp.exit
               }`
             : "no process"}
           {lsp.termination

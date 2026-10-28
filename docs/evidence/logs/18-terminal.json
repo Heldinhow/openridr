@@ -1,0 +1,30 @@
+{
+  "awaitingDecision": false,
+  "cols": 184,
+  "command": [
+    "/bin/zsh"
+  ],
+  "contextId": 4,
+  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance",
+  "exit": null,
+  "finishedAt": 1793199766827,
+  "kept": false,
+  "log": "%                                                                                helder@MacBook-Air-de-Helder-2 Order Desk acceptance % ppwd\n/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance\n%                                                                                helder@MacBook-Air-de-Helder-2 Order Desk acceptance % eecho acceptance-$((6*7))\nacceptance-42\n%                                                                                helder@MacBook-Air-de-Helder-2 Order Desk acceptance % ssleep 30 && echo never-$((6*7))\n^C\n%                                                                                                                                                                                        helder@MacBook-Air-de-Helder-2 Order Desk acceptance % eecho prompt-back\nprompt-back\n%                                                                                                                                                                                        helder@MacBook-Air-de-Helder-2 Order Desk acceptance % SSDK=\"$HOME/Library/Application Support/OpenRidr/sdks/8.0.408\"; \"$SDK/dotnet\" --version\n8.0.408\n%                                                                                                                                                                                        helder@MacBook-Air-de-Helder-2 Order Desk acceptance %",
+  "logTruncated": false,
+  "outputSeq": 140,
+  "processId": 11,
+  "revision": 1,
+  "rows": 5,
+  "sealed": false,
+  "shell": "/bin/zsh",
+  "staleReason": null,
+  "startedAt": 1793199763308,
+  "state": "stopped",
+  "termination": {
+    "exit": null,
+    "killedAfterGrace": true,
+    "observed": "exited",
+    "requested": "SIGTERM then SIGKILL"
+  },
+  "workspaceId": 3
+}

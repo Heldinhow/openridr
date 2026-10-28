@@ -1,0 +1,232 @@
+{
+  "dap": {
+    "adapter": {
+      "argv": [
+        "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg",
+        "--interpreter=vscode"
+      ],
+      "binary": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg",
+      "platform": "osx-arm64",
+      "version": "3.2.0"
+    },
+    "adapterExit": 0,
+    "assembly": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
+    "breakpoints": [
+      {
+        "line": 3,
+        "message": null,
+        "path": "src/OrderDesk.Cli/Program.cs",
+        "verified": true
+      }
+    ],
+    "buildId": "build:3:3",
+    "command": [
+      "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg",
+      "--interpreter=vscode"
+    ],
+    "configuration": "Debug",
+    "contextId": 4,
+    "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli",
+    "debuggeePid": 71695,
+    "exit": 0,
+    "exitKnown": true,
+    "finishedAt": 1793199772826,
+    "frames": [],
+    "locals": null,
+    "log": "DAP session 2 · /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg --interpreter=vscode\ncwd /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli\nprogram /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll\nbuild build:3:3 · Debug / net8.0 · adapter 3.2.0 · osx-arm64\n[dap] -> initialize id 1\n[dap] event capabilities \n[dap] initialize id 1 answered\n[dap] event initialized\n[dap] -> launch id 2\n[dap] launch id 2 answered\n[dap] -> setBreakpoints id 3\n[dap] setBreakpoints id 3 answered\n[dap] -> configurationDone id 4\n[dap] event process · dotnet · system pid 71695\n[dap] configurationDone id 4 answered\n[dap] event module new\n[dap] event thread started\n[dap] event module new\n[dap] event breakpoint · src/OrderDesk.Cli/Program.cs line 3 · verified true\n[dap] event module new\n[dap] event module new\n[dap] event module new\n[dap] event stopped · reason breakpoint · thread 14083523 · all threads true\n[dap] -> threads id 5\n[dap] threads id 5 answered\n[dap] -> stackTrace id 6\n[dap] stackTrace id 6 answered\n[dap] -> scopes id 7\n[dap] scopes id 7 answered\n[dap] -> variables id 8\n[dap] variables id 8 answered\n[host] stop requested: Stopped by the user.\n[dap] -> disconnect id 9\n[dap] event exited · exit 0\n[dap] session terminated · The debug session terminated.\n[dap] disconnect id 9 answered\n[dap] adapter stdout closed\n[dap] session cancelled · Stopped: Stopped by the user.",
+    "logTruncated": false,
+    "output": "",
+    "outputTruncated": false,
+    "phase": "Stopped: Stopped by the user.",
+    "pid": 71694,
+    "processId": 14,
+    "project": {
+      "name": "OrderDesk.Cli",
+      "path": "src/OrderDesk.Cli/OrderDesk.Cli.csproj"
+    },
+    "revision": 2,
+    "sealed": false,
+    "selectedFrameId": null,
+    "session": 2,
+    "staleReason": null,
+    "startedAt": 1793199771544,
+    "state": "cancelled",
+    "stopped": null,
+    "targetFramework": "net8.0",
+    "terminals": [],
+    "termination": {
+      "exit": 0,
+      "killedAfterGrace": false,
+      "observed": "exited",
+      "requested": "DAP disconnect (terminateDebuggee)"
+    },
+    "threads": [],
+    "workspaceId": 3
+  },
+  "processes": [
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 1,
+      "kept": false,
+      "kind": "restore:solution",
+      "pid": 71618,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": null,
+      "id": 2,
+      "kept": false,
+      "kind": "lsp:csharp-ls",
+      "pid": 71628,
+      "state": "running",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 1,
+      "id": 3,
+      "kept": false,
+      "kind": "build:OrderDesk.Cli",
+      "pid": 71633,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 4,
+      "kept": false,
+      "kind": "build:OrderDesk.Cli",
+      "pid": 71634,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 5,
+      "kept": false,
+      "kind": "run:OrderDesk.Cli",
+      "pid": 71636,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 6,
+      "kept": false,
+      "kind": "tests:OrderDesk.Tests",
+      "pid": 71640,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 7,
+      "kept": false,
+      "kind": "tests:run:OrderDesk.Tests",
+      "pid": 71644,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 1,
+      "id": 8,
+      "kept": false,
+      "kind": "tests:run:OrderDesk.Tests",
+      "pid": 71651,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 9,
+      "kept": false,
+      "kind": "tests:OrderDesk.Tests",
+      "pid": 71655,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 143,
+      "id": 10,
+      "kept": false,
+      "kind": "tests:run:OrderDesk.Tests",
+      "pid": 71661,
+      "state": "exited",
+      "termination": {
+        "exit": 143,
+        "killedAfterGrace": false,
+        "observed": "exited",
+        "requested": "SIGTERM"
+      },
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": null,
+      "id": 11,
+      "kept": false,
+      "kind": "terminal:zsh",
+      "pid": 71662,
+      "state": "exited",
+      "termination": {
+        "exit": null,
+        "killedAfterGrace": true,
+        "observed": "exited",
+        "requested": "SIGTERM then SIGKILL"
+      },
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 12,
+      "kept": false,
+      "kind": "build:OrderDesk.Cli",
+      "pid": 71684,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 13,
+      "kept": false,
+      "kind": "debug:OrderDesk.Cli",
+      "pid": 71686,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 14,
+      "kept": false,
+      "kind": "debug:OrderDesk.Cli",
+      "pid": 71694,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 3
+    }
+  ]
+}
