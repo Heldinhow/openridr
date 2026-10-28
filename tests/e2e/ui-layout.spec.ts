@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
 import fs from "node:fs";
+import { host } from "./environment";
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700 }]) {
   test(`IDE layout, resize and keyboard at ${viewport.width}x${viewport.height}`, async ({ page, request }) => {
-    await request.post("http://127.0.0.1:4317/call", { data: { method: "workspace.close", params: {} } });
+    await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
     await page.setViewportSize(viewport);
     await page.goto("/");
     await expect(page.getByTestId("workspace-path-input")).toHaveValue("");

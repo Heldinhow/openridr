@@ -1,9 +1,5 @@
 import { defineConfig } from "@playwright/test";
-import os from "node:os";
-import path from "node:path";
-
-// Keep tool installation and the composite host root out of the real app home during E2E.
-const e2eHome = path.join(os.tmpdir(), "openridr-e2e-home");
+import { e2eHome, frontend, host, hostPort } from "./tests/e2e/environment";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -13,25 +9,26 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   reporter: [["list"]],
   use: {
-    baseURL: "http://localhost:1420",
+    baseURL: frontend,
     channel: "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   webServer: [
     {
-      command: "cargo run -p openridr-host-http -- --port 4317",
-      url: "http://127.0.0.1:4317/health",
+      command: `cargo run -p openridr-host-http -- --port ${hostPort}`,
+      url: `${host}/health`,
       timeout: 300_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       // Dev/test-only probe used by the process-boundary E2E. Never set in the desktop app.
       env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome },
     },
     {
-      command: "bun run dev",
-      url: "http://localhost:1420",
+      command: "bun run dev --config vite.e2e.config.ts",
+      url: frontend,
       timeout: 120_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
+      env: { VITE_HOST_URL: "/__host" },
     },
   ],
 });

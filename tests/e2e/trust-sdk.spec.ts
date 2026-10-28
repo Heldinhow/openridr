@@ -12,7 +12,7 @@ const missingFixture = path.resolve(process.cwd(), "fixtures/MissingSdk");
 const missingProject = path.join(missingFixture, "MissingSdk.csproj");
 const missingGlobal = path.join(missingFixture, "global.json");
 const originalProgram = fs.readFileSync(program, "utf8");
-const host = "http://127.0.0.1:4317";
+import { host } from "./environment";
 
 test.beforeEach(() => {
   fs.writeFileSync(program, originalProgram);

@@ -6,10 +6,9 @@ import path from "node:path";
 import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
-const host = "http://127.0.0.1:4317";
+import { e2eHome, host } from "./environment";
 const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
 const logs = path.resolve(process.cwd(), "docs/evidence/logs");
-const e2eHome = path.join(os.tmpdir(), "openridr-e2e-home");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.describe.configure({ timeout: 180_000 });

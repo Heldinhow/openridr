@@ -6,7 +6,7 @@ import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
-const host = "http://127.0.0.1:4317";
+import { host } from "./environment";
 const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });

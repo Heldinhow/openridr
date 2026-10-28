@@ -12,7 +12,7 @@ const core = path.join(fixture, "src/OrderDesk.Core/Order.cs");
 const coreTab = "src/OrderDesk.Core/Order.cs";
 const originalProgram = fs.readFileSync(program, "utf8");
 const originalCore = fs.readFileSync(core, "utf8");
-const host = "http://127.0.0.1:4317";
+import { host } from "./environment";
 const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
 
 const executableMethods = [

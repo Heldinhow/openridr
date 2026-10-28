@@ -10,10 +10,9 @@ import { reveal } from "./disclosures";
  * session-scoped experimental flag and the host gates; nothing is downloaded or installed.
  */
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
-const host = "http://127.0.0.1:4317";
+import { e2eHome, host } from "./environment";
 const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
 const logs = path.resolve(process.cwd(), "docs/evidence/logs");
-const e2eHome = path.join(os.tmpdir(), "openridr-e2e-home");
 const debugToolDir = path.join(e2eHome, "tools/netcoredbg");
 
 test.use({ viewport: { width: 1440, height: 900 } });
