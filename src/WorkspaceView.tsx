@@ -23,7 +23,7 @@ import { Splitter } from "./Splitter";
 import { BottomToolWindow } from "./shell/BottomToolWindow";
 import { StatusBar } from "./shell/StatusBar";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
-import { FindAction } from "./actions/FindAction";
+import { FindAction, type SearchTab } from "./actions/FindAction";
 import { KeymapDialog } from "./actions/KeymapDialog";
 import {
   defaultSettings,
@@ -249,6 +249,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [settingsPath, setSettingsPath] = useState<string | null>(null);
   const [findActionOpen, setFindActionOpen] = useState(false);
+  const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
   const [keymapOpen, setKeymapOpen] = useState(false);
   const [activeSlot, setActiveSlot] = useState<ToolWindowSlot>("bottom");
   const bottomTab = layout.bottom.active as BottomToolId;
@@ -1940,9 +1941,36 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  function openFindAction() {
+  function openSearch(tab: SearchTab | "last") {
     setKeymapOpen(false);
+    setSearchTab(tab);
     setFindActionOpen(true);
+  }
+
+  function openFindAction() {
+    openSearch("actions");
+  }
+
+  function closeSearch() {
+    setFindActionOpen(false);
+    focusEditor();
+  }
+
+  function focusEditor() {
+    const editor = document.querySelector<HTMLElement>('[data-testid="editor"]');
+    (editor?.querySelector<HTMLElement>(".cm-content") ?? editor)?.focus();
+  }
+
+  function openSearchFile(path: string) {
+    setFindActionOpen(false);
+    focusEditor();
+    void openFile(path);
+  }
+
+  function openSearchLocation(path: string, line: number, character: number) {
+    setFindActionOpen(false);
+    focusEditor();
+    void navigateTo(path, { line, character });
   }
 
   function openKeymap() {
@@ -2095,29 +2123,25 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "search.everywhere",
       title: "Search Everywhere",
       group: "Search",
-      execute: () => undefined,
-      disabledReason: "Search Everywhere arrives in F3.",
+      execute: () => openSearch("last"),
     }),
     define({
       id: "search.file",
       title: "Go to File",
       group: "Search",
-      execute: () => undefined,
-      disabledReason: "Go to File arrives in F3.",
+      execute: () => openSearch("files"),
     }),
     define({
       id: "search.symbol",
       title: "Go to Symbol",
       group: "Search",
-      execute: () => undefined,
-      disabledReason: "Go to Symbol arrives in F3.",
+      execute: () => openSearch("symbols"),
     }),
     define({
       id: "search.text",
       title: "Find in Path",
       group: "Search",
-      execute: () => undefined,
-      disabledReason: "Find in Path arrives in F3.",
+      execute: () => openSearch("text"),
     }),
     define({
       id: "search.line",
@@ -2217,16 +2241,33 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const actionById = new Map(resolvedActions.map((action) => [action.id, action]));
   const actionsRef = useRef<ResolvedAction[]>([]);
   actionsRef.current = resolvedActions;
+  const lastShift = useRef<number | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("input, textarea, select")) return;
       const inEditor = Boolean(target?.closest(".cm-editor"));
-      // Contenteditable outside CodeMirror is a text field, not the editor.
-      if (target?.isContentEditable && !inEditor) return;
+      const textField =
+        Boolean(target?.closest("input, textarea, select")) ||
+        Boolean(target?.isContentEditable && !inEditor);
+      if (event.key === "Shift" && !event.repeat) {
+        if (textField) {
+          lastShift.current = null;
+          return;
+        }
+        const now = performance.now();
+        if (lastShift.current !== null && now - lastShift.current <= 400) {
+          lastShift.current = null;
+          event.preventDefault();
+          openSearch("last");
+          return;
+        }
+        lastShift.current = now;
+        return;
+      }
+      if (textField) return;
       const action = firstActionFor(actionsRef.current, event, snapshot.app.platform);
       if (!action) return;
       if (inEditor && !action.editor) return;
@@ -2578,9 +2619,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             type="button"
             className="toolbar-icon-button"
             data-testid="toolbar-search"
-            disabled={searchAction.disabledReason !== null}
-            aria-label={`Search — ${searchAction.disabledReason ?? searchAction.title}`}
-            title={searchAction.disabledReason ?? searchAction.title}
+            disabled={Boolean(searchAction.disabledReason)}
+            aria-label={searchAction.title}
+            title={searchAction.disabledReason ?? searchAction.shortcutTexts.join(" or ")}
             onClick={searchAction.execute}
           >
             <Icon name="search" />
@@ -3600,11 +3641,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           actions={resolvedActions}
           platform={snapshot.app.platform}
           profile={settings.keymap.profile}
+          initialTab={searchTab}
           onExecute={(action) => {
             setFindActionOpen(false);
+            focusEditor();
             if (!action.disabledReason) action.execute();
           }}
-          onClose={() => setFindActionOpen(false)}
+          onOpenFile={openSearchFile}
+          onNavigate={openSearchLocation}
+          onClose={closeSearch}
         />
       )}
 

@@ -12,6 +12,7 @@ pub mod process;
 mod restore;
 pub mod sdk;
 mod run;
+mod search;
 mod settings;
 mod terminal;
 #[path = "test_discovery.rs"]
@@ -454,6 +455,15 @@ impl Host {
         }
         if method == "lsp.codeActions" {
             return self.lsp_code_actions(params);
+        }
+        if method == "lsp.workspaceSymbol" {
+            return self.lsp_workspace_symbol(params);
+        }
+        if method == "workspace.files" {
+            return self.workspace_files();
+        }
+        if method == "search.text" {
+            return self.search_text(params);
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.gate_unhandled_executable(method);
@@ -4185,6 +4195,276 @@ impl Host {
         None
     }
 
+    fn workspace_root(&self) -> HostResult<PathBuf> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root.clone())
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))
+    }
+
+    fn workspace_files(&self) -> HostResult<Value> {
+        let root = self.workspace_root()?;
+        let list = search::list_files(&root, search::FILE_LIMIT);
+        Ok(json!({
+            "files": list.files,
+            "returned": list.files.len(),
+            "total": list.total,
+            "truncated": list.truncated,
+        }))
+    }
+
+    fn search_text(&self, params: Value) -> HostResult<Value> {
+        let query = required_str(&params, "query")?;
+        if query.is_empty() {
+            return Err(HostError::new(
+                "invalid_state",
+                "search.text requires a non-empty query.",
+            ));
+        }
+        let case_sensitive = params
+            .get("caseSensitive")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let root = self.workspace_root()?;
+        let found = search::search_text(
+            &root,
+            &query,
+            case_sensitive,
+            search::TEXT_FILE_LIMIT,
+            search::TEXT_MATCH_LIMIT,
+        );
+        Ok(json!({
+            "query": query,
+            "caseSensitive": case_sensitive,
+            "files": found.files,
+            "fileCount": found.file_count,
+            "matchCount": found.match_count,
+            "truncated": found.truncated,
+        }))
+    }
+
+    /// Workspace symbols come from the live analysis session only. Unavailability and trust
+    /// are data (`state`), so the palette can say what is missing instead of showing zero.
+    fn lsp_workspace_symbol(&self, params: Value) -> HostResult<Value> {
+        let query = required_str(&params, "query")?;
+        let (root, workspace_id, context_id, trusted, lsp) = {
+            let inner = self.inner.lock().unwrap();
+            let workspace = inner.workspace.as_ref().ok_or_else(|| {
+                HostError::new("invalid_state", "No workspace is open.")
+            })?;
+            (
+                workspace.root.clone(),
+                workspace.id,
+                inner.context_seq,
+                inner.trusted,
+                inner.lsp.clone(),
+            )
+        };
+        let answer = |state: &'static str,
+                      message: Option<String>,
+                      missing: Option<&'static str>,
+                      session: u64,
+                      items: Vec<Value>,
+                      total: usize,
+                      truncated: bool| {
+            json!({
+                "method": "lsp.workspaceSymbol",
+                "state": state,
+                "message": message,
+                "missingAction": missing,
+                "session": session,
+                "workspaceId": workspace_id,
+                "contextId": context_id,
+                "query": query,
+                "items": items,
+                "total": total,
+                "truncated": truncated,
+            })
+        };
+        if !trusted {
+            return Ok(answer(
+                "analysis_not_ready",
+                Some("Trust the workspace to search workspace symbols.".to_string()),
+                Some("Trust the workspace"),
+                lsp.as_ref().map(|lsp| lsp.session()).unwrap_or(0),
+                Vec::new(),
+                0,
+                false,
+            ));
+        }
+        let Some(lsp) = lsp else {
+            return Ok(answer(
+                "analysis_not_ready",
+                Some("Analysis is not running. Start analysis to search workspace symbols.".to_string()),
+                Some("Start analysis"),
+                0,
+                Vec::new(),
+                0,
+                false,
+            ));
+        };
+        if !lsp.accepts_documents() {
+            return Ok(answer(
+                "analysis_not_ready",
+                Some("Analysis is initializing; workspace symbols are not available yet.".to_string()),
+                Some("Wait for analysis to initialize"),
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            ));
+        }
+        let view = lsp.view();
+        let Some(capabilities) = view.capabilities.as_ref() else {
+            return Ok(answer(
+                "analysis_not_ready",
+                Some("Analysis has not reported its capabilities yet.".to_string()),
+                Some("Wait for analysis to initialize"),
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            ));
+        };
+        if !capabilities.supports("workspace/symbol") {
+            return Ok(answer(
+                "unsupported",
+                Some(
+                    "The analysis session did not advertise workspace/symbol; no request was sent."
+                        .to_string(),
+                ),
+                None,
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            ));
+        }
+        let response = lsp.request(
+            "workspace/symbol",
+            json!({ "query": query }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        let current = {
+            let inner = self.inner.lock().unwrap();
+            accept_locked(
+                &inner,
+                ContextToken {
+                    workspace_id,
+                    context_id,
+                },
+            )
+            .is_ok()
+                && inner
+                    .lsp
+                    .as_ref()
+                    .is_some_and(|live| Arc::ptr_eq(live, &lsp))
+        };
+        if !current {
+            return Ok(answer(
+                "stale",
+                Some(
+                    "The workspace or analysis session changed while csharp-ls was answering; the result was discarded."
+                        .to_string(),
+                ),
+                None,
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            ));
+        }
+        match response {
+            Ok(value) => {
+                let Some(list) = lsp::parse_workspace_symbols(&value, lsp::WORKSPACE_SYMBOL_LIMIT)
+                else {
+                    return Ok(answer(
+                        "failed",
+                        Some(
+                            "csharp-ls returned a workspace symbol result this client does not understand."
+                                .to_string(),
+                        ),
+                        None,
+                        lsp.session(),
+                        Vec::new(),
+                        0,
+                        false,
+                    ));
+                };
+                let items: Vec<Value> = list
+                    .items
+                    .iter()
+                    .filter_map(|item| {
+                        let path = lsp::uri_to_path(&item.uri)?;
+                        let canonical = fs::canonicalize(&path).ok()?;
+                        let rel = canonical
+                            .strip_prefix(&root)
+                            .ok()?
+                            .to_string_lossy()
+                            .replace('\\', "/");
+                        Some(json!({
+                            "name": item.name,
+                            "kind": item.kind,
+                            "containerName": item.container_name,
+                            "uri": item.uri,
+                            "path": rel,
+                            "range": item.range,
+                        }))
+                    })
+                    .collect();
+                let truncated = list.truncated || items.len() < list.items.len();
+                let message = truncated.then(|| {
+                    format!(
+                        "csharp-ls returned {} symbols; only the first {} inside the workspace are shown.",
+                        list.total,
+                        items.len()
+                    )
+                });
+                Ok(answer(
+                    "ok",
+                    message,
+                    None,
+                    lsp.session(),
+                    items,
+                    list.total,
+                    truncated,
+                ))
+            }
+            Err(lsp::RequestError::Timeout(timeout)) => Ok(answer(
+                "failed",
+                Some(format!(
+                    "csharp-ls did not answer within {} seconds; no symbols were returned.",
+                    timeout.as_secs()
+                )),
+                None,
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            )),
+            Err(lsp::RequestError::Unavailable(message)) => Ok(answer(
+                "analysis_not_ready",
+                Some(message),
+                Some("Start analysis"),
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            )),
+            Err(lsp::RequestError::Server(message)) => Ok(answer(
+                "failed",
+                Some(format!("csharp-ls rejected the workspace symbol request: {message}")),
+                None,
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            )),
+        }
+    }
+
     fn read_file(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
         let inner = self.inner.lock().unwrap();
@@ -5339,6 +5619,66 @@ mod tests {
                 "end": { "line": 2, "character": 25 }
             })),
         }
+    }
+
+    #[test]
+    fn workspace_files_and_text_search_need_no_trust() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Program.cs"), "class Program\n{\n    string s = \"needle\";\n}\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+
+        let files = host.dispatch("workspace.files", json!({})).unwrap();
+        let names: Vec<&str> = files["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(names.contains(&"Program.cs"), "{names:?}");
+        assert!(names.contains(&"App.csproj"), "{names:?}");
+        assert_eq!(files["truncated"], false);
+
+        let found = host
+            .dispatch("search.text", json!({ "query": "needle" }))
+            .unwrap();
+        assert_eq!(found["fileCount"], 1);
+        assert_eq!(found["matchCount"], 1);
+        assert_eq!(found["files"][0]["path"], "Program.cs");
+        assert_eq!(found["files"][0]["matches"][0]["line"], 2);
+        assert_eq!(found["files"][0]["matches"][0]["character"], 16);
+        assert_eq!(found["truncated"], false);
+    }
+
+    #[test]
+    fn workspace_symbol_reports_the_missing_gate_without_trust_or_analysis() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+
+        let untrusted = host
+            .dispatch("lsp.workspaceSymbol", json!({ "query": "Order" }))
+            .unwrap();
+        assert_eq!(untrusted["state"], "analysis_not_ready");
+        assert_eq!(untrusted["missingAction"], "Trust the workspace");
+        assert_eq!(untrusted["items"].as_array().unwrap().len(), 0);
+
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let no_analysis = host
+            .dispatch("lsp.workspaceSymbol", json!({ "query": "Order" }))
+            .unwrap();
+        assert_eq!(no_analysis["state"], "analysis_not_ready");
+        assert_eq!(no_analysis["missingAction"], "Start analysis");
+        assert_eq!(no_analysis["truncated"], false);
+        assert_eq!(no_analysis["items"].as_array().unwrap().len(), 0);
     }
 
     #[test]

@@ -94,10 +94,12 @@ test("the single bar keeps placeholders disabled and the status bar reports the 
   await expect(page.getByTestId("toolbar-project")).toContainText("OrderDesk.sln");
   await expect(page.getByTestId("toolbar-branch")).toHaveText("Git not connected");
   await expect(page.getByTestId("toolbar-branch")).toBeDisabled();
-  for (const id of ["toolbar-branch", "toolbar-run-config", "toolbar-search", "toolbar-settings"]) {
+  for (const id of ["toolbar-branch", "toolbar-run-config", "toolbar-settings"]) {
     await expect(page.getByTestId(id)).toBeDisabled();
     expect(await page.getByTestId(id).getAttribute("title")).toBeTruthy();
   }
+  await expect(page.getByTestId("toolbar-search")).toBeEnabled();
+  await expect(page.getByTestId("toolbar-search")).toHaveAttribute("title", /Cmd\+T/);
   await expect(page.getByTestId("toolbar-run-config")).toHaveAttribute("title", /Run configurations arrive in F4/);
   await expect(page.getByTestId("toolbar-settings")).toHaveAttribute("aria-label", /Settings arrive in F8/);
   await expect(page.getByTestId("bottom-tab-build")).toBeVisible();

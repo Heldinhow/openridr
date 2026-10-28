@@ -669,6 +669,7 @@ export type LspCapabilities = {
   rename: boolean;
   prepareRename: boolean;
   codeActions: boolean;
+  workspaceSymbol: boolean;
   pushDiagnostics: boolean;
   pullDiagnostics: boolean;
   semanticTokens: boolean;
@@ -731,6 +732,44 @@ export type Diagnostics = {
 };
 
 export type LspPosition = { line: number; character: number };
+
+export type WorkspaceFiles = {
+  files: string[];
+  returned: number;
+  total: number;
+  truncated: boolean;
+};
+
+export type TextMatch = { line: number; character: number; text: string };
+export type TextFileResult = { path: string; matches: TextMatch[] };
+
+export type TextSearch = {
+  query: string;
+  caseSensitive: boolean;
+  files: TextFileResult[];
+  fileCount: number;
+  matchCount: number;
+  truncated: boolean;
+};
+
+export type WorkspaceSymbol = {
+  name: string;
+  kind: number;
+  containerName: string;
+  uri: string;
+  path: string;
+  range: LspRange;
+};
+
+export type WorkspaceSymbolResult = {
+  state: "ok" | "analysis_not_ready" | "unsupported" | "stale" | "failed";
+  message: string | null;
+  missingAction: string | null;
+  session: number;
+  items: WorkspaceSymbol[];
+  total: number;
+  truncated: boolean;
+};
 
 export type LspRange = { start: LspPosition; end: LspPosition };
 

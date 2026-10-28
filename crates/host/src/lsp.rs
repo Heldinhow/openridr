@@ -31,6 +31,8 @@ pub const CODE_ACTION_LIMIT: usize = 50;
 pub const RENAME_DOCUMENT_LIMIT: usize = 50;
 pub const RENAME_EDIT_LIMIT: usize = 2_000;
 pub const RENAME_CONTENT_LIMIT: usize = 1_048_576;
+/// More workspace symbols than this are not listed; the response says it was truncated.
+pub const WORKSPACE_SYMBOL_LIMIT: usize = 500;
 /// A single displayed line block is shortened; counts and applied text stay complete.
 const RENAME_DISPLAY_CHARS: usize = 2_000;
 
@@ -108,6 +110,7 @@ pub struct Capabilities {
     pub rename: bool,
     pub prepare_rename: bool,
     pub code_actions: bool,
+    pub workspace_symbol: bool,
     pub push_diagnostics: bool,
     pub pull_diagnostics: bool,
     pub semantic_tokens: bool,
@@ -140,6 +143,9 @@ fn capabilities_of(capabilities: &Value) -> Capabilities {
     if has("codeActionProvider") {
         summary.push("code actions".to_string());
     }
+    if has("workspaceSymbolProvider") {
+        summary.push("workspace symbols".to_string());
+    }
     if has("diagnosticProvider") {
         summary.push("diagnostics (pull advertised)".to_string());
     }
@@ -152,6 +158,7 @@ fn capabilities_of(capabilities: &Value) -> Capabilities {
         rename: has("renameProvider"),
         prepare_rename,
         code_actions: has("codeActionProvider"),
+        workspace_symbol: has("workspaceSymbolProvider"),
         push_diagnostics: true,
         pull_diagnostics: has("diagnosticProvider"),
         semantic_tokens: has("semanticTokensProvider"),
@@ -168,6 +175,7 @@ impl Capabilities {
             "textDocument/definition" => self.definition,
             "textDocument/rename" => self.rename,
             "textDocument/codeAction" => self.code_actions,
+            "workspace/symbol" => self.workspace_symbol,
             _ => false,
         }
     }
@@ -463,6 +471,93 @@ fn definition_target(value: &Value) -> Option<DefinitionTarget> {
 pub struct Position {
     pub line: u64,
     pub character: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbolItem {
+    pub name: String,
+    pub kind: u64,
+    pub container_name: String,
+    pub uri: String,
+    pub range: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceSymbolList {
+    pub items: Vec<WorkspaceSymbolItem>,
+    pub total: usize,
+    pub truncated: bool,
+}
+
+/// Accepts both shapes LSP allows for `workspace/symbol`: `WorkspaceSymbol` with a
+/// `location` of uri/range (or target uri/range) and `SymbolInformation`. Entries without a
+/// usable name, kind or start position are skipped, never invented.
+pub fn parse_workspace_symbols(result: &Value, limit: usize) -> Option<WorkspaceSymbolList> {
+    let entries = match result {
+        Value::Null => return Some(WorkspaceSymbolList {
+            items: Vec::new(),
+            total: 0,
+            truncated: false,
+        }),
+        Value::Array(entries) => entries,
+        _ => return None,
+    };
+    let mut items = Vec::new();
+    let mut total = 0;
+    for entry in entries {
+        let Some(name) = entry.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(kind) = entry.get("kind").and_then(Value::as_u64) else {
+            continue;
+        };
+        let Some(location) = entry.get("location") else {
+            continue;
+        };
+        let Some(uri) = location
+            .get("uri")
+            .or_else(|| location.get("targetUri"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let Some(range) = location
+            .get("range")
+            .or_else(|| location.get("targetSelectionRange"))
+            .or_else(|| location.get("targetRange"))
+        else {
+            continue;
+        };
+        let Some(start) = range.get("start") else {
+            continue;
+        };
+        if start.get("line").and_then(Value::as_u64).is_none()
+            || start.get("character").and_then(Value::as_u64).is_none()
+        {
+            continue;
+        }
+        total += 1;
+        if items.len() >= limit {
+            continue;
+        }
+        items.push(WorkspaceSymbolItem {
+            name: name.to_string(),
+            kind,
+            container_name: entry
+                .get("containerName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            uri: uri.to_string(),
+            range: range.clone(),
+        });
+    }
+    Some(WorkspaceSymbolList {
+        total,
+        truncated: total > items.len(),
+        items,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -2207,6 +2302,65 @@ mod tests {
         let absent = capabilities_of(&json!({}));
         assert!(!absent.rename);
         assert!(!absent.supports("textDocument/rename"));
+    }
+
+    #[test]
+    fn workspace_symbols_parse_both_location_shapes_and_are_capped() {
+        let symbols = json!([
+            {
+                "name": "Order",
+                "kind": 5,
+                "containerName": "OrderDesk.Domain",
+                "location": {
+                    "uri": "file:///tmp/Order.cs",
+                    "range": { "start": { "line": 4, "character": 6 }, "end": { "line": 4, "character": 11 } }
+                }
+            },
+            {
+                "name": "Save",
+                "kind": 6,
+                "location": {
+                    "targetUri": "file:///tmp/Order.cs",
+                    "targetSelectionRange": { "start": { "line": 9, "character": 11 }, "end": { "line": 9, "character": 15 } },
+                    "targetRange": { "start": { "line": 9, "character": 4 }, "end": { "line": 9, "character": 15 } }
+                }
+            },
+            { "name": "Broken" }
+        ]);
+        let parsed = parse_workspace_symbols(&symbols, 500).expect("array");
+        assert_eq!(parsed.total, 2);
+        assert!(!parsed.truncated);
+        assert_eq!(parsed.items[0].name, "Order");
+        assert_eq!(parsed.items[0].kind, 5);
+        assert_eq!(parsed.items[0].container_name, "OrderDesk.Domain");
+        assert_eq!(parsed.items[1].container_name, "");
+        assert_eq!(parsed.items[1].range["start"]["line"], 9);
+
+        let capped = parse_workspace_symbols(&symbols, 1).expect("array");
+        assert_eq!(capped.items.len(), 1);
+        assert_eq!(capped.total, 2);
+        assert!(capped.truncated);
+
+        assert_eq!(
+            parse_workspace_symbols(&Value::Null, 500)
+                .expect("null")
+                .items
+                .len(),
+            0
+        );
+        assert!(parse_workspace_symbols(&json!({ "not": "an array" }), 500).is_none());
+    }
+
+    #[test]
+    fn workspace_symbol_capability_is_read_from_the_server() {
+        let advertised = capabilities_of(&json!({ "workspaceSymbolProvider": true }));
+        assert!(advertised.workspace_symbol);
+        assert!(advertised.supports("workspace/symbol"));
+        assert!(advertised.summary.contains(&"workspace symbols".to_string()));
+
+        let absent = capabilities_of(&json!({}));
+        assert!(!absent.workspace_symbol);
+        assert!(!absent.supports("workspace/symbol"));
     }
 
     #[test]
