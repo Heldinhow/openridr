@@ -202,10 +202,24 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 
 .setup {
   width: 100%;
-  max-width: 980px;
+  max-width: 800px;
   margin: 0 auto;
-  padding: 32px 24px 48px;
+  padding: 64px 32px 48px;
 }
+.setup-screen .chrome { align-items: center; min-height: 44px; font-size: 12px; }
+.setup-screen .chrome .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-screen .brand { display: flex; align-items: center; gap: 8px; }
+.setup-screen .brand .icon { color: var(--accent); }
+.welcome-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.welcome-mark { display: grid; place-items: center; width: 48px; height: 48px; color: var(--accent); background: var(--raised); border-radius: 10px; }
+.welcome-mark .icon { width: 28px; height: 28px; }
+.welcome-heading h1 { font-size: 26px; letter-spacing: -.7px; font-weight: 600; margin: 0; }
+.eyebrow { margin: 0 0 4px; font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--muted); }
+.setup > .muted { margin-bottom: 24px; }
+.setup .open-row input { min-height: 40px; }
+.setup .open-row .primary { background: var(--accent); color: var(--bg); font-weight: 600; padding: 8px 16px; }
+.setup .open-row .primary:hover:not(:disabled) { background: #ffb58d; }
+.setup .open-row .primary:disabled { background: var(--raised); color: var(--muted); }
 
 .open-form {
   margin: 18px 0 12px;
@@ -302,12 +316,18 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 }
 
 .tool-row {
-  display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 20px;
-  padding: 10px 0;
+  padding: 0;
   border-bottom: 1px solid var(--line);
 }
+.tool-row > summary { display: flex; align-items: center; gap: 12px; padding: 12px 0; cursor: pointer; }
+.tool-row > summary::before { content: "▸"; color: var(--muted); }
+.tool-row[open] > summary::before { content: "▾"; }
+.tool-row > summary::-webkit-details-marker { display: none; }
+.tool-row > summary > span:first-child { font-weight: 600; }
+.tool-row > summary > span:last-child { margin-left: auto; font-size: 12px; }
+.tool-row > div, .tool-row > section { padding: 0 0 14px 22px; overflow-wrap: anywhere; }
+.toolchain details.tool-row { margin-top: 0; font-size: 13px; }
+.toolchain .tool-row .analysis-panel { background: transparent; border: 0; }
 
 .tool-row strong {
   font-weight: 600;
@@ -321,11 +341,13 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 }
 
 .toolchain {
-  margin-top: 22px;
-  padding: 14px 16px;
+  margin-top: 40px;
+  padding: 20px 24px;
   background: var(--panel);
   border: 1px solid var(--line);
 }
+.toolchain > h2 { font-size: 14px; }
+.toolchain > p { font-size: 12px; }
 
 .toolchain .tool-rows {
   margin-top: 0;
