@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** done
+**Status:** done — commit `c218b0a`; suíte E2E completa 66/66.
 
 - [x] ⌘T e Shift Shift (duplo toque em 400 ms) abrem a busca com a última aba e o último texto; Esc fecha e devolve o foco ao editor.
 - [x] Tab/⇧Tab alternam as abas; setas navegam; Enter abre o resultado no editor; a prévia mostra caminho e trecho com a ocorrência destacada.
