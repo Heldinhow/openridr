@@ -1,0 +1,2388 @@
+$ playwright test "--reporter=line"
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.28s
+
+[WebServer]      Running `target/debug/openridr-host-http --port 4317`
+
+[WebServer] GET /health
+
+[WebServer] $ vite
+
+
+Running 45 tests using 1 worker
+
+[1/45] tests/e2e/build.spec.ts:68:1 › a real build reports its raw log, fails on a compile error and navigates to it
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS
+
+[WebServer]  /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS
+
+[WebServer]  /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[2/45] tests/e2e/build.spec.ts:152:1 › build waits for the explicit restore and asks before using unsaved buffers
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+[WebServer] POST /call
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+[WebServer] POST /call
+[WebServer] POST /call
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] OPTIONS /call
+[WebServer] OPTIONS /call
+[WebServer] OPTIONS /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] OPTIONS /call
+[WebServer] OPTIONS /call
+[WebServer] OPTIONS /call
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] 
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[3/45] tests/e2e/csharp-ls.spec.ts:132:1 › install plan is exact, cancel is inert, and the real install reaches verifying
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+[WebServer] POST /call
+[WebServer] POST /call
+[WebServer] POST /call
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST 
+
+[WebServer] /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST
+
+[WebServer]  /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST 
+
+[WebServer] /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+[WebServer] POST /call
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[4/45] tests/e2e/csharp-ls.spec.ts:252:1 › problems navigate real diagnostics by revision and keep stale items
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[5/45] tests/e2e/csharp-ls.spec.ts:488:1 › analysis loads, republishes diagnostics, survives a crash and stops on revoke
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[6/45] tests/e2e/csharp-ls.spec.ts:607:1 › completion and definition use the real session and discard stale answers
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] OPTIONS /call
+[WebServer] OPTIONS /call
+[WebServer] OPTIONS /call
+[WebServer] OPTIONS /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] OPTIONS /call
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[7/45] tests/e2e/csharp-ls.spec.ts:941:1 › rename previews real cross-project edits, cancels inert and applies to buffers only
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[8/45] tests/e2e/csharp-ls.spec.ts:1067:1 › a stale rename preview is rejected as a whole and late answers are discarded
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST
+
+[WebServer]  /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[9/45] tests/e2e/csharp-ls.spec.ts:1187:1 › code actions are listed from csharp-ls and preview/apply without writing disk
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[10/45] tests/e2e/csharp-ls.spec.ts:1322:1 › code action lists and previews are invalidated before any write
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[11/45] tests/e2e/csharp-ls.spec.ts:1430:1 › code actions forward the current diagnostic and list the real quick fix
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[12/45] tests/e2e/debugger.spec.ts:38:1 › macOS arm64 requires the experimental flag and shows the real asset
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[13/45] tests/e2e/debugger.spec.ts:167:1 › host gates consent, trust and plan identity before any download
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[14/45] tests/e2e/debugger.spec.ts:236:1 › debugs a real build with breakpoints, frames, locals, steps, continue and stop
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[15/45] tests/e2e/evaluation.spec.ts:61:1 › trust evaluates every project and the evaluated TargetPath follows the selection
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[16/45] tests/e2e/evaluation.spec.ts:123:1 › a broken import stays in the tree with cause, log, open and retry
+[WebServer] OPTIONS /call
+
+[WebServer] 
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[17/45] tests/e2e/evaluation.spec.ts:160:1 › saving a project file in a temp copy marks the model stale and re-evaluates it
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[18/45] tests/e2e/evaluation.spec.ts:213:1 › a direct evaluation call is denied before trust
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[19/45] tests/e2e/restore.spec.ts:56:1 › restore is explicit, streams a real log and reloads the evaluated model
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[20/45] tests/e2e/restore.spec.ts:127:1 › a failed restore keeps its log, the editor and a working retry
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[21/45] tests/e2e/restore.spec.ts:202:1 › a direct restore call is denied before trust
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[22/45] tests/e2e/run.spec.ts:79:1 › a real run shows the saved build output and refuses a source saved after the build
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[23/45] tests/e2e/run.spec.ts:172:1 › stopping a real long-running program reports requested and observed termination
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[24/45] tests/e2e/terminal.spec.ts:34:1 › a restricted workspace explains the terminal and starts no shell
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[25/45] tests/e2e/terminal.spec.ts:73:1 › a real shell runs in the workspace, interrupts a child with Ctrl+C and closes after confirmation
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[26/45] tests/e2e/tests.spec.ts:93:1 › real VSTest discovery lists four identified tests and blocks a stale selection
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[27/45] tests/e2e/tests.spec.ts:191:1 › an MTP project shows the exact message and runs no VSTest command
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[28/45] tests/e2e/tests.spec.ts:230:1 › a project without a VSTest adapter is adapter-missing, not empty
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[29/45] tests/e2e/tests.spec.ts:264:1 › a direct discovery call is denied before trust
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[30/45] tests/e2e/trust-sdk.spec.ts:69:1 › trust resolves the project SDK, revoke blocks calls and editing still works
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[31/45] tests/e2e/trust-sdk.spec.ts:153:1 › missing project SDK is distinct and global.json is never rewritten
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[32/45] tests/e2e/trust-sdk.spec.ts:201:1 › revoked workspace shows the remaining process and terminate observes the exit
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[33/45] tests/e2e/workspace.spec.ts:74:1 › opens the fixture in restricted mode with trust available
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[34/45] tests/e2e/workspace.spec.ts:118:1 › opens a file, edits, saves with Cmd+S and reopens the saved text
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[35/45] tests/e2e/workspace.spec.ts:142:1 › read and write failures keep the editor usable and preserve edits
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[36/45] tests/e2e/workspace.spec.ts:170:1 › detects a disk conflict and never overwrites without an explicit choice
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[37/45] tests/e2e/workspace.spec.ts:208:1 › closing a modified buffer or workspace requires an explicit choice
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[38/45] tests/e2e/workspace.spec.ts:241:1 › saves a modified buffer from the close dialog
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[39/45] tests/e2e/workspace.spec.ts:263:1 › a save failure from the close dialog keeps the buffer and explains the error
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[40/45] tests/e2e/workspace.spec.ts:290:1 › saves every modified buffer from the workspace close dialog
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[41/45] tests/e2e/workspace.spec.ts:312:1 › compares buffer and disk and revalidates a second disk change before overwriting
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[42/45] tests/e2e/workspace.spec.ts:375:1 › detects external changes on focus and tab activation without replacing the buffer
+[WebServer] OPTIONS /call
+
+[WebServer] 
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[43/45] tests/e2e/workspace.spec.ts:435:1 › prevents beforeunload only while a buffer is dirty
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[44/45] tests/e2e/workspace.spec.ts:449:1 › ambiguous and empty directories ask the user instead of guessing
+[WebServer] OPTIONS /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[45/45] tests/e2e/workspace.spec.ts:496:1 › direct host calls fail before trust and reject paths outside the workspace
+[WebServer] GET /health
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+[WebServer] POST /call
+
+  45 passed (4.4m)

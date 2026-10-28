@@ -1,0 +1,15 @@
+started: 2026-10-28T09:48:43-0300
+pre-trust tests.discover: trust_required
+discovery without restore: restore_required
+fixture discovery: completed 4 items, exit 0
+  OrderDesk.Tests.OrderTests.Id_is_preserved (test:b2493325b27f86ba)
+  OrderDesk.Tests.OrderTests.Total_is_preserved (test:60c033142f203871)
+  OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence (test:b86a5b14b8c8f93a)
+  OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes (test:0a3490f86e8e57b4)
+empty: empty
+failure: failed exit 1
+mtp: mtp_unsupported command=[]
+adapter: adapter_missing
+cancel: cancelled exit 143 termination {'exit': 143, 'killedAfterGrace': False, 'observed': 'exited', 'requested': 'SIGTERM'}
+revoke: cancelled sealed=True exit=143
+finished: 2026-10-28T09:48:55-0300

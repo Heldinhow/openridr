@@ -1,0 +1,26 @@
+discoveryId: discovery:5:1
+state: completed
+project: {'name': 'OrderDesk.Tests', 'path': 'tests/OrderDesk.Tests/OrderDesk.Tests.csproj'}
+targetFramework: net8.0
+command: /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet test /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/tests/OrderDesk.Tests/OrderDesk.Tests.csproj -c Debug --no-restore --list-tests --nologo -v:minimal -f net8.0
+cwd: /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery
+sdk: 8.0.408 /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408
+exit: 0
+termination: None
+partial: False
+error: None
+mtpMessage: None
+items (4):
+  - OrderDesk.Tests.OrderTests.Id_is_preserved  id=test:b2493325b27f86ba  tfm=net8.0
+  - OrderDesk.Tests.OrderTests.Total_is_preserved  id=test:60c033142f203871  tfm=net8.0
+  - OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence  id=test:b86a5b14b8c8f93a  tfm=net8.0
+  - OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes  id=test:0a3490f86e8e57b4  tfm=net8.0
+--- raw log ---
+  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll
+  OrderDesk.Tests -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll
+Test run for /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+The following Tests are available:
+    OrderDesk.Tests.OrderTests.Id_is_preserved
+    OrderDesk.Tests.OrderTests.Total_is_preserved
+    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes

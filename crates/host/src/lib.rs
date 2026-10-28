@@ -13,6 +13,8 @@ mod restore;
 pub mod sdk;
 mod run;
 mod terminal;
+#[path = "test_discovery.rs"]
+mod test_discovery;
 mod tools;
 
 pub use error::{HostError, HostResult};
@@ -100,6 +102,8 @@ struct Inner {
     run_seq: u64,
     terminal: Arc<terminal::Terminal>,
     terminal_seq: u64,
+    tests: Arc<test_discovery::Tests>,
+    tests_seq: u64,
     tools: Arc<tools::Tools>,
     debugger: Arc<debugger::Debugger>,
     debugger_experimental: bool,
@@ -263,6 +267,7 @@ struct Snapshot {
     build: build::BuildView,
     run: run::RunView,
     terminal: terminal::TerminalView,
+    tests: test_discovery::TestsView,
     dap: dap::DapView,
     tools: Value,
     lsp: lsp::LspView,
@@ -298,6 +303,8 @@ impl Host {
                 run_seq: 0,
                 terminal: Arc::new(terminal::Terminal::idle()),
                 terminal_seq: 0,
+                tests: Arc::new(test_discovery::Tests::idle()),
+                tests_seq: 0,
                 tools: Arc::new(tools::Tools::new()),
                 debugger: Arc::new(debugger::Debugger::new()),
                 debugger_experimental: false,
@@ -341,6 +348,12 @@ impl Host {
         }
         if method == "run.cancel" {
             return self.cancel_run();
+        }
+        if method == "tests.discover" {
+            return self.start_tests_discovery(params);
+        }
+        if method == "tests.discover_cancel" {
+            return self.cancel_tests_discovery();
         }
         if method == "terminal.start" {
             return self.start_terminal(params);
@@ -435,7 +448,7 @@ impl Host {
 
         match method {
             "app.state" | "workspace.state" | "tools.state" | "debug.state" | "lsp.state"
-            | "terminal.state" => {
+            | "terminal.state" | "tests.state" => {
                 let mut inner = self.inner.lock().unwrap();
                 Ok(self.snapshot_value(&mut inner))
             }
@@ -526,6 +539,7 @@ impl Host {
         inner.sync_build();
         inner.sync_run();
         inner.sync_terminal();
+        inner.sync_tests();
         inner.sync_dap();
         inner.sync_tools();
         inner.sync_lsp();
@@ -536,6 +550,9 @@ impl Host {
         if inner.evaluation.stale {
             inner.build.mark_stale(
                 "The evaluated project model is stale; the previous build is not current.",
+            );
+            inner.tests.mark_stale(
+                "The evaluated project model is stale; discover tests again before using the selection.",
             );
             if let Some(lsp) = &inner.lsp {
                 lsp.mark_partial(
@@ -633,6 +650,7 @@ impl Host {
             build: inner.build.view(),
             run: inner.run.view(),
             terminal: inner.terminal.view(),
+            tests: inner.tests.view(),
             dap: inner.dap.view(),
             tools: json!({ tools::TOOL: inner.tools.view() }),
             lsp: lsp_view,
@@ -685,6 +703,10 @@ impl Host {
             &mut inner,
             "Workspace changed while the shell was running; it was stopped and its output will not be attached to the new workspace.",
         );
+        stop_tests(
+            &mut inner,
+            "Workspace changed while tests were being discovered; the discovery was stopped and its result will not be applied to the new workspace.",
+        );
         inner.lsp = None;
         inner.diagnostics.clear();
         inner.processes.lock().unwrap().mark_awaiting();
@@ -702,6 +724,7 @@ impl Host {
         inner.build = Arc::new(build::Build::idle());
         inner.run = Arc::new(run::Run::idle());
         inner.terminal = Arc::new(terminal::Terminal::idle());
+        inner.tests = Arc::new(test_discovery::Tests::idle());
         inner.dap = Arc::new(dap::Dap::idle());
         Ok(self.snapshot_value(&mut inner))
     }
@@ -728,6 +751,10 @@ impl Host {
             &mut inner,
             "Workspace closed while the shell was running; it was stopped and its output is not current.",
         );
+        stop_tests(
+            &mut inner,
+            "Workspace closed while tests were being discovered; the discovery was stopped and its result is not current.",
+        );
         inner.lsp = None;
         inner.diagnostics.clear();
         inner.processes.lock().unwrap().mark_awaiting();
@@ -742,6 +769,7 @@ impl Host {
         inner.build = Arc::new(build::Build::idle());
         inner.run = Arc::new(run::Run::idle());
         inner.terminal = Arc::new(terminal::Terminal::idle());
+        inner.tests = Arc::new(test_discovery::Tests::idle());
         inner.dap = Arc::new(dap::Dap::idle());
         Ok(self.snapshot_value(&mut inner))
     }
@@ -804,6 +832,10 @@ impl Host {
             &mut inner,
             "Trust was revoked while the shell was running; it was stopped and its output is not current.",
         );
+        stop_tests(
+            &mut inner,
+            "Trust was revoked while tests were being discovered; the discovery was stopped and its result is not current.",
+        );
         inner.diagnostics.mark_unavailable(
             diagnostics::LSP_ORIGIN,
             "Trust was revoked; analysis is unavailable and these diagnostics are not current. Editing stays available.",
@@ -838,6 +870,9 @@ impl Host {
                 .mark_stale("SDK inventory refreshed; re-evaluate the project model.");
             inner.build.mark_stale(
                 "SDK inventory refreshed; the previous build used another toolchain.",
+            );
+            inner.tests.mark_stale(
+                "SDK inventory refreshed; discover tests again with the new toolchain.",
             );
         }
         Ok(self.snapshot_value(&mut inner))
@@ -1052,6 +1087,9 @@ impl Host {
         let available_tfms = inner.evaluation.available_tfms.clone();
         inner.build.mark_stale(
             "The project model was re-evaluated; build again to match the current evaluation.",
+        );
+        inner.tests.mark_stale(
+            "The project model was re-evaluated; discover tests again to match the current evaluation.",
         );
         inner.evaluation.begin(
             context.clone(),
@@ -1557,6 +1595,309 @@ impl Host {
             inner.build.observe(status);
         }
         inner.sync_build();
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Real VSTest discovery of one explicitly selected test project. Never restores, never
+    /// edits a package, and refuses MTP projects before any VSTest argv exists.
+    fn start_tests_discovery(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("tests.discover")?;
+        let mut inner = self.inner.lock().unwrap();
+
+        if let Some(process_id) = inner.tests.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "A test discovery is already running (process {process_id}). Cancel it before starting another."
+                ),
+            ));
+        }
+        let Some(workspace) = inner.workspace.as_ref() else {
+            return Err(HostError::new("invalid_state", "No workspace is open."));
+        };
+        let is_solution = matches!(workspace.kind, WorkspaceKind::Solution);
+        let workspace_file = workspace.path.clone();
+        let root = workspace.root.clone();
+
+        // Same policy as build/run/debug: assets must already be current.
+        restore::require_restored(&workspace_file, &root, is_solution, "tests.discover")?;
+
+        let sdk = inner.project_sdk.clone();
+        if sdk.state != "resolved" {
+            return Err(HostError::new(
+                if sdk.state == "sdk_missing" {
+                    "sdk_missing"
+                } else {
+                    "invalid_state"
+                },
+                format!(
+                    "Test discovery was not started: the project SDK is not resolved ({}). {}",
+                    sdk.state,
+                    sdk.message.clone().unwrap_or_else(|| {
+                        "Resolve the project SDK before discovering tests.".to_string()
+                    })
+                ),
+            ));
+        }
+        let Some(sdk_root) = sdk.root.clone().map(PathBuf::from) else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Test discovery was not started: the resolved project SDK has no root path.",
+            ));
+        };
+        let muxer = sdk_root.join(dotnet_exe());
+        if !muxer.is_file() {
+            return Err(HostError::new(
+                "sdk_missing",
+                format!(
+                    "Test discovery was not started: {} does not contain a .NET muxer.",
+                    sdk_root.to_string_lossy()
+                ),
+            ));
+        }
+
+        let evaluation = inner.evaluation.clone();
+        if evaluation.stale {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Test discovery was not started: the evaluated project model is stale ({}). Re-evaluate before discovering tests.",
+                    evaluation
+                        .stale_reason
+                        .clone()
+                        .unwrap_or_else(|| "no current evaluation".to_string())
+                ),
+                json!({ "reason": "evaluation_stale", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        if !matches!(evaluation.state, "ok" | "partial")
+            || evaluation.workspace_id != Some(token.workspace_id)
+            || evaluation.context_id != Some(token.context_id)
+        {
+            return Err(HostError::with_details(
+                "invalid_state",
+                "Test discovery was not started: the current evaluation is not valid for this workspace/context. Evaluate the project model again.",
+                json!({ "reason": "evaluation_required", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+
+        let requested = optional_str(&params, "project")
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                HostError::new(
+                    "invalid_state",
+                    "Select a test project explicitly; discovery never guesses which project to use.",
+                )
+            })?;
+        let normalized = requested
+            .replace('\\', "/")
+            .trim_start_matches("./")
+            .to_string();
+        let Some(project) = evaluation
+            .projects
+            .iter()
+            .find(|project| project.path == normalized)
+        else {
+            return Err(HostError::new(
+                "invalid_state",
+                format!("{requested} is not a project of the current evaluation."),
+            ));
+        };
+        if project.kind != "test" {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "{} is a {} project; only an evaluated test project can be discovered.",
+                    project.name, project.kind
+                ),
+            ));
+        }
+        if project.state != "ok" {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "{} was not evaluated successfully; re-evaluate the project model before discovering tests.",
+                    project.name
+                ),
+            ));
+        }
+
+        let target_framework = match params.get("targetFramework") {
+            Some(Value::String(value)) if !value.trim().is_empty() => {
+                Some(value.trim().to_string())
+            }
+            Some(_) => None,
+            None => evaluation.context.target_framework.clone(),
+        };
+        if target_framework
+            .as_deref()
+            .is_some_and(|tfm| !valid_selection(tfm))
+        {
+            return Err(HostError::new(
+                "invalid_state",
+                "TFM must not contain `;`, `=`, quotes or line breaks; no discovery was started.",
+            ));
+        }
+        if target_framework != evaluation.context.target_framework {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Test discovery was not started: TFM {} has not been evaluated. Re-evaluate with that TFM first.",
+                    target_framework.unwrap_or_else(|| "not selected".to_string())
+                ),
+                json!({ "reason": "tfm_not_evaluated", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+
+        inner.tests_seq += 1;
+        let start = test_discovery::Start {
+            revision: inner.tests_seq,
+            discovery_id: format!("discovery:{}:{}", token.workspace_id, inner.tests_seq),
+            project_name: project.name.clone(),
+            project_path: project.path.clone(),
+            target_framework: target_framework.clone(),
+            command: Vec::new(),
+            cwd: root.clone(),
+            sdk_root: sdk_root.clone(),
+            sdk_version: sdk
+                .resolved_version
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+        };
+
+        // MTP gate: read the project text and the evaluated references before any VSTest
+        // command exists. Nothing is converted or installed.
+        let project_text = fs::read_to_string(root.join(&project.path)).unwrap_or_default();
+        if test_discovery::mtp_detected(&project_text, &project.package_refs) {
+            let notice = test_discovery::Start {
+                command: Vec::new(),
+                ..start
+            };
+            inner.tests = Arc::new(test_discovery::Tests::notice(
+                notice,
+                "mtp_unsupported",
+                None,
+                Some(test_discovery::MTP_MESSAGE.to_string()),
+            ));
+            return Ok(self.snapshot_value(&mut inner));
+        }
+        if let Some(guidance) = test_discovery::adapter_missing(&project.package_refs) {
+            let notice = test_discovery::Start {
+                command: Vec::new(),
+                ..start
+            };
+            inner.tests = Arc::new(test_discovery::Tests::notice(
+                notice,
+                "adapter_missing",
+                Some(guidance),
+                None,
+            ));
+            return Ok(self.snapshot_value(&mut inner));
+        }
+
+        // A real VSTest run is scoped to one TFM; never let the runner pick for a
+        // multi-target project, and never claim a TFM the evaluated project does not declare.
+        if target_framework.is_none() && project.tfms.len() > 1 {
+            return Err(HostError::with_details(
+                "invalid_state",
+                format!(
+                    "Test discovery was not started: {} targets {}; select a TFM and re-evaluate before discovering.",
+                    project.name,
+                    project.tfms.join(", ")
+                ),
+                json!({ "reason": "tfm_required", "action": { "method": "evaluation.run", "params": {} } }),
+            ));
+        }
+        if let Some(tfm) = &target_framework {
+            if !project.tfms.is_empty() && !project.tfms.contains(tfm) {
+                return Err(HostError::new(
+                    "invalid_state",
+                    format!(
+                        "Test discovery was not started: {} does not declare TFM {tfm} ({}).",
+                        project.name,
+                        project.tfms.join(", ")
+                    ),
+                ));
+            }
+        }
+
+        let mut command = vec![
+            muxer.to_string_lossy().to_string(),
+            "test".to_string(),
+            root.join(&project.path).to_string_lossy().to_string(),
+            "-c".to_string(),
+            evaluation.context.configuration.clone(),
+            "--no-restore".to_string(),
+            "--list-tests".to_string(),
+            "--nologo".to_string(),
+            "-v:minimal".to_string(),
+        ];
+        if let Some(tfm) = &target_framework {
+            command.push("-f".to_string());
+            command.push(tfm.clone());
+        }
+        let start = test_discovery::Start {
+            command: command.clone(),
+            ..start
+        };
+        inner.tests = Arc::new(test_discovery::Tests::begin(start));
+
+        // Separate arguments, explicit cwd/environment and its own process group.
+        let mut process = Command::new(&command[0]);
+        process
+            .args(&command[1..])
+            .current_dir(&root)
+            .env("DOTNET_ROOT", &sdk_root)
+            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+            .env("DOTNET_CLI_UI_LANGUAGE", "en")
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        let project_name = project.name.clone();
+        let spawned = inner.processes.lock().unwrap().spawn_piped(
+            &format!("tests:{project_name}"),
+            token.workspace_id,
+            process,
+        );
+        let piped = match spawned {
+            Ok(piped) => piped,
+            Err(error) => {
+                inner
+                    .tests
+                    .fail(format!("Could not start dotnet test --list-tests: {error}"));
+                return Ok(self.snapshot_value(&mut inner));
+            }
+        };
+        inner.tests.note_process(piped.id);
+        let shared = inner.tests.clone();
+        if let Some(stdout) = piped.stdout {
+            let sink = shared.clone();
+            std::thread::spawn(move || test_discovery::pump(stdout, sink, false));
+        }
+        if let Some(stderr) = piped.stderr {
+            let sink = shared.clone();
+            std::thread::spawn(move || test_discovery::pump(stderr, sink, true));
+        }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Safety action, allowed without trust: request termination and keep whatever the list
+    /// already printed. The exit shown is only what the registry observed.
+    fn cancel_tests_discovery(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let Some(process_id) = inner.tests.running_process_id() else {
+            return Err(HostError::new(
+                "invalid_state",
+                "No test discovery is running.",
+            ));
+        };
+        inner.tests.request_cancel();
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
+        if let Some(status) = &status {
+            inner.tests.observe(status);
+        }
+        inner.sync_tests();
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -3829,6 +4170,9 @@ impl Inner {
         self.evaluation.mark_stale(reason);
         self.build
             .mark_stale("Dependencies changed after the build; rebuild before using its result.");
+        self.tests.mark_stale(
+            "Dependencies changed after discovery; discover tests again before using the selection.",
+        );
     }
 
     /// Observes the exit of a running build. The state is the observed one: no exit code is
@@ -3905,6 +4249,22 @@ impl Inner {
             self.terminal.observe_decision(status.awaiting_decision);
         }
     }
+
+    /// Observes the discovery process. Only an exit the registry observed can finish the
+    /// discovery; cancellation keeps the items printed so far.
+    fn sync_tests(&mut self) {
+        let Some(process_id) = self.tests.running_process_id() else {
+            return;
+        };
+        let mut processes = self.processes.lock().unwrap();
+        processes.refresh();
+        let Some(status) = processes.status(process_id) else {
+            return;
+        };
+        if status.state == "exited" {
+            self.tests.complete(&status);
+        }
+    }
 }
 
 /// A workspace boundary (revoke, close, switch) terminates a real build and keeps only what
@@ -3939,6 +4299,17 @@ fn stop_terminal(inner: &mut Inner, reason: &str) {
         inner.terminal.seal(reason, status.as_ref());
     } else {
         inner.terminal.seal(reason, None);
+    }
+}
+
+/// A workspace boundary (revoke, close, switch) terminates a real discovery and keeps only
+/// what was observed. The record is sealed so its late output cannot become another context's.
+fn stop_tests(inner: &mut Inner, reason: &str) {
+    if let Some(process_id) = inner.tests.running_process_id() {
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
+        inner.tests.seal(reason, status.as_ref());
+    } else {
+        inner.tests.seal(reason, None);
     }
 }
 

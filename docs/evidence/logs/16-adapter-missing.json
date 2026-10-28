@@ -1,0 +1,94 @@
+{
+  "tests": {
+    "discovery": {
+      "awaitingDecision": false,
+      "command": [],
+      "contextId": 18,
+      "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-l5xdhkf2/NoAdapter",
+      "discoveryId": "discovery:12:5",
+      "error": "No VSTest adapter is configured for this project: Microsoft.NET.Test.Sdk and a VSTest adapter (xunit.runner.visualstudio, NUnit3TestAdapter or MSTest.TestAdapter). OpenRidr does not add or install packages; configure the adapter in the project, restore explicitly and discover again.",
+      "exit": null,
+      "finishedAt": 1793191732458,
+      "items": [],
+      "log": "No VSTest adapter is configured for this project: Microsoft.NET.Test.Sdk and a VSTest adapter (xunit.runner.visualstudio, NUnit3TestAdapter or MSTest.TestAdapter). OpenRidr does not add or install packages; configure the adapter in the project, restore explicitly and discover again.",
+      "logTruncated": false,
+      "mtpMessage": null,
+      "partial": false,
+      "processId": null,
+      "project": {
+        "name": "NoAdapter",
+        "path": "NoAdapter.csproj"
+      },
+      "revision": 5,
+      "sdkRoot": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+      "sdkVersion": "8.0.408",
+      "sealed": false,
+      "stale": false,
+      "staleReason": null,
+      "startedAt": 1793191732458,
+      "state": "adapter_missing",
+      "targetFramework": null,
+      "termination": null,
+      "workspaceId": 12
+    }
+  },
+  "workspace": {
+    "candidates": [],
+    "id": 12,
+    "kind": "project",
+    "mode": "trusted",
+    "name": "NoAdapter.csproj",
+    "path": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-l5xdhkf2/NoAdapter/NoAdapter.csproj"
+  },
+  "evaluation": {
+    "state": "ok",
+    "revision": 1,
+    "context": {
+      "configuration": "Debug",
+      "targetFramework": null
+    },
+    "stale": false,
+    "staleReason": null
+  },
+  "restore": {
+    "state": "ok",
+    "revision": 5,
+    "exit": 0,
+    "logTruncated": false
+  },
+  "processes": [
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 2,
+      "kept": false,
+      "kind": "tests:OrderDesk.Tests",
+      "pid": 43559,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 5
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 4,
+      "kept": false,
+      "kind": "tests:Empty",
+      "pid": 43564,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 6
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 1,
+      "id": 6,
+      "kept": false,
+      "kind": "tests:Failed",
+      "pid": 43582,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 8
+    }
+  ]
+}

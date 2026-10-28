@@ -1,0 +1,18 @@
+discoveryId: discovery:6:2
+state: empty
+project: {'name': 'Empty', 'path': 'Empty.csproj'}
+targetFramework: None
+command: /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet test /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-avu_yt1j/Empty/Empty.csproj -c Debug --no-restore --list-tests --nologo -v:minimal
+cwd: /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-avu_yt1j/Empty
+sdk: 8.0.408 /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408
+exit: 0
+termination: None
+partial: False
+error: The VSTest adapter ran and listed no tests. This is not a discovery failure: add a test or check the adapter output, then discover again.
+mtpMessage: None
+items (0):
+--- raw log ---
+  Empty -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-avu_yt1j/Empty/bin/Debug/net8.0/Empty.dll
+Test run for /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-avu_yt1j/Empty/bin/Debug/net8.0/Empty.dll (.NETCoreApp,Version=v8.0)
+The following Tests are available:
+No test is available in /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-avu_yt1j/Empty/bin/Debug/net8.0/Empty.dll. Make sure that test discoverer & executors are registered and platform & framework version settings are appropriate and try again.

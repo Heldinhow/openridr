@@ -1,0 +1,15 @@
+discoveryId: discovery:14:6
+state: cancelled
+project: {'name': 'Cancel', 'path': 'Cancel.csproj'}
+targetFramework: None
+command: /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet test /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-t23z4cfv/Cancel/Cancel.csproj -c Debug --no-restore --list-tests --nologo -v:minimal
+cwd: /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-t23z4cfv/Cancel
+sdk: 8.0.408 /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408
+exit: 143
+termination: {'exit': 143, 'killedAfterGrace': False, 'observed': 'exited', 'requested': 'SIGTERM'}
+partial: True
+error: None
+mtpMessage: None
+items (0):
+--- raw log ---
+  Cancel -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-t23z4cfv/Cancel/bin/Debug/net8.0/Cancel.dll

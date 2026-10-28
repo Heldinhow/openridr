@@ -1,0 +1,15 @@
+discoveryId: discovery:10:4
+state: mtp_unsupported
+project: {'name': 'MtpGate', 'path': 'MtpGate.csproj'}
+targetFramework: None
+command: (none)
+cwd: /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-c61lwry_/MtpGate
+sdk: 8.0.408 /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408
+exit: None
+termination: None
+partial: False
+error: None
+mtpMessage: Microsoft.Testing.Platform is not supported in this version. Use the terminal.
+items (0):
+--- raw log ---
+Microsoft.Testing.Platform is not supported in this version. Use the terminal.

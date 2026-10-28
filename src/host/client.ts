@@ -217,6 +217,65 @@ export type Build = {
   problemsTruncated: boolean;
 };
 
+/** One test listed by the project's VSTest adapter. The fully-qualified name is the identity;
+ * `displayName` is only what the runner printed. */
+export type TestItem = {
+  id: string;
+  fullyQualifiedName: string;
+  displayName: string;
+  source: "vstest";
+  project: string;
+  tfm: string | null;
+  discoveryId: string;
+  revision: number;
+};
+
+/** Discovery is one explicit `dotnet test --list-tests` operation. Preflight states
+ * (`adapter_missing`, `mtp_unsupported`) have no command and never ran a VSTest process. */
+export type TestsDiscovery = {
+  state:
+    | "idle"
+    | "discovering"
+    | "completed"
+    | "empty"
+    | "failed"
+    | "cancelled"
+    | "adapter_missing"
+    | "mtp_unsupported";
+  project: { name: string; path: string } | null;
+  targetFramework: string | null;
+  command: string[];
+  cwd: string;
+  sdkRoot: string | null;
+  sdkVersion: string | null;
+  log: string;
+  logTruncated: boolean;
+  exit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  processId: number | null;
+  awaitingDecision: boolean;
+  revision: number;
+  discoveryId: string | null;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  items: TestItem[];
+  partial: boolean;
+  error: string | null;
+  mtpMessage: string | null;
+  stale: boolean;
+  staleReason: string | null;
+  sealed: boolean;
+};
+
+export type Tests = { discovery: TestsDiscovery };
+
 /** The program launched from the identified successful build. `exited` is neutral: the
  * exit code is shown as observed and `null` stays unknown. */
 export type Run = {
@@ -798,6 +857,7 @@ export type Snapshot = {
   build: Build;
   run: Run;
   terminal: Terminal;
+  tests: Tests;
   dap: Dap;
   tools: { "csharp-ls": ToolInstall };
   lsp: Lsp;

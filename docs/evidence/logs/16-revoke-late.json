@@ -1,0 +1,141 @@
+{
+  "tests": {
+    "discovery": {
+      "awaitingDecision": false,
+      "command": [
+        "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+        "test",
+        "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-fcn19k64/Revoke/Revoke.csproj",
+        "-c",
+        "Debug",
+        "--no-restore",
+        "--list-tests",
+        "--nologo",
+        "-v:minimal"
+      ],
+      "contextId": 24,
+      "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-fcn19k64/Revoke",
+      "discoveryId": "discovery:16:7",
+      "error": null,
+      "exit": 143,
+      "finishedAt": 1793191735679,
+      "items": [],
+      "log": "  Revoke -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-fcn19k64/Revoke/bin/Debug/net8.0/Revoke.dll",
+      "logTruncated": false,
+      "mtpMessage": null,
+      "partial": true,
+      "processId": 12,
+      "project": {
+        "name": "Revoke",
+        "path": "Revoke.csproj"
+      },
+      "revision": 7,
+      "sdkRoot": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+      "sdkVersion": "8.0.408",
+      "sealed": true,
+      "stale": true,
+      "staleReason": "Trust was revoked while tests were being discovered; the discovery was stopped and its result is not current.",
+      "startedAt": 1793191734992,
+      "state": "cancelled",
+      "targetFramework": null,
+      "termination": {
+        "exit": 143,
+        "killedAfterGrace": false,
+        "observed": "exited",
+        "requested": "SIGTERM"
+      },
+      "workspaceId": 16
+    }
+  },
+  "workspace": {
+    "candidates": [],
+    "id": 16,
+    "kind": "project",
+    "mode": "restricted",
+    "name": "Revoke.csproj",
+    "path": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-fcn19k64/Revoke/Revoke.csproj"
+  },
+  "evaluation": {
+    "state": "idle",
+    "revision": 0,
+    "context": {
+      "configuration": "Debug",
+      "targetFramework": null
+    },
+    "stale": false,
+    "staleReason": null
+  },
+  "restore": {
+    "state": "ok",
+    "revision": 7,
+    "exit": 0,
+    "logTruncated": false
+  },
+  "processes": [
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 2,
+      "kept": false,
+      "kind": "tests:OrderDesk.Tests",
+      "pid": 43559,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 5
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 4,
+      "kept": false,
+      "kind": "tests:Empty",
+      "pid": 43564,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 6
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 1,
+      "id": 6,
+      "kept": false,
+      "kind": "tests:Failed",
+      "pid": 43582,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 8
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 143,
+      "id": 10,
+      "kept": false,
+      "kind": "tests:Cancel",
+      "pid": 43589,
+      "state": "exited",
+      "termination": {
+        "exit": 143,
+        "killedAfterGrace": false,
+        "observed": "exited",
+        "requested": "SIGTERM"
+      },
+      "workspaceId": 14
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 143,
+      "id": 12,
+      "kept": false,
+      "kind": "tests:Revoke",
+      "pid": 43597,
+      "state": "exited",
+      "termination": {
+        "exit": 143,
+        "killedAfterGrace": false,
+        "observed": "exited",
+        "requested": "SIGTERM"
+      },
+      "workspaceId": 16
+    }
+  ]
+}

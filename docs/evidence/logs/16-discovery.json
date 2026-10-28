@@ -1,0 +1,125 @@
+{
+  "tests": {
+    "discovery": {
+      "awaitingDecision": false,
+      "command": [
+        "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+        "test",
+        "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+        "-c",
+        "Debug",
+        "--no-restore",
+        "--list-tests",
+        "--nologo",
+        "-v:minimal",
+        "-f",
+        "net8.0"
+      ],
+      "contextId": 7,
+      "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery",
+      "discoveryId": "discovery:5:1",
+      "error": null,
+      "exit": 0,
+      "finishedAt": 1793191727050,
+      "items": [
+        {
+          "discoveryId": "discovery:5:1",
+          "displayName": "OrderDesk.Tests.OrderTests.Id_is_preserved",
+          "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Id_is_preserved",
+          "id": "test:b2493325b27f86ba",
+          "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+          "revision": 1,
+          "source": "vstest",
+          "tfm": "net8.0"
+        },
+        {
+          "discoveryId": "discovery:5:1",
+          "displayName": "OrderDesk.Tests.OrderTests.Total_is_preserved",
+          "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Total_is_preserved",
+          "id": "test:60c033142f203871",
+          "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+          "revision": 1,
+          "source": "vstest",
+          "tfm": "net8.0"
+        },
+        {
+          "discoveryId": "discovery:5:1",
+          "displayName": "OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence",
+          "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence",
+          "id": "test:b86a5b14b8c8f93a",
+          "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+          "revision": 1,
+          "source": "vstest",
+          "tfm": "net8.0"
+        },
+        {
+          "discoveryId": "discovery:5:1",
+          "displayName": "OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes",
+          "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes",
+          "id": "test:0a3490f86e8e57b4",
+          "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+          "revision": 1,
+          "source": "vstest",
+          "tfm": "net8.0"
+        }
+      ],
+      "log": "  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll\n  OrderDesk.Tests -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll\nTest run for /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)\nThe following Tests are available:\n    OrderDesk.Tests.OrderTests.Id_is_preserved\n    OrderDesk.Tests.OrderTests.Total_is_preserved\n    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence\n    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes",
+      "logTruncated": false,
+      "mtpMessage": null,
+      "partial": false,
+      "processId": 2,
+      "project": {
+        "name": "OrderDesk.Tests",
+        "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj"
+      },
+      "revision": 1,
+      "sdkRoot": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+      "sdkVersion": "8.0.408",
+      "sealed": false,
+      "stale": false,
+      "staleReason": null,
+      "startedAt": 1793191725805,
+      "state": "completed",
+      "targetFramework": "net8.0",
+      "termination": null,
+      "workspaceId": 5
+    }
+  },
+  "workspace": {
+    "candidates": [],
+    "id": 5,
+    "kind": "solution",
+    "mode": "trusted",
+    "name": "OrderDesk.sln",
+    "path": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-evidence-qedmdcr4/Order Desk discovery/OrderDesk.sln"
+  },
+  "evaluation": {
+    "state": "ok",
+    "revision": 1,
+    "context": {
+      "configuration": "Debug",
+      "targetFramework": "net8.0"
+    },
+    "stale": false,
+    "staleReason": null
+  },
+  "restore": {
+    "state": "ok",
+    "revision": 1,
+    "exit": 0,
+    "logTruncated": false
+  },
+  "processes": [
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 2,
+      "kept": false,
+      "kind": "tests:OrderDesk.Tests",
+      "pid": 43559,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 5
+    }
+  ]
+}

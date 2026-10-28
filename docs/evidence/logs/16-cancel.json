@@ -1,0 +1,125 @@
+{
+  "tests": {
+    "discovery": {
+      "awaitingDecision": false,
+      "command": [
+        "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+        "test",
+        "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-t23z4cfv/Cancel/Cancel.csproj",
+        "-c",
+        "Debug",
+        "--no-restore",
+        "--list-tests",
+        "--nologo",
+        "-v:minimal"
+      ],
+      "contextId": 21,
+      "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-t23z4cfv/Cancel",
+      "discoveryId": "discovery:14:6",
+      "error": null,
+      "exit": 143,
+      "finishedAt": 1793191734022,
+      "items": [],
+      "log": "  Cancel -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-t23z4cfv/Cancel/bin/Debug/net8.0/Cancel.dll",
+      "logTruncated": false,
+      "mtpMessage": null,
+      "partial": true,
+      "processId": 10,
+      "project": {
+        "name": "Cancel",
+        "path": "Cancel.csproj"
+      },
+      "revision": 6,
+      "sdkRoot": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+      "sdkVersion": "8.0.408",
+      "sealed": false,
+      "stale": false,
+      "staleReason": null,
+      "startedAt": 1793191733344,
+      "state": "cancelled",
+      "targetFramework": null,
+      "termination": {
+        "exit": 143,
+        "killedAfterGrace": false,
+        "observed": "exited",
+        "requested": "SIGTERM"
+      },
+      "workspaceId": 14
+    }
+  },
+  "workspace": {
+    "candidates": [],
+    "id": 14,
+    "kind": "project",
+    "mode": "trusted",
+    "name": "Cancel.csproj",
+    "path": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-16-t23z4cfv/Cancel/Cancel.csproj"
+  },
+  "evaluation": {
+    "state": "ok",
+    "revision": 1,
+    "context": {
+      "configuration": "Debug",
+      "targetFramework": null
+    },
+    "stale": false,
+    "staleReason": null
+  },
+  "restore": {
+    "state": "ok",
+    "revision": 6,
+    "exit": 0,
+    "logTruncated": false
+  },
+  "processes": [
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 2,
+      "kept": false,
+      "kind": "tests:OrderDesk.Tests",
+      "pid": 43559,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 5
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 0,
+      "id": 4,
+      "kept": false,
+      "kind": "tests:Empty",
+      "pid": 43564,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 6
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 1,
+      "id": 6,
+      "kept": false,
+      "kind": "tests:Failed",
+      "pid": 43582,
+      "state": "exited",
+      "termination": null,
+      "workspaceId": 8
+    },
+    {
+      "awaitingDecision": false,
+      "exit": 143,
+      "id": 10,
+      "kept": false,
+      "kind": "tests:Cancel",
+      "pid": 43589,
+      "state": "exited",
+      "termination": {
+        "exit": 143,
+        "killedAfterGrace": false,
+        "observed": "exited",
+        "requested": "SIGTERM"
+      },
+      "workspaceId": 14
+    }
+  ]
+}

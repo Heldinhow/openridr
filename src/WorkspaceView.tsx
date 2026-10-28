@@ -12,6 +12,7 @@ import {
 import { CodeEditor } from "./CodeEditor";
 import { ProblemsPanel } from "./ProblemsPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
+import { TestsPanel } from "./TestsPanel";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
@@ -390,6 +391,28 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                     ? "A build is already running."
                     : null;
   const requestBuildRef = useRef<() => void>(() => {});
+  const tests = snapshot.tests;
+  const testDiscovery = tests.discovery;
+  const testCandidates = evaluatedProjects.filter(
+    (project) => project.kind === "test" && project.state === "ok",
+  );
+  const testsDisabledReason = !trusted
+    ? "Trust the workspace before discovering tests; nothing runs in Restricted mode."
+    : projectSdk.state !== "resolved"
+      ? "Resolve the project SDK before discovering tests; the host SDK is never substituted."
+      : evaluation.state === "running"
+        ? "Wait for the evaluation to finish before discovering tests."
+        : evaluation.stale
+          ? "The evaluated project model is stale; re-evaluate before discovering tests."
+          : !["ok", "partial"].includes(evaluation.state)
+            ? "Evaluate the project model before discovering tests; discovery uses its project list."
+            : restoreIncomplete
+              ? "Dependencies are not restored; run the explicit restore first."
+              : testCandidates.length === 0
+                ? "No evaluated test project is available; open a solution with a test project and evaluate it."
+                : testDiscovery.state === "discovering"
+                  ? "A test discovery is already running."
+                  : null;
   const run = snapshot.run;
   const runRunning = run.state === "running";
   const runShortcut = runShortcutLabel(snapshot.app.platform);
@@ -1615,6 +1638,32 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
+  async function startTestDiscovery(project: string) {
+    setBottomTab("tests");
+    try {
+      onSnapshot(
+        await call<Snapshot>("tests.discover", {
+          project,
+          targetFramework: evaluation.context.targetFramework,
+        }),
+      );
+      setMessage(null);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Test discovery could not start: ${messageOf(error)}` });
+      if (error instanceof HostCallError && error.code === "restore_required") {
+        setBottomTab("tests");
+      }
+    }
+  }
+
+  async function cancelTestDiscovery() {
+    try {
+      onSnapshot(await call<Snapshot>("tests.discover_cancel"));
+    } catch (error) {
+      setMessage({ tone: "error", text: `Discovery cancellation failed: ${messageOf(error)}` });
+    }
+  }
+
   async function startRun() {
     if (!startupProject) {
       setMessage({
@@ -1930,7 +1979,20 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           />
         );
       case "tests":
-        return <p className="muted">Tests are not available in this build (ticket 17).</p>;
+        return (
+          <TestsPanel
+            tests={tests}
+            evaluation={evaluation}
+            editedAt={editedAt}
+            disabledReason={testsDisabledReason}
+            restoreRequired={restoreIncomplete}
+            restoreDisabledReason={restoreDisabledReason}
+            onRestore={() => void startRestore("restore.start")}
+            onEvaluate={(next) => void runEvaluation(next)}
+            onDiscover={(project) => void startTestDiscovery(project)}
+            onCancel={() => void cancelTestDiscovery()}
+          />
+        );
     }
   }
 
@@ -2985,7 +3047,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               ? "build-output"
               : bottomTab === "terminal"
                 ? "terminal-output-panel"
-                : ""
+                : bottomTab === "tests"
+                  ? "tests-output"
+                  : ""
         }`}
         aria-label="Bottom panel"
       >
