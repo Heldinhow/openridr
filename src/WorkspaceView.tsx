@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   call,
   HostCallError,
@@ -15,12 +15,16 @@ import { LspPanel, ToolInstaller } from "./ToolchainPanels";
 type Tab = {
   path: string;
   content: string;
-  saved: string;
   hash: string;
+  revision: number;
+  savedRevision: number;
   conflict: null | { content: string; hash: string };
 };
 
-type Confirmation = { kind: "tab"; path: string } | { kind: "workspace" };
+type Confirmation =
+  | { kind: "tab"; path: string }
+  | { kind: "workspace" }
+  | { kind: "window" };
 
 type BottomTab = "build" | "problems" | "debug" | "terminal" | "tests";
 
@@ -45,6 +49,34 @@ function baseName(path: string) {
 
 function messageOf(error: unknown) {
   return error instanceof HostCallError ? error.message : String(error);
+}
+
+function isDirty(tab: Tab) {
+  return tab.revision !== tab.savedRevision || tab.conflict !== null;
+}
+
+function lineDiffCount(buffer: string, disk: string) {
+  const left = buffer.split("\n");
+  const right = disk.split("\n");
+  // shortcut: buffers over 1200 lines show only hashes, not a line diff; upgrade to a streaming diff if files grow.
+  if (left.length > 1200 || right.length > 1200) return null;
+  let previous = new Array<number>(right.length + 1).fill(0);
+  for (let i = 1; i <= left.length; i += 1) {
+    const current = new Array<number>(right.length + 1).fill(0);
+    for (let j = 1; j <= right.length; j += 1) {
+      current[j] =
+        left[i - 1] === right[j - 1]
+          ? previous[j - 1] + 1
+          : Math.max(previous[j], current[j - 1]);
+    }
+    previous = current;
+  }
+  const common = previous[right.length];
+  return { added: right.length - common, removed: left.length - common };
+}
+
+function countLabel(count: number, word: string) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
 function projectFor(path: string, projects: OutlineProject[]) {
@@ -105,6 +137,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [activePath, setActivePath] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [bottomTab, setBottomTab] = useState<BottomTab>("build");
   const [editorTarget, setEditorTarget] = useState<{
     path: string;
@@ -114,6 +147,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   } | null>(null);
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const activePathRef = useRef(activePath);
+  activePathRef.current = activePath;
+  const unsavedRef = useRef(false);
+  const writing = useRef(new Set<string>());
+  const diskEpoch = useRef(new Map<string, number>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const autoEvaluation = useRef<number | null>(null);
@@ -128,7 +168,15 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     : undefined;
   const selectedProject =
     evaluatedProjects.find((project) => project.path === selectedProjectPath) ?? null;
-  const dirtyCount = tabs.filter((tab) => tab.content !== tab.saved || tab.conflict).length;
+  const dirtyCount = tabs.filter(isDirty).length;
+  unsavedRef.current = dirtyCount > 0;
+  const activeConflictDiff = useMemo(
+    () =>
+      active?.conflict
+        ? lineDiffCount(active.content, active.conflict.content)
+        : null,
+    [active?.path, active?.content, active?.conflict?.content, active?.conflict?.hash],
+  );
   const showsProcesses = snapshot.processes.some(
     (process) => process.workspaceId === workspace.id,
   );
@@ -228,6 +276,49 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   }, []);
 
   useEffect(() => {
+    const onFocus = () => {
+      const path = activePathRef.current;
+      if (path) void checkDisk(path);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!unsavedRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  useEffect(() => {
+    // Tauri: the native close button must go through the same in-app decision. Chrome/HTTP
+    // relies on beforeunload above, and the window dialog is unreachable there.
+    if (!window.__TAURI_INTERNALS__) return;
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void import("@tauri-apps/api/window")
+      .then(async ({ getCurrentWindow }) => {
+        const stop = await getCurrentWindow().onCloseRequested((event) => {
+          if (!unsavedRef.current) return;
+          event.preventDefault();
+          setConfirmError(null);
+          setConfirm({ kind: "window" });
+        });
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
     // Send didOpen once per session for every open buffer. A restart creates a new session,
     // so the full set is sent again with the current buffer text.
     if (!lspActive) return;
@@ -275,6 +366,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   async function openFile(path: string) {
     if (tabs.some((tab) => tab.path === path)) {
       setActivePath(path);
+      void checkDisk(path);
       return true;
     }
     try {
@@ -283,7 +375,14 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       });
       setTabs((current) => [
         ...current,
-        { path: file.path, content: file.content, saved: file.content, hash: file.hash, conflict: null },
+        {
+          path: file.path,
+          content: file.content,
+          hash: file.hash,
+          revision: 0,
+          savedRevision: 0,
+          conflict: null,
+        },
       ]);
       setActivePath(file.path);
       setMessage(null);
@@ -305,9 +404,41 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     });
   }
 
+  function bumpDiskEpoch(path: string) {
+    diskEpoch.current.set(path, (diskEpoch.current.get(path) ?? 0) + 1);
+  }
+
+  async function checkDisk(path: string) {
+    // Proactive read. It only raises a conflict; it never replaces buffer content. A read
+    // failure is reported and the buffer stays editable.
+    if (writing.current.has(path) || !tabsRef.current.some((tab) => tab.path === path)) return;
+    const epoch = diskEpoch.current.get(path) ?? 0;
+    let file: { content: string; hash: string };
+    try {
+      file = await call<{ content: string; hash: string }>("file.read", { path });
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: `Could not re-read ${path} from disk; your buffer is unchanged. ${messageOf(error)}`,
+      });
+      return;
+    }
+    if ((diskEpoch.current.get(path) ?? 0) !== epoch) return;
+    setTabs((current) =>
+      current.map((tab) => {
+        if (tab.path !== path) return tab;
+        const known = tab.conflict?.hash ?? tab.hash;
+        if (file.hash === known) return tab;
+        return { ...tab, conflict: { content: file.content, hash: file.hash } };
+      }),
+    );
+  }
+
   function updateContent(path: string, content: string) {
     setTabs((current) =>
-      current.map((tab) => (tab.path === path ? { ...tab, content } : tab)),
+      current.map((tab) =>
+        tab.path === path ? { ...tab, content, revision: tab.revision + 1 } : tab,
+      ),
     );
     setEditedAt((current) => ({ ...current, [path]: Date.now() }));
     queueDidChange(path, content);
@@ -316,9 +447,11 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   function applyConflict(path: string, error: HostCallError) {
     const details = error.details as { currentContent?: string; currentHash?: string } | undefined;
     if (details?.currentContent === undefined || !details.currentHash) {
-      setMessage({ tone: "error", text: `Save failed: ${error.message}` });
-      return;
+      const text = `Save failed; buffer kept. ${error.message}`;
+      setMessage({ tone: "error", text });
+      return text;
     }
+    const text = `${path} changed on disk. Your buffer was kept; choose Reload from disk or Overwrite disk.`;
     setTabs((current) =>
       current.map((tab) =>
         tab.path === path
@@ -326,27 +459,23 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           : tab,
       ),
     );
-    setMessage({
-      tone: "error",
-      text: `${path} changed on disk. Your buffer was kept; choose Reload from disk or Overwrite disk.`,
-    });
+    setMessage({ tone: "error", text });
+    return text;
   }
 
-  async function save() {
-    const tab = active;
-    if (!tab) return;
+  async function saveTab(tab: Tab): Promise<{ ok: boolean; error?: string }> {
     if (tab.conflict) {
-      setMessage({
-        tone: "error",
-        text: "A disk conflict is pending. Choose Reload from disk or Overwrite disk explicitly.",
-      });
-      return;
+      const error = `${tab.path} has a pending disk conflict; choose Reload from disk or Overwrite disk first. Your buffer was kept.`;
+      setMessage({ tone: "error", text: error });
+      return { ok: false, error };
     }
-    if (tab.content === tab.saved) {
+    if (tab.revision === tab.savedRevision) {
       setMessage({ tone: "info", text: "No changes to save." });
-      return;
+      return { ok: true };
     }
     const content = tab.content;
+    const revision = tab.revision;
+    writing.current.add(tab.path);
     try {
       const result = await call<{ path: string; hash: string }>("file.write", {
         path: tab.path,
@@ -356,33 +485,67 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       setTabs((current) =>
         current.map((item) =>
           item.path === tab.path
-            ? { ...item, saved: content, hash: result.hash, conflict: null }
+            ? { ...item, hash: result.hash, savedRevision: revision, conflict: null }
             : item,
         ),
       );
       setMessage({ tone: "info", text: `Saved ${tab.path}` });
+      return { ok: true };
     } catch (error) {
       if (error instanceof HostCallError && error.code === "conflict") {
-        applyConflict(tab.path, error);
-      } else {
-        setMessage({ tone: "error", text: `Save failed; buffer kept. ${messageOf(error)}` });
+        return { ok: false, error: applyConflict(tab.path, error) };
       }
+      const text = `Save failed; buffer kept. ${messageOf(error)}`;
+      setMessage({ tone: "error", text });
+      return { ok: false, error: text };
+    } finally {
+      writing.current.delete(tab.path);
+      bumpDiskEpoch(tab.path);
     }
   }
 
+  async function saveAll() {
+    const failures: string[] = [];
+    for (const tab of tabsRef.current) {
+      if (!isDirty(tab)) continue;
+      const result = await saveTab(tab);
+      if (!result.ok) failures.push(result.error ?? `Could not save ${tab.path}.`);
+    }
+    return failures;
+  }
+
+  async function save() {
+    const tab = active;
+    if (!tab) return;
+    await saveTab(tab);
+  }
+
   function reloadFromDisk() {
-    if (!active?.conflict) return;
-    const conflict = active.conflict;
+    const tab = active;
+    if (!tab?.conflict) return;
+    const conflict = tab.conflict;
+    const hadEdits = tab.revision !== tab.savedRevision;
+    const revision = tab.revision + 1;
     setTabs((current) =>
-      current.map((tab) =>
-        tab.path === active.path
-          ? { ...tab, content: conflict.content, saved: conflict.content, hash: conflict.hash, conflict: null }
-          : tab,
+      current.map((item) =>
+        item.path === tab.path
+          ? {
+              ...item,
+              content: conflict.content,
+              hash: conflict.hash,
+              revision,
+              savedRevision: revision,
+              conflict: null,
+            }
+          : item,
       ),
     );
+    queueDidChange(tab.path, conflict.content);
     setMessage({
       tone: "info",
-      text: `Reloaded ${active.path} from disk. Your edits were discarded.`,
+      text: hadEdits
+        ? `Reloaded ${tab.path} from disk. Your unsaved edits were discarded.`
+        : `Reloaded ${tab.path} from disk; the buffer now matches disk.`,
     });
   }
 
@@ -391,6 +554,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     if (!tab?.conflict) return;
     const conflict = tab.conflict;
     const content = tab.content;
+    const revision = tab.revision;
+    writing.current.add(tab.path);
     try {
       const result = await call<{ path: string; hash: string }>("file.write", {
         path: tab.path,
@@ -400,7 +565,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       setTabs((current) =>
         current.map((item) =>
           item.path === tab.path
-            ? { ...item, saved: content, hash: result.hash, conflict: null }
+            ? { ...item, hash: result.hash, savedRevision: revision, conflict: null }
             : item,
         ),
       );
@@ -411,6 +576,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       } else {
         setMessage({ tone: "error", text: `Overwrite failed; buffer kept. ${messageOf(error)}` });
       }
+    } finally {
+      writing.current.delete(tab.path);
+      bumpDiskEpoch(tab.path);
     }
   }
 
@@ -425,7 +593,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   function requestCloseTab(path: string) {
     const tab = tabs.find((item) => item.path === path);
     if (!tab) return;
-    if (tab.content !== tab.saved || tab.conflict) {
+    if (isDirty(tab)) {
+      setConfirmError(null);
       setConfirm({ kind: "tab", path });
       return;
     }
@@ -506,21 +675,74 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
+      setConfirmError(null);
       setConfirm({ kind: "workspace" });
       return;
     }
     void closeWorkspace();
   }
 
+  async function destroyWindow() {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().destroy();
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: `Could not close the window: ${messageOf(error)}`,
+      });
+    }
+  }
+
+  async function confirmSave() {
+    if (!confirm) return;
+    setConfirmError(null);
+    const pending = confirm;
+    if (pending.kind === "tab") {
+      const tab = tabs.find((item) => item.path === pending.path);
+      if (!tab) {
+        setConfirm(null);
+        return;
+      }
+      const result = await saveTab(tab);
+      if (!result.ok) {
+        setConfirmError(result.error ?? `Could not save ${tab.path}.`);
+        return;
+      }
+      setConfirm(null);
+      closeTab(pending.path);
+      return;
+    }
+    const failures = await saveAll();
+    if (failures.length > 0) {
+      setConfirmError(failures.join(" "));
+      return;
+    }
+    setConfirm(null);
+    if (pending.kind === "workspace") {
+      void closeWorkspace();
+    } else {
+      void destroyWindow();
+    }
+  }
+
+  function keepEditing() {
+    setConfirm(null);
+    setConfirmError(null);
+  }
+
   function discardConfirmed() {
     if (!confirm) return;
     const pending = confirm;
     setConfirm(null);
+    setConfirmError(null);
     if (pending.kind === "tab") {
       closeTab(pending.path);
       setMessage({ tone: "info", text: `Closed ${pending.path}; unsaved edits were discarded.` });
-    } else {
+    } else if (pending.kind === "workspace") {
       void closeWorkspace();
+    } else {
+      void destroyWindow();
     }
   }
 
@@ -1055,7 +1277,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           <div className="tabbar">
             <div className="tabs" role="tablist" aria-label="Open files">
               {tabs.map((tab) => {
-                const dirty = tab.content !== tab.saved || Boolean(tab.conflict);
+                const dirty = isDirty(tab);
                 const selected = tab.path === activePath;
                 return (
                   <div className={`tab ${selected ? "active" : ""}`} key={tab.path} data-testid={`tab-${tab.path}`}>
@@ -1063,7 +1285,10 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                       role="tab"
                       aria-selected={selected}
                       className="tab-label"
-                      onClick={() => setActivePath(tab.path)}
+                      onClick={() => {
+                        setActivePath(tab.path);
+                        void checkDisk(tab.path);
+                      }}
                       title={tab.path}
                       aria-label={`${baseName(tab.path)}${dirty ? ", modified" : ""}`}
                     >
@@ -1096,7 +1321,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               className="save"
               data-testid="save-file"
               onClick={() => void save()}
-              disabled={!active || (active.content === active.saved && !active.conflict)}
+              disabled={!active || !isDirty(active)}
               title={active ? "Save with Cmd+S (macOS) or Ctrl+S (Windows)" : "No file open"}
             >
               Save
@@ -1117,6 +1342,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   : activeProject
                     ? ` / ${activeProject.tfms.join(", ") || "TFM not declared"}`
                     : ""}
+                <span
+                  className={isDirty(active) ? "warning" : "muted"}
+                  data-testid="editor-revision"
+                >
+                  {" · "}revision {active.revision} · saved {active.savedRevision} ·{" "}
+                  {isDirty(active) ? "modified" : "saved"}
+                </span>
               </div>
 
               {active.conflict && (
@@ -1131,6 +1363,31 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                       Overwrite disk
                     </button>
                   </div>
+                  <details className="conflict-compare" data-testid="conflict-compare">
+                    <summary>Compare buffer and disk</summary>
+                    <div className="conflict-compare-grid">
+                      <section aria-label="Buffer version">
+                        <h3>Buffer · unsaved · revision {active.revision}</h3>
+                        <p className="muted">
+                          Based on <code data-testid="conflict-buffer-hash">{active.hash}</code>
+                        </p>
+                        <pre data-testid="conflict-compare-buffer">{active.content}</pre>
+                      </section>
+                      <section aria-label="Disk version">
+                        <h3>Disk · external change</h3>
+                        <p className="muted">
+                          Disk hash{" "}
+                          <code data-testid="conflict-disk-hash">{active.conflict.hash}</code>
+                        </p>
+                        <pre data-testid="conflict-compare-disk">{active.conflict.content}</pre>
+                      </section>
+                    </div>
+                    <p className="muted" data-testid="conflict-compare-diff">
+                      {activeConflictDiff
+                        ? `${countLabel(activeConflictDiff.removed, "line")} removed · ${countLabel(activeConflictDiff.added, "line")} added`
+                        : "Line diff skipped: one version has more than 1200 lines; compare hashes only."}
+                    </p>
+                  </details>
                 </div>
               )}
 
@@ -1327,7 +1584,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             aria-labelledby="confirm-title"
             onKeyDown={(event) => {
               if (event.key === "Escape") {
-                setConfirm(null);
+                keepEditing();
               }
               if (event.key === "Tab") {
                 const focusable = Array.from(
@@ -1347,15 +1604,29 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             }}
           >
             <h2 id="confirm-title">
-              {confirm.kind === "tab" ? "Close modified file?" : "Close workspace with unsaved changes?"}
+              {confirm.kind === "tab"
+                ? "Close modified file?"
+                : confirm.kind === "workspace"
+                  ? "Close workspace with unsaved changes?"
+                  : "Close OpenRidr with unsaved changes?"}
             </h2>
             <p>
               {confirm.kind === "tab"
-                ? `${confirm.path} has unsaved changes.`
-                : `${dirtyCount} modified buffer${dirtyCount === 1 ? "" : "s"} will be lost.`}
+                ? `${confirm.path} has unsaved changes. Save it, keep editing, or discard it explicitly.`
+                : `${countLabel(dirtyCount, "modified buffer")} ${
+                    dirtyCount === 1 ? "has" : "have"
+                  } unsaved changes. Save all, keep editing, or discard explicitly.`}
             </p>
+            {confirmError && (
+              <p className="error" role="alert" data-testid="confirm-error">
+                {confirmError}
+              </p>
+            )}
             <div className="actions">
-              <button autoFocus data-testid="confirm-keep" onClick={() => setConfirm(null)}>
+              <button data-testid="confirm-save" onClick={() => void confirmSave()}>
+                {confirm.kind === "tab" ? "Save" : "Save all"}
+              </button>
+              <button autoFocus data-testid="confirm-keep" onClick={keepEditing}>
                 Keep editing
               </button>
               <button
@@ -1363,7 +1634,11 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 data-testid="confirm-discard"
                 onClick={discardConfirmed}
               >
-                {confirm.kind === "tab" ? "Discard and close" : "Discard and close workspace"}
+                {confirm.kind === "tab"
+                  ? "Discard and close"
+                  : confirm.kind === "workspace"
+                    ? "Discard and close workspace"
+                    : "Discard and close app"}
               </button>
             </div>
           </div>

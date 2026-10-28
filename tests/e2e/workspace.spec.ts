@@ -7,8 +7,12 @@ const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
 const program = path.join(fixture, "src/OrderDesk.Cli/Program.cs");
 const programTab = "src/OrderDesk.Cli/Program.cs";
+const core = path.join(fixture, "src/OrderDesk.Core/Order.cs");
+const coreTab = "src/OrderDesk.Core/Order.cs";
 const originalProgram = fs.readFileSync(program, "utf8");
+const originalCore = fs.readFileSync(core, "utf8");
 const host = "http://127.0.0.1:4317";
+const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
 
 const executableMethods = [
   "evaluation.run",
@@ -26,10 +30,12 @@ const executableMethods = [
 
 test.beforeEach(() => {
   fs.writeFileSync(program, originalProgram);
+  fs.writeFileSync(core, originalCore);
 });
 
 test.afterEach(() => {
   fs.writeFileSync(program, originalProgram);
+  fs.writeFileSync(core, originalCore);
 });
 
 async function openWorkspace(page: Page, target: string) {
@@ -53,6 +59,16 @@ async function replaceEditorText(page: Page, text: string) {
   await editor.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(text);
+}
+
+async function dispatchWindowFocus(page: Page) {
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+}
+
+async function beforeUnloadPrevented(page: Page) {
+  return page.evaluate(
+    () => !window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
+  );
 }
 
 test("opens the fixture in restricted mode with trust available", async ({ page }) => {
@@ -216,6 +232,214 @@ test("closing a modified buffer or workspace requires an explicit choice", async
   await page.getByTestId("close-workspace").click();
   await page.getByTestId("confirm-discard").click();
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
+});
+
+test("saves a modified buffer from the close dialog", async ({ page }) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await openProgram(page);
+
+  await replaceEditorText(page, "// saved from the close dialog\n");
+  await expect(page.getByTestId("editor-revision")).toContainText(
+    "revision 1 · saved 0 · modified",
+  );
+
+  await page.getByTestId(`tab-${programTab}`).getByTestId("close-buffer").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Close modified file?");
+  await dialog.getByTestId("confirm-save").click();
+
+  await expect(page.getByTestId("editor")).toHaveCount(0);
+  expect(fs.readFileSync(program, "utf8")).toBe("// saved from the close dialog\n");
+
+  await openProgram(page);
+  await expect(page.getByTestId("editor-revision")).toHaveText(/revision 0 · saved 0 · saved/);
+});
+
+test("a save failure from the close dialog keeps the buffer and explains the error", async ({
+  page,
+}) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await openProgram(page);
+
+  await replaceEditorText(page, "// kept on failure\n");
+  const directory = path.dirname(program);
+  await page.getByTestId(`tab-${programTab}`).getByTestId("close-buffer").click();
+  try {
+    fs.chmodSync(directory, 0o555);
+    await page.getByTestId("confirm-save").click();
+    await expect(page.getByTestId("confirm-error")).toContainText("Save failed; buffer kept.");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByTestId(`tab-${programTab}`)).toBeVisible();
+    await expect(page.getByTestId(`tab-${programTab}`).getByTestId("dirty-marker")).toBeVisible();
+    expect(fs.readFileSync(program, "utf8")).toBe(originalProgram);
+  } finally {
+    fs.chmodSync(directory, 0o755);
+  }
+
+  await page.getByTestId("confirm-keep").click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByTestId("editor")).toContainText("kept on failure");
+});
+
+test("saves every modified buffer from the workspace close dialog", async ({ page }) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await openProgram(page);
+
+  await replaceEditorText(page, "// save all program\n");
+  await page.getByTestId(`tree-file-${coreTab}`).click();
+  await expect(page.getByTestId("editor")).toContainText("namespace");
+  await replaceEditorText(page, "// save all core\n");
+  await expect(page.getByTestId("status-dirty")).toContainText("2 modified buffers");
+
+  await page.getByTestId("close-workspace").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Close workspace with unsaved changes?");
+  await expect(dialog).toContainText("2 modified buffers");
+  await dialog.getByTestId("confirm-save").click();
+
+  await expect(page.getByTestId("workspace-path-input")).toBeVisible();
+  expect(fs.readFileSync(program, "utf8")).toBe("// save all program\n");
+  expect(fs.readFileSync(core, "utf8")).toBe("// save all core\n");
+});
+
+test("compares buffer and disk and revalidates a second disk change before overwriting", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await openProgram(page);
+
+  await replaceEditorText(page, "// buffer version\n");
+  fs.writeFileSync(program, "// first disk version\n");
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+s");
+
+  const banner = page.getByTestId("conflict-banner");
+  await expect(banner).toBeVisible();
+  await page.getByTestId("conflict-compare").locator("summary").click();
+  await expect(page.getByTestId("conflict-compare-buffer")).toHaveText("// buffer version\n");
+  await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
+    "// first disk version\n",
+  );
+  await expect(page.getByTestId("conflict-buffer-hash")).toHaveText(/fnv1a64:/);
+  await expect(page.getByTestId("conflict-disk-hash")).toHaveText(/fnv1a64:/);
+  await expect(page.getByTestId("conflict-compare-diff")).toHaveText(
+    "1 line removed · 1 line added",
+  );
+  await expect(page.getByTestId("editor-revision")).toContainText(
+    "revision 1 · saved 0 · modified",
+  );
+  fs.mkdirSync(screenshots, { recursive: true });
+  await page.getByTestId("conflict-compare").scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(screenshots, "07-conflict-compare.png"),
+    fullPage: false,
+  });
+
+  // The disk changes again while the conflict is pending: the write must conflict again,
+  // show the newer disk version, and leave both buffer and disk intact.
+  fs.writeFileSync(program, "// second disk version\n");
+  await page.getByTestId("conflict-overwrite").click();
+  await expect(banner).toBeVisible();
+  await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
+    "// second disk version\n",
+  );
+  expect(fs.readFileSync(program, "utf8")).toBe("// second disk version\n");
+  await expect(page.getByTestId("editor")).toContainText("buffer version");
+  await expect(page.getByTestId("editor-revision")).toContainText(
+    "revision 1 · saved 0 · modified",
+  );
+
+  await page.getByTestId("conflict-overwrite").click();
+  await expect(banner).toHaveCount(0);
+  expect(fs.readFileSync(program, "utf8")).toBe("// buffer version\n");
+  await expect(page.getByTestId("editor-revision")).toContainText(
+    "revision 1 · saved 1 · saved",
+  );
+
+  // The stored hash now belongs to the overwritten buffer: the next save needs no reload.
+  await replaceEditorText(page, "// saved after overwrite\n");
+  await page.keyboard.press("Meta+s");
+  await expect(page.getByTestId("app-log")).toContainText(`Saved ${programTab}`);
+  expect(fs.readFileSync(program, "utf8")).toBe("// saved after overwrite\n");
+});
+
+test("detects external changes on focus and tab activation without replacing the buffer", async ({
+  page,
+}) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await openProgram(page);
+  await expect(page.getByTestId("editor-revision")).toContainText(
+    "revision 0 · saved 0 · saved",
+  );
+
+  fs.writeFileSync(program, "// focus disk version\n");
+  await dispatchWindowFocus(page);
+  const banner = page.getByTestId("conflict-banner");
+  await expect(banner).toBeVisible();
+  await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
+  await expect(page.getByTestId("editor")).not.toContainText("focus disk version");
+  await expect(page.getByTestId("editor-revision")).toContainText(
+    "revision 0 · saved 0 · modified",
+  );
+  await page.getByTestId("conflict-compare").locator("summary").click();
+  await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
+    "// focus disk version\n",
+  );
+
+  await page.getByTestId("conflict-reload").click();
+  await expect(page.getByTestId("editor")).toContainText("focus disk version");
+  await expect(banner).toHaveCount(0);
+  await expect(page.getByTestId("editor-revision")).toContainText(
+    "revision 1 · saved 1 · saved",
+  );
+  expect(fs.readFileSync(program, "utf8")).toBe("// focus disk version\n");
+
+  // The reloaded hash is the disk hash: a new save succeeds without another conflict.
+  await replaceEditorText(page, "// after reload\n");
+  await page.keyboard.press("Meta+s");
+  await expect(page.getByTestId("app-log")).toContainText(`Saved ${programTab}`);
+  expect(fs.readFileSync(program, "utf8")).toBe("// after reload\n");
+
+  // Switching back to a tab re-reads that file.
+  await page.getByTestId(`tree-file-${coreTab}`).click();
+  await expect(page.getByTestId(`tab-${coreTab}`)).toBeVisible();
+  fs.writeFileSync(program, "// tab switch disk version\n");
+  await page.getByTestId(`tab-${programTab}`).click();
+  await expect(banner).toBeVisible();
+  await expect(page.getByTestId("editor")).toContainText("after reload");
+  await page.getByTestId("conflict-compare").locator("summary").click();
+  await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
+    "// tab switch disk version\n",
+  );
+  await page.getByTestId("conflict-compare").locator("summary").click();
+
+  // A failed re-read reports and keeps the buffer editable.
+  fs.rmSync(program);
+  await dispatchWindowFocus(page);
+  await expect(page.getByTestId("app-log")).toContainText("Could not re-read");
+  await expect(page.getByTestId("editor")).toContainText("after reload");
+  await replaceEditorText(page, "// still editable\n");
+  await expect(page.getByTestId(`tab-${programTab}`).getByTestId("dirty-marker")).toBeVisible();
+});
+
+test("prevents beforeunload only while a buffer is dirty", async ({ page }) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await openProgram(page);
+
+  expect(await beforeUnloadPrevented(page)).toBe(false);
+  await replaceEditorText(page, "// unsaved unload\n");
+  expect(await beforeUnloadPrevented(page)).toBe(true);
+
+  await page.keyboard.press("Meta+s");
+  await expect(page.getByTestId("app-log")).toContainText(`Saved ${programTab}`);
+  expect(await beforeUnloadPrevented(page)).toBe(false);
 });
 
 test("ambiguous and empty directories ask the user instead of guessing", async ({ page }) => {

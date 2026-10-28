@@ -9,10 +9,12 @@
 **Category:** enhancement
 
 - [ ] Fechar aba/app, substituir documento ou trocar workspace com edição oferece salvar, preservar/cancelar e descarte somente explícito. Cancelar não altera disco/buffer nem prossegue o fechamento; falha ao salvar mantém conteúdo e explica erro.
-- [ ] Detectar edição externa concorrente antes de sobrescrever; oferecer comparar, recarregar mediante decisão explícita ou preservar edições. Mostrar qual versão está no buffer/disco, sem substituir silenciosamente uma pela outra.
-- [ ] Abas/breadcrumb/modificado e revisão do documento permanecem coerentes após salvar, recarregar, preservar ou cancelar; mudanças de disco/contexto invalidam edições pendentes que dependam de snapshot antigo.
-- [ ] A proteção é válida sem solução/SDK/LSP e também quando host/serviço falha; mudanças concorrentes durante confirmação/comparação são revalidadas antes da gravação. Edições semânticas futuras não contornam a proteção.
-- [ ] Troca/fechamento não oculta processos remanescentes ou confirmações de término de 02; preservar arquivos não significa encerrar serviços. Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket) à superfície disponível, sem exigir LSP para esta fatia.
+  - Nota 2026-10-28: aba e workspace provados por E2E (Save/Save all/Keep editing/Discard, falha de escrita com buffer e diálogo preservados). App: `beforeunload` provado no Chrome; `onCloseRequested`/`destroy()` implementados e compilados, mas a janela nativa não foi dirigida (TCC) — item permanece aberto por essa lacuna.
+- [x] Detectar edição externa concorrente antes de sobrescrever; oferecer comparar, recarregar mediante decisão explícita ou preservar edições. Mostrar qual versão está no buffer/disco, sem substituir silenciosamente uma pela outra.
+- [x] Abas/breadcrumb/modificado e revisão do documento permanecem coerentes após salvar, recarregar, preservar ou cancelar; mudanças de disco/contexto invalidam edições pendentes que dependam de snapshot antigo.
+  - Nota 2026-10-28: troca de disco invalidada pelo conflito proativo; edições semânticas (09/10) ainda não existem e devem usar o mesmo `expected_hash`.
+- [x] A proteção é válida sem solução/SDK/LSP e também quando host/serviço falha; mudanças concorrentes durante confirmação/comparação são revalidadas antes da gravação. Edições semânticas futuras não contornam a proteção.
+- [x] Troca/fechamento não oculta processos remanescentes ou confirmações de término de 02; preservar arquivos não significa encerrar serviços. Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket) à superfície disponível, sem exigir LSP para esta fatia.
 
 ## Mapeamento à SPEC
 
@@ -25,3 +27,4 @@ UI real: editar, alterar externamente, comparar, recarregar/preservar/cancelar, 
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+- 2026-10-28: Implementado em commit local `feat(buffers)`; evidência em [07-buffers-e-conflitos](../evidence/07-buffers-e-conflitos.md). Aba/workspace/app cobertos em UI restrita; fechamento nativo Tauri só compilado (TCC), por isso o primeiro item segue aberto. Windows/Intel e CRLF não executados.

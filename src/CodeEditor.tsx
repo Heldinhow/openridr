@@ -44,6 +44,7 @@ export function CodeEditor({ value, onChange, onSave, target }: Props) {
   const onSaveRef = useRef(onSave);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+  const applyingExternal = useRef(false);
 
   function publishCursor(instance: EditorView) {
     const position = instance.state.selection.main.head;
@@ -78,7 +79,7 @@ export function CodeEditor({ value, onChange, onSave, target }: Props) {
           },
         ]),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
+          if (update.docChanged && !applyingExternal.current) {
             onChangeRef.current(update.state.doc.toString());
           }
           if (update.selectionSet || update.docChanged) {
@@ -103,9 +104,13 @@ export function CodeEditor({ value, onChange, onSave, target }: Props) {
     if (!instance) return;
     const current = instance.state.doc.toString();
     if (current !== value) {
+      // Reloads set content in React state; the dispatch must not count as a user edit,
+      // otherwise the reloaded buffer would immediately be dirty at a higher revision.
+      applyingExternal.current = true;
       instance.dispatch({
         changes: { from: 0, to: current.length, insert: value },
       });
+      applyingExternal.current = false;
     }
   }, [value]);
 

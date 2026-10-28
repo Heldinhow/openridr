@@ -226,8 +226,13 @@ test("revoked workspace shows the remaining process and terminate observes the e
     "awaiting decision",
   );
 
-  // Closing the workspace must keep the process visible with its pending decision.
+  // Closing the workspace with an unsaved buffer must not hide the process state.
+  await page.getByTestId(`tree-file-${programTab}`).click();
+  await expect(page.getByTestId("editor")).toBeVisible();
+  await replaceEditorText(page, "// unsaved when the workspace closes\n");
   await page.getByTestId("close-workspace").click();
+  await expect(page.getByRole("dialog")).toContainText("Close workspace with unsaved changes?");
+  await page.getByTestId("confirm-discard").click();
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
   await expect(page.getByTestId("processes-panel")).toBeVisible();
   await expect(page.getByTestId(`processes-awaiting-${processInfo.id}`)).toBeVisible();
