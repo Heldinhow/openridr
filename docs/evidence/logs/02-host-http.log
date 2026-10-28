@@ -1,0 +1,158 @@
+$ POST /call {"method":"build.start","params":{}}
+{"error":{"code":"trust_required","message":"build.start requires workspace trust; no process was started."},"ok":false}
+
+$ POST /call {"method":"workspace.open","params":{"path":".../fixtures/OrderDesk/OrderDesk.sln"}}  [selected fields]
+{
+  "workspace": {
+    "candidates": [],
+    "id": 1,
+    "kind": "solution",
+    "mode": "restricted",
+    "name": "OrderDesk.sln",
+    "path": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/OrderDesk.sln"
+  },
+  "trust": {
+    "decidedAt": null,
+    "granted": false,
+    "revokedAt": null,
+    "workspaceId": null
+  },
+  "host": {
+    "state": "found",
+    "version": "10.0.100",
+    "root": "/usr/local/share/dotnet"
+  },
+  "project": {
+    "state": "not_inspected",
+    "requestedVersion": "8.0.408",
+    "rollForward": "disable",
+    "resolvedVersion": null
+  },
+  "roots": [
+    {
+      "root": "/usr/local/share/dotnet",
+      "source": "path",
+      "versions": [
+        "8.0.416",
+        "10.0.100"
+      ]
+    },
+    {
+      "root": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+      "source": "user-sdks",
+      "versions": [
+        "8.0.408"
+      ]
+    }
+  ]
+}
+
+$ POST /call {"method":"build.start","params":{}}  (still restricted)
+{"error":{"code":"trust_required","message":"build.start requires workspace trust; no process was started."},"ok":false}
+
+$ POST /call {"method":"trust.grant","params":{}}  [selected fields]
+{
+  "trust": {
+    "decidedAt": 1793154417483,
+    "granted": true,
+    "revokedAt": null,
+    "workspaceId": 1
+  },
+  "host": {
+    "state": "found",
+    "version": "10.0.100",
+    "root": "/usr/local/share/dotnet"
+  },
+  "project": {
+    "state": "resolved",
+    "requestedVersion": "8.0.408",
+    "rollForward": "disable",
+    "resolvedVersion": "8.0.408",
+    "root": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+    "sdkPath": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/sdk"
+  }
+}
+
+$ POST /call {"method":"build.start","params":{}}  (gate passes, not implemented in this slice)
+{"error":{"code":"invalid_state","message":"build.start is not implemented in this build."},"ok":false}
+
+$ POST /call {"method":"processes.probe","params":{"kind":"sleep"}}  [tracked process]
+{
+  "processes": [
+    {
+      "id": 1,
+      "kind": "probe:sleep",
+      "pid": 79783,
+      "state": "running",
+      "exit": null,
+      "awaitingDecision": false,
+      "kept": false,
+      "termination": null
+    }
+  ]
+}
+
+$ POST /call {"method":"trust.revoke","params":{}}  [selected fields]
+{
+  "trust": {
+    "decidedAt": 1793154417483,
+    "granted": false,
+    "revokedAt": 1793154417562,
+    "workspaceId": 1
+  },
+  "mode": "restricted",
+  "project": "not_inspected",
+  "processes": [
+    {
+      "id": 1,
+      "state": "running",
+      "exit": null,
+      "awaitingDecision": true,
+      "kept": false
+    }
+  ]
+}
+
+$ POST /call {"method":"build.start","params":{}}  (after revoke)
+{"error":{"code":"trust_required","message":"build.start requires workspace trust; no process was started."},"ok":false}
+
+$ POST /call {"method":"processes.terminate","params":{"id":1}}  [selected fields]
+{
+  "processes": [
+    {
+      "id": 1,
+      "state": "exited",
+      "exit": null,
+      "awaitingDecision": false,
+      "termination": {
+        "exit": null,
+        "killedAfterGrace": false,
+        "observed": "exited",
+        "requested": "SIGTERM"
+      }
+    }
+  ]
+}
+
+$ POST /call {"method":"workspace.close","params":{}}  [selected fields]
+{
+  "workspace": null,
+  "trust": {
+    "decidedAt": null,
+    "granted": false,
+    "revokedAt": null,
+    "workspaceId": null
+  },
+  "project": "no_workspace",
+  "processes": [
+    {
+      "id": 1,
+      "state": "exited",
+      "exit": null,
+      "awaitingDecision": false
+    }
+  ]
+}
+
+$ POST /call {"method":"processes.probe","params":{"kind":"sleep"}}  (no workspace/trust)
+{"error":{"code":"trust_required","message":"processes.probe requires workspace trust; no process was started."},"ok":false}

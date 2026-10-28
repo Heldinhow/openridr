@@ -1,0 +1,129 @@
+import { useState } from "react";
+import { call, HostCallError, type Snapshot } from "./host/client";
+
+type Props = {
+  snapshot: Snapshot;
+  onChange: (snapshot: Snapshot) => void;
+  compact?: boolean;
+};
+
+function messageOf(error: unknown) {
+  return error instanceof HostCallError ? error.message : String(error);
+}
+
+export function TrustControls({ snapshot, onChange, compact = false }: Props) {
+  const [checked, setChecked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const workspace = snapshot.workspace;
+
+  async function grant() {
+    setBusy(true);
+    setError(null);
+    try {
+      onChange(await call<Snapshot>("trust.grant"));
+      setChecked(false);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke() {
+    setBusy(true);
+    setError(null);
+    try {
+      onChange(await call<Snapshot>("trust.revoke"));
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const errorLine = error && (
+    <p className="error" role="alert" data-testid="trust-error">
+      {error}
+    </p>
+  );
+
+  if (snapshot.trust.granted) {
+    return (
+      <div className={`trust ${compact ? "compact" : ""}`} data-testid="trust-panel">
+        <strong className="success" data-testid="mode-trusted">
+          Trusted mode
+        </strong>
+        {compact ? (
+          <span className="muted">
+            {" "}
+            Executable inspection is authorized for this workspace only.{" "}
+          </span>
+        ) : (
+          <p>Executable inspection is authorized for this workspace only.</p>
+        )}
+        <p className="hint" data-testid="trust-note">
+          Trust decision recorded in host memory for this session (workspace{" "}
+          {snapshot.trust.workspaceId ?? "unknown"}). Revoking clears the executable context
+          immediately; it does not install tools or enable experimental debuggers.
+        </p>
+        <div className="actions">
+          <button
+            className="danger"
+            data-testid="trust-revoke"
+            onClick={() => void revoke()}
+            disabled={busy}
+          >
+            {busy ? "Revoking…" : "Revoke trust"}
+          </button>
+        </div>
+        {errorLine}
+      </div>
+    );
+  }
+
+  const reason = !workspace
+    ? "Open a workspace before trusting it."
+    : !checked
+      ? "Select the trust checkbox to enable this action."
+      : "Trust authorizes executable inspection of this workspace.";
+
+  return (
+    <div className={`trust ${compact ? "compact" : ""}`} data-testid="trust-panel">
+      <strong className="warning" data-testid="mode-restricted">
+        Restricted mode
+      </strong>
+      {compact ? (
+        <span className="muted"> Files can be read as text. Project code will not run.</span>
+      ) : (
+        <p>Files can be read as text. Project code will not run.</p>
+      )}
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          data-testid="trust-checkbox"
+          checked={checked}
+          disabled={!workspace || busy}
+          onChange={(event) => setChecked(event.target.checked)}
+        />
+        I trust this repository to execute code
+      </label>
+      <p className="hint" id="trust-grant-reason" data-testid="trust-grant-reason">
+        {reason}
+      </p>
+      <div className="actions">
+        <button
+          type="button"
+          className="primary"
+          data-testid="trust-grant"
+          disabled={!workspace || !checked || busy}
+          aria-describedby="trust-grant-reason"
+          onClick={() => void grant()}
+        >
+          {busy ? "Trusting…" : "Trust and inspect project"}
+        </button>
+      </div>
+      {errorLine}
+    </div>
+  );
+}

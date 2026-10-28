@@ -19,6 +19,8 @@ export default defineConfig({
       url: "http://127.0.0.1:4317/health",
       timeout: 300_000,
       reuseExistingServer: !process.env.CI,
+      // Dev/test-only probe used by the process-boundary E2E. Never set in the desktop app.
+      env: { OPENRIDR_ENABLE_PROBE: "1" },
     },
     {
       command: "bun run dev",

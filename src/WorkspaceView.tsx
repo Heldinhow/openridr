@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { call, HostCallError, type Snapshot, type OutlineProject } from "./host/client";
 import { CodeEditor } from "./CodeEditor";
+import { TrustControls } from "./TrustControls";
+import { ProcessPanel } from "./ProcessPanel";
 
 type Tab = {
   path: string;
@@ -16,6 +18,8 @@ type BottomTab = "build" | "problems" | "debug" | "terminal" | "tests";
 
 type Props = {
   snapshot: Snapshot;
+  initialFile: string | null;
+  onSnapshot: (snapshot: Snapshot) => void;
   onClosed: (snapshot: Snapshot) => void;
 };
 
@@ -42,9 +46,11 @@ function projectFor(path: string, projects: OutlineProject[]) {
   });
 }
 
-export function WorkspaceView({ snapshot, onClosed }: Props) {
+export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
+  const trusted = snapshot.trust.granted;
+  const projectSdk = snapshot.sdk.project;
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
@@ -57,6 +63,26 @@ export function WorkspaceView({ snapshot, onClosed }: Props) {
   const active = tabs.find((tab) => tab.path === activePath) ?? null;
   const activeProject = active ? projectFor(active.path, projects) : undefined;
   const dirtyCount = tabs.filter((tab) => tab.content !== tab.saved || tab.conflict).length;
+  const showsProcesses = snapshot.processes.some(
+    (process) => process.workspaceId === workspace.id,
+  );
+
+  useEffect(() => {
+    // Poll the host so process states and appending trust decisions are not stale. The
+    // interval is local to this screen and cheap against the local host.
+    const timer = setInterval(() => {
+      call<Snapshot>("workspace.state")
+        .then(onSnapshot)
+        .catch(() => {});
+    }, 400);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (initialFile) {
+      void openFile(initialFile);
+    }
+  }, []);
 
   function toggleProject(path: string) {
     setExpanded((current) => {
@@ -227,6 +253,22 @@ export function WorkspaceView({ snapshot, onClosed }: Props) {
     }
   }
 
+  async function redetectSdks() {
+    try {
+      onSnapshot(await call<Snapshot>("sdk.redetect"));
+      setMessage({
+        tone: "info",
+        text: "SDK inventory refreshed. No project file was read or written by the detection.",
+      });
+    } catch (error) {
+      setMessage({ tone: "error", text: `SDK detection failed: ${messageOf(error)}` });
+    }
+  }
+
+  function openGlobalJson() {
+    void openFile(projectSdk.globalJsonPath ?? "global.json");
+  }
+
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
       setConfirm({ kind: "workspace" });
@@ -270,11 +312,32 @@ export function WorkspaceView({ snapshot, onClosed }: Props) {
     }
   }
 
+  const sdkSummary = `Host SDK ${
+    snapshot.sdk.host.state === "found" ? snapshot.sdk.host.version : "missing"
+  } · ${
+    projectSdk.state === "resolved"
+      ? `Project SDK ${projectSdk.resolvedVersion}`
+      : projectSdk.state === "sdk_missing"
+        ? `Project SDK missing (${projectSdk.requestedVersion ?? "pinned"})`
+        : projectSdk.state === "not_inspected"
+          ? "Project SDK not inspected"
+          : projectSdk.state === "no_global_json"
+            ? "No pinned project SDK"
+            : projectSdk.state === "not_pinned"
+              ? "Project SDK not pinned"
+              : "Project SDK unresolved"
+  }`;
+
   return (
     <main className="workspace-view">
       <header className="chrome">
         <span className="brand">OpenRidr · {workspace.name}</span>
-        <span className="warning">Restricted mode</span>
+        <span
+          className={trusted ? "success" : "warning"}
+          data-testid="mode-badge"
+        >
+          {trusted ? "Trusted mode" : "Restricted mode"}
+        </span>
       </header>
 
       <div className="toolbar">
@@ -292,14 +355,32 @@ export function WorkspaceView({ snapshot, onClosed }: Props) {
         <button disabled title="Debug is not available in this ticket (ticket 14).">
           Debug
         </button>
+        <button
+          data-testid="sdk-redetect"
+          onClick={() => void redetectSdks()}
+          title="Re-runs only the SDK inventory; it never touches project files."
+        >
+          Redetect SDKs
+        </button>
+        {(projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json") && (
+          <button data-testid="sdk-open-global-json" onClick={openGlobalJson}>
+            Open global.json
+          </button>
+        )}
         <button data-testid="close-workspace" onClick={requestCloseWorkspace}>
           Close workspace
         </button>
       </div>
 
-      <div className="notice warning">
-        Executable actions are blocked: trust enforcement is added by ticket 02. MSBuild, restore,
-        LSP, installation, terminal, build, run, debug and tests cannot start.
+      <div className={`notice ${trusted ? "" : "warning"}`} data-testid="trust-banner">
+        {!trusted && (
+          <p>
+            <strong>Blocked in Restricted mode.</strong> MSBuild, restore, LSP, tool
+            installation, terminal, build, run, debug and tests need a trusted workspace. Text
+            editing and saving stay available.
+          </p>
+        )}
+        <TrustControls snapshot={snapshot} onChange={onSnapshot} compact />
       </div>
 
       {message && (
@@ -311,6 +392,8 @@ export function WorkspaceView({ snapshot, onClosed }: Props) {
           {message.text}
         </div>
       )}
+
+      {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
 
       <div className="workspace-grid">
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
@@ -485,9 +568,10 @@ export function WorkspaceView({ snapshot, onClosed }: Props) {
 
       <footer className="status">
         <span data-testid="status-workspace">{workspace.name}</span>
-        <span className="warning" data-testid="status-mode">
-          Restricted mode
+        <span className={trusted ? "success" : "warning"} data-testid="status-mode">
+          {trusted ? "Trusted mode" : "Restricted mode"}
         </span>
+        <span data-testid="status-sdk">{sdkSummary}</span>
         <span>Text outline · not evaluated</span>
         {dirtyCount > 0 && (
           <span data-testid="status-dirty">

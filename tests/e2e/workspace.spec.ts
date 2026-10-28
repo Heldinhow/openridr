@@ -21,6 +21,7 @@ const executableMethods = [
   "debug.start",
   "tests.discover",
   "tests.run",
+  "processes.probe",
 ];
 
 test.beforeEach(() => {
@@ -54,7 +55,7 @@ async function replaceEditorText(page: Page, text: string) {
   await page.keyboard.insertText(text);
 }
 
-test("opens the fixture in restricted mode with trust disabled", async ({ page }) => {
+test("opens the fixture in restricted mode with trust available", async ({ page }) => {
   await openWorkspace(page, solution);
 
   await expect(page.getByTestId("workspace-path")).toContainText(solution);
@@ -62,14 +63,21 @@ test("opens the fixture in restricted mode with trust disabled", async ({ page }
 
   const trust = page.getByRole("checkbox", { name: "I trust this repository to execute code" });
   await expect(trust).not.toBeChecked();
-  await expect(trust).toBeDisabled();
+  await expect(trust).toBeEnabled();
 
   const grant = page.getByRole("button", { name: "Trust and inspect project" });
   await expect(grant).toBeDisabled();
-  await expect(page.getByText(/Trust enforcement is added by ticket 02/)).toBeVisible();
-  await expect(page.getByText(/Blocked in Restricted mode/)).toBeVisible();
+  await expect(page.getByTestId("trust-grant-reason")).toContainText(
+    "Select the trust checkbox to enable this action.",
+  );
+  await expect(page.getByTestId("sdk-host")).toContainText("10.0.100");
+  await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
+  await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
+    "Not checked in this slice",
+  );
 
   await enterTextOnly(page);
+  await expect(page.getByText(/Blocked in Restricted mode/)).toBeVisible();
   await expect(page.getByTestId("tree")).toContainText("Text outline · not evaluated");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");

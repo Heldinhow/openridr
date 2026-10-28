@@ -1,0 +1,43 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/openridr_host-e530e89a03b55969)
+
+running 9 tests
+test sdk::tests::list_sdks_parsing_keeps_versions_with_paths_only ... ok
+test sdk::tests::highest_satisfying_install_wins_across_roots ... ok
+test sdk::tests::feature_prefers_the_pinned_band_then_rolls_to_the_next_band ... ok
+test sdk::tests::exact_with_disable_picks_only_the_pinned_version ... ok
+test sdk::tests::latest_major_picks_the_highest_install ... ok
+test sdk::tests::missing_has_a_distinct_message_and_never_falls_back ... ok
+test sdk::tests::minor_rolls_forward_within_the_same_major ... ok
+test sdk::tests::patch_keeps_the_pin_then_uses_the_same_band ... ok
+test sdk::tests::prerelease_is_excluded_unless_allowed ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/host.rs (target/debug/deps/host-a057390f899d0afd)
+
+running 15 tests
+test closing_a_trusted_workspace_clears_trust_and_the_executable_context ... ok
+test directory_resolution_requires_an_explicit_choice ... ok
+test one_workspace_at_a_time_and_awkward_names_work ... ok
+test a_late_result_from_an_older_workspace_or_context_is_discarded ... ok
+test file_access_is_confined_to_the_workspace ... ok
+test project_sdk_missing_keeps_a_distinct_state_and_does_not_rewrite_global_json ... ok
+test save_reports_conflict_instead_of_overwriting_disk ... ok
+test text_outline_reads_solution_projects_without_evaluation ... ok
+test trust_grant_needs_an_open_workspace_and_gates_every_direct_call ... ok
+test sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks ... ok
+test redetect_is_allowed_before_and_after_trust_and_touches_no_project_file ... ok
+test revoke_marks_a_real_child_and_terminate_reports_the_observed_exit ... ok
+test switching_workspaces_marks_processes_pending_and_drops_trust ... ok
+test executable_methods_fail_before_trust_and_spawn_nothing ... ok
+test keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_period ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s
+
+   Doc-tests openridr_host
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

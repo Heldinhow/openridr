@@ -21,9 +21,67 @@ export type GlobalJson = {
   rollForward: string | null;
 };
 
+export type SdkVersion = { version: string; path: string };
+
+export type SdkRoot = {
+  root: string;
+  source: string;
+  versions: SdkVersion[];
+  exit: number | null;
+  error: string | null;
+};
+
+export type HostSdk = {
+  state: "found" | "missing";
+  version: string | null;
+  root: string | null;
+  sdkPath: string | null;
+  instructionsUrl: string;
+  message: string | null;
+};
+
+export type ProjectSdk = {
+  state:
+    | "no_workspace"
+    | "not_inspected"
+    | "resolved"
+    | "sdk_missing"
+    | "no_global_json"
+    | "not_pinned"
+    | "invalid_global_json";
+  globalJsonPath: string | null;
+  requestedVersion: string | null;
+  rollForward: string | null;
+  allowPrerelease: boolean | null;
+  resolvedVersion: string | null;
+  root: string | null;
+  sdkPath: string | null;
+  instructionsUrl: string;
+  message: string | null;
+};
+
+export type ProcessInfo = {
+  id: number;
+  kind: string;
+  pid: number;
+  workspaceId: number;
+  state: "running" | "exited";
+  exit: number | null;
+  awaitingDecision: boolean;
+  kept: boolean;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+};
+
 export type Snapshot = {
+  contextId: number;
   app: { home: string; platform: string; arch: string; version: string };
   workspace: null | {
+    id: number;
     path: string;
     name: string;
     kind: WorkspaceKind;
@@ -35,7 +93,24 @@ export type Snapshot = {
     projects: OutlineProject[];
     globalJson: GlobalJson | null;
   };
-  trust: { granted: boolean };
+  trust: {
+    granted: boolean;
+    workspaceId: number | null;
+    decidedAt: number | null;
+    revokedAt: number | null;
+  };
+  sdk: {
+    host: HostSdk;
+    project: ProjectSdk;
+    roots: SdkRoot[];
+    inspectedAt: number | null;
+  };
+  debug: {
+    adapterState: "not_checked";
+    adapterMessage: string;
+    appleSiliconExperimental: boolean;
+  };
+  processes: ProcessInfo[];
 };
 
 export type ReadFile = { path: string; content: string; hash: string };

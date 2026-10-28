@@ -307,6 +307,90 @@ p {
   border: 1px solid var(--line);
 }
 
+.toolchain {
+  margin-top: 22px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.toolchain .tool-rows {
+  margin-top: 0;
+}
+
+.toolchain a {
+  color: var(--info);
+}
+
+.toolchain details {
+  margin-top: 8px;
+  font-size: 0.8125rem;
+}
+
+.toolchain details ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.process-panel {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.workspace-view .process-panel {
+  margin: 10px 12px 0;
+}
+
+.process-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.process-row {
+  padding: 8px 10px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.process-row p {
+  margin: 6px 0 0;
+}
+
+.trust.compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 0;
+  margin-top: 8px;
+  background: transparent;
+  border: 0;
+}
+
+.trust.compact > p {
+  margin: 0;
+}
+
+.trust.compact .checkbox-label {
+  margin-top: 0;
+}
+
+.trust.compact .actions {
+  margin-top: 0;
+}
+
+.workspace-view .process-panel {
+  max-height: 150px;
+  overflow: auto;
+}
+
 .outline-preview ul {
   margin: 0;
   padding-left: 18px;

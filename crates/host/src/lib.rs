@@ -1,18 +1,23 @@
 mod error;
 mod outline;
+pub mod process;
+pub mod sdk;
 
 pub use error::{HostError, HostResult};
 pub use outline::{GlobalJson, Outline, OutlineProject};
 
 use outline::build_outline;
+use process::Registry;
+use sdk::{GlobalJsonRequest, HostSdk, Inventory, ProjectSdk, SdkRoot};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Methods that will eventually start a process or touch executable project state.
-/// Until trust is granted they must fail before doing anything observable.
+/// Methods that may start a process or touch executable project state. Every one of them
+/// validates the same host gate before doing anything observable.
 pub const EXECUTABLE_METHODS: &[&str] = &[
     "evaluation.run",
     "restore.start",
@@ -24,23 +29,46 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.start",
     "tests.discover",
     "tests.run",
+    "processes.probe",
 ];
 
 pub struct Host {
     inner: Mutex<Inner>,
 }
 
+/// Identifies the executable context an operation started in. A result carrying an older
+/// token is stale and must not be written into current state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextToken {
+    pub workspace_id: u64,
+    pub context_id: u64,
+}
+
 struct Inner {
     workspace: Option<Workspace>,
     trusted: bool,
+    workspace_seq: u64,
+    context_seq: u64,
+    trust_decision: Option<TrustDecision>,
+    inventory: Option<Inventory>,
+    project_sdk: ProjectSdk,
+    processes: Registry,
 }
 
 struct Workspace {
+    id: u64,
     path: PathBuf,
     root: PathBuf,
     name: String,
     kind: WorkspaceKind,
     outline: Outline,
+}
+
+struct TrustDecision {
+    granted_at: u64,
+    workspace_id: u64,
+    revoked_at: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -78,6 +106,7 @@ struct AppInfo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceView {
+    id: u64,
     path: String,
     name: String,
     kind: &'static str,
@@ -86,17 +115,42 @@ struct WorkspaceView {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TrustView {
     granted: bool,
+    workspace_id: Option<u64>,
+    decided_at: Option<u64>,
+    revoked_at: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SdkView {
+    host: HostSdk,
+    project: ProjectSdk,
+    roots: Vec<SdkRoot>,
+    inspected_at: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DebugView {
+    adapter_state: &'static str,
+    adapter_message: &'static str,
+    apple_silicon_experimental: bool,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Snapshot {
+    context_id: u64,
     app: AppInfo,
     workspace: Option<WorkspaceView>,
     outline: Option<Outline>,
     trust: TrustView,
+    sdk: SdkView,
+    debug: DebugView,
+    processes: Vec<Value>,
 }
 
 impl Default for Host {
@@ -111,27 +165,36 @@ impl Host {
             inner: Mutex::new(Inner {
                 workspace: None,
                 trusted: false,
+                workspace_seq: 0,
+                context_seq: 0,
+                trust_decision: None,
+                inventory: None,
+                project_sdk: ProjectSdk::no_workspace(),
+                processes: Registry::new(),
             }),
         }
     }
 
     pub fn dispatch(&self, method: &str, params: Value) -> HostResult<Value> {
+        if method == "processes.probe" {
+            return self.probe(params);
+        }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.executable_stub(method);
         }
 
         match method {
             "app.state" | "workspace.state" => {
-                let inner = self.inner.lock().unwrap();
-                Ok(serde_json::to_value(self.snapshot(&inner)).unwrap())
+                let mut inner = self.inner.lock().unwrap();
+                Ok(self.snapshot_value(&mut inner))
             }
             "workspace.open" => self.open_workspace(params),
-            "workspace.close" => {
-                let mut inner = self.inner.lock().unwrap();
-                inner.workspace = None;
-                inner.trusted = false;
-                Ok(serde_json::to_value(self.snapshot(&inner)).unwrap())
-            }
+            "workspace.close" => self.close_workspace(),
+            "trust.grant" => self.grant_trust(),
+            "trust.revoke" => self.revoke_trust(),
+            "sdk.redetect" => self.redetect_sdks(),
+            "processes.terminate" => self.terminate_process(params),
+            "processes.keep" => self.keep_process(params),
             "file.read" => self.read_file(params),
             "file.write" => self.write_file(params),
             _ => Err(HostError::new(
@@ -141,23 +204,69 @@ impl Host {
         }
     }
 
-    fn executable_stub(&self, method: &str) -> HostResult<Value> {
-        let trusted = self.inner.lock().unwrap().trusted;
-        if trusted {
-            Err(HostError::new(
-                "invalid_state",
-                format!("{method} is not implemented in this build."),
-            ))
-        } else {
-            Err(HostError::new(
+    /// The one gate every executable path must pass. Direct host calls (HTTP bridge, tests,
+    /// future shortcuts) get the same answer as the UI.
+    fn require_trust(&self, method: &str) -> HostResult<ContextToken> {
+        let inner = self.inner.lock().unwrap();
+        if !inner.trusted {
+            return Err(HostError::new(
                 "trust_required",
                 format!("{method} requires workspace trust; no process was started."),
-            ))
+            ));
         }
+        let workspace = inner.workspace.as_ref().ok_or_else(|| {
+            HostError::new("invalid_state", "No workspace is open.")
+        })?;
+        Ok(ContextToken {
+            workspace_id: workspace.id,
+            context_id: inner.context_seq,
+        })
     }
 
-    fn snapshot(&self, inner: &Inner) -> Snapshot {
+    /// Captures the current context for an operation that may finish later.
+    pub fn context_token(&self) -> HostResult<ContextToken> {
+        let inner = self.inner.lock().unwrap();
+        let workspace = inner
+            .workspace
+            .as_ref()
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+        Ok(ContextToken {
+            workspace_id: workspace.id,
+            context_id: inner.context_seq,
+        })
+    }
+
+    /// Rejects a late result from another workspace/context. Future asynchronous consumers
+    /// call this before writing anything into the snapshot.
+    pub fn accept_result(&self, token: ContextToken) -> HostResult<()> {
+        let inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)
+    }
+
+    fn executable_stub(&self, method: &str) -> HostResult<Value> {
+        let _token = self.require_trust(method)?;
+        Err(HostError::new(
+            "invalid_state",
+            format!("{method} is not implemented in this build."),
+        ))
+    }
+
+    fn snapshot_value(&self, inner: &mut Inner) -> Value {
+        serde_json::to_value(self.snapshot(inner)).unwrap()
+    }
+
+    fn snapshot(&self, inner: &mut Inner) -> Snapshot {
+        inner.ensure_inventory();
+        inner.processes.refresh();
+        let inventory = inner.inventory.as_ref().expect("inventory was initialized");
+        let sdk = SdkView {
+            host: HostSdk::from_inventory(&inventory.installs),
+            project: inner.project_sdk.clone(),
+            roots: inventory.roots.clone(),
+            inspected_at: Some(inventory.inspected_at),
+        };
         Snapshot {
+            context_id: inner.context_seq,
             app: AppInfo {
                 home: std::env::var("HOME").unwrap_or_default(),
                 platform: std::env::consts::OS,
@@ -165,6 +274,7 @@ impl Host {
                 version: env!("CARGO_PKG_VERSION"),
             },
             workspace: inner.workspace.as_ref().map(|workspace| WorkspaceView {
+                id: workspace.id,
                 path: workspace.path.to_string_lossy().to_string(),
                 name: workspace.name.clone(),
                 kind: workspace.kind.as_str(),
@@ -174,7 +284,20 @@ impl Host {
             outline: inner.workspace.as_ref().map(|workspace| workspace.outline.clone()),
             trust: TrustView {
                 granted: inner.trusted,
+                workspace_id: inner.trust_decision.as_ref().map(|decision| decision.workspace_id),
+                decided_at: inner.trust_decision.as_ref().map(|decision| decision.granted_at),
+                revoked_at: inner
+                    .trust_decision
+                    .as_ref()
+                    .and_then(|decision| decision.revoked_at),
             },
+            sdk,
+            debug: DebugView {
+                adapter_state: "not_checked",
+                adapter_message: "Installation and platform gates arrive with ticket 13.",
+                apple_silicon_experimental: false,
+            },
+            processes: inner.processes.views(),
         }
     }
 
@@ -196,11 +319,157 @@ impl Host {
             workspace_file(&canonical)?
         };
 
-        let workspace = load_workspace(&workspace_path)?;
+        let mut workspace = load_workspace(&workspace_path)?;
         let mut inner = self.inner.lock().unwrap();
+        inner.processes.mark_awaiting();
+        inner.workspace_seq += 1;
+        inner.context_seq += 1;
+        workspace.id = inner.workspace_seq;
+        let request = global_json_request(&workspace.outline);
+        inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
         inner.workspace = Some(workspace);
         inner.trusted = false;
-        Ok(serde_json::to_value(self.snapshot(&inner)).unwrap())
+        inner.trust_decision = None;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn close_workspace(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.processes.mark_awaiting();
+        inner.workspace = None;
+        inner.trusted = false;
+        inner.trust_decision = None;
+        inner.workspace_seq += 1;
+        inner.context_seq += 1;
+        inner.project_sdk = ProjectSdk::no_workspace();
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn grant_trust(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let Some(workspace_id) = inner.workspace.as_ref().map(|workspace| workspace.id) else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Open a workspace before trusting it.",
+            ));
+        };
+        if inner.trusted {
+            return Ok(self.snapshot_value(&mut inner));
+        }
+        inner.ensure_inventory();
+        inner.trusted = true;
+        inner.context_seq += 1;
+        inner.trust_decision = Some(TrustDecision {
+            granted_at: now_ms(),
+            workspace_id,
+            revoked_at: None,
+        });
+        let project = inspect_project_sdk(&inner);
+        inner.project_sdk = project;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn revoke_trust(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let Some(request) = inner
+            .workspace
+            .as_ref()
+            .map(|workspace| global_json_request(&workspace.outline))
+        else {
+            return Err(HostError::new("invalid_state", "No workspace is open."));
+        };
+        inner.trusted = false;
+        inner.context_seq += 1;
+        if let Some(decision) = inner.trust_decision.as_mut() {
+            decision.revoked_at = Some(now_ms());
+        }
+        inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
+        // Services started by later tickets stop here; the controlled child processes of this
+        // slice become awaiting decisions instead of a cleanup claim.
+        inner.processes.mark_awaiting();
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn redetect_sdks(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.inventory = Some(sdk::inventory());
+        inner.context_seq += 1;
+        if inner.workspace.is_some() {
+            if inner.trusted {
+                let project = inspect_project_sdk(&inner);
+                inner.project_sdk = project;
+            } else {
+                let request = inner
+                    .workspace
+                    .as_ref()
+                    .and_then(|workspace| global_json_request(&workspace.outline));
+                inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
+            }
+        }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn probe(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("processes.probe")?;
+        if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
+            return Err(HostError::new(
+                "invalid_state",
+                "processes.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.",
+            ));
+        }
+        let kind = params
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("sleep")
+            .to_string();
+        let mut command = process::probe_command(&kind).map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not prepare probe process: {error}"),
+            )
+        })?;
+        let mut inner = self.inner.lock().unwrap();
+        let root = inner
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root.clone())
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+        command.current_dir(root);
+        accept_locked(&inner, token)?;
+        inner
+            .processes
+            .spawn(&format!("probe:{kind}"), token.workspace_id, command)
+            .map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!("Could not start probe process: {error}"),
+                )
+            })?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn terminate_process(&self, params: Value) -> HostResult<Value> {
+        let id = required_u64(&params, "id")?;
+        let mut inner = self.inner.lock().unwrap();
+        if inner.processes.terminate(id).is_none() {
+            return Err(HostError::new(
+                "not_found",
+                format!("No tracked process with id {id}."),
+            ));
+        }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn keep_process(&self, params: Value) -> HostResult<Value> {
+        let id = required_u64(&params, "id")?;
+        let mut inner = self.inner.lock().unwrap();
+        if inner.processes.keep(id).is_none() {
+            return Err(HostError::new(
+                "not_found",
+                format!("No tracked process with id {id}."),
+            ));
+        }
+        Ok(self.snapshot_value(&mut inner))
     }
 
     fn read_file(&self, params: Value) -> HostResult<Value> {
@@ -242,8 +511,8 @@ impl Host {
         let temp = path.with_file_name(format!(
             ".openridr-save-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_nanos())
                 .unwrap_or_default()
         ));
@@ -264,6 +533,100 @@ impl Host {
     }
 }
 
+impl Inner {
+    fn ensure_inventory(&mut self) {
+        if self.inventory.is_none() {
+            self.inventory = Some(sdk::inventory());
+        }
+    }
+}
+
+fn accept_locked(inner: &Inner, token: ContextToken) -> HostResult<()> {
+    let current = inner
+        .workspace
+        .as_ref()
+        .filter(|workspace| workspace.id == token.workspace_id)
+        .is_some()
+        && inner.context_seq == token.context_id
+        && inner.trusted;
+    if current {
+        Ok(())
+    } else {
+        Err(HostError::new(
+            "stale_context",
+            "A result from an older workspace or context was discarded; it did not change current state.",
+        ))
+    }
+}
+
+fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
+    let Some(workspace) = inner.workspace.as_ref() else {
+        return ProjectSdk::no_workspace();
+    };
+    let Some(inventory) = inner.inventory.as_ref() else {
+        return ProjectSdk::no_workspace();
+    };
+    let global_path = workspace.root.join("global.json");
+    let Ok(canonical) = fs::canonicalize(&global_path) else {
+        return ProjectSdk::no_global_json();
+    };
+    if !canonical.starts_with(&workspace.root) {
+        return ProjectSdk::invalid("global.json", "global.json resolves outside the workspace.");
+    }
+    let text = match fs::read_to_string(&canonical) {
+        Ok(text) => text,
+        Err(error) => {
+            return ProjectSdk::invalid(
+                "global.json",
+                format!("global.json could not be read as UTF-8 text: {error}"),
+            )
+        }
+    };
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(error) => {
+            return ProjectSdk::invalid("global.json", format!("global.json is not valid JSON: {error}"))
+        }
+    };
+    let sdk = value.get("sdk");
+    let version = sdk
+        .and_then(|sdk| sdk.get("version"))
+        .and_then(Value::as_str);
+    let roll_forward = sdk
+        .and_then(|sdk| sdk.get("rollForward"))
+        .and_then(Value::as_str);
+    let allow_prerelease = sdk
+        .and_then(|sdk| sdk.get("allowPrerelease"))
+        .and_then(Value::as_bool);
+    let request = GlobalJsonRequest {
+        path: "global.json".to_string(),
+        version: version.map(str::to_string),
+        roll_forward: roll_forward.map(str::to_string),
+        allow_prerelease,
+    };
+    let Some(version) = version else {
+        return ProjectSdk::not_pinned("global.json");
+    };
+    match sdk::resolve(
+        version,
+        roll_forward,
+        allow_prerelease,
+        &inventory.installs,
+    ) {
+        Ok(install) => ProjectSdk::resolved(&request, &install),
+        Err(message) => ProjectSdk::missing(&request, message),
+    }
+}
+
+fn global_json_request(outline: &Outline) -> Option<GlobalJsonRequest> {
+    outline.global_json.as_ref().map(|global| GlobalJsonRequest {
+        path: global.path.clone(),
+        version: global.version.clone(),
+        roll_forward: global.roll_forward.clone(),
+        allow_prerelease: None,
+    })
+}
+
 fn required_str(params: &Value, key: &str) -> HostResult<String> {
     params
         .get(key)
@@ -275,6 +638,15 @@ fn required_str(params: &Value, key: &str) -> HostResult<String> {
                 format!("Missing string parameter `{key}`."),
             )
         })
+}
+
+fn required_u64(params: &Value, key: &str) -> HostResult<u64> {
+    params.get(key).and_then(Value::as_u64).ok_or_else(|| {
+        HostError::new(
+            "invalid_state",
+            format!("Missing numeric parameter `{key}`."),
+        )
+    })
 }
 
 fn workspace_file(path: &Path) -> HostResult<PathBuf> {
@@ -301,10 +673,7 @@ fn resolve_directory(dir: &Path) -> HostResult<PathBuf> {
         1 => Ok(projects[0].clone()),
         0 => Err(HostError::new(
             "not_found",
-            format!(
-                "No .sln or .csproj found in {}.",
-                dir.to_string_lossy()
-            ),
+            format!("No .sln or .csproj found in {}.", dir.to_string_lossy()),
         )),
         _ => Err(ambiguous_workspace(dir, &projects, "project")),
     }
@@ -372,6 +741,7 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
         .unwrap_or_default();
     let outline = build_outline(&root, path, matches!(kind, WorkspaceKind::Solution));
     Ok(Workspace {
+        id: 0,
         path: path.to_path_buf(),
         root,
         name,
@@ -381,14 +751,12 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
 }
 
 fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
-    let workspace = inner.workspace.as_ref().ok_or_else(|| {
-        HostError::new("invalid_state", "No workspace is open.")
-    })?;
+    let workspace = inner
+        .workspace
+        .as_ref()
+        .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
     if raw.trim().is_empty() {
-        return Err(HostError::new(
-            "path_not_allowed",
-            "File path is empty.",
-        ));
+        return Err(HostError::new("path_not_allowed", "File path is empty."));
     }
     let requested = Path::new(raw);
     let candidate = if requested.is_absolute() {
@@ -425,4 +793,11 @@ fn content_hash(content: &str) -> String {
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("fnv1a64:{hash:016x}")
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
 }
