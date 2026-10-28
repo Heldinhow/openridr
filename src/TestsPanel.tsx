@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Evaluation, TestItem, Tests, TestsDiscovery } from "./host/client";
+import type { Evaluation, TestItem, TestResult, TestRun, Tests, TestsDiscovery } from "./host/client";
 
 type Props = {
   tests: Tests;
@@ -12,6 +12,9 @@ type Props = {
   onEvaluate: (next: { targetFramework?: string | null }) => void;
   onDiscover: (project: string) => void;
   onCancel: () => void;
+  onRun: (project: string, selection: "all" | "selected", testIds: string[]) => void;
+  onRunCancel: () => void;
+  onNavigate: (path: string, position: { line: number; character: number }) => void;
 };
 
 export function discoveryStateLabel(discovery: TestsDiscovery) {
@@ -47,7 +50,40 @@ export function isDiscoveryObsolete(
 }
 
 function itemLabel(item: TestItem) {
-  return `${item.fullyQualifiedName} · ${item.project} · ${item.tfm ?? "TFM not selected"}`;
+  return `${item.fullyQualifiedName} · ${item.project} · ${item.tfm ?? "TFM not selected"}${
+    item.occurrences > 1 ? " · listed more than once by VSTest" : ""
+  }`;
+}
+
+export function runStateLabel(run: TestRun) {
+  const exit = run.exit === null ? "exit unknown" : `exit ${run.exit}`;
+  switch (run.state) {
+    case "running":
+      return "Running tests…";
+    case "completed":
+      return `Run completed · ${run.counts.total} result${run.counts.total === 1 ? "" : "s"} · ${exit}`;
+    case "failed":
+      return `Run failed · ${run.infrastructureFailure ? "infrastructure" : "run"} · ${exit}`;
+    case "cancelled":
+      return `Run cancelled · ${run.counts.total} partial result${run.counts.total === 1 ? "" : "s"} · ${exit}`;
+    default:
+      return "No test run";
+  }
+}
+
+/** Buffer edits after the run started make the results obsolete, never corrected. */
+export function isRunObsolete(run: TestRun, editedAt: Record<string, number>) {
+  if (run.revision === 0) return false;
+  const reference = run.startedAt ?? run.finishedAt ?? 0;
+  return Object.values(editedAt).some((edited) => edited > reference);
+}
+
+function outcomeTone(result: TestResult) {
+  return result.outcome === "failed" ? "error" : result.outcome === "passed" ? "success" : "";
+}
+
+function resultDuration(result: TestResult) {
+  return result.durationMs === null ? "duration unknown" : `${result.durationMs} ms`;
 }
 
 export function TestsPanel({
@@ -61,8 +97,12 @@ export function TestsPanel({
   onEvaluate,
   onDiscover,
   onCancel,
+  onRun,
+  onRunCancel,
+  onNavigate,
 }: Props) {
   const discovery = tests.discovery;
+  const run = tests.run;
   const candidates = evaluation.projects.filter(
     (project) => project.kind === "test" && project.state === "ok",
   );
@@ -107,6 +147,28 @@ export function TestsPanel({
       ? "Select an evaluated test project explicitly; discovery never guesses."
       : null);
   const items = discovery.items;
+  const runRunning = run.state === "running";
+  const runObsolete = isRunObsolete(run, editedAt);
+  const runBlocked =
+    disabledReason ??
+    (running
+      ? "A discovery is running; wait for it to finish before running tests."
+      : discovery.state !== "completed"
+        ? "A completed, current discovery is required before running tests."
+        : stale
+          ? staleReason
+          : discovery.sealed
+            ? "The discovery was sealed; discover again before running tests."
+            : items.length === 0
+              ? "The discovery listed no tests."
+              : runRunning
+                ? "A test run is already running."
+                : null);
+  const retryBlocked =
+    runBlocked ??
+    (run.discoveryId !== discovery.discoveryId || run.discoveryRevision !== discovery.revision
+      ? "This run belongs to another discovery; run again from the current list."
+      : null);
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -191,6 +253,61 @@ export function TestsPanel({
             title={discoverReason ?? "Runs a new discovery of the same project and TFM."}
           >
             Retry discovery
+          </button>
+        )}
+        <button
+          data-testid="tests-run-all"
+          disabled={runBlocked !== null}
+          onClick={() => selectedProject && onRun(selectedProject.path, "all", [])}
+          title={
+            runBlocked ??
+            "Runs every identity of the current discovery with VSTest --no-build --no-restore and the built-in TRX logger."
+          }
+        >
+          Run all
+        </button>
+        <button
+          data-testid="tests-run-selected"
+          disabled={runBlocked !== null || selected.size === 0}
+          onClick={() =>
+            selectedProject && onRun(selectedProject.path, "selected", Array.from(selected))
+          }
+          title={
+            runBlocked ??
+            (selected.size === 0
+              ? "Select at least one discovered test; an empty selection never runs all tests."
+              : `Runs exactly ${selected.size} selected identit${selected.size === 1 ? "y" : "ies"}.`)
+          }
+        >
+          Run selected
+        </button>
+        {runRunning && (
+          <button
+            data-testid="tests-run-cancel"
+            onClick={onRunCancel}
+            title="Requests termination of the test process group and keeps the partial results, TRX and log."
+          >
+            Cancel run
+          </button>
+        )}
+        {(run.state === "failed" || run.state === "cancelled") && !runRunning && (
+          <button
+            data-testid="tests-run-retry"
+            disabled={retryBlocked !== null}
+            onClick={() =>
+              selectedProject &&
+              onRun(
+                selectedProject.path,
+                run.selection,
+                run.selection === "selected" ? run.selectedTestIds : [],
+              )
+            }
+            title={
+              retryBlocked ??
+              "Starts a new explicit run with the same selection; nothing is retried automatically."
+            }
+          >
+            Retry run
           </button>
         )}
         <span
@@ -330,7 +447,7 @@ export function TestsPanel({
                       type="checkbox"
                       data-testid={`test-checkbox-${index}`}
                       checked={selected.has(item.id)}
-                      disabled={selectionBlocked}
+                      disabled={selectionBlocked || item.occurrences > 1}
                       onChange={() => toggle(item.id)}
                       aria-label={itemLabel(item)}
                     />
@@ -338,6 +455,13 @@ export function TestsPanel({
                       <code data-testid={`test-identity-${index}`}>
                         {item.fullyQualifiedName}
                       </code>
+                      {item.occurrences > 1 && (
+                        <span className="warning" data-testid={`test-ambiguous-${index}`}>
+                          {" "}
+                          listed {item.occurrences} times by VSTest; the runner gave no unique
+                          identity, so it cannot be run individually.
+                        </span>
+                      )}
                       <span className="muted"> display name: {item.displayName}</span>
                       <span className="muted">
                         {" "}
@@ -364,6 +488,179 @@ export function TestsPanel({
             </p>
           )}
         </>
+      )}
+
+      {run.revision > 0 && (
+        <section className="build-panel" aria-label="Test run" data-testid="tests-run-panel">
+          <div className="build-controls">
+            <span
+              className={`tag ${run.state === "failed" ? "error" : ""}`}
+              data-testid="tests-run-state"
+              role="status"
+            >
+              {runStateLabel(run)}
+            </span>
+            <span className="muted" data-testid="tests-run-id">
+              {run.runId ?? "no run"} · {run.discoveryId ?? "no discovery"} · discovery revision{" "}
+              {run.discoveryRevision} · run revision {run.revision} · context{" "}
+              {run.contextId ?? "unknown"}
+            </span>
+            <span className="muted" data-testid="tests-run-selection">
+              {run.selection === "all"
+                ? "Selection: all discovered tests"
+                : `Selection: ${run.requestedCount} selected identit${run.requestedCount === 1 ? "y" : "ies"}`}
+            </span>
+          </div>
+          {run.stale && (
+            <p className="warning" data-testid="tests-run-stale" role="status">
+              These results are preserved but not current: {run.staleReason}
+            </p>
+          )}
+          {!run.stale && runObsolete && (
+            <p className="warning" data-testid="tests-run-stale" role="status">
+              These results are preserved but not current: a buffer was edited after this run.
+              Run tests again for the saved code.
+            </p>
+          )}
+          {run.sealed && (
+            <p className="warning" data-testid="tests-run-sealed">
+              Previous run, not current: {run.staleReason}
+            </p>
+          )}
+          {run.error && (
+            <p
+              className={run.infrastructureFailure ? "warning" : "muted"}
+              data-testid={run.infrastructureFailure ? "tests-run-infrastructure" : "tests-run-note"}
+              role="status"
+            >
+              {run.error}
+            </p>
+          )}
+          <p className="muted" data-testid="tests-run-counts">
+            {run.counts.total} result{run.counts.total === 1 ? "" : "s"} · {run.counts.passed} passed ·{" "}
+            {run.counts.failed} failed · {run.counts.skipped} skipped · {run.counts.notExecuted} not
+            executed · {run.counts.unknown} unknown
+            {run.resultsTruncated ? " · results list truncated" : ""}
+          </p>
+          <dl className="restore-meta build-meta">
+            <dt>Command</dt>
+            <dd>
+              <code data-testid="tests-run-command">
+                {run.command.length > 0 ? run.command.join(" ") : "No command was run."}
+              </code>
+            </dd>
+            <dt>Exit</dt>
+            <dd data-testid="tests-run-exit">
+              {run.exit === null ? "exit unknown" : `exit ${run.exit}`}
+            </dd>
+            <dt>TRX</dt>
+            <dd data-testid="tests-run-trx">
+              <code>{run.trxPath ?? "no TRX"}</code>{" "}
+              <span className="muted" data-testid="tests-run-trx-state">
+                {run.trxState}
+              </span>
+            </dd>
+            <dt>Raw log</dt>
+            <dd data-testid="tests-run-log-path">
+              <code>{run.logPath ?? "no log file"}</code>
+            </dd>
+            <dt>Results directory</dt>
+            <dd>
+              <code data-testid="tests-run-results">{run.resultsDirectory ?? "unknown"}</code>
+            </dd>
+          </dl>
+          {run.termination && (
+            <p className="muted" data-testid="tests-run-termination">
+              Termination requested: {run.termination.requested}. Observed:{" "}
+              {run.termination.observed}
+              {run.termination.killedAfterGrace ? " after the grace period" : ""}.
+            </p>
+          )}
+          {run.awaitingDecision && (
+            <p className="warning" data-testid="tests-run-awaiting">
+              Still running; the host has not confirmed termination. Decide in the process panel.
+            </p>
+          )}
+          {run.results.length > 0 && (
+            <ul className="test-list" data-testid="tests-run-results-list" aria-label="Test results">
+              {run.results.map((result, index) => (
+                <li key={`${run.runId}:${index}`} data-testid={`test-result-${index}`}>
+                  <span className={`tag ${outcomeTone(result)}`} data-testid={`test-result-outcome-${index}`}>
+                    {result.outcome}
+                  </span>{" "}
+                  <code data-testid={`test-result-name-${index}`}>
+                    {result.fullyQualifiedName}
+                  </code>{" "}
+                  <span className="muted">
+                    {resultDuration(result)} · source {result.outcomeRaw}
+                    {result.matched ? "" : " · not matched to the discovery"}
+                  </span>
+                  <details data-testid={`test-result-details-${index}`}>
+                    <summary>Details</summary>
+                    {result.message && (
+                      <pre className="eval-pre" data-testid={`test-result-message-${index}`}>
+                        {result.message}
+                      </pre>
+                    )}
+                    {result.stackTrace && (
+                      <>
+                        <strong>Stack trace</strong>
+                        <pre className="eval-pre" data-testid={`test-result-stack-${index}`}>
+                          {result.stackTrace}
+                        </pre>
+                      </>
+                    )}
+                    {result.stdout && (
+                      <>
+                        <strong>stdout</strong>
+                        <pre className="eval-pre" data-testid={`test-result-stdout-${index}`}>
+                          {result.stdout}
+                        </pre>
+                      </>
+                    )}
+                    {result.stderr && (
+                      <>
+                        <strong>stderr</strong>
+                        <pre className="eval-pre" data-testid={`test-result-stderr-${index}`}>
+                          {result.stderr}
+                        </pre>
+                      </>
+                    )}
+                    {result.position ? (
+                      <button
+                        data-testid={`test-result-navigate-${index}`}
+                        onClick={() =>
+                          result.position &&
+                          onNavigate(result.position.path, {
+                            line: result.position.line,
+                            character: result.position.character,
+                          })
+                        }
+                        title="Opens the file at the position the stack trace reported."
+                      >
+                        Open source position
+                      </button>
+                    ) : (
+                      <p className="muted" data-testid={`test-result-no-position-${index}`}>
+                        The source reported no `in &lt;file&gt;:line &lt;n&gt;` position inside the
+                        workspace; use the raw run log instead.
+                      </p>
+                    )}
+                  </details>
+                </li>
+              ))}
+            </ul>
+          )}
+          <pre className="eval-pre build-log" data-testid="tests-run-log">
+            {run.log || "No output yet."}
+          </pre>
+          {run.logTruncated && (
+            <p className="muted" data-testid="tests-run-log-truncated">
+              The run log is bounded and the earliest lines were dropped; the note at the top of
+              the log says how many.
+            </p>
+          )}
+        </section>
       )}
     </div>
   );

@@ -1,0 +1,10 @@
+{
+ "error": {
+  "code": "invalid_state",
+  "details": {
+   "reason": "mtp_unsupported"
+  },
+  "message": "Microsoft.Testing.Platform is not supported in this version. Use the terminal."
+ },
+ "ok": false
+}

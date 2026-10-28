@@ -1,0 +1,11 @@
+$ tests.run_cancel (long Task.Delay test)
+runId: testrun:3:4 · discoveryId: discovery:3:4 · discovery revision 4 · run revision 4 · context 6
+state: cancelled · exit: 143 · infrastructureFailure: False · trxState: missing
+selection: selected · requested: 1 · command: /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet test /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/Order Desk cancel/tests/OrderDesk.Tests/OrderDesk.Tests.csproj -c Debug --no-build --no-restore --nologo -v:minimal -f net8.0 --filter FullyQualifiedName=OrderDesk.Tests.LongTests.Waits_for_cancellation --logger trx;LogFileName=openridr.trx --results-directory /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/app-home/test-results/3-4-1793194456062
+cwd: /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/Order Desk cancel
+trx: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/app-home/test-results/3-4-1793194456062/openridr.trx
+log: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/app-home/test-results/3-4-1793194456062/run.log
+counts: {"failed": 0, "matched": 0, "notExecuted": 0, "passed": 0, "skipped": 0, "total": 0, "unknown": 0}
+termination: {"exit": 143, "killedAfterGrace": false, "observed": "exited", "requested": "SIGTERM"}
+error: Cancellation was requested; the run was terminated with exit 143. No test result was reported, so this run is not a success and no missing result is passed or skipped.
+results (0):

@@ -228,6 +228,8 @@ export type TestItem = {
   tfm: string | null;
   discoveryId: string;
   revision: number;
+  /** How many times VSTest printed this name; >1 means it is not a unique identity. */
+  occurrences: number;
 };
 
 /** Discovery is one explicit `dotnet test --list-tests` operation. Preflight states
@@ -274,7 +276,79 @@ export type TestsDiscovery = {
   sealed: boolean;
 };
 
-export type Tests = { discovery: TestsDiscovery };
+export type Tests = { discovery: TestsDiscovery; run: TestRun };
+
+/** A source position derived only from a TRX stack trace `in <file>:line <n>` that resolves
+ * inside the workspace. `line` is 0-based. */
+export type TestPosition = { path: string; line: number; character: number };
+
+/** One real TRX UnitTestResult, mapped back to a discovery identity through TestDefinitions.
+ * `outcome` is the source's own outcome; absence stays unknown, never passed. */
+export type TestResult = {
+  testId: string | null;
+  fullyQualifiedName: string;
+  displayName: string;
+  outcome: "passed" | "failed" | "skipped" | "notExecuted" | "unknown";
+  outcomeRaw: string;
+  durationMs: number | null;
+  message: string | null;
+  stackTrace: string | null;
+  stdout: string | null;
+  stderr: string | null;
+  matched: boolean;
+  position: TestPosition | null;
+};
+
+export type TestRun = {
+  state: "idle" | "running" | "completed" | "failed" | "cancelled";
+  project: { name: string; path: string } | null;
+  configuration: string;
+  targetFramework: string | null;
+  selection: "all" | "selected";
+  selectedTestIds: string[];
+  requestedCount: number;
+  command: string[];
+  cwd: string;
+  resultsDirectory: string | null;
+  trxPath: string | null;
+  logPath: string | null;
+  trxState: "none" | "ok" | "partial" | "missing" | "corrupt";
+  log: string;
+  logTruncated: boolean;
+  exit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  processId: number | null;
+  awaitingDecision: boolean;
+  revision: number;
+  runId: string | null;
+  discoveryId: string | null;
+  discoveryRevision: number;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  results: TestResult[];
+  resultsTruncated: boolean;
+  counts: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    notExecuted: number;
+    unknown: number;
+    matched: number;
+  };
+  infrastructureFailure: boolean;
+  error: string | null;
+  sealed: boolean;
+  stale: boolean;
+  staleReason: string | null;
+};
 
 /** The program launched from the identified successful build. `exited` is neutral: the
  * exit code is shown as observed and `null` stays unknown. */

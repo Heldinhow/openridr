@@ -1,0 +1,10 @@
+{
+ "error": {
+  "code": "invalid_state",
+  "details": {
+   "reason": "invalid_selection"
+  },
+  "message": "test:not-current is not an identity of the current discovery; select from the discovered list or discover again."
+ },
+ "ok": false
+}

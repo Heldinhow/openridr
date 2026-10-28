@@ -1664,6 +1664,40 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
+  async function startTestRun(
+    project: string,
+    selection: "all" | "selected",
+    testIds: string[],
+  ) {
+    setBottomTab("tests");
+    try {
+      onSnapshot(
+        await call<Snapshot>("tests.run", {
+          project,
+          targetFramework: evaluation.context.targetFramework,
+          selection,
+          testIds,
+        }),
+      );
+      setMessage(null);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Test run could not start: ${messageOf(error)}` });
+      try {
+        onSnapshot(await call<Snapshot>("workspace.state"));
+      } catch {
+        // The message above already explains the failure.
+      }
+    }
+  }
+
+  async function cancelTestRun() {
+    try {
+      onSnapshot(await call<Snapshot>("tests.run_cancel"));
+    } catch (error) {
+      setMessage({ tone: "error", text: `Test run cancellation failed: ${messageOf(error)}` });
+    }
+  }
+
   async function startRun() {
     if (!startupProject) {
       setMessage({
@@ -1991,6 +2025,11 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             onEvaluate={(next) => void runEvaluation(next)}
             onDiscover={(project) => void startTestDiscovery(project)}
             onCancel={() => void cancelTestDiscovery()}
+            onRun={(project, selection, testIds) =>
+              void startTestRun(project, selection, testIds)
+            }
+            onRunCancel={() => void cancelTestRun()}
+            onNavigate={(path, position) => void navigateTo(path, position)}
           />
         );
     }

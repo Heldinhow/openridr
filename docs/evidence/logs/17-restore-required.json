@@ -1,0 +1,34 @@
+{
+ "error": {
+  "code": "restore_required",
+  "details": {
+   "action": {
+    "method": "restore.start",
+    "params": {}
+   },
+   "consumer": "tests.run",
+   "projects": [
+    {
+     "name": "OrderDesk.Cli",
+     "path": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+     "reason": "obj/project.assets.json is missing; restore was not requested.",
+     "restored": "not_restored"
+    },
+    {
+     "name": "OrderDesk.Core",
+     "path": "src/OrderDesk.Core/OrderDesk.Core.csproj",
+     "reason": "obj/project.assets.json is missing; restore was not requested.",
+     "restored": "not_restored"
+    },
+    {
+     "name": "OrderDesk.Tests",
+     "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+     "reason": "obj/project.assets.json is missing; restore was not requested.",
+     "restored": "not_restored"
+    }
+   ]
+  },
+  "message": "tests.run needs current restore assets and OpenRidr never restores implicitly; run the explicit restore first."
+ },
+ "ok": false
+}

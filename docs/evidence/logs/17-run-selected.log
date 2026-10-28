@@ -1,0 +1,12 @@
+$ tests.run selection=selected testIds=[Id_is_preserved]
+runId: testrun:1:2 · discoveryId: discovery:1:1 · discovery revision 1 · run revision 2 · context 2
+state: completed · exit: 0 · infrastructureFailure: False · trxState: ok
+selection: selected · requested: 1 · command: /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet test /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/Order Desk run/tests/OrderDesk.Tests/OrderDesk.Tests.csproj -c Debug --no-build --no-restore --nologo -v:minimal -f net8.0 --filter FullyQualifiedName=OrderDesk.Tests.OrderTests.Id_is_preserved --logger trx;LogFileName=openridr.trx --results-directory /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/app-home/test-results/1-2-1793194449306
+cwd: /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/Order Desk run
+trx: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/app-home/test-results/1-2-1793194449306/openridr.trx
+log: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-17-evidence-fwwfevfe/app-home/test-results/1-2-1793194449306/run.log
+counts: {"failed": 0, "matched": 1, "notExecuted": 0, "passed": 1, "skipped": 0, "total": 1, "unknown": 0}
+termination: null
+error: None
+results (1):
+  [passed] OrderDesk.Tests.OrderTests.Id_is_preserved · 1 ms · trx Passed · no position

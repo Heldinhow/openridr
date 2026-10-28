@@ -64,6 +64,9 @@ pub struct TestItem {
     pub tfm: Option<String>,
     pub discovery_id: String,
     pub revision: u64,
+    /// How many times VSTest printed this exact name. `>1` means the runner did not provide a
+    /// unique identity (e.g. two xUnit tests with the same DisplayName); selection refuses it.
+    pub occurrences: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,11 +100,13 @@ pub struct DiscoveryView {
     pub sealed: bool,
 }
 
-/// The snapshot node. Ticket 17 adds execution fields next to `discovery`; this stays additive.
+/// The snapshot node. `run` is the execution of a validated selection/all scope; both are
+/// additive and bound to their own operation ids.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestsView {
     pub discovery: DiscoveryView,
+    pub run: crate::test_run::RunView,
 }
 
 struct Data {
@@ -212,6 +217,7 @@ impl Tests {
         let data = self.data.lock().unwrap();
         let (log, log_truncated) = data.log.text();
         TestsView {
+            run: crate::test_run::TestRun::idle_view(),
             discovery: DiscoveryView {
                 state: data.state,
                 project: (data.revision > 0).then(|| data.project.clone()),
@@ -450,6 +456,15 @@ fn data_for(
 
 fn push_item(data: &mut Data, listed: &str) {
     if !data.seen.insert(listed.to_string()) {
+        // VSTest printed the same text again: keep one entry but record that the name is not a
+        // unique identity (xUnit DisplayName duplicates do this).
+        if let Some(item) = data
+            .items
+            .iter_mut()
+            .find(|item| item.fully_qualified_name == listed)
+        {
+            item.occurrences += 1;
+        }
         return;
     }
     let project = data.project.path.clone();
@@ -463,6 +478,7 @@ fn push_item(data: &mut Data, listed: &str) {
         tfm,
         discovery_id: data.discovery_id.clone(),
         revision: data.revision,
+        occurrences: 1,
     });
 }
 
@@ -622,6 +638,7 @@ mod tests {
     fn duplicate_listed_names_count_once_and_an_empty_section_is_empty_not_failure() {
         let duplicate = completed(&["A.B.Same", "A.B.Same"]);
         assert_eq!(duplicate.view().discovery.items.len(), 1);
+        assert_eq!(duplicate.view().discovery.items[0].occurrences, 2);
 
         let empty = Tests::begin(start(2, "discovery:1:2"));
         empty.append_line(LIST_MARKER, false);
