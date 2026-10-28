@@ -20,6 +20,7 @@ use process::Registry;
 use sdk::{GlobalJsonRequest, HostSdk, Inventory, ProjectSdk, SdkRoot};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -38,6 +39,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "lsp.didChange",
     "lsp.completion",
     "lsp.definition",
+    "lsp.rename",
     "tools.install",
     "tools.retry",
     "terminal.start",
@@ -79,6 +81,7 @@ struct Inner {
     lsp: Option<Arc<lsp::Lsp>>,
     lsp_seq: u64,
     lsp_verbose: bool,
+    rename_seq: u64,
     diagnostics: diagnostics::Store,
 }
 
@@ -261,6 +264,7 @@ impl Host {
                 lsp: None,
                 lsp_seq: 0,
                 lsp_verbose: false,
+                rename_seq: 0,
                 diagnostics: diagnostics::Store::new(),
             }),
         }
@@ -317,6 +321,9 @@ impl Host {
         }
         if method == "lsp.definition" {
             return self.lsp_definition(params);
+        }
+        if method == "lsp.rename" {
+            return self.lsp_rename(params);
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.executable_stub(method);
@@ -1713,6 +1720,279 @@ impl Host {
         }
     }
 
+    fn lsp_rename(&self, params: Value) -> HostResult<Value> {
+        let request =
+            match self.prepare_analysis_request("lsp.rename", "textDocument/rename", &params)? {
+                Ok(request) => request,
+                Err(answer) => return Ok(answer),
+            };
+        let new_name = required_str(&params, "newName")?.trim().to_string();
+        if new_name.is_empty()
+            || new_name.chars().count() > 200
+            || new_name
+                .chars()
+                .any(|character| matches!(character, '\n' | '\r' | '\0'))
+        {
+            return Err(HostError::new(
+                "invalid_state",
+                "A rename needs a non-empty name of at most 200 characters without line breaks.",
+            ));
+        }
+        let source_text = request
+            .lsp
+            .open_documents()
+            .into_iter()
+            .find(|document| document.path == request.base.path)
+            .map(|document| document.text);
+        let Some(source_text) = source_text else {
+            return Ok(request.base.answer(
+                "unavailable",
+                Some("The source document is not open in the analysis session.".to_string()),
+            ));
+        };
+        let position = lsp::Position {
+            line: request.base.line,
+            character: request.base.character,
+        };
+        if lsp::utf16_offset(&source_text, position).is_none() {
+            return Ok(request.base.answer(
+                "failed",
+                Some(format!(
+                    "The rename position {}:{} is outside the open document; no request was sent.",
+                    request.base.line, request.base.character
+                )),
+            ));
+        }
+
+        let mut prepared = false;
+        if request.lsp.supports_prepare_rename() {
+            let response = request.lsp.request(
+                "textDocument/prepareRename",
+                json!({
+                    "textDocument": { "uri": request.uri },
+                    "position": { "line": request.base.line, "character": request.base.character },
+                }),
+                lsp::REQUEST_TIMEOUT,
+            );
+            if let Some(answer) = self.analysis_invalidated(&request) {
+                return Ok(answer);
+            }
+            match response {
+                Ok(Value::Null) => {
+                    return Ok(request.base.answer(
+                        "unavailable",
+                        Some("csharp-ls says the symbol at this position cannot be renamed; nothing was requested.".to_string()),
+                    ));
+                }
+                Ok(_) => prepared = true,
+                Err(lsp::RequestError::Timeout(timeout)) => {
+                    return Ok(request.base.answer(
+                        "timeout",
+                        Some(format!(
+                            "csharp-ls did not answer the rename preparation within {} seconds; nothing was applied.",
+                            timeout.as_secs()
+                        )),
+                    ));
+                }
+                Err(lsp::RequestError::Unavailable(message)) => {
+                    return Ok(request.base.answer("unavailable", Some(message)));
+                }
+                Err(lsp::RequestError::Server(message)) => {
+                    return Ok(request.base.answer(
+                        "failed",
+                        Some(format!(
+                            "csharp-ls rejected the rename preparation: {message}"
+                        )),
+                    ));
+                }
+            }
+        }
+
+        let response = request.lsp.request(
+            "textDocument/rename",
+            json!({
+                "textDocument": { "uri": request.uri },
+                "position": { "line": request.base.line, "character": request.base.character },
+                "newName": new_name,
+            }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        if let Some(answer) = self.analysis_invalidated(&request) {
+            return Ok(answer);
+        }
+        let value = match response {
+            Ok(value) => value,
+            Err(lsp::RequestError::Timeout(timeout)) => {
+                return Ok(request.base.answer(
+                    "timeout",
+                    Some(format!(
+                        "csharp-ls did not answer the rename within {} seconds; nothing was applied.",
+                        timeout.as_secs()
+                    )),
+                ));
+            }
+            Err(lsp::RequestError::Unavailable(message)) => {
+                return Ok(request.base.answer("unavailable", Some(message)));
+            }
+            Err(lsp::RequestError::Server(message)) => {
+                return Ok(request.base.answer(
+                    "failed",
+                    Some(format!("csharp-ls rejected the rename request: {message}")),
+                ));
+            }
+        };
+        let edits = match lsp::parse_workspace_edit(&value) {
+            Ok(edits) => edits,
+            Err(reason) => {
+                request
+                    .lsp
+                    .log_line(format!("[client] rename rejected: {reason}"));
+                return Ok(request.base.answer(
+                    "failed",
+                    Some(format!(
+                        "csharp-ls returned a WorkspaceEdit this client does not apply ({reason}); nothing was applied."
+                    )),
+                ));
+            }
+        };
+        let total_edits: usize = edits.iter().map(|document| document.edits.len()).sum();
+        if edits.len() > lsp::RENAME_DOCUMENT_LIMIT || total_edits > lsp::RENAME_EDIT_LIMIT {
+            request.lsp.log_line(format!(
+                "[client] rename rejected: {} document(s), {total_edits} edit(s) exceed the preview limit",
+                edits.len()
+            ));
+            return Ok(request.base.answer(
+                "failed",
+                Some(format!(
+                    "The rename would touch {} documents and {total_edits} edits; this build previews at most {} documents and {} edits, so nothing was applied.",
+                    edits.len(),
+                    lsp::RENAME_DOCUMENT_LIMIT,
+                    lsp::RENAME_EDIT_LIMIT
+                )),
+            ));
+        }
+
+        let (root, open) = {
+            let inner = self.inner.lock().unwrap();
+            let Some(workspace) = inner.workspace.as_ref() else {
+                return Ok(request.base.answer(
+                    "stale",
+                    Some(
+                        "The workspace closed while csharp-ls was answering; nothing was applied."
+                            .to_string(),
+                    ),
+                ));
+            };
+            (workspace.root.clone(), request.lsp.open_documents())
+        };
+        let open: HashMap<String, (String, i64)> = open
+            .into_iter()
+            .map(|document| (document.path, (document.text, document.version)))
+            .collect();
+        let mut documents = Vec::with_capacity(edits.len());
+        let mut seen = HashSet::new();
+        for document in &edits {
+            let preview = match rename_document_preview(&root, document, &open) {
+                Ok(preview) => preview,
+                Err(reason) => {
+                    request
+                        .lsp
+                        .log_line(format!("[client] rename rejected: {reason}"));
+                    return Ok(request.base.answer(
+                        "failed",
+                        Some(format!(
+                            "The rename preview was rejected ({reason}); nothing was applied."
+                        )),
+                    ));
+                }
+            };
+            let path = preview["path"].as_str().unwrap_or_default().to_string();
+            if !seen.insert(path.clone()) {
+                request
+                    .lsp
+                    .log_line(format!("[client] rename rejected: {path} appears twice"));
+                return Ok(request.base.answer(
+                    "failed",
+                    Some(format!(
+                        "csharp-ls returned two edits for {path}; nothing was applied."
+                    )),
+                ));
+            }
+            documents.push(preview);
+        }
+        let bytes: usize = documents
+            .iter()
+            .map(|document| {
+                document["baseContent"].as_str().map(str::len).unwrap_or(0)
+                    + document["newContent"].as_str().map(str::len).unwrap_or(0)
+            })
+            .sum();
+        if bytes > lsp::RENAME_CONTENT_LIMIT {
+            request.lsp.log_line(format!(
+                "[client] rename rejected: preview would hold {bytes} bytes"
+            ));
+            return Ok(request.base.answer(
+                "failed",
+                Some(format!(
+                    "The rename preview would hold {bytes} bytes of document text; this build previews at most {} bytes, so nothing was applied.",
+                    lsp::RENAME_CONTENT_LIMIT
+                )),
+            ));
+        }
+
+        let sequence = {
+            let mut inner = self.inner.lock().unwrap();
+            inner.rename_seq += 1;
+            inner.rename_seq
+        };
+        let fingerprint = documents
+            .iter()
+            .map(|document| {
+                format!(
+                    "{}:{}:{}",
+                    document["path"].as_str().unwrap_or_default(),
+                    document["baseHash"].as_str().unwrap_or_default(),
+                    document["newContent"]
+                        .as_str()
+                        .map(content_hash)
+                        .unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("|");
+        let fingerprint = content_hash(&format!(
+            "{}:{}:{}:{}:{}:{new_name}:{prepared}:{fingerprint}",
+            request.base.token.workspace_id,
+            request.base.token.context_id,
+            request.base.path,
+            request.base.line,
+            request.base.character
+        ));
+        let rename_id = format!(
+            "rename-{}-{sequence}-{}",
+            request.base.session,
+            fingerprint.trim_start_matches("fnv1a64:")
+        );
+        request.lsp.log_line(format!(
+            "[client] rename {new_name} at {}:{} · session {} · {} document(s), {total_edits} edit(s) · {rename_id}",
+            request.base.line, request.base.character, request.base.session, documents.len()
+        ));
+        let document_count = documents.len();
+        let mut answer = request.base.answer(
+            "ok",
+            (document_count == 0).then(|| {
+                "csharp-ls returned no edits for this rename; nothing to preview.".to_string()
+            }),
+        );
+        answer["newName"] = json!(new_name);
+        answer["renameId"] = json!(rename_id);
+        answer["prepared"] = json!(prepared);
+        answer["documents"] = json!(documents);
+        answer["documentCount"] = json!(document_count);
+        answer["editCount"] = json!(total_edits);
+        Ok(answer)
+    }
+
     fn prepare_analysis_request(
         &self,
         method: &'static str,
@@ -2275,6 +2555,89 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
     })
 }
 
+/// Builds one document of a rename preview without writing anything: the base text comes
+/// from the analysis session for open documents and from disk for unopened ones, and all
+/// UTF-16 positions are resolved here so the UI never does offset math.
+fn rename_document_preview(
+    root: &Path,
+    document: &lsp::RenameDocumentEdits,
+    open: &HashMap<String, (String, i64)>,
+) -> Result<Value, String> {
+    let raw = lsp::uri_to_path(&document.uri)
+        .ok_or_else(|| format!("{} is not a file URI", document.uri))?;
+    let canonical =
+        fs::canonicalize(&raw).map_err(|error| format!("{raw} is not readable: {error}"))?;
+    if !canonical.starts_with(root) {
+        return Err(format!("{raw} is outside the workspace"));
+    }
+    if !canonical.is_file() {
+        return Err(format!("{raw} is not a file"));
+    }
+    let rel = canonical
+        .strip_prefix(root)
+        .unwrap_or(&canonical)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let opened = open.get(&rel);
+    if let Some((_, version)) = opened {
+        if let Some(expected) = document.version {
+            if expected != *version {
+                return Err(format!(
+                    "{rel} was at version {version} in analysis but the edit was computed for version {expected}; the preview is stale"
+                ));
+            }
+        }
+    }
+    let (base, document_version) = match opened {
+        Some((text, version)) => (text.clone(), Some(*version)),
+        None => {
+            let text = fs::read_to_string(&canonical)
+                .map_err(|error| format!("{rel} could not be read as UTF-8 text: {error}"))?;
+            (text, None)
+        }
+    };
+    let applied = lsp::apply_rename_edits(&base, &document.edits)
+        .map_err(|error| format!("{rel}: {error}"))?;
+    let changes = applied
+        .changes
+        .iter()
+        .map(|change| {
+            json!({
+                "line": change.line,
+                "before": change.before,
+                "after": change.after,
+                "displayTruncated": change.display_truncated,
+            })
+        })
+        .collect::<Vec<_>>();
+    let edits = document
+        .edits
+        .iter()
+        .map(|edit| {
+            json!({
+                "range": {
+                    "start": { "line": edit.start.line, "character": edit.start.character },
+                    "end": { "line": edit.end.line, "character": edit.end.character },
+                },
+                "newText": edit.new_text,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "path": rel,
+        "uri": document.uri,
+        "opened": opened.is_some(),
+        "documentVersion": document_version,
+        "editCount": document.edits.len(),
+        "edits": edits,
+        "changes": changes,
+        "displayTruncated": applied.changes.iter().any(|change| change.display_truncated),
+        "baseContent": base,
+        "newContent": applied.content,
+        "baseHash": content_hash(&base),
+    }))
+}
+
 fn definition_location(root: &Path, target: &lsp::DefinitionTarget) -> Option<Value> {
     let path = PathBuf::from(lsp::uri_to_path(&target.uri)?);
     let canonical = fs::canonicalize(&path).ok()?;
@@ -2392,5 +2755,121 @@ mod tests {
             ..target(&inside)
         };
         assert!(definition_location(&root, &remote).is_none());
+    }
+    fn rename_edit(line: u64, start: u64, end: u64, text: &str) -> lsp::RenameTextEdit {
+        lsp::RenameTextEdit {
+            start: lsp::Position {
+                line,
+                character: start,
+            },
+            end: lsp::Position {
+                line,
+                character: end,
+            },
+            new_text: text.to_string(),
+        }
+    }
+
+    #[test]
+    fn rename_preview_reads_and_rewrites_without_touching_disk() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        fs::create_dir_all(root.join("src")).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let file = root.join("src/Order.cs");
+        let base = "class Order\n{\n    Order() {}\n}\n";
+        fs::write(&file, base).unwrap();
+        let document = lsp::RenameDocumentEdits {
+            uri: lsp::file_uri(&file),
+            version: None,
+            edits: vec![
+                rename_edit(0, 6, 11, "Purchase"),
+                rename_edit(2, 4, 9, "Purchase"),
+            ],
+        };
+        let preview = rename_document_preview(&root, &document, &HashMap::new()).expect("preview");
+        assert_eq!(preview["path"], "src/Order.cs");
+        assert_eq!(preview["opened"], false);
+        assert_eq!(preview["documentVersion"], Value::Null);
+        assert_eq!(preview["editCount"], 2);
+        assert_eq!(
+            preview["newContent"],
+            "class Purchase\n{\n    Purchase() {}\n}\n"
+        );
+        assert_eq!(preview["baseHash"], content_hash(base));
+        assert_eq!(preview["changes"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            base,
+            "building a preview wrote the file"
+        );
+    }
+
+    #[test]
+    fn rename_preview_uses_the_open_buffer_and_rejects_its_version_mismatch() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let file = root.join("Program.cs");
+        fs::write(&file, "new Order();\n").unwrap();
+        let mut open = HashMap::new();
+        open.insert("Program.cs".to_string(), ("new Order(1);\n".to_string(), 4));
+        let document = lsp::RenameDocumentEdits {
+            uri: lsp::file_uri(&file),
+            version: Some(4),
+            edits: vec![rename_edit(0, 4, 9, "Purchase")],
+        };
+        let preview = rename_document_preview(&root, &document, &open).expect("open preview");
+        assert_eq!(preview["opened"], true);
+        assert_eq!(preview["documentVersion"], 4);
+        assert_eq!(preview["baseContent"], "new Order(1);\n");
+        assert_eq!(preview["newContent"], "new Purchase(1);\n");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "new Order();\n");
+
+        let stale = lsp::RenameDocumentEdits {
+            version: Some(3),
+            ..document
+        };
+        let error = rename_document_preview(&root, &stale, &open).expect_err("stale version");
+        assert!(error.contains("version"), "{error}");
+    }
+
+    #[test]
+    fn rename_preview_rejects_outside_workspace_missing_and_invalid_ranges() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        fs::create_dir_all(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let inside = root.join("Order.cs");
+        fs::write(&inside, "class Order {}\n").unwrap();
+        let outside = temp.path().join("Outside.cs");
+        fs::write(&outside, "class Order {}\n").unwrap();
+
+        let outside_document = lsp::RenameDocumentEdits {
+            uri: lsp::file_uri(&outside),
+            version: None,
+            edits: vec![rename_edit(0, 6, 11, "Purchase")],
+        };
+        let error = rename_document_preview(&root, &outside_document, &HashMap::new())
+            .expect_err("outside workspace");
+        assert!(error.contains("outside the workspace"), "{error}");
+
+        let missing = lsp::RenameDocumentEdits {
+            uri: lsp::file_uri(&root.join("Missing.cs")),
+            version: None,
+            edits: vec![rename_edit(0, 0, 1, "Purchase")],
+        };
+        assert!(rename_document_preview(&root, &missing, &HashMap::new())
+            .expect_err("missing file")
+            .contains("not readable"));
+
+        let invalid = lsp::RenameDocumentEdits {
+            uri: lsp::file_uri(&inside),
+            version: None,
+            edits: vec![rename_edit(9, 0, 1, "Purchase")],
+        };
+        assert!(rename_document_preview(&root, &invalid, &HashMap::new())
+            .expect_err("invalid range")
+            .contains("outside the document"));
+        assert_eq!(fs::read_to_string(&inside).unwrap(), "class Order {}\n");
     }
 }

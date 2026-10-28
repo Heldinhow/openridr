@@ -982,6 +982,86 @@ p {
   justify-content: flex-end;
 }
 
+.rename-field {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.rename-field input {
+  width: 100%;
+}
+
+.rename-preview {
+  flex: 0 0 auto;
+  max-height: 55%;
+  overflow: auto;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.rename-preview h2 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.rename-files {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.rename-index {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 0.78rem;
+}
+
+.rename-index > li {
+  margin-top: 2px;
+}
+
+.rename-index code {
+  overflow-wrap: anywhere;
+}
+
+.rename-files > li {
+  margin-bottom: 10px;
+}
+
+.rename-file-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rename-diff {
+  margin-top: 4px;
+  font-size: 0.75rem;
+}
+
+.rename-change {
+  margin-top: 4px;
+}
+
+.rename-change pre {
+  margin: 0;
+  padding: 1px 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rename-before {
+  color: var(--error);
+  background: #2a1a1a;
+}
+
+.rename-after {
+  color: var(--success);
+  background: #16241a;
+}
+
 .conflict-compare {
   margin-top: 8px;
 }

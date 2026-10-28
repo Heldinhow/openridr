@@ -1,0 +1,28 @@
+workspace.open → OrderDesk.sln · solution
+copy: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T//openridr-rename-drive-eDcWCU/Order Desk rename
+trust.grant → granted=true
+evaluation.run → ok
+restore.start → running · command /Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet restore /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-rename-drive-eDcWCU/Order Desk rename/OrderDesk.sln -nologo -v:minimal
+restore observed exit 0
+evaluation reload → ok
+tools.install → ready (reused=true)
+lsp.start → ready
+lsp session 1 · capabilities completion, definition, rename (prepare), code actions, diagnostics (pull advertised), semantic tokens
+lsp.didOpen src/OrderDesk.Core/Order.cs → version 1 · session 1
+document known: true · client revision 1
+{"state":"ok","message":null,"renameId":"rename-1-1-501bdb38d2410fe0","prepared":true,"documentCount":3,"editCount":5,"session":1,"clientRevision":1,"documents":[{"path":"src/OrderDesk.Cli/Program.cs","opened":false,"documentVersion":null,"editCount":1,"baseHash":"fnv1a64:ecb22c4dcaf0365c","newContentLines":5},{"path":"src/OrderDesk.Core/Order.cs","opened":true,"documentVersion":1,"editCount":2,"baseHash":"fnv1a64:9ded8fc98a762576","newContentLines":15},{"path":"tests/OrderDesk.Tests/OrderTests.cs","opened":false,"documentVersion":null,"editCount":2,"baseHash":"fnv1a64:c16b8aa2be384431","newContentLines":24}]}
+files:
+  src/OrderDesk.Cli/Program.cs · 1 edit(s) · opened=false · 1 preview block(s)
+  src/OrderDesk.Core/Order.cs · 2 edit(s) · opened=true · 2 preview block(s)
+  tests/OrderDesk.Tests/OrderTests.cs · 2 edit(s) · opened=false · 2 preview block(s)
+changes:
+  src/OrderDesk.Cli/Program.cs:3 − var order = new Order("A-104", 42m); | + var order = new Purchase("A-104", 42m);
+  src/OrderDesk.Core/Order.cs:3 − public sealed class Order | + public sealed class Purchase
+  src/OrderDesk.Core/Order.cs:5 −     public Order(string id, decimal total) | +     public Purchase(string id, decimal total)
+  tests/OrderDesk.Tests/OrderTests.cs:11 −         var order = new Order("A-104", 42m); | +         var order = new Purchase("A-104", 42m);
+  tests/OrderDesk.Tests/OrderTests.cs:19 −         var order = new Order("A-104", 42m); | +         var order = new Purchase("A-104", 42m);
+lsp.rename after revoke → trust_required: lsp.rename requires workspace trust; no process was started.
+disk unchanged for the three fixture files:
+467bc191210c3b7d6409740007f65b5d42fc50d0d6b3b3a4c3f1cfab0d06c6f0 Order.cs
+6db88861d7c904778a95d299e2364c4447b6ac0dfdf34067d3664c713e6eba21 Program.cs
+4e136cb35a425d682b16e84c687d69e313042eabd1ff40c736a2e98b9b0fe1cd OrderTests.cs

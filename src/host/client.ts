@@ -231,6 +231,7 @@ export type LspCapabilities = {
   completion: boolean;
   definition: boolean;
   rename: boolean;
+  prepareRename: boolean;
   codeActions: boolean;
   pushDiagnostics: boolean;
   pullDiagnostics: boolean;
@@ -317,10 +318,43 @@ export type DefinitionLocation = {
   selectionRange: LspRange | null;
 };
 
-/** Shared answer for `lsp.completion` and `lsp.definition`. Unavailable/unsupported answers
- * are data with empty lists, never fabricated items. */
+export type RenameChange = {
+  line: number;
+  before: string;
+  after: string;
+  displayTruncated: boolean;
+};
+
+/** One document of a rename preview. Text is computed by the host from the LSP UTF-16
+ * ranges; the UI never does offset math and never writes these contents to disk. */
+export type RenameDocument = {
+  path: string;
+  uri: string;
+  opened: boolean;
+  documentVersion: number | null;
+  editCount: number;
+  edits: { range: LspRange; newText: string }[];
+  changes: RenameChange[];
+  displayTruncated: boolean;
+  baseContent: string;
+  newContent: string;
+  baseHash: string;
+};
+
+export type RenameResponse = AnalysisResponse & {
+  method: "lsp.rename";
+  newName: string;
+  renameId: string;
+  prepared: boolean;
+  documents: RenameDocument[];
+  documentCount: number;
+  editCount: number;
+};
+
+/** Shared answer for `lsp.completion`, `lsp.definition` and `lsp.rename`. Unavailable/
+ * unsupported answers are data with empty lists, never fabricated items. */
 export type AnalysisResponse = {
-  method: "lsp.completion" | "lsp.definition";
+  method: "lsp.completion" | "lsp.definition" | "lsp.rename";
   state: "ok" | "unsupported" | "unavailable" | "stale" | "timeout" | "failed";
   message: string | null;
   session: number;

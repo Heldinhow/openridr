@@ -51,6 +51,8 @@ type Props = {
   onChange: (value: string) => void;
   onSave: () => void;
   onDefinition: (location: DefinitionLocation) => void;
+  onRename: (position: { line: number; character: number }) => void;
+  onCursor: (position: { line: number; character: number }) => void;
   target?: Target | null;
 };
 
@@ -78,6 +80,8 @@ export function CodeEditor({
   onChange,
   onSave,
   onDefinition,
+  onRename,
+  onCursor,
   target,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -85,11 +89,15 @@ export function CodeEditor({
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const onDefinitionRef = useRef(onDefinition);
+  const onRenameRef = useRef(onRename);
+  const onCursorRef = useRef(onCursor);
   const pathRef = useRef(path);
   const revisionRef = useRef(revision);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   onDefinitionRef.current = onDefinition;
+  onRenameRef.current = onRename;
+  onCursorRef.current = onCursor;
   pathRef.current = path;
   revisionRef.current = revision;
   const applyingExternal = useRef(false);
@@ -97,7 +105,7 @@ export function CodeEditor({
   const definitionSeq = useRef(0);
   const [status, setStatus] = useState<Status>({
     state: "idle",
-    text: "Ctrl+Space: completion · Ctrl+B: go to definition",
+    text: "Ctrl+Space: completion · Ctrl+B: go to definition · Shift+F6: rename",
   });
 
   function publishCursor(instance: EditorView) {
@@ -106,6 +114,7 @@ export function CodeEditor({
     if (host.current) {
       host.current.dataset.cursor = `${line.number - 1}:${position - line.from}`;
     }
+    onCursorRef.current({ line: line.number - 1, character: position - line.from });
   }
 
   async function completionSource(context: CompletionContext): Promise<CompletionResult | null> {
@@ -288,6 +297,21 @@ export function CodeEditor({
             preventDefault: true,
             run: () => {
               void requestDefinition();
+              return true;
+            },
+          },
+          {
+            // Rider/IntelliJ keymap: rename. Opening the prompt never changes the buffer;
+            // the host gates trust, capability and the open document.
+            key: "Shift-F6",
+            preventDefault: true,
+            run: (instance) => {
+              const head = instance.state.selection.main.head;
+              const line = instance.state.doc.lineAt(head);
+              onRenameRef.current({
+                line: line.number - 1,
+                character: head - line.from,
+              });
               return true;
             },
           },

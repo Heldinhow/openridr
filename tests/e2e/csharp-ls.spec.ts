@@ -820,3 +820,313 @@ test("completion and definition use the real session and discard stale answers",
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+const renameFiles = {
+  library: "src/OrderDesk.Core/Order.cs",
+  program: "src/OrderDesk.Cli/Program.cs",
+  tests: "tests/OrderDesk.Tests/OrderTests.cs",
+};
+
+async function placeCursor(page: Page, line: number, character: number) {
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+ArrowUp");
+  for (let index = 0; index < line; index += 1) {
+    await page.keyboard.press("ArrowDown");
+  }
+  await page.keyboard.press("Home");
+  for (let index = 0; index < character; index += 1) {
+    await page.keyboard.press("ArrowRight");
+  }
+  await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+    "data-cursor",
+    `${line}:${character}`,
+  );
+}
+
+async function startRenameSession(
+  page: Page,
+  request: APIRequestContext,
+  copy: string,
+) {
+  await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+  await trustWorkspace(page);
+  await enterWorkspace(page);
+  await waitForEvaluation(page);
+  await restoreAndReload(page);
+  await ensureTool(page, request);
+  await page.getByTestId(`tree-file-${renameFiles.library}`).click();
+  await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+  // Before analysis starts the visible control explains the missing session.
+  await expect(page.getByTestId("rename-open")).toBeDisabled();
+  await expect(page.getByTestId("rename-open")).toHaveAttribute(
+    "title",
+    /Start analysis/,
+  );
+  await page.getByTestId("lsp-start").click();
+  await expect(page.getByTestId("lsp-state")).toContainText("Ready", {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("lsp-capabilities")).toContainText("rename");
+  await expect
+    .poll(
+      async () => {
+        const body = await hostCall(request, "lsp.completion", {
+          path: renameFiles.library,
+          line: 2,
+          character: 20,
+          revision: 0,
+        });
+        expect(body.ok, JSON.stringify(body.error)).toBe(true);
+        return body.data.documentKnown;
+      },
+      { timeout: 30_000, intervals: [100, 250, 500] },
+    )
+    .toBe(true);
+  await expect(page.getByTestId("rename-open")).toBeEnabled();
+}
+
+test("rename previews real cross-project edits, cancels inert and applies to buffers only", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk rename");
+  const library = path.join(copy, renameFiles.library);
+  const program = path.join(copy, renameFiles.program);
+  const tests = path.join(copy, renameFiles.tests);
+  const before = [library, program, tests].map((file) => fs.readFileSync(file));
+  try {
+    await startRenameSession(page, request, copy);
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Shift+F6");
+    await expect(page.getByTestId("rename-input")).toBeFocused();
+    await expect(page.getByTestId("rename-source")).toContainText(
+      `${renameFiles.library} · 3:21`,
+    );
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshots, "09-rename-prompt.png"),
+      fullPage: false,
+    });
+    await page.getByTestId("rename-input").fill("Purchase");
+    await page.getByTestId("rename-submit").click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("rename-preview")).toHaveAttribute("data-files", "3");
+    for (const file of Object.values(renameFiles)) {
+      await expect(page.getByTestId(`rename-file-${file}`)).toBeVisible();
+      await expect(page.getByTestId(`rename-index-${file}`)).toBeVisible();
+    }
+    await expect(page.getByTestId(`rename-index-${renameFiles.tests}`)).toContainText(
+      "not opened here",
+    );
+    await expect(page.getByTestId(`rename-file-${renameFiles.tests}`)).toContainText(
+      "not opened here",
+    );
+    await expect(page.getByTestId(`rename-diff-${renameFiles.program}`)).toContainText(
+      "Purchase",
+    );
+    await expect(page.getByTestId(`rename-diff-${renameFiles.program}`)).toContainText(
+      "new Order",
+    );
+    await expect(
+      page.getByTestId(`rename-count-${renameFiles.library}`),
+    ).toContainText("2 edit");
+    await page.screenshot({
+      path: path.join(screenshots, "09-rename-preview.png"),
+      fullPage: false,
+    });
+    await page.getByTestId("rename-preview").evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await page.screenshot({
+      path: path.join(screenshots, "09-rename-preview-files.png"),
+      fullPage: false,
+    });
+
+    // Cancel changes no buffer and no disk byte.
+    const revisionBefore = await page.getByTestId("editor-revision").textContent();
+    await page.getByTestId("rename-cancel-preview").click();
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("editor-revision")).toHaveText(revisionBefore!);
+    await expect(page.getByTestId(`tab-${renameFiles.tests}`)).toHaveCount(0);
+    await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+    [library, program, tests].forEach((file, index) => {
+      expect(
+        fs.readFileSync(file).equals(before[index]),
+        `${file} changed when the preview was cancelled`,
+      ).toBe(true);
+    });
+
+    // Apply through the visible control; every buffer becomes modified, disk stays untouched.
+    await page.getByTestId("rename-open").click();
+    await expect(page.getByTestId("rename-input")).toBeVisible();
+    await page.getByTestId("rename-input").fill("Purchase");
+    await page.getByTestId("rename-submit").click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByTestId("rename-apply").click();
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0, {
+      timeout: 20_000,
+    });
+    await expect(page.getByTestId("editor")).toContainText(
+      "public sealed class Purchase",
+    );
+    await expect(page.getByTestId("editor")).toContainText("public Purchase(");
+    await expect(page.getByTestId("editor-revision")).toContainText("modified");
+    await expect(page.getByTestId("app-log")).toContainText(
+      "Nothing was written to disk",
+    );
+    await expect(page.getByTestId(`tab-${renameFiles.program}`)).toBeVisible();
+    await expect(page.getByTestId(`tab-${renameFiles.tests}`)).toBeVisible();
+    await expect(
+      page.getByTestId(`tab-${renameFiles.tests}`).getByTestId("dirty-marker"),
+    ).toBeVisible();
+    [library, program, tests].forEach((file, index) => {
+      expect(
+        fs.readFileSync(file).equals(before[index]),
+        `${file} was written by Apply`,
+      ).toBe(true);
+    });
+    await page.screenshot({
+      path: path.join(screenshots, "09-rename-applied.png"),
+      fullPage: false,
+    });
+
+    await page.getByTestId(`tab-${renameFiles.program}`).click();
+    await expect(page.getByTestId("editor")).toContainText("new Purchase");
+    await expect(page.getByTestId("editor")).toContainText("order.Id");
+    await page.getByTestId(`tab-${renameFiles.library}`).click();
+    await page.getByTestId("save-file").click();
+    await expect(page.getByTestId("app-log")).toContainText(
+      `Saved ${renameFiles.library}`,
+    );
+    expect(fs.readFileSync(library, "utf8")).toContain("public sealed class Purchase");
+    // Save remained explicit: only the saved file reached disk.
+    expect(fs.readFileSync(program, "utf8")).toContain("new Order");
+    expect(fs.readFileSync(tests, "utf8")).toContain("new Order");
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a stale rename preview is rejected as a whole and late answers are discarded", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk rename stale");
+  const library = path.join(copy, renameFiles.library);
+  const program = path.join(copy, renameFiles.program);
+  const tests = path.join(copy, renameFiles.tests);
+  const before = [library, program, tests].map((file) => fs.readFileSync(file));
+  let stoppedPid: number | null = null;
+  const resume = () => {
+    if (stoppedPid !== null) {
+      try {
+        process.kill(stoppedPid, "SIGCONT");
+      } catch {
+        // The process already exited.
+      }
+      stoppedPid = null;
+    }
+  };
+  try {
+    await startRenameSession(page, request, copy);
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Shift+F6");
+    await page.getByTestId("rename-input").fill("Purchase");
+    await page.getByTestId("rename-submit").click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // Change the unopened tests file on disk after the preview: the whole set is rejected.
+    const external = `${before[2].toString("utf8")}// external edit during preview\n`;
+    fs.writeFileSync(tests, external);
+    await page.getByTestId("rename-apply").click();
+    await expect(page.getByTestId("rename-stale")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("rename-stale")).toContainText("changed on disk");
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await expect(page.getByTestId(`tab-${renameFiles.tests}`)).toHaveCount(0);
+    await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+    expect(fs.readFileSync(library).equals(before[0])).toBe(true);
+    expect(fs.readFileSync(program).equals(before[1])).toBe(true);
+    expect(fs.readFileSync(tests, "utf8")).toBe(external);
+    await page.screenshot({
+      path: path.join(screenshots, "09-rename-stale.png"),
+      fullPage: false,
+    });
+    await page.getByTestId("rename-cancel-preview").click();
+    fs.writeFileSync(tests, before[2]);
+
+    // Change the source buffer after the preview: apply rejects everything.
+    await page.getByTestId("rename-open").click();
+    await page.getByTestId("rename-input").fill("Purchase");
+    await page.getByTestId("rename-submit").click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+End");
+    await page.keyboard.insertText("// buffer edit during preview\n");
+    await expect(page.getByTestId("editor")).toContainText("buffer edit during preview");
+    await page.getByTestId("rename-apply").click();
+    await expect(page.getByTestId("rename-stale")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("rename-stale")).toContainText(
+      "changed after the preview",
+    );
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await expect(page.getByTestId(`tab-${renameFiles.program}`)).toHaveCount(0);
+    await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+    expect(fs.readFileSync(library).equals(before[0])).toBe(true);
+    expect(fs.readFileSync(program).equals(before[1])).toBe(true);
+    expect(fs.readFileSync(tests).equals(before[2])).toBe(true);
+    await page.getByTestId("rename-cancel-preview").click();
+
+    // A cancelled request whose answer arrives late never opens a preview.
+    const paused = await hostState(request);
+    stoppedPid = paused.lsp.pid as number;
+    process.kill(stoppedPid, "SIGSTOP");
+    await page.getByTestId("rename-open").click();
+    await page.getByTestId("rename-input").fill("Late");
+    await page.getByTestId("rename-submit").click();
+    await expect(page.getByTestId("rename-submit")).toContainText(
+      "Waiting for csharp-ls",
+      { timeout: 5_000 },
+    );
+    await page.getByTestId("rename-cancel").click();
+    resume();
+    await page.waitForTimeout(1_500);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("rename-input")).toHaveCount(0);
+    await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+    expect(fs.readFileSync(library).equals(before[0])).toBe(true);
+
+    // Revoking trust after the preview blocks the pending set.
+    await placeCursor(page, 2, 20);
+    await page.getByTestId("rename-open").click();
+    await page.getByTestId("rename-input").fill("Purchase");
+    await page.getByTestId("rename-submit").click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByTestId("trust-revoke").click();
+    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await page.getByTestId("rename-apply").click();
+    await expect(page.getByTestId("rename-stale")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("rename-stale")).toContainText(
+      "Analysis is not running",
+    );
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await expect(page.getByTestId(`tab-${renameFiles.program}`)).toHaveCount(0);
+    await expect(page.getByTestId(`tab-${renameFiles.tests}`)).toHaveCount(0);
+    await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+    [library, program, tests].forEach((file, index) => {
+      expect(fs.readFileSync(file).equals(before[index])).toBe(true);
+    });
+  } finally {
+    resume();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});

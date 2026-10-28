@@ -3,6 +3,7 @@ import {
   call,
   HostCallError,
   type EvaluationProject,
+  type RenameResponse,
   type Snapshot,
   type OutlineProject,
 } from "./host/client";
@@ -19,6 +20,31 @@ type Tab = {
   revision: number;
   savedRevision: number;
   conflict: null | { content: string; hash: string };
+};
+
+type RenamePrompt = {
+  path: string;
+  line: number;
+  character: number;
+  revision: number;
+  session: number;
+  contextId: number;
+  workspaceId: number;
+  busy: boolean;
+  error: string | null;
+};
+
+type RenamePreview = {
+  response: RenameResponse;
+  sourcePath: string;
+  sourceRevision: number;
+  session: number;
+  contextId: number;
+  workspaceId: number;
+  /** UI revision of every tab that was open when the preview was built. */
+  tabRevisions: Record<string, number>;
+  stale: string | null;
+  applying: boolean;
 };
 
 type Confirmation =
@@ -160,6 +186,12 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(projects.map((project) => project.path)),
   );
+  const [renamePrompt, setRenamePrompt] = useState<RenamePrompt | null>(null);
+  const [renamePreview, setRenamePreview] = useState<RenamePreview | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const renameSeq = useRef(0);
+  const cursorRef = useRef({ line: 0, character: 0 });
+  const renamePreviewHeading = useRef<HTMLHeadingElement | null>(null);
 
   const active = tabs.find((tab) => tab.path === activePath) ?? null;
   const activeProject = active ? projectFor(active.path, projects) : undefined;
@@ -190,6 +222,25 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   );
   const lspActiveRef = useRef(false);
   lspActiveRef.current = lspActive;
+  const lspViewRef = useRef(lsp);
+  lspViewRef.current = lsp;
+  const contextIdRef = useRef(snapshot.contextId);
+  contextIdRef.current = snapshot.contextId;
+  const workspaceIdRef = useRef(workspace.id);
+  workspaceIdRef.current = workspace.id;
+  const renameDisabledReason = !active
+    ? "Open a file to rename a symbol."
+    : !trusted
+      ? "Trust the workspace before renaming; no analysis runs in Restricted mode."
+      : !lspActive
+        ? "Start analysis before renaming a symbol."
+        : !lsp.capabilities?.rename
+          ? "csharp-ls did not advertise rename for this session."
+          : active.conflict
+            ? "Resolve the disk conflict before renaming this file."
+            : renamePreview
+              ? "Finish or cancel the current rename preview first."
+              : null;
   const lspSent = useRef<{ session: number; paths: Set<string> }>({
     session: 0,
     paths: new Set(),
@@ -350,6 +401,42 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       lspPending.current.clear();
     }, 250);
   }
+
+  useEffect(() => {
+    if (!renamePrompt) return;
+    if (activePath !== renamePrompt.path) {
+      renameSeq.current += 1;
+      setRenamePrompt(null);
+      setMessage({ tone: "info", text: "Rename cancelled: another file became active." });
+      return;
+    }
+    const tab = tabs.find((item) => item.path === renamePrompt.path);
+    if (!tab || tab.revision !== renamePrompt.revision || tab.conflict) {
+      renameSeq.current += 1;
+      setRenamePrompt(null);
+      setMessage({
+        tone: "error",
+        text: "Rename prompt discarded: the source buffer changed; nothing was requested.",
+      });
+    }
+  }, [activePath, tabs, renamePrompt]);
+
+  useEffect(() => {
+    if (renamePreview) renamePreviewHeading.current?.focus();
+  }, [renamePreview?.response.renameId]);
+
+  useEffect(() => {
+    if (!renamePreview) return;
+    if (activePath !== renamePreview.sourcePath) {
+      setRenamePreview(null);
+      setMessage({
+        tone: "info",
+        text: "Rename preview discarded: another file became active; nothing was applied.",
+      });
+    }
+    // Only an active-file change invalidates the visible panel; buffer edits are rejected
+    // by Apply so the user sees the stale reason instead of losing the preview silently.
+  }, [activePath, renamePreview?.response.renameId]);
 
   function toggleProject(path: string) {
     setExpanded((current) => {
@@ -518,6 +605,312 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     const tab = active;
     if (!tab) return;
     await saveTab(tab);
+  }
+
+  function noteCursor(position: { line: number; character: number }) {
+    cursorRef.current = position;
+  }
+
+  function requestRename(position = cursorRef.current) {
+    if (!active) return;
+    if (renameDisabledReason) {
+      setMessage({ tone: "error", text: `Rename unavailable: ${renameDisabledReason}` });
+      return;
+    }
+    renameSeq.current += 1;
+    setRenameName("");
+    setMessage(null);
+    setRenamePrompt({
+      path: active.path,
+      line: position.line,
+      character: position.character,
+      revision: active.revision,
+      session: lsp.session,
+      contextId: snapshot.contextId,
+      workspaceId: workspace.id,
+      busy: false,
+      error: null,
+    });
+  }
+
+  function cancelRenamePrompt() {
+    renameSeq.current += 1;
+    setRenamePrompt(null);
+    setMessage({ tone: "info", text: "Rename cancelled; no request was kept." });
+  }
+
+  async function flushPendingChanges() {
+    if (lspChangeTimer.current !== null) {
+      window.clearTimeout(lspChangeTimer.current);
+      lspChangeTimer.current = null;
+    }
+    const pending = [...lspPending.current];
+    lspPending.current.clear();
+    if (pending.length === 0) return true;
+    const results = await Promise.allSettled(
+      pending.map(([path, text]) => call("lsp.didChange", { path, text })),
+    );
+    return results.every((result) => result.status === "fulfilled");
+  }
+
+  async function submitRename() {
+    const prompt = renamePrompt;
+    if (!prompt || prompt.busy) return;
+    const name = renameName.trim();
+    if (!name) {
+      setRenamePrompt({ ...prompt, error: "Enter the new name." });
+      return;
+    }
+    const sequence = ++renameSeq.current;
+    setRenamePrompt({ ...prompt, busy: true, error: null });
+    if (!lspActiveRef.current) {
+      setRenamePrompt((current) =>
+        current
+          ? {
+              ...current,
+              busy: false,
+              error: "Analysis is not running; no rename was requested.",
+            }
+          : current,
+      );
+      return;
+    }
+    // Analysis must see the buffer the preview is based on; a pending debounce would let
+    // csharp-ls compute the rename from older text.
+    const synchronized = await flushPendingChanges();
+    if (sequence !== renameSeq.current) return;
+    if (!synchronized) {
+      setRenamePrompt((current) =>
+        current
+          ? {
+              ...current,
+              busy: false,
+              error:
+                "Could not send the current buffer to analysis; no rename was requested.",
+            }
+          : current,
+      );
+      return;
+    }
+    const tab = tabsRef.current.find((item) => item.path === prompt.path);
+    const live = lspViewRef.current;
+    if (!tab || tab.revision !== prompt.revision || tab.conflict || live.session !== prompt.session) {
+      setRenamePrompt(null);
+      setMessage({
+        tone: "error",
+        text: "Rename discarded: the document or analysis session changed while the prompt was open.",
+      });
+      return;
+    }
+    let response: RenameResponse;
+    try {
+      response = await call<RenameResponse>("lsp.rename", {
+        path: prompt.path,
+        line: prompt.line,
+        character: prompt.character,
+        newName: name,
+        revision: prompt.revision,
+      });
+    } catch (error) {
+      if (sequence !== renameSeq.current) return;
+      setRenamePrompt((current) =>
+        current
+          ? { ...current, busy: false, error: `Rename unavailable: ${messageOf(error)}` }
+          : current,
+      );
+      return;
+    }
+    if (sequence !== renameSeq.current) return;
+    const currentTab = tabsRef.current.find((item) => item.path === prompt.path);
+    const liveAfter = lspViewRef.current;
+    if (
+      !currentTab ||
+      currentTab.revision !== prompt.revision ||
+      currentTab.conflict ||
+      liveAfter.session !== prompt.session ||
+      contextIdRef.current !== prompt.contextId ||
+      workspaceIdRef.current !== prompt.workspaceId
+    ) {
+      setRenamePrompt(null);
+      setMessage({
+        tone: "error",
+        text: "Rename response discarded: the document, workspace or analysis session changed while csharp-ls was answering; nothing was applied.",
+      });
+      return;
+    }
+    if (response.state !== "ok" || response.documentCount === 0) {
+      setRenamePrompt((current) =>
+        current
+          ? {
+              ...current,
+              busy: false,
+              error: `Rename ${response.state}: ${
+                response.message ?? "csharp-ls returned no edits."
+              }`,
+            }
+          : current,
+      );
+      return;
+    }
+    const tabRevisions: Record<string, number> = {};
+    for (const tab of tabsRef.current) tabRevisions[tab.path] = tab.revision;
+    setRenamePrompt(null);
+    setRenamePreview({
+      response,
+      sourcePath: prompt.path,
+      sourceRevision: prompt.revision,
+      session: prompt.session,
+      contextId: prompt.contextId,
+      workspaceId: prompt.workspaceId,
+      tabRevisions,
+      stale: null,
+      applying: false,
+    });
+    setMessage({
+      tone: "info",
+      text: `Rename preview: ${countLabel(response.documentCount, "file")} · ${countLabel(
+        response.editCount,
+        "edit",
+      )}; nothing has been applied.`,
+    });
+  }
+
+  function cancelRenamePreview() {
+    setRenamePreview(null);
+    setMessage({ tone: "info", text: "Rename cancelled; no buffer or file changed." });
+  }
+
+  function revalidateRename(preview: RenamePreview): string | null {
+    const live = lspViewRef.current;
+    if (!["loading", "ready", "partial", "awaiting_diagnostics"].includes(live.state)) {
+      return "Analysis is not running; the preview cannot be applied.";
+    }
+    if (live.session !== preview.session) {
+      return "The analysis session changed after the preview; apply nothing and request the rename again.";
+    }
+    if (
+      contextIdRef.current !== preview.contextId ||
+      workspaceIdRef.current !== preview.workspaceId
+    ) {
+      return "The workspace changed after the preview; apply nothing and request the rename again.";
+    }
+    if (activePathRef.current !== preview.sourcePath) {
+      return `Another file is active; select ${preview.sourcePath} and request the rename again.`;
+    }
+    const tabsNow = tabsRef.current;
+    for (const document of preview.response.documents) {
+      const captured = preview.tabRevisions[document.path];
+      const tab = tabsNow.find((item) => item.path === document.path);
+      if (captured === undefined) {
+        if (tab) {
+          return `${document.path} was opened after the preview; apply nothing and request the rename again.`;
+        }
+        continue;
+      }
+      if (!tab) {
+        return `${document.path} was closed after the preview; apply nothing and request the rename again.`;
+      }
+      if (tab.revision !== captured) {
+        return `${document.path} changed after the preview; nothing was applied.`;
+      }
+      if (tab.content !== document.baseContent) {
+        return `${document.path} no longer matches the text csharp-ls previewed; apply nothing and request the rename again.`;
+      }
+      if (tab.conflict) {
+        return `${document.path} has a pending disk conflict; nothing was applied.`;
+      }
+    }
+    const source = tabsNow.find((item) => item.path === preview.sourcePath);
+    if (!source || source.revision !== preview.sourceRevision || source.conflict) {
+      return "The source buffer changed after the preview; nothing was applied.";
+    }
+    return null;
+  }
+
+  async function applyRename() {
+    const preview = renamePreview;
+    if (!preview || preview.applying) return;
+    const fail = (reason: string) => {
+      setRenamePreview((current) =>
+        current && current.response.renameId === preview.response.renameId
+          ? { ...current, applying: false, stale: reason }
+          : current,
+      );
+      setMessage({ tone: "error", text: `Rename not applied: ${reason}` });
+    };
+    const reason = revalidateRename(preview);
+    if (reason) {
+      fail(reason);
+      return;
+    }
+    setRenamePreview((current) =>
+      current && current.response.renameId === preview.response.renameId
+        ? { ...current, applying: true, stale: null }
+        : current,
+    );
+
+    // Re-read every previewed file. Open buffers must still have their captured revision
+    // and their last known disk hash; unopened files must still match the preview base.
+    const problems: string[] = [];
+    for (const document of preview.response.documents) {
+      const tab = tabsRef.current.find((item) => item.path === document.path);
+      let file: { hash: string };
+      try {
+        file = await call<{ hash: string }>("file.read", { path: document.path });
+      } catch (error) {
+        problems.push(`${document.path} could not be re-read (${messageOf(error)})`);
+        continue;
+      }
+      const expected = tab ? tab.hash : document.baseHash;
+      if (file.hash !== expected) {
+        problems.push(`${document.path} changed on disk after the preview`);
+      }
+    }
+    if (problems.length > 0) {
+      fail(`${problems.join("; ")}. No buffer or file was changed.`);
+      return;
+    }
+    const afterReads = revalidateRename(preview);
+    if (afterReads) {
+      fail(afterReads);
+      return;
+    }
+
+    const documents = new Map(
+      preview.response.documents.map((document) => [document.path, document]),
+    );
+    const next = tabsRef.current.map((tab) => {
+      const document = documents.get(tab.path);
+      return document
+        ? { ...tab, content: document.newContent, revision: tab.revision + 1, conflict: null }
+        : tab;
+    });
+    for (const document of preview.response.documents) {
+      if (next.some((tab) => tab.path === document.path)) continue;
+      next.push({
+        path: document.path,
+        content: document.newContent,
+        hash: document.baseHash,
+        revision: 1,
+        savedRevision: 0,
+        conflict: null,
+      });
+    }
+    setTabs(next);
+    for (const document of preview.response.documents) {
+      if (document.opened) queueDidChange(document.path, document.newContent);
+    }
+    setRenamePreview(null);
+    setMessage({
+      tone: "info",
+      text: `Rename applied to ${countLabel(
+        preview.response.documentCount,
+        "file",
+      )}; ${countLabel(
+        preview.response.documentCount,
+        "buffer",
+      )} ${preview.response.documentCount === 1 ? "is" : "are"} modified and unsaved. Nothing was written to disk; Save remains explicit and diagnostics are not marked fixed.`,
+    });
   }
 
   function reloadFromDisk() {
@@ -1319,6 +1712,18 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </div>
             <button
               className="save"
+              data-testid="rename-open"
+              onClick={() => requestRename()}
+              disabled={renameDisabledReason !== null}
+              title={
+                renameDisabledReason ??
+                "Rename the symbol at the cursor (Shift+F6); preview before applying."
+              }
+            >
+              Rename symbol…
+            </button>
+            <button
+              className="save"
               data-testid="save-file"
               onClick={() => void save()}
               disabled={!active || !isDirty(active)}
@@ -1350,6 +1755,117 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   {isDirty(active) ? "modified" : "saved"}
                 </span>
               </div>
+
+              {renamePreview && (
+                <section
+                  className="rename-preview"
+                  role="dialog"
+                  aria-modal="false"
+                  aria-labelledby="rename-preview-title"
+                  data-testid="rename-preview"
+                  data-files={renamePreview.response.documentCount}
+                  data-edits={renamePreview.response.editCount}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") cancelRenamePreview();
+                  }}
+                >
+                  <h2 id="rename-preview-title" ref={renamePreviewHeading} tabIndex={-1}>
+                    Rename to “{renamePreview.response.newName}”
+                  </h2>
+                  <p className="muted" data-testid="rename-preview-summary">
+                    {countLabel(renamePreview.response.documentCount, "file")} ·{" "}
+                    {countLabel(renamePreview.response.editCount, "edit")} · session{" "}
+                    {renamePreview.session} · source revision{" "}
+                    {renamePreview.sourceRevision} ·{" "}
+                    {
+                      renamePreview.response.documents.filter(
+                        (document) => renamePreview.tabRevisions[document.path] === undefined,
+                      ).length
+                    }{" "}
+                    not opened here. Nothing has been applied.
+                  </p>
+                  {renamePreview.response.prepared && (
+                    <p className="muted">prepareRename accepted the position.</p>
+                  )}
+                  {renamePreview.stale && (
+                    <p className="error" role="alert" data-testid="rename-stale">
+                      {renamePreview.stale}
+                    </p>
+                  )}
+                  <ul className="rename-index" data-testid="rename-file-index">
+                    {renamePreview.response.documents.map((document) => (
+                      <li key={document.path} data-testid={`rename-index-${document.path}`}>
+                        <code>{document.path}</code>{" "}
+                        <span className="tag">
+                          {renamePreview.tabRevisions[document.path] === undefined
+                            ? "not opened here"
+                            : "open buffer"}
+                        </span>{" "}
+                        <span className="muted">
+                          {countLabel(document.editCount, "edit")}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <ol className="rename-files">
+                    {renamePreview.response.documents.map((document) => (
+                      <li key={document.path} data-testid={`rename-file-${document.path}`}>
+                        <div className="rename-file-head">
+                          <code>{document.path}</code>
+                          <span className="tag">
+                            {renamePreview.tabRevisions[document.path] === undefined
+                              ? "not opened here"
+                              : "open buffer"}
+                          </span>
+                          <span className="muted" data-testid={`rename-count-${document.path}`}>
+                            {countLabel(document.editCount, "edit")}
+                          </span>
+                        </div>
+                        <div
+                          className="rename-diff"
+                          data-testid={`rename-diff-${document.path}`}
+                        >
+                          {document.changes.slice(0, 8).map((change, index) => (
+                            <div className="rename-change" key={`${change.line}-${index}`}>
+                              <span className="muted">line {change.line}</span>
+                              <pre className="rename-before">− {change.before}</pre>
+                              <pre className="rename-after">+ {change.after}</pre>
+                            </div>
+                          ))}
+                          {document.changes.length > 8 && (
+                            <p className="muted">
+                              … {document.changes.length - 8} more change
+                              {document.changes.length - 8 === 1 ? "" : "s"} in this file.
+                            </p>
+                          )}
+                          {document.displayTruncated && (
+                            <p className="muted">
+                              Long lines are shortened here; the applied text and counts are
+                              complete.
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="actions">
+                    <button
+                      data-testid="rename-apply"
+                      onClick={() => void applyRename()}
+                      disabled={renamePreview.applying}
+                    >
+                      {renamePreview.applying ? "Revalidating…" : "Apply to buffers"}
+                    </button>
+                    <button
+                      data-testid="rename-cancel-preview"
+                      onClick={cancelRenamePreview}
+                      disabled={renamePreview.applying}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </section>
+              )}
 
               {active.conflict && (
                 <div className="notice error" data-testid="conflict-banner" role="alert">
@@ -1405,6 +1921,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                       character: location.character,
                     })
                   }
+                  onRename={(position) => requestRename(position)}
+                  onCursor={noteCursor}
                   target={
                     editorTarget?.path === active.path ? editorTarget : null
                   }
@@ -1582,6 +2100,76 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           Keymap: IntelliJ / Rider
         </span>
       </footer>
+
+      {renamePrompt && (
+        <div className="modal-backdrop">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rename-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") cancelRenamePrompt();
+              if (event.key === "Tab") {
+                const focusable = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLElement>("input, button"),
+                );
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (!first || !last) return;
+                if (event.shiftKey && document.activeElement === first) {
+                  event.preventDefault();
+                  last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                  event.preventDefault();
+                  first.focus();
+                }
+              }
+            }}
+          >
+            <h2 id="rename-title">Rename symbol</h2>
+            <p className="muted" data-testid="rename-source">
+              {renamePrompt.path} · {renamePrompt.line + 1}:{renamePrompt.character + 1} ·
+              revision {renamePrompt.revision} · session {renamePrompt.session}
+            </p>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitRename();
+              }}
+            >
+              <label className="rename-field">
+                <span>New name</span>
+                <input
+                  data-testid="rename-input"
+                  autoFocus
+                  value={renameName}
+                  onChange={(event) => setRenameName(event.target.value)}
+                  disabled={renamePrompt.busy}
+                  aria-describedby={renamePrompt.error ? "rename-error" : undefined}
+                />
+              </label>
+              {renamePrompt.error && (
+                <p className="error" role="alert" id="rename-error" data-testid="rename-error">
+                  {renamePrompt.error}
+                </p>
+              )}
+              <p className="hint">
+                csharp-ls returns the real edits; nothing changes until the preview is
+                applied.
+              </p>
+              <div className="actions">
+                <button type="submit" data-testid="rename-submit" disabled={renamePrompt.busy}>
+                  {renamePrompt.busy ? "Waiting for csharp-ls…" : "Preview rename"}
+                </button>
+                <button type="button" data-testid="rename-cancel" onClick={cancelRenamePrompt}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {confirm && (
         <div className="modal-backdrop">

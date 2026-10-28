@@ -25,6 +25,12 @@ const KILL_GRACE: Duration = Duration::from_secs(2);
 /// returns `timeout` instead of blocking the host forever.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 pub const COMPLETION_LIMIT: usize = 200;
+/// A rename preview is rejected (never partially applied) above these bounds.
+pub const RENAME_DOCUMENT_LIMIT: usize = 50;
+pub const RENAME_EDIT_LIMIT: usize = 2_000;
+pub const RENAME_CONTENT_LIMIT: usize = 1_048_576;
+/// A single displayed line block is shortened; counts and applied text stay complete.
+const RENAME_DISPLAY_CHARS: usize = 2_000;
 
 #[derive(Debug)]
 pub enum Frame {
@@ -98,6 +104,7 @@ pub struct Capabilities {
     pub completion: bool,
     pub definition: bool,
     pub rename: bool,
+    pub prepare_rename: bool,
     pub code_actions: bool,
     pub push_diagnostics: bool,
     pub pull_diagnostics: bool,
@@ -109,6 +116,11 @@ pub struct Capabilities {
 fn capabilities_of(capabilities: &Value) -> Capabilities {
     let has = |name: &str| capabilities.get(name).is_some_and(|value| !value.is_null());
     let synchronization = capabilities.get("textDocumentSync").cloned();
+    let rename_provider = capabilities.get("renameProvider");
+    let prepare_rename = rename_provider
+        .and_then(|value| value.get("prepareProvider"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let mut summary = Vec::new();
     if has("completionProvider") {
         summary.push("completion".to_string());
@@ -117,7 +129,11 @@ fn capabilities_of(capabilities: &Value) -> Capabilities {
         summary.push("definition".to_string());
     }
     if has("renameProvider") {
-        summary.push("rename".to_string());
+        summary.push(if prepare_rename {
+            "rename (prepare)".to_string()
+        } else {
+            "rename".to_string()
+        });
     }
     if has("codeActionProvider") {
         summary.push("code actions".to_string());
@@ -132,6 +148,7 @@ fn capabilities_of(capabilities: &Value) -> Capabilities {
         completion: has("completionProvider"),
         definition: has("definitionProvider"),
         rename: has("renameProvider"),
+        prepare_rename,
         code_actions: has("codeActionProvider"),
         push_diagnostics: true,
         pull_diagnostics: has("diagnosticProvider"),
@@ -147,6 +164,7 @@ impl Capabilities {
         match method {
             "textDocument/completion" => self.completion,
             "textDocument/definition" => self.definition,
+            "textDocument/rename" => self.rename,
             _ => false,
         }
     }
@@ -343,6 +361,265 @@ fn definition_target(value: &Value) -> Option<DefinitionTarget> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Position {
+    pub line: u64,
+    pub character: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RenameTextEdit {
+    pub start: Position,
+    pub end: Position,
+    pub new_text: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RenameDocumentEdits {
+    pub uri: String,
+    pub version: Option<i64>,
+    pub edits: Vec<RenameTextEdit>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RenameChange {
+    /// 1-based line of the first line covered by the edit.
+    pub line: u64,
+    pub before: String,
+    pub after: String,
+    pub display_truncated: bool,
+}
+
+pub struct AppliedRename {
+    pub content: String,
+    pub changes: Vec<RenameChange>,
+}
+
+/// A `WorkspaceEdit` may carry `changes` (uri → TextEdit[]) and/or `documentChanges`
+/// (TextDocumentEdit[]). Resource operations and malformed entries are refused instead of
+/// being interpreted as text edits.
+pub fn parse_workspace_edit(result: &Value) -> Result<Vec<RenameDocumentEdits>, String> {
+    let mut documents: Vec<RenameDocumentEdits> = Vec::new();
+    if result.is_null() {
+        return Ok(documents);
+    }
+    let Some(map) = result.as_object() else {
+        return Err("the result is not a WorkspaceEdit object".to_string());
+    };
+    if let Some(changes) = map.get("changes") {
+        let Some(entries) = changes.as_object() else {
+            return Err("`changes` is not an object".to_string());
+        };
+        for (uri, edits) in entries {
+            let Some(edits) = edits.as_array() else {
+                return Err(format!("`changes` for {uri} is not an array"));
+            };
+            merge_document_edits(&mut documents, uri, None, edits)?;
+        }
+    }
+    if let Some(changes) = map.get("documentChanges") {
+        let Some(entries) = changes.as_array() else {
+            return Err("`documentChanges` is not an array".to_string());
+        };
+        for entry in entries {
+            if let Some(kind) = entry.get("kind").and_then(Value::as_str) {
+                return Err(format!(
+                    "the server requested the file operation `{kind}`, which this client never applies"
+                ));
+            }
+            let uri = entry
+                .get("textDocument")
+                .and_then(|document| document.get("uri"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| "a `documentChanges` entry has no textDocument.uri".to_string())?;
+            let Some(edits) = entry.get("edits").and_then(Value::as_array) else {
+                return Err(format!("`documentChanges` for {uri} has no edits array"));
+            };
+            let version = entry
+                .get("textDocument")
+                .and_then(|document| document.get("version"))
+                .and_then(Value::as_i64);
+            merge_document_edits(&mut documents, uri, version, edits)?;
+        }
+    }
+    if documents.is_empty() && map.is_empty() {
+        return Ok(documents);
+    }
+    if map.get("changes").is_none() && map.get("documentChanges").is_none() {
+        return Err("the result has neither `changes` nor `documentChanges`".to_string());
+    }
+    Ok(documents)
+}
+
+fn merge_document_edits(
+    documents: &mut Vec<RenameDocumentEdits>,
+    uri: &str,
+    version: Option<i64>,
+    edits: &[Value],
+) -> Result<(), String> {
+    let mut parsed = Vec::with_capacity(edits.len());
+    for edit in edits {
+        parsed.push(rename_text_edit(edit).map_err(|error| format!("{uri}: {error}"))?);
+    }
+    match documents.iter_mut().find(|document| document.uri == uri) {
+        Some(document) => {
+            if let (Some(existing), Some(incoming)) = (document.version, version) {
+                if existing != incoming {
+                    return Err(format!("{uri} is listed with two different versions"));
+                }
+            }
+            if document.version.is_none() {
+                document.version = version;
+            }
+            document.edits.extend(parsed);
+        }
+        None => documents.push(RenameDocumentEdits {
+            uri: uri.to_string(),
+            version,
+            edits: parsed,
+        }),
+    }
+    Ok(())
+}
+
+fn rename_text_edit(value: &Value) -> Result<RenameTextEdit, String> {
+    let new_text = value
+        .get("newText")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "an edit has no newText".to_string())?
+        .to_string();
+    let range = value
+        .get("range")
+        .ok_or_else(|| "an edit has no range".to_string())?;
+    let start = parse_position(range.get("start"))
+        .ok_or_else(|| "an edit has no valid range.start".to_string())?;
+    let end = parse_position(range.get("end"))
+        .ok_or_else(|| "an edit has no valid range.end".to_string())?;
+    Ok(RenameTextEdit {
+        start,
+        end,
+        new_text,
+    })
+}
+
+fn parse_position(value: Option<&Value>) -> Option<Position> {
+    let value = value?;
+    Some(Position {
+        line: value.get("line")?.as_u64()?,
+        character: value.get("character")?.as_u64()?,
+    })
+}
+
+/// LSP positions count lines by `\n` and characters in UTF-16 code units, so astral
+/// characters occupy two units and a CRLF line keeps its `\r` as part of the line text.
+pub fn utf16_offset(content: &str, position: Position) -> Option<usize> {
+    let mut offset = 0usize;
+    for _ in 0..position.line {
+        let next = content[offset..].find('\n')?;
+        offset += next + 1;
+    }
+    let end = content[offset..]
+        .find('\n')
+        .map(|next| offset + next)
+        .unwrap_or(content.len());
+    let mut units = 0u64;
+    for (index, character) in content[offset..end].char_indices() {
+        if units == position.character {
+            return Some(offset + index);
+        }
+        units += character.len_utf16() as u64;
+    }
+    (units == position.character).then_some(end)
+}
+
+/// Applies every edit against the base text, computes the new text and a per-edit line
+/// block for the preview. Overlapping or out-of-range edits reject the whole document.
+pub fn apply_rename_edits(base: &str, edits: &[RenameTextEdit]) -> Result<AppliedRename, String> {
+    let mut resolved = Vec::with_capacity(edits.len());
+    for edit in edits {
+        let start = utf16_offset(base, edit.start).ok_or_else(|| {
+            format!(
+                "the edit start {}:{} is outside the document",
+                edit.start.line, edit.start.character
+            )
+        })?;
+        let end = utf16_offset(base, edit.end).ok_or_else(|| {
+            format!(
+                "the edit end {}:{} is outside the document",
+                edit.end.line, edit.end.character
+            )
+        })?;
+        if start > end {
+            return Err(format!(
+                "the edit {}:{}-{}:{} is reversed",
+                edit.start.line, edit.start.character, edit.end.line, edit.end.character
+            ));
+        }
+        resolved.push((start, end, edit));
+    }
+    let mut ordered: Vec<usize> = (0..resolved.len()).collect();
+    ordered.sort_by_key(|index| resolved[*index].0);
+    for pair in ordered.windows(2) {
+        let (previous_start, previous_end, _) = resolved[pair[0]];
+        let (start, _, _) = resolved[pair[1]];
+        if start <= previous_start || start < previous_end {
+            return Err(format!(
+                "edits overlap at byte {start} (previous edit ends at {previous_end})"
+            ));
+        }
+    }
+
+    let mut changes: Vec<RenameChange> = Vec::with_capacity(resolved.len());
+    for (start, end, edit) in &resolved {
+        let line_start = base[..*start]
+            .rfind('\n')
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let line_end = base[*end..]
+            .find('\n')
+            .map(|index| end + index)
+            .unwrap_or(base.len());
+        let before = base[line_start..line_end].to_string();
+        let after = format!(
+            "{}{}{}",
+            &base[line_start..*start],
+            edit.new_text,
+            &base[*end..line_end]
+        );
+        let line = base[..line_start]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count() as u64
+            + 1;
+        let display_truncated = before.chars().count() > RENAME_DISPLAY_CHARS
+            || after.chars().count() > RENAME_DISPLAY_CHARS;
+        changes.push(RenameChange {
+            line,
+            before: truncate_chars(&before, RENAME_DISPLAY_CHARS),
+            after: truncate_chars(&after, RENAME_DISPLAY_CHARS),
+            display_truncated,
+        });
+    }
+    changes.sort_by_key(|change| change.line);
+
+    let mut content = base.to_string();
+    let mut descending = resolved.clone();
+    descending.sort_by_key(|(start, _, _)| std::cmp::Reverse(*start));
+    for (start, end, edit) in descending {
+        content.replace_range(start..end, &edit.new_text);
+    }
+    Ok(AppliedRename { content, changes })
+}
+
+fn truncate_chars(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut shortened: String = text.chars().take(limit).collect();
+    shortened.push('…');
+    shortened
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticItem {
@@ -407,8 +684,15 @@ pub struct LspView {
 
 struct Document {
     path: String,
+    text: String,
     version: i64,
     last_change_at: u64,
+}
+
+pub struct OpenDocument {
+    pub path: String,
+    pub text: String,
+    pub version: i64,
 }
 
 struct Data {
@@ -644,6 +928,31 @@ impl Lsp {
             .map(|document| document.version)
     }
 
+    /// The text this session last sent for the document. A rename preview for an open
+    /// document must use this text, not the disk, so unsaved buffer edits stay consistent.
+    pub fn open_documents(&self) -> Vec<OpenDocument> {
+        self.data
+            .lock()
+            .unwrap()
+            .documents
+            .iter()
+            .map(|(_, document)| OpenDocument {
+                path: document.path.clone(),
+                text: document.text.clone(),
+                version: document.version,
+            })
+            .collect()
+    }
+
+    pub fn supports_prepare_rename(&self) -> bool {
+        self.data
+            .lock()
+            .unwrap()
+            .capabilities
+            .as_ref()
+            .is_some_and(|capabilities| capabilities.prepare_rename)
+    }
+
     /// Sends one request and waits at most `timeout`. The pending sender is keyed by the
     /// protocol id, so a response can only reach the request it belongs to. A stop clears
     /// pending senders, which turns an in-flight wait into `Unavailable` instead of a stale
@@ -803,6 +1112,7 @@ impl Lsp {
                 uri.to_string(),
                 Document {
                     path: path.to_string(),
+                    text: text.to_string(),
                     version,
                     last_change_at: now_ms(),
                 },
@@ -834,6 +1144,7 @@ impl Lsp {
                 return Err("The document was not opened in this analysis session.".to_string());
             };
             document.version += 1;
+            document.text = text.to_string();
             document.last_change_at = now_ms();
             document.version
         };
@@ -1708,5 +2019,282 @@ mod tests {
 
         assert_eq!(parse_definition(&Value::Null).unwrap().targets.len(), 0);
         assert!(parse_definition(&json!("nope")).is_none());
+    }
+    #[test]
+    fn rename_capability_includes_prepare_rename_only_when_advertised() {
+        let plain = capabilities_of(&json!({ "renameProvider": true }));
+        assert!(plain.rename);
+        assert!(!plain.prepare_rename);
+        assert!(plain.supports("textDocument/rename"));
+        assert!(plain.summary.contains(&"rename".to_string()));
+
+        let prepared = capabilities_of(&json!({
+            "renameProvider": { "prepareProvider": true }
+        }));
+        assert!(prepared.rename);
+        assert!(prepared.prepare_rename);
+        assert!(prepared.summary.contains(&"rename (prepare)".to_string()));
+
+        let absent = capabilities_of(&json!({}));
+        assert!(!absent.rename);
+        assert!(!absent.supports("textDocument/rename"));
+    }
+
+    #[test]
+    fn workspace_edits_accept_changes_and_document_changes() {
+        let edit = |line: u64, start: u64, end: u64, text: &str| {
+            json!({
+                "range": {
+                    "start": { "line": line, "character": start },
+                    "end": { "line": line, "character": end }
+                },
+                "newText": text
+            })
+        };
+        let parsed = parse_workspace_edit(&json!({
+            "changes": {
+                "file:///tmp/Order.cs": [edit(4, 11, 16, "Purchase"), edit(9, 12, 17, "Purchase")]
+            }
+        }))
+        .expect("changes");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].edits.len(), 2);
+        assert_eq!(
+            parsed[0].edits[0].start,
+            Position {
+                line: 4,
+                character: 11
+            }
+        );
+        assert_eq!(parsed[0].version, None);
+
+        let parsed = parse_workspace_edit(&json!({
+            "documentChanges": [{
+                "textDocument": { "uri": "file:///tmp/Program.cs", "version": 2 },
+                "edits": [edit(2, 20, 25, "Purchase")]
+            }]
+        }))
+        .expect("documentChanges");
+        assert_eq!(parsed[0].version, Some(2));
+        assert_eq!(parsed[0].edits[0].new_text, "Purchase");
+
+        assert_eq!(parse_workspace_edit(&Value::Null).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn workspace_edits_reject_file_operations_and_malformed_entries() {
+        let error = parse_workspace_edit(&json!({
+            "documentChanges": [{ "kind": "rename", "oldUri": "file:///tmp/a.cs", "newUri": "file:///tmp/b.cs" }]
+        }))
+        .expect_err("file operation");
+        assert!(error.contains("file operation"), "{error}");
+
+        let error = parse_workspace_edit(&json!({
+            "documentChanges": [{
+                "textDocument": { "uri": "file:///tmp/a.cs" },
+                "edits": [{ "range": { "start": { "line": 0, "character": 0 } }, "newText": "x" }]
+            }]
+        }))
+        .expect_err("missing end");
+        assert!(error.contains("range.end"), "{error}");
+
+        assert!(parse_workspace_edit(&json!({ "changes": [] })).is_err());
+        assert!(parse_workspace_edit(&json!({ "other": true })).is_err());
+    }
+
+    #[test]
+    fn utf16_offsets_handle_astral_characters_and_crlf() {
+        let text = "first\r\nhéllo 😀x\r\nlast";
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 0,
+                    character: 0
+                }
+            ),
+            Some(0)
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 0,
+                    character: 5
+                }
+            ),
+            Some(5)
+        );
+        // `\r` still belongs to the line; positions before it map before it.
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 0
+                }
+            ),
+            Some(7)
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 5
+                }
+            ),
+            Some(13)
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 6
+                }
+            ),
+            Some(14)
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 1
+                }
+            ),
+            Some(8)
+        );
+        // The emoji occupies two UTF-16 units: 8 is `x`, 9 is the end of the line text,
+        // and the middle of the surrogate pair (7) is not a valid position.
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 7
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 8
+                }
+            ),
+            Some(18)
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 9
+                }
+            ),
+            Some(19)
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 10
+                }
+            ),
+            Some(20)
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 1,
+                    character: 11
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 2,
+                    character: 4
+                }
+            ),
+            Some(25)
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 3,
+                    character: 0
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            utf16_offset(
+                text,
+                Position {
+                    line: 2,
+                    character: 5
+                }
+            ),
+            None
+        );
+    }
+
+    fn text_edit(line: u64, start: u64, end: u64, new_text: &str) -> RenameTextEdit {
+        RenameTextEdit {
+            start: Position {
+                line,
+                character: start,
+            },
+            end: Position {
+                line,
+                character: end,
+            },
+            new_text: new_text.to_string(),
+        }
+    }
+
+    #[test]
+    fn rename_edits_apply_against_the_base_in_any_order() {
+        let base = "class Order\n{\n    Order() {}\n}\n";
+        let applied = apply_rename_edits(
+            base,
+            &[
+                text_edit(2, 4, 9, "Purchase"),
+                text_edit(0, 6, 11, "Purchase"),
+            ],
+        )
+        .expect("valid edits");
+        assert_eq!(applied.content, "class Purchase\n{\n    Purchase() {}\n}\n");
+        assert_eq!(applied.changes.len(), 2);
+        assert_eq!(applied.changes[0].line, 1);
+        assert_eq!(applied.changes[0].before, "class Order");
+        assert_eq!(applied.changes[0].after, "class Purchase");
+        assert_eq!(applied.changes[1].line, 3);
+    }
+
+    #[test]
+    fn rename_edits_reject_overlaps_invalid_and_reversed_ranges() {
+        let base = "class Order {}\n";
+        assert!(
+            apply_rename_edits(base, &[text_edit(0, 6, 11, "A"), text_edit(0, 9, 11, "B")])
+                .is_err()
+        );
+        assert!(
+            apply_rename_edits(base, &[text_edit(0, 6, 6, "A"), text_edit(0, 6, 6, "B")]).is_err()
+        );
+        assert!(apply_rename_edits(base, &[text_edit(0, 11, 6, "A")]).is_err());
+        assert!(apply_rename_edits(base, &[text_edit(1, 0, 1, "A")]).is_err());
+        assert!(apply_rename_edits(base, &[text_edit(0, 0, 100, "A")]).is_err());
     }
 }

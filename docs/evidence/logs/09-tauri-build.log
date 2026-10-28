@@ -1,0 +1,23 @@
+$ tauri build --debug --no-bundle
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `bun run build`
+$ tsc --noEmit && vite build
+vite v6.4.5 building for production...
+transforming...
+✓ 58 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.39 kB │ gzip:   0.27 kB
+dist/assets/index-Bz2hp3Rm.css   15.18 kB │ gzip:   3.42 kB
+dist/assets/core-BUhCcD2K.js      2.70 kB │ gzip:   1.11 kB
+dist/assets/window-BPQH9sz4.js   15.56 kB │ gzip:   3.91 kB
+dist/assets/index-BDW7JHYd.js   650.08 kB │ gzip: 207.29 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.08s
+   Compiling openridr v0.1.0 (/Users/helder/Projetos/openridr/src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.07s
+       Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
