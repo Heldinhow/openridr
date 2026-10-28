@@ -39,6 +39,28 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
     await capture("workspace-empty");
+    if (viewport.height === 700) {
+      await page.getByTestId("workspace-tools-toggle").click();
+      const height = page.getByRole("separator", { name: "Output panel height" });
+      await height.focus();
+      await page.keyboard.press("End");
+      await expect(height).toHaveAttribute("aria-valuenow", "294");
+      const empty = page.locator(".empty-editor");
+      expect(await empty.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+      await empty.locator(".hint").scrollIntoViewIfNeeded();
+      const hintBox = (await empty.locator(".hint").boundingBox())!;
+      const paneBox = (await editor.boundingBox())!;
+      expect(hintBox.y).toBeGreaterThanOrEqual(paneBox.y);
+      expect(hintBox.y + hintBox.height).toBeLessThanOrEqual(paneBox.y + paneBox.height);
+      await expect(empty.getByText("Run saved build", { exact: true })).toBeVisible();
+      await page.getByTestId("workspace-tools-toggle").click();
+      const handle = (await height.boundingBox())!;
+      await page.mouse.move(handle.x + 40, handle.y + 2);
+      await page.mouse.down();
+      await page.mouse.move(handle.x + 40, handle.y + 76);
+      await page.mouse.up();
+      await expect(height).toHaveAttribute("aria-valuenow", "220");
+    }
     await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
     await expect(page.getByTestId("editor")).toBeVisible();
     await page.getByTestId("editor").click();

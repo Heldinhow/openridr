@@ -815,6 +815,8 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   padding: 32px;
   margin: auto;
   max-width: 500px;
+  min-height: 0;
+  overflow: auto;
 }
 .empty-editor > .icon { width: 32px; height: 32px; color: var(--muted); margin-bottom: 16px; }
 .empty-editor h1 { font-size: 20px; font-weight: 500; letter-spacing: -.4px; }
