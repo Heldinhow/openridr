@@ -417,16 +417,29 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 
 .workspace-view {
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: var(--sidebar-width, 280px) 4px minmax(0, 1fr);
+  grid-template-rows: 44px auto minmax(0, 1fr) 4px minmax(120px, min(var(--output-height, 220px), 42vh)) 24px;
   overflow: hidden;
+  position: relative;
 }
+.workspace-view > .toolbar { grid-column: 1 / -1; grid-row: 1; }
+.workspace-view > .workspace-notices { grid-column: 3; grid-row: 2; max-height: 24vh; }
+.workspace-view .side { grid-column: 1; grid-row: 2 / 6; }
+.workspace-view .editor-pane { grid-column: 3; grid-row: 3; overflow: hidden; }
+.workspace-view > .output { grid-column: 3; grid-row: 5; }
+.workspace-view > .status { grid-column: 1 / -1; grid-row: 6; }
+.splitter { background: var(--panel); touch-action: none; z-index: 2; }
+.splitter:hover, .splitter:focus-visible { background: var(--accent); }
+.splitter.vertical { grid-column: 2; grid-row: 2 / 6; cursor: col-resize; }
+.splitter.horizontal { grid-column: 3; grid-row: 4; cursor: row-resize; }
+.toolbar-configuration { display: flex; gap: 6px; }
+.toolbar .eval-field > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.toolbar .eval-field select { height: 28px; max-width: 150px; font-size: 12px; }
+.toolbar .toolbar-startup select { max-width: 180px; }
 
 .workspace-grid {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  display: contents;
 }
 
 .workspace-grid.with-details {
@@ -438,7 +451,16 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   overflow: auto;
   background: var(--panel);
   border-left: 1px solid var(--line);
+  position: absolute;
+  right: 0;
+  top: 44px;
+  bottom: 24px;
+  width: min(380px, 50%);
+  z-index: 10;
+  box-shadow: -12px 0 32px #0005;
 }
+.eval-details-pane[hidden] { display: none; }
+.inspector-close { margin: 8px 12px; }
 
 .eval-details-pane .panel-title {
   position: sticky;
@@ -484,8 +506,15 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   border-radius: 0;
   text-align: left;
   white-space: nowrap;
-  overflow: hidden;
+  overflow: visible;
+  min-height: 28px;
 }
+.tree-name { flex: 0 0 auto; }
+.tree-row .icon-file { color: var(--info); }
+.tree-row .icon-project { color: var(--accent); }
+.tree { min-width: max-content; }
+.side .panel-title { font-size: 12px; }
+.side .panel-title .tag { display: block; width: fit-content; margin-top: 4px; font-weight: 400; }
 
 .tree-row:hover {
   background: var(--raised);

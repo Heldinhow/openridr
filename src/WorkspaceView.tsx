@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   call,
   HostCallError,
@@ -19,6 +19,7 @@ import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { Icon } from "./Icon";
+import { Splitter } from "./Splitter";
 
 type Tab = {
   path: string;
@@ -224,6 +225,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [bottomTab, setBottomTab] = useState<BottomTab>("build");
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [outputHeight, setOutputHeight] = useState(220);
+  const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
     path: string;
     line: number;
@@ -2053,9 +2057,24 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   }`;
 
   return (
-    <main className="workspace-view">
+    <main className="workspace-view" style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${outputHeight}px` } as CSSProperties}>
       <div className="toolbar">
         <span className="workspace-brand" title={workspace.path}><Icon name="project" /><strong>{workspace.name}</strong></span>
+        <label className="eval-field toolbar-startup">
+          <span>Startup project</span>
+          <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupPath(event.target.value)}>
+            <option value="">{consoleCandidates.length ? "Select startup project" : "No console project"}</option>
+            {consoleCandidates.map((project) => <option key={project.path} value={project.path}>{project.name}</option>)}
+          </select>
+        </label>
+        <div className="toolbar-configuration">
+          <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })}>
+            {configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}
+          </select></label>
+          <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value === "" ? null : event.target.value })}>
+            <option value="">TFM: auto</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}
+          </select></label>
+        </div>
         <span className="push" />
         <button
           data-testid="toolbar-build"
@@ -2314,53 +2333,6 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           </div>
 
           <div className="eval-controls">
-            <label className="eval-field">
-              <span>Configuration</span>
-              <select
-                data-testid="eval-configuration"
-                value={evaluation.context.configuration}
-                disabled={!evaluationAvailable || evaluationBusy}
-                onChange={(event) =>
-                  void runEvaluation({ configuration: event.target.value })
-                }
-                title={
-                  evaluationAvailable
-                    ? "MSBuild configuration for the evaluated project model."
-                    : "Trust the workspace and resolve the project SDK to select a configuration."
-                }
-              >
-                {configurations.map((configuration) => (
-                  <option key={configuration} value={configuration}>
-                    {configuration}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="eval-field">
-              <span>TFM</span>
-              <select
-                data-testid="eval-tfm"
-                value={evaluation.context.targetFramework ?? ""}
-                disabled={!evaluationAvailable || evaluationBusy}
-                onChange={(event) =>
-                  void runEvaluation({
-                    targetFramework: event.target.value === "" ? null : event.target.value,
-                  })
-                }
-                title={
-                  evaluationAvailable
-                    ? "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM."
-                    : "Trust the workspace and resolve the project SDK to select a TFM."
-                }
-              >
-                <option value="">Not selected</option>
-                {tfmOptions.map((tfm) => (
-                  <option key={tfm} value={tfm}>
-                    {tfm}
-                  </option>
-                ))}
-              </select>
-            </label>
             <button
               data-testid="eval-run"
               disabled={!evaluationAvailable || evaluationBusy}
@@ -2386,6 +2358,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               {evaluation.stale ? " · stale" : ""}
               {evaluation.revision > 0 ? ` · revision ${evaluation.revision}` : ""}
             </span>
+            {selectedProject && <button onClick={() => setProjectDetailsOpen(!projectDetailsOpen)} aria-expanded={projectDetailsOpen}>Project details</button>}
           </div>
 
           {!evaluationAvailable && trusted && (
@@ -2437,7 +2410,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                           title={project.path}
                         >
                           <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-                          <span>{project.name}</span>
+                          <Icon name="project" /><span className="tree-name">{project.name}</span>
                           <span className="tag">{project.kind}</span>
                           {project.state === "failed" && <span className="tag error">error</span>}
                           {project.tfms.map((tfm) => (
@@ -2490,7 +2463,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                                 onClick={() => void openFile(file)}
                                 title={file}
                               >
-                                {baseName(file)}
+                                <Icon name="file" /><span className="tree-name">{baseName(file)}</span>
                               </button>
                             ))}
                             {project.sources.length === 0 && !project.error && (
@@ -2519,7 +2492,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                       title={project.path}
                     >
                       <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-                      <span>{project.name}</span>
+                      <Icon name="project" /><span className="tree-name">{project.name}</span>
                       <span className="tag">{project.kind}</span>
                       {project.tfms.map((tfm) => (
                         <span className="tag" key={tfm}>
@@ -2543,7 +2516,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                             onClick={() => void openFile(file)}
                             title={file}
                           >
-                            {baseName(file)}
+                            <Icon name="file" /><span className="tree-name">{baseName(file)}</span>
                           </button>
                         ))}
                         {project.files.length === 0 && (
@@ -2564,6 +2537,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </p>
           )}
         </nav>
+        <Splitter label="Solution explorer width" value={sidebarWidth} min={220} max={420} onChange={setSidebarWidth} />
 
         <section className="editor-pane" aria-label="Editor">
           <div className="tabbar">
@@ -2959,7 +2933,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           )}
         </section>
 
-        <aside className="eval-details-pane" hidden={!selectedProject}>
+        <aside className="eval-details-pane" hidden={!selectedProject || !projectDetailsOpen} aria-label="Project inspector">
+          <button className="inspector-close" onClick={() => setProjectDetailsOpen(false)}>Close project details</button>
             {selectedProject && (
               <section
                 className="eval-details"
