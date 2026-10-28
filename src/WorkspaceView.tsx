@@ -2060,6 +2060,12 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     <main className="workspace-view" style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${outputHeight}px` } as CSSProperties}>
       <div className="toolbar">
         <span className="workspace-brand" title={workspace.path}><Icon name="project" /><strong>{workspace.name}</strong></span>
+        <details className="toolbar-menu trust-menu">
+          <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted" : "Restricted"}</summary>
+          <div className="menu-content" data-testid="trust-banner">
+            <TrustControls snapshot={snapshot} onChange={onSnapshot} />
+          </div>
+        </details>
         <label className="eval-field toolbar-startup">
           <span>Startup project</span>
           <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupPath(event.target.value)}>
@@ -2143,17 +2149,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       </div>
 
       <div className="workspace-notices">
-      <div className={`notice ${trusted ? "" : "warning"}`} data-testid="trust-banner">
-        {!trusted && (
-          <p>
-            <strong>Blocked in Restricted mode.</strong> MSBuild, restore, LSP, tool
-            installation, terminal, build, run, debug and tests need a trusted workspace. Text
-            editing and saving stay available.
-          </p>
-        )}
-        <TrustControls snapshot={snapshot} onChange={onSnapshot} compact />
-      </div>
-
+      <details className="workspace-tools">
+        <summary data-testid="workspace-tools-toggle">Workspace tools <span className={restoreIncomplete || restore.state === "failed" ? "warning" : "muted"}>{restoreIncomplete ? "Restore required" : restoreStateLabel(restore)} · Analysis: {lsp.state}</span></summary>
       <section className="restore-panel" aria-label="Restore" data-testid="restore-panel">
         <div className="restore-head">
           <strong>Restore</strong>
@@ -2309,6 +2306,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
       <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
+      </details>
 
       {message && (
         <div
@@ -2317,6 +2315,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           data-testid="app-log"
         >
           {message.text}
+          <button className="notice-dismiss" aria-label="Dismiss notification" onClick={() => setMessage(null)}>×</button>
         </div>
       )}
 
@@ -2593,7 +2592,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 "Rename the symbol at the cursor (Shift+F6); preview before applying."
               }
             >
-              Rename symbol…
+              <Icon name="rename" /><span className="editor-action-label"> Rename symbol…</span>
             </button>
             <button
               className="save"
@@ -2605,7 +2604,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 "Code actions at the cursor (Option+Enter on macOS, Alt+Enter on Windows)."
               }
             >
-              Code actions…
+              <Icon name="code" /><span className="editor-action-label"> Code actions…</span>
             </button>
             <button
               className="save"
@@ -2614,7 +2613,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               disabled={!active || !isDirty(active)}
               title={active ? "Save with Cmd+S (macOS) or Ctrl+S (Windows)" : "No file open"}
             >
-              Save
+              <Icon name="save" /><span className="editor-action-label"> Save</span>
             </button>
           </div>
 
@@ -2927,8 +2926,16 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </>
           ) : (
             <div className="empty-editor">
-              <p>Open a file from the solution explorer to edit it.</p>
-              <p className="muted">Saving checks the disk first and never overwrites silently.</p>
+              <Icon name="code" />
+              <h1>Your code, in focus.</h1>
+              <p className="muted">Open a file from the solution explorer to start editing.</p>
+              <dl className="shortcut-list">
+                <dt>Save file</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘S" : "Ctrl+S"}</kbd></dd>
+                <dt>Go to definition</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘B" : "Ctrl+B"}</kbd></dd>
+                <dt>Rename symbol</dt><dd><kbd>Shift+F6</kbd></dd>
+                <dt>Run saved build</dt><dd><kbd>{runShortcut}</kbd></dd>
+              </dl>
+              <p className="hint">Text editing is always available. Analysis and execution require trust.</p>
             </div>
           )}
         </section>

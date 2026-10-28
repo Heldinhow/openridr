@@ -793,7 +793,32 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 }
 
 .empty-editor {
-  padding: 24px;
+  padding: 32px;
+  margin: auto;
+  max-width: 500px;
+}
+.empty-editor > .icon { width: 32px; height: 32px; color: var(--muted); margin-bottom: 16px; }
+.empty-editor h1 { font-size: 20px; font-weight: 500; letter-spacing: -.4px; }
+.shortcut-list { display: grid; grid-template-columns: 1fr auto; gap: 10px 48px; margin: 24px 0; color: var(--muted); }
+.shortcut-list dd { margin: 0; }
+.shortcut-list kbd { padding: 2px 6px; border: 1px solid var(--line); border-radius: 3px; }
+.editor-pane .tabbar { flex: 0 0 auto; min-height: 36px; }
+.editor-pane .save { min-width: 34px; padding: 4px 8px; }
+.tab.active { background: var(--bg); }
+.tab-label { font-size: 12px; }
+.workspace-tools > summary { display: flex; align-items: center; gap: 16px; cursor: pointer; padding: 6px 12px; background: var(--panel); font-size: 12px; }
+.workspace-tools > summary::before { content: "▸"; }
+.workspace-tools[open] > summary::before { content: "▾"; }
+.workspace-tools > summary span { margin-left: auto; }
+.workspace-tools > summary::-webkit-details-marker { display: none; }
+.trust-menu .menu-content { left: 0; right: auto; width: 380px; padding: 12px; }
+.trust-menu .trust { margin: 0; padding: 0; background: transparent; border: 0; }
+.notice-dismiss { float: right; margin-left: 8px; border: 0; background: transparent; padding: 0 6px; }
+@media (max-width: 1250px) {
+  .editor-action-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .toolbar > button kbd { display: none; }
+  .toolbar .toolbar-startup select { max-width: 145px; }
+  .workspace-brand { max-width: 160px; }
 }
 
 .output {
