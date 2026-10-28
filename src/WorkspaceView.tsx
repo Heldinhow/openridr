@@ -9,6 +9,7 @@ import {
 import { CodeEditor } from "./CodeEditor";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
+import { LspPanel, ToolInstaller } from "./ToolchainPanels";
 
 type Tab = {
   path: string;
@@ -126,6 +127,18 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const evaluationBusy = evaluating || evaluation.state === "running";
   const restore = snapshot.restore;
   const restoring = restore.state === "running";
+  const lsp = snapshot.lsp;
+  const lspActive = ["loading", "ready", "partial", "awaiting_diagnostics"].includes(
+    lsp.state,
+  );
+  const lspActiveRef = useRef(false);
+  lspActiveRef.current = lspActive;
+  const lspSent = useRef<{ session: number; paths: Set<string> }>({
+    session: 0,
+    paths: new Set(),
+  });
+  const lspChangeTimer = useRef<number | null>(null);
+  const lspPending = useRef<Map<string, string>>(new Map());
   const restoreDisabledReason = !trusted
     ? "Trust the workspace before restoring; nothing runs in Restricted mode."
     : projectSdk.state !== "resolved"
@@ -205,6 +218,35 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }, []);
 
+  useEffect(() => {
+    // Send didOpen once per session for every open buffer. A restart creates a new session,
+    // so the full set is sent again with the current buffer text.
+    if (!lspActive) return;
+    if (lspSent.current.session !== lsp.session) {
+      lspSent.current = { session: lsp.session, paths: new Set() };
+    }
+    for (const tab of tabs) {
+      if (lspSent.current.paths.has(tab.path)) continue;
+      lspSent.current.paths.add(tab.path);
+      void call("lsp.didOpen", { path: tab.path, text: tab.content }).catch(() => {});
+    }
+  }, [lsp.session, lsp.state, tabs]);
+
+  function queueDidChange(path: string, text: string) {
+    if (!lspActiveRef.current) return;
+    lspPending.current.set(path, text);
+    if (lspChangeTimer.current !== null) {
+      window.clearTimeout(lspChangeTimer.current);
+    }
+    lspChangeTimer.current = window.setTimeout(() => {
+      lspChangeTimer.current = null;
+      for (const [pendingPath, pendingText] of lspPending.current) {
+        void call("lsp.didChange", { path: pendingPath, text: pendingText }).catch(() => {});
+      }
+      lspPending.current.clear();
+    }, 250);
+  }
+
   function toggleProject(path: string) {
     setExpanded((current) => {
       const next = new Set(current);
@@ -241,6 +283,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     setTabs((current) =>
       current.map((tab) => (tab.path === path ? { ...tab, content } : tab)),
     );
+    queueDidChange(path, content);
   }
 
   function applyConflict(path: string, error: HostCallError) {
@@ -700,6 +743,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             : "Opening or evaluating never restores. Use Restore to run it explicitly, then reload the evaluated model."}
         </div>
       )}
+
+      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
+      <LspPanel snapshot={snapshot} onChange={onSnapshot} />
 
       {message && (
         <div

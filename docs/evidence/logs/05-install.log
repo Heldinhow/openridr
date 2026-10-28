@@ -1,0 +1,15 @@
+== attempt 1 ==
+$ /usr/local/share/dotnet/dotnet tool install csharp-ls --version 0.28.0 --tool-path /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/tools/csharp-ls/0.28.staging
+cwd /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-neutral
+source https://api.nuget.org/v3/index.json · destination /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/tools/csharp-ls/0.28 · staging /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/tools/csharp-ls/0.28.staging
+[stderr] An issue was encountered verifying workloads. For more information, run "dotnet workload update".
+Skipping NuGet package signature verification.
+You can invoke the tool using the following command: csharp-ls
+Tool 'csharp-ls' (version '0.28.0') was successfully installed.
+Install process exited 0; promoting the staging directory.
+Verifying the launcher and its --version output.
+Verifying the launcher and its --version output at /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/tools/csharp-ls/0.28.
+$ /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/tools/csharp-ls/0.28/csharp-ls --version
+csharp-ls, 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
+sha256 0bcd0dbc79b426667961f35bc5d319325e7a6added5d221b30c37cdc3f3e882c
+dotnet tool install reports "Skipping NuGet package signature verification." OpenRidr records the SHA-256 of the installed launcher and the exact --version output; it does not claim a verified package signature or an official package hash.

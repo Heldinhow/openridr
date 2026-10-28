@@ -16,6 +16,14 @@ pub struct Install {
     pub path: String,
 }
 
+impl Install {
+    /// `--list-sdks` reports the SDK parent directory (`<root>/sdk`); the version directory is
+    /// `<path>/<version>`. The composite host root links that directory by version.
+    pub fn sdk_dir(&self) -> PathBuf {
+        std::path::Path::new(&self.path).join(&self.version)
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SdkVersion {

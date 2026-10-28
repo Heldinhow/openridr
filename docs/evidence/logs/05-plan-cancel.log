@@ -1,0 +1,17 @@
+workspace restricted · /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-cancel/ws/Tool.csproj
+tools.install before trust -> trust_required: tools.install requires workspace trust; no process was started.
+tools.retry before trust -> trust_required: tools.retry requires workspace trust; no process was started.
+lsp.start before trust -> trust_required: lsp.start requires workspace trust; no process was started.
+lsp.restart before trust -> trust_required: lsp.restart requires workspace trust; no process was started.
+lsp.didOpen before trust -> trust_required: lsp.didOpen requires workspace trust; no process was started.
+lsp.didChange before trust -> trust_required: lsp.didChange requires workspace trust; no process was started.
+plan state planned · id fnv1a64:eba3fffc53a81b8b · destination /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-cancel/home/tools/csharp-ls/0.28
+plan argv /usr/local/share/dotnet/dotnet tool install csharp-ls --version 0.28.0 --tool-path /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-cancel/home/tools/csharp-ls/0.28.staging
+tool root exists before cancel? False
+processes before cancel: []
+cancel state cancelled · note Installation plan cancelled; no download and no process were started.
+tool root exists after cancel? False
+processes after cancel: []
+install without confirm -> confirmation_required: Installing csharp-ls needs an explicit confirmation of the current plan.
+install with stale plan id -> confirmation_required: The install plan changed since it was shown; review and confirm the new plan. Nothing was downloaded or executed.
+state planned · processes []

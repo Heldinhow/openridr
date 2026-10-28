@@ -10,19 +10,15 @@
 
 use crate::evaluation::{plan_workspace, relative_path};
 use crate::error::{HostError, HostResult};
+use crate::logbuf::LogBuffer;
 use crate::process::{ProcessStatus, Termination};
 use serde::Serialize;
 use serde_json::json;
-use std::collections::VecDeque;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-const MAX_LOG_LINES: usize = 400;
-const MAX_LOG_CHARS: usize = 60_000;
-const MAX_LINE_CHARS: usize = 4_000;
 
 /// Consumers that must not restore implicitly. Each validates the policy before its tool.
 pub const GATED_METHODS: &[&str] = &[
@@ -534,69 +530,6 @@ pub fn require_restored(
     ))
 }
 
-#[derive(Default)]
-struct LogBuffer {
-    lines: VecDeque<String>,
-    chars: usize,
-    dropped: usize,
-}
-
-impl LogBuffer {
-    fn push(&mut self, line: String) {
-        let mut line = redact_url_credentials(&line);
-        if line.chars().count() > MAX_LINE_CHARS {
-            line = format!("{}…", line.chars().take(MAX_LINE_CHARS).collect::<String>());
-        }
-        self.chars += line.chars().count() + 1;
-        self.lines.push_back(line);
-        while self.lines.len() > MAX_LOG_LINES || self.chars > MAX_LOG_CHARS {
-            let Some(front) = self.lines.pop_front() else {
-                break;
-            };
-            self.chars = self.chars.saturating_sub(front.chars().count() + 1);
-            self.dropped += 1;
-        }
-    }
-
-    fn text(&self) -> (String, bool) {
-        let mut text = String::new();
-        if self.dropped > 0 {
-            text.push_str(&format!(
-                "… log truncated: {} earlier line(s) not kept; showing the last {} line(s) …\n",
-                self.dropped,
-                self.lines.len()
-            ));
-        }
-        for line in &self.lines {
-            text.push_str(line);
-            text.push('\n');
-        }
-        (text.trim_end().to_string(), self.dropped > 0)
-    }
-}
-
-/// Feed URLs can carry credentials; the visible log never keeps the userinfo part.
-fn redact_url_credentials(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(index) = rest.find("://") {
-        let (head, tail) = rest.split_at(index + 3);
-        out.push_str(head);
-        let end = tail
-            .find(['/', ' ', '"', '\'', ')'])
-            .unwrap_or(tail.len());
-        match tail[..end].find('@') {
-            Some(at) => {
-                out.push_str("***@");
-                rest = &tail[at + 1..];
-            }
-            None => rest = tail,
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
 fn system_ms(time: SystemTime) -> Option<u64> {
     time.duration_since(UNIX_EPOCH)
         .ok()
@@ -617,32 +550,6 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn url_credentials_are_not_kept_in_the_log() {
-        let line = "error: source https://user:secret@feed.example/v3/index.json failed";
-        assert_eq!(
-            redact_url_credentials(line),
-            "error: source https://***@feed.example/v3/index.json failed"
-        );
-        assert_eq!(
-            redact_url_credentials("https://feed.example/v3/index.json"),
-            "https://feed.example/v3/index.json"
-        );
-    }
-
-    #[test]
-    fn the_log_keeps_the_tail_and_reports_truncation() {
-        let mut log = LogBuffer::default();
-        for index in 0..(MAX_LOG_LINES + 5) {
-            log.push(format!("line {index}"));
-        }
-        let (text, truncated) = log.text();
-        assert!(truncated);
-        assert!(text.starts_with("… log truncated: 5 earlier line(s) not kept"));
-        assert!(text.ends_with(&format!("line {}", MAX_LOG_LINES + 4)));
-        assert!(!text.contains("line 0\n"));
-    }
 
     #[test]
     fn assets_missing_is_not_restored_and_never_success() {

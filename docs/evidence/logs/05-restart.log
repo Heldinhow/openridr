@@ -1,0 +1,69 @@
+LSP session 2 · log level debug · /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/tools/csharp-ls/0.28/csharp-ls --solution /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order Desk evidence/OrderDesk.sln --loglevel debug
+cwd /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order Desk evidence
+DOTNET_ROOT /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/hostroot
+$ /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/hostroot/dotnet --list-sdks
+8.0.408 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/hostroot/sdk]
+$ /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/hostroot/dotnet --list-runtimes
+Microsoft.NETCore.App 8.0.15 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/hostroot/shared/Microsoft.NETCore.App]
+Microsoft.NETCore.App 10.0.0 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/hostroot/shared/Microsoft.NETCore.App]
+Composite host root reused; inputs are unchanged.
+[client] initialize id 1
+[stderr] 1:04:13.644 info: LifeCycle[0]
+[stderr]       initializing, csharp-ls version 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
+[server] csharp-ls: initializing, version 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
+[stderr] 1:04:13.662 info: LifeCycle[0]
+[stderr]       csharp-ls is released under MIT license and is not affiliated with Microsoft Corp.; see https://github.com/razzmatazz/csharp-language-server
+[server] csharp-ls: csharp-ls is released under MIT license and is not affiliated with Microsoft Corp.; see https://github.com/razzmatazz/csharp-language-server
+[stderr] 1:04:13.672 info: Roslyn.Solution[0]
+[stderr]       SDK instances found, as reported by MSBuild:
+[stderr]       - SDK=".NET Core SDK", Version=8.0.408, MSBuildPath="/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/hostroot/sdk/8.0.408", DiscoveryType=DotNetSdk
+[stderr] 1:04:13.673 info: Roslyn.Solution[0]
+[stderr]       MSBuildLocator: will register ".NET Core SDK", Version=8.0.408 as default instance
+[stderr] 1:04:13.674 dbug: LifeCycle[0]
+[stderr]       handleInitialize: p.ClientInfo: Some({"name":"OpenRidr","version":"0.1.0"})
+[stderr] 1:04:13.676 dbug: LifeCycle[0]
+[stderr]       handleInitialize: p.Capabilities: {"workspace":{"workspaceEdit":{"documentChanges":true},"didChangeConfiguration":{"dynamicRegistration":false},"workspaceFolders":true,"configuration":true},"textDocument":{"synchronization":{"dynamicRegistration":false,"willSave":false,"didSave":true},"completion":{"completionItem":{"snippetSupport":false}},"definition":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["quickfix","refactor"]}}},"rename":{"prepareSupport":true},"publishDiagnostics":{"relatedInformation":true,"versionSupport":true,"codeDescriptionSupport":true,"dataSupport":true}},"window":{"workDoneProgress":false}}
+[stderr] 1:04:13.676 dbug: LifeCycle[0]
+[stderr]       handleInitialize: p.RootPath=Some(/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order Desk evidence), p.RootUri=Some(file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order%20Desk%20evidence), p.WorkspaceFolders=Some(Ionide.LanguageServerProtocol.Types.WorkspaceFolder[])
+[stderr] 1:04:13.677 info: LifeCycle[0]
+[stderr]       handleInitialize: using workspaceFolders: [{"uri":"file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order%20Desk%20evidence","name":"OrderDesk.sln"}]
+[client] initialize accepted · completion · definition · rename · code actions · diagnostics (pull advertised) · semantic tokens · push diagnostics
+[client] server csharp-ls 0.28.0.0
+[stderr] 1:04:13.721 dbug: LifeCycle[0]
+[stderr]       handleInitialized: "initialized" notification received from client
+[stderr] 1:04:13.721 dbug: LifeCycle[0]
+[stderr]       handleInitialized: retrieve csharp settings..
+[server] request workspace/configuration · answered [{}]
+[stderr] 1:04:13.740 info: LifeCycle[0]
+[stderr]       initialize: initial csharp config: { logLevel = Some "debug"
+[stderr]         applyFormattingOptions = None
+[stderr]         analyzersEnabled = None
+[stderr]         useMetadataUris = Some false
+[stderr]         razorSupport = Some false
+[stderr]         locale = Some "en"
+[stderr]         debug = Some { solutionLoadDelay = None
+[stderr]                        debugMode = Some false }
+[stderr]         solutionPathOverride =
+[stderr]          Some
+[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order Desk evidence/OrderDesk.sln" }
+[stderr] 1:04:13.740 dbug: LifeCycle[0]
+[stderr]       handleInitialized: registrationParams..
+[stderr] 1:04:13.744 dbug: LifeCycle[0]
+[stderr]       handleInitialized: no dynamic registrations, skipping client/registerCapability
+[stderr] 1:04:13.751 info: Workspace[0]
+[stderr]       didChangeConfiguration: csharp config updated: { logLevel = Some "debug"
+[stderr]         applyFormattingOptions = None
+[stderr]         analyzersEnabled = None
+[stderr]         useMetadataUris = Some false
+[stderr]         razorSupport = Some false
+[stderr]         locale = Some "en"
+[stderr]         debug = Some { solutionLoadDelay = None
+[stderr]                        debugMode = Some false }
+[stderr]         solutionPathOverride =
+[stderr]          Some
+[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order Desk evidence/OrderDesk.sln" }
+[server] csharp-ls: Loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order Desk evidence/OrderDesk.sln"...
+[stderr] 1:04:13.797 info: Roslyn.Solution[0]
+[stderr]       Will use MSBuild props: map [(TargetFramework, net8.0)]
+[server] csharp-ls: Finished loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/Order Desk evidence/OrderDesk.sln"
+[client] solution loaded; waiting for diagnostics

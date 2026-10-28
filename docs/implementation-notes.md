@@ -22,14 +22,14 @@ A UI nunca executa processo. Toda operação passa por `dispatch(method, params)
 - Tauri: comando `host_call { method, params }` com `Host` em `tauri::State`.
 - HTTP dev: `POST /call` `{"method":"...","params":{...}}` → `{"ok":true,"data":...}` ou `{"ok":false,"error":{"code","message","details"}}`; `GET /health`.
 - Frontend: `src/host/client.ts` escolhe Tauri (`window.__TAURI_INTERNALS__`) ou HTTP (`VITE_HOST_URL`/default `http://127.0.0.1:4317`).
-- Erro: `{ code, message, details? }`. Códigos usados: `trust_required`, `ambiguous_workspace`, `not_found`, `outside_workspace`, `path_not_allowed`, `conflict`, `sdk_missing`, `invalid_state`, `unsupported_platform`, `cancelled`, `operation_failed`, `stale_context`.
+- Erro: `{ code, message, details? }`. Códigos usados: `trust_required`, `ambiguous_workspace`, `not_found`, `outside_workspace`, `path_not_allowed`, `conflict`, `sdk_missing`, `tool_missing`, `restore_required`, `confirmation_required`, `invalid_state`, `unsupported_platform`, `cancelled`, `operation_failed`, `stale_context`.
 - Polling: `workspace.state` a cada 400 ms enquanto houver operação; toda tela lê o mesmo snapshot.
 
 ## Snapshot de estado (cresce por ticket, nunca quebra campos)
 
 ```json
 {
-  "app": { "home": "...", "platform": "macos", "arch": "arm64", "version": "0.1.0" },
+  "app": { "home": "...", "appHome": "...", "platform": "macos", "arch": "arm64", "version": "0.1.0" },
   "workspace": { "id": 1, "path": "...", "name": "OrderDesk.sln", "kind": "solution|project",
                  "mode": "restricted|trusted", "candidates": [{"path","name","kind"}] },
   "outline": { "source": "text", "projects": [...], "globalJson": {...} },
@@ -64,9 +64,9 @@ A UI nunca executa processo. Toda operação passa por `dispatch(method, params)
                               "assetsPath","assetsModifiedAt","projectModifiedAt" }],
                "revision": 1, "workspaceId": 1, "contextId": 2,
                "startedAt": 0, "finishedAt": 0, "sealed": false, "staleReason": null },
-  "tools": { "csharp-ls": { "state": "absent|planned|downloading|installing|verifying|ready|failed|cancelled", "version": "0.28.0", "log": "..." } },
-  "lsp": { "state": "unavailable|starting|loading|ready|partial|failed|stopped", "log": "...", "diagnostics": {...} },
-  "diagnostics": { "snapshots": [...], "items": [...] }
+  "tools": { "csharp-ls": { "state": "absent|planned|downloading|installing|verifying|ready|cancelled|failed", "version": "0.28.0", "destination": "...", "staging": "...", "plan": {...}, "log": "...", "sha256": "...", "verifiedVersion": "...", "error": null, "reused": false, "revision": 0, "workspaceId": null, "contextId": null } },
+  "lsp": { "state": "unavailable|starting|loading|ready|partial|awaiting_diagnostics|failed|stopped", "session": 0, "logLevel": "info|debug", "log": "...", "capabilities": {...}, "serverInfo": {...}, "hostRoot": "...", "hostRootCheck": "...", "coverage": "full|partial", "coverageNote": null, "publicationCount": 0, "diagnosticItems": 0, "awaitingDocuments": [], "processId": null, "exit": null, "termination": null, "error": null, "stoppedReason": null },
+  "diagnostics": { "session": 0, "snapshots": [ { "uri": "file://...", "path": "src/...", "receivedAt": 0, "clientRevision": 1, "serverVersion": null, "items": [ {"range","severity","code","source","message","codeDescription"} ] } ] }
 }
 ```
 
@@ -116,7 +116,7 @@ Smoke desktop sem Vite (usa `dist/` embutido): `cargo build` em `src-tauri` e ex
 
 ## Testids estáveis (E2E)
 
-`workspace-path-input`, `workspace-open`, `workspace-candidates`, `trust-checkbox`, `trust-grant`, `trust-revoke`, `trust-note`, `trust-grant-reason`, `mode-restricted`, `mode-trusted`, `mode-badge`, `open-text-only`, `tree`, `tree-project-*`, `tree-file-*`, `editor`, `tab-*`, `dirty-marker`, `save-file`, `conflict-banner`, `conflict-overwrite`, `conflict-reload`, `close-buffer`, `sdk-host`, `sdk-project`, `sdk-project-message`, `sdk-tfms`, `sdk-debug-adapter`, `sdk-apple-silicon`, `sdk-redetect`, `sdk-open-global-json`, `toolchain`, `eval-state`, `restore-panel`, `restore-action`, `restore-cancel`, `restore-retry`, `restore-reload`, `restore-state`, `restore-scope`, `restore-command`, `restore-log`, `restore-incomplete-*`, `install-plan`, `install-confirm`, `install-cancel`, `lsp-state`, `problems-list`, `problem-row-*`, `problems-empty`, `processes-panel`, `processes-row-*`, `processes-state-*`, `processes-terminate-*`, `processes-keep-*`, `processes-awaiting-*`, `processes-termination-*`, `bottom-tab-*`, `status-*`.
+`workspace-path-input`, `workspace-open`, `workspace-candidates`, `trust-checkbox`, `trust-grant`, `trust-revoke`, `trust-note`, `trust-grant-reason`, `mode-restricted`, `mode-trusted`, `mode-badge`, `open-text-only`, `tree`, `tree-project-*`, `tree-file-*`, `editor`, `tab-*`, `dirty-marker`, `save-file`, `conflict-banner`, `conflict-overwrite`, `conflict-reload`, `close-buffer`, `sdk-host`, `sdk-project`, `sdk-project-message`, `sdk-tfms`, `sdk-debug-adapter`, `sdk-apple-silicon`, `sdk-redetect`, `sdk-open-global-json`, `toolchain`, `eval-state`, `restore-panel`, `restore-action`, `restore-cancel`, `restore-retry`, `restore-reload`, `restore-state`, `restore-scope`, `restore-command`, `restore-log`, `restore-incomplete-*`, `install-panel`, `install-state`, `install-plan-open`, `install-plan`, `install-tool`, `install-source`, `install-platform`, `install-destination`, `install-staging`, `install-command`, `install-cwd`, `install-permissions`, `install-integrity`, `install-existing`, `install-confirm`, `install-cancel`, `install-retry`, `install-sha256`, `install-verified`, `install-log`, `lsp-panel`, `lsp-state`, `lsp-session`, `lsp-start`, `lsp-stop`, `lsp-restart`, `lsp-verbose`, `lsp-log`, `lsp-capabilities`, `lsp-diagnostics`, `lsp-coverage-note`, `lsp-error`, `lsp-hostroot`, `lsp-process`, `problems-list`, `problem-row-*`, `problems-empty`, `processes-panel`, `processes-row-*`, `processes-state-*`, `processes-terminate-*`, `processes-keep-*`, `processes-awaiting-*`, `processes-termination-*`, `bottom-tab-*`, `status-*`.
 
 ## Evidência por ticket
 
@@ -125,3 +125,11 @@ Smoke desktop sem Vite (usa `dist/` embutido): `cargo build` em `src-tauri` e ex
 ## Commits
 
 Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust): ...`), incluindo código, testes, fixture quando criada, checklist atualizado e evidência. Sem push/remote/PR.
+
+## Ferramentas e LSP (ticket 05)
+
+- `tools.plan` (leitura, sem trust), `tools.install {planId, confirm:true}`, `tools.retry`, `tools.cancel` (segurança, sem trust), `tools.state`.
+- `lsp.start`, `lsp.restart {verbose?}`, `lsp.stop` (segurança), `lsp.state`, `lsp.didOpen {path, text?}`, `lsp.didChange {path, text}`.
+- Destino: `<app home>/tools/csharp-ls/0.28`, staging `0.28.staging`, HOME isolado `<app home>/toolhome`.
+- Hostroot: `<app home>/hostroot`; runtime 10 + SDK do projeto 8; marker de inputs. O SDK 10 do sistema não entra em `sdk/` (ver decisions).
+- Eventos de UI: o editor envia didOpen uma vez por sessão e didChange (texto completo) com debounce de 250 ms; restart troca a sessão e reenvia o conjunto aberto.

@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::io;
-use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const GRACE: Duration = Duration::from_secs(2);
@@ -30,6 +30,7 @@ pub struct ProcessStatus {
 pub struct PipedChild {
     pub id: u64,
     pub pid: u32,
+    pub stdin: Option<ChildStdin>,
     pub stdout: Option<ChildStdout>,
     pub stderr: Option<ChildStderr>,
 }
@@ -120,7 +121,8 @@ impl Registry {
             .view())
     }
 
-    /// Same tracked process, but stdout/stderr are piped back to the caller for streaming.
+    /// Same tracked process, but stdin/stdout/stderr are piped to the caller. Restore
+    /// ignores stdin; the LSP client writes protocol frames there.
     pub fn spawn_piped(
         &mut self,
         kind: &str,
@@ -128,7 +130,7 @@ impl Registry {
         mut command: Command,
     ) -> io::Result<PipedChild> {
         command
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(unix)]
@@ -138,12 +140,14 @@ impl Registry {
         }
         let mut child = command.spawn()?;
         let pid = child.id();
+        let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let id = self.register(kind, workspace_id, child);
         Ok(PipedChild {
             id,
             pid,
+            stdin,
             stdout,
             stderr,
         })
@@ -260,15 +264,9 @@ impl Registry {
 
     #[cfg(unix)]
     fn signal(&mut self, index: usize, hard: bool) {
-        let signal = if hard { libc::SIGKILL } else { libc::SIGTERM };
-        let pid = self.entries[index].pid as i32;
+        let pid = self.entries[index].pid;
         // Each child is spawned in its own process group, so signal the whole group.
-        let group = unsafe { libc::kill(-pid, signal) };
-        if group != 0 {
-            unsafe {
-                libc::kill(pid, signal);
-            }
-        }
+        kill_group(pid, hard);
     }
 
     #[cfg(not(unix))]
@@ -279,6 +277,35 @@ impl Registry {
             let _ = child.kill();
         }
     }
+}
+
+/// Signals a process group that this host created. Returns false when the signal could not
+/// be delivered (already gone or not permitted).
+#[cfg(unix)]
+pub(crate) fn kill_group(pid: u32, hard: bool) -> bool {
+    let signal = if hard { libc::SIGKILL } else { libc::SIGTERM };
+    let group = unsafe { libc::kill(-(pid as i32), signal) };
+    if group == 0 {
+        return true;
+    }
+    unsafe { libc::kill(pid as i32, signal) == 0 }
+}
+
+/// Whether the process still exists. Used only for the short kill grace of a failed LSP.
+#[cfg(unix)]
+pub(crate) fn process_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
+#[cfg(not(unix))]
+pub(crate) fn kill_group(_pid: u32, _hard: bool) -> bool {
+    // The registry owns child handles on Windows; a reader thread cannot signal them.
+    false
+}
+
+#[cfg(not(unix))]
+pub(crate) fn process_alive(_pid: u32) -> bool {
+    false
 }
 
 /// Controlled children used only by the dev/test probe. No PTY is built in this ticket.

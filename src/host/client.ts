@@ -156,9 +156,162 @@ export type Restore = {
   staleReason: string | null;
 };
 
+export type InstallSource = { name: string; url: string; packageUrl: string };
+
+export type InstallExisting = {
+  state: "present" | "absent" | "ready";
+  binary: string;
+  verifiedVersion: string | null;
+  output: string | null;
+  sha256: string | null;
+  reason: string | null;
+};
+
+export type InstallPlan = {
+  tool: string;
+  version: string;
+  package: string;
+  source: InstallSource;
+  os: string;
+  arch: string;
+  destination: string;
+  staging: string;
+  dotnetRoot: string;
+  argv: string[];
+  cwd: string;
+  permissions: string[];
+  integrity: string;
+  existing: InstallExisting;
+  planId: string;
+};
+
+export type ToolInstall = {
+  state:
+    | "absent"
+    | "planned"
+    | "downloading"
+    | "installing"
+    | "verifying"
+    | "ready"
+    | "cancelled"
+    | "failed";
+  version: string;
+  destination: string;
+  staging: string;
+  plan: InstallPlan | null;
+  log: string;
+  logTruncated: boolean;
+  exit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  processId: number | null;
+  awaitingDecision: boolean;
+  sha256: string | null;
+  verifiedVersion: string | null;
+  verifiedOutput: string | null;
+  error: string | null;
+  note: string | null;
+  reused: boolean;
+  revision: number;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  sealed: boolean;
+  staleReason: string | null;
+  stagingPresent: boolean;
+  destinationPresent: boolean;
+};
+
+export type LspCapabilities = {
+  completion: boolean;
+  definition: boolean;
+  rename: boolean;
+  codeActions: boolean;
+  pushDiagnostics: boolean;
+  pullDiagnostics: boolean;
+  semanticTokens: boolean;
+  synchronization: unknown;
+  summary: string[];
+};
+
+export type DiagnosticItem = {
+  range: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
+  severity: number | null;
+  code: string | number | null;
+  source: string | null;
+  message: string;
+  codeDescription: string | null;
+};
+
+export type DiagnosticPublication = {
+  uri: string;
+  path: string | null;
+  receivedAt: number;
+  clientRevision: number | null;
+  serverVersion: number | null;
+  items: DiagnosticItem[];
+};
+
+export type Lsp = {
+  state:
+    | "unavailable"
+    | "starting"
+    | "loading"
+    | "ready"
+    | "partial"
+    | "awaiting_diagnostics"
+    | "failed"
+    | "stopped";
+  session: number;
+  logLevel: "info" | "debug";
+  log: string;
+  logTruncated: boolean;
+  error: string | null;
+  capabilities: LspCapabilities | null;
+  serverInfo: { name?: string; version?: string } | null;
+  hostRoot: string;
+  hostRootRebuilt: boolean;
+  hostRootForced: boolean;
+  hostRootCheck: string;
+  solution: string | null;
+  command: string[];
+  cwd: string;
+  processId: number | null;
+  pid: number | null;
+  exit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  coverage: "full" | "partial";
+  coverageNote: string | null;
+  publicationCount: number;
+  documents: number;
+  awaitingDocuments: string[];
+  diagnosticItems: number;
+  outputClosed: boolean;
+  startedAt: number | null;
+  finishedAt: number | null;
+  stoppedReason: string | null;
+  workspaceId: number | null;
+  contextId: number | null;
+};
+
+export type Diagnostics = { session: number; snapshots: DiagnosticPublication[] };
+
 export type Snapshot = {
   contextId: number;
-  app: { home: string; platform: string; arch: string; version: string };
+  app: { home: string; appHome: string; platform: string; arch: string; version: string };
   workspace: null | {
     id: number;
     path: string;
@@ -192,6 +345,9 @@ export type Snapshot = {
   evaluation: Evaluation;
   processes: ProcessInfo[];
   restore: Restore;
+  tools: { "csharp-ls": ToolInstall };
+  lsp: Lsp;
+  diagnostics: Diagnostics;
 };
 
 export type ReadFile = { path: string; content: string; hash: string };

@@ -1,0 +1,30 @@
+trusted resolved 8.0.408 0.01
+evaluated ok 0.82
+restore ok 0 1.53
+evaluated2 ok 2.31
+plan planned fnv1a64:dd091a018a7346ac /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/or05-evidence/home/tools/csharp-ls/0.28
+install ['downloading', 'installing', 'verifying', 'ready'] elapsed 4.08 sha 0bcd0dbc79b426667961f35bc5d319325e7a6added5d221b30c37cdc3f3e882c
+lsp ready session 1 elapsed 2.19
+caps ['completion', 'definition', 'rename', 'code actions', 'diagnostics (pull advertised)', 'semantic tokens']
+broken diagnostics 1 items in 0.94 s
+{
+  "code": "CS0246",
+  "codeDescription": "https://msdn.microsoft.com/query/roslyn.query?appId=roslyn&k=k(CS0246)",
+  "message": "The type or namespace name 'OrderReport' could not be found (are you missing a using directive or an assembly reference?)",
+  "range": {
+    "end": {
+      "character": 28,
+      "line": 5
+    },
+    "start": {
+      "character": 17,
+      "line": 5
+    }
+  },
+  "severity": 1,
+  "source": "lsp"
+}
+fixed 0 rev 2 in 0.24 s
+restart ready session 2 level debug
+revoke stopped exit 0 term None
+total 11.88

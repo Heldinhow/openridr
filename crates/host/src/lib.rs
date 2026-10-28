@@ -1,9 +1,13 @@
 mod error;
 mod evaluation;
+pub mod hostroot;
+mod logbuf;
+mod lsp;
 mod outline;
 pub mod process;
 mod restore;
 pub mod sdk;
+mod tools;
 
 pub use error::{HostError, HostResult};
 pub use evaluation::{Evaluation, EvaluationContext};
@@ -28,7 +32,11 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "restore.start",
     "restore.retry",
     "lsp.start",
+    "lsp.restart",
+    "lsp.didOpen",
+    "lsp.didChange",
     "tools.install",
+    "tools.retry",
     "terminal.start",
     "build.start",
     "run.start",
@@ -63,6 +71,10 @@ struct Inner {
     evaluation: Evaluation,
     restore: Arc<restore::Restore>,
     restore_seq: u64,
+    tools: Arc<tools::Tools>,
+    lsp: Option<Arc<lsp::Lsp>>,
+    lsp_seq: u64,
+    lsp_verbose: bool,
 }
 
 struct Workspace {
@@ -107,6 +119,7 @@ struct Candidate {
 #[serde(rename_all = "camelCase")]
 struct AppInfo {
     home: String,
+    app_home: String,
     platform: &'static str,
     arch: &'static str,
     version: &'static str,
@@ -162,6 +175,9 @@ struct Snapshot {
     evaluation: Evaluation,
     processes: Vec<Value>,
     restore: RestoreView,
+    tools: Value,
+    lsp: lsp::LspView,
+    diagnostics: Value,
 }
 
 impl Default for Host {
@@ -185,6 +201,10 @@ impl Host {
                 evaluation: Evaluation::idle(),
                 restore: Arc::new(restore::Restore::idle()),
                 restore_seq: 0,
+                tools: Arc::new(tools::Tools::new()),
+                lsp: None,
+                lsp_seq: 0,
+                lsp_verbose: false,
             }),
         }
     }
@@ -205,12 +225,39 @@ impl Host {
         if method == "restore.cancel" {
             return self.cancel_restore();
         }
+        if method == "tools.plan" {
+            return self.plan_tool(params);
+        }
+        if method == "tools.install" {
+            return self.install_tool(params);
+        }
+        if method == "tools.retry" {
+            return self.retry_tool();
+        }
+        if method == "tools.cancel" {
+            return self.cancel_tool();
+        }
+        if method == "lsp.start" {
+            return self.start_lsp(params);
+        }
+        if method == "lsp.restart" {
+            return self.restart_lsp(params);
+        }
+        if method == "lsp.stop" {
+            return self.stop_lsp("Stopped by the user.");
+        }
+        if method == "lsp.didOpen" {
+            return self.lsp_open(params);
+        }
+        if method == "lsp.didChange" {
+            return self.lsp_change(params);
+        }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.executable_stub(method);
         }
 
         match method {
-            "app.state" | "workspace.state" => {
+            "app.state" | "workspace.state" | "tools.state" | "lsp.state" => {
                 let mut inner = self.inner.lock().unwrap();
                 Ok(self.snapshot_value(&mut inner))
             }
@@ -298,9 +345,18 @@ impl Host {
         inner.ensure_inventory();
         inner.processes.refresh();
         inner.sync_restore();
+        inner.sync_tools();
+        inner.sync_lsp();
         let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
         if let Some(root) = root {
             inner.evaluation.check_external_changes(&root);
+        }
+        if inner.evaluation.stale {
+            if let Some(lsp) = &inner.lsp {
+                lsp.mark_partial(
+                    "The evaluated project model is stale; reload it and restart analysis for full coverage.",
+                );
+            }
         }
         let inventory = inner.inventory.as_ref().expect("inventory was initialized");
         let sdk = SdkView {
@@ -309,10 +365,21 @@ impl Host {
             roots: inventory.roots.clone(),
             inspected_at: Some(inventory.inspected_at),
         };
+        let lsp_view = inner
+            .lsp
+            .as_ref()
+            .map(|lsp| lsp.view())
+            .unwrap_or_else(lsp::Lsp::unavailable_view);
+        let publications = inner
+            .lsp
+            .as_ref()
+            .map(|lsp| lsp.publications())
+            .unwrap_or_default();
         Snapshot {
             context_id: inner.context_seq,
             app: AppInfo {
                 home: std::env::var("HOME").unwrap_or_default(),
+                app_home: tools::app_home().to_string_lossy().to_string(),
                 platform: std::env::consts::OS,
                 arch: std::env::consts::ARCH,
                 version: env!("CARGO_PKG_VERSION"),
@@ -344,6 +411,12 @@ impl Host {
             evaluation: inner.evaluation.clone(),
             processes: inner.processes.views(),
             restore: inner.restore.view(),
+            tools: json!({ tools::TOOL: inner.tools.view() }),
+            lsp: lsp_view,
+            diagnostics: json!({
+                "session": inner.lsp.as_ref().map(|lsp| lsp.session()).unwrap_or(0),
+                "snapshots": publications,
+            }),
         }
     }
 
@@ -372,10 +445,15 @@ impl Host {
             outline_tfms(&workspace.outline),
         );
         let mut inner = self.inner.lock().unwrap();
+        stop_services(
+            &mut inner,
+            "Workspace changed while analysis or an installation was running; it was stopped and its result will not be applied to the new workspace.",
+        );
         stop_restore(
             &mut inner,
             "Workspace changed while a restore was running; its result will not be applied to the new workspace.",
         );
+        inner.lsp = None;
         inner.processes.mark_awaiting();
         inner.workspace_seq += 1;
         inner.context_seq += 1;
@@ -392,10 +470,15 @@ impl Host {
 
     fn close_workspace(&self) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
+        stop_services(
+            &mut inner,
+            "Workspace closed while analysis or an installation was running; it was stopped and its result is not current.",
+        );
         stop_restore(
             &mut inner,
             "Workspace closed while a restore was running; its result will not be applied.",
         );
+        inner.lsp = None;
         inner.processes.mark_awaiting();
         inner.workspace = None;
         inner.trusted = false;
@@ -445,20 +528,26 @@ impl Host {
         if let Some(decision) = inner.trust_decision.as_mut() {
             decision.revoked_at = Some(now_ms());
         }
+        stop_services(
+            &mut inner,
+            "Trust was revoked while analysis or an installation was running; it was stopped and its result is not current.",
+        );
         stop_restore(
             &mut inner,
             "Trust was revoked while this restore was running; it was stopped and its result is not current.",
         );
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
         inner.evaluation = Evaluation::idle();
-        // Services started by later tickets stop here; the controlled child processes of this
-        // slice become awaiting decisions instead of a cleanup claim.
         inner.processes.mark_awaiting();
         Ok(self.snapshot_value(&mut inner))
     }
 
     fn redetect_sdks(&self) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
+        stop_lsp_inner(
+            &mut inner,
+            "SDK inventory refreshed; analysis was stopped. Start or restart analysis to use the new inventory.",
+        );
         inner.inventory = Some(sdk::inventory());
         inner.context_seq += 1;
         if inner.workspace.is_some() {
@@ -712,6 +801,11 @@ impl Host {
         inner
             .evaluation
             .complete(projects, lines.join("\n"), watched, available_tfms);
+        if let Some(lsp) = &inner.lsp {
+            lsp.mark_partial(
+                "The project model was re-evaluated; restart analysis to match the current context.",
+            );
+        }
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -770,6 +864,10 @@ impl Host {
         let is_solution = matches!(workspace.kind, WorkspaceKind::Solution);
         let workspace_file = workspace.path.clone();
         let root = workspace.root.clone();
+        stop_lsp_inner(
+            &mut inner,
+            "Restore started; analysis stopped so it cannot report stale assets. Start analysis after the restore.",
+        );
         let plan = evaluation::plan_workspace(&workspace_file, &root, is_solution);
         let planned = |project: &evaluation::PlanProject| {
             project
@@ -884,6 +982,407 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
+    fn plan_tool(&self, params: Value) -> HostResult<Value> {
+        let requested = optional_str(&params, "tool").unwrap_or_else(|| tools::TOOL.to_string());
+        if requested != tools::TOOL {
+            return Err(HostError::new(
+                "invalid_state",
+                format!("Unknown tool: {requested}. This build installs csharp-ls 0.28.0 only."),
+            ));
+        }
+        let mut inner = self.inner.lock().unwrap();
+        inner.ensure_inventory();
+        let installs = &inner.inventory.as_ref().expect("inventory").installs;
+        let host = HostSdk::from_inventory(installs);
+        let plan = tools::plan(&host)?;
+        inner.tools.set_plan(plan);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn install_tool(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("tools.install")?;
+        if params.get("confirm") != Some(&Value::Bool(true)) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "Installing csharp-ls needs an explicit confirmation of the current plan.",
+            ));
+        }
+        let plan_id = required_str(&params, "planId")?;
+        let mut inner = self.inner.lock().unwrap();
+        inner.ensure_inventory();
+        let host = HostSdk::from_inventory(&inner.inventory.as_ref().expect("inventory").installs);
+        let current = tools::plan(&host)?;
+        if current.plan_id != plan_id {
+            inner.tools.set_plan(current.clone());
+            return Err(HostError::with_details(
+                "confirmation_required",
+                "The install plan changed since it was shown; review and confirm the new plan. Nothing was downloaded or executed.",
+                json!({ "plan": current.to_json() }),
+            ));
+        }
+        let tools = inner.tools.clone();
+        tools.begin_install(
+            current,
+            token.workspace_id,
+            token.context_id,
+            &mut inner.processes,
+        )?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn retry_tool(&self) -> HostResult<Value> {
+        let token = self.require_trust("tools.retry")?;
+        let mut inner = self.inner.lock().unwrap();
+        inner.ensure_inventory();
+        let host = HostSdk::from_inventory(&inner.inventory.as_ref().expect("inventory").installs);
+        let current = tools::plan(&host)?;
+        let Some(confirmed) = inner.tools.confirmed_plan_id() else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Review and confirm the install plan before retrying; no plan was confirmed.",
+            ));
+        };
+        if current.plan_id != confirmed {
+            inner.tools.set_plan(current.clone());
+            return Err(HostError::with_details(
+                "confirmation_required",
+                "The install plan changed since it was confirmed; review and confirm the new plan. Nothing was downloaded or executed.",
+                json!({ "plan": current.to_json() }),
+            ));
+        }
+        let tools = inner.tools.clone();
+        tools.begin_install(
+            current,
+            token.workspace_id,
+            token.context_id,
+            &mut inner.processes,
+        )?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn cancel_tool(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let tools = inner.tools.clone();
+        tools.cancel(&mut inner.processes)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn start_lsp(&self, _params: Value) -> HostResult<Value> {
+        let token = self.require_trust("lsp.start")?;
+        let mut inner = self.inner.lock().unwrap();
+        self.start_analysis(&mut inner, token)
+    }
+
+    fn restart_lsp(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("lsp.restart")?;
+        let verbose = params.get("verbose").and_then(Value::as_bool);
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(verbose) = verbose {
+            inner.lsp_verbose = verbose;
+        }
+        stop_lsp_inner(
+            &mut inner,
+            "Analysis restarted by the user; the previous session was shut down.",
+        );
+        self.start_analysis(&mut inner, token)
+    }
+
+    fn start_analysis(&self, inner: &mut Inner, token: ContextToken) -> HostResult<Value> {
+        if let Some(lsp) = &inner.lsp {
+            if lsp.is_active() {
+                return Err(HostError::with_details(
+                    "invalid_state",
+                    "Analysis is already running; use Restart analysis to load it again.",
+                    json!({ "action": { "method": "lsp.restart", "params": {} } }),
+                ));
+            }
+        }
+        if !inner.tools.still_ready() {
+            return Err(HostError::with_details(
+                "tool_missing",
+                format!(
+                    "{} {} is not installed and verified (or its launcher changed); analysis was not started.",
+                    tools::TOOL,
+                    tools::VERSION
+                ),
+                json!({ "action": { "method": "tools.plan", "params": { "tool": tools::TOOL } } }),
+            ));
+        }
+        let Some(workspace) = inner.workspace.as_ref() else {
+            return Err(HostError::new("invalid_state", "No workspace is open."));
+        };
+        let workspace_path = workspace.path.clone();
+        let root = workspace.root.clone();
+        let is_solution = matches!(workspace.kind, WorkspaceKind::Solution);
+        let workspace_name = workspace.name.clone();
+        let project_sdk = inner.project_sdk.clone();
+        if project_sdk.state != "resolved" {
+            let code = if project_sdk.state == "sdk_missing" {
+                "sdk_missing"
+            } else {
+                "invalid_state"
+            };
+            return Err(HostError::with_details(
+                code,
+                format!(
+                    "Analysis was not started: the project SDK is not resolved ({}). {}",
+                    project_sdk.state,
+                    project_sdk
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| "Resolve the project SDK first.".to_string())
+                ),
+                json!({ "action": { "method": "sdk.redetect", "params": {} } }),
+            ));
+        }
+        let installs = &inner.inventory.as_ref().expect("inventory").installs;
+        let host_sdk = HostSdk::from_inventory(installs);
+        if host_sdk.state != "found" {
+            return Err(HostError::with_details(
+                "sdk_missing",
+                "Analysis was not started: the .NET 10 host SDK is missing. The project SDK is never substituted.",
+                json!({ "action": { "method": "sdk.redetect", "params": {} } }),
+            ));
+        }
+        let host_install = installs
+            .iter()
+            .find(|install| {
+                Some(&install.version) == host_sdk.version.as_ref()
+                    && Some(install.root.to_string_lossy().to_string())
+                        == host_sdk.root.clone()
+            })
+            .cloned()
+            .ok_or_else(|| {
+                HostError::new("sdk_missing", "The .NET 10 host SDK install could not be resolved.")
+            })?;
+        let project_install = installs
+            .iter()
+            .find(|install| {
+                Some(&install.path) == project_sdk.sdk_path.as_ref()
+                    && Some(&install.version) == project_sdk.resolved_version.as_ref()
+            })
+            .cloned()
+            .ok_or_else(|| {
+                HostError::new(
+                    "sdk_missing",
+                    "The resolved project SDK install could not be found in the inventory; run Redetect SDKs.",
+                )
+            })?;
+
+        // The LSP never restores. Current assets are part of the start contract.
+        restore::require_restored(&workspace_path, &root, is_solution, "lsp.start")?;
+
+        let evaluation = inner.evaluation.clone();
+        let (coverage, coverage_note) = if evaluation.state == "ok" && !evaluation.stale {
+            ("full", None)
+        } else {
+            (
+                "partial",
+                Some(format!(
+                    "The evaluated project model is {}; analysis may cover only part of the solution. Reload the model and restart analysis for full coverage.",
+                    if evaluation.stale {
+                        "stale".to_string()
+                    } else {
+                        evaluation.state.to_string()
+                    }
+                )),
+            )
+        };
+        let session = inner.lsp_seq + 1;
+        let verbose = inner.lsp_verbose;
+        let log_level = if verbose { "debug" } else { "info" };
+
+        let hostroot = match hostroot::ensure(&host_install, &project_install) {
+            Ok(hostroot) => hostroot,
+            Err(message) => {
+                let failed = lsp::Lsp::begin(
+                    session,
+                    token.workspace_id,
+                    token.context_id,
+                    "",
+                    false,
+                    false,
+                    "",
+                    None,
+                    Vec::new(),
+                    root.to_string_lossy().to_string(),
+                    verbose,
+                    coverage,
+                    coverage_note,
+                );
+                failed.fail_now(message.clone());
+                inner.lsp = Some(failed);
+                let code = if message.contains("SDK") || message.contains("runtime") {
+                    "sdk_missing"
+                } else {
+                    "operation_failed"
+                };
+                return Err(HostError::with_details(
+                    code,
+                    message,
+                    json!({ "action": { "method": "sdk.redetect", "params": {} } }),
+                ));
+            }
+        };
+
+        let binary = tools::destination().join(if cfg!(windows) {
+            "csharp-ls.exe"
+        } else {
+            "csharp-ls"
+        });
+        if !binary.is_file() {
+            return Err(HostError::with_details(
+                "tool_missing",
+                "The verified csharp-ls launcher disappeared from the destination; review the install plan.",
+                json!({ "action": { "method": "tools.plan", "params": { "tool": tools::TOOL } } }),
+            ));
+        }
+        let mut argv = vec![binary.to_string_lossy().to_string()];
+        if is_solution {
+            argv.push("--solution".to_string());
+            argv.push(workspace_path.to_string_lossy().to_string());
+        }
+        argv.push("--loglevel".to_string());
+        argv.push(log_level.to_string());
+
+        let mut command = Command::new(&argv[0]);
+        command
+            .args(&argv[1..])
+            .current_dir(&root)
+            .env("DOTNET_ROOT", &hostroot.path)
+            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+            .env("DOTNET_CLI_UI_LANGUAGE", "en")
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+            .env_remove("NUGET_PACKAGES")
+            .env_remove("NUGET_HTTP_CACHE_PATH")
+            .env_remove("DOTNET_CLI_HOME");
+        let solution = is_solution.then(|| workspace_path.to_string_lossy().to_string());
+        let piped = match inner
+            .processes
+            .spawn_piped("lsp:csharp-ls", token.workspace_id, command)
+        {
+            Ok(piped) => piped,
+            Err(error) => {
+                let failed = lsp::Lsp::begin(
+                    session,
+                    token.workspace_id,
+                    token.context_id,
+                    &hostroot.path,
+                    hostroot.rebuilt,
+                    hostroot.forced,
+                    &hostroot.check,
+                    solution,
+                    argv,
+                    root.to_string_lossy().to_string(),
+                    verbose,
+                    coverage,
+                    coverage_note,
+                );
+                failed.fail_now(format!("Could not start csharp-ls: {error}"));
+                inner.lsp = Some(failed);
+                return Err(HostError::new(
+                    "operation_failed",
+                    format!("Could not start csharp-ls: {error}"),
+                ));
+            }
+        };
+        let kill = lsp::spawn_killer(piped.pid);
+        let lsp = lsp::Lsp::begin(
+            session,
+            token.workspace_id,
+            token.context_id,
+            &hostroot.path,
+            hostroot.rebuilt,
+            hostroot.forced,
+            &hostroot.check,
+            solution,
+            argv,
+            root.to_string_lossy().to_string(),
+            verbose,
+            coverage,
+            coverage_note,
+        );
+        for line in &hostroot.log {
+            lsp.log_line(line.clone());
+        }
+        lsp.attach(piped.id, piped.pid, piped.stdin, kill);
+        inner.lsp = Some(lsp.clone());
+        inner.lsp_seq = session;
+        if let Some(stdout) = piped.stdout {
+            lsp::spawn_reader(lsp.clone(), stdout);
+        }
+        if let Some(stderr) = piped.stderr {
+            lsp::spawn_stderr(lsp.clone(), stderr);
+        }
+        lsp.send_initialize(&root, &workspace_name);
+        Ok(self.snapshot_value(inner))
+    }
+
+    fn stop_lsp(&self, reason: &str) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.lsp.is_none() {
+            return Err(HostError::new("invalid_state", "Analysis is not running."));
+        }
+        stop_lsp_inner(&mut inner, reason);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn lsp_open(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("lsp.didOpen")?;
+        let raw = required_str(&params, "path")?;
+        let text = optional_str(&params, "text");
+        let inner = self.inner.lock().unwrap();
+        let lsp = inner
+            .lsp
+            .clone()
+            .ok_or_else(|| HostError::new("invalid_state", "Analysis is not running."))?;
+        if !lsp.accepts_documents() {
+            return Err(HostError::new(
+                "invalid_state",
+                "Analysis has not finished initializing; the document was not sent.",
+            ));
+        }
+        let (path, rel) = resolve_in_workspace(&inner, &raw)?;
+        let text = match text {
+            Some(text) => text,
+            None => fs::read_to_string(&path).map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!("Could not read {rel} for analysis: {error}"),
+                )
+            })?,
+        };
+        let uri = lsp::file_uri(&path);
+        let version = lsp
+            .open_document(&uri, &rel, &text)
+            .map_err(|error| HostError::new("invalid_state", error))?;
+        Ok(json!({ "uri": uri, "version": version, "session": lsp.session() }))
+    }
+
+    fn lsp_change(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("lsp.didChange")?;
+        let raw = required_str(&params, "path")?;
+        let text = required_str(&params, "text")?;
+        let inner = self.inner.lock().unwrap();
+        let lsp = inner
+            .lsp
+            .clone()
+            .ok_or_else(|| HostError::new("invalid_state", "Analysis is not running."))?;
+        if !lsp.accepts_documents() {
+            return Err(HostError::new(
+                "invalid_state",
+                "Analysis has not finished initializing; the change was not sent.",
+            ));
+        }
+        let (path, rel) = resolve_in_workspace(&inner, &raw)?;
+        let uri = lsp::file_uri(&path);
+        let version = lsp
+            .change_document(&uri, &rel, &text)
+            .map_err(|error| HostError::new("invalid_state", error))?;
+        Ok(json!({ "uri": uri, "version": version, "session": lsp.session() }))
+    }
+
     fn read_file(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
         let inner = self.inner.lock().unwrap();
@@ -947,6 +1446,10 @@ impl Host {
                 .mark_stale(format!("{rel} was saved; the evaluated project model is stale."))
         {
             inner.context_seq += 1;
+            stop_lsp_inner(
+                &mut inner,
+                "A project input changed; analysis stopped so it cannot report the previous context.",
+            );
         }
         Ok(json!({ "path": rel, "hash": content_hash(&content) }))
     }
@@ -956,6 +1459,33 @@ impl Inner {
     fn ensure_inventory(&mut self) {
         if self.inventory.is_none() {
             self.inventory = Some(sdk::inventory());
+        }
+    }
+
+    fn sync_tools(&mut self) {
+        self.tools.sync(&mut self.processes);
+    }
+
+    fn sync_lsp(&mut self) {
+        let Some(lsp) = self.lsp.clone() else {
+            return;
+        };
+        let Some(process_id) = lsp.process_id() else {
+            return;
+        };
+        self.processes.refresh();
+        let Some(status) = self.processes.status(process_id) else {
+            return;
+        };
+        if status.state == "exited" {
+            lsp.observe_exit(status.exit, status.termination.as_ref());
+        } else if lsp.state() == "failed" {
+            // Fallback for platforms where the reader cannot signal the child (Windows): a
+            // failed session is never left running.
+            let status = self.processes.terminate_status(process_id);
+            if let Some(status) = status {
+                lsp.observe_termination(&status);
+            }
         }
     }
 
@@ -997,6 +1527,44 @@ fn stop_restore(inner: &mut Inner, reason: &str) {
     };
     let status = inner.processes.terminate_status(process_id);
     inner.restore.seal(reason, status.as_ref());
+}
+
+/// Shuts the live language server down (shutdown → exit), then makes the registry observe
+/// termination. The stopped/failed record and its log stay in the snapshot.
+fn stop_lsp_inner(inner: &mut Inner, reason: &str) {
+    let Some(lsp) = inner.lsp.clone() else {
+        return;
+    };
+    if lsp.state() == "stopped" && lsp.process_id().is_none() {
+        return;
+    }
+    lsp.request_stop(reason);
+    if let Some(process_id) = lsp.process_id() {
+        // Give the server the chance to honour `exit` and exit 0 before the host signals the
+        // group. The registry is the only observer of the child.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let mut status = inner.processes.status(process_id);
+        while std::time::Instant::now() < deadline
+            && status.as_ref().is_some_and(|status| status.state != "exited")
+        {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            status = inner.processes.status(process_id);
+        }
+        if status.as_ref().is_some_and(|status| status.state != "exited") {
+            status = inner.processes.terminate_status(process_id);
+        }
+        if let Some(status) = status {
+            lsp.observe_termination(&status);
+        }
+    }
+}
+
+/// Every workspace boundary stops analysis and a real installation. A tool that was already
+/// ready stays ready: it lives in the app home, not in the workspace.
+fn stop_services(inner: &mut Inner, reason: &str) {
+    stop_lsp_inner(inner, reason);
+    let tools = inner.tools.clone();
+    tools.seal(reason, None, &mut inner.processes);
 }
 
 fn accept_locked(inner: &Inner, token: ContextToken) -> HostResult<()> {

@@ -1,8 +1,13 @@
-use openridr_host::{sdk, Host, EXECUTABLE_METHODS};
+use openridr_host::{hostroot, sdk, Host, EXECUTABLE_METHODS};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+/// Tool installation and LSP tests share the app home (or `OPENRIDR_HOME`) and child
+/// processes, so they run one at a time.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn fixture() -> PathBuf {
     fs::canonicalize(
@@ -367,6 +372,12 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "evaluation.run"
             && **method != "restore.start"
             && **method != "restore.retry"
+            && **method != "lsp.start"
+            && **method != "lsp.restart"
+            && **method != "lsp.didOpen"
+            && **method != "lsp.didChange"
+            && **method != "tools.install"
+            && **method != "tools.retry"
     }) {
         let code = error_code(host.dispatch(method, json!({})));
         if openridr_host::RESTORE_GATED_METHODS.contains(method) {
@@ -380,6 +391,20 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
                 "{method} passes the gate but is not implemented in this slice"
             );
         }
+    }
+    for (method, code) in [
+        ("tools.install", "confirmation_required"),
+        ("tools.retry", "invalid_state"),
+        ("lsp.start", "tool_missing"),
+        ("lsp.restart", "tool_missing"),
+        ("lsp.didOpen", "invalid_state"),
+        ("lsp.didChange", "invalid_state"),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch(method, json!({}))),
+            code,
+            "{method} must fail without starting a process"
+        );
     }
     assert_eq!(
         error_code(host.dispatch("evaluation.run", json!({}))),
@@ -1655,4 +1680,699 @@ fn switching_workspaces_stops_a_running_restore_and_drops_its_record() {
         error_code(host.dispatch("restore.start", json!({}))),
         "trust_required"
     );
+}
+
+struct EnvVar {
+    key: &'static str,
+    old: Option<std::ffi::OsString>,
+}
+
+impl EnvVar {
+    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let old = std::env::var_os(key);
+        std::env::set_var(key, value);
+        Self { key, old }
+    }
+
+    fn remove(key: &'static str) -> Self {
+        let old = std::env::var_os(key);
+        std::env::remove_var(key);
+        Self { key, old }
+    }
+}
+
+impl Drop for EnvVar {
+    fn drop(&mut self) {
+        match &self.old {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
+fn real_install(version: &str) -> sdk::Install {
+    sdk::inventory()
+        .installs
+        .into_iter()
+        .find(|install| install.version == version)
+        .unwrap_or_else(|| panic!("expected SDK {version} on this machine"))
+}
+
+fn host_install() -> sdk::Install {
+    let mut installs = sdk::inventory().installs;
+    installs.retain(|install| {
+        sdk::Version::parse(&install.version)
+            .is_some_and(|version| version.major == 10 && version.prerelease.is_none())
+    });
+    installs
+        .into_iter()
+        .max_by_key(|install| sdk::Version::parse(&install.version).unwrap())
+        .expect("a .NET 10 host SDK exists")
+}
+
+fn tool_plan(host: &Host) -> Value {
+    host.dispatch("tools.plan", json!({ "tool": "csharp-ls" }))
+        .expect("the install plan is built")["tools"]["csharp-ls"]
+        .clone()
+}
+
+fn wait_tool(host: &Host, timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let tool = snapshot(host)["tools"]["csharp-ls"].clone();
+        if matches!(
+            tool["state"].as_str(),
+            Some("ready" | "failed" | "cancelled")
+        ) {
+            return tool;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "tool install did not finish: {}",
+            tool["log"]
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn ensure_tool(host: &Host) {
+    let tool = tool_plan(host);
+    if tool["state"] == "ready" {
+        return;
+    }
+    let plan_id = tool["plan"]["planId"].as_str().expect("plan id");
+    host.dispatch(
+        "tools.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .expect("the confirmed install starts");
+    let done = wait_tool(host, Duration::from_secs(180));
+    assert_eq!(done["state"], "ready", "{}", done["log"]);
+}
+
+fn wait_lsp(host: &Host, timeout: Duration, states: &[&str]) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let lsp = snapshot(host)["lsp"].clone();
+        if states.contains(&lsp["state"].as_str().unwrap_or("")) {
+            return lsp;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "LSP never reached {states:?}; state {} log {}",
+            lsp["state"],
+            lsp["log"]
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn wait_publication(host: &Host, timeout: Duration, predicate: impl Fn(&Value) -> bool) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let state = snapshot(host);
+        if let Some(publication) = state["diagnostics"]["snapshots"]
+            .as_array()
+            .and_then(|snapshots| snapshots.iter().find(|item| predicate(item)))
+        {
+            return publication.clone();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no matching publication; lsp {} diagnostics {} log {}",
+            state["lsp"]["state"],
+            state["diagnostics"],
+            state["lsp"]["log"]
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let host = Host::new();
+    let workspace = temp_workspace(&["Tool.csproj"]);
+    open(&host, &workspace.path().join("Tool.csproj"));
+
+    // The plan is read-only and may be shown before trust.
+    assert_eq!(
+        error_code(host.dispatch("tools.install", json!({}))),
+        "trust_required"
+    );
+    let planned = tool_plan(&host);
+    assert_eq!(planned["state"], "planned");
+    let plan = &planned["plan"];
+    assert_eq!(plan["tool"], "csharp-ls");
+    assert_eq!(plan["version"], "0.28.0");
+    assert_eq!(plan["source"]["url"], "https://api.nuget.org/v3/index.json");
+    assert_eq!(plan["source"]["name"], "NuGet.org");
+    assert_eq!(plan["os"], std::env::consts::OS);
+    assert_eq!(plan["arch"], std::env::consts::ARCH);
+    let destination = plan["destination"].as_str().unwrap();
+    assert!(Path::new(destination).is_absolute());
+    assert!(destination.starts_with(home.path().to_string_lossy().as_ref()));
+    assert!(destination.ends_with("tools/csharp-ls/0.28"), "{destination}");
+    let staging = plan["staging"].as_str().unwrap();
+    assert!(staging.ends_with("0.28.staging"));
+    let argv: Vec<&str> = plan["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert_eq!(argv.len(), 8, "{argv:?}");
+    assert!(argv[0].ends_with("/dotnet"));
+    assert_eq!(
+        &argv[1..],
+        [
+            "tool",
+            "install",
+            "csharp-ls",
+            "--version",
+            "0.28.0",
+            "--tool-path",
+            staging
+        ]
+    );
+    assert!(argv.iter().all(|arg| !arg.contains("--global")));
+    assert_eq!(
+        plan["cwd"].as_str().unwrap(),
+        std::env::temp_dir()
+            .join("openridr-neutral")
+            .to_string_lossy()
+    );
+    assert!(plan["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|permission| permission.as_str().unwrap().contains("no global tool install")));
+    assert_eq!(snapshot(&host)["processes"], json!([]));
+
+    // Cancelling a plan starts nothing and leaves no tool directory.
+    let cancelled = host.dispatch("tools.cancel", json!({})).unwrap();
+    assert_eq!(cancelled["tools"]["csharp-ls"]["state"], "cancelled");
+    assert!(!Path::new(destination).exists());
+    assert!(!Path::new(staging).exists());
+    assert_eq!(snapshot(&host)["processes"], json!([]));
+    assert_eq!(
+        error_code(host.dispatch("tools.cancel", json!({}))),
+        "invalid_state"
+    );
+
+    grant(&host);
+    let planned = tool_plan(&host);
+    let plan_id = planned["plan"]["planId"].as_str().unwrap().to_string();
+    assert_eq!(
+        error_code(host.dispatch(
+            "tools.install",
+            json!({ "planId": plan_id, "confirm": false })
+        )),
+        "confirmation_required"
+    );
+    assert_eq!(
+        error_code(host.dispatch(
+            "tools.install",
+            json!({ "planId": "fnv1a64:0000000000000000", "confirm": true })
+        )),
+        "confirmation_required"
+    );
+    assert_eq!(snapshot(&host)["processes"], json!([]));
+
+    // A material change (another app home) requires a new confirmation.
+    let other = tempfile::tempdir().unwrap();
+    let _other_home = EnvVar::set("OPENRIDR_HOME", other.path());
+    let stale = host
+        .dispatch(
+            "tools.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .expect_err("the destination changed");
+    assert_eq!(stale.code, "confirmation_required");
+    assert!(stale
+        .message
+        .contains("review and confirm the new plan"));
+    assert!(!other.path().join("tools").exists());
+    assert_eq!(snapshot(&host)["processes"], json!([]));
+}
+
+#[test]
+fn tools_install_is_real_verified_and_reused() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let host = Host::new();
+    let workspace = temp_workspace(&["Install.csproj"]);
+    open(&host, &workspace.path().join("Install.csproj"));
+    grant(&host);
+
+    let planned = tool_plan(&host);
+    let plan = planned["plan"].clone();
+    let plan_id = plan["planId"].as_str().unwrap().to_string();
+    let started = Instant::now();
+    host.dispatch(
+        "tools.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .unwrap();
+
+    let mut seen = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let finished = loop {
+        let tool = snapshot(&host)["tools"]["csharp-ls"].clone();
+        let state = tool["state"].as_str().unwrap().to_string();
+        if seen.last() != Some(&state) {
+            seen.push(state.clone());
+        }
+        if matches!(state.as_str(), "ready" | "failed" | "cancelled") {
+            break tool;
+        }
+        assert!(Instant::now() < deadline, "install stuck: {}", tool["log"]);
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let elapsed = started.elapsed();
+    assert_eq!(finished["state"], "ready", "{}", finished["log"]);
+    assert_eq!(
+        seen,
+        ["downloading", "installing", "verifying", "ready"],
+        "the install states were not all observable: {seen:?}"
+    );
+    eprintln!(
+        "real csharp-ls install: {:?}, states {seen:?}, sha256 {}",
+        elapsed, finished["sha256"]
+    );
+
+    let log = finished["log"].as_str().unwrap();
+    assert!(
+        log.contains("Tool 'csharp-ls' (version '0.28.0') was successfully installed"),
+        "{log}"
+    );
+    assert!(log.contains("Skipping NuGet package signature verification"), "{log}");
+    assert!(log.contains("--version"), "{log}");
+    assert_eq!(finished["exit"], 0);
+    assert_eq!(finished["verifiedVersion"], "0.28.0");
+    assert!(finished["verifiedOutput"]
+        .as_str()
+        .unwrap()
+        .contains("csharp-ls, 0.28.0"));
+    let sha = finished["sha256"].as_str().unwrap();
+    assert_eq!(sha.len(), 64);
+    assert!(sha.chars().all(|c| c.is_ascii_hexdigit()));
+
+    let destination = PathBuf::from(finished["destination"].as_str().unwrap());
+    let staging = PathBuf::from(finished["staging"].as_str().unwrap());
+    assert!(destination.join("csharp-ls").is_file());
+    assert!(!staging.exists());
+    assert!(destination.starts_with(home.path()));
+    let processes_before = snapshot(&host)["processes"].as_array().unwrap().len();
+
+    // A valid installation is reused, never overwritten, and starts no process.
+    let planned = tool_plan(&host);
+    assert_eq!(planned["state"], "ready");
+    assert_eq!(planned["plan"]["existing"]["state"], "present");
+    let reused = host
+        .dispatch(
+            "tools.install",
+            json!({ "planId": planned["plan"]["planId"], "confirm": true }),
+        )
+        .unwrap();
+    assert_eq!(reused["tools"]["csharp-ls"]["state"], "ready");
+    assert_eq!(reused["tools"]["csharp-ls"]["reused"], true);
+    assert_eq!(reused["tools"]["csharp-ls"]["sha256"], sha);
+    assert_eq!(
+        snapshot(&host)["processes"].as_array().unwrap().len(),
+        processes_before
+    );
+    assert!(destination.join("csharp-ls").is_file());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+
+    let host = host_install();
+    let project = real_install("8.0.408");
+    let first = hostroot::ensure(&host, &project).expect("the composite root is built");
+    assert!(first.rebuilt);
+    assert!(!first.forced);
+    assert!(Path::new(&first.path).starts_with(home.path()));
+    assert!(Path::new(&first.path).join("dotnet").is_file());
+    assert!(first.check.contains("8.0.408"));
+    assert!(first.check.contains("10.0.0"), "{}", first.check);
+    assert!(first.check.contains(&Path::new(&first.path).join("dotnet").to_string_lossy().as_ref()));
+
+    let muxer = Path::new(&first.path).join("dotnet");
+    let output = std::process::Command::new(&muxer)
+        .arg("--list-sdks")
+        .env("DOTNET_ROOT", &first.path)
+        .env_remove("DOTNET_MULTILEVEL_LOOKUP")
+        .current_dir(std::env::temp_dir())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(text.contains("8.0.408"), "{text}");
+    assert!(
+        !text.contains(&host.version),
+        "the host SDK must stay out of sdk/ so MSBuildLocator cannot prefer it: {text}"
+    );
+    assert!(
+        text.lines().next().unwrap_or_default().starts_with("8.0.408"),
+        "the project SDK must be the only MSBuild SDK: {text}"
+    );
+
+    let runtimes = std::process::Command::new(&muxer)
+        .arg("--list-runtimes")
+        .env("DOTNET_ROOT", &first.path)
+        .current_dir(std::env::temp_dir())
+        .output()
+        .unwrap();
+    assert!(runtimes.status.success());
+    let runtimes = String::from_utf8_lossy(&runtimes.stdout).to_string();
+    assert!(runtimes.contains("Microsoft.NETCore.App 10."), "{runtimes}");
+
+    let version = std::process::Command::new(&muxer)
+        .arg("--version")
+        .env("DOTNET_ROOT", &first.path)
+        .current_dir(fixture())
+        .output()
+        .unwrap();
+    assert!(version.status.success());
+    assert_eq!(String::from_utf8_lossy(&version.stdout).trim(), "8.0.408");
+
+    let second = hostroot::ensure(&host, &project).expect("the composite root is reused");
+    assert!(!second.rebuilt);
+    assert_eq!(first.path, second.path);
+    assert_eq!(second.check, first.check);
+    assert!(!Path::new(&first.path).starts_with(fixture()));
+}
+
+#[test]
+fn lsp_start_requires_tool_sdk_and_current_restore() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+
+    // No verified tool: the host says tool_missing and points to the plan.
+    let no_tool_home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", no_tool_home.path());
+    let host = Host::new();
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Lsp no tool");
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let error = host
+        .dispatch("lsp.start", json!({}))
+        .expect_err("no tool");
+    assert_eq!(error.code, "tool_missing");
+    assert_eq!(error.details.unwrap()["action"]["method"], "tools.plan");
+    drop(_home);
+
+    // With the real tool: unresolved project SDK and missing restore are distinct.
+    let host = Host::new();
+    let missing = fs::canonicalize(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"),
+    )
+    .unwrap();
+    open(&host, &missing.join("MissingSdk.csproj"));
+    grant(&host);
+    ensure_tool(&host);
+    let error = host
+        .dispatch("lsp.start", json!({}))
+        .expect_err("missing project SDK");
+    assert_eq!(error.code, "sdk_missing");
+    assert_eq!(error.details.unwrap()["action"]["method"], "sdk.redetect");
+
+    let fresh_temp = tempfile::tempdir().unwrap();
+    let fresh = fixture_copy(fresh_temp.path(), "Lsp restore required");
+    open(&host, &fresh.join("OrderDesk.sln"));
+    grant(&host);
+    let error = host
+        .dispatch("lsp.start", json!({}))
+        .expect_err("restore is missing");
+    assert_eq!(error.code, "restore_required");
+    let details = error.details.unwrap();
+    assert_eq!(details["action"]["method"], "restore.start");
+    assert!(!fresh.join("src/OrderDesk.Cli/obj/project.assets.json").exists());
+    assert_eq!(snapshot(&host)["lsp"]["state"], "unavailable");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk lsp");
+    let program = copy.join("src/OrderDesk.Cli/Program.cs");
+    let clean = fs::read_to_string(&program).unwrap();
+    fs::write(&program, format!("{clean}\nvar report = new OrderReport();\n")).unwrap();
+
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    ensure_tool(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    let restore = wait_for_restore(&host, Duration::from_secs(120));
+    assert_eq!(restore["state"], "ok", "{}", restore["log"]);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(evaluated["evaluation"]["state"], "ok");
+
+    let started = host.dispatch("lsp.start", json!({})).unwrap();
+    assert_eq!(started["lsp"]["state"], "starting");
+    let ready = wait_lsp(
+        &host,
+        Duration::from_secs(60),
+        &["ready", "partial", "awaiting_diagnostics", "failed"],
+    );
+    assert_eq!(ready["state"], "ready", "{}", ready["log"]);
+    assert_eq!(ready["coverage"], "full");
+    assert_eq!(ready["capabilities"]["completion"], true);
+    assert_eq!(ready["capabilities"]["definition"], true);
+    assert_eq!(ready["capabilities"]["rename"], true);
+    assert_eq!(ready["capabilities"]["codeActions"], true);
+    assert_eq!(ready["serverInfo"]["name"], "csharp-ls");
+    assert_eq!(ready["logLevel"], "info");
+    let host_root = ready["hostRoot"].as_str().unwrap().to_string();
+    assert!(host_root.contains("hostroot"));
+    assert!(ready["hostRootCheck"].as_str().unwrap().contains("8.0.408"));
+
+    let opened = host
+        .dispatch("lsp.didOpen", json!({ "path": "src/OrderDesk.Cli/Program.cs" }))
+        .unwrap();
+    assert_eq!(opened["version"], 1);
+    let publication = wait_publication(&host, Duration::from_secs(30), |item| {
+        item["clientRevision"] == 1
+    });
+    assert_eq!(publication["serverVersion"], Value::Null);
+    let items = publication["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{}", publication);
+    assert_eq!(items[0]["code"], "CS0246");
+    assert_eq!(items[0]["severity"], 1);
+    assert_eq!(items[0]["source"], "lsp");
+    assert!(items[0]["message"].as_str().unwrap().contains("OrderReport"));
+    assert!(items[0]["range"]["start"]["line"].as_u64().unwrap() >= 4);
+
+    let changed = host
+        .dispatch(
+            "lsp.didChange",
+            json!({ "path": "src/OrderDesk.Cli/Program.cs", "text": clean }),
+        )
+        .unwrap();
+    assert_eq!(changed["version"], 2);
+    let fixed = wait_publication(&host, Duration::from_secs(30), |item| {
+        item["clientRevision"] == 2 && item["items"].as_array().is_some_and(Vec::is_empty)
+    });
+    assert_eq!(fixed["items"], json!([]));
+    assert_eq!(snapshot(&host)["lsp"]["state"], "ready");
+
+    let restarted = host
+        .dispatch("lsp.restart", json!({ "verbose": true }))
+        .unwrap();
+    assert_eq!(restarted["lsp"]["session"], 2);
+    assert_eq!(restarted["lsp"]["logLevel"], "debug");
+    let ready = wait_lsp(
+        &host,
+        Duration::from_secs(60),
+        &["ready", "partial", "awaiting_diagnostics", "failed"],
+    );
+    assert_eq!(ready["state"], "ready", "{}", ready["log"]);
+    assert_eq!(ready["publicationCount"], 0, "restart starts a new session");
+    host.dispatch(
+        "lsp.didOpen",
+        json!({ "path": "src/OrderDesk.Cli/Program.cs", "text": clean }),
+    )
+    .unwrap();
+    let republished = wait_publication(&host, Duration::from_secs(30), |item| {
+        item["clientRevision"] == 1
+    });
+    assert_eq!(republished["items"], json!([]));
+
+    let lsp_process = snapshot(&host)["lsp"]["processId"].as_u64().unwrap();
+    let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
+    assert_eq!(revoked["lsp"]["state"], "stopped");
+    let process = revoked["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"].as_u64() == Some(lsp_process))
+        .unwrap();
+    assert_eq!(process["state"], "exited");
+    assert_eq!(revoked["lsp"]["exit"], process["exit"]);
+    assert_eq!(revoked["lsp"]["exit"], 0);
+    assert!(revoked["lsp"]["finishedAt"].as_u64().is_some());
+
+    // Editing stays available after analysis stops.
+    let read = host
+        .dispatch("file.read", json!({ "path": "src/OrderDesk.Cli/Program.cs" }))
+        .unwrap();
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "src/OrderDesk.Cli/Program.cs",
+            "content": read["content"],
+            "expected_hash": read["hash"],
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        error_code(host.dispatch("lsp.start", json!({}))),
+        "trust_required"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let forced = temp.path().join("hostroot10");
+    fs::create_dir_all(forced.join("sdk")).unwrap();
+    fs::create_dir_all(forced.join("shared/Microsoft.NETCore.App")).unwrap();
+    fs::create_dir_all(forced.join("host/fxr")).unwrap();
+    let host = host_install();
+    fs::copy(host.root.join("dotnet"), forced.join("dotnet")).unwrap();
+    let fxr = std::fs::read_dir(host.root.join("host/fxr"))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("10."))
+        })
+        .expect("host/fxr 10");
+    std::os::unix::fs::symlink(fxr, forced.join("host/fxr/10.0.0")).unwrap();
+    let runtime = std::fs::read_dir(host.root.join("shared/Microsoft.NETCore.App"))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("10."))
+        })
+        .expect("runtime 10");
+    std::os::unix::fs::symlink(runtime, forced.join("shared/Microsoft.NETCore.App/10.0.0")).unwrap();
+    std::os::unix::fs::symlink(
+        host.sdk_dir(),
+        forced.join(format!("sdk/{}", host.version)),
+    )
+    .unwrap();
+    let _forced = EnvVar::set("OPENRIDR_FORCE_HOSTROOT", &forced);
+
+    let copy = fixture_copy(temp.path(), "Order Desk lsp failure");
+    let host_api = Host::new();
+    open(&host_api, &copy.join("OrderDesk.sln"));
+    grant(&host_api);
+    ensure_tool(&host_api);
+    host_api.dispatch("restore.start", json!({})).unwrap();
+    let restore = wait_for_restore(&host_api, Duration::from_secs(120));
+    assert_eq!(restore["state"], "ok", "{}", restore["log"]);
+    host_api.dispatch("evaluation.run", json!({})).unwrap();
+
+    let started = host_api.dispatch("lsp.start", json!({})).unwrap();
+    assert_eq!(started["lsp"]["hostRootForced"], true);
+    let failed = wait_lsp(
+        &host_api,
+        Duration::from_secs(30),
+        &["failed"],
+    );
+    let message = failed["error"].as_str().unwrap();
+    assert!(message.contains("A compatible .NET SDK was not found"), "{message}");
+    assert!(message.contains("8.0.408"), "{message}");
+    assert!(failed["log"]
+        .as_str()
+        .unwrap()
+        .contains("A compatible .NET SDK was not found"));
+    assert_eq!(failed["publicationCount"], 0);
+
+    let process_id = failed["processId"].as_u64().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let process = snapshot(&host_api)["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|process| process["id"].as_u64() == Some(process_id))
+            .cloned()
+            .unwrap();
+        if process["state"] == "exited" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the failed LSP process survived");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn cancelling_a_running_install_reports_termination_and_never_ready() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let host = Host::new();
+    let workspace = temp_workspace(&["CancelInstall.csproj"]);
+    open(&host, &workspace.path().join("CancelInstall.csproj"));
+    grant(&host);
+
+    let planned = tool_plan(&host);
+    let plan_id = planned["plan"]["planId"].as_str().unwrap().to_string();
+    let destination = planned["plan"]["destination"].as_str().unwrap().to_string();
+    let staging = planned["plan"]["staging"].as_str().unwrap().to_string();
+    host.dispatch(
+        "tools.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .unwrap();
+    let cancelled = host.dispatch("tools.cancel", json!({})).unwrap();
+    let tool = &cancelled["tools"]["csharp-ls"];
+    assert_eq!(tool["state"], "cancelled");
+    assert_ne!(tool["state"], "ready");
+    assert_eq!(tool["reused"], false);
+    assert_eq!(
+        tool["note"].as_str().unwrap().contains("not ready"),
+        true,
+        "{}",
+        tool["note"]
+    );
+    assert!(!Path::new(&destination).exists() || tool["sha256"].is_null());
+    let process = cancelled["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"] == tool["processId"])
+        .expect("the install process is tracked");
+    assert_eq!(process["state"], "exited");
+    assert_eq!(tool["exit"], process["exit"]);
+    assert!(Path::new(&staging).exists() || !Path::new(&destination).exists());
+    assert!(tool["log"].as_str().unwrap().contains("cancelled"));
 }

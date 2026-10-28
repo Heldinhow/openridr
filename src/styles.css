@@ -872,3 +872,70 @@ p {
 .workspace-notices .process-panel {
   margin: 6px 0 0;
 }
+
+/* Tool installation and analysis status rows */
+
+.analysis-panel {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 6px 12px 4px;
+  font-size: 0.78rem;
+  background: var(--panel);
+}
+
+.analysis-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analysis-head button {
+  font-size: 0.78rem;
+  padding: 3px 8px;
+}
+
+.analysis-panel .tag {
+  padding: 1px 6px;
+}
+
+.analysis-panel .restore-meta {
+  grid-template-columns: 128px minmax(0, 1fr);
+}
+
+.analysis-panel .eval-log {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+}
+
+.analysis-panel .eval-pre {
+  margin: 0 0 6px;
+  max-height: 220px;
+}
+
+.analysis-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.plain-list {
+  margin: 0;
+  padding-left: 16px;
+}
+
+/* Keep the editor usable when tool/analysis notices grow: they scroll, the grid keeps room. */
+.workspace-notices {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.workspace-grid {
+  flex: 1 1 auto;
+  min-height: 220px;
+}
