@@ -987,7 +987,7 @@ fn a_failed_evaluation_stays_in_the_model_while_other_projects_evaluate() {
         "Microsoft Visual Studio Solution File, Format Version 12.00\n\
 Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Good\", \"Good.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\nEndProject\n\
 Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Broken\", \"Broken.csproj\", \"{22222222-2222-2222-2222-222222222222}\"\nEndProject\n\
-Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\n\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n\t\t{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\t\t{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
     )
     .unwrap();
 
@@ -1027,7 +1027,7 @@ fn revoking_trust_while_msbuild_runs_drops_the_late_result() {
     )
     .unwrap();
     let mut sln = String::from(
-        "Microsoft Visual Studio Solution File, Format Version 12.00\nGlobal\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+        "Microsoft Visual Studio Solution File, Format Version 12.00\nGlobal\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\n\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n\t\t{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\t\t{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
     );
     for index in 0..8 {
         let name = format!("P{index}");
@@ -1314,6 +1314,12 @@ fn build_start_reports_restore_required_with_the_explicit_action() {
     let host = Host::new();
     let workspace = temp_workspace(&["Policy.csproj"]);
     open(&host, &workspace.path().join("Policy.csproj"));
+    // Cancellation is a safety action: it is not blocked by the trust gate, only by the
+    // absence of a running build.
+    assert_eq!(
+        error_code(host.dispatch("build.cancel", json!({}))),
+        "invalid_state"
+    );
     grant(&host);
 
     let error = host
@@ -1604,7 +1610,7 @@ fn restore_can_target_one_project_of_a_solution() {
         "Microsoft Visual Studio Solution File, Format Version 12.00\n\
 Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"One\", \"One.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\nEndProject\n\
 Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Two\", \"lib\\Two.csproj\", \"{22222222-2222-2222-2222-222222222222}\"\nEndProject\n\
-Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\n\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n\t\t{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\t\t{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
     )
     .unwrap();
 
@@ -2627,4 +2633,342 @@ fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown
         "trust_required"
     );
     assert_eq!(snapshot(&host)["trust"]["granted"], false);
+}
+
+fn write_console_project(dir: &Path, name: &str, extra: &str) {
+    fs::write(
+        dir.join(format!("{name}.csproj")),
+        format!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework></PropertyGroup>{extra}</Project>\n"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        dir.join(format!("{name}.cs")),
+        "System.Console.WriteLine(\"ready\");\n",
+    )
+    .unwrap();
+}
+
+fn wait_for_build(host: &Host, timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let state = snapshot(host);
+        let build = state["build"].clone();
+        if build["state"] != "running" {
+            return build;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "build did not finish: {}",
+            build["log"]
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let state = snapshot(host);
+        let log = state["build"]["log"].as_str().unwrap_or_default().to_string();
+        if log.contains(needle) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "build never logged {needle}: {log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn build_start_needs_the_current_evaluation_and_rejects_a_library_startup() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk build gate");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(&host, Duration::from_secs(60));
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    let processes_before = snapshot(&host)["processes"].as_array().unwrap().len();
+
+    let library = host
+        .dispatch("build.start", json!({ "project": "src/OrderDesk.Core/OrderDesk.Core.csproj" }))
+        .expect_err("a library is not an executable startup project");
+    assert_eq!(library.code, "invalid_state");
+    assert!(
+        library.message.contains("library") && library.message.contains("console"),
+        "{}",
+        library.message
+    );
+
+    let unevaluated = host
+        .dispatch(
+            "build.start",
+            json!({
+                "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+                "configuration": "Release"
+            }),
+        )
+        .expect_err("a configuration that was not evaluated must not be reused");
+    assert_eq!(unevaluated.code, "invalid_state");
+    assert!(unevaluated.message.contains("has not been evaluated"));
+
+    assert_eq!(snapshot(&host)["build"]["revision"], 0);
+    assert_eq!(
+        snapshot(&host)["processes"].as_array().unwrap().len(),
+        processes_before,
+        "rejected build.start calls must not spawn a process"
+    );
+
+    // A successful restore invalidates the evaluated model, so a later build must not reuse it.
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(&host, Duration::from_secs(60));
+    let stale = snapshot(&host);
+    assert_eq!(stale["evaluation"]["stale"], true);
+    let denied = host
+        .dispatch("build.start", json!({ "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj" }))
+        .expect_err("a stale evaluation cannot start a build");
+    assert_eq!(denied.code, "invalid_state");
+    assert!(denied.message.contains("stale"), "{}", denied.message);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn build_reports_the_exact_command_raw_log_exit_and_real_problems() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_console_project(&root, "Honest", "");
+    let source = root.join("Honest.cs");
+
+    let host = Host::new();
+    open(&host, &root.join("Honest.csproj"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(&host, Duration::from_secs(60));
+    host.dispatch("evaluation.run", json!({})).unwrap();
+
+    let started = host
+        .dispatch("build.start", json!({ "savedNote": "Built saved content; no unsaved buffers." }))
+        .unwrap();
+    let build = &started["build"];
+    assert_eq!(build["state"], "running");
+    assert_eq!(build["project"]["name"], "Honest");
+    assert_eq!(build["project"]["kind"], "console");
+    assert_eq!(
+        build["project"]["targetPath"].as_str().unwrap(),
+        root.join("bin/Debug/net8.0/Honest.dll").to_string_lossy()
+    );
+    assert_eq!(build["configuration"], "Debug");
+    assert_eq!(build["targetFramework"], Value::Null);
+    assert_eq!(build["cwd"].as_str().unwrap(), root.to_string_lossy());
+    assert_eq!(build["sdkVersion"], "8.0.408");
+    assert!(build["sdkRoot"].as_str().unwrap().ends_with("OpenRidr/sdks/8.0.408"));
+    assert!(build["buildId"].as_str().unwrap().starts_with("build:"));
+    assert_eq!(
+        build["savedNote"],
+        "Built saved content; no unsaved buffers."
+    );
+    let command: Vec<String> = build["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(command.len(), 8, "{command:?}");
+    assert!(command[0].ends_with("/dotnet"), "{}", command[0]);
+    assert_eq!(command[1], "build");
+    assert_eq!(command[2], root.join("Honest.csproj").to_string_lossy());
+    assert_eq!(command[3], "-c");
+    assert_eq!(command[4], "Debug");
+    assert_eq!(command[5], "-nologo");
+    assert_eq!(command[6], "-v:minimal");
+    assert_eq!(command[7], "--no-restore");
+    assert!(!command.iter().any(|arg| arg.contains("-p:TargetFramework")));
+
+    let finished = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(finished["state"], "ok", "{}", finished["log"]);
+    assert_eq!(finished["exit"], 0);
+    let log = finished["log"].as_str().unwrap();
+    assert!(log.contains("Build succeeded"), "{log}");
+    assert!(log.contains("Honest.dll"), "{log}");
+    assert_eq!(finished["problems"], json!([]));
+
+    // A real compiler error on disk: the next build reads the saved content and fails.
+    fs::write(&source, "System.Console.WriteLine(Missing);\n").unwrap();
+    host.dispatch("build.start", json!({})).unwrap();
+    let failed = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(failed["state"], "failed", "{}", failed["log"]);
+    assert_eq!(failed["exit"], 1);
+    assert!(failed["log"].as_str().unwrap().contains("error CS"));
+    let problem = &failed["problems"][0];
+    assert_eq!(problem["severity"], "error");
+    assert_eq!(problem["severityLabel"], "error");
+    assert_eq!(problem["severityRaw"], 1);
+    assert_eq!(problem["source"], "dotnet");
+    assert_eq!(problem["category"], "unknown");
+    assert_eq!(problem["path"], "Honest.cs");
+    assert_eq!(problem["position"]["line"], 0);
+    assert!(problem["position"]["character"].as_u64().unwrap() > 0);
+    assert!(problem["code"].as_str().unwrap().starts_with("CS"));
+    assert!(problem["raw"].as_str().unwrap().contains("error CS"));
+    assert_eq!(problem["buildId"], failed["buildId"]);
+    // Build problems live in the build snapshot, never merged into the LSP store.
+    let state = snapshot(&host);
+    assert_eq!(state["diagnostics"]["snapshots"], json!([]));
+
+    // Fixing and saving produces a new, verifiable run.
+    fs::write(&source, "System.Console.WriteLine(\"fixed\");\n").unwrap();
+    host.dispatch("build.start", json!({})).unwrap();
+    let fixed = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(fixed["state"], "ok", "{}", fixed["log"]);
+    assert_eq!(fixed["exit"], 0);
+    assert_eq!(fixed["problems"], json!([]));
+    assert_ne!(fixed["buildId"], failed["buildId"]);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn build_requires_an_explicit_startup_when_more_than_one_console_project_exists() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    fs::create_dir_all(root.join("alpha")).unwrap();
+    fs::create_dir_all(root.join("beta")).unwrap();
+    write_console_project(&root.join("alpha"), "Alpha", "");
+    write_console_project(&root.join("beta"), "Beta", "");
+    fs::write(
+        root.join("Pair.sln"),
+        "Microsoft Visual Studio Solution File, Format Version 12.00\n\
+Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Alpha\", \"alpha\\Alpha.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\nEndProject\n\
+Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Beta\", \"beta\\Beta.csproj\", \"{22222222-2222-2222-2222-222222222222}\"\nEndProject\n\
+Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\n\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n\t\t{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{11111111-1111-1111-1111-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\t\t{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{22222222-2222-2222-2222-222222222222}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+    )
+    .unwrap();
+
+    let host = Host::new();
+    open(&host, &root.join("Pair.sln"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(&host, Duration::from_secs(60));
+    host.dispatch("evaluation.run", json!({})).unwrap();
+
+    let ambiguous = host
+        .dispatch("build.start", json!({}))
+        .expect_err("two console projects need an explicit startup");
+    assert_eq!(ambiguous.code, "invalid_state");
+    let details = ambiguous.details.unwrap();
+    assert_eq!(details["reason"], "ambiguous");
+    assert_eq!(details["candidates"].as_array().unwrap().len(), 2);
+    assert_eq!(snapshot(&host)["build"]["revision"], 0);
+
+    let started = host
+        .dispatch("build.start", json!({ "project": "beta/Beta.csproj" }))
+        .unwrap();
+    assert_eq!(started["build"]["project"]["name"], "Beta");
+    let finished = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(finished["state"], "ok", "{}", finished["log"]);
+    assert!(finished["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg == &json!(root.join("beta/Beta.csproj").to_string_lossy())));
+}
+
+#[cfg(unix)]
+fn hanging_build_workspace() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_console_project(
+        &root,
+        "Slow",
+        "<Target Name=\"Hang\" AfterTargets=\"Build\"><Exec Command=\"sleep 30\" /></Target>",
+    );
+    temp
+}
+
+#[cfg(unix)]
+fn ready_for_build(host: &Host, root: &Path) {
+    open(host, &root.join("Slow.csproj"));
+    grant(host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(host, Duration::from_secs(60));
+    host.dispatch("evaluation.run", json!({})).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_a_real_hanging_build_reports_requested_and_observed_termination() {
+    let temp = hanging_build_workspace();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let host = Host::new();
+    ready_for_build(&host, &root);
+    let started = host.dispatch("build.start", json!({})).unwrap();
+    let process_id = started["build"]["processId"].as_u64().unwrap_or_else(|| panic!("no build process: {}", started["build"]));
+
+    wait_for_build_output(&host, "Slow.dll", Duration::from_secs(30));
+
+    let cancelled = host.dispatch("build.cancel", json!({})).unwrap();
+    let build = &cancelled["build"];
+    assert_eq!(build["state"], "cancelled");
+    assert_eq!(build["awaitingDecision"], false);
+    assert!(build["termination"]["requested"]
+        .as_str()
+        .unwrap()
+        .contains("SIGTERM"));
+    assert_eq!(build["termination"]["observed"], "exited");
+    assert_ne!(build["exit"], json!(0));
+    assert!(build["log"].as_str().unwrap().contains("Slow.dll"));
+    let process = cancelled["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|process| process["id"].as_u64() == Some(process_id))
+        .unwrap();
+    assert_eq!(process["state"], "exited");
+    assert_eq!(build["exit"], process["exit"]);
+    assert_eq!(
+        error_code(host.dispatch("build.cancel", json!({}))),
+        "invalid_state"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn revoking_trust_seals_a_running_build_and_drops_its_late_exit() {
+    let temp = hanging_build_workspace();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let host = Host::new();
+    ready_for_build(&host, &root);
+    host.dispatch("build.start", json!({})).unwrap();
+    wait_for_build_output(&host, "Slow.dll", Duration::from_secs(30));
+
+    let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
+    let build = &revoked["build"];
+    assert_eq!(build["sealed"], true);
+    assert_eq!(build["stale"], true);
+    assert!(build["staleReason"].as_str().unwrap().contains("Trust"));
+    assert_eq!(build["state"], "cancelled");
+    assert_eq!(build["termination"]["observed"], "exited");
+    let finished_at = build["finishedAt"].clone();
+
+    std::thread::sleep(Duration::from_millis(500));
+    let later = snapshot(&host);
+    assert_eq!(later["build"]["sealed"], true);
+    assert_eq!(later["build"]["state"], "cancelled");
+    assert_eq!(later["build"]["finishedAt"], finished_at);
+    assert_eq!(
+        error_code(host.dispatch("build.start", json!({}))),
+        "trust_required"
+    );
 }

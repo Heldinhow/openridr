@@ -149,6 +149,7 @@ test("install plan is exact, cancel is inert, and the real install reaches verif
     }
 
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    const workspaceId = (await hostState(request)).workspace.id;
     await trustWorkspace(page);
     await enterWorkspace(page);
 
@@ -195,7 +196,13 @@ test("install plan is exact, cancel is inert, and the real install reaches verif
       await expect(page.getByTestId("install-state")).toContainText("Cancelled");
       expect(fs.existsSync(plan.destination), "cancel created a tool directory").toBe(false);
       expect(fs.existsSync(plan.staging), "cancel created a staging directory").toBe(false);
-      expect((await hostState(request)).processes).toEqual([]);
+      // Other specs leave exited processes in the shared registry; cancel must create none
+      // for this workspace.
+      expect(
+        (await hostState(request)).processes.filter(
+          (process: { workspaceId: number }) => process.workspaceId === workspaceId,
+        ),
+      ).toEqual([]);
       await page.getByTestId("install-plan-open").click();
       await expect(page.getByTestId("install-plan")).toBeVisible();
     }

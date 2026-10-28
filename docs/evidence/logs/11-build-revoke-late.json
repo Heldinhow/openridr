@@ -1,0 +1,13 @@
+{
+  "state": "cancelled",
+  "sealed": true,
+  "finishedAt": 1793175399840,
+  "problems": 0,
+  "logHasLateLines": false,
+  "trust": {
+    "decidedAt": 1793175396165,
+    "granted": false,
+    "revokedAt": 1793175399784,
+    "workspaceId": 2
+  }
+}

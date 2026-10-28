@@ -11,6 +11,7 @@ import {
 } from "./host/client";
 import { CodeEditor } from "./CodeEditor";
 import { ProblemsPanel } from "./ProblemsPanel";
+import { BuildPanel, isBuildObsolete } from "./BuildPanel";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { LspPanel, ToolInstaller } from "./ToolchainPanels";
@@ -235,6 +236,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const writing = useRef(new Set<string>());
   const diskEpoch = useRef(new Map<string, number>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
+  const [startupPath, setStartupPath] = useState<string | null>(null);
+  const [buildDecision, setBuildDecision] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
   const autoEvaluation = useRef<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(
@@ -354,6 +357,35 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
     return Array.from(grouped.entries());
   })();
+  const build = snapshot.build;
+  const consoleCandidates = evaluatedProjects.filter(
+    (project) => project.kind === "console" && project.state === "ok" && project.targetPath,
+  );
+  const startupProject =
+    consoleCandidates.find((project) => project.path === startupPath) ??
+    (consoleCandidates.length === 1 ? consoleCandidates[0] : null);
+  const buildRunning = build.state === "running";
+  const buildObsolete = isBuildObsolete(build, editedAt);
+  const buildDisabledReason = !trusted
+    ? "Trust the workspace before building; nothing runs in Restricted mode."
+    : projectSdk.state !== "resolved"
+      ? "Resolve the project SDK before building; the host SDK is never substituted."
+      : evaluation.state === "running"
+        ? "Wait for the evaluation to finish before building."
+        : evaluation.stale
+          ? "The evaluated project model is stale; re-evaluate before building."
+          : !["ok", "partial"].includes(evaluation.state)
+            ? "Evaluate the project model before building; the build uses its TargetPath."
+            : restoreIncomplete
+              ? "Dependencies are not restored; run the explicit restore first."
+              : consoleCandidates.length === 0
+                ? "No console executable project is available in the current evaluation; libraries and test projects cannot be startup projects."
+                : !startupProject
+                  ? "More than one console project; choose the startup project explicitly."
+                  : buildRunning
+                    ? "A build is already running."
+                    : null;
+  const requestBuildRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     // Evaluate automatically once per trusted context; a stale model always needs an
@@ -1405,6 +1437,88 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
+  async function startBuild(savedNote: string) {
+    if (!startupProject) {
+      setMessage({
+        tone: "error",
+        text: "Choose a console startup project before building.",
+      });
+      return;
+    }
+    setBottomTab("build");
+    try {
+      onSnapshot(
+        await call<Snapshot>("build.start", {
+          project: startupProject.path,
+          configuration: evaluation.context.configuration,
+          targetFramework: evaluation.context.targetFramework,
+          savedNote,
+        }),
+      );
+      setMessage(null);
+    } catch (error) {
+      const text = `Build could not start: ${messageOf(error)}`;
+      setMessage({ tone: "error", text });
+      if (error instanceof HostCallError && error.code === "restore_required") {
+        setBottomTab("build");
+      }
+    }
+  }
+
+  function requestBuild() {
+    if (buildDisabledReason) {
+      setMessage({ tone: "error", text: `Build unavailable: ${buildDisabledReason}` });
+      return;
+    }
+    if (dirtyCount > 0) {
+      setBuildDecision(true);
+      return;
+    }
+    void startBuild("Built saved content; no unsaved buffers were open.");
+  }
+
+  async function saveAllAndBuild() {
+    const dirty = dirtyCount;
+    const failures = await saveAll();
+    if (failures.length > 0) {
+      setBuildDecision(false);
+      setMessage({ tone: "error", text: failures.join(" ") });
+      return;
+    }
+    setBuildDecision(false);
+    await startBuild(
+      `Saved all ${dirty} modified buffer${dirty === 1 ? "" : "s"} before building.`,
+    );
+  }
+
+  async function buildSavedContent() {
+    const excluded = dirtyCount;
+    setBuildDecision(false);
+    await startBuild(
+      `Built saved content; ${excluded} unsaved buffer${excluded === 1 ? "" : "s"} excluded.`,
+    );
+  }
+
+  async function cancelBuild() {
+    try {
+      onSnapshot(await call<Snapshot>("build.cancel"));
+    } catch (error) {
+      setMessage({ tone: "error", text: `Build cancellation failed: ${messageOf(error)}` });
+    }
+  }
+
+  requestBuildRef.current = requestBuild;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "F9" || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      requestBuildRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
       setConfirmError(null);
@@ -1482,14 +1596,27 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     switch (bottomTab) {
       case "build":
         return (
-          <p className="muted">
-            No build has run. Build is not available in this ticket; it arrives with ticket 11.
-          </p>
+          <BuildPanel
+            build={build}
+            evaluation={evaluation}
+            startupPath={startupPath}
+            onStartup={setStartupPath}
+            onEvaluate={(next) => void runEvaluation(next)}
+            onBuild={requestBuild}
+            onCancel={() => void cancelBuild()}
+            disabledReason={buildDisabledReason}
+            restoreRequired={restoreIncomplete}
+            restoreDisabledReason={restoreDisabledReason}
+            onRestore={() => void startRestore("restore.start")}
+            obsolete={buildObsolete}
+          />
         );
       case "problems":
         return (
           <ProblemsPanel
             diagnostics={snapshot.diagnostics}
+            build={build}
+            buildObsolete={buildObsolete}
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
             onOpen={(path) => void openFile(path)}
@@ -1538,7 +1665,17 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           <strong>{workspace.name}</strong>
         </span>
         <span className="push" />
-        <button disabled title="Build is not available in this ticket (ticket 11).">
+        <button
+          data-testid="toolbar-build"
+          disabled={!trusted}
+          onClick={requestBuild}
+          title={
+            !trusted
+              ? "Trust the workspace before building; nothing runs in Restricted mode."
+              : buildDisabledReason ??
+                "Builds the selected startup project (Cmd/Ctrl+F9). Unsaved buffers need an explicit decision."
+          }
+        >
           Build
         </button>
         <button disabled title="Run is not available in this ticket (ticket 12).">
@@ -2509,7 +2646,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       </div>
 
       <section
-        className={`output ${bottomTab === "problems" ? "problems-output" : ""}`}
+        className={`output ${
+          bottomTab === "problems"
+            ? "problems-output"
+            : bottomTab === "build"
+              ? "build-output"
+              : ""
+        }`}
         aria-label="Bottom panel"
       >
         <div className="tabs bottom-tabs" role="tablist" aria-label="Output panels">
@@ -2626,6 +2769,40 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {buildDecision && (
+        <div className="modal-backdrop">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="build-decision-title"
+            data-testid="build-dirty-dialog"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setBuildDecision(false);
+            }}
+          >
+            <h2 id="build-decision-title">Build with unsaved buffers?</h2>
+            <p>
+              {countLabel(dirtyCount, "modified buffer")}{" "}
+              {dirtyCount === 1 ? "is" : "are"} not saved. A build reads saved disk content;
+              OpenRidr never saves or overwrites a buffer silently.
+            </p>
+            <div className="actions">
+              <button data-testid="build-save-and-start" onClick={() => void saveAllAndBuild()}>
+                Save all and build
+              </button>
+              <button data-testid="build-saved-only" onClick={() => void buildSavedContent()}>
+                Build saved content ({dirtyCount} unsaved buffer{dirtyCount === 1 ? "" : "s"}{" "}
+                excluded)
+              </button>
+              <button data-testid="build-decision-cancel" onClick={() => setBuildDecision(false)}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

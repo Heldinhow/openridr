@@ -156,8 +156,67 @@ export type Restore = {
   staleReason: string | null;
 };
 
-export type InstallSource = { name: string; url: string; packageUrl: string };
+export type BuildProject = {
+  name: string;
+  path: string;
+  kind: "console" | "library" | "test" | "unknown";
+  targetPath: string | null;
+};
 
+/** One real MSBuild diagnostic parsed from the raw text. The position is zero-based and
+ * exists only when MSBuild printed one; `category` stays unknown without evidence. */
+export type BuildProblem = {
+  id: string;
+  severity: "error" | "warning";
+  severityLabel: "error" | "warning";
+  severityRaw: number;
+  code: string | null;
+  source: "dotnet";
+  category: "unknown";
+  message: string;
+  path: string;
+  position: { line: number; character: number } | null;
+  range: LspRange | null;
+  buildId: string;
+  revision: number;
+  raw: string;
+};
+
+export type Build = {
+  state: "idle" | "running" | "ok" | "failed" | "cancelled";
+  project: BuildProject | null;
+  configuration: string;
+  targetFramework: string | null;
+  command: string[];
+  cwd: string;
+  sdkRoot: string | null;
+  sdkVersion: string | null;
+  log: string;
+  logTruncated: boolean;
+  exit: number | null;
+  termination: null | {
+    requested: string;
+    observed: string;
+    exit: number | null;
+    killedAfterGrace: boolean;
+  };
+  processId: number | null;
+  awaitingDecision: boolean;
+  revision: number;
+  buildId: string | null;
+  workspaceId: number | null;
+  contextId: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  stale: boolean;
+  staleReason: string | null;
+  sealed: boolean;
+  savedNote: string | null;
+  problems: BuildProblem[];
+  problemsTruncated: boolean;
+};
+
+export type InstallSource = { name: string; url: string; packageUrl: string };
 export type InstallExisting = {
   state: "present" | "absent" | "ready";
   binary: string;
@@ -496,6 +555,7 @@ export type Snapshot = {
   evaluation: Evaluation;
   processes: ProcessInfo[];
   restore: Restore;
+  build: Build;
   tools: { "csharp-ls": ToolInstall };
   lsp: Lsp;
   diagnostics: Diagnostics;

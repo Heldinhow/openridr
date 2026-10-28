@@ -8,12 +8,12 @@
 
 **Category:** enhancement
 
-- [ ] Mostrar startup/configuração/TFM e exigir seleção em ambiguidade; biblioteca não é aceita como startup executável. Build identifica alvo/contexto/comando, SDK do projeto e avaliação válida; não reusar TargetPath/contexto invalidado.
-- [ ] Build exige trust no host e não executa restore implícito; dependências pendentes apontam à ação explícita de 04. Não salvar/sobrescrever buffers silenciosamente: identificar conteúdo salvo usado e decidir explicitamente qualquer salvamento necessário.
-- [ ] Transmitir e preservar stdout/stderr, estados, cancelamento e exit conhecido/unknown. Build falho permanece identificado e impede consumidores Run/Debug; corrigir/salvar/recompilar gera nova execução verificável.
-- [ ] Interpretar conservadoramente posição em output textual, mantendo linhas não reconhecidas no log bruto, sem assumir JSON universal. Erro com posição abre fonte; sem posição não inventa linha.
-- [ ] Problems preserva `Build · dotnet`, severidade/código/mensagem/categoria Unknown quando não conhecida, execução/escopo/revisão salvos. Não fundir com `LSP · csharp-ls` apagando origem; editar buffer/contexto marca snapshot Build antigo como obsoleto, não falha corrigida.
-- [ ] Cancelar/revogar solicita término real da árvore e informa resultado observado/remanescentes; pedido não é prova de saída e exit ausente não vira zero. Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), com logs e controles acessíveis desde aqui.
+- [x] Mostrar startup/configuração/TFM e exigir seleção em ambiguidade; biblioteca não é aceita como startup executável. Build identifica alvo/contexto/comando, SDK do projeto e avaliação válida; não reusar TargetPath/contexto invalidado.
+- [x] Build exige trust no host e não executa restore implícito; dependências pendentes apontam à ação explícita de 04. Não salvar/sobrescrever buffers silenciosamente: identificar conteúdo salvo usado e decidir explicitamente qualquer salvamento necessário.
+- [x] Transmitir e preservar stdout/stderr, estados, cancelamento e exit conhecido/unknown. Build falho permanece identificado e impede consumidores Run/Debug; corrigir/salvar/recompilar gera nova execução verificável. (Consumo efetivo por Run/Debug fica nos tickets 12/14; o contrato exposto é `state`+`stale`.)
+- [x] Interpretar conservadoramente posição em output textual, mantendo linhas não reconhecidas no log bruto, sem assumir JSON universal. Erro com posição abre fonte; sem posição não inventa linha.
+- [x] Problems preserva `Build · dotnet`, severidade/código/mensagem/categoria Unknown quando não conhecida, execução/escopo/revisão salvos. Não fundir com `LSP · csharp-ls` apagando origem; editar buffer/contexto marca snapshot Build antigo como obsoleto, não falha corrigida.
+- [x] Cancelar/revogar solicita término real da árvore e informa resultado observado/remanescentes; pedido não é prova de saída e exit ausente não vira zero. Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), com logs e controles acessíveis desde aqui.
 
 ## Mapeamento à SPEC
 
@@ -26,3 +26,4 @@ UI Mac com dotnet real: fixture com erro → log/Problems → abrir fonte → co
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+- 2026-10-28: Implementado e verificado em macOS arm64 com dotnet 8.0.408 real; evidência em [11-build.md](../evidence/11-build.md). Build é de um projeto console por vez; Run/Debug efetivos ficam nos tickets 12/14.

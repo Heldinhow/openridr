@@ -1,0 +1,21 @@
+[
+  {
+    "buildId": "build:1:2",
+    "category": "unknown",
+    "code": "CS0246",
+    "id": "build:1:2:0",
+    "message": "The type or namespace name 'Missing' could not be found (are you missing a using directive or an assembly reference?)",
+    "path": "src/OrderDesk.Cli/Program.cs",
+    "position": {
+      "character": 4,
+      "line": 5
+    },
+    "range": null,
+    "raw": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-11-FQRxJ6/Order Desk build evidence/src/OrderDesk.Cli/Program.cs(6,5): error CS0246: The type or namespace name 'Missing' could not be found (are you missing a using directive or an assembly reference?) [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-11-FQRxJ6/Order Desk build evidence/src/OrderDesk.Cli/OrderDesk.Cli.csproj]",
+    "revision": 2,
+    "severity": "error",
+    "severityLabel": "error",
+    "severityRaw": 1,
+    "source": "dotnet"
+  }
+]

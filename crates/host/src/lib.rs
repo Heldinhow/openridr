@@ -1,3 +1,4 @@
+mod build;
 mod diagnostics;
 mod error;
 mod evaluation;
@@ -78,6 +79,8 @@ struct Inner {
     evaluation: Evaluation,
     restore: Arc<restore::Restore>,
     restore_seq: u64,
+    build: Arc<build::Build>,
+    build_seq: u64,
     tools: Arc<tools::Tools>,
     lsp: Option<Arc<lsp::Lsp>>,
     lsp_seq: u64,
@@ -244,6 +247,7 @@ struct Snapshot {
     evaluation: Evaluation,
     processes: Vec<Value>,
     restore: RestoreView,
+    build: build::BuildView,
     tools: Value,
     lsp: lsp::LspView,
     diagnostics: Value,
@@ -270,6 +274,8 @@ impl Host {
                 evaluation: Evaluation::idle(),
                 restore: Arc::new(restore::Restore::idle()),
                 restore_seq: 0,
+                build: Arc::new(build::Build::idle()),
+                build_seq: 0,
                 tools: Arc::new(tools::Tools::new()),
                 lsp: None,
                 lsp_seq: 0,
@@ -299,6 +305,12 @@ impl Host {
         }
         if method == "restore.cancel" {
             return self.cancel_restore();
+        }
+        if method == "build.start" {
+            return self.start_build(params);
+        }
+        if method == "build.cancel" {
+            return self.cancel_build();
         }
         if method == "tools.plan" {
             return self.plan_tool(params);
@@ -432,6 +444,7 @@ impl Host {
         inner.ensure_inventory();
         inner.processes.refresh();
         inner.sync_restore();
+        inner.sync_build();
         inner.sync_tools();
         inner.sync_lsp();
         let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
@@ -439,6 +452,9 @@ impl Host {
             inner.evaluation.check_external_changes(&root);
         }
         if inner.evaluation.stale {
+            inner.build.mark_stale(
+                "The evaluated project model is stale; the previous build is not current.",
+            );
             if let Some(lsp) = &inner.lsp {
                 lsp.mark_partial(
                     "The evaluated project model is stale; reload it and restart analysis for full coverage.",
@@ -536,6 +552,7 @@ impl Host {
             evaluation: inner.evaluation.clone(),
             processes: inner.processes.views(),
             restore: inner.restore.view(),
+            build: inner.build.view(),
             tools: json!({ tools::TOOL: inner.tools.view() }),
             lsp: lsp_view,
             diagnostics: serde_json::to_value(diagnostics_view).expect("diagnostics serialize"),
@@ -575,6 +592,10 @@ impl Host {
             &mut inner,
             "Workspace changed while a restore was running; its result will not be applied to the new workspace.",
         );
+        stop_build(
+            &mut inner,
+            "Workspace changed while a build was running; it was stopped and its result will not be applied to the new workspace.",
+        );
         inner.lsp = None;
         inner.diagnostics.clear();
         inner.processes.mark_awaiting();
@@ -588,6 +609,7 @@ impl Host {
         inner.trust_decision = None;
         inner.evaluation = evaluation;
         inner.restore = Arc::new(restore::Restore::idle());
+        inner.build = Arc::new(build::Build::idle());
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -601,6 +623,10 @@ impl Host {
             &mut inner,
             "Workspace closed while a restore was running; its result will not be applied.",
         );
+        stop_build(
+            &mut inner,
+            "Workspace closed while a build was running; it was stopped and its result is not current.",
+        );
         inner.lsp = None;
         inner.diagnostics.clear();
         inner.processes.mark_awaiting();
@@ -611,6 +637,7 @@ impl Host {
         inner.context_seq += 1;
         inner.project_sdk = ProjectSdk::no_workspace();
         inner.evaluation = Evaluation::idle();
+        inner.build = Arc::new(build::Build::idle());
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -660,6 +687,10 @@ impl Host {
             &mut inner,
             "Trust was revoked while this restore was running; it was stopped and its result is not current.",
         );
+        stop_build(
+            &mut inner,
+            "Trust was revoked while this build was running; it was stopped and its result is not current.",
+        );
         inner.diagnostics.mark_unavailable(
             diagnostics::LSP_ORIGIN,
             "Trust was revoked; analysis is unavailable and these diagnostics are not current. Editing stays available.",
@@ -692,6 +723,9 @@ impl Host {
             inner
                 .evaluation
                 .mark_stale("SDK inventory refreshed; re-evaluate the project model.");
+            inner.build.mark_stale(
+                "SDK inventory refreshed; the previous build used another toolchain.",
+            );
         }
         Ok(self.snapshot_value(&mut inner))
     }
@@ -900,6 +934,9 @@ impl Host {
         }
 
         let available_tfms = inner.evaluation.available_tfms.clone();
+        inner.build.mark_stale(
+            "The project model was re-evaluated; build again to match the current evaluation.",
+        );
         inner.evaluation.begin(
             context.clone(),
             plan.configurations.clone(),
@@ -1164,6 +1201,240 @@ impl Host {
             inner.restore.observe(status);
         }
         inner.sync_restore();
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Explicit `dotnet build` of one console startup project from the current evaluation.
+    /// Never restores, never saves a buffer, and never reuses a stale TargetPath.
+    fn start_build(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("build.start")?;
+        let mut inner = self.inner.lock().unwrap();
+
+        if let Some(process_id) = inner.build.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "A build is already running (process {process_id}). Cancel it before starting another."
+                ),
+            ));
+        }
+        if inner.restore.running_process_id().is_some() {
+            return Err(HostError::new(
+                "invalid_state",
+                "A restore is running; wait for it to finish before building.",
+            ));
+        }
+        let Some(workspace) = inner.workspace.as_ref() else {
+            return Err(HostError::new("invalid_state", "No workspace is open."));
+        };
+        let is_solution = matches!(workspace.kind, WorkspaceKind::Solution);
+        let workspace_file = workspace.path.clone();
+        let root = workspace.root.clone();
+
+        // The same policy as every executable consumer: no implicit restore, ever.
+        restore::require_restored(&workspace_file, &root, is_solution, "build.start")?;
+
+        let sdk = inner.project_sdk.clone();
+        if sdk.state != "resolved" {
+            return Err(HostError::new(
+                if sdk.state == "sdk_missing" {
+                    "sdk_missing"
+                } else {
+                    "invalid_state"
+                },
+                format!(
+                    "Build was not started: the project SDK is not resolved ({}). {}",
+                    sdk.state,
+                    sdk.message
+                        .clone()
+                        .unwrap_or_else(|| "Resolve the project SDK before building.".to_string())
+                ),
+            ));
+        }
+        let Some(sdk_root) = sdk.root.clone().map(PathBuf::from) else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Build was not started: the resolved project SDK has no root path.",
+            ));
+        };
+        let muxer = sdk_root.join(dotnet_exe());
+        if !muxer.is_file() {
+            return Err(HostError::new(
+                "sdk_missing",
+                format!(
+                    "Build was not started: {} does not contain a .NET muxer.",
+                    sdk_root.to_string_lossy()
+                ),
+            ));
+        }
+
+        let evaluation = inner.evaluation.clone();
+        if evaluation.stale {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "Build was not started: the evaluated project model is stale ({}). Re-evaluate before building.",
+                    evaluation
+                        .stale_reason
+                        .clone()
+                        .unwrap_or_else(|| "no current evaluation".to_string())
+                ),
+            ));
+        }
+        if !matches!(evaluation.state, "ok" | "partial")
+            || evaluation.workspace_id != Some(token.workspace_id)
+            || evaluation.context_id != Some(token.context_id)
+        {
+            return Err(HostError::new(
+                "invalid_state",
+                "Build was not started: the current evaluation is not valid for this workspace/context. Evaluate the project model again.",
+            ));
+        }
+
+        let configuration = optional_str(&params, "configuration")
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| evaluation.context.configuration.clone());
+        if !valid_selection(&configuration) {
+            return Err(HostError::new(
+                "invalid_state",
+                "Configuration must not contain `;`, `=`, quotes or line breaks; MSBuild was not run.",
+            ));
+        }
+        if configuration != evaluation.context.configuration {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "Build was not started: configuration {configuration} has not been evaluated. Re-evaluate with that configuration first."
+                ),
+            ));
+        }
+        let target_framework = match params.get("targetFramework") {
+            Some(Value::String(value)) if !value.trim().is_empty() => {
+                Some(value.trim().to_string())
+            }
+            Some(_) => None,
+            None => evaluation.context.target_framework.clone(),
+        };
+        if target_framework.as_deref().is_some_and(|tfm| !valid_selection(tfm)) {
+            return Err(HostError::new(
+                "invalid_state",
+                "TFM must not contain `;`, `=`, quotes or line breaks; MSBuild was not run.",
+            ));
+        }
+        if target_framework != evaluation.context.target_framework {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "Build was not started: TFM {} has not been evaluated. Re-evaluate with that TFM first.",
+                    target_framework.unwrap_or_else(|| "not selected".to_string())
+                ),
+            ));
+        }
+
+        let requested = optional_str(&params, "project").filter(|value| !value.trim().is_empty());
+        let selected = build::select_startup(&evaluation.projects, requested.as_deref())?;
+        let Some(target_path) = selected.target_path.clone() else {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "Build was not started: {} has no evaluated TargetPath.",
+                    selected.name
+                ),
+            ));
+        };
+        let saved_note = optional_str(&params, "savedNote")
+            .map(|note| {
+                let note = note.trim().to_string();
+                note.chars().take(200).collect::<String>()
+            })
+            .filter(|note| !note.is_empty());
+
+        inner.build_seq += 1;
+        let build_id = format!("build:{}:{}", token.workspace_id, inner.build_seq);
+        let project_name = selected.name.clone();
+        let mut command = vec![
+            muxer.to_string_lossy().to_string(),
+            "build".to_string(),
+            root.join(&selected.path).to_string_lossy().to_string(),
+            "-c".to_string(),
+            configuration.clone(),
+            "-nologo".to_string(),
+            "-v:minimal".to_string(),
+            "--no-restore".to_string(),
+        ];
+        if let Some(tfm) = &target_framework {
+            command.push(format!("-p:TargetFramework={tfm}"));
+        }
+
+        inner.build = Arc::new(build::Build::begin(build::Start {
+            revision: inner.build_seq,
+            build_id,
+            project_name: selected.name.clone(),
+            project_path: selected.path.clone(),
+            project_kind: selected.kind,
+            target_path: Some(target_path),
+            configuration,
+            target_framework,
+            command: command.clone(),
+            cwd: root.clone(),
+            sdk_root: sdk_root.clone(),
+            sdk_version: sdk
+                .resolved_version
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+            root: root.clone(),
+            saved_note,
+        }));
+
+        // Separate arguments, explicit cwd/environment and its own process group.
+        let mut process = Command::new(&command[0]);
+        process
+            .args(&command[1..])
+            .current_dir(&root)
+            .env("DOTNET_ROOT", &sdk_root)
+            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+            .env("DOTNET_CLI_UI_LANGUAGE", "en")
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        let piped = match inner.processes.spawn_piped(
+            &format!("build:{project_name}"),
+            token.workspace_id,
+            process,
+        ) {
+            Ok(piped) => piped,
+            Err(error) => {
+                inner.build.fail(format!("Could not start dotnet build: {error}"));
+                return Ok(self.snapshot_value(&mut inner));
+            }
+        };
+        inner.build.note_process(piped.id);
+        let shared = inner.build.clone();
+        if let Some(stdout) = piped.stdout {
+            let sink = shared.clone();
+            std::thread::spawn(move || build::pump(stdout, sink, false));
+        }
+        if let Some(stderr) = piped.stderr {
+            let sink = shared.clone();
+            std::thread::spawn(move || build::pump(stderr, sink, true));
+        }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Safety action: allowed without trust, like `processes.terminate`. It requests
+    /// termination and reports what the registry observed; the raw log is kept.
+    fn cancel_build(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let Some(process_id) = inner.build.running_process_id() else {
+            return Err(HostError::new("invalid_state", "No build is running."));
+        };
+        inner.build.request_cancel();
+        let status = inner.processes.terminate_status(process_id);
+        if let Some(status) = &status {
+            inner.build.observe(status);
+        }
+        inner.sync_build();
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -2345,6 +2616,8 @@ impl Host {
                 "A project input changed; analysis stopped so it cannot report the previous context.",
             );
         }
+        // A source save is shown as an obsolete build snapshot by the UI (buffer edit
+        // time vs. build time); the host marks stale only when the evaluated context changes.
         Ok(json!({ "path": rel, "hash": content_hash(&content) }))
     }
 }
@@ -2410,6 +2683,35 @@ impl Inner {
             _ => return,
         };
         self.evaluation.mark_stale(reason);
+        self.build
+            .mark_stale("Dependencies changed after the build; rebuild before using its result.");
+    }
+
+    /// Observes the exit of a running build. The state is the observed one: no exit code is
+    /// ever treated as zero, and a cancelled build stays cancelled.
+    fn sync_build(&mut self) {
+        let Some(process_id) = self.build.running_process_id() else {
+            return;
+        };
+        self.processes.refresh();
+        let Some(status) = self.processes.status(process_id) else {
+            return;
+        };
+        if status.state != "exited" {
+            return;
+        }
+        self.build.complete(&status);
+    }
+}
+
+/// A workspace boundary (revoke, close, switch) terminates a real build and keeps only what
+/// was observed. The record is sealed so its late exit cannot become another context's build.
+fn stop_build(inner: &mut Inner, reason: &str) {
+    if let Some(process_id) = inner.build.running_process_id() {
+        let status = inner.processes.terminate_status(process_id);
+        inner.build.seal(reason, status.as_ref());
+    } else {
+        inner.build.mark_stale(reason);
     }
 }
 

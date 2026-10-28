@@ -1,15 +1,31 @@
 import { useState } from "react";
-import type { DiagnosticSnapshot, Diagnostics, ProblemItem } from "./host/client";
+import type { Build, DiagnosticSnapshot, Diagnostics, ProblemItem } from "./host/client";
 
 type Row = { key: string; snapshot: DiagnosticSnapshot; item: ProblemItem };
 
 type Props = {
   diagnostics: Diagnostics;
+  build: Build;
+  /** A buffer was edited after the build finished. */
+  buildObsolete?: boolean;
   /** Local edit times; a publication older than the buffer is shown as awaiting at once. */
   editedAt?: Record<string, number>;
   onNavigate: (path: string, position: { line: number; character: number }) => void;
   onOpen: (path: string) => void;
 };
+
+function buildProblemState(build: Build, obsolete: boolean) {
+  if (build.sealed) return "Sealed";
+  if (build.stale) return "Stale";
+  if (obsolete) return "Obsolete";
+  return "Current";
+}
+
+function buildProblemLocation(problem: Build["problems"][number]) {
+  return problem.position
+    ? `${problem.position.line + 1}:${problem.position.character + 1}`
+    : "position unknown";
+}
 
 function stateLabel(snapshot: DiagnosticSnapshot) {
   switch (snapshot.state) {
@@ -54,7 +70,14 @@ function countText(snapshots: DiagnosticSnapshot[]) {
   }`;
 }
 
-export function ProblemsPanel({ diagnostics, editedAt = {}, onNavigate, onOpen }: Props) {
+export function ProblemsPanel({
+  diagnostics,
+  build,
+  buildObsolete = false,
+  editedAt = {},
+  onNavigate,
+  onOpen,
+}: Props) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [document, setDocument] = useState("");
   const snapshots = diagnostics.snapshots.map((snapshot) =>
@@ -144,6 +167,12 @@ export function ProblemsPanel({ diagnostics, editedAt = {}, onNavigate, onOpen }
         <span className="muted" data-testid="problems-counts">
           {countText(snapshots)}
         </span>
+        {build.revision > 0 && (
+          <span className="muted" data-testid="problems-build-count">
+            Build · dotnet · {build.problems.length} problem
+            {build.problems.length === 1 ? "" : "s"} · separate origin
+          </span>
+        )}
         <label className="problems-filter">
           <span>Document</span>
           <select
@@ -343,6 +372,107 @@ export function ProblemsPanel({ diagnostics, editedAt = {}, onNavigate, onOpen }
           )}
         </aside>
       </div>
+
+      {build.revision > 0 && (
+        <section className="build-problems" data-testid="build-problems" aria-label="Build problems">
+          <div className="build-problems-head">
+            <strong>Build · dotnet</strong>
+            <span data-testid="build-problems-state">
+              {buildProblemState(build, buildObsolete)}
+            </span>
+            <span className="muted">
+              {build.problems.length} problem{build.problems.length === 1 ? "" : "s"} ·{" "}
+              {build.buildId ?? "unknown build"} · revision {build.revision} · separate from
+              LSP · csharp-ls
+            </span>
+            <span className="push" />
+            <span className="muted">
+              A build result covers the compiled startup project; it is not a clean-state claim
+              for the solution.
+            </span>
+          </div>
+          {build.sealed && (
+            <p className="warning" data-testid="build-problem-stale">
+              Not current: {build.staleReason ?? "the build belongs to a previous context."}
+            </p>
+          )}
+          {!build.sealed && build.stale && (
+            <p className="warning" data-testid="build-problem-stale">
+              Stale build: {build.staleReason ?? "the evaluated context changed."}
+            </p>
+          )}
+          {!build.sealed && !build.stale && buildObsolete && (
+            <p className="warning" data-testid="build-problem-obsolete">
+              Obsolete: a buffer was edited after this build. These items are not marked fixed;
+              rebuild to verify.
+            </p>
+          )}
+          {build.problemsTruncated && (
+            <p className="warning" data-testid="build-problems-capped">
+              More diagnostics were printed than listed; the raw build log keeps every line.
+            </p>
+          )}
+          <div className="build-problems-list" aria-label="Build diagnostics">
+            {build.problems.length > 0 && (
+              <div className="build-problem-row build-problem-head" aria-hidden="true">
+                <span>Severity</span>
+                <span>Code</span>
+                <span>Message</span>
+                <span>Location</span>
+                <span>Document</span>
+                <span>Origin</span>
+                <span>Category</span>
+                <span>State</span>
+              </div>
+            )}
+            {build.problems.map((problem, index) => (
+              <button
+                key={problem.id}
+                type="button"
+                className="build-problem-row"
+                data-testid={`build-problem-row-${index}`}
+                data-has-position={problem.position !== null ? "true" : "false"}
+                data-position={
+                  problem.position
+                    ? `${problem.position.line}:${problem.position.character}`
+                    : undefined
+                }
+                onClick={() => {
+                  if (problem.position) {
+                    onNavigate(problem.path, problem.position);
+                  } else {
+                    onOpen(problem.path);
+                  }
+                }}
+                title={
+                  problem.position
+                    ? `Open ${problem.path} at line ${problem.position.line + 1}`
+                    : `Open ${problem.path} without positioning (MSBuild printed no position)`
+                }
+              >
+                <span className={`problem-severity severity-${problem.severityLabel}`}>
+                  {problem.severityLabel}
+                </span>
+                <span className="problem-code">{problem.code ?? "no code"}</span>
+                <span className="problem-message">{problem.message}</span>
+                <span>{buildProblemLocation(problem)}</span>
+                <span>{problem.path}</span>
+                <span>Build · dotnet</span>
+                <span>{problem.category}</span>
+                <span className={`problem-state state-${buildProblemState(build, buildObsolete).toLowerCase()}`}>
+                  {buildProblemState(build, buildObsolete)}
+                </span>
+              </button>
+            ))}
+            {build.problems.length === 0 && (
+              <p className="muted" data-testid="build-problems-empty">
+                No MSBuild diagnostics were parsed from this build's log. Unrecognized lines stay
+                in the raw log; absence of parsed problems is not a clean-solution claim.
+              </p>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

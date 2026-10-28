@@ -767,6 +767,10 @@ p {
   flex-basis: 300px;
 }
 
+.output.build-output {
+  flex-basis: 340px;
+}
+
 .problems {
   display: flex;
   flex-direction: column;
@@ -1251,4 +1255,86 @@ p {
 .workspace-grid {
   flex: 1 1 auto;
   min-height: 220px;
+}
+
+/* Build (ticket 11): controls, raw log and the Build-origin Problems section. */
+.build-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.78rem;
+}
+
+.build-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.build-controls .eval-field select {
+  max-width: 260px;
+}
+
+.build-meta {
+  margin: 0;
+}
+
+.build-log {
+  margin: 0;
+  max-height: 140px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.build-problems {
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.build-problems-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.build-problems-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 150px;
+  overflow: auto;
+}
+
+.build-problem-row {
+  display: grid;
+  grid-template-columns: 68px 62px minmax(160px, 1fr) 74px minmax(140px, 1fr) 96px 70px 76px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  text-align: left;
+  font-size: 0.75rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.build-problem-row:hover:not(.build-problem-head) {
+  background: var(--panel);
+  border-color: var(--line);
+}
+
+.build-problem-head {
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  cursor: default;
 }
