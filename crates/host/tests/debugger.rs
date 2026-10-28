@@ -95,9 +95,26 @@ impl Server {
             while !stopping.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        // On macOS the accepted socket inherits O_NONBLOCK from the listener;
+                        // a blocking stream with timeouts keeps the harness deterministic.
+                        let _ = stream.set_nonblocking(false);
+                        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+                        let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
                         let mut buffer = [0u8; 2048];
-                        let read = stream.read(&mut buffer).unwrap_or(0);
-                        let request = String::from_utf8_lossy(&buffer[..read]);
+                        let mut request = Vec::new();
+                        loop {
+                            match stream.read(&mut buffer) {
+                                Ok(0) => break,
+                                Ok(read) => {
+                                    request.extend_from_slice(&buffer[..read]);
+                                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                                        break;
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        let request = String::from_utf8_lossy(&request);
                         let path = request
                             .lines()
                             .next()
@@ -297,11 +314,15 @@ struct Seam {
 
 impl Seam {
     fn new(url: &str, sha: &str) -> Self {
+        Self::platform(url, sha, "windows/x86_64")
+    }
+
+    fn platform(url: &str, sha: &str, platform: &str) -> Self {
         let home = tempfile::tempdir().unwrap();
         Self {
             _home: EnvVar::set("OPENRIDR_HOME", home.path()),
             _probe: EnvVar::set("OPENRIDR_ENABLE_PROBE", "1"),
-            _platform: EnvVar::set("OPENRIDR_DEBUG_PLATFORM", "windows/x86_64"),
+            _platform: EnvVar::set("OPENRIDR_DEBUG_PLATFORM", platform),
             _url: EnvVar::set("OPENRIDR_DEBUG_ASSET_URL", url),
             _sha: EnvVar::set("OPENRIDR_DEBUG_ASSET_SHA256", sha),
             home,
@@ -314,7 +335,7 @@ fn tool_dir(home: &Path) -> PathBuf {
 }
 
 #[test]
-fn macos_arm64_has_no_verified_adapter_and_never_downloads() {
+fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
     let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
@@ -338,15 +359,23 @@ fn macos_arm64_has_no_verified_adapter_and_never_downloads() {
     assert!(debug["adapterMessage"]
         .as_str()
         .unwrap()
-        .contains("no verified compatible netcoredbg 3.2.0-1092 adapter"));
+        .contains("osx-arm64 asset exists"));
+    assert!(debug["adapterMessage"]
+        .as_str()
+        .unwrap()
+        .contains("installation stays refused until you enable the experimental flag"));
     assert_eq!(debug["dapProven"], false);
-    assert_eq!(debug["gateReason"].as_str().unwrap().contains("Unavailable on macOS arm64"), true);
 
     let planned = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
     assert_eq!(planned["platform"], "osx-arm64");
     assert_eq!(planned["asset"]["name"], "netcoredbg-osx-arm64.zip");
-    assert_eq!(planned["availability"], "unverified");
-    assert!(planned["plan"]["blockedReason"].as_str().unwrap().contains("community supported"));
+    assert_eq!(planned["availability"], "available");
+    assert_eq!(planned["asset"]["support"], "community");
+    assert_eq!(planned["plan"]["blockedCode"], "experimental_required");
+    assert!(planned["plan"]["blockedReason"]
+        .as_str()
+        .unwrap()
+        .contains("enable the experimental flag"));
     assert!(planned["plan"]["integrity"]
         .as_str()
         .unwrap()
@@ -361,8 +390,22 @@ fn macos_arm64_has_no_verified_adapter_and_never_downloads() {
         .ends_with("3.2.0-1092.staging"));
     assert!(!tool_dir(home.path()).exists());
 
-    // The experimental opt-in is independent of trust and install, and blocks nothing by
-    // itself; on macOS arm64 it must not install or claim compatibility.
+    // Trust + consent alone cannot install while the flag is off.
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let plan_id = state(&host)["plan"]["planId"].as_str().unwrap().to_string();
+    let refused = host
+        .dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .expect_err("the experimental flag is off");
+    assert_eq!(refused.code, "experimental_required");
+    assert!(refused.message.contains("Nothing was downloaded"));
+    assert!(!tool_dir(home.path()).exists());
+    assert_eq!(state(&host)["log"].as_str().unwrap().contains("attempt"), false);
+
+    // The opt-in is independent of trust and installation; it replans, so the consent shown
+    // afterwards is the one that authorizes the experimental install.
     assert_eq!(
         error_code(host.dispatch("debug.flag", json!({ "enabled": true }))),
         "confirmation_required"
@@ -371,30 +414,92 @@ fn macos_arm64_has_no_verified_adapter_and_never_downloads() {
         .dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
         .unwrap();
     assert_eq!(flagged["debug"]["appleSiliconExperimental"], true);
-    assert_eq!(flagged["debug"]["adapterState"], "unavailable");
+    assert_eq!(flagged["debug"]["adapterState"], "planned");
+    assert_eq!(flagged["debug"]["installable"], true);
+    assert!(flagged["debug"]["plan"]["blockedReason"].is_null());
     assert!(flagged["debug"]["adapterMessage"]
         .as_str()
         .unwrap()
-        .contains("neither installs the adapter nor proves compatibility"));
-    assert_eq!(flagged["debug"]["installable"], false);
+        .contains("available with explicit consent"));
     assert!(!tool_dir(home.path()).exists());
+}
 
-    // Trust + confirmation still cannot install an unverified asset.
+#[test]
+fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
+    let _guard = env_guard();
+    // The official macOS zip nests the executable and ships AppleDouble metadata.
+    let zip = zip_bytes(&[
+        ("netcoredbg/netcoredbg", ARTIFACT, Some(0o755)),
+        ("__MACOSX/._netcoredbg", b"metadata", Some(0o644)),
+    ]);
+    let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
+    let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
-    let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let refused = host
+
+    let blocked = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
+    assert_eq!(blocked["plan"]["blockedCode"], "experimental_required");
+    assert_eq!(server.requests(), 0);
+    assert_eq!(
+        error_code(host.dispatch(
+            "debug.install",
+            json!({ "planId": blocked["plan"]["planId"], "confirm": true })
+        )),
+        "experimental_required"
+    );
+    assert_eq!(server.requests(), 0);
+
+    let flagged = host
+        .dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap()["debug"]
+        .clone();
+    assert_eq!(flagged["adapterState"], "planned");
+    assert_eq!(flagged["installable"], true);
+    let plan_id = flagged["plan"]["planId"].as_str().unwrap().to_string();
+    host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+        .unwrap();
+
+    let mut seen = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let finished = loop {
+        let debug = state(&host);
+        let current = debug["adapterState"].as_str().unwrap().to_string();
+        if seen.last() != Some(&current) {
+            seen.push(current.clone());
+        }
+        if matches!(current.as_str(), "ready" | "failed" | "cancelled") {
+            break debug;
+        }
+        assert!(Instant::now() < deadline, "install stuck: {}", debug["log"]);
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(finished["adapterState"], "ready", "{}", finished["log"]);
+    assert_eq!(seen, ["downloading", "installing", "verifying", "ready"]);
+    assert_eq!(finished["verifiedVersion"], "3.2.0");
+    assert_eq!(finished["dapProven"], false);
+    let destination = PathBuf::from(finished["destination"].as_str().unwrap());
+    assert!(destination.join("netcoredbg/netcoredbg").is_file());
+    assert!(!destination.join("__MACOSX").exists());
+    assert!(destination.starts_with(seam.home.path()));
+    assert_eq!(server.requests(), 1);
+
+    // Reuse after a successful install: the nested executable is found, nothing is downloaded.
+    let planned = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
+    assert_eq!(planned["adapterState"], "ready");
+    assert_eq!(planned["plan"]["existing"]["state"], "present");
+    let reused = host
         .dispatch(
             "debug.install",
-            json!({ "planId": plan_id, "confirm": true }),
+            json!({ "planId": planned["plan"]["planId"], "confirm": true }),
         )
-        .expect_err("macOS arm64 is blocked");
-    assert_eq!(refused.code, "unsupported_platform");
-    assert!(refused.message.contains("Nothing was downloaded"));
-    assert!(!tool_dir(home.path()).exists());
-    assert_eq!(state(&host)["log"].as_str().unwrap().contains("attempt"), false);
+        .unwrap()["debug"]
+        .clone();
+    assert_eq!(reused["adapterState"], "ready");
+    assert_eq!(reused["reused"], true);
+    assert_eq!(reused["sha256"], finished["sha256"]);
+    assert_eq!(server.requests(), 1, "reuse must not download");
 }
 
 #[test]

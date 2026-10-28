@@ -35,7 +35,7 @@ test.beforeAll(() => {
   fs.mkdirSync(logs, { recursive: true });
 });
 
-test("macOS arm64 blocks the debug adapter honestly and the flag installs nothing", async ({
+test("macOS arm64 requires the experimental flag and shows the real asset", async ({
   page,
   request,
 }) => {
@@ -52,22 +52,25 @@ test("macOS arm64 blocks the debug adapter honestly and the flag installs nothin
   // The card states the approved version, the official source, the real asset and the limit.
   await expect(page.getByTestId("debug-state")).toHaveText("Experimental · disabled");
   await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
-    "netcoredbg-osx-arm64.zip · unverified",
+    "netcoredbg-osx-arm64.zip · available",
   );
   await expect(page.getByTestId("debug-source")).toContainText("approved version 3.2.0-1092");
   await expect(page.getByTestId("debug-source")).toContainText("Samsung/netcoredbg");
   await expect(page.getByTestId("debug-source")).toContainText("DAP proven: no");
   await expect(page.getByTestId("debug-message")).toContainText(
-    "Unavailable on macOS arm64: no verified compatible netcoredbg 3.2.0-1092 adapter",
+    "The official 3.2.0-1092 osx-arm64 asset exists",
   );
   await expect(page.getByTestId("debug-message")).toContainText("community supported");
+  await expect(page.getByTestId("debug-message")).toContainText(
+    "installation stays refused until you enable the experimental flag",
+  );
   await expect(page.getByTestId("debug-dap")).toContainText("not implemented in this build");
   await expect(page.getByTestId("debug-flag-note")).toContainText(
     "neither installs netcoredbg nor proves compatibility",
   );
   await expect(page.getByTestId("debug-install")).toBeDisabled();
   await expect(page.getByTestId("debug-disabled-reason")).toContainText(
-    "no verified compatible netcoredbg 3.2.0-1092 adapter",
+    "installation stays refused until you enable the experimental flag",
   );
 
   // Plan details carry every material field and the blocked reason.
@@ -93,7 +96,7 @@ test("macOS arm64 blocks the debug adapter honestly and the flag installs nothin
   );
   await expect(page.getByTestId("debug-plan-limits")).toContainText("progress is reported only as bytes");
   await expect(page.getByTestId("debug-plan-blocked")).toContainText(
-    "no verified compatible netcoredbg 3.2.0-1092 adapter",
+    "installation stays refused until you enable the experimental flag",
   );
   await page.screenshot({ path: path.join(screenshots, "13-debugger-plan.png"), fullPage: true });
   fs.writeFileSync(
@@ -101,43 +104,53 @@ test("macOS arm64 blocks the debug adapter honestly and the flag installs nothin
     JSON.stringify({ platform: debug.platform, plan: debug.plan }, null, 2),
   );
 
-  // No install/cancel/retry is offered for a platform with no installable asset: there is
-  // nothing to download, so the blocked state is the honest end of the flow.
+  // No install is offered while the flag is off; the plan stays blocked.
   await expect(page.getByTestId("debug-install")).toBeDisabled();
-  await expect(page.getByTestId("debug-cancel")).toHaveCount(0);
   expect(fs.existsSync(debugToolDir)).toBe(false);
+
+  // Flag off is a hard gate even with trust and a valid plan.
+  await page.getByTestId("trust-checkbox").check();
+  await page.getByTestId("trust-grant").click();
+  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  const beforeFlag = await hostCall(request, "debug.install", {
+    planId: debug.plan.planId,
+    confirm: true,
+  });
+  expect(beforeFlag.ok).toBe(false);
+  expect(beforeFlag.error.code).toBe("experimental_required");
+  expect(beforeFlag.error.message).toContain("Nothing was downloaded");
+  expect(fs.existsSync(debugToolDir)).toBe(false);
+  fs.writeFileSync(
+    path.join(logs, "13-debugger-refused.json"),
+    JSON.stringify({ error: beforeFlag.error }, null, 2),
+  );
 
   // Explicit, separate experimental opt-in: acknowledged by checkbox, then enabled.
   await page.getByTestId("debug-flag-checkbox").check();
   await expect(page.getByTestId("debug-flag-enable")).toBeEnabled();
   await page.getByTestId("debug-flag-enable").click();
   await expect(page.getByTestId("sdk-apple-silicon")).toContainText("experimental · enabled");
-  await expect(page.getByTestId("debug-state")).toHaveText("Unavailable");
+  await expect(page.getByTestId("debug-state")).toHaveText("Plan ready — nothing downloaded yet");
   await expect(page.getByTestId("debug-message")).toContainText(
-    "neither installs the adapter nor proves compatibility",
+    "available with explicit consent",
   );
+  await expect(page.getByTestId("debug-flag-note")).toContainText(
+    "neither installs netcoredbg nor proves compatibility",
+  );
+  // The replanned consent is for the official asset and is now installable; this test does not
+  // download (the real install evidence comes from the host flow in the real app home).
+  await expect(page.getByTestId("debug-install")).toBeEnabled();
+  await expect(page.getByTestId("debug-plan-blocked")).toHaveCount(0);
   expect(fs.existsSync(debugToolDir)).toBe(false);
+  await page.getByTestId("debug-plan-open").click();
+  await page.getByTestId("debug-plan").locator("summary").click();
+  await expect(page.getByTestId("debug-plan-asset")).toContainText(
+    "netcoredbg-osx-arm64.zip",
+  );
+  await expect(page.getByTestId("debug-plan-integrity")).toContainText(
+    "f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea",
+  );
   await page.screenshot({ path: path.join(screenshots, "13-debugger-flag.png"), fullPage: true });
-
-  // A direct host call with trust and a valid plan is still refused before any fetch.
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  const replan = await hostCall(request, "debug.plan");
-  const planId = replan.data.debug.plan.planId;
-  const refused = await hostCall(request, "debug.install", { planId, confirm: true });
-  expect(refused.ok).toBe(false);
-  expect(refused.error.code).toBe("unsupported_platform");
-  expect(refused.error.message).toContain("Nothing was downloaded");
-  expect(fs.existsSync(debugToolDir)).toBe(false);
-  fs.writeFileSync(
-    path.join(logs, "13-debugger-refused.json"),
-    JSON.stringify(
-      { planId, error: refused.error, debug: (await hostCall(request, "debug.state")).data.debug },
-      null,
-      2,
-    ),
-  );
 
   // Analysis, Run and the editor stay available: the debugger limit does not block them.
   await page.getByTestId("open-text-only").click();
@@ -145,7 +158,7 @@ test("macOS arm64 blocks the debug adapter honestly and the flag installs nothin
   await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
   await expect(page.getByTestId("toolbar-debug")).toHaveAttribute(
     "title",
-    /Unavailable on macOS arm64/,
+    /osx-arm64 asset is available with explicit consent/,
   );
   await expect(page.getByTestId("toolbar-run")).toBeVisible();
   await expect(page.getByTestId("lsp-panel")).toBeVisible();
@@ -192,7 +205,9 @@ test("host gates consent, trust and plan identity before any download", async ({
   const flag = await hostCall(request, "debug.flag", { enabled: true, confirm: true });
   expect(flag.ok).toBe(true);
   expect(flag.data.debug.appleSiliconExperimental).toBe(true);
-  expect(flag.data.debug.installable).toBe(false);
+  expect(flag.data.debug.installable).toBe(true);
+  expect(flag.data.debug.plan.blockedReason).toBeNull();
+  expect(flag.data.debug.plan.asset.name).toBe("netcoredbg-osx-arm64.zip");
 
   expect(fs.existsSync(debugToolDir)).toBe(false);
   fs.writeFileSync(

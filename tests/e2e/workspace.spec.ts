@@ -90,7 +90,10 @@ test("opens the fixture in restricted mode with trust available", async ({ page 
   await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
   await expect(page.getByTestId("sdk-debug-adapter")).toContainText("netcoredbg");
   await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
-    "no verified compatible netcoredbg 3.2.0-1092 adapter",
+    "osx-arm64 asset exists",
+  );
+  await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
+    "installation stays refused until you enable the experimental flag",
   );
 
   await enterTextOnly(page);

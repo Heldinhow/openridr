@@ -18,7 +18,7 @@
         "arch": "aarch64",
         "asset": {
           "archive": "zip",
-          "availability": "unverified",
+          "availability": "available",
           "name": "netcoredbg-osx-arm64.zip",
           "platform": "osx-arm64",
           "reason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
@@ -28,9 +28,10 @@
           "testOverride": false,
           "url": "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-osx-arm64.zip"
         },
-        "availability": "unverified",
+        "availability": "available",
         "availabilityReason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
-        "blockedReason": "Apple Silicon debugger: experimental · disabled. Unavailable on macOS arm64: no verified compatible netcoredbg 3.2.0-1092 adapter. The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14). Opting in only acknowledges the experiment; it does not install the adapter and does not prove DAP.",
+        "blockedCode": "experimental_required",
+        "blockedReason": "Apple Silicon debugger: experimental · disabled. The official 3.2.0-1092 osx-arm64 asset exists, but it is community supported (The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).) so installation stays refused until you enable the experimental flag. Debug is blocked.",
         "destination": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092",
         "existing": {
           "binary": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092/netcoredbg",
@@ -54,7 +55,7 @@
           "create a temporary .download file next to the staging directory",
           "no elevation, no global install, no SDK installer, no PATH change, no repository changes"
         ],
-        "planId": "fnv1a64:4cc51043186395da",
+        "planId": "fnv1a64:be3b5891f5fe2906",
         "platform": "osx-arm64",
         "source": {
           "name": "Samsung/netcoredbg (official GitHub release)",
@@ -72,13 +73,13 @@
     "message": "Enabling the Apple Silicon experimental flag needs an explicit confirmation. It does not install the adapter and does not prove compatibility."
   },
   "debug": {
-    "adapterMessage": "Apple Silicon debugger: experimental · enabled. Unavailable on macOS arm64: no verified compatible netcoredbg 3.2.0-1092 adapter. The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14). The experimental opt-in neither installs the adapter nor proves compatibility.",
-    "adapterState": "unavailable",
+    "adapterMessage": "Apple Silicon debugger: experimental · enabled. The official 3.2.0-1092 osx-arm64 asset is available with explicit consent and a SHA-256 from the release metadata. It is community supported (The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).) and DAP is unproven until ticket 14.",
+    "adapterState": "planned",
     "appleSiliconExperimental": true,
     "arch": "aarch64",
     "asset": {
       "archive": "zip",
-      "availability": "unverified",
+      "availability": "available",
       "name": "netcoredbg-osx-arm64.zip",
       "platform": "osx-arm64",
       "reason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
@@ -91,7 +92,7 @@
     "assets": [
       {
         "archive": "zip",
-        "availability": "unverified",
+        "availability": "available",
         "name": "netcoredbg-osx-arm64.zip",
         "platform": "osx-arm64",
         "reason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
@@ -138,7 +139,7 @@
         "url": "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-linux-arm64.tar.gz"
       }
     ],
-    "availability": "unverified",
+    "availability": "available",
     "availabilityReason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
     "busy": false,
     "contextId": null,
@@ -147,17 +148,17 @@
     "destinationPresent": false,
     "error": null,
     "finishedAt": null,
-    "gateReason": "Apple Silicon debugger: experimental · enabled. Unavailable on macOS arm64: no verified compatible netcoredbg 3.2.0-1092 adapter. The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14). The experimental opt-in neither installs the adapter nor proves compatibility.",
-    "installable": false,
+    "gateReason": "Apple Silicon debugger: experimental · enabled. The official 3.2.0-1092 osx-arm64 asset is available with explicit consent and a SHA-256 from the release metadata. It is community supported (The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).) and DAP is unproven until ticket 14.",
+    "installable": true,
     "log": "Apple Silicon experimental flag enabled by explicit opt-in. It neither installs netcoredbg nor proves compatibility.\nApple Silicon experimental flag enabled by explicit opt-in. It neither installs netcoredbg nor proves compatibility.",
     "logTruncated": false,
-    "note": "The plan is read-only and stays blocked on this platform; see the adapter reason and the plan's blocked field.",
+    "note": "The plan did not download or execute anything. Confirming downloads the official asset, verifies its hash and only then promotes it.",
     "os": "macos",
     "plan": {
       "arch": "aarch64",
       "asset": {
         "archive": "zip",
-        "availability": "unverified",
+        "availability": "available",
         "name": "netcoredbg-osx-arm64.zip",
         "platform": "osx-arm64",
         "reason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
@@ -167,9 +168,10 @@
         "testOverride": false,
         "url": "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-osx-arm64.zip"
       },
-      "availability": "unverified",
+      "availability": "available",
       "availabilityReason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
-      "blockedReason": "Apple Silicon debugger: experimental · disabled. Unavailable on macOS arm64: no verified compatible netcoredbg 3.2.0-1092 adapter. The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14). Opting in only acknowledges the experiment; it does not install the adapter and does not prove DAP.",
+      "blockedCode": null,
+      "blockedReason": null,
       "destination": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092",
       "existing": {
         "binary": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/netcoredbg/3.2.0-1092/netcoredbg",
@@ -193,7 +195,7 @@
         "create a temporary .download file next to the staging directory",
         "no elevation, no global install, no SDK installer, no PATH change, no repository changes"
       ],
-      "planId": "fnv1a64:4cc51043186395da",
+      "planId": "fnv1a64:fea1741a86599b20",
       "platform": "osx-arm64",
       "source": {
         "name": "Samsung/netcoredbg (official GitHub release)",

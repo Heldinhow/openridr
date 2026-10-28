@@ -1230,6 +1230,10 @@ p {
   max-height: 220px;
 }
 
+.debug-verified {
+  white-space: pre-wrap;
+}
+
 .analysis-meta {
   display: flex;
   flex-wrap: wrap;

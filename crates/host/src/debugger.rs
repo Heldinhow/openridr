@@ -66,7 +66,7 @@ const PUBLISHED: &[PublishedAsset] = &[
         sha256: "f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea",
         archive: "zip",
         support: "community",
-        availability: "unverified",
+        availability: "available",
         reason: Some(COMMUNITY),
     },
     PublishedAsset {
@@ -207,6 +207,12 @@ fn allowed_url(url: &str) -> bool {
     probe() && scheme == "http" && loopback(&host)
 }
 
+/// URL without query/fragment, safe to keep in the local log (asset redirects are signed).
+fn loggable_url(url: &str) -> String {
+    let cut = url.find(['?', '#']).unwrap_or(url.len());
+    url[..cut].to_string()
+}
+
 fn resolve_location(base: &str, location: &str) -> String {
     if location.contains("://") {
         return location.to_string();
@@ -269,6 +275,7 @@ pub struct Plan {
     pub integrity: String,
     pub limits: Vec<String>,
     pub blocked_reason: Option<String>,
+    pub blocked_code: Option<&'static str>,
     pub existing: Existing,
     pub plan_id: String,
 }
@@ -295,6 +302,7 @@ fn material(plan: &Plan) -> Vec<String> {
         plan.integrity.clone(),
         plan.limits.join("\n"),
         plan.blocked_reason.clone().unwrap_or_default(),
+        plan.blocked_code.unwrap_or_default().to_string(),
     ]
 }
 
@@ -314,36 +322,51 @@ fn plan_id(plan: &Plan) -> String {
 struct Gate {
     state: &'static str,
     installable: bool,
+    code: Option<&'static str>,
     message: String,
 }
 
 fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
     if controlled {
+        // The flag gate is a product rule, so the controlled artifact follows it too.
+        if os == "macos" && arch == "aarch64" && !experimental {
+            return Gate {
+                state: "experimental_disabled",
+                installable: false,
+                code: Some("experimental_required"),
+                message: "Controlled test artifact: the installer pipeline is forced by OPENRIDR_ENABLE_PROBE=1, but the Apple Silicon experimental flag is still required. It is not an official asset."
+                    .to_string(),
+            };
+        }
         return Gate {
             state: "not_checked",
             installable: true,
+            code: None,
             message: "Controlled test artifact: the installer pipeline is forced to this platform by OPENRIDR_ENABLE_PROBE=1. It is not an official asset."
                 .to_string(),
         };
     }
     match (os, arch) {
         ("macos", "aarch64") if experimental => Gate {
-            state: "unavailable",
-            installable: false,
+            state: "not_checked",
+            installable: true,
+            code: None,
             message: format!(
-                "Apple Silicon debugger: experimental · enabled. Unavailable on macOS arm64: no verified compatible {TOOL} {VERSION} adapter. {COMMUNITY} The experimental opt-in neither installs the adapter nor proves compatibility."
+                "Apple Silicon debugger: experimental · enabled. The official {VERSION} osx-arm64 asset is available with explicit consent and a SHA-256 from the release metadata. It is community supported ({COMMUNITY}) and DAP is unproven until ticket 14."
             ),
         },
         ("macos", "aarch64") => Gate {
             state: "experimental_disabled",
             installable: false,
+            code: Some("experimental_required"),
             message: format!(
-                "Apple Silicon debugger: experimental · disabled. Unavailable on macOS arm64: no verified compatible {TOOL} {VERSION} adapter. {COMMUNITY} Opting in only acknowledges the experiment; it does not install the adapter and does not prove DAP."
+                "Apple Silicon debugger: experimental · disabled. The official {VERSION} osx-arm64 asset exists, but it is community supported ({COMMUNITY}) so installation stays refused until you enable the experimental flag. Debug is blocked."
             ),
         },
         ("macos", "x86_64") => Gate {
             state: "unavailable",
             installable: false,
+            code: Some("unsupported_platform"),
             message: format!(
                 "Unavailable on macOS Intel: the {VERSION} release publishes no osx-x64 asset. Installation and Debug are blocked and no other version or asset is substituted."
             ),
@@ -351,6 +374,7 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
         ("windows", "x86_64") => Gate {
             state: "not_checked",
             installable: true,
+            code: None,
             message: format!(
                 "Windows x64: the official {VERSION} win64 asset is published. Installation is available and gated by OS/arch; it has not been executed here, and Debug still needs the DAP work of ticket 14."
             ),
@@ -358,6 +382,7 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
         ("linux", _) => Gate {
             state: "unavailable",
             installable: false,
+            code: Some("unsupported_platform"),
             message: format!(
                 "Unavailable on Linux: {VERSION} ships a .tar.gz and this build extracts zip archives only. Linux is outside the P0 matrix; no other asset is substituted."
             ),
@@ -365,6 +390,7 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
         _ => Gate {
             state: "unavailable",
             installable: false,
+            code: Some("unsupported_platform"),
             message: format!(
                 "Unsupported platform {os}/{arch}: the {VERSION} release publishes no verified compatible asset for it."
             ),
@@ -501,18 +527,26 @@ pub fn plan(os: &str, arch: &str, experimental: bool) -> Plan {
             "progress is reported only as bytes observed; no percentage is invented".to_string(),
         ],
         blocked_reason: None,
+        blocked_code: None,
         existing,
         plan_id: String::new(),
     };
     plan.blocked_reason = blocked_reason;
+    plan.blocked_code = if gate.installable { None } else { gate.code };
     plan.plan_id = plan_id(&plan);
     plan
 }
 
+/// The verified executable at the destination, wherever the archive placed it.
+fn existing_binary(platform: &str) -> Option<PathBuf> {
+    find_executable(&destination(), binary_name(platform))
+}
+
 /// Cheap inspection of an existing installation. Never runs the binary.
 fn inspect_existing(platform: &str) -> Existing {
-    let binary = destination().join(binary_name(platform));
-    let present = binary.is_file();
+    let found = existing_binary(platform);
+    let present = found.is_some();
+    let binary = found.unwrap_or_else(|| destination().join(binary_name(platform)));
     Existing {
         state: if present { "present" } else { "absent" },
         binary: binary.to_string_lossy().to_string(),
@@ -543,17 +577,18 @@ fn sha256_file(path: &Path) -> Option<String> {
 /// Runs the extracted executable's read-only `--version`. It is only executed after the archive
 /// hash matched and never before the user confirmed the install.
 fn verify_existing(platform: &str) -> Existing {
-    let binary = destination().join(binary_name(platform));
-    let text = binary.to_string_lossy().to_string();
-    if !binary.is_file() {
+    let Some(binary) = existing_binary(platform) else {
         return Existing {
             state: "absent",
-            binary: text,
+            binary: destination()
+                .join(binary_name(platform))
+                .to_string_lossy()
+                .to_string(),
             verified_version: None,
             sha256: None,
             reason: Some("No netcoredbg executable at the destination.".to_string()),
         };
-    }
+    };
     verify_binary(&binary)
 }
 
@@ -727,13 +762,15 @@ impl Debugger {
         let gate = gate(&os, &arch, experimental, controlled.is_some());
         let asset = asset_view(&platform, controlled.as_ref());
         let install_state = data.state;
+        // `adapterMessage` always describes the platform/adapter availability; the operation
+        // detail lives in `note`, `error` and `log`.
         let (state, message) = if matches!(
             install_state,
             "not_checked" | "unavailable" | "experimental_disabled"
         ) {
             (gate.state, gate.message.clone())
         } else {
-            (install_state, data.note.clone().unwrap_or_else(|| gate.message.clone()))
+            (install_state, gate.message.clone())
         };
         let (log, log_truncated) = data.log.text();
         let gate_reason = if state == "ready" {
@@ -822,12 +859,12 @@ impl Debugger {
         data.destination = plan.destination.clone();
         data.staging = plan.staging.clone();
         data.platform = plan.platform.clone();
+        let on_disk = existing_binary(&plan.platform).and_then(|binary| sha256_file(&binary));
         let still_installed = data.state == "ready"
-            && data.sha256.as_deref()
-                == sha256_file(
-                    &Path::new(&plan.destination).join(binary_name(&plan.platform)),
-                )
-                .as_deref();
+            && match (&data.sha256, &on_disk) {
+                (Some(known), Some(found)) => known == found,
+                _ => false,
+            };
         // A blocked plan never becomes an advertised install state: the platform gate stays
         // visible instead of implying that only a confirmation is missing.
         data.state = if plan.blocked_reason.is_some() {
@@ -856,6 +893,10 @@ impl Debugger {
         data.confirmed_plan_id = None;
     }
 
+    pub fn has_plan(&self) -> bool {
+        self.data.lock().unwrap().plan.is_some()
+    }
+
     pub fn confirmed_plan_id(&self) -> Option<String> {
         self.data.lock().unwrap().confirmed_plan_id.clone()
     }
@@ -870,7 +911,7 @@ impl Debugger {
     ) -> HostResult<Value> {
         if let Some(reason) = &plan.blocked_reason {
             return Err(HostError::with_details(
-                "unsupported_platform",
+                plan.blocked_code.unwrap_or("unsupported_platform"),
                 format!(
                     "Installation of {TOOL} {VERSION} is not available on {}/{}: {reason} Nothing was downloaded.",
                     plan.os, plan.arch
@@ -1100,7 +1141,7 @@ impl Debugger {
                     ALLOWED_HOSTS.join(", ")
                 )));
             }
-            self.log(&format!("GET {url}"));
+            self.log(&format!("GET {}", loggable_url(&url)));
             match agent.get(&url).call() {
                 Ok(response) if (300..400).contains(&response.status()) => {
                     let Some(location) = response.header("location") else {
@@ -1362,6 +1403,16 @@ fn extract_zip(archive: &Path, target: &Path) -> Result<(), String> {
                 entry.name()
             ));
         };
+        let apple_double = relative
+            .components()
+            .next()
+            .is_some_and(|part| part.as_os_str() == "__MACOSX")
+            || relative
+                .file_name()
+                .is_some_and(|name| name == ".DS_Store");
+        if apple_double {
+            continue;
+        }
         if relative.as_os_str().is_empty()
             || relative
                 .components()
@@ -1512,16 +1563,23 @@ mod tests {
     }
 
     #[test]
-    fn macos_arm64_is_blocked_and_explains_the_community_build() {
-        let plan = plan("macos", "aarch64", false);
-        assert_eq!(plan.platform, "osx-arm64");
-        assert!(plan.blocked_reason.is_some());
-        let asset = plan.asset.unwrap();
-        assert_eq!(asset.availability, "unverified");
+    fn macos_arm64_needs_the_experimental_flag_but_has_a_published_asset() {
+        let blocked = plan("macos", "aarch64", false);
+        assert_eq!(blocked.platform, "osx-arm64");
+        assert_eq!(blocked.blocked_code, Some("experimental_required"));
+        assert!(blocked.blocked_reason.unwrap().contains("enable the experimental flag"));
+        let asset = blocked.asset.unwrap();
+        assert_eq!(asset.name, "netcoredbg-osx-arm64.zip");
+        assert_eq!(asset.availability, "available");
+        assert_eq!(asset.support, "community");
         assert!(asset.reason.unwrap().contains("community supported"));
-        assert!(plan.destination.ends_with("tools/netcoredbg/3.2.0-1092"));
-        assert!(plan.staging.ends_with("3.2.0-1092.staging"));
-        assert_eq!(plan.availability, "unverified");
+        assert!(blocked.destination.ends_with("tools/netcoredbg/3.2.0-1092"));
+        assert!(blocked.staging.ends_with("3.2.0-1092.staging"));
+
+        let allowed = plan("macos", "aarch64", true);
+        assert!(allowed.blocked_reason.is_none());
+        assert!(allowed.blocked_code.is_none());
+        assert_eq!(allowed.availability, "available");
     }
 
     #[test]
@@ -1537,6 +1595,7 @@ mod tests {
         }
         let plan = plan("macos", "x86_64", false);
         assert!(plan.blocked_reason.unwrap().contains("no osx-x64 asset"));
+        assert_eq!(plan.blocked_code, Some("unsupported_platform"));
     }
 
     #[test]
@@ -1565,6 +1624,18 @@ mod tests {
     }
 
     #[test]
+    fn urls_kept_in_the_log_drop_signed_query_strings() {
+        assert_eq!(
+            loggable_url("https://github.com/a/b?token=secret#frag"),
+            "https://github.com/a/b"
+        );
+        assert_eq!(
+            loggable_url("https://github.com/a/b"),
+            "https://github.com/a/b"
+        );
+    }
+
+    #[test]
     fn only_official_https_hosts_are_fetched() {
         assert!(allowed_url(&format!("{DOWNLOAD_BASE}netcoredbg-win64.zip")));
         assert!(allowed_url(
@@ -1587,8 +1658,12 @@ mod tests {
     #[test]
     fn gate_states_are_honest_per_platform() {
         assert_eq!(gate("macos", "aarch64", false, false).state, "experimental_disabled");
-        assert_eq!(gate("macos", "aarch64", true, false).state, "unavailable");
-        assert!(!gate("macos", "aarch64", true, false).installable);
+        assert!(!gate("macos", "aarch64", false, false).installable);
+        assert_eq!(
+            gate("macos", "aarch64", false, false).code,
+            Some("experimental_required")
+        );
+        assert!(gate("macos", "aarch64", true, false).installable);
         assert!(!gate("macos", "x86_64", true, false).installable);
         assert!(gate("windows", "x86_64", false, false).installable);
         assert!(!gate("linux", "x86_64", true, false).installable);

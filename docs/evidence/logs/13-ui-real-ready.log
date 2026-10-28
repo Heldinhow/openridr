@@ -1,0 +1,7 @@
+opened workspace; debug state = Experimental · disabled
+trusted
+flag enabled; state = Experimental · disabled
+plan: netcoredbg-osx-arm64.zip · available3389504 bytes · https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-osx-arm64.zipSHA-256 f4fa33b3f
+state = Adapter verified — DAP not proven
+verified = NET Core debugger 3.2.0-1 (9744e1f, Release)
+sha256 = SHA-256 of the installed executable: ffc51b6f716e6bb8cb93c416e352651b945269c9501f820d32f3023d4ce24ece

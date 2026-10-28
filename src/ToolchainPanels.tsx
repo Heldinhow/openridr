@@ -493,7 +493,7 @@ export function DebugAdapterPanel({
         </p>
       )}
       {debug.verifiedOutput && (
-        <p className="muted" data-testid="debug-verified">
+        <p className="muted debug-verified" data-testid="debug-verified">
           <code>{debug.verifiedOutput}</code>
         </p>
       )}
@@ -510,7 +510,8 @@ export function DebugAdapterPanel({
           </span>
           <p className="muted" data-testid="debug-flag-note">
             The opt-in is independent of trust and installation. It neither installs netcoredbg
-            nor proves compatibility, and it does not remove this platform's limit.
+            nor proves compatibility. It only unlocks the install plan, which still requires trust
+            and an explicit confirmation.
           </p>
           <label className="check-row">
             <input
@@ -625,7 +626,8 @@ export function DebugAdapterPanel({
               <>
                 <dt>Blocked</dt>
                 <dd className="warning" data-testid="debug-plan-blocked">
-                  {plan.blockedReason}
+                  {plan.blockedReason}{" "}
+                  {plan.blockedCode ? <code>{plan.blockedCode}</code> : null}
                 </dd>
               </>
             )}

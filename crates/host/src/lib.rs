@@ -2035,8 +2035,19 @@ impl Host {
             ));
         }
         let mut inner = self.inner.lock().unwrap();
+        let had_plan = inner.debugger.has_plan();
         inner.debugger_experimental = enabled;
         inner.debugger.log_flag(enabled);
+        if had_plan {
+            // The plan is flag-dependent: the consent shown after enabling is the one that
+            // authorizes the experimental install.
+            let plan = debugger::plan(
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                inner.debugger_experimental,
+            );
+            inner.debugger.set_plan(plan);
+        }
         Ok(self.snapshot_value(&mut inner))
     }
 

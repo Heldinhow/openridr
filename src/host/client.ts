@@ -359,6 +359,7 @@ export type DebugPlan = {
   integrity: string;
   limits: string[];
   blockedReason: string | null;
+  blockedCode: string | null;
   existing: DebugExisting;
   planId: string;
 };

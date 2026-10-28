@@ -1,0 +1,140 @@
+# netcoredbg real install — macOS arm64, flag on, explicit consent (ticket 13)
+# date: 2026-10-28 06:48:21 -03
+
+$ uname -m; sw_vers -productVersion
+arm64
+27.2
+
+# official release metadata digest for the asset (see 13-release-metadata.log)
+netcoredbg-osx-arm64.zip 3389504 sha256:f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea
+
+# real plan served by debug.plan (host with the default app home)
+{
+  "tool": "netcoredbg",
+  "version": "3.2.0-1092",
+  "source": {
+    "name": "Samsung/netcoredbg (official GitHub release)",
+    "url": "https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092"
+  },
+  "os": "macos",
+  "arch": "aarch64",
+  "platform": "osx-arm64",
+  "asset": {
+    "archive": "zip",
+    "availability": "available",
+    "name": "netcoredbg-osx-arm64.zip",
+    "platform": "osx-arm64",
+    "reason": "The official release publishes this macOS arm64 build as community supported (upstream README: \"may not work as expected\"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).",
+    "sha256": "f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea",
+    "size": 3389504,
+    "support": "community",
+    "testOverride": false,
+    "url": "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-osx-arm64.zip"
+  },
+  "availability": "available",
+  "destination": "/Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092",
+  "staging": "/Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092.staging",
+  "operation": "Download the official asset over HTTPS, verify its published SHA-256, extract the zip into staging (no traversal, absolute path, symlink or special file; bounded size and entry count), run --version on the extracted executable, and only then promote staging to the destination.",
+  "permissions": [
+    "network: https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092 asset hosts over HTTPS (github.com, objects.githubusercontent.com, release-assets.githubusercontent.com)",
+    "write: /Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg",
+    "create a temporary .download file next to the staging directory",
+    "no elevation, no global install, no SDK installer, no PATH change, no repository changes"
+  ],
+  "integrity": "Official release metadata publishes SHA-256 f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea for netcoredbg-osx-arm64.zip. The download is hashed and compared with the SHA-256 published in the official release metadata; the extracted executable must print 3.2.0 from --version before promotion. OpenRidr verifies no code signature or notarization and claims none. The archive layout inside the release is not verified here.",
+  "limits": [
+    "download \u2264 20 MiB, extracted tree \u2264 200 MiB and \u2264 200 entries",
+    "\u2264 5 redirects, each to an official host and HTTPS",
+    "zip entries with traversal, absolute paths, symlinks or special modes are rejected; corruption fails the install",
+    "progress is reported only as bytes observed; no percentage is invented"
+  ],
+  "blockedReason": null,
+  "blockedCode": null,
+  "planId": "fnv1a64:969d01a8390f3343"
+}
+
+# state transitions observed while the host downloaded/extracted/verified/promoted
+state planned installable True
+planId fnv1a64:969d01a8390f3343 destination /Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092
+asset netcoredbg-osx-arm64.zip 3389504 f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea
+integrity: Official release metadata publishes SHA-256 f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea for netcoredbg-osx-arm64.zip. The download is hashed and compared with the SHA-256 published in the official release metadata; the extracted executable must print 3.2.0 from --version before promotion. OpenRidr verifies no code signature or notarization and claims none. The archive layout inside the release is not verified here.
+[   0.0s] state downloading · progress {'downloaded': 0, 'total': 3389504}
+[   0.8s] state installing · progress {'downloaded': 3389504, 'total': 3389504}
+[   1.3s] state verifying · progress {'downloaded': 3389504, 'total': 3389504}
+[   1.6s] state ready · progress None
+final: ready verifiedVersion: 3.2.0 sha256: ffc51b6f716e6bb8cb93c416e352651b945269c9501f820d32f3023d4ce24ece
+reused False destinationPresent True stagingPresent False
+error: None
+--- log ---
+
+# real --version output from the installed executable
+$ "/Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg" --version
+NET Core debugger 3.2.0-1 (9744e1f, Release)
+
+Copyright (c) 2020 Samsung Electronics Co., LTD
+Distributed under the MIT License.
+See the LICENSE file in the project root for more information.
+exit=0
+
+$ shasum -a 256 "$DEST/netcoredbg/netcoredbg"
+ffc51b6f716e6bb8cb93c416e352651b945269c9501f820d32f3023d4ce24ece  /Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg
+
+$ file "$DEST/netcoredbg/netcoredbg"
+/Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg: Mach-O 64-bit executable arm64
+
+$ ls -la "$DEST" "$DEST/netcoredbg"
+/Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092:
+total 0
+drwxr-xr-x@ 4 helder  staff  128 Oct 28 06:46 .
+drwxr-xr-x@ 3 helder  staff   96 Oct 28 06:46 ..
+drwxr-xr-x@ 3 helder  staff   96 Oct 28 06:46 __MACOSX
+drwxr-xr-x@ 9 helder  staff  288 Oct 28 06:46 netcoredbg
+
+/Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg:
+total 18752
+drwxr-xr-x@ 9 helder  staff      288 Oct 28 06:46 .
+drwxr-xr-x@ 4 helder  staff      128 Oct 28 06:46 ..
+-rw-r--r--@ 1 helder  staff    54784 Oct 28 06:46 ManagedPart.dll
+-rw-r--r--@ 1 helder  staff    29728 Oct 28 06:46 Microsoft.CodeAnalysis.CSharp.Scripting.dll
+-rw-r--r--@ 1 helder  staff  4357136 Oct 28 06:46 Microsoft.CodeAnalysis.CSharp.dll
+-rw-r--r--@ 1 helder  staff   129552 Oct 28 06:46 Microsoft.CodeAnalysis.Scripting.dll
+-rw-r--r--@ 1 helder  staff  1993728 Oct 28 06:46 Microsoft.CodeAnalysis.dll
+-rw-r--r--@ 1 helder  staff   396624 Oct 28 06:46 libdbgshim.dylib
+-rwxr-xr-x@ 1 helder  staff  2625896 Oct 28 06:46 netcoredbg
+
+# reuse after a fresh plan: verified installation found at the nested path
+after plan: state planned existing present binary /Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg
+reuse: state ready reused True verifiedVersion 3.2.0 sha256 ffc51b6f716e6bb8cb93c416e352651b945269c9501f820d32f3023d4ce24ece
+log:
+Apple Silicon experimental flag enabled by explicit opt-in. It neither installs netcoredbg nor proves compatibility.
+Existing netcoredbg installation verified; reused without downloading.
+$ /Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg --version
+NET Core debugger 3.2.0-1 (9744e1f, Release)
+
+Copyright (c) 2020 Samsung Electronics Co., LTD
+Distributed under the MIT License.
+See the LICENSE file in the project root for more information.
+
+# note: the download log lines keep only scheme/host/path; the signed redirect query
+# (SAS token) is redacted in this evidence and is not logged by the current code.
+
+# host log of the real install (signed redirect query redacted)
+Apple Silicon experimental flag enabled by explicit opt-in. It neither installs netcoredbg nor proves compatibility.
+== attempt 1 ==
+source https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092 · asset netcoredbg-osx-arm64.zip
+destination /Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092 · staging /Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092.staging
+expected sha256 f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea
+GET https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-osx-arm64.zip
+GET https://release-assets.githubusercontent.com/github-production-release-asset/113926796/6f950e1d-a48c-4d4b-92a1-e4a30d6e4526?<redacted>
+downloaded 3389504 bytes (measured; no percentage)
+sha256 f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea matched the plan
+Extracting the verified archive into staging.
+Verifying the extracted executable with --version.
+$ /Users/helder/Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092.staging/netcoredbg/netcoredbg --version
+NET Core debugger 3.2.0-1 (9744e1f, Release)
+
+Copyright (c) 2020 Samsung Electronics Co., LTD
+Distributed under the MIT License.
+See the LICENSE file in the project root for more information.
+executable sha256 ffc51b6f716e6bb8cb93c416e352651b945269c9501f820d32f3023d4ce24ece
+Verified executable promoted to the destination. DAP compatibility is not proven.
