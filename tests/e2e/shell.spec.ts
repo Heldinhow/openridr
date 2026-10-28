@@ -94,14 +94,17 @@ test("the single bar keeps placeholders disabled and the status bar reports the 
   await expect(page.getByTestId("toolbar-project")).toContainText("OrderDesk.sln");
   await expect(page.getByTestId("toolbar-branch")).toHaveText("Trust the workspace to use Git");
   await expect(page.getByTestId("toolbar-branch")).toBeDisabled();
-  for (const id of ["toolbar-run-config", "toolbar-settings"]) {
+  for (const id of ["toolbar-run-config"]) {
     await expect(page.getByTestId(id)).toBeDisabled();
     expect(await page.getByTestId(id).getAttribute("title")).toBeTruthy();
   }
   await expect(page.getByTestId("toolbar-search")).toBeEnabled();
   await expect(page.getByTestId("toolbar-search")).toHaveAttribute("title", /Cmd\+T/);
   await expect(page.getByTestId("toolbar-run-config")).toHaveAttribute("title", /Trust the workspace before choosing a run configuration/);
-  await expect(page.getByTestId("toolbar-settings")).toHaveAttribute("aria-label", /Settings arrive in F8/);
+  // F8 enables Settings; the disabled reason it used to carry is gone.
+  await expect(page.getByTestId("toolbar-settings")).toBeEnabled();
+  await expect(page.getByTestId("toolbar-settings")).toHaveAttribute("aria-label", "Open Settings");
+  await expect(page.getByTestId("toolbar-settings")).toHaveAttribute("title", /Cmd\+,/);
   await expect(page.getByTestId("bottom-tab-build")).toBeVisible();
   await expect(page.getByTestId("toolbar-build")).toBeDisabled();
   await expect(page.getByTestId("toolbar-run")).toBeDisabled();

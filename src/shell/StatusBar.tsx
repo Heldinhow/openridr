@@ -1,6 +1,6 @@
 type EvaluationStatus = { text: string; title?: string; testId?: string };
 
-export function StatusBar({ workspace, trusted, sdkSummary, evaluation, dirtyCount, breadcrumb, cursor }: {
+export function StatusBar({ workspace, trusted, sdkSummary, evaluation, dirtyCount, breadcrumb, cursor, indent }: {
   workspace: { name: string; path: string };
   trusted: boolean;
   sdkSummary: string;
@@ -8,6 +8,7 @@ export function StatusBar({ workspace, trusted, sdkSummary, evaluation, dirtyCou
   dirtyCount: number;
   breadcrumb: string;
   cursor: string;
+  indent: { label: string; title: string };
 }) {
   return (
     <footer className="status">
@@ -33,9 +34,9 @@ export function StatusBar({ workspace, trusted, sdkSummary, evaluation, dirtyCou
       <span data-testid="status-encoding" title="UTF-8 is the only encoding OpenRidr reads and writes; nothing is detected.">
         UTF-8
       </span>
-      {/* Settings arrive in F8; until then the status bar reports the default instead of guessing from the file. */}
-      <span data-testid="status-indent" title="Indentation comes from editor settings (default until Settings arrives in F8).">
-        4 spaces
+      {/* Indentation comes from Settings; no per-file detection is claimed. */}
+      <span data-testid="status-indent" title={indent.title}>
+        {indent.label}
       </span>
       <span data-testid="status-cursor">{cursor}</span>
     </footer>

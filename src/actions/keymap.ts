@@ -15,7 +15,52 @@ type Platform = string;
 
 export type Binding = { mac: Shortcut[]; windows: Shortcut[] };
 export type Keymap = { profile: ProfileId; overrides: Record<string, Shortcut[]> };
-export type AppSettings = { keymap: Keymap; [key: string]: unknown };
+
+export type Density = "comfortable" | "compact";
+export type AppearanceSettings = { zoom: number; density: Density };
+export type EditorSettings = {
+  fontFamily: string;
+  fontSize: number;
+  indentSize: number;
+  useTabs: boolean;
+};
+export type AppSettings = {
+  keymap: Keymap;
+  appearance: AppearanceSettings;
+  editor: EditorSettings;
+  [key: string]: unknown;
+};
+
+export const ZOOM_MIN = 80;
+export const ZOOM_MAX = 150;
+export const FONT_SIZE_MIN = 8;
+export const FONT_SIZE_MAX = 32;
+export const INDENT_MIN = 1;
+export const INDENT_MAX = 12;
+
+export const densityOptions: { id: Density; title: string }[] = [
+  { id: "comfortable", title: "Comfortable" },
+  { id: "compact", title: "Compact" },
+];
+
+export const fontFamilyOptions: { id: string; title: string }[] = [
+  { id: "ui-monospace", title: "System Mono" },
+  { id: "Menlo", title: "Menlo" },
+  { id: "SF Mono", title: "SF Mono" },
+  { id: "JetBrains Mono", title: "JetBrains Mono" },
+  { id: "Courier New", title: "Courier New" },
+];
+
+export const appearanceDefaults: AppearanceSettings = {
+  zoom: 100,
+  density: "comfortable",
+};
+export const editorDefaults: EditorSettings = {
+  fontFamily: "ui-monospace",
+  fontSize: 13,
+  indentSize: 4,
+  useTabs: false,
+};
 
 export const profileOptions: { id: ProfileId; title: string }[] = [
   { id: "rider-macos", title: "Rider (macOS)" },
@@ -27,7 +72,11 @@ export function profileTitle(profile: ProfileId) {
 }
 
 export function defaultSettings(): AppSettings {
-  return { keymap: { profile: "rider-macos", overrides: {} } };
+  return {
+    keymap: { profile: "rider-macos", overrides: {} },
+    appearance: { ...appearanceDefaults },
+    editor: { ...editorDefaults },
+  };
 }
 
 const names: Record<string, string> = {
@@ -79,6 +128,7 @@ function both(shortcuts: Shortcut[]): Record<ProfileId, Binding> {
 // default shortcut; every shortcut still comes from here and can be remapped.
 export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>> = {
   "view.findAction": both([shortcut("a", { primary: true, shift: true })]),
+  "settings.open": both([shortcut(",", { primary: true })]),
   "file.save": both([shortcut("s", { primary: true })]),
   "toolWindow.hideActive": both([shortcut("escape", { shift: true })]),
   "build.start": both([shortcut("f9", { primary: true })]),
@@ -321,7 +371,41 @@ export function normalizeKeymap(raw: unknown): Keymap {
   return { profile, overrides };
 }
 
+function boundedInteger(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+    ? value
+    : fallback;
+}
+
+export function normalizeAppearance(raw: unknown): AppearanceSettings {
+  const value = isRecord(raw) ? raw : {};
+  return {
+    zoom: boundedInteger(value.zoom, ZOOM_MIN, ZOOM_MAX, appearanceDefaults.zoom),
+    density: value.density === "compact" ? "compact" : "comfortable",
+  };
+}
+
+export function normalizeEditor(raw: unknown): EditorSettings {
+  const value = isRecord(raw) ? raw : {};
+  return {
+    fontFamily:
+      typeof value.fontFamily === "string" &&
+      value.fontFamily.length > 0 &&
+      value.fontFamily.length <= 80
+        ? value.fontFamily
+        : editorDefaults.fontFamily,
+    fontSize: boundedInteger(value.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX, editorDefaults.fontSize),
+    indentSize: boundedInteger(value.indentSize, INDENT_MIN, INDENT_MAX, editorDefaults.indentSize),
+    useTabs: value.useTabs === true,
+  };
+}
+
 export function normalizeSettings(raw: unknown): AppSettings {
   const base = isRecord(raw) ? raw : {};
-  return { ...base, keymap: normalizeKeymap(base.keymap) };
+  return {
+    ...base,
+    keymap: normalizeKeymap(base.keymap),
+    appearance: normalizeAppearance(base.appearance),
+    editor: normalizeEditor(base.editor),
+  };
 }

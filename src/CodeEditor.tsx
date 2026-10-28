@@ -4,9 +4,10 @@ import { indentWithTab } from "@codemirror/commands";
 import { EditorState, type Text } from "@codemirror/state";
 import { EditorView, GutterMarker, gutter, keymap } from "@codemirror/view";
 import { Compartment, RangeSet } from "@codemirror/state";
-import { HighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
+import type { EditorSettings } from "./actions/keymap";
 import {
   autocompletion,
   insertCompletionText,
@@ -26,11 +27,8 @@ const theme = EditorView.theme(
   {
     "&": { height: "100%", backgroundColor: "var(--bg)", color: "var(--fg)" },
     ".cm-scroller": {
-      fontFamily: "var(--mono)",
-      fontSize: "13px",
       lineHeight: "1.65",
-    },
-    ".cm-content": { caretColor: "var(--accent)" },
+    },    ".cm-content": { caretColor: "var(--accent)" },
     ".cm-gutters": {
       backgroundColor: "var(--panel)",
       color: "var(--muted)",
@@ -61,6 +59,7 @@ type Props = {
   path: string;
   platform: string;
   revision: number;
+  editor: EditorSettings;
   /** 1-based breakpoint lines for this file. */
   breakpoints?: number[];
   /** 1-based line of the current pause, when this file is the paused frame. */
@@ -90,6 +89,24 @@ function offsetAt(doc: Text, position: { line: number; character: number }): num
 
 function failureText(kind: string, response: AnalysisResponse): string {
   return `${kind} ${response.state}: ${response.message ?? "csharp-ls did not answer."}`;
+}
+
+/** Editor font and indentation come from Settings and are reconfigured through compartments,
+ * so changing them while a file is open applies without remounting the view. */
+function editorTheme(settings: EditorSettings) {
+  return EditorView.theme({
+    ".cm-scroller": {
+      fontFamily: `"${settings.fontFamily}", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`,
+      fontSize: `${settings.fontSize}px`,
+    },
+  });
+}
+
+function editorIndent(settings: EditorSettings) {
+  return [
+    EditorState.tabSize.of(settings.indentSize),
+    indentUnit.of(settings.useTabs ? "\t" : " ".repeat(settings.indentSize)),
+  ];
 }
 
 class DebugMarker extends GutterMarker {
@@ -153,6 +170,7 @@ export function CodeEditor({
   path,
   platform,
   revision,
+  editor,
   breakpoints = [],
   currentLine = null,
   onToggleBreakpoint,
@@ -176,6 +194,8 @@ export function CodeEditor({
   const currentLineRef = useRef<number | null>(currentLine);
   const onToggleBreakpointRef = useRef(onToggleBreakpoint);
   const gutterCompartment = useRef(new Compartment());
+  const fontCompartment = useRef(new Compartment());
+  const indentCompartment = useRef(new Compartment());
   breakpointsRef.current = breakpoints;
   currentLineRef.current = currentLine;
   onToggleBreakpointRef.current = onToggleBreakpoint;
@@ -365,6 +385,8 @@ export function CodeEditor({
         autocompletion({ override: [completionSource], activateOnTyping: false }),
         StreamLanguage.define(csharp),
         theme,
+        fontCompartment.current.of(editorTheme(editor)),
+        indentCompartment.current.of(editorIndent(editor)),
         syntaxHighlighting(syntaxColors),
         gutterCompartment.current.of(
           makeDebugGutter(
@@ -449,6 +471,17 @@ export function CodeEditor({
     // The editor is remounted with a key per file; external values are applied below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance) return;
+    instance.dispatch({
+      effects: [
+        fontCompartment.current.reconfigure(editorTheme(editor)),
+        indentCompartment.current.reconfigure(editorIndent(editor)),
+      ],
+    });
+  }, [editor.fontFamily, editor.fontSize, editor.indentSize, editor.useTabs]);
 
   useEffect(() => {
     const instance = view.current;

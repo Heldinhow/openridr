@@ -34,6 +34,7 @@ import { StatusBar } from "./shell/StatusBar";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
 import { FindAction, type SearchTab } from "./actions/FindAction";
 import { KeymapDialog } from "./actions/KeymapDialog";
+import { SettingsDialog } from "./SettingsDialog";
 import {
   DEFAULT_RUN_CONFIG_ID,
   RunConfigDialog,
@@ -280,6 +281,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [findActionOpen, setFindActionOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
   const [keymapOpen, setKeymapOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsBaseline = useRef<AppSettings | null>(null);
   const [quickListOpen, setQuickListOpen] = useState(false);
   const [testProjectPath, setTestProjectPath] = useState("");
   const [testSelected, setTestSelected] = useState<Set<string>>(new Set());
@@ -2271,6 +2274,40 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     setKeymapOpen(true);
   }
 
+  function openSettings() {
+    if (settingsOpen) return;
+    setFindActionOpen(false);
+    setKeymapOpen(false);
+    settingsBaseline.current = settings;
+    setSettingsOpen(true);
+  }
+
+  /** Draft changes apply live; Cancel restores the snapshot taken when Settings opened. */
+  function updateSettings(next: AppSettings) {
+    setSettings(next);
+  }
+
+  function cancelSettings() {
+    if (settingsBaseline.current) setSettings(settingsBaseline.current);
+    settingsBaseline.current = null;
+    setSettingsOpen(false);
+  }
+
+  async function saveSettings(): Promise<string | null> {
+    try {
+      const result = await call<{ path: string; settings: unknown }>("settings.write", {
+        settings,
+      });
+      setSettingsPath(result.path);
+      setSettings(normalizeSettings(result.settings));
+      settingsBaseline.current = null;
+      setSettingsOpen(false);
+      return null;
+    } catch (error) {
+      return `Settings were not saved: ${messageOf(error)}`;
+    }
+  }
+
   async function saveKeymap(keymap: Keymap): Promise<string | null> {
     const next = { ...settings, keymap };
     try {
@@ -2563,8 +2600,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "settings.open",
       title: "Open Settings",
       group: "Settings",
-      execute: () => undefined,
-      disabledReason: "Settings arrive in F8.",
+      execute: openSettings,
     }),
     define({
       id: "sdk.redetect",
@@ -2910,7 +2946,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   return (
     <main
       className={`workspace-view ${leftOpen ? "" : "left-closed"} ${bottomOpen ? "" : "bottom-closed"}`}
-      style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${visibleOutputHeight}px` } as CSSProperties}
+      data-density={settings.appearance.density}
+      style={{
+        "--sidebar-width": `${sidebarWidth}px`,
+        "--output-height": `${visibleOutputHeight}px`,
+        zoom: settings.appearance.zoom / 100,
+      } as CSSProperties}
     >
       <div className="toolbar">
         <details className="toolbar-menu project-menu" onKeyDown={(event) => {
@@ -3049,19 +3090,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             <Icon name="search" />
           </button>
         </span>
-        <span className="toolbar-disabled" title="Settings arrive in F8.">
-          <button
-            type="button"
-            className="toolbar-icon-button"
-            data-testid="toolbar-settings"
-            disabled={settingsAction.disabledReason !== null}
-            aria-label={`Settings — ${settingsAction.disabledReason ?? settingsAction.title}`}
-            title={settingsAction.disabledReason ?? settingsAction.title}
-            onClick={settingsAction.execute}
-          >
-            <Icon name="settings" />
-          </button>
-        </span>
+        <button
+          type="button"
+          className="toolbar-icon-button"
+          data-testid="toolbar-settings"
+          aria-label={settingsAction.title}
+          title={settingsAction.shortcutTexts.join(" or ") || settingsAction.title}
+          onClick={settingsAction.execute}
+        >
+          <Icon name="settings" />
+        </button>
         <details className="toolbar-menu" data-testid="workspace-actions-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
@@ -3911,6 +3949,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   path={active.path}
                   platform={snapshot.app.platform}
                   revision={active.revision}
+                  editor={settings.editor}
                   onChange={(value) => updateContent(active.path, value)}
                   onSave={() => void save()}
                   onDefinition={(location) =>
@@ -4097,6 +4136,22 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         />
       )}
 
+      {settingsOpen && (
+        <SettingsDialog
+          actions={resolvedActions}
+          settings={settings}
+          path={settingsPath}
+          platform={snapshot.app.platform}
+          snapshot={snapshot}
+          onChange={updateSettings}
+          onSave={saveSettings}
+          onCancel={cancelSettings}
+          onRedetect={async () => {
+            onSnapshot(await call<Snapshot>("sdk.redetect"));
+          }}
+        />
+      )}
+
       {quickListOpen && (
         <TestsQuickList items={testQuickItems} onClose={() => setQuickListOpen(false)} />
       )}
@@ -4109,6 +4164,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         dirtyCount={dirtyCount}
         breadcrumb={statusBreadcrumb}
         cursor={active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}
+        indent={{
+          label: settings.editor.useTabs
+            ? `Tabs (${settings.editor.indentSize})`
+            : `${settings.editor.indentSize} spaces`,
+          title: "Indentation comes from Settings (Editor). No per-file detection is claimed.",
+        }}
       />
 
       {renamePrompt && (

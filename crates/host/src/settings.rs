@@ -88,6 +88,12 @@ fn validate(settings: &Value) -> HostResult<()> {
     let object = settings.as_object().ok_or_else(|| {
         HostError::new("invalid_settings", "Settings must be a JSON object.")
     })?;
+    if let Some(appearance) = object.get("appearance") {
+        validate_appearance(appearance)?;
+    }
+    if let Some(editor) = object.get("editor") {
+        validate_editor(editor)?;
+    }
     let Some(keymap) = object.get("keymap") else {
         return Ok(());
     };
@@ -137,6 +143,71 @@ fn validate(settings: &Value) -> HostResult<()> {
     Ok(())
 }
 
+fn validate_appearance(value: &Value) -> HostResult<()> {
+    let appearance = value.as_object().ok_or_else(|| {
+        HostError::new("invalid_settings", "appearance must be an object.")
+    })?;
+    if let Some(zoom) = appearance.get("zoom") {
+        match zoom.as_i64() {
+            Some(zoom) if (80..=150).contains(&zoom) => {}
+            _ => {
+                return Err(HostError::new(
+                    "invalid_settings",
+                    "appearance.zoom must be a whole number between 80 and 150.",
+                ))
+            }
+        }
+    }
+    if let Some(density) = appearance.get("density") {
+        if !matches!(density.as_str(), Some("comfortable" | "compact")) {
+            return Err(HostError::new(
+                "invalid_settings",
+                "appearance.density must be \"comfortable\" or \"compact\".",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_editor(value: &Value) -> HostResult<()> {
+    let editor = value
+        .as_object()
+        .ok_or_else(|| HostError::new("invalid_settings", "editor must be an object."))?;
+    if let Some(font_family) = editor.get("fontFamily") {
+        match font_family.as_str() {
+            Some(name) if !name.is_empty() && name.len() <= 80 => {}
+            _ => {
+                return Err(HostError::new(
+                    "invalid_settings",
+                    "editor.fontFamily must be a non-empty string of at most 80 characters.",
+                ))
+            }
+        }
+    }
+    for (field, min, max) in [("fontSize", 8, 32), ("indentSize", 1, 12)] {
+        if let Some(number) = editor.get(field) {
+            match number.as_i64() {
+                Some(number) if (min..=max).contains(&number) => {}
+                _ => {
+                    return Err(HostError::new(
+                        "invalid_settings",
+                        format!("editor.{field} must be a whole number between {min} and {max}."),
+                    ))
+                }
+            }
+        }
+    }
+    if let Some(use_tabs) = editor.get("useTabs") {
+        if !use_tabs.is_boolean() {
+            return Err(HostError::new(
+                "invalid_settings",
+                "editor.useTabs must be a boolean.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_shortcut(id: &str, value: &Value) -> HostResult<()> {
     let object = value.as_object().ok_or_else(|| {
         HostError::new(
@@ -178,7 +249,8 @@ mod tests {
                 "profile": "intellij",
                 "overrides": { "build.start": [{ "key": "f9", "primary": true }] }
             },
-            "editor": { "fontSize": 14 }
+            "appearance": { "zoom": 110, "density": "compact" },
+            "editor": { "fontFamily": "Menlo", "fontSize": 14, "indentSize": 2, "useTabs": true }
         });
         write_at(&path, &settings).unwrap();
         let text = fs::read_to_string(&path).unwrap();
@@ -209,6 +281,15 @@ mod tests {
             json!({ "keymap": { "overrides": { "build.start": [] } } }),
             json!({ "keymap": { "overrides": { "build.start": [{ "key": "" }] } } }),
             json!({ "keymap": { "overrides": { "build.start": [{ "key": "f9", "alt": "yes" }] } } }),
+            json!({ "appearance": [] }),
+            json!({ "appearance": { "zoom": 10 } }),
+            json!({ "appearance": { "zoom": 101.5 } }),
+            json!({ "appearance": { "density": "roomy" } }),
+            json!({ "editor": [] }),
+            json!({ "editor": { "fontFamily": "" } }),
+            json!({ "editor": { "fontSize": 4 } }),
+            json!({ "editor": { "indentSize": 0 } }),
+            json!({ "editor": { "useTabs": "yes" } }),
         ] {
             let error = write_at(&path, &invalid).expect_err("invalid payload");
             assert_eq!(error.code, "invalid_settings", "{invalid}");

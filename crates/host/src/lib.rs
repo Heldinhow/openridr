@@ -82,6 +82,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "git.commit",
     "git.pull",
     "git.push",
+    "git.info",
 ];
 
 pub struct Host {
@@ -502,6 +503,9 @@ impl Host {
         }
         if method == "git.push" {
             return self.git_push(params);
+        }
+        if method == "git.info" {
+            return self.git_info();
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.gate_unhandled_executable(method);
@@ -4393,6 +4397,12 @@ impl Host {
         let root = self.workspace_root()?;
         let answer = git::push(&root, &params)?;
         Ok(serde_json::to_value(answer).expect("git push serializes"))
+    }
+
+    /// Reports the `git` PATH would run; no repository is opened and nothing is changed.
+    fn git_info(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.info")?;
+        Ok(serde_json::to_value(git::info()).expect("git info serializes"))
     }
 
     /// Workspace symbols come from the live analysis session only. Unavailability and trust

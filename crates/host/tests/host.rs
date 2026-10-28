@@ -428,6 +428,10 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     let status = host.dispatch("git.status", json!({})).unwrap();
     assert_eq!(status["state"], "not_a_repository");
     assert_eq!(status["message"], "Not a git repository");
+    let info = host.dispatch("git.info", json!({})).unwrap();
+    assert_eq!(info["state"], "found");
+    assert!(info["path"].as_str().unwrap().ends_with("git"));
+    assert!(info["version"].as_str().unwrap().contains("git version"));
     assert_eq!(
         error_code(host.dispatch("git.checkout", json!({ "name": "main" }))),
         "git_not_a_repository"
@@ -3801,7 +3805,9 @@ fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
         "keymap": {
             "profile": "intellij",
             "overrides": { "run.start": [{ "key": "f5", "control": true }] }
-        }
+        },
+        "appearance": { "zoom": 110, "density": "compact" },
+        "editor": { "fontFamily": "Menlo", "fontSize": 14, "indentSize": 2, "useTabs": true }
     });
     let written = host
         .dispatch("settings.write", json!({ "settings": settings }))
@@ -3814,7 +3820,12 @@ fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
         settings
     );
 
-    for invalid in [json!({ "settings": [] }), json!({ "settings": { "keymap": { "profile": "vscode" } } })] {
+    for invalid in [
+        json!({ "settings": [] }),
+        json!({ "settings": { "keymap": { "profile": "vscode" } } }),
+        json!({ "settings": { "appearance": { "zoom": 300 } } }),
+        json!({ "settings": { "editor": { "indentSize": 0 } } }),
+    ] {
         assert_eq!(
             error_code(host.dispatch("settings.write", invalid)),
             "invalid_settings"

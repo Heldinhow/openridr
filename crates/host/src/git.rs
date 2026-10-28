@@ -71,6 +71,48 @@ impl GitStatus {
     }
 }
 
+/// The `git` that PATH would run, reported read-only to Settings. No repository is opened.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitInfo {
+    pub state: &'static str,
+    pub path: Option<String>,
+    pub version: Option<String>,
+    pub message: Option<String>,
+}
+
+pub fn info() -> GitInfo {
+    let path = std::env::var_os("PATH")
+        .map(|value| {
+            std::env::split_paths(&value)
+                .filter(|dir| !dir.as_os_str().is_empty())
+                .map(|dir| dir.join(if cfg!(windows) { "git.exe" } else { "git" }))
+                .find(|candidate| candidate.is_file())
+        })
+        .flatten();
+    let version = Command::new("git")
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
+    match (path, version) {
+        (Some(path), Some(version)) => GitInfo {
+            state: "found",
+            path: Some(path.to_string_lossy().into_owned()),
+            version: Some(version),
+            message: None,
+        },
+        _ => GitInfo {
+            state: "missing",
+            path: None,
+            version: None,
+            message: Some("git was not found on PATH.".to_string()),
+        },
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Branch {
@@ -1226,6 +1268,14 @@ mod tests {
     fn commit_all(root: &Path, message: &str) {
         git(root, &["add", "."]);
         git(root, &["commit", "-qm", message]);
+    }
+
+    #[test]
+    fn info_reports_the_git_that_path_would_run() {
+        let info = info();
+        assert_eq!(info.state, "found");
+        assert!(info.path.unwrap().ends_with("git"));
+        assert!(info.version.unwrap().contains("git version"));
     }
 
     #[test]
