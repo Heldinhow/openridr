@@ -57,10 +57,12 @@ test("Find Action filters by title, id and group, shows shortcuts and disabled r
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId("bottom-tab-problems")).toHaveAttribute("aria-selected", "true");
 
-  // Id filter and a disabled future action: reason visible, Enter does not run it.
+  // Id filter and a disabled action without trust: reason visible, Enter does not run it.
   await page.keyboard.press("Meta+Shift+A");
   await page.getByTestId("find-action-input").fill("git.commit");
-  await expect(page.getByTestId("find-action-reason-git.commit")).toContainText("F6");
+  await expect(page.getByTestId("find-action-reason-git.commit")).toContainText(
+    "Trust the workspace to use Git",
+  );
   await expect(
     page.getByTestId("find-action-item-git.commit").getByRole("button"),
   ).toBeDisabled();
@@ -80,7 +82,10 @@ test("Find Action filters by title, id and group, shows shortcuts and disabled r
   // The same registry drives the ••• menu, and an unavailable entry keeps its reason.
   await page.getByTestId("workspace-actions-menu").locator("summary").click();
   await expect(page.getByTestId("git-commit-action")).toBeDisabled();
-  await expect(page.getByTestId("git-commit-action")).toHaveAttribute("title", /F6/);
+  await expect(page.getByTestId("git-commit-action")).toHaveAttribute(
+    "title",
+    /Trust the workspace to use Git/,
+  );
 });
 
 test("Rider is the default profile and IntelliJ from settings.json changes shortcuts on reload", async ({

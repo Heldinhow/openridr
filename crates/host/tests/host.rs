@@ -382,6 +382,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "debug.retry"
             && **method != "terminal.start"
             && **method != "debug.start"
+            && !method.starts_with("git.")
     }) {
         let code = error_code(host.dispatch(method, json!({})));
         if openridr_host::RESTORE_GATED_METHODS.contains(method) {
@@ -421,6 +422,15 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
         error_code(host.dispatch("run.start", json!({}))),
         "restore_required",
         "run.start must pass the shared restore gate before evaluation/build checks"
+    );
+    // Git reads return data instead of pretending an unavailable repository is an error; a
+    // write still refuses before running anything.
+    let status = host.dispatch("git.status", json!({})).unwrap();
+    assert_eq!(status["state"], "not_a_repository");
+    assert_eq!(status["message"], "Not a git repository");
+    assert_eq!(
+        error_code(host.dispatch("git.checkout", json!({ "name": "main" }))),
+        "git_not_a_repository"
     );
     let debug_start = host
         .dispatch("debug.start", json!({}))

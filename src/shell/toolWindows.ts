@@ -1,8 +1,8 @@
 import type { IconName } from "../Icon";
 
 export type ToolWindowSlot = "left" | "bottom";
-export type BottomToolId = "build" | "problems" | "debug" | "terminal" | "tests";
-export type ToolWindowId = "solution" | BottomToolId;
+export type BottomToolId = "build" | "problems" | "debug" | "terminal" | "tests" | "git";
+export type ToolWindowId = "solution" | "commit" | BottomToolId;
 
 export type ToolWindow = {
   id: ToolWindowId;
@@ -14,11 +14,13 @@ export type ToolWindow = {
 // Registro único: faixas, abas e slots renderizam a partir daqui (F1).
 export const toolWindows: ToolWindow[] = [
   { id: "solution", title: "Solution Explorer", slot: "left", icon: "project" },
+  { id: "commit", title: "Commit", slot: "left", icon: "git" },
   { id: "build", title: "Build", slot: "bottom", icon: "build" },
   { id: "problems", title: "Problems", slot: "bottom", icon: "problems" },
   { id: "debug", title: "Debug", slot: "bottom", icon: "debug" },
   { id: "terminal", title: "Terminal", slot: "bottom", icon: "terminal" },
   { id: "tests", title: "Tests", slot: "bottom", icon: "tests" },
+  { id: "git", title: "Git", slot: "bottom", icon: "git" },
 ];
 
 export function toolWindowsIn(slot: ToolWindowSlot): ToolWindow[] {

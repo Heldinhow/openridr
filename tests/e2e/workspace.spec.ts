@@ -27,6 +27,9 @@ const executableMethods = [
   "tests.discover",
   "tests.run",
   "processes.probe",
+  "git.status",
+  "git.log",
+  "git.commit",
 ];
 
 test.beforeEach(() => {

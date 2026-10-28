@@ -130,7 +130,9 @@ test("⇧⌘A opens on Actions, executes the selected action and keeps disabled 
   await expect(page.getByTestId("search-tab-actions")).toHaveAttribute("aria-selected", "true");
 
   await page.getByTestId("find-action-input").fill("git.commit");
-  await expect(page.getByTestId("find-action-reason-git.commit")).toContainText("F6");
+  await expect(page.getByTestId("find-action-reason-git.commit")).toContainText(
+    "Trust the workspace to use Git",
+  );
   await expect(
     page.getByTestId("find-action-item-git.commit").getByRole("button"),
   ).toBeDisabled();

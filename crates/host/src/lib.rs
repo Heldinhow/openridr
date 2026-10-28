@@ -4,6 +4,7 @@ mod debugger;
 mod diagnostics;
 mod error;
 mod evaluation;
+mod git;
 pub mod hostroot;
 mod logbuf;
 mod lsp;
@@ -72,6 +73,15 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "tests.run",
     "processes.probe",
     "diagnostics.probe",
+    "git.status",
+    "git.diff",
+    "git.branches",
+    "git.branchCreate",
+    "git.checkout",
+    "git.log",
+    "git.commit",
+    "git.pull",
+    "git.push",
 ];
 
 pub struct Host {
@@ -465,6 +475,33 @@ impl Host {
         }
         if method == "search.text" {
             return self.search_text(params);
+        }
+        if method == "git.status" {
+            return self.git_status();
+        }
+        if method == "git.diff" {
+            return self.git_diff(params);
+        }
+        if method == "git.branches" {
+            return self.git_branches();
+        }
+        if method == "git.branchCreate" {
+            return self.git_branch_create(params);
+        }
+        if method == "git.checkout" {
+            return self.git_checkout(params);
+        }
+        if method == "git.log" {
+            return self.git_log();
+        }
+        if method == "git.commit" {
+            return self.git_commit(params);
+        }
+        if method == "git.pull" {
+            return self.git_pull();
+        }
+        if method == "git.push" {
+            return self.git_push(params);
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.gate_unhandled_executable(method);
@@ -4266,6 +4303,96 @@ impl Host {
             "matchCount": found.match_count,
             "truncated": found.truncated,
         }))
+    }
+
+    /// Every git method passes the same trust gate before spawning anything. Unavailability
+    /// (no repository, no git on PATH) is data for the surfaces; refusals and failed commands
+    /// stay observable.
+    fn git_status(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.status")?;
+        let root = self.workspace_root()?;
+        Ok(serde_json::to_value(git::status(&root)).expect("git status serializes"))
+    }
+
+    fn git_diff(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.diff")?;
+        let root = self.workspace_root()?;
+        let path = required_str(&params, "path")?;
+        let staged = params
+            .get("staged")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let answer = git::diff(&root, &path, staged)?;
+        Ok(serde_json::to_value(answer).expect("git diff serializes"))
+    }
+
+    fn git_branches(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.branches")?;
+        let root = self.workspace_root()?;
+        Ok(serde_json::to_value(git::branches(&root)).expect("git branches serialize"))
+    }
+
+    fn git_branch_create(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.branchCreate")?;
+        let root = self.workspace_root()?;
+        let name = required_str(&params, "name")?;
+        let checkout = params
+            .get("checkout")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let answer = git::branch_create(&root, &name, checkout)?;
+        Ok(serde_json::to_value(answer).expect("git branchCreate serializes"))
+    }
+
+    fn git_checkout(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.checkout")?;
+        let root = self.workspace_root()?;
+        let name = required_str(&params, "name")?;
+        let answer = git::checkout(&root, &name)?;
+        Ok(serde_json::to_value(answer).expect("git checkout serializes"))
+    }
+
+    fn git_log(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.log")?;
+        let root = self.workspace_root()?;
+        Ok(serde_json::to_value(git::log(&root)).expect("git log serializes"))
+    }
+
+    fn git_commit(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.commit")?;
+        let root = self.workspace_root()?;
+        let paths_param = params
+            .get("paths")
+            .and_then(Value::as_array)
+            .ok_or_else(|| HostError::new("invalid_state", "Missing `paths` array."))?;
+        let mut paths = Vec::with_capacity(paths_param.len());
+        for value in paths_param {
+            let path = value.as_str().ok_or_else(|| {
+                HostError::new("invalid_state", "Every commit path must be a string.")
+            })?;
+            paths.push(path.to_string());
+        }
+        let message = required_str(&params, "message")?;
+        let amend = params
+            .get("amend")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let answer = git::commit(&root, &paths, &message, amend)?;
+        Ok(serde_json::to_value(answer).expect("git commit serializes"))
+    }
+
+    fn git_pull(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.pull")?;
+        let root = self.workspace_root()?;
+        let answer = git::pull(&root)?;
+        Ok(serde_json::to_value(answer).expect("git pull serializes"))
+    }
+
+    fn git_push(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.push")?;
+        let root = self.workspace_root()?;
+        let answer = git::push(&root, &params)?;
+        Ok(serde_json::to_value(answer).expect("git push serializes"))
     }
 
     /// Workspace symbols come from the live analysis session only. Unavailability and trust

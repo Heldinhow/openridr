@@ -220,6 +220,9 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
       "debug.install",
       "debug.start",
       "debug.setBreakpoints",
+      "git.status",
+      "git.log",
+      "git.commit",
     ];
     for (const method of executableMethods) {
       const body = await hostCall(request, method, {});

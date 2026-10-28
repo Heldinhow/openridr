@@ -7,6 +7,7 @@ const panelClasses: Record<BottomToolId, string> = {
   debug: "",
   terminal: "terminal-output-panel",
   tests: "tests-output",
+  git: "git-output",
 };
 
 export function BottomToolWindow({ tabs, active, onSelect, panelRef, children }: {

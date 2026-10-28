@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   call,
   HostCallError,
@@ -41,6 +41,16 @@ import {
   deriveDefaultRunConfig,
   type RunConfigView,
 } from "./runConfigs";
+import {
+  BranchWidget,
+  CommitPanel,
+  GitLogPanel,
+  gitBlockedReason,
+  gitPushBlockedReason,
+  gitUpdateBlockedReason,
+  type GitIntent,
+  type GitStatus,
+} from "./git";
 import {
   chordPrefixFor,
   chordTarget,
@@ -273,6 +283,29 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [quickListOpen, setQuickListOpen] = useState(false);
   const [testProjectPath, setTestProjectPath] = useState("");
   const [testSelected, setTestSelected] = useState<Set<string>>(new Set());
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [gitStatusError, setGitStatusError] = useState<string | null>(null);
+  const [gitIntent, setGitIntent] = useState<GitIntent | null>(null);
+  const refreshGit = useCallback(async () => {
+    if (!trusted) {
+      setGitStatus(null);
+      setGitStatusError(null);
+      return;
+    }
+    try {
+      setGitStatus(await call<GitStatus>("git.status"));
+      setGitStatusError(null);
+    } catch (error) {
+      setGitStatusError(messageOf(error));
+    }
+  }, [trusted]);
+  useEffect(() => {
+    // Refresh on workspace/trust changes; tool windows refresh on open and after operations.
+    void refreshGit();
+  }, [refreshGit, workspace.id]);
+  function openGitIntent(kind: GitIntent["kind"]) {
+    setGitIntent((current) => ({ kind, nonce: (current?.nonce ?? 0) + 1 }));
+  }
   const [activeSlot, setActiveSlot] = useState<ToolWindowSlot>("bottom");
   const bottomTab = layout.bottom.active as BottomToolId;
   const bottomOpen = layout.bottom.open;
@@ -2491,29 +2524,34 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "git.commit",
       title: "Commit…",
       group: "Git",
-      execute: () => undefined,
-      disabledReason: "Version control arrives in F6.",
+      execute: () => {
+        setLayout((current) => ({
+          ...current,
+          left: { ...current.left, active: "commit", open: true },
+        }));
+      },
+      disabledReason: gitBlockedReason(gitStatus, gitStatusError, trusted),
     }),
     define({
       id: "git.push",
       title: "Push…",
       group: "Git",
-      execute: () => undefined,
-      disabledReason: "Version control arrives in F6.",
+      execute: () => openGitIntent("push"),
+      disabledReason: gitPushBlockedReason(gitStatus, gitStatusError, trusted),
     }),
     define({
       id: "git.update",
       title: "Update Project…",
       group: "Git",
-      execute: () => undefined,
-      disabledReason: "Version control arrives in F6.",
+      execute: () => openGitIntent("update"),
+      disabledReason: gitUpdateBlockedReason(gitStatus, gitStatusError, trusted),
     }),
     define({
       id: "git.branchCreate",
       title: "New Branch…",
       group: "Git",
-      execute: () => undefined,
-      disabledReason: "Version control arrives in F6.",
+      execute: () => openGitIntent("branchCreate"),
+      disabledReason: gitBlockedReason(gitStatus, gitStatusError, trusted),
     }),
     define({
       id: "run.configure",
@@ -2796,6 +2834,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             onNavigate={(path, position) => void navigateTo(path, position)}
           />
         );
+      case "git":
+        return (
+          <GitLogPanel
+            trusted={trusted}
+            onError={(text) => setMessage({ tone: "error", text })}
+          />
+        );
     }
   }
 
@@ -2900,11 +2945,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             <TrustControls snapshot={snapshot} onChange={onSnapshot} />
           </div>
         </details>
-        <span className="toolbar-disabled" title="Git not connected. Version control arrives in F6.">
-          <button type="button" data-testid="toolbar-branch" disabled title="Git not connected. Version control arrives in F6.">
-            <Icon name="git" /> Git not connected
-          </button>
-        </span>
+        <BranchWidget
+          status={gitStatus}
+          statusError={gitStatusError}
+          trusted={trusted}
+          intent={gitIntent}
+          onRefresh={refreshGit}
+          onOpenCommit={() => {
+            setLayout((current) => ({
+              ...current,
+              left: { ...current.left, active: "commit", open: true },
+            }));
+          }}
+          onMessage={(text) => setMessage({ tone: "info", text })}
+        />
         <label className="eval-field toolbar-startup">
           <span>Startup project</span>
           <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupProject(event.target.value)}>
@@ -3249,6 +3303,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       <div className={`workspace-grid ${selectedProject ? "with-details" : ""}`}>
         {leftOpen && (
           <>
+        {layout.left.active === "commit" ? (
+          <CommitPanel
+            status={gitStatus}
+            statusError={gitStatusError}
+            trusted={trusted}
+            onRefresh={refreshGit}
+            onMessage={(text) => setMessage({ tone: "info", text })}
+            onError={(text) => setMessage({ tone: "error", text })}
+          />
+        ) : (
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
           <div className="panel-title">
             Solution Explorer{" "}
@@ -3462,6 +3526,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             </p>
           )}
         </nav>
+        )}
         <Splitter label="Solution explorer width" value={sidebarWidth} min={220} max={420} onChange={setSidebarWidth} />
           </>
         )}
