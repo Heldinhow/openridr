@@ -52,6 +52,7 @@ type Props = {
   onSave: () => void;
   onDefinition: (location: DefinitionLocation) => void;
   onRename: (position: { line: number; character: number }) => void;
+  onCodeActions: (position: { line: number; character: number }) => void;
   onCursor: (position: { line: number; character: number }) => void;
   target?: Target | null;
 };
@@ -81,6 +82,7 @@ export function CodeEditor({
   onSave,
   onDefinition,
   onRename,
+  onCodeActions,
   onCursor,
   target,
 }: Props) {
@@ -90,6 +92,7 @@ export function CodeEditor({
   const onSaveRef = useRef(onSave);
   const onDefinitionRef = useRef(onDefinition);
   const onRenameRef = useRef(onRename);
+  const onCodeActionsRef = useRef(onCodeActions);
   const onCursorRef = useRef(onCursor);
   const pathRef = useRef(path);
   const revisionRef = useRef(revision);
@@ -97,6 +100,7 @@ export function CodeEditor({
   onSaveRef.current = onSave;
   onDefinitionRef.current = onDefinition;
   onRenameRef.current = onRename;
+  onCodeActionsRef.current = onCodeActions;
   onCursorRef.current = onCursor;
   pathRef.current = path;
   revisionRef.current = revision;
@@ -105,7 +109,7 @@ export function CodeEditor({
   const definitionSeq = useRef(0);
   const [status, setStatus] = useState<Status>({
     state: "idle",
-    text: "Ctrl+Space: completion · Ctrl+B: go to definition · Shift+F6: rename",
+    text: "Ctrl+Space: completion · Ctrl+B: go to definition · Shift+F6: rename · Opt/Alt+Enter: code actions",
   });
 
   function publishCursor(instance: EditorView) {
@@ -309,6 +313,21 @@ export function CodeEditor({
               const head = instance.state.selection.main.head;
               const line = instance.state.doc.lineAt(head);
               onRenameRef.current({
+                line: line.number - 1,
+                character: head - line.from,
+              });
+              return true;
+            },
+          },
+          {
+            // Option+Enter on macOS, Alt+Enter elsewhere. The host gates trust,
+            // capability, document version and position; an empty answer stays honest.
+            key: "Alt-Enter",
+            preventDefault: true,
+            run: (instance) => {
+              const head = instance.state.selection.main.head;
+              const line = instance.state.doc.lineAt(head);
+              onCodeActionsRef.current({
                 line: line.number - 1,
                 character: head - line.from,
               });

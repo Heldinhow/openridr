@@ -8,11 +8,11 @@
 
 **Category:** enhancement
 
-- [ ] Solicitar ações na posição/revisão atual, respeitar capacidades e oferecer só as retornadas. Resposta vazia/indisponível não cria quick fix com base isolada em código CS nem promete catálogo de ações.
-- [ ] Antes de aplicar/resolver ação, revalidar documento, contexto, revisão e todas as edições envolvidas. Alteração concorrente de buffer/disco ou resposta tardia invalida a ação pendente sem sobrescrever conteúdo; cancelamento não modifica documentos.
-- [ ] Aplicar somente operações suportadas/validadas; comando retornado não vira execução shell arbitrária. Host verifica trust e limites da operação, inclusive quando invocado diretamente; operação não suportada explica motivo/log em vez de êxito fictício.
-- [ ] Após aplicação, preservar modificado/decisão de salvar e marcar snapshot anterior obsoleto; não remover diagnóstico como corrigido antes de publicação atual. Ausência de análise mantém edição.
-- [ ] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), com menu/ação acessível, foco/teclado e estados ingleses honestos.
+- [x] Solicitar ações na posição/revisão atual, respeitar capacidades e oferecer só as retornadas. Resposta vazia/indisponível não cria quick fix com base isolada em código CS nem promete catálogo de ações.
+- [x] Antes de aplicar/resolver ação, revalidar documento, contexto, revisão e todas as edições envolvidas. Alteração concorrente de buffer/disco ou resposta tardia invalida a ação pendente sem sobrescrever conteúdo; cancelamento não modifica documentos.
+- [x] Aplicar somente operações suportadas/validadas; comando retornado não vira execução shell arbitrária. Host verifica trust e limites da operação, inclusive quando invocado diretamente; operação não suportada explica motivo/log em vez de êxito fictício.
+- [x] Após aplicação, preservar modificado/decisão de salvar e marcar snapshot anterior obsoleto; não remover diagnóstico como corrigido antes de publicação atual. Ausência de análise mantém edição.
+- [x] Aplicar G1–G5 do [índice](README.md#gates-compartilhados-obrigatórios-desde-cada-ticket), com menu/ação acessível, foco/teclado e estados ingleses honestos.
 
 ## Mapeamento à SPEC
 
@@ -25,3 +25,4 @@ UI Mac com csharp-ls real: registrar ações realmente disponíveis e ausência 
 ## Comments
 
 - 2026-10-27: Quebra aprovada; publicação documental, implementação não autorizada.
+- 2026-10-28: Implementado e verificado em macOS arm64 com csharp-ls 0.28.0 real; evidência em [10-code-actions.md](../evidence/10-code-actions.md). Ação só com `Command` e ações `data`-only não apareceram/foram resolvidas nesta fatia; ver limitações da evidência.

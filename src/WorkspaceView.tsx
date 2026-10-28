@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   call,
   HostCallError,
+  type CodeAction,
+  type CodeActionsResponse,
   type EvaluationProject,
   type RenameResponse,
   type Snapshot,
@@ -35,6 +37,7 @@ type RenamePrompt = {
 };
 
 type RenamePreview = {
+  kind: "rename";
   response: RenameResponse;
   sourcePath: string;
   sourceRevision: number;
@@ -45,6 +48,35 @@ type RenamePreview = {
   tabRevisions: Record<string, number>;
   stale: string | null;
   applying: boolean;
+};
+
+type ActionPreview = {
+  kind: "action";
+  action: CodeAction;
+  response: CodeActionsResponse;
+  sourcePath: string;
+  sourceRevision: number;
+  session: number;
+  contextId: number;
+  workspaceId: number;
+  tabRevisions: Record<string, number>;
+  stale: string | null;
+  applying: boolean;
+};
+
+type EditPreview = RenamePreview | ActionPreview;
+
+type ActionList = {
+  response: CodeActionsResponse;
+  sourcePath: string;
+  sourceRevision: number;
+  line: number;
+  character: number;
+  session: number;
+  contextId: number;
+  workspaceId: number;
+  tabRevisions: Record<string, number>;
+  stale: string | null;
 };
 
 type Confirmation =
@@ -103,6 +135,28 @@ function lineDiffCount(buffer: string, disk: string) {
 
 function countLabel(count: number, word: string) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+function previewId(preview: EditPreview) {
+  return preview.kind === "rename" ? preview.response.renameId : preview.action.actionId;
+}
+
+function previewDocuments(preview: EditPreview) {
+  return preview.kind === "rename" ? preview.response.documents : preview.action.documents;
+}
+
+function previewEditCount(preview: EditPreview) {
+  return preview.kind === "rename" ? preview.response.editCount : preview.action.editCount;
+}
+
+function previewTitle(preview: EditPreview) {
+  return preview.kind === "rename"
+    ? `Rename to “${preview.response.newName}”`
+    : preview.action.title;
+}
+
+function previewKindLabel(preview: EditPreview) {
+  return preview.kind === "rename" ? "rename" : "code action";
 }
 
 function projectFor(path: string, projects: OutlineProject[]) {
@@ -187,13 +241,17 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     () => new Set(projects.map((project) => project.path)),
   );
   const [renamePrompt, setRenamePrompt] = useState<RenamePrompt | null>(null);
-  const [renamePreview, setRenamePreview] = useState<RenamePreview | null>(null);
+  const [editPreview, setEditPreview] = useState<EditPreview | null>(null);
+  const [actionList, setActionList] = useState<ActionList | null>(null);
   const [renameName, setRenameName] = useState("");
   const renameSeq = useRef(0);
+  const actionSeq = useRef(0);
   const cursorRef = useRef({ line: 0, character: 0 });
-  const renamePreviewHeading = useRef<HTMLHeadingElement | null>(null);
+  const editPreviewHeading = useRef<HTMLHeadingElement | null>(null);
+  const actionListHeading = useRef<HTMLHeadingElement | null>(null);
 
   const active = tabs.find((tab) => tab.path === activePath) ?? null;
+  const previewDocs = editPreview ? previewDocuments(editPreview) : [];
   const activeProject = active ? projectFor(active.path, projects) : undefined;
   const activeEvaluationProject = active
     ? evaluatedProjectFor(active.path, evaluatedProjects)
@@ -238,8 +296,21 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           ? "csharp-ls did not advertise rename for this session."
           : active.conflict
             ? "Resolve the disk conflict before renaming this file."
-            : renamePreview
+            : editPreview
               ? "Finish or cancel the current rename preview first."
+              : null;
+  const codeActionsDisabledReason = !active
+    ? "Open a file to request code actions."
+    : !trusted
+      ? "Trust the workspace before requesting code actions; no analysis runs in Restricted mode."
+      : !lspActive
+        ? "Start analysis before requesting code actions."
+        : !lsp.capabilities?.codeActions
+          ? "csharp-ls did not advertise code actions for this session."
+          : active.conflict
+            ? "Resolve the disk conflict before requesting code actions for this file."
+            : editPreview
+              ? "Finish or cancel the current preview first."
               : null;
   const lspSent = useRef<{ session: number; paths: Set<string> }>({
     session: 0,
@@ -422,21 +493,80 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   }, [activePath, tabs, renamePrompt]);
 
   useEffect(() => {
-    if (renamePreview) renamePreviewHeading.current?.focus();
-  }, [renamePreview?.response.renameId]);
+    if (editPreview) editPreviewHeading.current?.focus();
+  }, [editPreview ? previewId(editPreview) : null]);
 
   useEffect(() => {
-    if (!renamePreview) return;
-    if (activePath !== renamePreview.sourcePath) {
-      setRenamePreview(null);
+    if (!editPreview) return;
+    if (activePath !== editPreview.sourcePath) {
+      setEditPreview(null);
       setMessage({
         tone: "info",
-        text: "Rename preview discarded: another file became active; nothing was applied.",
+        text: `${previewKindLabel(editPreview)} preview discarded: another file became active; nothing was applied.`,
       });
     }
-    // Only an active-file change invalidates the visible panel; buffer edits are rejected
-    // by Apply so the user sees the stale reason instead of losing the preview silently.
-  }, [activePath, renamePreview?.response.renameId]);
+    // For rename, buffer edits are rejected by Apply so the user sees the stale reason.
+    // Code-action previews close immediately (effect below), as required by ticket 10.
+  }, [activePath, editPreview ? previewId(editPreview) : null]);
+
+  useEffect(() => {
+    if (actionList) actionListHeading.current?.focus();
+  }, [actionList]);
+
+  useEffect(() => {
+    if (!actionList) return;
+    if (activePath !== actionList.sourcePath) {
+      setActionList(null);
+      return;
+    }
+    const tab = tabs.find((item) => item.path === actionList.sourcePath);
+    if (!tab || tab.revision !== actionList.sourceRevision || tab.conflict) {
+      setActionList(null);
+      setMessage({
+        tone: "info",
+        text: "Code actions discarded: the source buffer changed; request them again.",
+      });
+      return;
+    }
+    const live = lspViewRef.current;
+    if (
+      !["loading", "ready", "partial", "awaiting_diagnostics"].includes(live.state) ||
+      live.session !== actionList.session ||
+      contextIdRef.current !== actionList.contextId ||
+      workspaceIdRef.current !== actionList.workspaceId
+    ) {
+      setActionList(null);
+      setMessage({
+        tone: "error",
+        text: "Code actions discarded: analysis or the workspace changed; nothing was applied.",
+      });
+    }
+  }, [actionList, activePath, tabs, lsp.state, lsp.session, snapshot.contextId, workspace.id]);
+
+  useEffect(() => {
+    if (!editPreview || editPreview.kind !== "action") return;
+    const tab = tabs.find((item) => item.path === editPreview.sourcePath);
+    if (!tab || tab.revision !== editPreview.sourceRevision || tab.conflict) {
+      setEditPreview(null);
+      setMessage({
+        tone: "info",
+        text: "Code action preview discarded: the source buffer changed; nothing was applied.",
+      });
+      return;
+    }
+    if (
+      !lspActive ||
+      lsp.session !== editPreview.session ||
+      contextIdRef.current !== editPreview.contextId ||
+      workspaceIdRef.current !== editPreview.workspaceId
+    ) {
+      setEditPreview(null);
+      setMessage({
+        tone: "error",
+        text: "Code action preview discarded: analysis or the workspace changed; nothing was applied.",
+      });
+    }
+  }, [editPreview, tabs, lspActive, lsp.session, snapshot.contextId, workspace.id]);
 
   function toggleProject(path: string) {
     setExpanded((current) => {
@@ -609,6 +739,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
   function noteCursor(position: { line: number; character: number }) {
     cursorRef.current = position;
+    setActionList((current) => {
+      if (!current) return current;
+      if (current.line === position.line && current.character === position.character) {
+        return current;
+      }
+      return null;
+    });
   }
 
   function requestRename(position = cursorRef.current) {
@@ -630,6 +767,200 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       workspaceId: workspace.id,
       busy: false,
       error: null,
+    });
+  }
+
+  async function requestCodeActions(position = cursorRef.current) {
+    if (!active) return;
+    if (codeActionsDisabledReason) {
+      setMessage({ tone: "error", text: `Code actions unavailable: ${codeActionsDisabledReason}` });
+      return;
+    }
+    const sourcePath = active.path;
+    const sourceRevision = active.revision;
+    const sequence = ++actionSeq.current;
+    setActionList(null);
+    setMessage(null);
+    if (!lspActiveRef.current) {
+      setMessage({ tone: "error", text: "Code actions unavailable: analysis is not running." });
+      return;
+    }
+    // csharp-ls must see the buffer the actions are requested for; a pending debounce would
+    // compute them from older text.
+    const synchronized = await flushPendingChanges();
+    if (sequence !== actionSeq.current) return;
+    if (!synchronized) {
+      setMessage({
+        tone: "error",
+        text: "Code actions unavailable: the current buffer could not be sent to analysis.",
+      });
+      return;
+    }
+    const tab = tabsRef.current.find((item) => item.path === sourcePath);
+    const live = lspViewRef.current;
+    if (
+      !tab ||
+      tab.revision !== sourceRevision ||
+      tab.conflict ||
+      live.session !== lsp.session
+    ) {
+      setMessage({
+        tone: "error",
+        text: "Code actions discarded: the document or analysis session changed before the request.",
+      });
+      return;
+    }
+    let response: CodeActionsResponse;
+    try {
+      response = await call<CodeActionsResponse>("lsp.codeActions", {
+        path: sourcePath,
+        line: position.line,
+        character: position.character,
+        revision: sourceRevision,
+      });
+    } catch (error) {
+      if (sequence !== actionSeq.current) return;
+      setMessage({ tone: "error", text: `Code actions unavailable: ${messageOf(error)}` });
+      return;
+    }
+    if (sequence !== actionSeq.current) return;
+    const currentTab = tabsRef.current.find((item) => item.path === sourcePath);
+    const liveAfter = lspViewRef.current;
+    if (
+      !currentTab ||
+      currentTab.revision !== sourceRevision ||
+      currentTab.conflict ||
+      liveAfter.session !== response.session ||
+      contextIdRef.current !== snapshot.contextId ||
+      workspaceIdRef.current !== workspace.id ||
+      activePathRef.current !== sourcePath ||
+      cursorRef.current.line !== position.line ||
+      cursorRef.current.character !== position.character
+    ) {
+      setMessage({
+        tone: "error",
+        text: "Code actions discarded: the document, cursor, workspace or analysis session changed while csharp-ls was answering; nothing was applied.",
+      });
+      return;
+    }
+    const tabRevisions: Record<string, number> = {};
+    for (const openTab of tabsRef.current) tabRevisions[openTab.path] = openTab.revision;
+    setActionList({
+      response,
+      sourcePath,
+      sourceRevision,
+      line: position.line,
+      character: position.character,
+      session: response.session,
+      contextId: response.contextId,
+      workspaceId: response.workspaceId,
+      tabRevisions,
+      stale: response.state === "ok" ? null : response.message,
+    });
+    const where = `${sourcePath} · ${position.line + 1}:${position.character + 1} · revision ${sourceRevision} · session ${response.session}`;
+    if (response.state !== "ok") {
+      setMessage({
+        tone: "error",
+        text: `Code actions ${response.state}: ${response.message ?? "csharp-ls did not answer."}`,
+      });
+    } else if (response.actionCount === 0) {
+      setMessage({
+        tone: "info",
+        text: `Code actions: csharp-ls returned no actions at ${where}; editing continues.`,
+      });
+    } else {
+      setMessage({
+        tone: "info",
+        text: `Code actions: ${countLabel(response.actionCount, "action")} from csharp-ls · ${where}${
+          response.unsupportedActions > 0
+            ? ` · ${response.unsupportedActions} listed as unsupported`
+            : ""
+        }; nothing has been applied.`,
+      });
+    }
+  }
+
+  function cancelActionList() {
+    actionSeq.current += 1;
+    setActionList(null);
+    setMessage({ tone: "info", text: "Code actions closed; nothing was applied." });
+  }
+
+  function revalidateActionList(list: ActionList): string | null {
+    const live = lspViewRef.current;
+    if (!["loading", "ready", "partial", "awaiting_diagnostics"].includes(live.state)) {
+      return "Analysis is not running; nothing was applied.";
+    }
+    if (live.session !== list.session) {
+      return "The analysis session changed after the actions were listed; nothing was applied.";
+    }
+    if (
+      contextIdRef.current !== list.contextId ||
+      workspaceIdRef.current !== list.workspaceId
+    ) {
+      return "The workspace changed after the actions were listed; nothing was applied.";
+    }
+    if (activePathRef.current !== list.sourcePath) {
+      return `Another file is active; select ${list.sourcePath} and request code actions again.`;
+    }
+    const tab = tabsRef.current.find((item) => item.path === list.sourcePath);
+    if (!tab || tab.revision !== list.sourceRevision || tab.conflict) {
+      return "The source buffer changed after the actions were listed; nothing was applied.";
+    }
+    return null;
+  }
+
+  function chooseCodeAction(action: CodeAction) {
+    const list = actionList;
+    if (!list) return;
+    const reason = revalidateActionList(list);
+    if (reason) {
+      setActionList({ ...list, stale: reason });
+      setMessage({ tone: "error", text: `Code action not applied: ${reason}` });
+      return;
+    }
+    if (action.disabled) {
+      const text = `Code action “${action.title}” is disabled by csharp-ls: ${action.disabled}. Nothing was applied.`;
+      console.warn(text);
+      setMessage({ tone: "error", text });
+      return;
+    }
+    if (!action.supported) {
+      const text = `Code action “${action.title}” was not applied: ${
+        action.reason ?? "csharp-ls did not return a supported edit."
+      }${action.command ? ` The server command “${action.command.command}” is never executed.` : ""}`;
+      console.warn(text);
+      setMessage({ tone: "error", text });
+      return;
+    }
+    if (action.documents.length === 0) {
+      const text = `Code action “${action.title}” was not applied: csharp-ls returned no documents.`;
+      console.warn(text);
+      setMessage({ tone: "error", text });
+      return;
+    }
+    const tabRevisions: Record<string, number> = {};
+    for (const tab of tabsRef.current) tabRevisions[tab.path] = tab.revision;
+    setActionList(null);
+    setEditPreview({
+      kind: "action",
+      action,
+      response: list.response,
+      sourcePath: list.sourcePath,
+      sourceRevision: list.sourceRevision,
+      session: list.session,
+      contextId: list.contextId,
+      workspaceId: list.workspaceId,
+      tabRevisions,
+      stale: null,
+      applying: false,
+    });
+    setMessage({
+      tone: "info",
+      text: `Code action preview: ${action.title} · ${countLabel(
+        action.documentCount,
+        "file",
+      )} · ${countLabel(action.editCount, "edit")}; nothing has been applied.`,
     });
   }
 
@@ -755,7 +1086,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     const tabRevisions: Record<string, number> = {};
     for (const tab of tabsRef.current) tabRevisions[tab.path] = tab.revision;
     setRenamePrompt(null);
-    setRenamePreview({
+    setEditPreview({
+      kind: "rename",
       response,
       sourcePath: prompt.path,
       sourceRevision: prompt.revision,
@@ -775,46 +1107,51 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     });
   }
 
-  function cancelRenamePreview() {
-    setRenamePreview(null);
-    setMessage({ tone: "info", text: "Rename cancelled; no buffer or file changed." });
+  function cancelEditPreview() {
+    const preview = editPreview;
+    setEditPreview(null);
+    setMessage({
+      tone: "info",
+      text: `${preview ? previewKindLabel(preview) : "Preview"} cancelled; no buffer or file changed.`,
+    });
   }
 
-  function revalidateRename(preview: RenamePreview): string | null {
+  function revalidateEditPreview(preview: EditPreview): string | null {
     const live = lspViewRef.current;
+    const what = preview.kind === "rename" ? "rename" : "code action";
     if (!["loading", "ready", "partial", "awaiting_diagnostics"].includes(live.state)) {
       return "Analysis is not running; the preview cannot be applied.";
     }
     if (live.session !== preview.session) {
-      return "The analysis session changed after the preview; apply nothing and request the rename again.";
+      return `The analysis session changed after the preview; apply nothing and request the ${what} again.`;
     }
     if (
       contextIdRef.current !== preview.contextId ||
       workspaceIdRef.current !== preview.workspaceId
     ) {
-      return "The workspace changed after the preview; apply nothing and request the rename again.";
+      return `The workspace changed after the preview; apply nothing and request the ${what} again.`;
     }
     if (activePathRef.current !== preview.sourcePath) {
-      return `Another file is active; select ${preview.sourcePath} and request the rename again.`;
+      return `Another file is active; select ${preview.sourcePath} and request the ${what} again.`;
     }
     const tabsNow = tabsRef.current;
-    for (const document of preview.response.documents) {
+    for (const document of previewDocuments(preview)) {
       const captured = preview.tabRevisions[document.path];
       const tab = tabsNow.find((item) => item.path === document.path);
       if (captured === undefined) {
         if (tab) {
-          return `${document.path} was opened after the preview; apply nothing and request the rename again.`;
+          return `${document.path} was opened after the preview; apply nothing and request the ${what} again.`;
         }
         continue;
       }
       if (!tab) {
-        return `${document.path} was closed after the preview; apply nothing and request the rename again.`;
+        return `${document.path} was closed after the preview; apply nothing and request the ${what} again.`;
       }
       if (tab.revision !== captured) {
         return `${document.path} changed after the preview; nothing was applied.`;
       }
       if (tab.content !== document.baseContent) {
-        return `${document.path} no longer matches the text csharp-ls previewed; apply nothing and request the rename again.`;
+        return `${document.path} no longer matches the text csharp-ls previewed; apply nothing and request the ${what} again.`;
       }
       if (tab.conflict) {
         return `${document.path} has a pending disk conflict; nothing was applied.`;
@@ -827,32 +1164,35 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     return null;
   }
 
-  async function applyRename() {
-    const preview = renamePreview;
+  async function applyEditPreview() {
+    const preview = editPreview;
     if (!preview || preview.applying) return;
+    const id = previewId(preview);
+    const label = preview.kind === "rename" ? "Rename" : "Code action";
     const fail = (reason: string) => {
-      setRenamePreview((current) =>
-        current && current.response.renameId === preview.response.renameId
+      setEditPreview((current) =>
+        current && previewId(current) === id
           ? { ...current, applying: false, stale: reason }
           : current,
       );
-      setMessage({ tone: "error", text: `Rename not applied: ${reason}` });
+      setMessage({ tone: "error", text: `${label} not applied: ${reason}` });
     };
-    const reason = revalidateRename(preview);
+    const reason = revalidateEditPreview(preview);
     if (reason) {
       fail(reason);
       return;
     }
-    setRenamePreview((current) =>
-      current && current.response.renameId === preview.response.renameId
+    setEditPreview((current) =>
+      current && previewId(current) === id
         ? { ...current, applying: true, stale: null }
         : current,
     );
 
     // Re-read every previewed file. Open buffers must still have their captured revision
     // and their last known disk hash; unopened files must still match the preview base.
+    const documents = previewDocuments(preview);
     const problems: string[] = [];
-    for (const document of preview.response.documents) {
+    for (const document of documents) {
       const tab = tabsRef.current.find((item) => item.path === document.path);
       let file: { hash: string };
       try {
@@ -870,22 +1210,20 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       fail(`${problems.join("; ")}. No buffer or file was changed.`);
       return;
     }
-    const afterReads = revalidateRename(preview);
+    const afterReads = revalidateEditPreview(preview);
     if (afterReads) {
       fail(afterReads);
       return;
     }
 
-    const documents = new Map(
-      preview.response.documents.map((document) => [document.path, document]),
-    );
+    const byPath = new Map(documents.map((document) => [document.path, document]));
     const next = tabsRef.current.map((tab) => {
-      const document = documents.get(tab.path);
+      const document = byPath.get(tab.path);
       return document
         ? { ...tab, content: document.newContent, revision: tab.revision + 1, conflict: null }
         : tab;
     });
-    for (const document of preview.response.documents) {
+    for (const document of documents) {
       if (next.some((tab) => tab.path === document.path)) continue;
       next.push({
         path: document.path,
@@ -897,19 +1235,20 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       });
     }
     setTabs(next);
-    for (const document of preview.response.documents) {
+    for (const document of documents) {
       if (document.opened) queueDidChange(document.path, document.newContent);
     }
-    setRenamePreview(null);
+    setEditPreview(null);
+    setActionList(null);
     setMessage({
       tone: "info",
-      text: `Rename applied to ${countLabel(
-        preview.response.documentCount,
+      text: `${label} applied to ${countLabel(
+        documents.length,
         "file",
       )}; ${countLabel(
-        preview.response.documentCount,
+        documents.length,
         "buffer",
-      )} ${preview.response.documentCount === 1 ? "is" : "are"} modified and unsaved. Nothing was written to disk; Save remains explicit and diagnostics are not marked fixed.`,
+      )} ${documents.length === 1 ? "is" : "are"} modified and unsaved. Nothing was written to disk; Save remains explicit and diagnostics are not marked fixed.`,
     });
   }
 
@@ -1724,6 +2063,18 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </button>
             <button
               className="save"
+              data-testid="code-actions-open"
+              onClick={() => void requestCodeActions()}
+              disabled={codeActionsDisabledReason !== null}
+              title={
+                codeActionsDisabledReason ??
+                "Code actions at the cursor (Option+Enter on macOS, Alt+Enter on Windows)."
+              }
+            >
+              Code actions…
+            </button>
+            <button
+              className="save"
               data-testid="save-file"
               onClick={() => void save()}
               disabled={!active || !isDirty(active)}
@@ -1756,48 +2107,59 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 </span>
               </div>
 
-              {renamePreview && (
+              {editPreview && (
                 <section
                   className="rename-preview"
                   role="dialog"
                   aria-modal="false"
-                  aria-labelledby="rename-preview-title"
+                  aria-labelledby="edit-preview-title"
                   data-testid="rename-preview"
-                  data-files={renamePreview.response.documentCount}
-                  data-edits={renamePreview.response.editCount}
+                  data-origin={editPreview.kind}
+                  data-id={previewId(editPreview)}
+                  data-files={previewDocs.length}
+                  data-edits={previewEditCount(editPreview)}
                   onKeyDown={(event) => {
-                    if (event.key === "Escape") cancelRenamePreview();
+                    if (event.key === "Escape") cancelEditPreview();
                   }}
                 >
-                  <h2 id="rename-preview-title" ref={renamePreviewHeading} tabIndex={-1}>
-                    Rename to “{renamePreview.response.newName}”
+                  <h2 id="edit-preview-title" ref={editPreviewHeading} tabIndex={-1}>
+                    {previewTitle(editPreview)}
                   </h2>
                   <p className="muted" data-testid="rename-preview-summary">
-                    {countLabel(renamePreview.response.documentCount, "file")} ·{" "}
-                    {countLabel(renamePreview.response.editCount, "edit")} · session{" "}
-                    {renamePreview.session} · source revision{" "}
-                    {renamePreview.sourceRevision} ·{" "}
+                    {countLabel(previewDocs.length, "file")} ·{" "}
+                    {countLabel(previewEditCount(editPreview), "edit")} · session{" "}
+                    {editPreview.session} · source revision{" "}
+                    {editPreview.sourceRevision} ·{" "}
                     {
-                      renamePreview.response.documents.filter(
-                        (document) => renamePreview.tabRevisions[document.path] === undefined,
+                      previewDocs.filter(
+                        (document) => editPreview.tabRevisions[document.path] === undefined,
                       ).length
                     }{" "}
                     not opened here. Nothing has been applied.
                   </p>
-                  {renamePreview.response.prepared && (
+                  {editPreview.kind === "rename" && editPreview.response.prepared && (
                     <p className="muted">prepareRename accepted the position.</p>
                   )}
-                  {renamePreview.stale && (
+                  {editPreview.kind === "action" && (
+                    <p className="muted" data-testid="action-preview-detail">
+                      Kind:{" "}
+                      {editPreview.action.kind ?? "not provided by csharp-ls"} ·{" "}
+                      {editPreview.action.isPreferred ? "preferred" : "not preferred"} ·{" "}
+                      {countLabel(editPreview.response.diagnosticsUsed, "current diagnostic")} at
+                      the request position.
+                    </p>
+                  )}
+                  {editPreview.stale && (
                     <p className="error" role="alert" data-testid="rename-stale">
-                      {renamePreview.stale}
+                      {editPreview.stale}
                     </p>
                   )}
                   <ul className="rename-index" data-testid="rename-file-index">
-                    {renamePreview.response.documents.map((document) => (
+                    {previewDocs.map((document) => (
                       <li key={document.path} data-testid={`rename-index-${document.path}`}>
                         <code>{document.path}</code>{" "}
                         <span className="tag">
-                          {renamePreview.tabRevisions[document.path] === undefined
+                          {editPreview.tabRevisions[document.path] === undefined
                             ? "not opened here"
                             : "open buffer"}
                         </span>{" "}
@@ -1808,12 +2170,12 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                     ))}
                   </ul>
                   <ol className="rename-files">
-                    {renamePreview.response.documents.map((document) => (
+                    {previewDocs.map((document) => (
                       <li key={document.path} data-testid={`rename-file-${document.path}`}>
                         <div className="rename-file-head">
                           <code>{document.path}</code>
                           <span className="tag">
-                            {renamePreview.tabRevisions[document.path] === undefined
+                            {editPreview.tabRevisions[document.path] === undefined
                               ? "not opened here"
                               : "open buffer"}
                           </span>
@@ -1851,17 +2213,113 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   <div className="actions">
                     <button
                       data-testid="rename-apply"
-                      onClick={() => void applyRename()}
-                      disabled={renamePreview.applying}
+                      onClick={() => void applyEditPreview()}
+                      disabled={editPreview.applying}
                     >
-                      {renamePreview.applying ? "Revalidating…" : "Apply to buffers"}
+                      {editPreview.applying ? "Revalidating…" : "Apply to buffers"}
                     </button>
                     <button
                       data-testid="rename-cancel-preview"
-                      onClick={cancelRenamePreview}
-                      disabled={renamePreview.applying}
+                      onClick={cancelEditPreview}
+                      disabled={editPreview.applying}
                     >
                       Cancel
+                    </button>
+                  </div>
+                </section>
+              )}
+
+              {actionList && (
+                <section
+                  className="rename-preview code-actions"
+                  role="dialog"
+                  aria-modal="false"
+                  aria-labelledby="code-actions-title"
+                  data-testid="code-actions"
+                  data-actions={actionList.response.actionCount}
+                  data-state={actionList.response.state}
+                  data-session={actionList.session}
+                  data-revision={actionList.sourceRevision}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") cancelActionList();
+                  }}
+                >
+                  <h2 id="code-actions-title" ref={actionListHeading} tabIndex={-1}>
+                    Code actions
+                  </h2>
+                  <p className="muted" data-testid="code-actions-summary">
+                    {actionList.response.state === "ok"
+                      ? `${countLabel(actionList.response.actionCount, "action")} from csharp-ls · session ${actionList.session} · ${countLabel(
+                          actionList.response.diagnosticsUsed,
+                          "current diagnostic",
+                        )} at this position · revision ${actionList.sourceRevision}. Nothing has been applied.`
+                      : `Code actions ${actionList.response.state}: ${
+                          actionList.response.message ?? "csharp-ls did not answer."
+                        }`}
+                  </p>
+                  {actionList.response.truncated && (
+                    <p className="muted">
+                      Showing {actionList.response.actionCount} of{" "}
+                      {actionList.response.totalActions} actions returned by csharp-ls.
+                    </p>
+                  )}
+                  {actionList.stale && (
+                    <p className="error" role="alert" data-testid="code-actions-stale">
+                      {actionList.stale}
+                    </p>
+                  )}
+                  {actionList.response.actions.length === 0 ? (
+                    <p className="muted" data-testid="code-actions-empty">
+                      {actionList.response.state === "ok"
+                        ? `No code actions from csharp-ls at ${actionList.line + 1}:${
+                            actionList.character + 1
+                          }; nothing was offered and editing continues.`
+                        : "No actions are available. Editing continues."}
+                    </p>
+                  ) : (
+                    <ul className="code-actions-list" data-testid="code-actions-list">
+                      {actionList.response.actions.map((action, index) => (
+                        <li key={action.actionId}>
+                          <button
+                            type="button"
+                            data-testid={`code-action-${index}`}
+                            data-title={action.title}
+                            data-supported={action.supported}
+                            data-disabled={action.disabled ?? ""}
+                            aria-disabled={!action.supported || action.disabled !== null}
+                            title={
+                              action.supported && !action.disabled
+                                ? "Preview this action"
+                                : action.reason ??
+                                  action.disabled ??
+                                  "This action cannot be applied."
+                            }
+                            onClick={() => chooseCodeAction(action)}
+                          >
+                            {action.title}
+                          </button>
+                          <span className="tag">{action.kind ?? "no kind"}</span>
+                          {action.isPreferred && <span className="tag">preferred</span>}
+                          {action.disabled && (
+                            <span className="muted" data-testid={`code-action-disabled-${index}`}>
+                              Disabled: {action.disabled}
+                            </span>
+                          )}
+                          {!action.supported && !action.disabled && (
+                            <span className="muted" data-testid={`code-action-reason-${index}`}>
+                              {action.reason ?? "No supported edit was returned."}
+                              {action.command
+                                ? ` Command ${action.command.command} is never executed.`
+                                : ""}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="actions">
+                    <button data-testid="code-actions-close" onClick={cancelActionList}>
+                      Close
                     </button>
                   </div>
                 </section>
@@ -1922,6 +2380,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                     })
                   }
                   onRename={(position) => requestRename(position)}
+                  onCodeActions={(position) => void requestCodeActions(position)}
                   onCursor={noteCursor}
                   target={
                     editorTarget?.path === active.path ? editorTarget : null

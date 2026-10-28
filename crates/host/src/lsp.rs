@@ -25,6 +25,8 @@ const KILL_GRACE: Duration = Duration::from_secs(2);
 /// returns `timeout` instead of blocking the host forever.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 pub const COMPLETION_LIMIT: usize = 200;
+/// More actions than this are not listed; the response says it was truncated.
+pub const CODE_ACTION_LIMIT: usize = 50;
 /// A rename preview is rejected (never partially applied) above these bounds.
 pub const RENAME_DOCUMENT_LIMIT: usize = 50;
 pub const RENAME_EDIT_LIMIT: usize = 2_000;
@@ -165,6 +167,7 @@ impl Capabilities {
             "textDocument/completion" => self.completion,
             "textDocument/definition" => self.definition,
             "textDocument/rename" => self.rename,
+            "textDocument/codeAction" => self.code_actions,
             _ => false,
         }
     }
@@ -338,6 +341,101 @@ pub fn parse_definition(result: &Value) -> Option<DefinitionView> {
         }
     }
     Some(DefinitionView { targets, rejected })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionCommand {
+    pub title: String,
+    pub command: String,
+}
+
+/// One action as returned by the server. `edit` stays raw so the host validates it with the
+/// same WorkspaceEdit parser used by rename; `command` is recorded but never executed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionView {
+    pub title: String,
+    pub kind: Option<String>,
+    pub is_preferred: bool,
+    pub disabled: Option<String>,
+    pub edit: Option<Value>,
+    pub command: Option<CodeActionCommand>,
+    pub command_present: bool,
+    pub has_data: bool,
+}
+
+pub struct CodeActionList {
+    pub actions: Vec<CodeActionView>,
+    pub total: usize,
+    pub rejected: usize,
+    pub truncated: bool,
+}
+
+/// `textDocument/codeAction` answers with an array (or null). A malformed entry is counted as
+/// rejected, never turned into an action; a non-array result is not understood at all.
+pub fn parse_code_actions(result: &Value, limit: usize) -> Option<CodeActionList> {
+    let items = match result {
+        Value::Null => &[][..],
+        Value::Array(items) => items.as_slice(),
+        _ => return None,
+    };
+    let total = items.len();
+    let mut actions = Vec::new();
+    let mut rejected = 0;
+    for item in items.iter().take(limit) {
+        match code_action(item) {
+            Some(action) => actions.push(action),
+            None => rejected += 1,
+        }
+    }
+    Some(CodeActionList {
+        actions,
+        total,
+        rejected,
+        truncated: total > limit,
+    })
+}
+
+fn code_action(value: &Value) -> Option<CodeActionView> {
+    let title = value.get("title")?.as_str()?.to_string();
+    let disabled = match value.get("disabled") {
+        Some(Value::Bool(true)) => Some("the server marked this action disabled".to_string()),
+        Some(Value::Object(map)) => Some(
+            map.get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("the server marked this action disabled without a reason")
+                .to_string(),
+        ),
+        _ => None,
+    };
+    let command_present = value.get("command").is_some_and(|command| !command.is_null());
+    let command = value.get("command").and_then(Value::as_object).and_then(|command| {
+        Some(CodeActionCommand {
+            title: command
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            command: command.get("command")?.as_str()?.to_string(),
+        })
+    });
+    Some(CodeActionView {
+        title,
+        kind: value.get("kind").and_then(Value::as_str).map(str::to_string),
+        is_preferred: value
+            .get("isPreferred")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        disabled,
+        edit: value
+            .get("edit")
+            .filter(|edit| !edit.is_null())
+            .cloned(),
+        command,
+        command_present,
+        has_data: value.get("data").is_some_and(|data| !data.is_null()),
+    })
 }
 
 fn definition_target(value: &Value) -> Option<DefinitionTarget> {
@@ -2020,6 +2118,77 @@ mod tests {
         assert_eq!(parse_definition(&Value::Null).unwrap().targets.len(), 0);
         assert!(parse_definition(&json!("nope")).is_none());
     }
+    #[test]
+    fn code_action_capability_is_required_and_announced() {
+        let absent = capabilities_of(&json!({}));
+        assert!(!absent.code_actions);
+        assert!(!absent.supports("textDocument/codeAction"));
+
+        let present = capabilities_of(&json!({
+            "codeActionProvider": { "resolveProvider": true }
+        }));
+        assert!(present.code_actions);
+        assert!(present.supports("textDocument/codeAction"));
+        assert!(present.summary.contains(&"code actions".to_string()));
+    }
+
+    #[test]
+    fn code_actions_keep_titles_edits_commands_and_disabled_reasons() {
+        let parsed = parse_code_actions(
+            &json!([
+                {
+                    "title": "Convert to positional record",
+                    "kind": "refactor.rewrite",
+                    "isPreferred": true,
+                    "edit": { "changes": { "file:///tmp/Order.cs": [] } }
+                },
+                {
+                    "title": "Fix with a command",
+                    "command": { "title": "Apply fix", "command": "csharp.applyFix", "arguments": [1] }
+                },
+                { "title": "Disabled here", "disabled": { "reason": "not available in this context" } },
+                { "title": "Deferred action", "data": { "uri": "file:///tmp/Order.cs" } },
+                { "noTitle": true }
+            ]),
+            50,
+        )
+        .expect("array");
+        assert_eq!(parsed.total, 5);
+        assert_eq!(parsed.actions.len(), 4);
+        assert_eq!(parsed.rejected, 1);
+        assert!(!parsed.truncated);
+        assert_eq!(parsed.actions[0].kind.as_deref(), Some("refactor.rewrite"));
+        assert!(parsed.actions[0].is_preferred);
+        assert!(parsed.actions[0].edit.is_some());
+        assert_eq!(
+            parsed.actions[1]
+                .command
+                .as_ref()
+                .map(|command| command.command.as_str()),
+            Some("csharp.applyFix")
+        );
+        assert!(parsed.actions[1].edit.is_none());
+        assert_eq!(
+            parsed.actions[2].disabled.as_deref(),
+            Some("not available in this context")
+        );
+        assert!(parsed.actions[3].has_data);
+        assert!(parsed.actions[3].edit.is_none() && parsed.actions[3].command.is_none());
+        assert_eq!(parse_code_actions(&Value::Null, 50).unwrap().actions.len(), 0);
+        assert!(parse_code_actions(&json!({ "not": "an array" }), 50).is_none());
+    }
+
+    #[test]
+    fn code_actions_are_capped_and_malformed_entries_are_never_actions() {
+        let items: Vec<Value> = (0..5)
+            .map(|index| json!({ "title": format!("Action {index}") }))
+            .collect();
+        let parsed = parse_code_actions(&json!(items), 3).expect("array");
+        assert_eq!(parsed.actions.len(), 3);
+        assert_eq!(parsed.total, 5);
+        assert!(parsed.truncated);
+    }
+
     #[test]
     fn rename_capability_includes_prepare_rename_only_when_advertised() {
         let plain = capabilities_of(&json!({ "renameProvider": true }));

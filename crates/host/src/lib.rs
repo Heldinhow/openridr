@@ -40,6 +40,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "lsp.completion",
     "lsp.definition",
     "lsp.rename",
+    "lsp.codeActions",
     "tools.install",
     "tools.retry",
     "terminal.start",
@@ -82,6 +83,7 @@ struct Inner {
     lsp_seq: u64,
     lsp_verbose: bool,
     rename_seq: u64,
+    action_seq: u64,
     diagnostics: diagnostics::Store,
 }
 
@@ -142,6 +144,7 @@ impl AnalysisBase {
             "character": self.character,
             "revision": self.revision,
             "clientRevision": self.version,
+            "documentVersion": self.version,
             "documentKnown": self.version.is_some(),
             "coverage": self.coverage,
             "coverageNote": self.coverage_note,
@@ -153,6 +156,13 @@ impl AnalysisBase {
             "replaceRange": Value::Null,
             "locations": [],
             "rejectedTargets": 0,
+            "actions": [],
+            "actionId": Value::Null,
+            "actionCount": 0,
+            "totalActions": 0,
+            "rejectedActions": 0,
+            "unsupportedActions": 0,
+            "diagnosticsUsed": 0,
         })
     }
 }
@@ -265,6 +275,7 @@ impl Host {
                 lsp_seq: 0,
                 lsp_verbose: false,
                 rename_seq: 0,
+                action_seq: 0,
                 diagnostics: diagnostics::Store::new(),
             }),
         }
@@ -324,6 +335,9 @@ impl Host {
         }
         if method == "lsp.rename" {
             return self.lsp_rename(params);
+        }
+        if method == "lsp.codeActions" {
+            return self.lsp_code_actions(params);
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.executable_stub(method);
@@ -1855,23 +1869,6 @@ impl Host {
                 ));
             }
         };
-        let total_edits: usize = edits.iter().map(|document| document.edits.len()).sum();
-        if edits.len() > lsp::RENAME_DOCUMENT_LIMIT || total_edits > lsp::RENAME_EDIT_LIMIT {
-            request.lsp.log_line(format!(
-                "[client] rename rejected: {} document(s), {total_edits} edit(s) exceed the preview limit",
-                edits.len()
-            ));
-            return Ok(request.base.answer(
-                "failed",
-                Some(format!(
-                    "The rename would touch {} documents and {total_edits} edits; this build previews at most {} documents and {} edits, so nothing was applied.",
-                    edits.len(),
-                    lsp::RENAME_DOCUMENT_LIMIT,
-                    lsp::RENAME_EDIT_LIMIT
-                )),
-            ));
-        }
-
         let (root, open) = {
             let inner = self.inner.lock().unwrap();
             let Some(workspace) = inner.workspace.as_ref() else {
@@ -1889,56 +1886,20 @@ impl Host {
             .into_iter()
             .map(|document| (document.path, (document.text, document.version)))
             .collect();
-        let mut documents = Vec::with_capacity(edits.len());
-        let mut seen = HashSet::new();
-        for document in &edits {
-            let preview = match rename_document_preview(&root, document, &open) {
-                Ok(preview) => preview,
-                Err(reason) => {
-                    request
-                        .lsp
-                        .log_line(format!("[client] rename rejected: {reason}"));
-                    return Ok(request.base.answer(
-                        "failed",
-                        Some(format!(
-                            "The rename preview was rejected ({reason}); nothing was applied."
-                        )),
-                    ));
-                }
-            };
-            let path = preview["path"].as_str().unwrap_or_default().to_string();
-            if !seen.insert(path.clone()) {
+        let (documents, total_edits) = match workspace_edit_preview(&root, &edits, &open) {
+            Ok(preview) => preview,
+            Err(reason) => {
                 request
                     .lsp
-                    .log_line(format!("[client] rename rejected: {path} appears twice"));
+                    .log_line(format!("[client] rename rejected: {reason}"));
                 return Ok(request.base.answer(
                     "failed",
                     Some(format!(
-                        "csharp-ls returned two edits for {path}; nothing was applied."
+                        "The rename preview was rejected ({reason}); nothing was applied."
                     )),
                 ));
             }
-            documents.push(preview);
-        }
-        let bytes: usize = documents
-            .iter()
-            .map(|document| {
-                document["baseContent"].as_str().map(str::len).unwrap_or(0)
-                    + document["newContent"].as_str().map(str::len).unwrap_or(0)
-            })
-            .sum();
-        if bytes > lsp::RENAME_CONTENT_LIMIT {
-            request.lsp.log_line(format!(
-                "[client] rename rejected: preview would hold {bytes} bytes"
-            ));
-            return Ok(request.base.answer(
-                "failed",
-                Some(format!(
-                    "The rename preview would hold {bytes} bytes of document text; this build previews at most {} bytes, so nothing was applied.",
-                    lsp::RENAME_CONTENT_LIMIT
-                )),
-            ));
-        }
+        };
 
         let sequence = {
             let mut inner = self.inner.lock().unwrap();
@@ -1993,6 +1954,207 @@ impl Host {
         Ok(answer)
     }
 
+    fn lsp_code_actions(&self, params: Value) -> HostResult<Value> {
+        let request = match self.prepare_analysis_request(
+            "lsp.codeActions",
+            "textDocument/codeAction",
+            &params,
+        )? {
+            Ok(request) => request,
+            Err(answer) => return Ok(answer),
+        };
+        let diagnostics = self.code_action_diagnostics(&request);
+        let diagnostics_used = diagnostics.len();
+        let position = json!({
+            "line": request.base.line,
+            "character": request.base.character,
+        });
+        let response = request.lsp.request(
+            "textDocument/codeAction",
+            json!({
+                "textDocument": { "uri": request.uri },
+                "range": { "start": position, "end": position },
+                "context": { "diagnostics": diagnostics },
+            }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        if let Some(answer) = self.analysis_invalidated(&request) {
+            return Ok(answer);
+        }
+        let value = match response {
+            Ok(value) => value,
+            Err(lsp::RequestError::Timeout(timeout)) => {
+                return Ok(request.base.answer(
+                    "timeout",
+                    Some(format!(
+                        "csharp-ls did not answer the code action request within {} seconds; nothing was applied.",
+                        timeout.as_secs()
+                    )),
+                ));
+            }
+            Err(lsp::RequestError::Unavailable(message)) => {
+                return Ok(request.base.answer("unavailable", Some(message)));
+            }
+            Err(lsp::RequestError::Server(message)) => {
+                return Ok(request.base.answer(
+                    "failed",
+                    Some(format!(
+                        "csharp-ls rejected the code action request: {message}"
+                    )),
+                ));
+            }
+        };
+        let Some(parsed) = lsp::parse_code_actions(&value, lsp::CODE_ACTION_LIMIT) else {
+            request
+                .lsp
+                .log_line("[client] code actions rejected: the result is not an array");
+            return Ok(request.base.answer(
+                "failed",
+                Some(
+                    "csharp-ls returned a code action payload this client does not understand; nothing was applied."
+                        .to_string(),
+                ),
+            ));
+        };
+        let (root, open) = {
+            let inner = self.inner.lock().unwrap();
+            let Some(workspace) = inner.workspace.as_ref() else {
+                return Ok(request.base.answer(
+                    "stale",
+                    Some(
+                        "The workspace closed while csharp-ls was answering; nothing was applied."
+                            .to_string(),
+                    ),
+                ));
+            };
+            (workspace.root.clone(), request.lsp.open_documents())
+        };
+        let open: HashMap<String, (String, i64)> = open
+            .into_iter()
+            .map(|document| (document.path, (document.text, document.version)))
+            .collect();
+        let sequence = {
+            let mut inner = self.inner.lock().unwrap();
+            inner.action_seq += 1;
+            inner.action_seq
+        };
+        let fingerprint = content_hash(&format!(
+            "{}:{}:{}:{}:{}:{:?}",
+            request.base.token.workspace_id,
+            request.base.token.context_id,
+            request.base.path,
+            request.base.line,
+            request.base.character,
+            request.base.version
+        ));
+        let action_id = format!(
+            "actions-{}-{sequence}-{}",
+            request.base.session,
+            fingerprint.trim_start_matches("fnv1a64:")
+        );
+        let mut actions = Vec::with_capacity(parsed.actions.len());
+        let mut unsupported = 0;
+        for (index, action) in parsed.actions.iter().enumerate() {
+            let mut view = code_action_document_preview(&root, action, &open);
+            if !view["supported"].as_bool().unwrap_or(false) {
+                unsupported += 1;
+            }
+            view["actionId"] = json!(format!("{action_id}-{index}"));
+            view["title"] = json!(action.title);
+            view["kind"] = json!(action.kind);
+            view["isPreferred"] = json!(action.is_preferred);
+            view["disabled"] = json!(action.disabled);
+            view["command"] = json!(action.command);
+            view["hasData"] = json!(action.has_data);
+            actions.push(view);
+        }
+        request.lsp.log_line(format!(
+            "[client] code actions at {}:{} · session {} · {} returned, {} supported, {} unsupported, {} diagnostic(s) · {action_id}",
+            request.base.line,
+            request.base.character,
+            request.base.session,
+            parsed.total,
+            actions.len() - unsupported,
+            unsupported,
+            diagnostics_used
+        ));
+        let message = if parsed.total == 0 {
+            Some("csharp-ls returned no code actions for this position.".to_string())
+        } else if parsed.truncated {
+            Some(format!(
+                "Showing {} of {} code actions returned by csharp-ls.",
+                actions.len(),
+                parsed.total
+            ))
+        } else if actions.is_empty() {
+            Some(format!(
+                "csharp-ls returned {} code action(s), none of which this client could read.",
+                parsed.total
+            ))
+        } else {
+            None
+        };
+        let mut answer = request.base.answer("ok", message);
+        answer["actionId"] = json!(action_id);
+        answer["actions"] = json!(actions);
+        answer["actionCount"] = json!(actions.len());
+        answer["totalActions"] = json!(parsed.total);
+        answer["truncated"] = json!(parsed.truncated);
+        answer["rejectedActions"] = json!(parsed.rejected);
+        answer["unsupportedActions"] = json!(unsupported);
+        answer["diagnosticsUsed"] = json!(diagnostics_used);
+        Ok(answer)
+    }
+
+    /// Only current LSP publications for this document are sent as context; an item from a
+    /// previous session, an awaiting publication or another origin is never forwarded.
+    fn code_action_diagnostics(&self, request: &AnalysisRequest) -> Vec<Value> {
+        let documents = request.lsp.document_revisions();
+        let inner = self.inner.lock().unwrap();
+        let view = inner.diagnostics.view(
+            &documents,
+            request.base.coverage,
+            request.base.coverage_note.clone(),
+        );
+        let Some(snapshot) = view
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.uri == request.uri && snapshot.state == "current")
+        else {
+            return Vec::new();
+        };
+        snapshot
+            .items
+            .iter()
+            .filter(|item| {
+                range_covers_position(
+                    &item.range,
+                    request.base.line,
+                    request.base.character,
+                )
+            })
+            .map(|item| {
+                let mut diagnostic = json!({
+                    "range": item.range,
+                    "message": item.message,
+                });
+                if let Some(severity) = item.severity {
+                    diagnostic["severity"] = json!(severity);
+                }
+                if !item.code.is_null() {
+                    diagnostic["code"] = item.code.clone();
+                }
+                if let Some(source) = &item.source {
+                    diagnostic["source"] = json!(source);
+                }
+                if let Some(href) = &item.code_description {
+                    diagnostic["codeDescription"] = json!({ "href": href });
+                }
+                diagnostic
+            })
+            .collect()
+    }
+
     fn prepare_analysis_request(
         &self,
         method: &'static str,
@@ -2017,7 +2179,7 @@ impl Host {
             version: None,
             coverage: "partial",
             coverage_note: Some(
-                "Analysis has not started; completion and definition need a live csharp-ls session."
+                "Analysis has not started; completion, definition, rename and code actions need a live csharp-ls session."
                     .to_string(),
             ),
         };
@@ -2025,7 +2187,7 @@ impl Host {
             return Ok(Err(base.answer(
                 "unavailable",
                 Some(
-                    "Analysis is not running. Start analysis to request completion or definition."
+                    "Analysis is not running. Start analysis to request editor features."
                         .to_string(),
                 ),
             )));
@@ -2555,9 +2717,127 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
     })
 }
 
-/// Builds one document of a rename preview without writing anything: the base text comes
-/// from the analysis session for open documents and from disk for unopened ones, and all
-/// UTF-16 positions are resolved here so the UI never does offset math.
+/// A rename or code action preview is validated as a whole: every document must be readable
+/// inside the workspace, every range must be valid and non-overlapping, and the caps reject
+/// the complete set instead of truncating it.
+fn workspace_edit_preview(
+    root: &Path,
+    edits: &[lsp::RenameDocumentEdits],
+    open: &HashMap<String, (String, i64)>,
+) -> Result<(Vec<Value>, usize), String> {
+    let total_edits: usize = edits.iter().map(|document| document.edits.len()).sum();
+    if edits.len() > lsp::RENAME_DOCUMENT_LIMIT || total_edits > lsp::RENAME_EDIT_LIMIT {
+        return Err(format!(
+            "the edit would touch {} documents and {total_edits} edits; this build previews at most {} documents and {} edits",
+            edits.len(),
+            lsp::RENAME_DOCUMENT_LIMIT,
+            lsp::RENAME_EDIT_LIMIT
+        ));
+    }
+    let mut documents = Vec::with_capacity(edits.len());
+    let mut seen = HashSet::new();
+    for document in edits {
+        let preview = rename_document_preview(root, document, open)?;
+        let path = preview["path"].as_str().unwrap_or_default().to_string();
+        if !seen.insert(path.clone()) {
+            return Err(format!("csharp-ls returned two edits for {path}"));
+        }
+        documents.push(preview);
+    }
+    let bytes: usize = documents
+        .iter()
+        .map(|document| {
+            document["baseContent"].as_str().map(str::len).unwrap_or(0)
+                + document["newContent"].as_str().map(str::len).unwrap_or(0)
+        })
+        .sum();
+    if bytes > lsp::RENAME_CONTENT_LIMIT {
+        return Err(format!(
+            "the preview would hold {bytes} bytes of document text; this build previews at most {} bytes",
+            lsp::RENAME_CONTENT_LIMIT
+        ));
+    }
+    Ok((documents, total_edits))
+}
+
+fn range_covers_position(range: &Value, line: u64, character: u64) -> bool {
+    let Some(start) = range.get("start") else {
+        return false;
+    };
+    let Some(end) = range.get("end") else {
+        return false;
+    };
+    let (Some(start_line), Some(start_character), Some(end_line), Some(end_character)) = (
+        start.get("line").and_then(Value::as_u64),
+        start.get("character").and_then(Value::as_u64),
+        end.get("line").and_then(Value::as_u64),
+        end.get("character").and_then(Value::as_u64),
+    ) else {
+        return false;
+    };
+    (start_line, start_character) <= (line, character)
+        && (line, character) <= (end_line, end_character)
+}
+
+/// A server `Command` is listed with its reason, never executed; an edit is validated by the
+/// same whole-set preview used by rename.
+fn code_action_document_preview(
+    root: &Path,
+    action: &lsp::CodeActionView,
+    open: &HashMap<String, (String, i64)>,
+) -> Value {
+    let unsupported = |reason: String| {
+        json!({
+            "supported": false,
+            "reason": reason,
+            "documents": [],
+            "documentCount": 0,
+            "editCount": 0,
+        })
+    };
+    if let Some(reason) = &action.disabled {
+        return unsupported(format!("the server disabled this action: {reason}"));
+    }
+    if action.command_present {
+        return unsupported(match &action.command {
+            Some(command) => format!(
+                "the action requires the command `{}`, which this build never executes",
+                command.command
+            ),
+            None => "the action requires a command this build cannot read; commands are never executed"
+                .to_string(),
+        });
+    }
+    let Some(edit) = action.edit.as_ref() else {
+        return unsupported(if action.has_data {
+            "csharp-ls returned a deferred action without an edit; this build does not resolve code actions"
+                .to_string()
+        } else {
+            "csharp-ls returned no edit for this action".to_string()
+        });
+    };
+    let edits = match lsp::parse_workspace_edit(edit) {
+        Ok(edits) => edits,
+        Err(reason) => return unsupported(format!("the edit is not supported ({reason})")),
+    };
+    match workspace_edit_preview(root, &edits, open) {
+        Ok((documents, edit_count)) => {
+            let document_count = documents.len();
+            json!({
+                "supported": true,
+                "reason": Value::Null,
+                "documents": documents,
+                "documentCount": document_count,
+                "editCount": edit_count,
+            })
+        }
+        Err(reason) => unsupported(reason),
+    }
+}
+
+/// Builds one document of a rename/code-action preview without writing anything: the base
+/// text comes from the analysis session for open documents and from disk for unopened ones,
+/// and all UTF-16 positions are resolved here so the UI never does offset math.
 fn rename_document_preview(
     root: &Path,
     document: &lsp::RenameDocumentEdits,
@@ -2871,5 +3151,165 @@ mod tests {
             .expect_err("invalid range")
             .contains("outside the document"));
         assert_eq!(fs::read_to_string(&inside).unwrap(), "class Order {}\n");
+    }
+
+    fn action_with_edit(uri: String, line: u64, start: u64, end: u64, text: &str) -> lsp::CodeActionView {
+        let mut changes = serde_json::Map::new();
+        changes.insert(
+            uri,
+            json!([{
+                "range": {
+                    "start": { "line": line, "character": start },
+                    "end": { "line": line, "character": end }
+                },
+                "newText": text
+            }]),
+        );
+        action_with_value(json!({ "changes": changes }))
+    }
+
+    fn action_with_value(edit: Value) -> lsp::CodeActionView {
+        lsp::CodeActionView {
+            title: "Test action".to_string(),
+            kind: None,
+            is_preferred: false,
+            disabled: None,
+            edit: Some(edit),
+            command: None,
+            command_present: false,
+            has_data: false,
+        }
+    }
+
+    #[test]
+    fn code_action_preview_reuses_the_rename_validation_and_never_writes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        fs::create_dir_all(root.join("src")).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let file = root.join("src/Order.cs");
+        let base = "class Order {}\n";
+        fs::write(&file, base).unwrap();
+
+        let action = action_with_edit(lsp::file_uri(&file), 0, 6, 11, "Purchase");
+        let preview = code_action_document_preview(&root, &action, &HashMap::new());
+        assert_eq!(preview["supported"], true);
+        assert_eq!(preview["documentCount"], 1);
+        assert_eq!(preview["editCount"], 1);
+        assert_eq!(preview["documents"][0]["path"], "src/Order.cs");
+        assert_eq!(preview["documents"][0]["baseContent"], base);
+        assert_eq!(preview["documents"][0]["newContent"], "class Purchase {}\n");
+        assert_eq!(preview["documents"][0]["baseHash"], content_hash(base));
+        assert_eq!(fs::read_to_string(&file).unwrap(), base, "a preview wrote the file");
+    }
+
+    #[test]
+    fn unsupported_actions_are_listed_with_reasons_and_never_applied() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        fs::create_dir_all(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let file = root.join("Order.cs");
+        fs::write(&file, "class Order {}\n").unwrap();
+        let outside = temp.path().join("Outside.cs");
+        fs::write(&outside, "class Outside {}\n").unwrap();
+
+        let mut command = action_with_value(Value::Null);
+        command.edit = None;
+        command.command_present = true;
+        command.command = Some(lsp::CodeActionCommand {
+            title: "Apply fix".to_string(),
+            command: "csharp.applyFix".to_string(),
+        });
+        let preview = code_action_document_preview(&root, &command, &HashMap::new());
+        assert_eq!(preview["supported"], false);
+        assert!(preview["reason"]
+            .as_str()
+            .unwrap()
+            .contains("never executes"));
+        assert_eq!(preview["documents"].as_array().unwrap().len(), 0);
+
+        let mut deferred = action_with_value(Value::Null);
+        deferred.edit = None;
+        deferred.has_data = true;
+        let preview = code_action_document_preview(&root, &deferred, &HashMap::new());
+        assert_eq!(preview["supported"], false);
+        assert!(preview["reason"]
+            .as_str()
+            .unwrap()
+            .contains("deferred action"));
+
+        let mut disabled = action_with_edit(lsp::file_uri(&file), 0, 6, 11, "Purchase");
+        disabled.disabled = Some("not available here".to_string());
+        let preview = code_action_document_preview(&root, &disabled, &HashMap::new());
+        assert_eq!(preview["supported"], false);
+        assert!(preview["reason"].as_str().unwrap().contains("disabled"));
+
+        let outside_action = action_with_edit(lsp::file_uri(&outside), 0, 6, 11, "Purchase");
+        let preview = code_action_document_preview(&root, &outside_action, &HashMap::new());
+        assert_eq!(preview["supported"], false);
+        assert!(preview["reason"]
+            .as_str()
+            .unwrap()
+            .contains("outside the workspace"));
+
+        let missing = action_with_edit(
+            lsp::file_uri(&root.join("Missing.cs")),
+            0,
+            0,
+            0,
+            "class Missing {}",
+        );
+        let preview = code_action_document_preview(&root, &missing, &HashMap::new());
+        assert_eq!(preview["supported"], false);
+        assert!(preview["reason"].as_str().unwrap().contains("not readable"));
+
+        let file_operation = action_with_value(json!({
+            "documentChanges": [{ "kind": "create", "uri": lsp::file_uri(&file) }]
+        }));
+        let preview = code_action_document_preview(&root, &file_operation, &HashMap::new());
+        assert_eq!(preview["supported"], false);
+        assert!(preview["reason"].as_str().unwrap().contains("file operation"));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "class Order {}\n");
+    }
+
+    #[test]
+    fn rename_and_action_previews_reject_caps_before_reading_documents() {
+        let root = tempfile::tempdir().unwrap();
+        let documents: Vec<lsp::RenameDocumentEdits> = (0..51)
+            .map(|index| lsp::RenameDocumentEdits {
+                uri: format!("file:///missing/{index}.cs"),
+                version: None,
+                edits: vec![rename_edit(0, 0, 1, "X")],
+            })
+            .collect();
+        let error = workspace_edit_preview(root.path(), &documents, &HashMap::new())
+            .expect_err("document cap");
+        assert!(error.contains("at most"), "{error}");
+
+        let many_edits = lsp::RenameDocumentEdits {
+            uri: "file:///missing/many.cs".to_string(),
+            version: None,
+            edits: (0..2001)
+                .map(|_| rename_edit(0, 0, 1, "X"))
+                .collect(),
+        };
+        let error = workspace_edit_preview(root.path(), &[many_edits], &HashMap::new())
+            .expect_err("edit cap");
+        assert!(error.contains("2000"), "{error}");
+    }
+
+    #[test]
+    fn diagnostic_context_requires_a_current_range_covering_the_position() {
+        let range = json!({
+            "start": { "line": 2, "character": 6 },
+            "end": { "line": 2, "character": 11 }
+        });
+        assert!(!range_covers_position(&range, 2, 5));
+        assert!(range_covers_position(&range, 2, 6));
+        assert!(range_covers_position(&range, 2, 9));
+        assert!(range_covers_position(&range, 2, 11));
+        assert!(!range_covers_position(&range, 2, 12));
+        assert!(!range_covers_position(&Value::Null, 2, 6));
     }
 }

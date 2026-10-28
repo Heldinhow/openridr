@@ -351,10 +351,44 @@ export type RenameResponse = AnalysisResponse & {
   editCount: number;
 };
 
-/** Shared answer for `lsp.completion`, `lsp.definition` and `lsp.rename`. Unavailable/
- * unsupported answers are data with empty lists, never fabricated items. */
+export type CodeActionCommand = {
+  title: string;
+  command: string;
+};
+
+/** One real action from csharp-ls. Unsupported actions keep their reason and never carry a
+ * preview; no command is ever executed. */
+export type CodeAction = {
+  actionId: string;
+  title: string;
+  kind: string | null;
+  isPreferred: boolean;
+  disabled: string | null;
+  supported: boolean;
+  reason: string | null;
+  command: CodeActionCommand | null;
+  hasData: boolean;
+  documents: RenameDocument[];
+  documentCount: number;
+  editCount: number;
+};
+
+export type CodeActionsResponse = AnalysisResponse & {
+  method: "lsp.codeActions";
+  actionId: string | null;
+  actions: CodeAction[];
+  actionCount: number;
+  totalActions: number;
+  truncated: boolean;
+  rejectedActions: number;
+  unsupportedActions: number;
+  diagnosticsUsed: number;
+};
+
+/** Shared answer for `lsp.completion`, `lsp.definition`, `lsp.rename` and `lsp.codeActions`.
+ * Unavailable/unsupported answers are data with empty lists, never fabricated items. */
 export type AnalysisResponse = {
-  method: "lsp.completion" | "lsp.definition" | "lsp.rename";
+  method: "lsp.completion" | "lsp.definition" | "lsp.rename" | "lsp.codeActions";
   state: "ok" | "unsupported" | "unavailable" | "stale" | "timeout" | "failed";
   message: string | null;
   session: number;
@@ -365,6 +399,7 @@ export type AnalysisResponse = {
   character: number;
   revision: number | null;
   clientRevision: number | null;
+  documentVersion: number | null;
   documentKnown: boolean;
   coverage: "full" | "partial";
   coverageNote: string | null;

@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,7 @@ import path from "node:path";
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const host = "http://127.0.0.1:4317";
 const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const logs = path.resolve(process.cwd(), "docs/evidence/logs");
 const e2eHome = path.join(os.tmpdir(), "openridr-e2e-home");
 
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -19,6 +21,28 @@ function tempCopy(name: string) {
     filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
   });
   return { base, copy };
+}
+
+/** SHA-256 of every C# source in the copy, to prove a code action never wrote disk. */
+function sourceHashes(root: string) {
+  const hashes: Record<string, string> = {};
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "bin" || entry.name === "obj") continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith(".cs")) {
+        hashes[path.relative(root, full)] = crypto
+          .createHash("sha256")
+          .update(fs.readFileSync(full))
+          .digest("hex");
+      }
+    }
+  };
+  walk(path.join(root, "src"));
+  walk(path.join(root, "tests"));
+  return hashes;
 }
 
 async function hostState(request: APIRequestContext) {
@@ -843,6 +867,21 @@ async function placeCursor(page: Page, line: number, character: number) {
   );
 }
 
+/** Column 0 even on indented lines; `placeCursor` stops at the first non-space. */
+async function placeCursorAtColumnZero(page: Page, line: number) {
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+ArrowUp");
+  for (let index = 0; index < line; index += 1) {
+    await page.keyboard.press("ArrowDown");
+  }
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Home");
+  await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+    "data-cursor",
+    `${line}:0`,
+  );
+}
+
 async function startRenameSession(
   page: Page,
   request: APIRequestContext,
@@ -862,11 +901,17 @@ async function startRenameSession(
     "title",
     /Start analysis/,
   );
+  await expect(page.getByTestId("code-actions-open")).toBeDisabled();
+  await expect(page.getByTestId("code-actions-open")).toHaveAttribute(
+    "title",
+    /Start analysis/,
+  );
   await page.getByTestId("lsp-start").click();
   await expect(page.getByTestId("lsp-state")).toContainText("Ready", {
     timeout: 60_000,
   });
   await expect(page.getByTestId("lsp-capabilities")).toContainText("rename");
+  await expect(page.getByTestId("lsp-capabilities")).toContainText("code actions");
   await expect
     .poll(
       async () => {
@@ -883,6 +928,7 @@ async function startRenameSession(
     )
     .toBe(true);
   await expect(page.getByTestId("rename-open")).toBeEnabled();
+  await expect(page.getByTestId("code-actions-open")).toBeEnabled();
 }
 
 test("rename previews real cross-project edits, cancels inert and applies to buffers only", async ({
@@ -1127,6 +1173,333 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     });
   } finally {
     resume();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("code actions are listed from csharp-ls and preview/apply without writing disk", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk actions");
+  const library = path.join(copy, renameFiles.library);
+  const beforeDisk = sourceHashes(copy);
+  try {
+    await startRenameSession(page, request, copy);
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Alt+Enter");
+    await expect(page.getByTestId("code-actions")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("code-actions-summary")).toContainText(
+      "from csharp-ls",
+    );
+    const panel = page.getByTestId("code-actions");
+    const discovered = await panel
+      .locator("button[data-title]")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          title: node.getAttribute("data-title"),
+          supported: node.getAttribute("data-supported"),
+          disabled: node.getAttribute("data-disabled"),
+          detail: node.parentElement?.textContent ?? "",
+        })),
+      );
+    fs.mkdirSync(logs, { recursive: true });
+    fs.writeFileSync(
+      path.join(logs, "10-csharp-ls-actions.json"),
+      JSON.stringify(
+        {
+          fixture: "OrderDesk",
+          path: renameFiles.library,
+          line: 2,
+          character: 20,
+          session: await panel.getAttribute("data-session"),
+          revision: await panel.getAttribute("data-revision"),
+          actions: discovered,
+        },
+        null,
+        2,
+      ),
+    );
+    const actionState = await hostState(request);
+    fs.writeFileSync(path.join(logs, "10-lsp.log"), actionState.lsp.log);
+    expect(discovered.length).toBeGreaterThan(0);
+    expect(
+      discovered.some(
+        (action) =>
+          action.title === "Convert to positional record" &&
+          action.supported === "true",
+      ),
+      JSON.stringify(discovered),
+    ).toBe(true);
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshots, "10-code-actions-list.png"),
+      fullPage: false,
+    });
+
+    await panel
+      .getByRole("button", { name: "Convert to positional record", exact: true })
+      .click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await expect(page.getByTestId("rename-preview")).toHaveAttribute(
+      "data-origin",
+      "action",
+    );
+    await expect(page.getByTestId("rename-preview")).toHaveAttribute("data-files", "1");
+    await expect(page.getByTestId("action-preview-detail")).toContainText(
+      "Kind: not provided by csharp-ls",
+    );
+    await expect(
+      page.getByTestId(`rename-diff-${renameFiles.library}`),
+    ).toContainText("record Order(string Id, decimal Total);");
+    await page.screenshot({
+      path: path.join(screenshots, "10-code-actions-preview.png"),
+      fullPage: false,
+    });
+    await page.getByTestId("rename-cancel-preview").click();
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+    await expect(page.getByTestId("editor-revision")).toContainText("revision 0");
+    expect(sourceHashes(copy)).toEqual(beforeDisk);
+
+    // A position csharp-ls answers with an empty array keeps editing possible and never
+    // fabricates a quick fix.
+    await placeCursorAtColumnZero(page, 5);
+    await page.keyboard.press("Alt+Enter");
+    await expect(page.getByTestId("code-actions-empty")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("code-actions-empty")).toContainText(
+      "No code actions",
+    );
+    await page.screenshot({
+      path: path.join(screenshots, "10-code-actions-empty.png"),
+      fullPage: false,
+    });
+    await page.getByTestId("code-actions-close").click();
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+
+    // Apply the real action to buffers only.
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Alt+Enter");
+    await page
+      .getByTestId("code-actions")
+      .getByRole("button", { name: "Convert to positional record", exact: true })
+      .click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await page.getByTestId("rename-apply").click();
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0, {
+      timeout: 20_000,
+    });
+    await expect(page.getByTestId("editor")).toContainText(
+      "record Order(string Id, decimal Total);",
+    );
+    await expect(
+      page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
+    ).toBeVisible();
+    await expect(page.getByTestId("editor-revision")).toContainText("revision 1");
+    await expect(page.getByTestId("app-log")).toContainText(
+      "diagnostics are not marked fixed",
+    );
+    expect(sourceHashes(copy)).toEqual(beforeDisk);
+    expect(fs.readFileSync(library, "utf8")).toContain("public sealed class Order");
+    await page.screenshot({
+      path: path.join(screenshots, "10-code-actions-applied.png"),
+      fullPage: false,
+    });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("code action lists and previews are invalidated before any write", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk actions stale");
+  const library = path.join(copy, renameFiles.library);
+  const originalDisk = fs.readFileSync(library);
+  const beforeDisk = sourceHashes(copy);
+  let stoppedPid: number | null = null;
+  const resume = () => {
+    if (stoppedPid !== null) {
+      try {
+        process.kill(stoppedPid, "SIGCONT");
+      } catch {
+        // The process already exited.
+      }
+      stoppedPid = null;
+    }
+  };
+  try {
+    await startRenameSession(page, request, copy);
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Alt+Enter");
+    await expect(page.getByTestId("code-actions")).toBeVisible({ timeout: 30_000 });
+
+    // Editing the source buffer discards the pending list.
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+End");
+    await page.keyboard.insertText("// buffer edit during actions\n");
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+
+    // A chosen preview also closes on a buffer edit; nothing is applied.
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Alt+Enter");
+    await page
+      .getByTestId("code-actions")
+      .getByRole("button", { name: "Convert to positional record", exact: true })
+      .click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+End");
+    await page.keyboard.insertText("// second buffer edit\n");
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "Code action preview discarded",
+    );
+    await expect(page.getByTestId("editor")).not.toContainText(
+      "record Order(string Id, decimal Total);",
+    );
+
+    // A changed disk file rejects the whole set and keeps the preview.
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Alt+Enter");
+    await page
+      .getByTestId("code-actions")
+      .getByRole("button", { name: "Convert to positional record", exact: true })
+      .click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    fs.appendFileSync(library, "// external edit during action preview\n");
+    await page.getByTestId("rename-apply").click();
+    await expect(page.getByTestId("rename-stale")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("rename-stale")).toContainText("changed on disk");
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await expect(page.getByTestId("editor")).not.toContainText(
+      "record Order(string Id, decimal Total);",
+    );
+    await page.screenshot({
+      path: path.join(screenshots, "10-code-actions-stale.png"),
+      fullPage: false,
+    });
+    await page.getByTestId("rename-cancel-preview").click();
+    fs.writeFileSync(library, originalDisk);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+
+    // A late answer whose cursor moved is discarded.
+    const paused = await hostState(request);
+    stoppedPid = paused.lsp.pid as number;
+    process.kill(stoppedPid, "SIGSTOP");
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Alt+Enter");
+    await page.waitForTimeout(500);
+    await page.keyboard.press("ArrowDown");
+    resume();
+    await page.waitForTimeout(2_000);
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText("Code actions discarded");
+
+    // Revoking trust discards a preview before it can be applied.
+    await placeCursor(page, 2, 20);
+    await page.keyboard.press("Alt+Enter");
+    await page
+      .getByTestId("code-actions")
+      .getByRole("button", { name: "Convert to positional record", exact: true })
+      .click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await page.getByTestId("trust-revoke").click();
+    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("editor")).not.toContainText(
+      "record Order(string Id, decimal Total);",
+    );
+    expect(sourceHashes(copy)).toEqual(beforeDisk);
+  } finally {
+    resume();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("code actions forward the current diagnostic and list the real quick fix", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk actions diagnostic");
+  try {
+    await startRenameSession(page, request, copy);
+    await page.getByTestId(`tree-file-${renameFiles.program}`).click();
+    await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
+    await page.getByTestId("editor").click();
+    await page.keyboard.press("Meta+End");
+    await page.keyboard.insertText("\nvar broken = new MissingType();\n");
+    await expect(page.getByTestId("editor")).toContainText("MissingType");
+    await expect
+      .poll(
+        async () => {
+          const state = await hostState(request);
+          return state.diagnostics.snapshots.some(
+            (snapshot: { state: string; items: { code: string }[] }) =>
+              snapshot.state === "current" &&
+              snapshot.items.some((item) => item.code === "CS0246"),
+          );
+        },
+        { timeout: 30_000, intervals: [100, 250, 500] },
+      )
+      .toBe(true);
+
+    // The cursor is just after the inserted line; move inside `MissingType` without
+    // assuming a line number after the edit.
+    for (let index = 0; index < 4; index += 1) {
+      await page.keyboard.press("ArrowLeft");
+    }
+    await page.keyboard.press("Alt+Enter");
+    await expect(page.getByTestId("code-actions")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("code-actions-summary")).toContainText(
+      "1 current diagnostic",
+    );
+    await expect(
+      page
+        .getByTestId("code-actions")
+        .getByRole("button", { name: /Generate type 'MissingType'/ })
+        .first(),
+    ).toBeVisible();
+    const diagnosticState = await hostState(request);
+    const cursor = (await page.getByTestId("editor-shell").getAttribute("data-cursor")) ??
+      "0:0";
+    const [cursorLine, cursorCharacter] = cursor.split(":").map(Number);
+    fs.mkdirSync(logs, { recursive: true });
+    fs.writeFileSync(path.join(logs, "10-lsp-diagnostic.log"), diagnosticState.lsp.log);
+    fs.writeFileSync(
+      path.join(logs, "10-code-actions-diagnostic-actions.json"),
+      JSON.stringify(
+        {
+          path: renameFiles.program,
+          line: cursorLine,
+          character: cursorCharacter,
+          diagnosticsUsed: 1,
+          actions: await page
+            .getByTestId("code-actions")
+            .locator("button[data-title]")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => ({
+                title: node.getAttribute("data-title"),
+                supported: node.getAttribute("data-supported"),
+                reason: node.parentElement?.textContent ?? "",
+              })),
+            ),
+        },
+        null,
+        2,
+      ),
+    );
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshots, "10-code-actions-diagnostic.png"),
+      fullPage: false,
+    });
+    await page.getByTestId("code-actions-close").click();
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+  } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
 });

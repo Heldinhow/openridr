@@ -2487,6 +2487,16 @@ fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown
     assert_eq!(offline["line"], 3);
     assert_eq!(offline["character"], 6);
 
+    let offline_actions = host
+        .dispatch(
+            "lsp.codeActions",
+            json!({ "path": path, "line": 2, "character": 16, "revision": 0 }),
+        )
+        .unwrap();
+    assert_eq!(offline_actions["state"], "unavailable");
+    assert_eq!(offline_actions["actions"], json!([]));
+    assert_eq!(offline_actions["actionCount"], 0);
+
     host.dispatch("lsp.start", json!({})).unwrap();
     let starting = host.dispatch("lsp.completion", position.clone()).unwrap();
     assert_eq!(starting["state"], "unavailable");
@@ -2566,6 +2576,29 @@ fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown
     );
     assert_eq!(definition["rejectedTargets"], 0);
     assert_eq!(definition["clientRevision"], 1);
+
+    let actions = host
+        .dispatch(
+            "lsp.codeActions",
+            json!({ "path": path, "line": 2, "character": 16, "revision": 0 }),
+        )
+        .unwrap();
+    assert_eq!(actions["state"], "ok", "{}", actions["message"]);
+    assert_eq!(actions["session"], session);
+    assert_eq!(actions["documentVersion"], 1);
+    assert!(
+        !actions["actions"].as_array().unwrap().is_empty(),
+        "csharp-ls returned no actions at 2:16: {actions}"
+    );
+    assert!(
+        actions["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action["supported"] == true
+                && !action["documents"].as_array().unwrap().is_empty()),
+        "no action carried a usable WorkspaceEdit: {actions}"
+    );
 
     // A newer buffer means the definition request must use that revision, and a restart
     // forgets every open document instead of reusing the previous session's.
