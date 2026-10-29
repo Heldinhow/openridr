@@ -309,11 +309,13 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     });
     await expect(page.getByTestId("restore-state")).toContainText("exit 0");
     await expect(page.getByTestId("restore-command")).toContainText("dotnet restore");
-    await expect(page.getByTestId("restore-command")).toContainText("8.0.408");
     await expect(page.getByTestId("restore-log")).not.toBeEmpty();
     await clickTestId(page, "restore-reload");
     await waitEvaluation(page, 2);
     const restored = await hostState(request);
+    // The muxer path and detected SDK root depend on the machine; the pinned version does not.
+    expect(restored.restore.sdkVersion).toBe("8.0.408");
+    expect(restored.restore.sdkRoot).toBeTruthy();
     snapshot("18-restore.json", restored.restore);
     step("explicit restore exit 0 and evaluation reloaded at revision 2");
 

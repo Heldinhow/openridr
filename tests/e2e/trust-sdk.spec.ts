@@ -99,8 +99,19 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await trustWorkspace(page);
   await expect(page.getByTestId("sdk-project")).toContainText("SDK 8.0.408");
   await expect(page.getByTestId("sdk-project")).toContainText("resolved after trust");
-  await expect(page.getByTestId("sdk-project")).toContainText("OpenRidr/sdks/8.0.408");
   await expect(page.getByTestId("sdk-project")).not.toContainText("10.0.100");
+  // Any detected root may satisfy global.json (~/.dotnet, app home or PATH); only the
+  // resolved version is the contract.
+  const trusted = (
+    await (
+      await request.post(`${host}/call`, {
+        data: { method: "workspace.state", params: {} },
+      })
+    ).json()
+  ).data.sdk.project;
+  expect(trusted.state).toBe("resolved");
+  expect(trusted.resolvedVersion).toBe("8.0.408");
+  expect(trusted.root).toBeTruthy();
   await expect(page.getByTestId("trust-note")).toContainText("recorded in host memory");
 
   await enterWorkspace(page);
