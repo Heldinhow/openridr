@@ -12,7 +12,6 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_CONFIGS: usize = 50;
 const MAX_ARGS: usize = 200;
@@ -336,40 +335,7 @@ fn read_at(path: &Path, solution: &Path) -> HostResult<Store> {
 }
 
 fn write_at(path: &Path, store: &Store) -> HostResult<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            HostError::new(
-                "operation_failed",
-                format!("Could not create {}: {error}", parent.to_string_lossy()),
-            )
-        })?;
-    }
-    let mut text = serde_json::to_string_pretty(store)
-        .map_err(|error| HostError::new("invalid_run_configs", error.to_string()))?;
-    text.push('\n');
-    let temp = path.with_file_name(format!(
-        ".{}-{}-{}.tmp",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("run-configs"),
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or_default()
-    ));
-    if let Err(error) = fs::write(&temp, text) {
-        return Err(HostError::new(
-            "operation_failed",
-            format!("Could not write {}: {error}", temp.to_string_lossy()),
-        ));
-    }
-    if let Err(error) = fs::rename(&temp, path) {
-        let _ = fs::remove_file(&temp);
-        return Err(HostError::new(
-            "operation_failed",
-            format!("Could not replace {}: {error}", path.to_string_lossy()),
-        ));
-    }
-    Ok(())
+    crate::fsutil::write_json_atomic(path, store, "invalid_run_configs")
 }
 
 fn view(store: &Store, path: &Path, solution: &Path) -> Value {

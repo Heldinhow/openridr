@@ -70,6 +70,16 @@ export function resolveActions(
   return resolved;
 }
 
+/** A fixed lookup a surface renders from; a missing id is a registry bug, not a runtime state. */
+export function requireAction(
+  actions: Map<string, ResolvedAction>,
+  id: string,
+): ResolvedAction {
+  const action = actions.get(id);
+  if (!action) throw new Error(`Registry action "${id}" is missing.`);
+  return action;
+}
+
 /** First registered action wins a collision; availability never reorders the registry. */
 export function firstActionFor(
   actions: ResolvedAction[],

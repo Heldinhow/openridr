@@ -1074,6 +1074,11 @@ declare global {
 
 const hostUrl = import.meta.env.VITE_HOST_URL ?? "http://127.0.0.1:4317";
 
+/** The message to show for a rejected host call or any other thrown value. */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function call<T>(method: string, params: unknown = {}): Promise<T> {
   if (window.__TAURI_INTERNALS__) {
     try {

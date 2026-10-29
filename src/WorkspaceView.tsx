@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   call,
   HostCallError,
+  messageOf,
   type CodeAction,
   type CodeActionsResponse,
   type DocumentSymbolResponse,
@@ -75,6 +76,7 @@ import {
 } from "./actions/keymap";
 import {
   firstActionFor,
+  requireAction,
   resolveActions,
   type Action,
   type ResolvedAction,
@@ -181,10 +183,6 @@ const bottomTools = toolWindowsIn("bottom");
 
 function baseName(path: string) {
   return path.split("/").pop() ?? path;
-}
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
 }
 
 function isDirty(tab: Tab) {
@@ -3290,21 +3288,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  const buildAction = actionById.get("build.start")!;
-  const runAction = actionById.get("run.start")!;
-  const debugStartAction = actionById.get("debug.start")!;
-  const stopAction = actionById.get("run.stop")!;
-  const searchAction = actionById.get("search.everywhere")!;
-  const settingsAction = actionById.get("settings.open")!;
-  const findActionAction = actionById.get("view.findAction")!;
-  const keymapAction = actionById.get("view.keymap")!;
-  const redetectAction = actionById.get("sdk.redetect")!;
-  const openGlobalJsonAction = actionById.get("sdk.openGlobalJson")!;
-  const commitAction = actionById.get("git.commit")!;
-  const closeWorkspaceAction = actionById.get("workspace.close")!;
-  const renameAction = actionById.get("code.rename")!;
-  const contextActionsAction = actionById.get("code.contextActions")!;
-  const saveAction = actionById.get("file.save")!;
+  const buildAction = requireAction(actionById, "build.start");
+  const runAction = requireAction(actionById, "run.start");
+  const debugStartAction = requireAction(actionById, "debug.start");
+  const stopAction = requireAction(actionById, "run.stop");
+  const searchAction = requireAction(actionById, "search.everywhere");
+  const settingsAction = requireAction(actionById, "settings.open");
+  const findActionAction = requireAction(actionById, "view.findAction");
+  const keymapAction = requireAction(actionById, "view.keymap");
+  const redetectAction = requireAction(actionById, "sdk.redetect");
+  const openGlobalJsonAction = requireAction(actionById, "sdk.openGlobalJson");
+  const commitAction = requireAction(actionById, "git.commit");
+  const closeWorkspaceAction = requireAction(actionById, "workspace.close");
+  const renameAction = requireAction(actionById, "code.rename");
+  const contextActionsAction = requireAction(actionById, "code.contextActions");
+  const saveAction = requireAction(actionById, "file.save");
 
   return (
     <main

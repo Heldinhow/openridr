@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { call, HostCallError, type Snapshot } from "./host/client";
+import { call, messageOf, type Snapshot } from "./host/client";
 import {
   densityOptions,
   fontFamilyOptions,
@@ -82,12 +82,6 @@ function pageMatches(page: Page, query: string) {
 
 function fieldMatches(field: Field, query: string) {
   return textOf(field.label, field.id, ...(field.keywords ?? [])).includes(query);
-}
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError || error instanceof Error
-    ? error.message
-    : String(error);
 }
 
 type GitInfo = {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { call, HostCallError, type OutlineProject } from "./host/client";
+import { call, messageOf, type OutlineProject } from "./host/client";
 
 export type NuGetPackage = {
   id: string;
@@ -77,10 +77,6 @@ export type NuGetUpdate = {
 const TRUST_MESSAGE = "Trust the workspace to use NuGet";
 const CPM_REASON =
   "Central Package Management is enabled; this MVP lists packages but does not edit central versions.";
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
-}
 
 function versionText(pkg: NuGetPackage) {
   return pkg.resolved ?? pkg.requested ?? "unknown";

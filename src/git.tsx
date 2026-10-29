@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { call, HostCallError } from "./host/client";
+import { call, messageOf } from "./host/client";
 import { Icon } from "./Icon";
 
 export type GitFile = {
@@ -102,10 +102,6 @@ export type GitOperation = {
 };
 
 const TRUST_MESSAGE = "Trust the workspace to use Git";
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
-}
 
 function unavailable(status: GitStatus | null, error: string | null): string | null {
   if (error) return error;
@@ -226,7 +222,6 @@ export function BranchWidget({
     void loadBranches();
     void onRefresh();
     // Only when the popup opens; refresh() is stable per trust state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuOpen]);
 
   useEffect(() => {
@@ -249,7 +244,6 @@ export function BranchWidget({
       setCreating(true);
     }
     // A new command runs once per shortcut press.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intent?.nonce]);
 
   if (!trusted) {
@@ -637,7 +631,6 @@ export function CommitPanel({
     if (!trusted) return;
     void onRefresh();
     // Refresh once when the panel opens; operations refresh explicitly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggle(path: string) {
@@ -676,7 +669,6 @@ export function CommitPanel({
     void showDiff(file);
     // The path comes from the editor context menu; later refreshes must not replace the
     // user's selection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPath, files]);
 
   async function submit() {
@@ -857,7 +849,6 @@ export function GitLogPanel({
   useEffect(() => {
     void load();
     // Load when the tool window opens or trust changes; there is no polling.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trusted]);
 
   if (!trusted) {

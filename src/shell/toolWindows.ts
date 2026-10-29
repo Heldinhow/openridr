@@ -11,7 +11,7 @@ export type ToolWindow = {
   icon: IconName;
 };
 
-// Registro único: faixas, abas e slots renderizam a partir daqui (F1).
+// Single registry: bands, tabs and slots render from here (F1).
 export const toolWindows: ToolWindow[] = [
   { id: "solution", title: "Solution Explorer", slot: "left", icon: "project" },
   { id: "commit", title: "Commit", slot: "left", icon: "git" },

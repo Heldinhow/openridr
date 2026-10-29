@@ -18,7 +18,7 @@ import {
 } from "@codemirror/autocomplete";
 import {
   call,
-  HostCallError,
+  messageOf,
   type AnalysisResponse,
   type DefinitionLocation,
 } from "./host/client";
@@ -92,11 +92,6 @@ type Props = {
 };
 
 type Status = { state: string; text: string };
-
-function messageOf(error: unknown): string {
-  if (error instanceof HostCallError || error instanceof Error) return error.message;
-  return String(error);
-}
 
 function offsetAt(doc: Text, position: { line: number; character: number }): number {
   const lineNumber = Math.min(Math.max(position.line + 1, 1), doc.lines);

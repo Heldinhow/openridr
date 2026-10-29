@@ -1,6 +1,7 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
 import {
   HostCallError,
+  messageOf,
   type Evaluation,
   type EvaluationProject,
   type RunConfig,
@@ -38,10 +39,6 @@ export function deriveDefaultRunConfig(
 
 function configIssues(issues: RunConfigIssue[], id: string) {
   return issues.filter((issue) => issue.configId === id);
-}
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
 }
 
 function errorField(error: unknown) {

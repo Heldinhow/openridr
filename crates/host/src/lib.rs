@@ -4,6 +4,7 @@ mod debugger;
 mod diagnostics;
 mod error;
 mod evaluation;
+mod fsutil;
 mod git;
 pub mod hostroot;
 mod logbuf;
