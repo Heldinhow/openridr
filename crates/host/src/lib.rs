@@ -4812,11 +4812,18 @@ impl Host {
             nuget::validate_tfm(tfm)?;
         }
         let cpm = params.get("cpm").and_then(Value::as_bool).unwrap_or(false);
+        let empty = params.get("empty").and_then(Value::as_bool).unwrap_or(false);
+        let sources_failed = params
+            .get("sourcesFailed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let listing = nuget::probe(
             &display,
             &nuget::project_name(&project),
             target_framework.as_deref(),
             cpm,
+            empty,
+            sources_failed,
         );
         Ok(serde_json::to_value(listing).expect("nuget probe serializes"))
     }

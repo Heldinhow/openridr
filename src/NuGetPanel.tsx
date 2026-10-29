@@ -114,6 +114,14 @@ export function NuGetPanel({
     () => probe && new URLSearchParams(globalThis.location?.search ?? "").get("nugetProbeCpm") === "1",
     [probe],
   );
+  const probeEmpty = useMemo(
+    () => probe && new URLSearchParams(globalThis.location?.search ?? "").get("nugetProbeEmpty") === "1",
+    [probe],
+  );
+  const probeSourcesFailed = useMemo(
+    () => probe && new URLSearchParams(globalThis.location?.search ?? "").get("nugetProbeSourcesFailed") === "1",
+    [probe],
+  );
   const [selected, setSelected] = useState(() => projects[0]?.path ?? "");
   const [listing, setListing] = useState<NuGetListing | null>(null);
   const [busy, setBusy] = useState(false);
@@ -149,7 +157,7 @@ export function NuGetPanel({
     try {
       const answer = await call<NuGetListing>(probe ? "nuget.probe" : "nuget.list", {
         project,
-        ...(probe ? { cpm: probeCpm } : {}),
+        ...(probe ? { cpm: probeCpm, empty: probeEmpty, sourcesFailed: probeSourcesFailed } : {}),
       });
       setListing(answer);
       setStaleAfterUpdate(false);
@@ -284,7 +292,7 @@ export function NuGetPanel({
           {busy ? "Reading…" : "Refresh"}
         </button>
         {listing && (
-          <span className="menu-note" data-testid="nuget-sdk">
+          <span className="menu-note nuget-sdk" data-testid="nuget-sdk" title={listing.sdkRoot}>
             Project SDK {listing.sdkVersion} · {listing.sdkRoot}
           </span>
         )}
@@ -326,7 +334,9 @@ export function NuGetPanel({
           </p>
           <p className="menu-note" data-testid="nuget-sources">
             Sources consulted: {sources ?? "unknown"}{" "}
-            {listing.sources.state !== "ok" && listing.sources.message ? `— ${listing.sources.message}` : ""}
+            {listing.sources.state !== "ok"
+              ? `· package data is available; source query failed${listing.sources.message ? `: ${listing.sources.message}` : "."}`
+              : ""}
           </p>
 
           {listing.cpm.enabled && (
@@ -355,7 +365,11 @@ export function NuGetPanel({
             </p>
           )}
 
-          {listing.frameworks.map((framework) => (
+          {listing.totalPackages === 0 && listing.state === "ok" ? (
+            <p className="hint" role="status" data-testid="nuget-no-packages">
+              No packages are referenced by this project.
+            </p>
+          ) : listing.frameworks.map((framework) => (
             <section
               className="nuget-framework"
               data-testid={`nuget-tfm-${framework.framework}`}

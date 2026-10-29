@@ -2261,12 +2261,13 @@ mark.search-hit {
 .git-file-list code, .git-file-list .menu-note { overflow-wrap: anywhere; }
 
 /* NuGet (F9): installed/outdated per project, plan confirmation and explicit restore. */
-.nuget-panel { display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; min-height: 0; }
+.nuget-panel { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; min-height: 0; }
+.nuget-sdk { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nuget-framework { display: grid; gap: 4px; }
-.nuget-framework h3 { margin: 4px 0 0; font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+.nuget-framework h3 { margin: 0; font-size: 0.78rem; font-weight: 600; color: var(--muted); }
 .nuget-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 3px; }
-.nuget-table-wrap table { width: 100%; border-collapse: collapse; }
-.nuget-table-wrap th, .nuget-table-wrap td { padding: 3px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.nuget-table-wrap table { width: 100%; min-width: 620px; border-collapse: collapse; }
+.nuget-table-wrap th, .nuget-table-wrap td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .nuget-table-wrap thead th { color: var(--muted); font-weight: 500; }
 .nuget-table-wrap tbody tr[aria-current="true"] th { color: var(--warning); }
 .nuget-logs { display: grid; gap: 4px; }

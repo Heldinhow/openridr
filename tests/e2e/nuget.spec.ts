@@ -70,6 +70,19 @@ test("NuGet groups installed and outdated packages by TFM with current, latest a
   expect((await unconfirmed.json()).error.code).toBe("confirmation_required");
 });
 
+test("NuGet reports a project with no PackageReference without offering updates", async ({ page }) => {
+  await openTrusted(page, "?nugetProbe=1&nugetProbeEmpty=1&nugetProbeSourcesFailed=1");
+  await page.getByTestId("bottom-tab-nuget").click();
+  await expect(page.getByTestId("nuget-project")).toHaveValue(cliProject);
+  await expect(page.getByTestId("nuget-summary")).toContainText("No packages are referenced");
+  await expect(page.getByTestId("nuget-no-packages")).toBeVisible();
+  await expect(page.locator('[data-testid^="nuget-update-"]')).toHaveCount(0);
+  await expect(page.getByTestId("nuget-installed-log")).toContainText("ok");
+  await expect(page.getByTestId("nuget-outdated-log")).toContainText("ok");
+  await expect(page.getByTestId("nuget-sources")).toContainText("source query failed");
+  await expect(page.getByTestId("nuget-sources")).not.toHaveClass(/error/);
+});
+
 test("CPM lists normally and refuses the update with an explicit reason", async ({ page }) => {
   await openTrusted(page, "?nugetProbe=1&nugetProbeCpm=1");
   await page.getByTestId("bottom-tab-nuget").click();

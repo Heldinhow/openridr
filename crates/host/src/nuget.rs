@@ -591,11 +591,16 @@ pub fn parse_listing(stdout: &str) -> Result<Vec<FrameworkPackages>, String> {
         return Err("the response lists no projects".to_string());
     }
     let mut frameworks: Vec<FrameworkPackages> = Vec::new();
+    let mut omitted_frameworks = false;
     for project in projects {
-        let list = project
-            .get("frameworks")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "a project has no frameworks array".to_string())?;
+        let Some(raw_list) = project.get("frameworks") else {
+            // dotnet omits this field when a valid project has no PackageReference entries.
+            omitted_frameworks = true;
+            continue;
+        };
+        let list = raw_list
+            .as_array()
+            .ok_or_else(|| "a project's frameworks field is not an array".to_string())?;
         for framework in list {
             let name = framework
                 .get("framework")
@@ -654,7 +659,7 @@ pub fn parse_listing(stdout: &str) -> Result<Vec<FrameworkPackages>, String> {
             }
         }
     }
-    if frameworks.is_empty() {
+    if frameworks.is_empty() && !omitted_frameworks {
         return Err("the response lists no frameworks".to_string());
     }
     for framework in &mut frameworks {
@@ -1020,38 +1025,44 @@ pub fn probe(
     name: &str,
     target_framework: Option<&str>,
     cpm: bool,
+    empty: bool,
+    sources_failed: bool,
 ) -> Listing {
-    let mut frameworks = vec![
-        FrameworkPackages {
-            framework: "net8.0".to_string(),
-            packages: vec![
-                Package {
-                    id: "Newtonsoft.Json".to_string(),
-                    requested: Some("13.0.1".to_string()),
-                    resolved: Some("13.0.1".to_string()),
-                    latest_version: Some("13.0.3".to_string()),
-                    outdated: true,
-                },
-                Package {
-                    id: "Serilog".to_string(),
-                    requested: Some("3.1.1".to_string()),
-                    resolved: Some("3.1.1".to_string()),
-                    latest_version: None,
+    let mut frameworks = if empty {
+        Vec::new()
+    } else {
+        vec![
+            FrameworkPackages {
+                framework: "net8.0".to_string(),
+                packages: vec![
+                    Package {
+                        id: "Newtonsoft.Json".to_string(),
+                        requested: Some("13.0.1".to_string()),
+                        resolved: Some("13.0.1".to_string()),
+                        latest_version: Some("13.0.3".to_string()),
+                        outdated: true,
+                    },
+                    Package {
+                        id: "Serilog".to_string(),
+                        requested: Some("3.1.1".to_string()),
+                        resolved: Some("3.1.1".to_string()),
+                        latest_version: None,
+                        outdated: false,
+                    },
+                ],
+            },
+            FrameworkPackages {
+                framework: "netstandard2.0".to_string(),
+                packages: vec![Package {
+                    id: "Humanizer".to_string(),
+                    requested: Some("2.14.1".to_string()),
+                    resolved: Some("2.14.1".to_string()),
+                    latest_version: Some("2.14.1".to_string()),
                     outdated: false,
-                },
-            ],
-        },
-        FrameworkPackages {
-            framework: "netstandard2.0".to_string(),
-            packages: vec![Package {
-                id: "Humanizer".to_string(),
-                requested: Some("2.14.1".to_string()),
-                resolved: Some("2.14.1".to_string()),
-                latest_version: Some("2.14.1".to_string()),
-                outdated: false,
-            }],
-        },
-    ];
+                }],
+            },
+        ]
+    };
     if let Some(tfm) = target_framework {
         frameworks.retain(|framework| framework.framework == tfm);
     }
@@ -1113,13 +1124,23 @@ pub fn probe(
             frameworks: outdated,
             truncated: false,
         },
-        sources: Sources {
-            state: "ok",
-            message: None,
-            items: vec![Source {
-                name: "nuget.org (probe)".to_string(),
-                url: Some("https://api.nuget.org/v3/index.json".to_string()),
-            }],
+        sources: if sources_failed {
+            Sources {
+                state: "failed",
+                message: Some(
+                    "dotnet nuget list source failed; the configured source is unknown.".to_string(),
+                ),
+                items: Vec::new(),
+            }
+        } else {
+            Sources {
+                state: "ok",
+                message: None,
+                items: vec![Source {
+                    name: "nuget.org (probe)".to_string(),
+                    url: Some("https://api.nuget.org/v3/index.json".to_string()),
+                }],
+            }
         },
         frameworks,
         total_packages,
@@ -1215,6 +1236,9 @@ mod tests {
         assert!(parse_listing(r#"{"projects":[]}"#).is_err());
         assert!(parse_listing(r#"{"projects":[{"frameworks":[]}]}"#).is_err());
         assert!(parse_listing(r#"{"projects":[{"frameworks":[{"framework":"net8.0"}]}]}"#).is_ok());
+        assert!(parse_listing(r#"{"projects":[{"path":"App.csproj"}]}"#)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
