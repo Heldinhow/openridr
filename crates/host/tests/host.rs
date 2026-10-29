@@ -382,6 +382,8 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "debug.retry"
             && **method != "terminal.start"
             && **method != "debug.start"
+            && **method != "nuget.applyUpdate"
+            && **method != "nuget.probe"
             && !method.starts_with("git.")
     }) {
         let code = error_code(host.dispatch(method, json!({})));
@@ -402,6 +404,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
         ("tools.retry", "invalid_state"),
         ("debug.install", "confirmation_required"),
         ("debug.retry", "invalid_state"),
+        ("nuget.applyUpdate", "confirmation_required"),
         ("lsp.start", "tool_missing"),
         ("lsp.restart", "tool_missing"),
         ("lsp.didOpen", "invalid_state"),
@@ -463,6 +466,27 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             "{method} must be denied again after revoke"
         );
     }
+}
+
+#[test]
+fn nuget_update_requires_confirmation_and_a_current_plan_before_any_process() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    host.dispatch("trust.grant", json!({})).unwrap();
+
+    assert_eq!(
+        error_code(host.dispatch("nuget.applyUpdate", json!({}))),
+        "confirmation_required"
+    );
+    let stale = host
+        .dispatch(
+            "nuget.applyUpdate",
+            json!({ "planId": "missing", "confirm": true }),
+        )
+        .expect_err("an unknown plan never runs");
+    assert_eq!(stale.code, "nuget_stale_plan");
+    assert_eq!(snapshot(&host)["processes"], json!([]));
 }
 
 #[test]

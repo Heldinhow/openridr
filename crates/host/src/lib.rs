@@ -8,6 +8,7 @@ mod git;
 pub mod hostroot;
 mod logbuf;
 mod lsp;
+mod nuget;
 mod outline;
 pub mod process;
 mod restore;
@@ -83,6 +84,10 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "git.pull",
     "git.push",
     "git.info",
+    "nuget.list",
+    "nuget.planUpdate",
+    "nuget.applyUpdate",
+    "nuget.probe",
 ];
 
 pub struct Host {
@@ -130,6 +135,8 @@ struct Inner {
     lsp_verbose: bool,
     rename_seq: u64,
     action_seq: u64,
+    nuget_seq: u64,
+    nuget_plan: Option<nuget::Plan>,
     diagnostics: diagnostics::Store,
 }
 
@@ -333,6 +340,8 @@ impl Host {
                 lsp_verbose: false,
                 rename_seq: 0,
                 action_seq: 0,
+                nuget_seq: 0,
+                nuget_plan: None,
                 diagnostics: diagnostics::Store::new(),
             }),
         }
@@ -506,6 +515,18 @@ impl Host {
         }
         if method == "git.info" {
             return self.git_info();
+        }
+        if method == "nuget.list" {
+            return self.nuget_list(params);
+        }
+        if method == "nuget.planUpdate" {
+            return self.nuget_plan_update(params);
+        }
+        if method == "nuget.applyUpdate" {
+            return self.nuget_apply_update(params);
+        }
+        if method == "nuget.probe" {
+            return self.nuget_probe(params);
         }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.gate_unhandled_executable(method);
@@ -793,6 +814,7 @@ impl Host {
         inner.processes.lock().unwrap().mark_awaiting();
         inner.workspace_seq += 1;
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         workspace.id = inner.workspace_seq;
         let request = global_json_request(&workspace.outline);
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
@@ -850,6 +872,7 @@ impl Host {
         inner.trust_decision = None;
         inner.workspace_seq += 1;
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         inner.project_sdk = ProjectSdk::no_workspace();
         inner.evaluation = Evaluation::idle();
         inner.build = Arc::new(build::Build::idle());
@@ -875,6 +898,7 @@ impl Host {
         inner.ensure_inventory();
         inner.trusted = true;
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         inner.trust_decision = Some(TrustDecision {
             granted_at: now_ms(),
             workspace_id,
@@ -896,6 +920,7 @@ impl Host {
         };
         inner.trusted = false;
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         if let Some(decision) = inner.trust_decision.as_mut() {
             decision.revoked_at = Some(now_ms());
         }
@@ -945,6 +970,7 @@ impl Host {
         );
         inner.inventory = Some(sdk::inventory());
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         if inner.workspace.is_some() {
             if inner.trusted {
                 let project = inspect_project_sdk(&inner);
@@ -4405,6 +4431,166 @@ impl Host {
         Ok(serde_json::to_value(git::info()).expect("git info serializes"))
     }
 
+    /// Installed and outdated packages for one project, read through the project SDK.
+    fn nuget_list(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.list")?;
+        let raw = required_str(&params, "project")?;
+        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        if let Some(tfm) = target_framework.as_deref() {
+            nuget::validate_tfm(tfm)?;
+        }
+        let (root, project, display, sdk) = {
+            let inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+            let (project, display) = nuget::resolve_project(&workspace.root, &raw)?;
+            (
+                workspace.root.clone(),
+                project,
+                display,
+                inner.project_sdk.clone(),
+            )
+        };
+        let (muxer, sdk_root, sdk_version) = project_muxer(&sdk)?;
+        let listing = nuget::list(
+            &root,
+            &project,
+            &display,
+            target_framework.as_deref(),
+            &muxer,
+            &sdk_root,
+            &sdk_version,
+        );
+        Ok(serde_json::to_value(listing).expect("nuget listing serializes"))
+    }
+
+    /// A plan is data: it names the exact command and a planId, and starts nothing.
+    fn nuget_plan_update(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.planUpdate")?;
+        let raw = required_str(&params, "project")?;
+        let package = required_str(&params, "id")?;
+        let version = required_str(&params, "version")?;
+        let from_version = optional_str(&params, "fromVersion");
+        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        let (root, project, display, sdk, seq) = {
+            let mut inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+            let root = workspace.root.clone();
+            let (project, display) = nuget::resolve_project(&root, &raw)?;
+            let sdk = inner.project_sdk.clone();
+            inner.nuget_seq += 1;
+            (
+                root,
+                project,
+                display,
+                sdk,
+                inner.nuget_seq,
+            )
+        };
+        let (muxer, sdk_root, _) = project_muxer(&sdk)?;
+        let id = nuget::plan_id(seq, token.context_id, &display, &package, &version);
+        let plan = nuget::make_plan(nuget::PlanRequest {
+            id,
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+            root,
+            project,
+            project_display: display,
+            package,
+            from_version,
+            version,
+            target_framework,
+            muxer,
+            sdk_root,
+        })?;
+        let mut inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        let view = nuget::plan_view(&plan);
+        inner.nuget_plan = Some(plan);
+        Ok(view)
+    }
+
+    /// Confirmed single-package update. The plan is revalidated against the current project
+    /// before `dotnet add`; any refusal leaves the project untouched and no restore follows.
+    fn nuget_apply_update(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.applyUpdate")?;
+        if params.get("confirm").and_then(Value::as_bool) != Some(true) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "nuget.applyUpdate requires confirm:true; no command was run.",
+            ));
+        }
+        let plan_id = required_str(&params, "planId")?;
+        let plan = {
+            let mut inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            let plan = inner
+                .nuget_plan
+                .as_ref()
+                .filter(|plan| plan.id == plan_id)
+                .cloned()
+                .ok_or_else(|| {
+                    HostError::new(
+                        "nuget_stale_plan",
+                        "The update plan is not current; create a new plan. No command was run.",
+                    )
+                })?;
+            if plan.workspace_id != token.workspace_id || plan.context_id != token.context_id {
+                inner.nuget_plan = None;
+                return Err(HostError::new(
+                    "nuget_stale_plan",
+                    "The workspace or context changed after the plan; no command was run.",
+                ));
+            }
+            inner.nuget_plan = None;
+            plan
+        };
+        let result = nuget::apply(&plan)?;
+        Ok(serde_json::to_value(result).expect("nuget update result serializes"))
+    }
+
+    /// Development-only deterministic listing so the NuGet surface is debuggable where no
+    /// .NET SDK exists. It never runs dotnet and is gated by OPENRIDR_ENABLE_PROBE=1.
+    fn nuget_probe(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.probe")?;
+        if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
+            return Err(HostError::new(
+                "invalid_state",
+                "nuget.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.",
+            ));
+        }
+        let inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        let workspace = inner
+            .workspace
+            .as_ref()
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+        let requested = optional_str(&params, "project")
+            .or_else(|| workspace.outline.projects.first().map(|project| project.path.clone()))
+            .unwrap_or_else(|| workspace.name.clone());
+        let (project, display) = nuget::resolve_project(&workspace.root, &requested)
+            .unwrap_or_else(|_| (workspace.root.join("Probe.csproj"), requested.clone()));
+        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        if let Some(tfm) = target_framework.as_deref() {
+            nuget::validate_tfm(tfm)?;
+        }
+        let cpm = params.get("cpm").and_then(Value::as_bool).unwrap_or(false);
+        let listing = nuget::probe(
+            &display,
+            &nuget::project_name(&project),
+            target_framework.as_deref(),
+            cpm,
+        );
+        Ok(serde_json::to_value(listing).expect("nuget probe serializes"))
+    }
+
     /// Workspace symbols come from the live analysis session only. Unavailability and trust
     /// are data (`state`), so the palette can say what is missing instead of showing zero.
     fn lsp_workspace_symbol(&self, params: Value) -> HostResult<Value> {
@@ -4688,6 +4874,7 @@ impl Host {
                 .mark_stale(format!("{rel} was saved; the evaluated project model is stale."))
         {
             inner.context_seq += 1;
+            inner.nuget_plan = None;
             stop_lsp_inner(
                 &mut inner,
                 "A project input changed; analysis stopped so it cannot report the previous context.",
@@ -5362,6 +5549,53 @@ fn dotnet_exe() -> &'static str {
     } else {
         "dotnet"
     }
+}
+
+/// The muxer of the project's already-resolved SDK, never PATH's dotnet.
+fn project_muxer(sdk: &ProjectSdk) -> HostResult<(PathBuf, PathBuf, String)> {
+    if sdk.state != "resolved" {
+        return Err(HostError::new(
+            if sdk.state == "sdk_missing" {
+                "sdk_missing"
+            } else {
+                "invalid_state"
+            },
+            format!(
+                "NuGet was not run: the project SDK is not resolved ({}). {}",
+                sdk.state,
+                sdk.message
+                    .clone()
+                    .unwrap_or_else(|| "Resolve the project SDK first.".to_string())
+            ),
+        ));
+    }
+    let root = sdk
+        .root
+        .clone()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            HostError::new(
+                "invalid_state",
+                "NuGet was not run: the resolved project SDK has no root path.",
+            )
+        })?;
+    let muxer = root.join(dotnet_exe());
+    if !muxer.is_file() {
+        return Err(HostError::new(
+            "sdk_missing",
+            format!(
+                "NuGet was not run: {} does not contain a .NET muxer.",
+                root.to_string_lossy()
+            ),
+        ));
+    }
+    Ok((
+        muxer,
+        root,
+        sdk.resolved_version
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+    ))
 }
 
 /// The one environment every `dotnet` child gets: explicit SDK root, no multi-level lookup,

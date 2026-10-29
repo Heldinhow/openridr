@@ -52,6 +52,7 @@ import {
   type GitIntent,
   type GitStatus,
 } from "./git";
+import { NuGetPanel } from "./NuGetPanel";
 import {
   chordPrefixFor,
   chordTarget,
@@ -1903,9 +1904,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     void openFile(projectSdk.globalJsonPath ?? "global.json");
   }
 
-  async function startRestore(method: "restore.start" | "restore.retry") {
+  async function startRestore(method: "restore.start" | "restore.retry", project?: string) {
     try {
-      onSnapshot(await call<Snapshot>(method, {}));
+      onSnapshot(await call<Snapshot>(method, project ? { project } : {}));
       setMessage(null);
     } catch (error) {
       setMessage({ tone: "error", text: `Restore could not start: ${messageOf(error)}` });
@@ -2874,6 +2875,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         return (
           <GitLogPanel
             trusted={trusted}
+            onError={(text) => setMessage({ tone: "error", text })}
+          />
+        );
+      case "nuget":
+        return (
+          <NuGetPanel
+            trusted={trusted}
+            projects={projects}
+            restoreRunning={restoring}
+            onRestore={(project) => void startRestore("restore.start", project)}
+            onMessage={(text) => setMessage({ tone: "info", text })}
             onError={(text) => setMessage({ tone: "error", text })}
           />
         );

@@ -1,7 +1,7 @@
 import type { IconName } from "../Icon";
 
 export type ToolWindowSlot = "left" | "bottom";
-export type BottomToolId = "build" | "problems" | "debug" | "terminal" | "tests" | "git";
+export type BottomToolId = "build" | "problems" | "debug" | "terminal" | "tests" | "git" | "nuget";
 export type ToolWindowId = "solution" | "commit" | BottomToolId;
 
 export type ToolWindow = {
@@ -21,6 +21,7 @@ export const toolWindows: ToolWindow[] = [
   { id: "terminal", title: "Terminal", slot: "bottom", icon: "terminal" },
   { id: "tests", title: "Tests", slot: "bottom", icon: "tests" },
   { id: "git", title: "Git", slot: "bottom", icon: "git" },
+  { id: "nuget", title: "NuGet", slot: "bottom", icon: "package" },
 ];
 
 export function toolWindowsIn(slot: ToolWindowSlot): ToolWindow[] {

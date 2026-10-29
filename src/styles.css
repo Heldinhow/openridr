@@ -2160,3 +2160,18 @@ mark.search-hit {
 .git-commit-details { min-width: 0; max-height: 240px; overflow: auto; }
 .git-file-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 0.75rem; }
 .git-file-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* NuGet (F9): installed/outdated per project, plan confirmation and explicit restore. */
+.nuget-panel { display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; min-height: 0; }
+.nuget-framework { display: grid; gap: 4px; }
+.nuget-framework h3 { margin: 4px 0 0; font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+.nuget-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 3px; }
+.nuget-table-wrap table { width: 100%; border-collapse: collapse; }
+.nuget-table-wrap th, .nuget-table-wrap td { padding: 3px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.nuget-table-wrap thead th { color: var(--muted); font-weight: 500; }
+.nuget-table-wrap tbody tr[aria-current="true"] th { color: var(--warning); }
+.nuget-logs { display: grid; gap: 4px; }
+.nuget-logs summary { color: var(--muted); cursor: pointer; }
+.nuget-update { display: grid; gap: 4px; padding: 6px 8px; background: var(--panel); border-radius: 3px; }
+.nuget-restore { display: grid; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.nuget-command { margin: 0; padding: 6px; overflow-x: auto; background: var(--bg); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
