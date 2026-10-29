@@ -71,6 +71,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.continue",
     "debug.stepOver",
     "debug.stepInto",
+    "debug.stepOut",
     "debug.setBreakpoints",
     "debug.variables",
     "tests.discover",
@@ -454,6 +455,9 @@ impl Host {
         }
         if method == "debug.stepInto" {
             return self.control_debug("stepInto");
+        }
+        if method == "debug.stepOut" {
+            return self.control_debug("stepOut");
         }
         if method == "debug.setBreakpoints" {
             return self.set_debug_breakpoints(params);
@@ -3193,6 +3197,7 @@ impl Host {
             "continue" => dap.continue_()?,
             "stepOver" => dap.step_over()?,
             "stepInto" => dap.step_into()?,
+            "stepOut" => dap.step_out()?,
             _ => {
                 return Err(HostError::new("invalid_state", "Unknown debug action."));
             }

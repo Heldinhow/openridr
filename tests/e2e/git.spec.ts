@@ -253,8 +253,10 @@ test("restricted mode and a non-repository explain themselves and every git meth
   await openWorkspace(page, path.join(repo, "OrderDesk.sln"));
   await page.getByTestId("open-text-only").click();
   await expect(page.getByTestId("tree")).toBeVisible();
-  await expect(page.getByTestId("toolbar-branch")).toBeDisabled();
-  await expect(page.getByTestId("toolbar-branch")).toHaveText("Trust the workspace to use Git");
+  const restrictedGit = page.getByTestId("toolbar-branch");
+  await expect(restrictedGit).toBeDisabled();
+  await expect(restrictedGit).toHaveAccessibleName("Trust the workspace to use Git");
+  await expect(restrictedGit).toHaveAttribute("title", "Trust the workspace to use Git");
 
   await page.getByTestId("toolband-commit").click();
   await expect(page.getByTestId("commit-disabled-reason")).toHaveText("Trust the workspace to use Git");
@@ -288,8 +290,10 @@ test("restricted mode and a non-repository explain themselves and every git meth
   // The shell layout persisted the Commit/Git tool windows from the repository workspace.
   await page.evaluate(() => localStorage.removeItem("openridr.layout.v1"));
   await openTrusted(page, path.join(plain, "Plain.csproj"));
-  await expect(page.getByTestId("toolbar-branch")).toBeDisabled();
-  await expect(page.getByTestId("toolbar-branch")).toHaveText("Not a git repository");
+  const noRepoGit = page.getByTestId("toolbar-branch");
+  await expect(noRepoGit).toBeDisabled();
+  await expect(noRepoGit).toHaveAccessibleName("Not a git repository");
+  await expect(noRepoGit).toHaveAttribute("title", "Not a git repository");
   await page.getByTestId("toolband-commit").click();
   await expect(page.getByTestId("commit-disabled-reason")).toHaveText("Not a git repository");
   await page.getByTestId("bottom-tab-git").click();

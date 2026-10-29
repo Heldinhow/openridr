@@ -11,8 +11,8 @@ import { reveal } from "./disclosures";
  */
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 import { e2eHome, host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
-const logs = path.resolve(process.cwd(), "docs/evidence/logs");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+const logs = path.resolve(process.env.OPENRIDR_EVIDENCE_LOG_DIR ?? "docs/evidence/logs");
 const debugToolDir = path.join(e2eHome, "tools/netcoredbg");
 
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -304,6 +304,8 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     });
     await page.getByTestId("restore-reload").click();
     await expect(page.getByTestId("eval-state")).toContainText("revision 2", { timeout: 30_000 });
+    await page.getByTestId("eval-tfm").selectOption("net8.0");
+    await expect(page.getByTestId("eval-state")).toContainText("revision 3", { timeout: 30_000 });
 
     // The Debug launch stays blocked until a successful Debug build exists.
     await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
@@ -317,9 +319,12 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
     await expect(page.getByTestId("editor")).toBeVisible();
     await page.getByTestId("editor").click();
-    await page.locator(".cm-line").nth(2).click();
+    const breakpointLine = page.locator(".cm-line").nth(2);
+    await breakpointLine.click();
     await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", /^2:/);
-    await page.keyboard.press("Meta+F8");
+    const lineBox = (await breakpointLine.boundingBox())!;
+    const gutterBox = (await page.locator(".cm-debug-gutter").boundingBox())!;
+    await page.mouse.click(gutterBox.x + 5, lineBox.y + lineBox.height / 2);
     await page.getByTestId("bottom-tab-debug").click();
     await expect(page.getByTestId("debug-breakpoints")).toContainText(
       "src/OrderDesk.Cli/Program.cs:3",
@@ -367,25 +372,28 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.getByTestId("dap-thread-list")).toContainText("Main Thread");
     await expect(page.getByTestId("debug-frames")).toContainText("Program.<Main>$()");
     await expect(page.getByTestId("debug-locals")).toContainText("order");
-    await expect.poll(() => page.getByTestId("debug-frames").evaluate((element) => {
+    const fullyVisibleInPanel = (element: Element) => {
       const panel = element.closest(".panel-body");
       if (!panel) return false;
       const content = element.getBoundingClientRect();
       const viewport = panel.getBoundingClientRect();
-      return content.top < viewport.bottom && content.bottom > viewport.top;
-    })).toBe(true);
-    await expect.poll(() => page.getByTestId("debug-locals").evaluate((element) => {
-      const panel = element.closest(".panel-body");
-      if (!panel) return false;
-      const content = element.getBoundingClientRect();
-      const viewport = panel.getBoundingClientRect();
-      return content.top < viewport.bottom && content.bottom > viewport.top;
-    })).toBe(true);
+      return content.top >= viewport.top && content.bottom <= viewport.bottom;
+    };
+    await expect.poll(() => page.getByTestId("debug-frames").evaluate(fullyVisibleInPanel)).toBe(true);
+    await expect.poll(() => page.getByTestId("debug-locals").evaluate(fullyVisibleInPanel)).toBe(true);
     await expect(page.getByTestId("debug-breakpoints")).toContainText("verified by the adapter");
     await expect(page.getByTestId("dap-log")).toContainText("event stopped · reason breakpoint");
     await page.screenshot({ path: path.join(screenshots, "14-dap-paused.png"), fullPage: true });
 
-    // F8 steps over line 3; the frame and locals must move to line 4.
+    // Step into the constructor and back out, then step over the current statement.
+    await page.getByTestId("debug-step-into").click();
+    await expect(page.getByTestId("debug-frames")).toContainText(/Order\.cs:[5-9]/, {
+      timeout: 15_000,
+    });
+    await page.getByTestId("debug-step-out").click();
+    await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:3", {
+      timeout: 15_000,
+    });
     await page.keyboard.press("F8");
     await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:4", {
       timeout: 15_000,

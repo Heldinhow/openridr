@@ -1264,6 +1264,10 @@ impl Dap {
         self.resume("stepIn")
     }
 
+    pub fn step_out(&self) -> HostResult<()> {
+        self.resume("stepOut")
+    }
+
     fn resume(&self, command: &str) -> HostResult<()> {
         let thread_id = {
             let data = self.data.lock().unwrap();

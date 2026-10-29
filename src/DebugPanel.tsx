@@ -123,6 +123,14 @@ export function DebugPanel({
             >
               Step into
             </button>
+            <button
+              data-testid="debug-step-out"
+              disabled={busy !== null}
+              onClick={() => void invoke("Step out", "debug.stepOut")}
+              title="Steps out of the current function."
+            >
+              Step out
+            </button>
           </>
         )}
       </div>
@@ -175,7 +183,7 @@ export function DebugPanel({
                   >
                     {frame.name}
                   </button>{" "}
-                  <span className="muted">
+                  <span className="muted" title={frame.path ?? frame.sourceName ?? "no source"}>
                     {frame.path ?? frame.sourceName ?? "no source"}:{frame.line}
                   </span>
                 </li>
@@ -192,7 +200,6 @@ export function DebugPanel({
             </p>
           ) : (
             <div>
-              <p className="muted">Frame {dap.locals.frameId}</p>
               {dap.locals.scopes.map((scope, index) => (
                 <div key={`${scope.name}-${index}`} data-testid={`debug-scope-${index}`}>
                   <strong>{scope.name}</strong>

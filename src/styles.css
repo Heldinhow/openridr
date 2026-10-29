@@ -1106,7 +1106,12 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 }
 .status > span { white-space: nowrap; overflow: visible; text-overflow: clip; min-width: max-content; }
 .status > [data-testid="status-mode"], .status > [data-testid="status-keymap"], .status > [data-testid="status-cursor"], .status > [data-testid="status-encoding"], .status > [data-testid="status-indent"] { flex: 0 0 auto; }
-.status > [data-testid="status-evaluation"] { flex: 0 0 auto; }
+.status > [data-testid="status-evaluation"] {
+  flex: 0 1 240px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .status > [data-testid="status-breadcrumb"] { flex: 0 1 280px; }
 .status > [data-testid="status-sdk"] { flex: 0 1 auto; }
 .status > [data-testid="status-workspace"] { flex: 0 0 auto; max-width: 240px; }
@@ -1562,7 +1567,9 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
 }
+.debug-columns h3 { margin: 0 0 4px; }
 .debug-columns ul { margin: 0.25rem 0; padding-left: 1.1rem; }
+.debug-frames li > .muted { display: block; width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .debug-log-block pre {
   max-height: 14rem;
   overflow: auto;
@@ -1953,10 +1960,13 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 }
 
 .run-config-menu [data-testid="run-config-active"] {
+  flex: 1 1 0;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.run-config-menu .run-config-tag { flex: 0 0 auto; }
 
 .run-config-tag {
   margin-left: 6px;
@@ -2418,5 +2428,6 @@ mark.search-hit {
   .toolbar .toolbar-startup select { max-width: 120px; }
   .toolbar-configuration { gap: 3px; }
   .toolbar .eval-field select { max-width: 100px; }
-  .run-config-menu > summary { max-width: 150px; }
+  .run-config-menu > summary { max-width: 150px; min-width: 0; }
+  .run-config-menu [data-testid="run-config-active"] { min-width: 0; }
 }
