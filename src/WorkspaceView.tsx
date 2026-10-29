@@ -4,7 +4,9 @@ import {
   HostCallError,
   type CodeAction,
   type CodeActionsResponse,
+  type DocumentSymbolResponse,
   type EvaluationProject,
+  type ReferencesResponse,
   type RenameResponse,
   type RunConfig,
   type RunConfigStore,
@@ -12,6 +14,14 @@ import {
   type OutlineProject,
 } from "./host/client";
 import { CodeEditor } from "./CodeEditor";
+import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
+import { FindUsagesPanel } from "./FindUsagesPanel";
+import {
+  gutterActionAt,
+  gutterActionsFor,
+  lineSnippet,
+  type GutterAction,
+} from "./codeNavigation";
 import { ProblemsPanel } from "./ProblemsPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
 import {
@@ -49,6 +59,7 @@ import {
   gitBlockedReason,
   gitPushBlockedReason,
   gitUpdateBlockedReason,
+  type GitDiff as GitDiffView,
   type GitIntent,
   type GitStatus,
 } from "./git";
@@ -88,16 +99,25 @@ type Tab = {
   conflict: null | { content: string; hash: string };
 };
 
-type RenamePrompt = {
+type DocumentSymbolsState = {
   path: string;
-  line: number;
-  character: number;
   revision: number;
   session: number;
   contextId: number;
   workspaceId: number;
-  busy: boolean;
-  error: string | null;
+  response: DocumentSymbolResponse;
+};
+
+type FindUsagesState = {
+  response: ReferencesResponse;
+  snippets: Record<string, string | null>;
+};
+
+type ContextMenuState = {
+  x: number;
+  y: number;
+  line: number;
+  character: number;
 };
 
 type RenamePreview = {
@@ -290,6 +310,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [gitStatusError, setGitStatusError] = useState<string | null>(null);
   const [gitIntent, setGitIntent] = useState<GitIntent | null>(null);
+  const [commitFocusPath, setCommitFocusPath] = useState<string | null>(null);
   const refreshGit = useCallback(async () => {
     if (!trusted) {
       setGitStatus(null);
@@ -409,12 +430,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(projects.map((project) => project.path)),
   );
-  const [renamePrompt, setRenamePrompt] = useState<RenamePrompt | null>(null);
   const [editPreview, setEditPreview] = useState<EditPreview | null>(null);
   const [actionList, setActionList] = useState<ActionList | null>(null);
-  const [renameName, setRenameName] = useState("");
+  const [documentSymbols, setDocumentSymbols] = useState<DocumentSymbolsState | null>(null);
+  const [findUsages, setFindUsages] = useState<FindUsagesState | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [gitDiffView, setGitDiffView] = useState<GitDiffView | null>(null);
+  const [renameRequest, setRenameRequest] = useState(0);
+  const [definitionRequest, setDefinitionRequest] = useState(0);
   const renameSeq = useRef(0);
   const actionSeq = useRef(0);
+  const findUsagesSeq = useRef(0);
   const cursorRef = useRef({ line: 0, character: 0 });
   const [cursor, setCursor] = useState({ line: 0, character: 0 });
   const editPreviewHeading = useRef<HTMLHeadingElement | null>(null);
@@ -482,6 +508,30 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             : editPreview
               ? "Finish or cancel the current preview first."
               : null;
+  const findUsagesDisabledReason = !active
+    ? "Open a file to find usages."
+    : !trusted
+      ? "Trust the workspace before finding usages; no analysis runs in Restricted mode."
+      : !lspActive
+        ? "Start analysis before finding usages."
+        : !lsp.capabilities?.references
+          ? "csharp-ls did not advertise references for this session."
+          : active.conflict
+            ? "Resolve the disk conflict before finding usages in this file."
+            : editPreview
+              ? "Finish or cancel the current preview first."
+              : null;
+  const goToDefinitionDisabledReason = !active
+    ? "Open a file to go to a declaration."
+    : !trusted
+      ? "Trust the workspace before going to a declaration; no analysis runs in Restricted mode."
+      : !lspActive
+        ? "Start analysis before going to a declaration."
+        : !lsp.capabilities?.definition
+          ? "csharp-ls did not advertise definitions for this session."
+          : active.conflict
+            ? "Resolve the disk conflict before navigating from this file."
+            : null;
   const lspSent = useRef<{ session: number; paths: Set<string> }>({
     session: 0,
     paths: new Set(),
@@ -726,6 +776,34 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         ? debugCurrentFrame.line
         : null
       : null;
+  const activeProjectPath = activeEvaluationProject?.path ?? activeProject?.path ?? null;
+  const gutterActions = useMemo(() => {
+    if (
+      !active ||
+      !documentSymbols ||
+      documentSymbols.path !== active.path ||
+      documentSymbols.revision !== active.revision
+    ) {
+      return [];
+    }
+    return gutterActionsFor({
+      symbols: documentSymbols.response.symbols,
+      projectPath: activeProjectPath,
+      startupProjectPath: startupProject?.path ?? null,
+      testItems: testDiscovery.items,
+      runDisabledReason,
+      testDisabledReason: testRunBlocked,
+    });
+  }, [
+    active?.path,
+    active?.revision,
+    documentSymbols,
+    activeProjectPath,
+    startupProject?.path,
+    testDiscovery.items,
+    runDisabledReason,
+    testRunBlocked,
+  ]);
 
   useEffect(() => {
     // The active configuration is the source of truth, so the first evaluation waits for the
@@ -840,6 +918,81 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }, [lsp.session, lsp.state, tabs]);
 
+  useEffect(() => {
+    // Gutter positions come from the server's document symbols, never from source parsing.
+    // No analysis, capability or open document means no positions and therefore no icons.
+    const path = active?.path;
+    if (!path || !active || !trusted || !lspActive || !lsp.capabilities?.documentSymbol) {
+      setDocumentSymbols(null);
+      return;
+    }
+    const revision = active.revision;
+    const session = lsp.session;
+    const contextId = snapshot.contextId;
+    const workspaceId = workspace.id;
+    setDocumentSymbols((current) =>
+      current &&
+      current.path === path &&
+      current.session === session &&
+      current.contextId === contextId &&
+      current.workspaceId === workspaceId
+        ? current
+        : null,
+    );
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const synchronized = await flushPendingChanges();
+        if (cancelled || !synchronized) return;
+        try {
+          const response = await call<DocumentSymbolResponse>("lsp.documentSymbol", { path });
+          if (cancelled) return;
+          const tab = tabsRef.current.find((item) => item.path === path);
+          const live = lspViewRef.current;
+          if (
+            !tab ||
+            tab.revision !== revision ||
+            live.session !== response.session ||
+            contextIdRef.current !== response.contextId ||
+            workspaceIdRef.current !== response.workspaceId ||
+            activePathRef.current !== path
+          ) {
+            return;
+          }
+          setDocumentSymbols({
+            path,
+            revision,
+            session: response.session,
+            contextId: response.contextId,
+            workspaceId: response.workspaceId,
+            response,
+          });
+        } catch {
+          if (!cancelled) {
+            setDocumentSymbols((current) =>
+              current && current.path === path && current.session === session
+                ? null
+                : current,
+            );
+          }
+        }
+      })();
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    active?.path,
+    active?.revision,
+    lspActive,
+    lsp.session,
+    lsp.capabilities?.documentSymbol,
+    snapshot.contextId,
+    workspace.id,
+    trusted,
+  ]);
+
   function queueDidChange(path: string, text: string) {
     if (!lspActiveRef.current) return;
     lspPending.current.set(path, text);
@@ -854,25 +1007,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       lspPending.current.clear();
     }, 250);
   }
-
-  useEffect(() => {
-    if (!renamePrompt) return;
-    if (activePath !== renamePrompt.path) {
-      renameSeq.current += 1;
-      setRenamePrompt(null);
-      setMessage({ tone: "info", text: "Rename cancelled: another file became active." });
-      return;
-    }
-    const tab = tabs.find((item) => item.path === renamePrompt.path);
-    if (!tab || tab.revision !== renamePrompt.revision || tab.conflict) {
-      renameSeq.current += 1;
-      setRenamePrompt(null);
-      setMessage({
-        tone: "error",
-        text: "Rename prompt discarded: the source buffer changed; nothing was requested.",
-      });
-    }
-  }, [activePath, tabs, renamePrompt]);
 
   useEffect(() => {
     if (editPreview) editPreviewHeading.current?.focus();
@@ -1139,19 +1273,62 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       return;
     }
     renameSeq.current += 1;
-    setRenameName("");
+    noteCursor(position);
     setMessage(null);
-    setRenamePrompt({
-      path: active.path,
-      line: position.line,
-      character: position.character,
-      revision: active.revision,
-      session: lsp.session,
-      contextId: snapshot.contextId,
-      workspaceId: workspace.id,
-      busy: false,
-      error: null,
-    });
+    setRenameRequest((current) => current + 1);
+  }
+
+  function cancelRenameRequest() {
+    renameSeq.current += 1;
+    setMessage({ tone: "info", text: "Rename cancelled; no request was kept." });
+  }
+
+  function handleGutterAction(action: GutterAction) {
+    if (action.kind === "run") {
+      requestRun();
+      return;
+    }
+    if (!action.testId || !action.testProject) return;
+    if (testRunBlocked) {
+      setMessage({ tone: "error", text: `Test run unavailable: ${testRunBlocked}` });
+      return;
+    }
+    void startTestRun(action.testProject, "selected", [action.testId]);
+  }
+
+  function openCommitPanel(path: string | null = null) {
+    setCommitFocusPath(path);
+    setLayout((current) => ({
+      ...current,
+      left: { ...current.left, active: "commit", open: true },
+    }));
+  }
+
+  async function showGitDiff(path: string) {
+    const file = gitStatus?.files.find((entry) => entry.path === path);
+    const staged = Boolean(file && file.staged && file.worktree === " ");
+    try {
+      setGitDiffView(await call<GitDiffView>("git.diff", { path, staged }));
+    } catch (error) {
+      setGitDiffView({
+        state: "failed",
+        message: messageOf(error),
+        path,
+        staged,
+        diff: "",
+        truncated: false,
+      });
+    }
+  }
+
+  async function copyPath(path: string) {
+    try {
+      if (!navigator.clipboard) throw new Error("the clipboard is not accessible in this context");
+      await navigator.clipboard.writeText(path);
+      setMessage({ tone: "info", text: `Copied path: ${path}` });
+    } catch (error) {
+      setMessage({ tone: "error", text: `Copy Path unavailable: ${messageOf(error)}` });
+    }
   }
 
   async function requestCodeActions(position = cursorRef.current) {
@@ -1270,6 +1447,116 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     setMessage({ tone: "info", text: "Code actions closed; nothing was applied." });
   }
 
+  async function requestFindUsages(position = cursorRef.current) {
+    if (!active) return;
+    if (findUsagesDisabledReason) {
+      setMessage({ tone: "error", text: `Find Usages unavailable: ${findUsagesDisabledReason}` });
+      return;
+    }
+    const sourcePath = active.path;
+    const sourceRevision = active.revision;
+    const session = lsp.session;
+    const contextId = snapshot.contextId;
+    const workspaceId = workspace.id;
+    const sequence = ++findUsagesSeq.current;
+    setFindUsages(null);
+    setMessage(null);
+    const synchronized = await flushPendingChanges();
+    if (sequence !== findUsagesSeq.current) return;
+    if (!synchronized) {
+      setMessage({
+        tone: "error",
+        text: "Find Usages unavailable: the current buffer could not be sent to analysis.",
+      });
+      return;
+    }
+    const tab = tabsRef.current.find((item) => item.path === sourcePath);
+    const live = lspViewRef.current;
+    if (
+      !tab ||
+      tab.revision !== sourceRevision ||
+      tab.conflict ||
+      live.session !== session ||
+      activePathRef.current !== sourcePath
+    ) {
+      setMessage({
+        tone: "error",
+        text: "Find Usages discarded: the document or analysis session changed before the request.",
+      });
+      return;
+    }
+    let response: ReferencesResponse;
+    try {
+      response = await call<ReferencesResponse>("lsp.references", {
+        path: sourcePath,
+        line: position.line,
+        character: position.character,
+        revision: sourceRevision,
+      });
+    } catch (error) {
+      if (sequence !== findUsagesSeq.current) return;
+      setMessage({ tone: "error", text: `Find Usages unavailable: ${messageOf(error)}` });
+      return;
+    }
+    if (sequence !== findUsagesSeq.current) return;
+    const currentTab = tabsRef.current.find((item) => item.path === sourcePath);
+    const liveAfter = lspViewRef.current;
+    if (
+      !currentTab ||
+      currentTab.revision !== sourceRevision ||
+      currentTab.conflict ||
+      liveAfter.session !== response.session ||
+      contextIdRef.current !== response.contextId ||
+      workspaceIdRef.current !== response.workspaceId ||
+      activePathRef.current !== sourcePath
+    ) {
+      setMessage({
+        tone: "error",
+        text: "Find Usages discarded: the document, workspace or analysis session changed while csharp-ls was answering.",
+      });
+      return;
+    }
+    const snippets: Record<string, string | null> = {};
+    const byPath = new Map<string, number[]>();
+    for (const reference of response.references) {
+      byPath.set(reference.path, [...(byPath.get(reference.path) ?? []), reference.line]);
+    }
+    await Promise.all(
+      [...byPath.entries()].map(async ([path, lines]) => {
+        const open = tabsRef.current.find((item) => item.path === path);
+        let content: string | null = open?.content ?? null;
+        if (content === null) {
+          try {
+            content = (await call<{ content: string }>("file.read", { path })).content;
+          } catch {
+            content = null;
+          }
+        }
+        for (const line of lines) {
+          snippets[`${path}:${line}`] = content === null ? null : lineSnippet(content, line);
+        }
+      }),
+    );
+    if (sequence !== findUsagesSeq.current) return;
+    setFindUsages({ response, snippets });
+    if (response.state !== "ok") {
+      setMessage({
+        tone: "error",
+        text: `Find Usages ${response.state}: ${response.message ?? "csharp-ls did not answer."}`,
+      });
+    } else if (response.referenceCount === 0) {
+      setMessage({
+        tone: "info",
+        text: `Find Usages: csharp-ls returned no references at ${sourcePath}:${position.line + 1}:${position.character + 1}.`,
+      });
+    } else {
+      setMessage({
+        tone: "info",
+        text: `Find Usages: ${countLabel(response.referenceCount, "reference")} from csharp-ls; the list is read-only.`,
+      });
+    }
+  }
+
   function revalidateActionList(list: ActionList): string | null {
     const live = lspViewRef.current;
     if (!["loading", "ready", "partial", "awaiting_diagnostics"].includes(live.state)) {
@@ -1348,12 +1635,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     });
   }
 
-  function cancelRenamePrompt() {
-    renameSeq.current += 1;
-    setRenamePrompt(null);
-    setMessage({ tone: "info", text: "Rename cancelled; no request was kept." });
-  }
-
   async function flushPendingChanges() {
     if (lspChangeTimer.current !== null) {
       window.clearTimeout(lspChangeTimer.current);
@@ -1368,116 +1649,99 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     return results.every((result) => result.status === "fulfilled");
   }
 
-  async function submitRename() {
-    const prompt = renamePrompt;
-    if (!prompt || prompt.busy) return;
-    const name = renameName.trim();
-    if (!name) {
-      setRenamePrompt({ ...prompt, error: "Enter the new name." });
-      return;
+  async function submitRenameInline(
+    position: { line: number; character: number },
+    newName: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const tab = tabsRef.current.find((item) => item.path === activePathRef.current);
+    if (!tab) return { ok: false, error: "Rename unavailable: no file is active." };
+    if (renameDisabledReason) {
+      return { ok: false, error: `Rename unavailable: ${renameDisabledReason}` };
     }
-    const sequence = ++renameSeq.current;
-    setRenamePrompt({ ...prompt, busy: true, error: null });
     if (!lspActiveRef.current) {
-      setRenamePrompt((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error: "Analysis is not running; no rename was requested.",
-            }
-          : current,
-      );
-      return;
+      return { ok: false, error: "Analysis is not running; no rename was requested." };
     }
+    const sourcePath = tab.path;
+    const sourceRevision = tab.revision;
+    const session = lspViewRef.current.session;
+    const contextId = contextIdRef.current;
+    const workspaceId = workspaceIdRef.current;
+    const sequence = ++renameSeq.current;
     // Analysis must see the buffer the preview is based on; a pending debounce would let
     // csharp-ls compute the rename from older text.
     const synchronized = await flushPendingChanges();
-    if (sequence !== renameSeq.current) return;
-    if (!synchronized) {
-      setRenamePrompt((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error:
-                "Could not send the current buffer to analysis; no rename was requested.",
-            }
-          : current,
-      );
-      return;
+    if (sequence !== renameSeq.current) {
+      return { ok: false, error: "Rename cancelled; no preview was opened." };
     }
-    const tab = tabsRef.current.find((item) => item.path === prompt.path);
+    if (!synchronized) {
+      return {
+        ok: false,
+        error: "Could not send the current buffer to analysis; no rename was requested.",
+      };
+    }
     const live = lspViewRef.current;
-    if (!tab || tab.revision !== prompt.revision || tab.conflict || live.session !== prompt.session) {
-      setRenamePrompt(null);
-      setMessage({
-        tone: "error",
-        text: "Rename discarded: the document or analysis session changed while the prompt was open.",
-      });
-      return;
+    const current = tabsRef.current.find((item) => item.path === sourcePath);
+    if (
+      !current ||
+      current.revision !== sourceRevision ||
+      current.conflict ||
+      live.session !== session ||
+      activePathRef.current !== sourcePath
+    ) {
+      const error =
+        "Rename discarded: the document or analysis session changed before the request.";
+      setMessage({ tone: "error", text: error });
+      return { ok: false, error };
     }
     let response: RenameResponse;
     try {
       response = await call<RenameResponse>("lsp.rename", {
-        path: prompt.path,
-        line: prompt.line,
-        character: prompt.character,
-        newName: name,
-        revision: prompt.revision,
+        path: sourcePath,
+        line: position.line,
+        character: position.character,
+        newName,
+        revision: sourceRevision,
       });
     } catch (error) {
-      if (sequence !== renameSeq.current) return;
-      setRenamePrompt((current) =>
-        current
-          ? { ...current, busy: false, error: `Rename unavailable: ${messageOf(error)}` }
-          : current,
-      );
-      return;
+      if (sequence !== renameSeq.current) {
+        return { ok: false, error: "Rename cancelled; no preview was opened." };
+      }
+      return { ok: false, error: `Rename unavailable: ${messageOf(error)}` };
     }
-    if (sequence !== renameSeq.current) return;
-    const currentTab = tabsRef.current.find((item) => item.path === prompt.path);
+    if (sequence !== renameSeq.current) {
+      return { ok: false, error: "Rename cancelled; no preview was opened." };
+    }
+    const currentTab = tabsRef.current.find((item) => item.path === sourcePath);
     const liveAfter = lspViewRef.current;
     if (
       !currentTab ||
-      currentTab.revision !== prompt.revision ||
+      currentTab.revision !== sourceRevision ||
       currentTab.conflict ||
-      liveAfter.session !== prompt.session ||
-      contextIdRef.current !== prompt.contextId ||
-      workspaceIdRef.current !== prompt.workspaceId
+      liveAfter.session !== session ||
+      contextIdRef.current !== contextId ||
+      workspaceIdRef.current !== workspaceId
     ) {
-      setRenamePrompt(null);
-      setMessage({
-        tone: "error",
-        text: "Rename response discarded: the document, workspace or analysis session changed while csharp-ls was answering; nothing was applied.",
-      });
-      return;
+      const error =
+        "Rename response discarded: the document, workspace or analysis session changed while csharp-ls was answering; nothing was applied.";
+      setMessage({ tone: "error", text: error });
+      return { ok: false, error };
     }
     if (response.state !== "ok" || response.documentCount === 0) {
-      setRenamePrompt((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error: `Rename ${response.state}: ${
-                response.message ?? "csharp-ls returned no edits."
-              }`,
-            }
-          : current,
-      );
-      return;
+      return {
+        ok: false,
+        error: `Rename ${response.state}: ${response.message ?? "csharp-ls returned no edits."}`,
+      };
     }
     const tabRevisions: Record<string, number> = {};
-    for (const tab of tabsRef.current) tabRevisions[tab.path] = tab.revision;
-    setRenamePrompt(null);
+    for (const openTab of tabsRef.current) tabRevisions[openTab.path] = openTab.revision;
     setEditPreview({
       kind: "rename",
       response,
-      sourcePath: prompt.path,
-      sourceRevision: prompt.revision,
-      session: prompt.session,
-      contextId: prompt.contextId,
-      workspaceId: prompt.workspaceId,
+      sourcePath,
+      sourceRevision,
+      session,
+      contextId,
+      workspaceId,
       tabRevisions,
       stale: null,
       applying: false,
@@ -1489,6 +1753,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         "edit",
       )}; nothing has been applied.`,
     });
+    return { ok: true };
   }
 
   function cancelEditPreview() {
@@ -2426,15 +2691,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "code.goToDeclaration",
       title: "Go to Declaration",
       group: "Code",
-      execute: () => undefined,
-      disabledReason: "Go to Declaration with F12 arrives in F7; Ctrl+B works in the editor.",
+      execute: () => setDefinitionRequest((current) => current + 1),
+      disabledReason: goToDefinitionDisabledReason,
     }),
     define({
       id: "code.findUsages",
       title: "Find Usages",
       group: "Code",
-      execute: () => undefined,
-      disabledReason: "Find Usages arrives in F7.",
+      execute: () => void requestFindUsages(),
+      disabledReason: findUsagesDisabledReason,
     }),
     define({
       id: "code.contextActions",
@@ -2562,12 +2827,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "git.commit",
       title: "Commit…",
       group: "Git",
-      execute: () => {
-        setLayout((current) => ({
-          ...current,
-          left: { ...current.left, active: "commit", open: true },
-        }));
-      },
+      execute: () => openCommitPanel(),
       disabledReason: gitBlockedReason(gitStatus, gitStatusError, trusted),
     }),
     define({
@@ -2654,6 +2914,97 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       execute: () => action?.execute(),
     };
   });
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+    document.querySelector<HTMLElement>('[data-testid="editor"]')?.focus();
+  }, []);
+  const activeGitFile = active
+    ? gitStatus?.files.find((entry) => entry.path === active.path) ?? null
+    : null;
+  const gitContextDisabledReason =
+    gitBlockedReason(gitStatus, gitStatusError, trusted) ??
+    (activeGitFile ? null : "This file has no uncommitted changes in Git.");
+  const shortcutOf = (id: string) => actionById.get(id)?.shortcutTexts[0];
+  function contextMenuItems(state: ContextMenuState): ContextMenuItem[] {
+    const action = gutterActionAt(gutterActions, state.line + 1);
+    const test = action?.kind === "test" ? action : null;
+    const position = { line: state.line, character: state.character };
+    return [
+      {
+        id: "context-actions",
+        label: "Context Actions",
+        shortcut: shortcutOf("code.contextActions"),
+        disabledReason: codeActionsDisabledReason,
+        action: () => void requestCodeActions(position),
+      },
+      {
+        id: "find-usages",
+        label: "Find Usages",
+        shortcut: shortcutOf("code.findUsages"),
+        disabledReason: findUsagesDisabledReason,
+        action: () => void requestFindUsages(position),
+      },
+      {
+        id: "go-to-definition",
+        label: "Go To Definition",
+        shortcut: shortcutOf("code.goToDeclaration"),
+        disabledReason: goToDefinitionDisabledReason,
+        action: () => setDefinitionRequest((current) => current + 1),
+      },
+      {
+        id: "rename",
+        label: "Rename",
+        shortcut: shortcutOf("code.rename"),
+        disabledReason: renameDisabledReason,
+        action: () => requestRename(position),
+      },
+      {
+        id: "run-test",
+        label: "Run Test",
+        disabledReason: test
+          ? testRunBlocked
+          : "Place the cursor on a test method with analysis ready.",
+        action: () => {
+          if (test) handleGutterAction(test);
+        },
+        separatorBefore: true,
+      },
+      {
+        id: "debug-test",
+        label: "Debug Test",
+        disabledReason: test
+          ? testDebugUnavailable
+          : "Place the cursor on a test method with analysis ready.",
+        action: () => {
+          if (test) setMessage({ tone: "error", text: `Debug test unavailable: ${testDebugUnavailable}` });
+        },
+      },
+      {
+        id: "git-diff",
+        label: "Git: Show Diff",
+        disabledReason: gitContextDisabledReason,
+        action: () => {
+          if (active) void showGitDiff(active.path);
+        },
+        separatorBefore: true,
+      },
+      {
+        id: "git-commit",
+        label: "Git: Commit File…",
+        disabledReason: gitContextDisabledReason,
+        action: () => openCommitPanel(active?.path ?? null),
+      },
+      {
+        id: "copy-path",
+        label: "Copy Path",
+        disabledReason: null,
+        action: () => {
+          if (active) void copyPath(active.path);
+        },
+        separatorBefore: true,
+      },
+    ];
+  }
   const actionsRef = useRef<ResolvedAction[]>([]);
   actionsRef.current = resolvedActions;
   const lastShift = useRef<number | null>(null);
@@ -3004,12 +3355,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           trusted={trusted}
           intent={gitIntent}
           onRefresh={refreshGit}
-          onOpenCommit={() => {
-            setLayout((current) => ({
-              ...current,
-              left: { ...current.left, active: "commit", open: true },
-            }));
-          }}
+          onOpenCommit={() => openCommitPanel()}
           onMessage={(text) => setMessage({ tone: "info", text })}
         />
         <label className="eval-field toolbar-startup">
@@ -3358,6 +3704,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             status={gitStatus}
             statusError={gitStatusError}
             trusted={trusted}
+            initialPath={commitFocusPath}
             onRefresh={refreshGit}
             onMessage={(text) => setMessage({ tone: "info", text })}
             onError={(text) => setMessage({ tone: "error", text })}
@@ -3696,6 +4043,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 </span>
               </div>
 
+              {findUsages && (
+                <FindUsagesPanel
+                  response={findUsages.response}
+                  snippets={findUsages.snippets}
+                  onNavigate={(path, position) => void navigateTo(path, position)}
+                  onClose={() => {
+                    findUsagesSeq.current += 1;
+                    setFindUsages(null);
+                  }}
+                />
+              )}
+
               {editPreview && (
                 <section
                   className="rename-preview"
@@ -3971,7 +4330,23 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                     })
                   }
                   onRename={(position) => requestRename(position)}
+                  onRenameSubmit={submitRenameInline}
+                  onRenameCancel={cancelRenameRequest}
                   onCodeActions={(position) => void requestCodeActions(position)}
+                  onContextMenu={(position, at) => {
+                    noteCursor(position);
+                    setContextMenu({
+                      x: at.x,
+                      y: at.y,
+                      line: position.line,
+                      character: position.character,
+                    });
+                    if (trusted) void refreshGit();
+                  }}
+                  onGutterAction={handleGutterAction}
+                  gutterActions={gutterActions}
+                  renameRequest={renameRequest}
+                  definitionRequest={definitionRequest}
                   onCursor={noteCursor}
                   breakpoints={activeBreakpoints}
                   currentLine={debugCurrentLine}
@@ -4184,76 +4559,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         }}
       />
 
-      {renamePrompt && (
-        <div className="modal-backdrop">
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="rename-title"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") cancelRenamePrompt();
-              if (event.key === "Tab") {
-                const focusable = Array.from(
-                  event.currentTarget.querySelectorAll<HTMLElement>("input, button"),
-                );
-                const first = focusable[0];
-                const last = focusable[focusable.length - 1];
-                if (!first || !last) return;
-                if (event.shiftKey && document.activeElement === first) {
-                  event.preventDefault();
-                  last.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                  event.preventDefault();
-                  first.focus();
-                }
-              }
-            }}
-          >
-            <h2 id="rename-title">Rename symbol</h2>
-            <p className="muted" data-testid="rename-source">
-              {renamePrompt.path} · {renamePrompt.line + 1}:{renamePrompt.character + 1} ·
-              revision {renamePrompt.revision} · session {renamePrompt.session}
-            </p>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitRename();
-              }}
-            >
-              <label className="rename-field">
-                <span>New name</span>
-                <input
-                  data-testid="rename-input"
-                  autoFocus
-                  value={renameName}
-                  onChange={(event) => setRenameName(event.target.value)}
-                  disabled={renamePrompt.busy}
-                  aria-describedby={renamePrompt.error ? "rename-error" : undefined}
-                />
-              </label>
-              {renamePrompt.error && (
-                <p className="error" role="alert" id="rename-error" data-testid="rename-error">
-                  {renamePrompt.error}
-                </p>
-              )}
-              <p className="hint">
-                csharp-ls returns the real edits; nothing changes until the preview is
-                applied.
-              </p>
-              <div className="actions">
-                <button type="submit" data-testid="rename-submit" disabled={renamePrompt.busy}>
-                  {renamePrompt.busy ? "Waiting for csharp-ls…" : "Preview rename"}
-                </button>
-                <button type="button" data-testid="rename-cancel" onClick={cancelRenamePrompt}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {buildDecision && (
         <div className="modal-backdrop">
           <div
@@ -4400,6 +4705,61 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   : confirm.kind === "workspace"
                     ? "Discard and close workspace"
                     : "Discard and close app"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {contextMenu && (
+        <EditorContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenuItems(contextMenu)}
+          onClose={closeContextMenu}
+        />
+      )}
+
+      {gitDiffView && (
+        <div className="modal-backdrop">
+          <div
+            className="modal git-diff-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="git-diff-title"
+            data-testid="editor-git-diff"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setGitDiffView(null);
+            }}
+          >
+            <h2 id="git-diff-title">Git diff · {gitDiffView.path}</h2>
+            <p className="muted" data-testid="editor-git-diff-state">
+              {gitDiffView.state === "ok"
+                ? `${gitDiffView.staged ? "Staged" : "Working tree"} diff`
+                : gitDiffView.state === "empty"
+                  ? "No diff for this file."
+                  : "Git diff failed."}
+              {gitDiffView.truncated ? " · truncated by the host" : ""}
+            </p>
+            {gitDiffView.message && (
+              <p className="error" role="alert" data-testid="editor-git-diff-message">
+                {gitDiffView.message}
+              </p>
+            )}
+            {gitDiffView.diff ? (
+              <pre className="eval-pre" data-testid="editor-git-diff-content">
+                {gitDiffView.diff}
+              </pre>
+            ) : (
+              <p className="muted">Nothing to show; OpenRidr did not invent a diff.</p>
+            )}
+            <div className="actions">
+              <button
+                autoFocus
+                data-testid="editor-git-diff-close"
+                onClick={() => setGitDiffView(null)}
+              >
+                Close
               </button>
             </div>
           </div>

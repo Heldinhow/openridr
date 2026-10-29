@@ -55,6 +55,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "lsp.definition",
     "lsp.rename",
     "lsp.codeActions",
+    "lsp.references",
+    "lsp.documentSymbol",
     "tools.install",
     "tools.retry",
     "debug.install",
@@ -216,6 +218,14 @@ impl AnalysisBase {
             "rejectedActions": 0,
             "unsupportedActions": 0,
             "diagnosticsUsed": 0,
+            "references": [],
+            "referenceCount": 0,
+            "totalReferences": 0,
+            "rejectedReferences": 0,
+            "symbols": [],
+            "symbolCount": 0,
+            "totalSymbols": 0,
+            "rejectedSymbols": 0,
         })
     }
 }
@@ -476,6 +486,12 @@ impl Host {
         }
         if method == "lsp.codeActions" {
             return self.lsp_code_actions(params);
+        }
+        if method == "lsp.references" {
+            return self.lsp_references(params);
+        }
+        if method == "lsp.documentSymbol" {
+            return self.lsp_document_symbol(params);
         }
         if method == "lsp.workspaceSymbol" {
             return self.lsp_workspace_symbol(params);
@@ -4114,6 +4130,219 @@ impl Host {
         Ok(answer)
     }
 
+    fn lsp_references(&self, params: Value) -> HostResult<Value> {
+        let request = match self.prepare_analysis_request(
+            "lsp.references",
+            "textDocument/references",
+            &params,
+        )? {
+            Ok(request) => request,
+            Err(answer) => return Ok(answer),
+        };
+        let response = request.lsp.request(
+            "textDocument/references",
+            json!({
+                "textDocument": { "uri": request.uri },
+                "position": { "line": request.base.line, "character": request.base.character },
+                "context": { "includeDeclaration": false },
+            }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        if let Some(answer) = self.analysis_invalidated(&request) {
+            return Ok(answer);
+        }
+        let value = match response {
+            Ok(value) => value,
+            Err(lsp::RequestError::Timeout(timeout)) => {
+                return Ok(request.base.answer(
+                    "timeout",
+                    Some(format!(
+                        "csharp-ls did not answer the references request within {} seconds; nothing was changed.",
+                        timeout.as_secs()
+                    )),
+                ));
+            }
+            Err(lsp::RequestError::Unavailable(message)) => {
+                return Ok(request.base.answer("unavailable", Some(message)));
+            }
+            Err(lsp::RequestError::Server(message)) => {
+                return Ok(request.base.answer(
+                    "failed",
+                    Some(format!(
+                        "csharp-ls rejected the references request: {message}"
+                    )),
+                ));
+            }
+        };
+        let Some(parsed) = lsp::parse_references(&value, lsp::REFERENCE_LIMIT) else {
+            request
+                .lsp
+                .log_line("[client] references rejected: the result is not an array");
+            return Ok(request.base.answer(
+                "failed",
+                Some(
+                    "csharp-ls returned a references payload this client does not understand."
+                        .to_string(),
+                ),
+            ));
+        };
+        let root = {
+            let inner = self.inner.lock().unwrap();
+            let Some(workspace) = inner.workspace.as_ref() else {
+                return Ok(request.base.answer(
+                    "stale",
+                    Some(
+                        "The workspace closed while csharp-ls was answering; no references were shown."
+                            .to_string(),
+                    ),
+                ));
+            };
+            workspace.root.clone()
+        };
+        let mut locations = Vec::new();
+        let mut rejected = parsed.rejected;
+        for target in &parsed.targets {
+            match definition_location(&root, target) {
+                Some(location) => locations.push(location),
+                None => rejected += 1,
+            }
+        }
+        let truncated = parsed.total > parsed.targets.len();
+        let mut notes = Vec::new();
+        if truncated {
+            notes.push(format!(
+                "Showing {} of {} references returned by csharp-ls.",
+                locations.len(),
+                parsed.total
+            ));
+        }
+        if rejected > 0 {
+            notes.push(format!(
+                "{rejected} reference(s) outside the workspace or not on disk were rejected."
+            ));
+        }
+        let state = if locations.is_empty() && rejected > 0 {
+            "unavailable"
+        } else {
+            "ok"
+        };
+        let message = if locations.is_empty() && notes.is_empty() {
+            Some("csharp-ls returned no references for this position.".to_string())
+        } else if notes.is_empty() {
+            None
+        } else {
+            Some(notes.join(" "))
+        };
+        let mut answer = request.base.answer(state, message);
+        answer["references"] = json!(locations);
+        answer["referenceCount"] = json!(locations.len());
+        answer["totalReferences"] = json!(parsed.total);
+        answer["rejectedReferences"] = json!(rejected);
+        answer["truncated"] = json!(truncated);
+        request.lsp.log_line(format!(
+            "[client] references at {}:{} · session {} · {} shown, {} total, {} rejected",
+            request.base.line,
+            request.base.character,
+            request.base.session,
+            locations.len(),
+            parsed.total,
+            rejected
+        ));
+        Ok(answer)
+    }
+
+    fn lsp_document_symbol(&self, params: Value) -> HostResult<Value> {
+        // The contract takes only a path; line/character are inert fields of the shared
+        // analysis answer and never part of the document symbol request.
+        let mut gated = params.clone();
+        if gated.get("line").is_none() {
+            gated["line"] = json!(0);
+        }
+        if gated.get("character").is_none() {
+            gated["character"] = json!(0);
+        }
+        let request = match self.prepare_analysis_request(
+            "lsp.documentSymbol",
+            "textDocument/documentSymbol",
+            &gated,
+        )? {
+            Ok(request) => request,
+            Err(answer) => return Ok(answer),
+        };
+        let response = request.lsp.request(
+            "textDocument/documentSymbol",
+            json!({ "textDocument": { "uri": request.uri } }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        if let Some(answer) = self.analysis_invalidated(&request) {
+            return Ok(answer);
+        }
+        let value = match response {
+            Ok(value) => value,
+            Err(lsp::RequestError::Timeout(timeout)) => {
+                return Ok(request.base.answer(
+                    "timeout",
+                    Some(format!(
+                        "csharp-ls did not answer the document symbol request within {} seconds.",
+                        timeout.as_secs()
+                    )),
+                ));
+            }
+            Err(lsp::RequestError::Unavailable(message)) => {
+                return Ok(request.base.answer("unavailable", Some(message)));
+            }
+            Err(lsp::RequestError::Server(message)) => {
+                return Ok(request.base.answer(
+                    "failed",
+                    Some(format!(
+                        "csharp-ls rejected the document symbol request: {message}"
+                    )),
+                ));
+            }
+        };
+        let Some(parsed) = lsp::parse_document_symbols(&value, lsp::DOCUMENT_SYMBOL_LIMIT) else {
+            request
+                .lsp
+                .log_line("[client] document symbols rejected: the result is not an array");
+            return Ok(request.base.answer(
+                "failed",
+                Some(
+                    "csharp-ls returned a document symbol payload this client does not understand."
+                        .to_string(),
+                ),
+            ));
+        };
+        let count = count_document_symbols(&parsed.symbols);
+        let truncated = parsed.total > count;
+        let mut notes = Vec::new();
+        if truncated {
+            notes.push(format!(
+                "Showing {count} of {} document symbols returned by csharp-ls.",
+                parsed.total
+            ));
+        }
+        if parsed.rejected > 0 {
+            notes.push(format!(
+                "{} malformed document symbol(s) were ignored.",
+                parsed.rejected
+            ));
+        }
+        let message = if count == 0 && parsed.rejected == 0 {
+            Some("csharp-ls returned no document symbols for this file.".to_string())
+        } else if notes.is_empty() {
+            None
+        } else {
+            Some(notes.join(" "))
+        };
+        let mut answer = request.base.answer("ok", message);
+        answer["symbols"] = json!(parsed.symbols);
+        answer["symbolCount"] = json!(count);
+        answer["totalSymbols"] = json!(parsed.total);
+        answer["rejectedSymbols"] = json!(parsed.rejected);
+        answer["truncated"] = json!(truncated);
+        Ok(answer)
+    }
+
     /// Only current LSP publications for this document are sent as context; an item from a
     /// previous session, an awaiting publication or another origin is never forwarded.
     fn code_action_diagnostics(&self, request: &AnalysisRequest) -> Vec<Value> {
@@ -5832,6 +6061,13 @@ fn code_action_document_preview(
     }
 }
 
+fn count_document_symbols(symbols: &[lsp::DocumentSymbolView]) -> usize {
+    symbols
+        .iter()
+        .map(|symbol| 1 + count_document_symbols(&symbol.children))
+        .sum()
+}
+
 /// Builds one document of a rename/code-action preview without writing anything: the base
 /// text comes from the analysis session for open documents and from disk for unopened ones,
 /// and all UTF-16 positions are resolved here so the UI never does offset math.
@@ -6073,6 +6309,127 @@ mod tests {
         assert_eq!(no_analysis["missingAction"], "Start analysis");
         assert_eq!(no_analysis["truncated"], false);
         assert_eq!(no_analysis["items"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn references_and_document_symbols_report_the_missing_gate_without_trust_or_analysis() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Program.cs"), "class Program { static void Main() {} }\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+
+        let references = json!({ "path": "Program.cs", "line": 0, "character": 16 });
+        let symbols = json!({ "path": "Program.cs" });
+        assert_eq!(
+            host.dispatch("lsp.references", references.clone())
+                .unwrap_err()
+                .code,
+            "trust_required"
+        );
+        assert_eq!(
+            host.dispatch("lsp.documentSymbol", symbols.clone())
+                .unwrap_err()
+                .code,
+            "trust_required"
+        );
+
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let no_analysis = host.dispatch("lsp.references", references).unwrap();
+        assert_eq!(no_analysis["state"], "unavailable");
+        assert!(no_analysis["message"]
+            .as_str()
+            .unwrap()
+            .contains("Analysis is not running"));
+        assert_eq!(no_analysis["references"].as_array().unwrap().len(), 0);
+        assert_eq!(no_analysis["truncated"], false);
+
+        let no_analysis = host.dispatch("lsp.documentSymbol", symbols).unwrap();
+        assert_eq!(no_analysis["state"], "unavailable");
+        assert!(no_analysis["message"]
+            .as_str()
+            .unwrap()
+            .contains("Analysis is not running"));
+        assert_eq!(no_analysis["symbols"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn references_answer_is_discarded_when_the_analysis_session_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Program.cs"), "class Program {}\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+
+        let analysis = lsp::Lsp::begin(
+            1,
+            1,
+            1,
+            "",
+            false,
+            false,
+            "",
+            None,
+            Vec::new(),
+            "/tmp".to_string(),
+            false,
+            "full",
+            None,
+        );
+        let (workspace_id, context_id) = {
+            let mut inner = host.inner.lock().unwrap();
+            inner.lsp = Some(analysis.clone());
+            let workspace = inner.workspace.as_ref().unwrap();
+            (workspace.id, inner.context_seq)
+        };
+        let request = AnalysisRequest {
+            base: AnalysisBase {
+                method: "lsp.references",
+                token: ContextToken {
+                    workspace_id,
+                    context_id,
+                },
+                session: 1,
+                path: "Program.cs".to_string(),
+                line: 0,
+                character: 0,
+                revision: None,
+                version: None,
+                coverage: "full",
+                coverage_note: None,
+            },
+            lsp: analysis,
+            uri: lsp::file_uri(&root.join("Program.cs")),
+        };
+        host.inner.lock().unwrap().lsp = Some(lsp::Lsp::begin(
+            2,
+            1,
+            1,
+            "",
+            false,
+            false,
+            "",
+            None,
+            Vec::new(),
+            "/tmp".to_string(),
+            false,
+            "full",
+            None,
+        ));
+        let answer = host
+            .analysis_invalidated(&request)
+            .expect("a replaced session must discard the answer");
+        assert_eq!(answer["state"], "stale");
+        assert!(answer["message"]
+            .as_str()
+            .unwrap()
+            .contains("discarded"));
     }
 
     #[test]

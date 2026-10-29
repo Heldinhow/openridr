@@ -601,6 +601,7 @@ export function CommitPanel({
   status,
   statusError,
   trusted,
+  initialPath = null,
   onRefresh,
   onMessage,
   onError,
@@ -608,6 +609,7 @@ export function CommitPanel({
   status: GitStatus | null;
   statusError: string | null;
   trusted: boolean;
+  initialPath?: string | null;
   onRefresh: () => Promise<void>;
   onMessage: (text: string) => void;
   onError: (text: string) => void;
@@ -620,6 +622,7 @@ export function CommitPanel({
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const focused = useRef<string | null>(null);
   const reason = !trusted ? TRUST_MESSAGE : unavailable(status, statusError);
   const files = status?.state === "ok" ? status.files : [];
   const selected = useMemo(
@@ -663,6 +666,18 @@ export function CommitPanel({
       });
     }
   }
+
+  useEffect(() => {
+    if (!initialPath || focused.current === initialPath) return;
+    const file = files.find((entry) => entry.path === initialPath && !entry.conflicted);
+    if (!file) return;
+    focused.current = initialPath;
+    setSelection(new Set([initialPath]));
+    void showDiff(file);
+    // The path comes from the editor context menu; later refreshes must not replace the
+    // user's selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPath, files]);
 
   async function submit() {
     if (busy) return;

@@ -670,6 +670,8 @@ export type LspCapabilities = {
   prepareRename: boolean;
   codeActions: boolean;
   workspaceSymbol: boolean;
+  references: boolean;
+  documentSymbol: boolean;
   pushDiagnostics: boolean;
   pullDiagnostics: boolean;
   semanticTokens: boolean;
@@ -860,10 +862,42 @@ export type CodeActionsResponse = AnalysisResponse & {
   diagnosticsUsed: number;
 };
 
-/** Shared answer for `lsp.completion`, `lsp.definition`, `lsp.rename` and `lsp.codeActions`.
- * Unavailable/unsupported answers are data with empty lists, never fabricated items. */
+export type DocumentSymbol = {
+  name: string;
+  kind: number;
+  containerName: string;
+  range: LspRange;
+  selectionRange: LspRange;
+  children: DocumentSymbol[];
+};
+
+export type DocumentSymbolResponse = AnalysisResponse & {
+  method: "lsp.documentSymbol";
+  symbols: DocumentSymbol[];
+  symbolCount: number;
+  totalSymbols: number;
+  rejectedSymbols: number;
+};
+
+export type ReferencesResponse = AnalysisResponse & {
+  method: "lsp.references";
+  references: DefinitionLocation[];
+  referenceCount: number;
+  totalReferences: number;
+  rejectedReferences: number;
+};
+
+/** Shared answer for `lsp.completion`, `lsp.definition`, `lsp.rename`, `lsp.codeActions`,
+ * `lsp.references` and `lsp.documentSymbol`. Unavailable/unsupported answers are data with
+ * empty lists, never fabricated items. */
 export type AnalysisResponse = {
-  method: "lsp.completion" | "lsp.definition" | "lsp.rename" | "lsp.codeActions";
+  method:
+    | "lsp.completion"
+    | "lsp.definition"
+    | "lsp.rename"
+    | "lsp.codeActions"
+    | "lsp.references"
+    | "lsp.documentSymbol";
   state: "ok" | "unsupported" | "unavailable" | "stale" | "timeout" | "failed";
   message: string | null;
   session: number;
