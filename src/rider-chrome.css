@@ -1,0 +1,59 @@
+/* Keep the IDE surfaces distinct from the surrounding tool-window rails. */
+.workspace-view {
+  background: var(--chrome);
+}
+
+.workspace-view .side,
+.workspace-view .editor-pane,
+.workspace-view > .output {
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.workspace-view .side {
+  overflow: auto;
+}
+
+.workspace-view .splitter {
+  background: var(--chrome);
+}
+
+.workspace-view .splitter:hover,
+.workspace-view .splitter:focus-visible {
+  background: var(--accent);
+}
+
+.side .panel-title {
+  background: var(--bg);
+  border-bottom: 0;
+}
+
+.side .tree-row {
+  min-height: 24px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.tabbar .tab {
+  margin-right: 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.tabbar .tab.active {
+  background: #2b2d30;
+  border-color: #4a4d52;
+  box-shadow: none;
+}
+
+.tabbar .tab-label,
+.tabbar .tab-close {
+  background: transparent;
+}
+
+.workspace-tools > summary {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}

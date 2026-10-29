@@ -416,3 +416,10 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 `SetupScreen.tsx` ganhou `recent` (vindo de `App.tsx`, carregado/salvo em `localStorage`); estilos em `styles.css` (`.welcome-*`, `.recent-list`). Verificado: `bun run check`, `ui-layout.spec.ts` + `workspace.spec.ts` (20 passed) e screenshot vazio. Não verificado: lista de recentes preenchida visualmente, app Tauri real, Windows/Intel.
 
 Welcome — recentes verificados (2026-10-29): spec `welcome lists recent solutions…` em `workspace.spec.ts` (fecha o workspace, vê o recente, recarrega, reabre por clique). Screenshot em `docs/evidence/rider-compare/welcome-recent.png`. O nome do recente omite `.sln`/`.csproj`, como o Rider. Continua não verificado: app Tauri real, Windows/Intel.
+
+## Chrome visual baseado em observação REA (2026-10-29)
+
+- A observação passiva do REA capturou as janelas nativas do Rider e do OpenRidr abertas com o projeto Gabagool. A árvore de acessibilidade do Rider veio parcial; as janelas tinham tamanhos e estados diferentes, portanto a comparação é visual, não uma medição pixel a pixel.
+- O chrome agora delimita árvore, editor e saída com cantos arredondados; a aba ativa tem contorno discreto e a árvore usa linhas mais compactas. As dimensões dos painéis e os controles existentes foram mantidos.
+- Verificação: `bun run check` passou; `tests/e2e/ui-layout.spec.ts` passou 7/7 em Chrome no macOS ARM64, com capturas em 1600×1000, 1440×900 e 1100×700. O detector Impeccable não apontou problemas nos arquivos alterados.
+- Não verificados: app Tauri reconstruído com esta alteração, suíte E2E completa, Windows e macOS Intel. As observações nativas usaram o OpenRidr instalado anteriormente; a alteração foi inspecionada no Chrome. Permanecem diferenças funcionais e visuais entre os produtos, inclusive áreas e ações não implementadas.
