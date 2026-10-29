@@ -69,7 +69,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   await expect(page.getByTestId("debug-flag-note")).toContainText(
     "neither installs netcoredbg nor proves compatibility",
   );
-  await expect(page.getByTestId("debug-install")).toBeDisabled();
+  await expect(page.getByTestId("debug-install")).toHaveCount(0);
   await expect(page.getByTestId("debug-disabled-reason")).toContainText(
     "installation stays refused until you enable the experimental flag",
   );
@@ -78,7 +78,8 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   await reveal(page.getByTestId("debug-plan-open"));
   await page.getByTestId("debug-plan-open").click();
   await expect(page.getByTestId("debug-plan")).toBeVisible();
-  await page.getByTestId("debug-plan").locator("summary").click();
+  await expect(page.getByTestId("debug-plan")).toHaveAttribute("open", "");
+  await expect(page.getByTestId("debug-install")).toBeVisible();
   await expect(page.getByTestId("debug-plan-tool")).toContainText("netcoredbg 3.2.0-1092");
   await expect(page.getByTestId("debug-plan-source")).toContainText(
     "https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092",
@@ -100,6 +101,9 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   await expect(page.getByTestId("debug-plan-blocked")).toContainText(
     "installation stays refused until you enable the experimental flag",
   );
+  expect(
+    await page.getByTestId("debug-install").evaluate((button) => getComputedStyle(button).color),
+  ).not.toBe("rgb(240, 160, 121)");
   await page.screenshot({ path: path.join(screenshots, "13-debugger-plan.png"), fullPage: true });
   fs.writeFileSync(
     path.join(logs, "13-debugger-plan.json"),
@@ -147,7 +151,8 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   expect(fs.existsSync(debugToolDir)).toBe(false);
   await reveal(page.getByTestId("debug-plan-open"));
   await page.getByTestId("debug-plan-open").click();
-  await page.getByTestId("debug-plan").locator("summary").click();
+  await expect(page.getByTestId("debug-plan")).toHaveAttribute("open", "");
+  await expect(page.getByTestId("debug-install")).toBeVisible();
   await expect(page.getByTestId("debug-plan-asset")).toContainText(
     "netcoredbg-osx-arm64.zip",
   );

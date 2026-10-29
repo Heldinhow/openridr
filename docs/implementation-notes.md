@@ -367,3 +367,10 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 - Run output foi promovido à primeira área do painel Build; metadados de Build/Run ficam sob disclosure, logs limitados rolam localmente. Tests prioriza a seção da execução/resultados sobre metadados da descoberta; Debug prioriza frames/locals e move identidade/threads para Session details. Estados vazios não usam aparência de badge/controle, e o texto do estado DAP não se repete no detalhe.
 - Verificação real: `bun run build` passou; E2E focado no Chrome 155 headed (macOS 27.2 arm64, 1440×900, `slowMo:300`, SDK 8.0.408) para Run, resultados VSTest e pausa DAP: 3/3 passaram. Unidade não aplicável (sem lógica de host nova). Evidência: `docs/evidence/19-audit-run-tests-debug.md`; capturas fora do repo, para não incluí-las no commit.
 - Windows x64, macOS Intel e suíte E2E completa não verificados nesta fatia.
+
+## Auditoria visual de ações desabilitadas e planos de ferramentas (ticket 21)
+
+- `src/styles.css` neutraliza botões primary/danger e campos `:disabled`; os motivos de bloqueio existentes e os itens nativos desabilitados do menu contextual permanecem. Workspace tools agora pode ocupar até 30 vh com scroll próprio.
+- O plano de csharp-ls já abria ao ser consultado; `Confirm and install` foi movido para depois dos detalhes dentro do disclosure. O plano do netcoredbg agora também abre ao consultar e mantém confirmação após todos os campos. E2E valida trust bloqueado, plano de csharp-ls e plano/flag ARM64 off/on, sem confirmar instalação.
+- Verificação: `bun run build` passou (aviso existente de chunk >500 kB). E2E headed Chrome: `csharp-ls.spec.ts -g "disabled trust and install plan"`, `debugger.spec.ts -g "macOS arm64 requires the experimental flag"` e `run-configs.spec.ts -g "saved run configurations drive build and run"` passaram 1/1 cada. Não foi usado slowMo 300 ms e não foram guardadas capturas novas.
+- Não verificados nesta fatia: suíte E2E completa, Windows x64, macOS Intel, leitor de tela/WCAG formal e fluxo Tauri nativo. Nenhuma instalação adicional foi executada.

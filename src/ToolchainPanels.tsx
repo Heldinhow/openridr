@@ -145,21 +145,6 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
             Retry install
           </button>
         )}
-        {!active && plan && (
-          <button
-            className="primary"
-            data-testid="install-confirm"
-            disabled={busy || disabledReason !== null}
-            onClick={() =>
-              void run(() =>
-                call<Snapshot>("tools.install", { planId: plan.planId, confirm: true }),
-              )
-            }
-            title={disabledReason ?? "Downloads and installs into the staging directory, then verifies before ready."}
-          >
-            {tool.state === "ready" ? "Reuse verified installation" : "Confirm and install"}
-          </button>
-        )}
       </div>
 
       {disabledReason && !active && (
@@ -264,6 +249,21 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
                 : "No launcher at the destination."}
             </dd>
           </dl>
+          {!active && (
+            <button
+              className="primary"
+              data-testid="install-confirm"
+              disabled={busy || disabledReason !== null}
+              onClick={() =>
+                void run(() =>
+                  call<Snapshot>("tools.install", { planId: plan.planId, confirm: true }),
+                )
+              }
+              title={disabledReason ?? "Downloads and installs into the staging directory, then verifies before ready."}
+            >
+              {tool.state === "ready" ? "Reuse verified installation" : "Confirm and install"}
+            </button>
+          )}
         </details>
       )}
 
@@ -325,6 +325,7 @@ export function DebugAdapterPanel({
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [debugPlanOpen, setDebugPlanOpen] = useState(false);
 
   const installBlocker = !debug.installable
     ? debug.adapterMessage
@@ -392,7 +393,10 @@ export function DebugAdapterPanel({
         <button
           data-testid="debug-plan-open"
           disabled={busy}
-          onClick={() => void run(() => call<Snapshot>("debug.plan"))}
+          onClick={() => {
+            setDebugPlanOpen(true);
+            void run(() => call<Snapshot>("debug.plan"));
+          }}
           title="Shows the approved version, official source, platform asset, destination, operation, permissions, integrity and limits. It does not download or execute anything."
         >
           Review install plan
@@ -423,24 +427,6 @@ export function DebugAdapterPanel({
             }
           >
             Retry install
-          </button>
-        )}
-        {!active && (
-          <button
-            className="primary"
-            data-testid="debug-install"
-            disabled={busy || installBlocker !== null}
-            onClick={() =>
-              void run(() =>
-                call<Snapshot>("debug.install", { planId: plan?.planId, confirm: true }),
-              )
-            }
-            title={
-              installBlocker ??
-              "Downloads the official asset, verifies its published SHA-256, extracts it safely and only then verifies and promotes it."
-            }
-          >
-            {debug.adapterState === "ready" ? "Reuse verified adapter" : "Confirm and install"}
           </button>
         )}
       </div>
@@ -557,7 +543,12 @@ export function DebugAdapterPanel({
       )}
 
       {plan && (
-        <details className="eval-log analysis-plan" data-testid="debug-plan">
+        <details
+          className="eval-log analysis-plan"
+          data-testid="debug-plan"
+          open={debugPlanOpen}
+          onToggle={(event) => setDebugPlanOpen(event.currentTarget.open)}
+        >
           <summary>Install plan details</summary>
           <dl className="restore-meta">
             <dt>Tool</dt>
@@ -637,6 +628,24 @@ export function DebugAdapterPanel({
               <code>{plan.planId}</code>
             </dd>
           </dl>
+          {!active && (
+            <button
+              className="primary"
+              data-testid="debug-install"
+              disabled={busy || installBlocker !== null}
+              onClick={() =>
+                void run(() =>
+                  call<Snapshot>("debug.install", { planId: plan.planId, confirm: true }),
+                )
+              }
+              title={
+                installBlocker ??
+                "Downloads the official asset, verifies its published SHA-256, extracts it safely and only then verifies and promotes it."
+              }
+            >
+              {debug.adapterState === "ready" ? "Reuse verified adapter" : "Confirm and install"}
+            </button>
+          )}
         </details>
       )}
 

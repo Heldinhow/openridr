@@ -94,6 +94,14 @@ test("saved run configurations drive build and run, persist and validate their f
     await expect(page.getByTestId("run-config-default-note")).toBeVisible();
     await expect(page.getByTestId("run-config-name")).toBeDisabled();
     await expect(page.getByTestId("run-config-name")).toHaveValue("Run OrderDesk.Cli");
+    await expect(page.getByTestId("run-config-configuration")).toBeDisabled();
+    await expect
+      .poll(() =>
+        page
+          .getByTestId("run-config-name")
+          .evaluate((field) => getComputedStyle(field).cursor),
+      )
+      .toBe("not-allowed");
 
     // Editing the default means duplicating it into a named configuration.
     await page.getByTestId("run-config-duplicate").click();

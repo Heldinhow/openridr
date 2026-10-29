@@ -130,6 +130,43 @@ test.afterEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
 
+test("disabled trust and install plan communicate state before any confirmation", async ({
+  page,
+}) => {
+  await openWorkspace(page, fixture);
+  await expect(page.getByTestId("trust-grant")).toBeDisabled();
+  await expect(page.getByTestId("trust-grant-reason")).toBeVisible();
+  await expect(page.getByTestId("trust-grant")).toHaveAttribute(
+    "aria-describedby",
+    "trust-grant-reason",
+  );
+  expect(
+    await page.getByTestId("trust-grant").evaluate((button) => getComputedStyle(button).color),
+  ).not.toBe("rgb(240, 160, 121)");
+
+  await trustWorkspace(page);
+  await enterWorkspace(page);
+  await page.getByTestId("install-plan-open").click();
+  const plan = page.getByTestId("install-plan");
+  await expect(plan).toBeVisible();
+  await expect(plan).toHaveAttribute("open", "");
+  for (const field of [
+    "install-tool",
+    "install-source",
+    "install-platform",
+    "install-destination",
+    "install-staging",
+    "install-command",
+    "install-cwd",
+    "install-permissions",
+    "install-integrity",
+    "install-existing",
+  ]) {
+    await expect(page.getByTestId(field)).toBeVisible();
+  }
+  await expect(plan.getByTestId("install-confirm")).toBeVisible();
+});
+
 test("install plan is exact, cancel is inert, and the real install reaches verifying", async ({
   page,
   request,
