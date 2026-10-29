@@ -271,3 +271,7 @@ O CodeMirror continua primeiro: o handler global roda em bubble e ignora `defaul
 ## 2026-10-29 — Ticket 21: indisponibilidade visual e confirmação após o plano
 
 Controles `:disabled` de ação mantêm semântica nativa, mas recebem cores neutras e cursor de bloqueio; inputs/selects desabilitados usam o mesmo tratamento. Nos planos de csharp-ls e netcoredbg, o disclosure abre ao gerar o plano e o botão de confirmação fica depois dos campos materiais dentro dele, então não existe confirmação isolada antes da revisão. A faixa Workspace tools sobe de 24 para 30 vh conforme a decisão do ticket 05 e mantém rolagem própria/scrollbar identificável. Nenhum gate de host foi alterado.
+
+## 2026-10-29 — Aproximação visual ao Rider escuro
+
+A paleta passa a seguir o Rider (fundo `#191a1c`, chrome `#26282c`, seleção `#30426e`, acento `#548af7`; medidos em `docs/evidence/rider-reference`). Header: Back/Forward inertes, projeto com badge, branch, Build/Run/Debug/Stop só com ícone (nomes acessíveis via `aria-label`), run config, ⋮, Search e Settings. O painel inferior continua aberto por padrão e a geometria fixa de `ui-layout.spec.ts` (árvore 280, header 44, status 24, bottom 220) não mudou. Não imitamos o que não tem funcionalidade (rail direito, Monitoring, AI, Database). Comparações lado a lado em `docs/evidence/rider-compare/`.

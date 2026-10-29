@@ -114,7 +114,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   );
   expect(
     await page.getByTestId("debug-install").evaluate((button) => getComputedStyle(button).color),
-  ).not.toBe("rgb(240, 160, 121)");
+  ).not.toBe("rgb(84, 138, 247)");
   await page.screenshot({ path: path.join(screenshots, "13-debugger-plan.png"), fullPage: true });
   fs.writeFileSync(
     path.join(logs, "13-debugger-plan.json"),

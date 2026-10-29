@@ -142,7 +142,7 @@ test("disabled trust and install plan communicate state before any confirmation"
   );
   expect(
     await page.getByTestId("trust-grant").evaluate((button) => getComputedStyle(button).color),
-  ).not.toBe("rgb(240, 160, 121)");
+  ).not.toBe("rgb(84, 138, 247)");
 
   await trustWorkspace(page);
   await enterWorkspace(page);

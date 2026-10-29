@@ -887,10 +887,10 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
       };
     });
     expect(theme).toMatchObject({
-      bg: "#101216",
-      panel: "#191d23",
-      fg: "#edf0f4",
-      accent: "#f0a079",
+      bg: "#191a1c",
+      panel: "#1e1f22",
+      fg: "#dfe1e5",
+      accent: "#548af7",
     });
 
     const accessibleName = async () =>
@@ -1069,12 +1069,12 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
         return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
       };
       return {
-        fgOnBg: Number(ratio("#edf0f4", "#101216").toFixed(2)),
-        mutedOnPanel: Number(ratio("#b5beca", "#191d23").toFixed(2)),
-        accentOnPanel: Number(ratio("#f0a079", "#191d23").toFixed(2)),
-        errorOnBg: Number(ratio("#ffaaa5", "#101216").toFixed(2)),
-        warningOnBg: Number(ratio("#f3cf7e", "#101216").toFixed(2)),
-        successOnBg: Number(ratio("#a7dfb0", "#101216").toFixed(2)),
+        fgOnBg: Number(ratio("#dfe1e5", "#191a1c").toFixed(2)),
+        mutedOnPanel: Number(ratio("#aaadb5", "#1e1f22").toFixed(2)),
+        accentOnPanel: Number(ratio("#548af7", "#1e1f22").toFixed(2)),
+        errorOnBg: Number(ratio("#ffaaa5", "#191a1c").toFixed(2)),
+        warningOnBg: Number(ratio("#f3cf7e", "#191a1c").toFixed(2)),
+        successOnBg: Number(ratio("#a7dfb0", "#191a1c").toFixed(2)),
         buttonBorderOnRaised: Number(ratio("#667383", "#232932").toFixed(2)),
       };
     });

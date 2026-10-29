@@ -19,7 +19,11 @@ export type IconName =
   | "back"
   | "forward"
   | "chevron"
-  | "shield";
+  | "shield"
+  | "resume"
+  | "stepOver"
+  | "stepInto"
+  | "stepOut";
 
 export function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, string> = {
@@ -43,6 +47,10 @@ export function Icon({ name }: { name: IconName }) {
     forward: "m9 18 6-6-6-6",
     chevron: "m6 9 6 6 6-6",
     shield: "M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z",
+    resume: "M5 4v16M9 4l11 8-11 8V4Z",
+    stepOver: "M3 17a9 9 0 0 1 18 0M16 12l5 5-6 3M12 19.5v.01",
+    stepInto: "M12 3v13m-5-5 5 5 5-5M5 21h14",
+    stepOut: "M12 17V4m-5 5 5-5 5 5M5 21h14",
     runconfig: "M4 7h6m4 0h6M4 17h10m4 0h2M12 4v6M18 14v6",
   };
   return <svg className={`icon icon-${name}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;

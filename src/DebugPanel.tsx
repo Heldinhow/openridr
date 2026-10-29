@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useState } from "react";
 import {
   call,
@@ -77,6 +78,8 @@ export function DebugPanel({
         {!active && (
           <button
             data-testid="debug-launch"
+            className="toolbar-icon-button"
+            aria-label="Start debugging"
             disabled={disabledReason !== null || busy !== null}
             onClick={onLaunch}
             title={
@@ -84,52 +87,62 @@ export function DebugPanel({
               `Starts the evaluated managed assembly under the verified adapter (${snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}).`
             }
           >
-            Start debugging
+            <Icon name="debug" />
           </button>
         )}
         {active && (
           <button
             data-testid="debug-stop"
+            className="toolbar-icon-button"
+            aria-label="Stop"
             disabled={busy !== null}
             onClick={() => void invoke("Debug stop", "debug.stop")}
             title="Sends DAP disconnect, terminates the adapter group and reports what was observed; no cleanup is presumed."
           >
-            Stop
+            <Icon name="stop" />
           </button>
         )}
         {paused && (
           <>
             <button
               data-testid="debug-continue"
+            className="toolbar-icon-button"
+            aria-label="Continue"
               disabled={busy !== null}
               onClick={() => void invoke("Continue", "debug.continue")}
               title="Resumes every thread (F5)."
             >
-              Continue
+              <Icon name="resume" />
             </button>
             <button
               data-testid="debug-step-over"
+            className="toolbar-icon-button"
+            aria-label="Step over"
               disabled={busy !== null}
               onClick={() => void invoke("Step over", "debug.stepOver")}
               title="Steps over the current line (F8)."
             >
-              Step over
+              <Icon name="stepOver" />
             </button>
             <button
               data-testid="debug-step-into"
+            className="toolbar-icon-button"
+            aria-label="Step into"
               disabled={busy !== null}
               onClick={() => void invoke("Step into", "debug.stepInto")}
               title="Steps into the current call (F7)."
             >
-              Step into
+              <Icon name="stepInto" />
             </button>
             <button
               data-testid="debug-step-out"
+            className="toolbar-icon-button"
+            aria-label="Step out"
               disabled={busy !== null}
               onClick={() => void invoke("Step out", "debug.stepOut")}
               title="Steps out of the current function."
             >
-              Step out
+              <Icon name="stepOut" />
             </button>
           </>
         )}

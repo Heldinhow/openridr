@@ -434,6 +434,9 @@ export function BuildPanel({
           <pre className="eval-pre build-log run-log" data-testid="run-log">
             {run.log || "No output yet."}
           </pre>
+          {run.exit !== null && !run.stale && (
+            <p className="process-finished">Process finished with exit code {run.exit}.</p>
+          )}
           {run.logTruncated && (
             <p className="muted" data-testid="run-log-truncated">
               The run log is bounded and the earliest lines were dropped; the note at the top of
