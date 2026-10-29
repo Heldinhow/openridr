@@ -134,6 +134,7 @@ export function FindAction({
     needle: string;
   } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const debounced = useDebounced(query, 180);
   const needle = query.trim().toLowerCase();
   const symbolsVisible = tab === "all" || tab === "classes" || tab === "symbols";
@@ -304,6 +305,7 @@ export function FindAction({
     if (!selected || selected.type === "action") {
       setPreview(null);
       setPreviewError(null);
+      setPreviewLoading(false);
       return;
     }
     const target =
@@ -317,6 +319,9 @@ export function FindAction({
             }
           : { path: selected.path, focus: selected.line, needle: query.trim() };
     let alive = true;
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewLoading(true);
     call<ReadFile>("file.read", { path: target.path })
       .then((file) => {
         if (!alive) return;
@@ -333,6 +338,9 @@ export function FindAction({
           setPreview(null);
           setPreviewError(errorMessage(error));
         }
+      })
+      .finally(() => {
+        if (alive) setPreviewLoading(false);
       });
     return () => {
       alive = false;
@@ -582,6 +590,7 @@ export function FindAction({
             )}
           </ul>
           <aside className="search-preview" data-testid="search-preview">
+            {previewLoading && <p className="muted" role="status" data-testid="search-preview-loading">Loading preview…</p>}
             {preview && (
               <>
                 <div className="search-preview-path" data-testid="search-preview-path">

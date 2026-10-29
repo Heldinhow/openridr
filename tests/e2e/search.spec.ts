@@ -16,6 +16,38 @@ test.beforeEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
 
+test("a slow preview never shows the previous file as the newly selected result", async ({ page }) => {
+  let release: (() => void) | undefined;
+  let requested = false;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/call", async (route) => {
+    const body = route.request().postDataJSON() as { method: string; params?: { path?: string } };
+    if (body.method === "file.read" && body.params?.path === testsTab) {
+      requested = true;
+      await pending;
+    }
+    await route.continue();
+  });
+
+  try {
+    await page.goto("/");
+    await openTextOnly(page);
+    await page.keyboard.press("Meta+t");
+    await page.getByTestId("search-tab-files").click();
+    const input = page.getByTestId("find-action-input");
+    await input.fill("Program.cs");
+    await expect(page.getByTestId("search-preview-path")).toHaveText(programTab);
+    await input.fill("OrderTests.cs");
+    await expect.poll(() => requested).toBe(true);
+    await expect(page.getByTestId("search-preview-path")).toHaveCount(0);
+    await expect(page.getByTestId("search-preview-loading")).toBeVisible();
+    release?.();
+    await expect(page.getByTestId("search-preview-path")).toHaveText(testsTab);
+  } finally {
+    release?.();
+  }
+});
+
 test("⌘T opens Search Everywhere, Files opens a file, and the last tab and text persist", async ({
   page,
 }) => {
