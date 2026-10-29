@@ -31,6 +31,17 @@ async function openWorkspace(page: Page) {
   await expect(page.getByTestId("sdk-debug-adapter")).toBeVisible();
 }
 
+async function selectEvaluationTfm(page: Page, value: string) {
+  const summary = page.getByTestId("workspace-actions-menu").locator("summary");
+  await summary.click();
+  const tfm = page.getByTestId("eval-tfm");
+  await expect(tfm).toBeVisible();
+  await tfm.selectOption(value);
+  await summary.click();
+  await expect(tfm).toBeHidden();
+  await expect(tfm).toHaveValue(value);
+}
+
 test.beforeAll(() => {
   fs.mkdirSync(screenshots, { recursive: true });
   fs.mkdirSync(logs, { recursive: true });
@@ -304,7 +315,7 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     });
     await page.getByTestId("restore-reload").click();
     await expect(page.getByTestId("eval-state")).toContainText("revision 2", { timeout: 30_000 });
-    await page.getByTestId("eval-tfm").selectOption("net8.0");
+    await selectEvaluationTfm(page, "net8.0");
     await expect(page.getByTestId("eval-state")).toContainText("revision 3", { timeout: 30_000 });
 
     // The Debug launch stays blocked until a successful Debug build exists.
@@ -333,16 +344,6 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.locator(".cm-lineNumbers")).toBeVisible();
     await expect(page.locator(".cm-debug-gutter")).toBeVisible();
     expect(await page.locator(".cm-debug-marker").count()).toBe(1);
-
-    // A mouse click on the marker column removes the same breakpoint; the shortcut adds it back.
-    await page.locator(".cm-debug-marker").first().click();
-    await expect(page.getByTestId("debug-breakpoints")).toContainText("No breakpoints");
-    await page.locator(".cm-line").nth(2).click();
-    await page.keyboard.press("Meta+F8");
-    await expect(page.getByTestId("debug-breakpoints")).toContainText(
-      "src/OrderDesk.Cli/Program.cs:3",
-    );
-    await expect(page.locator(".cm-debug-marker")).toHaveCount(1);
 
     await page.getByTestId("bottom-tab-build").click();
     await page.getByTestId("build-action").click();

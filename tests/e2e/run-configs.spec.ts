@@ -78,6 +78,18 @@ async function openConfigDialog(page: Page) {
   await expect(page.getByTestId("run-config-dialog")).toBeVisible();
 }
 
+async function selectEvaluationOption(page: Page, value: string) {
+  const menu = page.getByTestId("workspace-actions-menu");
+  const summary = menu.locator("summary");
+  await summary.click();
+  const configuration = page.getByTestId("eval-configuration");
+  await expect(configuration).toBeVisible();
+  await configuration.selectOption(value);
+  await summary.click();
+  await expect(configuration).toBeHidden();
+  await expect(configuration).toHaveValue(value);
+}
+
 test("saved run configurations drive build and run, persist and validate their fields", async ({
   page,
   request,
@@ -136,16 +148,14 @@ test("saved run configurations drive build and run, persist and validate their f
     await page.screenshot({ path: path.join(screenshots, "15-run-config-output.png") });
 
     // TFM/Configuration changes in the bar write the active configuration and re-evaluate.
-    await page.getByTestId("eval-configuration").selectOption("Release");
-    await expect(page.getByTestId("eval-configuration")).toHaveValue("Release");
+    await selectEvaluationOption(page, "Release");
     await expect(page.getByTestId("eval-state")).toContainText("revision 3", {
       timeout: 30_000,
     });
     await openConfigDialog(page);
     await expect(page.getByTestId("run-config-configuration")).toHaveValue("Release");
     await page.getByTestId("run-config-cancel").click();
-    await page.getByTestId("eval-configuration").selectOption("Debug");
-    await expect(page.getByTestId("eval-configuration")).toHaveValue("Debug");
+    await selectEvaluationOption(page, "Debug");
     await expect(page.getByTestId("eval-state")).toContainText("revision 4", {
       timeout: 30_000,
     });
@@ -153,8 +163,7 @@ test("saved run configurations drive build and run, persist and validate their f
     // A .env line that is not KEY=VALUE keeps the dialog open with its field and reason.
     await openConfigDialog(page);
     await page.getByTestId("run-config-new").click();
-    await page.getByTestId("run-config-duplicate").click();
-    await expect(page.getByTestId("run-config-name")).toHaveValue("");
+    await expect(page.getByTestId("run-config-name")).toHaveValue("New configuration");
     await page.getByTestId("run-config-name").fill("Invalid env");
     await page.getByTestId("run-config-env-file-add").click();
     await page.getByTestId("run-config-env-file-0").fill("bad.env");
