@@ -359,14 +359,37 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     expect(brokenItem.position).not.toBeNull();
 
     const row = page.getByTestId("problem-row-0");
+    const problemsList = page.getByTestId("problems-list");
+    for (const column of [
+      "Severity",
+      "Code",
+      "Message",
+      "Location",
+      "Document",
+      "Origin",
+      "Category",
+      "Revision",
+      "State",
+    ]) {
+      await expect(problemsList.locator(".problem-head")).toContainText(column);
+    }
+    await expect(row).toContainText(brokenItem.severityLabel);
     await expect(row).toContainText("CS0246");
     await expect(row).toContainText("LSP · csharp-ls");
     await expect(row).toContainText("unknown");
+    await expect(row).toContainText("Program.cs");
+    await expect(page.getByTestId("problems-counts")).toContainText("1 error");
     await row.click();
     await expect(row).toHaveAttribute("aria-current", "true");
     expect(await row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
-    const problemList = page.getByTestId("problems-list");
-    expect(await problemList.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    expect(await problemsList.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    expect(
+      await row.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const panel = element.closest(".problems-list-wrap")!.getBoundingClientRect();
+        return box.bottom > panel.top && box.top < panel.bottom;
+      }),
+    ).toBe(true);
     await expect(page.getByTestId("editor-shell")).toHaveAttribute(
       "data-cursor",
       `${brokenItem.position.line}:${brokenItem.position.character}`,
