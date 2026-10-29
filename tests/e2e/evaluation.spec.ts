@@ -89,6 +89,11 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
     expect(source).not.toContain("/obj/");
   }
   await expect(page.getByTestId("eval-restore-banner")).toHaveCount(0);
+  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  await page.getByTestId("eval-configuration").selectOption("Debug");
+  await waitForEvaluation(page, 2);
+  await expect(page.getByTestId("eval-state")).not.toContainText("stale");
+  await page.getByTestId("workspace-actions-menu").locator("summary").click();
   await expect(page.getByTestId("eval-configuration")).toHaveValue("Debug");
 
   await page.getByTestId("tree-project-OrderDesk.Cli").click();
@@ -102,13 +107,15 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("eval-details")).toContainText("Evaluated TFM");
   await expect(page.getByTestId("eval-packages")).toContainText("0 packages");
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored");
-  await expect(page.getByTestId("eval-revision")).toContainText("revision 1");
+  await expect(page.getByTestId("eval-revision")).toContainText("revision 2");
 
   const configuration = page.getByTestId("eval-configuration");
+  await page.getByTestId("workspace-actions-menu").locator("summary").click();
   await configuration.focus();
   await expect(configuration).toBeFocused();
   await page.keyboard.press("r");
-  await waitForEvaluation(page, 2);
+  await waitForEvaluation(page, 3);
+  await expect(page.getByTestId("eval-state")).not.toContainText("stale");
   await expect(page.getByTestId("eval-details-state")).toHaveText("Evaluated");
   await expect(page.getByTestId("eval-target-path")).toContainText(
     "/bin/Release/net8.0/OrderDesk.Cli.dll",

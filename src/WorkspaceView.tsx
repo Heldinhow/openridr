@@ -3397,7 +3397,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         <button
           data-testid="toolbar-run"
           disabled={runAction.disabledReason !== null}
-          onClick={runAction.execute}
+          onClick={() => runAction.execute()}
           title={
             runAction.disabledReason ??
             `Runs the saved build (${runAction.shortcutTexts.join(" or ")}); unsaved buffers are never included.`

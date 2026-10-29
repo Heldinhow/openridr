@@ -1072,7 +1072,7 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
       "public sealed class Purchase",
     );
     await expect(page.getByTestId("editor")).toContainText("public Purchase(");
-    await expect(page.getByTestId("editor-revision")).toContainText("modified");
+    await expect(page.getByTestId("editor-revision")).toContainText(/modified/i);
     await expect(page.getByTestId("app-log")).toContainText(
       "Nothing was written to disk",
     );
@@ -1304,8 +1304,11 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await expect(page.getByTestId("rename-open")).toHaveAccessibleName(/Rename symbol/);
     await expect(page.getByTestId("code-actions-open")).toHaveAccessibleName(/Code actions/);
     await expect(page.getByTestId("save-file")).toHaveAccessibleName(/Save/);
-    for (const testId of ["code-actions-title", "code-actions-close"]) {
-      const box = (await page.getByTestId(testId).boundingBox())!;
+    for (const locator of [
+      panel.getByRole("heading", { name: "Code actions" }),
+      page.getByTestId("code-actions-close"),
+    ]) {
+      const box = (await locator.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.y).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(1100);
@@ -1335,7 +1338,7 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await page.getByTestId("rename-cancel-preview").click();
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
-    await expect(page.getByTestId("editor-revision")).toContainText("revision 0");
+    await expect(page.getByTestId("editor-revision")).toHaveText("");
     expect(sourceHashes(copy)).toEqual(beforeDisk);
 
     // A position csharp-ls answers with an empty array keeps editing possible and never
@@ -1373,7 +1376,7 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await expect(
       page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
     ).toBeVisible();
-    await expect(page.getByTestId("editor-revision")).toContainText("revision 1");
+    await expect(page.getByTestId("editor-revision")).toContainText("Modified");
     await expect(page.getByTestId("app-log")).toContainText(
       "diagnostics are not marked fixed",
     );

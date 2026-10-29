@@ -108,6 +108,7 @@ async function waitEvaluation(page: Page, revision: number) {
   await expect(page.getByTestId("eval-state")).toContainText(`revision ${revision}`, {
     timeout: 60_000,
   });
+  await expect(page.getByTestId("eval-state")).not.toContainText("stale");
 }
 
 async function ensureCsharpLs(page: Page, request: APIRequestContext) {
@@ -312,6 +313,9 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await expect(page.getByTestId("restore-log")).not.toBeEmpty();
     await clickTestId(page, "restore-reload");
     await waitEvaluation(page, 2);
+    await page.getByTestId("workspace-actions-menu").locator("summary").click();
+    await page.getByTestId("eval-tfm").selectOption("net8.0");
+    await waitEvaluation(page, 3);
     const restored = await hostState(request);
     // The muxer path and detected SDK root depend on the machine; the pinned version does not.
     expect(restored.restore.sdkVersion).toBe("8.0.408");
@@ -544,6 +548,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     snapshot("18-build-fixed.json", rebuilt.build);
     step("failed build exit 1 navigated to source; fixed build exit 0");
 
+    await expect(page.getByTestId("toolbar-run")).toBeEnabled();
     await page.getByTestId("toolbar-run").click();
     await expect(page.getByTestId("run-state")).toContainText("Run exited", {
       timeout: 60_000,

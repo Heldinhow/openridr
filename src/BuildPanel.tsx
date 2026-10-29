@@ -207,7 +207,7 @@ export function BuildPanel({
         <button
           data-testid="run-action"
           disabled={runDisabledReason !== null || runRunning}
-          onClick={onRun}
+          onClick={() => onRun()}
           title={
             runDisabledReason ??
             `Runs the saved build's TargetPath, not the current buffers (${shortcut}). Run never builds or restores.`

@@ -50,6 +50,12 @@ async function restoreAndReload(page: Page) {
   await expect(page.getByTestId("eval-state")).toContainText("revision 2", {
     timeout: 30_000,
   });
+  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  await page.getByTestId("eval-tfm").selectOption("net8.0");
+  await expect(page.getByTestId("eval-state")).toContainText("revision 3", {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("eval-state")).not.toContainText("stale");
 }
 
 async function build(page: Page) {
@@ -64,6 +70,7 @@ async function build(page: Page) {
 }
 
 async function run(page: Page) {
+  await expect(page.getByTestId("run-action")).toBeEnabled();
   await page.getByTestId("run-action").click();
   await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
     timeout: 15_000,
