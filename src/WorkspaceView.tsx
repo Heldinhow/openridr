@@ -189,6 +189,16 @@ function isDirty(tab: Tab) {
   return tab.revision !== tab.savedRevision || tab.conflict !== null;
 }
 
+function editorPopupStyle() {
+  const editor = document.querySelector<HTMLElement>('[data-testid="editor-shell"]');
+  const x = Number(editor?.dataset.anchorX ?? 24);
+  const y = Number(editor?.dataset.anchorY ?? 24);
+  return {
+    left: `max(8px, min(${x}px, calc(100% - 536px)))`,
+    top: `max(8px, min(calc(${y}px + 10px), calc(100% - 420px)))`,
+  };
+}
+
 function lineDiffCount(buffer: string, disk: string) {
   const left = buffer.split("\n");
   const right = disk.split("\n");
@@ -1273,7 +1283,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   function cancelRenameRequest() {
     renameSeq.current += 1;
-    setMessage({ tone: "info", text: "Rename cancelled; no request was kept." });
+    setMessage(null);
   }
 
   function handleGutterAction(action: GutterAction) {
@@ -3789,7 +3799,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                           }}
                           title={project.path}
                         >
-                          <span aria-hidden="true">{open ? "▾" : "▸"}</span>
                           <Icon name="project" /><span className="tree-name">{project.name}</span>
                           <span className="tag">{project.kind}</span>
                           {project.state === "failed" && <span className="tag error">error</span>}
@@ -3871,7 +3880,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                       onClick={() => toggleProject(project.path)}
                       title={project.path}
                     >
-                      <span aria-hidden="true">{open ? "▾" : "▸"}</span>
                       <Icon name="project" /><span className="tree-name">{project.name}</span>
                       <span className="tag">{project.kind}</span>
                       {project.tfms.map((tfm) => (
@@ -4032,13 +4040,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   className={isDirty(active) ? "warning" : "muted"}
                   data-testid="editor-revision"
                 >
-                  {" · "}revision {active.revision} · saved {active.savedRevision} ·{" "}
-                  {isDirty(active) ? "modified" : "saved"}
+                  {isDirty(active) ? " · Modified" : ""}
                 </span>
               </div>
 
               {findUsages && (
                 <FindUsagesPanel
+                  className="rename-preview find-usages editor-popup"
+                  style={editorPopupStyle()}
                   response={findUsages.response}
                   snippets={findUsages.snippets}
                   onNavigate={(path, position) => void navigateTo(path, position)}
@@ -4051,7 +4060,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
               {editPreview && (
                 <section
-                  className="rename-preview"
+                  className="rename-preview editor-popup"
                   role="dialog"
                   aria-modal="false"
                   aria-labelledby="edit-preview-title"
@@ -4060,6 +4069,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   data-id={previewId(editPreview)}
                   data-files={previewDocs.length}
                   data-edits={previewEditCount(editPreview)}
+                  style={editorPopupStyle()}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") cancelEditPreview();
                   }}
@@ -4173,7 +4183,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
               {actionList && (
                 <section
-                  className="rename-preview code-actions"
+                  className="rename-preview code-actions editor-popup"
                   role="dialog"
                   aria-modal="false"
                   aria-labelledby="code-actions-title"
@@ -4182,6 +4192,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   data-state={actionList.response.state}
                   data-session={actionList.session}
                   data-revision={actionList.sourceRevision}
+                  style={editorPopupStyle()}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") cancelActionList();
                   }}

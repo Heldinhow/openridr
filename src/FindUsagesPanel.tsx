@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { ReferencesResponse } from "./host/client";
 
 type Props = {
@@ -6,11 +6,13 @@ type Props = {
   snippets: Record<string, string | null>;
   onNavigate: (path: string, position: { line: number; character: number }) => void;
   onClose: () => void;
+  className?: string;
+  style?: CSSProperties;
 };
 
 /** Read-only list grouped by file. The host already resolved every range; clicking only
  * navigates and never edits a buffer. */
-export function FindUsagesPanel({ response, snippets, onNavigate, onClose }: Props) {
+export function FindUsagesPanel({ response, snippets, onNavigate, onClose, className, style }: Props) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     heading.current?.focus();
@@ -26,7 +28,8 @@ export function FindUsagesPanel({ response, snippets, onNavigate, onClose }: Pro
 
   return (
     <section
-      className="rename-preview find-usages"
+      className={className ?? "rename-preview find-usages"}
+      style={style}
       role="dialog"
       aria-modal="false"
       aria-labelledby="find-usages-title"

@@ -1191,6 +1191,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
       { timeout: 5_000 },
     );
     await page.getByTestId("rename-cancel").click();
+    await expect(page.getByTestId("editor-lsp-status")).not.toContainText("Rename ");
     resume();
     await page.waitForTimeout(1_500);
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
@@ -1243,6 +1244,13 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
       "from csharp-ls",
     );
     const panel = page.getByTestId("code-actions");
+    const editorPane = page.getByRole("region", { name: "Editor" });
+    const panelBox = (await panel.boundingBox())!;
+    const paneBox = (await editorPane.boundingBox())!;
+    expect(panelBox.x).toBeGreaterThanOrEqual(paneBox.x);
+    expect(panelBox.y).toBeGreaterThanOrEqual(paneBox.y);
+    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(paneBox.y + paneBox.height);
     const discovered = await panel
       .locator("button[data-title]")
       .evaluateAll((nodes) =>
@@ -1286,6 +1294,20 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
       path: path.join(screenshots, "10-code-actions-list.png"),
       fullPage: false,
     });
+
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("rename-open")).toHaveAccessibleName(/Rename symbol/);
+    await expect(page.getByTestId("code-actions-open")).toHaveAccessibleName(/Code actions/);
+    await expect(page.getByTestId("save-file")).toHaveAccessibleName(/Save/);
+    for (const testId of ["code-actions-title", "code-actions-close"]) {
+      const box = (await page.getByTestId(testId).boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(1100);
+      expect(box.y + box.height).toBeLessThanOrEqual(700);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     await panel
       .getByRole("button", { name: "Convert to positional record", exact: true })

@@ -349,6 +349,12 @@ export function CodeEditor({
     const line = instance.state.doc.lineAt(position);
     if (host.current) {
       host.current.dataset.cursor = `${line.number - 1}:${position - line.from}`;
+      const pane = host.current.closest(".editor-pane")?.getBoundingClientRect();
+      const anchor = instance.coordsAtPos(position);
+      if (pane && anchor) {
+        host.current.dataset.anchorX = String(anchor.left - pane.left);
+        host.current.dataset.anchorY = String(anchor.bottom - pane.top);
+      }
     }
     onCursorRef.current({ line: line.number - 1, character: position - line.from });
   }
@@ -506,6 +512,10 @@ export function CodeEditor({
   function cancelInlineRename(notifyParent: boolean) {
     inlineSeq.current += 1;
     setInline(null);
+    setStatus({
+      state: "idle",
+      text: `Ctrl+Space: completion · ${platform === "macos" ? "Cmd+B" : "Ctrl+B"}: go to definition · Shift+F6: rename · Shift+F12: find usages · ${platform === "macos" ? "Option" : "Alt"}+Enter: code actions`,
+    });
     if (notifyParent) onRenameCancelRef.current();
   }
 
@@ -527,11 +537,12 @@ export function CodeEditor({
     if (!start || !shell) return;
     inlineSeq.current += 1;
     const left = Math.max(8, Math.min(start.left - shell.left, shell.width - 280));
+    const top = start.bottom - shell.top + 4;
     setInline({
       from: word.from,
       to: word.to,
       left,
-      top: start.bottom - shell.top + 4,
+      top: top + 180 > shell.height ? Math.max(8, start.top - shell.top - 44) : top,
       width: Math.max(240, (end?.right ?? start.right) - start.left + 24),
       line: line.number - 1,
       character: word.from - line.from,
@@ -817,7 +828,7 @@ export function CodeEditor({
           }}
         >
           <span className="inline-rename-source" data-testid="rename-source">
-            {path} · {inline.line + 1}:{inline.character + 1}
+            {path} · {inline.line + 1}:{inline.character + 1} · <mark>{inline.source}</mark>
           </span>
           <div className="inline-rename-row">
             <input
