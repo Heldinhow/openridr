@@ -801,9 +801,12 @@ export function CodeEditor({
             void submitInlineRename();
           }}
           onBlur={(event) => {
+            // The submit button is disabled while waiting, so it stops holding focus and the
+            // form blurs. Do not cancel the request the user just submitted.
+            if (inline.busy) return;
             const next = event.relatedTarget as Node | null;
             if (next && event.currentTarget.contains(next)) return;
-            cancelInlineRename(inline.busy);
+            cancelInlineRename(true);
           }}
           onKeyDown={(event) => {
             if (event.key !== "Escape") return;

@@ -1142,6 +1142,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     await page.getByTestId("rename-cancel-preview").click();
 
     // A cancelled request whose answer arrives late never opens a preview.
+    await placeCursor(page, 2, 20);
     const paused = await hostState(request);
     stoppedPid = paused.lsp.pid as number;
     process.kill(stoppedPid, "SIGSTOP");
