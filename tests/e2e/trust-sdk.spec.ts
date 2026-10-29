@@ -119,8 +119,8 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await expect(page.getByTestId("status-sdk")).toHaveText(
     "Host SDK 10.0.100 · Project SDK 8.0.408",
   );
-  await expect(page.getByTestId("eval-configuration")).toHaveAttribute("title", "MSBuild configuration for the evaluated project model.");
-  await expect(page.getByTestId("eval-tfm")).toHaveAttribute("title", "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM.");
+  await expect(page.getByTestId("eval-configuration")).toHaveAttribute("title", "MSBuild configuration for evaluation.");
+  await expect(page.getByTestId("eval-tfm")).toHaveAttribute("title", "Target framework for evaluation.");
 
   await page.getByTestId(`tree-file-${programTab}`).click();
   await expect(page.getByTestId("editor")).toBeVisible();
@@ -214,7 +214,7 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   for (const [id, selection] of [["eval-configuration", "a configuration"], ["eval-tfm", "a TFM"]]) {
     await expect(page.getByTestId(id)).toBeDisabled();
-    await expect(page.getByTestId(id)).toHaveAttribute("title", `Trust the workspace and resolve the project SDK to select ${selection}.`);
+    await expect(page.getByTestId(id)).toHaveAttribute("title", `Resolve the project SDK before selecting ${selection}.`);
   }
   expect(hashOf(missingGlobal)).toBe(before);
 

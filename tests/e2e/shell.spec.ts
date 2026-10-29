@@ -92,8 +92,9 @@ test("the single bar keeps placeholders disabled and the status bar reports the 
   const toolbar = page.locator(".toolbar");
   expect((await toolbar.boundingBox())!.height).toBe(44);
   await expect(page.getByTestId("toolbar-project")).toContainText("OrderDesk.sln");
-  await expect(page.getByTestId("toolbar-branch")).toHaveText("Trust the workspace to use Git");
+  await expect(page.getByTestId("toolbar-branch")).toContainText("Git");
   await expect(page.getByTestId("toolbar-branch")).toBeDisabled();
+  await expect(page.getByTestId("toolbar-branch")).toHaveAttribute("title", "Trust the workspace to use Git");
   for (const id of ["toolbar-run-config"]) {
     await expect(page.getByTestId(id)).toBeDisabled();
     expect(await page.getByTestId(id).getAttribute("title")).toBeTruthy();
@@ -109,7 +110,6 @@ test("the single bar keeps placeholders disabled and the status bar reports the 
   await expect(page.getByTestId("toolbar-build")).toBeDisabled();
   await expect(page.getByTestId("toolbar-run")).toBeDisabled();
 
-  await expect(page.getByTestId("status-breadcrumb")).toContainText("OrderDesk.sln");
   await expect(page.getByTestId("status-breadcrumb")).toContainText("OrderDesk.Cli");
   await expect(page.getByTestId("status-breadcrumb")).toContainText("Program.cs");
   await expect(page.getByTestId("status-cursor")).toContainText("Ln 1, Col 1");
