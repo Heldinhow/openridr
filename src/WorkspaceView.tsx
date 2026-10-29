@@ -610,7 +610,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           : !["ok", "partial"].includes(evaluation.state)
             ? "Evaluate the project model before building; the build uses its TargetPath."
             : !activeConfigEvaluated
-              ? "The active run configuration has not been evaluated yet; re-evaluate the project model."
+              ? "The run configuration has not been evaluated yet; re-evaluate the project model."
               : restoreIncomplete
               ? "Dependencies are not restored; run the explicit restore first."
               : consoleCandidates.length === 0
@@ -676,43 +676,54 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const savedSourceAfterBuild = Object.entries(savedAt).some(
     ([path, saved]) => path.endsWith(".cs") && saved > buildReference,
   );
-  const runDisabledReason = !trusted
-    ? "Trust the workspace before running; nothing runs in Restricted mode."
-    : projectSdk.state !== "resolved"
-      ? "Resolve the project SDK before running; the host SDK is never substituted."
-      : evaluation.state === "running"
-        ? "Wait for the evaluation to finish before running."
-        : evaluation.stale
-          ? "The evaluated project model is stale; re-evaluate before running."
-          : !["ok", "partial"].includes(evaluation.state)
-            ? "Evaluate the project model before running; Run uses the saved build's TargetPath."
-            : !activeConfigEvaluated
-              ? "The active run configuration has not been evaluated yet; re-evaluate the project model."
-              : consoleCandidates.length === 0
-              ? "No console executable project is available in the current evaluation; libraries and test projects cannot be run."
-              : activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)
-                ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
-                : !startupProject
-                  ? "More than one console project; choose the startup project explicitly."
-                : buildRunning
-                  ? "A build is running; wait for it to finish before running."
-                  : runRunning
-                    ? "A program is already running."
-                    : build.revision === 0
-                      ? "Build the startup project first; Run never builds or restores implicitly."
-                      : build.sealed
-                        ? "The saved build belongs to a previous context; rebuild before running."
-                        : build.stale
-                          ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
-                          : build.state !== "ok" || build.exit !== 0
-                            ? `The last build did not succeed (${
-                                build.exit === null ? "exit unknown" : `exit ${build.exit}`
-                              }); fix it and rebuild.`
-                            : build.project?.path !== startupProject.path
-                              ? "The saved build is for another startup project; build the selected one."
-                              : savedSourceAfterBuild
-                                ? "Sources were saved after this build; rebuild before running."
-                                : null;
+  function runAvailabilityReason(
+    project: EvaluationProject | null,
+    configEvaluated: boolean,
+    invalidSelectedProject = false,
+  ) {
+    return !trusted
+      ? "Trust the workspace before running; nothing runs in Restricted mode."
+      : projectSdk.state !== "resolved"
+        ? "Resolve the project SDK before running; the host SDK is never substituted."
+        : evaluation.state === "running"
+          ? "Wait for the evaluation to finish before running."
+          : evaluation.stale
+            ? "The evaluated project model is stale; re-evaluate before running."
+            : !["ok", "partial"].includes(evaluation.state)
+              ? "Evaluate the project model before running; Run uses the saved build's TargetPath."
+              : !configEvaluated
+                ? "The run configuration has not been evaluated yet; re-evaluate the project model."
+                : consoleCandidates.length === 0
+                  ? "No console executable project is available in the current evaluation; libraries and test projects cannot be run."
+                  : invalidSelectedProject
+                    ? "The run configuration selects a project that is not an evaluated console project; edit the configuration."
+                  : !project
+                    ? "More than one console project; choose the startup project explicitly."
+                    : buildRunning
+                      ? "A build is running; wait for it to finish before running."
+                      : runRunning
+                        ? "A program is already running."
+                        : build.revision === 0
+                          ? "Build the startup project first; Run never builds or restores implicitly."
+                          : build.sealed
+                            ? "The saved build belongs to a previous context; rebuild before running."
+                            : build.stale
+                              ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
+                              : build.state !== "ok" || build.exit !== 0
+                                ? `The last build did not succeed (${
+                                    build.exit === null ? "exit unknown" : `exit ${build.exit}`
+                                  }); fix it and rebuild.`
+                                : build.project?.path !== project.path
+                                  ? "The saved build is for another startup project; build the selected one."
+                                  : savedSourceAfterBuild
+                                    ? "Sources were saved after this build; rebuild before running."
+                                    : null;
+  }
+  const runDisabledReason = runAvailabilityReason(
+    startupProject,
+    activeConfigEvaluated,
+    Boolean(activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)),
+  );
   const dap = snapshot.dap;
   const debugActive = ["preparing", "running", "paused"].includes(dap.state);
   const debugDisabledReason = !trusted
@@ -732,7 +743,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               : !["ok", "partial"].includes(evaluation.state)
                 ? "Evaluate the project model before debugging; Debug uses its managed assembly."
                 : !activeConfigEvaluated
-                  ? "The active run configuration has not been evaluated yet; re-evaluate the project model."
+                  ? "The run configuration has not been evaluated yet; re-evaluate the project model."
                   : consoleCandidates.length === 0
                   ? "No console executable project is available in the current evaluation."
                   : activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)
@@ -2376,8 +2387,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   function requestRun(requestedConfig?: RunConfig) {
-    if (!requestedConfig && runDisabledReason) {
-      setMessage({ tone: "error", text: `Run unavailable: ${runDisabledReason}` });
+    const configProject = requestedConfig
+      ? consoleCandidates.find((project) => project.path === requestedConfig.project) ?? null
+      : startupProject;
+    const configEvaluated = requestedConfig
+      ? requestedConfig.configuration === evaluation.context.configuration &&
+        (requestedConfig.targetFramework ?? null) === (evaluation.context.targetFramework ?? null)
+      : activeConfigEvaluated;
+    const configDisabledReason = runAvailabilityReason(
+      configProject,
+      configEvaluated,
+      Boolean(requestedConfig && !configProject),
+    );
+    if (configDisabledReason) {
+      setMessage({ tone: "error", text: `Run unavailable: ${configDisabledReason}` });
       return;
     }
     const invalid = invalidRunConfigReason(requestedConfig ?? activeRunConfig);

@@ -14,10 +14,10 @@
 - [x] Run configurations dialog uses Run/Cancel/Apply/OK semantics; default read-only fields look read-only and duplicating an unnamed config cannot create a blank entry.
 - [ ] Project details não quebra caminhos no meio de nomes de arquivo; comando longo pode ser rolado/copiad​o; Close fica associado ao cabeçalho.
 - [x] Terminal mantém cabeçalho/controles visíveis com output extenso e não apresenta eco/redraw duplicado quando possível sem fingir que é emulador; discrepância SDK do PTY continua explicitamente reportada, não mascarada.
-- [ ] Diálogos de fechamento dão hierarquia neutra à ação destrutiva e destaque à ação segura/reversível; não depender só de cor.
+- [x] Diálogos de fechamento dão hierarquia neutra à ação destrutiva e destaque à ação segura/reversível; não depender só de cor.
 - [ ] Caminhos internos/temporários são apresentados com rótulos úteis ou detalhes acessíveis; evitar duplicar workspace no breadcrumb.
-- [ ] E2E cobre problemas selecionados, layouts nas dimensões citadas e fechamento; não mudar contratos do host nem testids.
-- [ ] Executar build e E2E aplicável; ambiente/hardware e flows não exercitados são anotados como não verificados.
+- [x] E2E cobre problemas selecionados, layouts nas dimensões citadas e fechamento; não mudar contratos do host nem testids.
+- [x] Executar build e E2E aplicável; ambiente/hardware e flows não exercitados são anotados como não verificados.
 
 ## Comments
 

@@ -90,6 +90,57 @@ async function selectEvaluationOption(page: Page, value: string) {
   await expect(configuration).toHaveValue(value);
 }
 
+test("dialog Run refuses a failed saved build", async ({ page, request }) => {
+  const { base, copy } = tempCopy("Order Desk blocked dialog run");
+  const solution = path.join(copy, "OrderDesk.sln");
+  const programPath = path.join(copy, "src/OrderDesk.Cli/Program.cs");
+  try {
+    const stored = await request.post(`${host}/call`, {
+      data: {
+        method: "runConfigs.write",
+        params: {
+          solution,
+          activeId: "blocked-dialog-run",
+          configs: [{
+            id: "blocked-dialog-run",
+            name: "Blocked dialog run",
+            project: "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+            configuration: "Debug",
+            targetFramework: "net8.0",
+            args: [],
+            workingDirectory: "src/OrderDesk.Cli",
+            env: {},
+            envFiles: [],
+          }],
+        },
+      },
+    });
+    const body = await stored.json();
+    expect(body.ok, JSON.stringify(body.error)).toBe(true);
+    await openTrustedEvaluated(page, solution);
+    await restoreAndReload(page);
+    await build(page);
+
+    fs.writeFileSync(programPath, `${fs.readFileSync(programPath, "utf8")}\nnew Missing();\n`);
+    await page.getByTestId("build-action").click();
+    await expect(page.getByTestId("build-state")).toContainText("Build failed", {
+      timeout: 60_000,
+    });
+    await openConfigDialog(page);
+    await page.getByTestId("run-config-run").click();
+    await expect(page.getByTestId("app-log")).toContainText(
+      "Run unavailable: The last build did not succeed",
+    );
+    await expect(page.getByTestId("run-config-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("run-state")).toHaveText("No program has run");
+  } finally {
+    await request.post(`${host}/call`, {
+      data: { method: "workspace.close", params: {} },
+    });
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("saved run configurations drive build and run, persist and validate their fields", async ({
   page,
   request,
