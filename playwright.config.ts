@@ -10,7 +10,8 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: frontend,
-    channel: "chrome",
+    // Chrome by default; set PLAYWRIGHT_CHANNEL=chromium where Chrome is not installed.
+    channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
