@@ -36,3 +36,10 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 - Capturas/logs desta rodada fora do repo: `/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/openridr-ui-audit-20261029/` (`screenshots/12-run-output.png`, `screenshots/14-dap-paused.png`, `screenshots/14-dap-stepped.png`, `screenshots/14-dap-stopped.png`). Specs de layout cobriram 1600×1000, 1440×900 e 1100×700.
 - Funcionou: runner E2E isolado, fixture .NET real e adaptador real permitiram provar o fluxo ponta a ponta. Falhas/skip: nenhum nesta seleção.
 - Risco restante: validação é macOS ARM64; Windows/macOS Intel seguem sem prova. Alterações preexistentes em `docs/evidence/`, `docs/tickets-mvp/README.md` e `.scratch/` foram preservadas; sem mudanças de app.
+
+## Continuação: gates de execução e ticket 23 (29/10/2026)
+
+- As causas dos stalls de run-config/debugger eram seletores ocultos de ações do workspace; no Run, o evento de click era passado como `requestedConfig`, deixando a execução sem projeto. Ambas foram corrigidas.
+- A suíte headed Chrome completa passou 93/93 antes do gate final de elegibilidade do diálogo. Após esse gate, o teste focado de build-failed passou 1/1; a suíte completa não foi repetida depois das últimas mudanças.
+- Ticket 23 tem prova headed focada para Problems e rótulos longos de branch/comando/caminho. O `check` continua em andamento por critérios visuais subjetivos da toolbar/Problems; `bun run check` passou.
+- Commits locais apenas, sem push. Evidências, scratch e README preexistentes foram preservados. Validação em macOS ARM64; Tauri, WCAG, Windows e macOS Intel não verificados.
