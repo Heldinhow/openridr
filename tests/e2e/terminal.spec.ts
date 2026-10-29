@@ -5,7 +5,7 @@ import path from "node:path";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 import { host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.setTimeout(240_000);
@@ -128,6 +128,8 @@ test("a real shell runs in the workspace, interrupts a child with Ctrl+C and clo
     // Closing a running shell needs a decision; keeping it preserves the session.
     await page.getByTestId("terminal-close").click();
     await expect(page.getByTestId("terminal-confirm")).toBeVisible();
+    await expect(page.getByTestId("terminal-confirm-keep")).toHaveCSS("border-color", "rgb(240, 160, 121)");
+    await expect(page.getByTestId("terminal-confirm-stop")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await page.screenshot({ path: path.join(screenshots, "15-terminal-close-dialog.png") });
     await page.getByTestId("terminal-confirm-keep").click();
     await expect(page.getByTestId("terminal-confirm")).toHaveCount(0);

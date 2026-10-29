@@ -5,7 +5,7 @@ import path from "node:path";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 import { host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.setTimeout(180_000);
@@ -89,6 +89,8 @@ test("a real build reports its raw log, fails on a compile error and navigates t
     await expect(page.getByTestId("build-command")).toContainText("dotnet build");
     await expect(page.getByTestId("build-command")).toContainText("--no-restore");
     await expect(page.getByTestId("build-command")).toContainText("-c Debug");
+    await expect(page.getByTestId("build-command")).toHaveCSS("white-space", "pre");
+    await expect(page.getByTestId("build-command")).toHaveCSS("user-select", "text");
     await expect(page.getByTestId("build-cwd")).toContainText("Order Desk build");
     await expect(page.getByTestId("build-sdk")).toContainText("8.0.408");
     await expect(page.getByTestId("build-project")).toContainText("OrderDesk.Cli");

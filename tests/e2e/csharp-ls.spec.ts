@@ -7,7 +7,7 @@ import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 import { e2eHome, host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 const logs = path.resolve(process.cwd(), "docs/evidence/logs");
 
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -363,6 +363,10 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     await expect(row).toContainText("LSP · csharp-ls");
     await expect(row).toContainText("unknown");
     await row.click();
+    await expect(row).toHaveAttribute("aria-current", "true");
+    expect(await row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    const problemList = page.getByTestId("problems-list");
+    expect(await problemList.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
     await expect(page.getByTestId("editor-shell")).toHaveAttribute(
       "data-cursor",
       `${brokenItem.position.line}:${brokenItem.position.character}`,

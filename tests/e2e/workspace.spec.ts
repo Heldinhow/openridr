@@ -219,8 +219,11 @@ test("closing a modified buffer or workspace requires an explicit choice", async
   const tab = page.getByTestId(`tab-${programTab}`);
 
   await tab.getByTestId("close-buffer").click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByRole("dialog")).toContainText("unsaved changes");
+  const bufferDialog = page.getByRole("dialog");
+  await expect(bufferDialog).toBeVisible();
+  await expect(bufferDialog).toContainText("unsaved changes");
+  await expect(page.getByTestId("confirm-keep")).toHaveCSS("border-color", "rgb(240, 160, 121)");
+  await expect(page.getByTestId("confirm-discard")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.getByTestId("confirm-keep").click();
   await expect(tab).toBeVisible();
   await expect(tab.getByTestId("dirty-marker")).toBeVisible();

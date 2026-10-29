@@ -105,6 +105,40 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
   });
 }
 
+test("evaluated project details keep paths intact and Close with the heading", async ({ page, request }) => {
+  await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-project-details-"));
+  temporaryWorkspaces.push(base);
+  const copy = path.join(base, "fixture");
+  fs.cpSync(path.resolve("fixtures/OrderDesk"), copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+  await page.getByTestId("workspace-open").click();
+  await page.getByTestId("trust-checkbox").check();
+  await page.getByTestId("trust-grant").click();
+  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
+  await page.getByTestId("eval-run").click();
+  await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+  await page.getByTestId("tree-project-OrderDesk.Cli").click();
+  await page.getByRole("button", { name: "Project details" }).click();
+
+  const details = page.getByTestId("eval-details");
+  await expect(details).toBeVisible();
+  const projectPath = details.locator("code.detail-path").first();
+  await expect(projectPath).toHaveCSS("white-space", "nowrap");
+  await expect(projectPath).toHaveAttribute("title", /OrderDesk\.Cli\.csproj$/);
+  const close = page.getByRole("button", { name: "Close project details" });
+  await expect(close.locator("..")).toContainText("OrderDesk.Cli");
+  await close.click();
+  await expect(details).toBeHidden();
+});
+
 for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 900 }, { width: 1100, height: 700 }]) {
   test(`toolbar labels truncate with full titles at ${viewport.width}x${viewport.height}`, async ({ page, request }) => {
     await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });

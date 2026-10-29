@@ -2413,7 +2413,7 @@ mark.search-hit {
 .problem-details .panel-title { position: sticky; top: 0; z-index: 1; }
 .terminal-panel > :not(.terminal-output) { flex: 0 0 auto; }
 .terminal-output { min-height: 0; }
-.terminal-confirm [data-testid="terminal-confirm-keep"] { order: 1; }
+.terminal-confirm [data-testid="terminal-confirm-keep"] { order: 1; border-color: var(--accent); }
 .terminal-confirm [data-testid="terminal-confirm-stop"] { order: 2; color: var(--fg); background: transparent; border-color: var(--line); }
 .terminal-confirm [data-testid="terminal-confirm-stop"]:hover, [data-testid="confirm-discard"]:hover { border-color: var(--warning); color: var(--warning); }
 [data-testid="confirm-discard"] { color: var(--fg); background: transparent; border-color: var(--line); }
