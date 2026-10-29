@@ -2515,3 +2515,18 @@ button.primary:hover:not(:disabled) { background: #4a85f5; border-color: #4a85f5
 .bottom-tabs .tab-label.active { background: var(--select); box-shadow: none; }
 .tabbar .tab-label { font-size: 13px; }
 .workspace-tools > summary { background: var(--chrome); }
+
+/* Header details: nav arrows, project badge, chevrons. */
+.nav-button { color: var(--muted); }
+.nav-button:disabled { background: transparent; border-color: transparent; opacity: 0.45; }
+.project-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: #4f5fd8; color: #fff; font-size: 10px; font-weight: 700; }
+.toolbar-menu > summary { display: flex; align-items: center; gap: 6px; }
+.toolbar-menu > summary .icon-chevron { width: 12px; height: 12px; color: var(--muted); }
+.workspace-brand .icon-chevron { color: var(--muted); }
+.toolbar .icon-settings, .toolbar .icon-debug, .toolbar .icon-build { stroke-width: 1.5; }
+
+/* Empty editor: Rider shows quiet hint lines, no framed keys. */
+.empty-editor > .icon { display: none; }
+.empty-editor h1 { font-size: 15px; font-weight: 400; color: var(--muted); margin: 0 0 4px; }
+.shortcut-list { gap: 8px 24px; font-size: 14px; }
+.shortcut-list kbd { border: 0; padding: 0; background: transparent; font-size: 14px; color: var(--muted); }

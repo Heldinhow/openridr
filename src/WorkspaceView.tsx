@@ -3377,11 +3377,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       } as CSSProperties}
     >
       <div className="toolbar">
+        <button type="button" className="toolbar-icon-button nav-button" disabled aria-label="Back" title="Back"><Icon name="back" /></button>
+        <button type="button" className="toolbar-icon-button nav-button" disabled aria-label="Forward" title="Forward"><Icon name="forward" /></button>
         <details className="toolbar-menu project-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
           <summary className="workspace-brand" title={workspace.path} data-testid="toolbar-project" aria-label={`Project: ${workspace.name}. Open recent solutions.`}>
-            <Icon name="project" /><strong>{workspace.name}</strong>
+            <span className="project-badge" aria-hidden="true">{workspace.name.slice(0, 2).toUpperCase()}</span><strong>{workspace.name}</strong><Icon name="chevron" />
           </summary>
           <div className="menu-content" data-testid="toolbar-project-menu">
             <span className="menu-heading">Recent solutions</span>
@@ -4411,6 +4413,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               <h1>Your code, in focus.</h1>
               <p className="muted">Open a file from the solution explorer to start editing.</p>
               <dl className="shortcut-list">
+                <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd></dd>
                 <dt>Save file</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘S" : "Ctrl+S"}</kbd></dd>
                 <dt>Go to definition</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘B" : "Ctrl+B"}</kbd></dd>
                 <dt>Rename symbol</dt><dd><kbd>Shift+F6</kbd></dd>

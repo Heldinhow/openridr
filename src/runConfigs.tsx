@@ -98,6 +98,7 @@ export function RunConfigWidget({
         <Icon name="runconfig" />
         <span data-testid="run-config-active">{active?.name ?? "Run config"}</span>
         {active?.readOnly && <span className="run-config-tag">default</span>}
+        <Icon name="chevron" />
       </summary>
       <div className="menu-content">
         <span className="menu-heading">Run configuration</span>
