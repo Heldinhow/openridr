@@ -42,6 +42,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
   const [confirmClose, setConfirmClose] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
   const sentSize = useRef("");
+  const displayLog = terminal.log.split("\n").map((line) => line.slice(line.lastIndexOf("\r") + 1)).join("\n");
 
   async function invoke(label: string, method: string, params: Record<string, unknown> = {}) {
     setBusy(label);
@@ -225,7 +226,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
         tabIndex={0}
         ref={outputRef}
       >
-        {terminal.log || "No output yet."}
+        {displayLog || "No output yet."}
       </pre>
 
       {terminal.revision > 0 && !running && (

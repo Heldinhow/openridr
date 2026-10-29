@@ -114,6 +114,8 @@ test("saved run configurations drive build and run, persist and validate their f
     await page.getByTestId("run-config-env-value-0").fill("explicit");
     await page.getByTestId("run-config-env-file-add").click();
     await page.getByTestId("run-config-env-file-0").fill("run.env");
+    await page.getByTestId("run-config-apply").click();
+    await expect(page.getByTestId("run-config-dialog")).toBeVisible();
     await page.getByTestId("run-config-save").click();
     await expect(page.getByTestId("run-config-dialog")).toHaveCount(0);
     await expect(page.getByTestId("run-config-active")).toHaveText("F4 arguments");
@@ -151,6 +153,8 @@ test("saved run configurations drive build and run, persist and validate their f
     // A .env line that is not KEY=VALUE keeps the dialog open with its field and reason.
     await openConfigDialog(page);
     await page.getByTestId("run-config-new").click();
+    await page.getByTestId("run-config-duplicate").click();
+    await expect(page.getByTestId("run-config-name")).toHaveValue("");
     await page.getByTestId("run-config-name").fill("Invalid env");
     await page.getByTestId("run-config-env-file-add").click();
     await page.getByTestId("run-config-env-file-0").fill("bad.env");

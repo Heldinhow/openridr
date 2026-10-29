@@ -309,6 +309,13 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 - Testes: unidade em `terminal.rs` (descoberta/fallback, buffers/seq/ANSI, resize clamp, exit unknown, selo tardio) e boundary em `crates/host/tests/host.rs` (pré-trust sem shell, PTY real com pwd/echo, Ctrl+C em `sleep 30`, resize, close confirmado com filho em foreground verificado por `ps`, revogação selada, troca de workspace). E2E `tests/e2e/terminal.spec.ts` usa Chrome real: Restricted bloqueado, shell/cwd reais, `pwd`, `echo`, `dotnet --version` 8.0.408, Ctrl+C, diálogo Keep/Terminate, exit/termination e log preservado.
 - Evidência: `docs/evidence/15-terminal-pty.md`, logs `15-*`, screenshots `15-terminal-*.png`. Windows não executado (gap).
 
+## Auditoria visual (ticket 23, parcial)
+
+- Header deixa Build imediatamente antes do seletor de run configuration; controles de avaliação Configuration/TFM ficam no menu Workspace actions para não competirem com ações Rider. O seletor run config continua configurando Run/Debug; nenhuma lógica de host mudou.
+- Run configurations agora expõe Run/Cancel/Apply/OK: Apply persiste sem fechar, OK persiste e fecha, Run persiste e despacha a ação de Run existente. Duplicar um draft sem nome não inventa nome válido; validação continua impedindo persistência sem nome. `run-config-save` permanece como testid compatível do botão OK.
+- Terminal mantém `terminal.log` intacto e apenas na apresentação usa o texto após o último CR de cada linha, cobrindo redraw simples sem alegar emulação de terminal.
+- Verificação local: `bun run check` passou nesta sessão. E2E headed, validação visual em 1600×1000/1440×900/1100×700, diálogos de fechamento e demais itens da auditoria não foram executados; ticket permanece parcial.
+
 ## Descoberta de testes (ticket 16)
 
 - `crates/host/src/test_discovery.rs`: `tests.discover {project, targetFramework?}` e `tests.discover_cancel`, com `tests.discovery` no snapshot. Gate: `require_trust` → `restore::require_restored` (mesmo `restore_required`/`action`) → SDK do projeto → avaliação atual (`ok|partial`, não stale, mesmo workspace/contexto) → projeto `kind:"test"` explícito → TFM avaliado. Sem `targetFramework` vale o TFM da avaliação; divergência devolve `details.reason:"tfm_not_evaluated"`, projeto multi-TFM sem seleção devolve `details.reason:"tfm_required"` e TFM não declarado pelo projeto também é recusado, sempre antes de qualquer argv. Nenhuma descoberta restaura, instala ou edita package; a execução fica no ticket 17 (`test_run.rs`).

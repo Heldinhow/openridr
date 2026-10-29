@@ -211,6 +211,7 @@ export function RunConfigDialog({
   issues,
   initialId,
   onCommit,
+  onRun,
   onClose,
 }: {
   evaluation: Evaluation;
@@ -220,6 +221,7 @@ export function RunConfigDialog({
   issues: RunConfigIssue[];
   initialId: string;
   onCommit: (configs: RunConfig[], activeId: string) => Promise<RunConfigIssue[]>;
+  onRun: () => void;
   onClose: () => void;
 }) {
   const initial =
@@ -286,7 +288,7 @@ export function RunConfigDialog({
     const next: Draft = {
       ...draft,
       id: newId(),
-      name: `${draft.name} copy`,
+      name: draft.name.trim() ? `${draft.name} copy` : "",
       envRows: draft.envRows.map((row) => ({ ...row })),
       envFiles: [...draft.envFiles],
     };
@@ -368,7 +370,7 @@ export function RunConfigDialog({
     };
   }
 
-  async function save() {
+  async function save(close = true, run = false) {
     const validation = validate();
     if (Object.keys(validation).length > 0) {
       setErrors(validation);
@@ -395,7 +397,8 @@ export function RunConfigDialog({
         );
         return;
       }
-      onClose();
+      if (close) onClose();
+      if (run) onRun();
     } catch (error) {
       const field = errorField(error);
       setErrors(field ? { [field]: messageOf(error) } : {});
@@ -763,8 +766,10 @@ export function RunConfigDialog({
                 data-testid="run-config-save"
                 disabled={derived || busy}
               >
-                {busy ? "Saving…" : "Save"}
+                {busy ? "Saving…" : "OK"}
               </button>
+              <button type="button" data-testid="run-config-run" disabled={derived || busy} onClick={() => void save(true, true)}>Run</button>
+              <button type="button" data-testid="run-config-apply" disabled={derived || busy} onClick={() => void save(false)}>Apply</button>
               <button
                 type="button"
                 data-testid="run-config-duplicate"

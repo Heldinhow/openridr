@@ -3359,22 +3359,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onOpenCommit={() => openCommitPanel()}
           onMessage={(text) => setMessage({ tone: "info", text })}
         />
-        <label className="eval-field toolbar-startup">
-          <span>Startup project</span>
-          <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupProject(event.target.value)}>
-            {!startupProject && <option value="">{consoleCandidates.length === 0 ? "No console project" : "Select a startup project"}</option>}
-            {consoleCandidates.map((project) => <option key={project.path} value={project.path}>{project.name}</option>)}
-          </select>
-        </label>
-        <div className="toolbar-configuration">
-          <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={evaluationAvailable ? "MSBuild configuration for the evaluated project model." : "Trust the workspace and resolve the project SDK to select a configuration."}>
-            {configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}
-          </select></label>
-          <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value === "" ? null : event.target.value })} title={evaluationAvailable ? "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM." : "Trust the workspace and resolve the project SDK to select a TFM."}>
-            <option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}
-          </select></label>
-        </div>
         <span className="push" />
+        <button
+          data-testid="toolbar-build"
+          disabled={buildAction.disabledReason !== null}
+          onClick={buildAction.execute}
+          title={buildAction.disabledReason ?? `Builds the selected startup project (${buildAction.shortcutTexts.join(" or ")}). Unsaved buffers need an explicit decision.`}
+        ><Icon name="build" /> Build</button>
         <RunConfigWidget
           configs={runConfigStore?.configs ?? []}
           defaultConfig={defaultRunConfig}
@@ -3393,17 +3384,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onSelect={(id) => void selectRunConfig(id)}
           onEdit={() => openRunConfigDialog()}
         />
-        <button
-          data-testid="toolbar-build"
-          disabled={buildAction.disabledReason !== null}
-          onClick={buildAction.execute}
-          title={
-            buildAction.disabledReason ??
-            `Builds the selected startup project (${buildAction.shortcutTexts.join(" or ")}). Unsaved buffers need an explicit decision.`
-          }
-        >
-          <Icon name="build" /> Build <kbd>{buildAction.shortcutLabels[0] ?? ""}</kbd>
-        </button>
         <button
           data-testid="toolbar-run"
           disabled={runAction.disabledReason !== null}
@@ -3464,6 +3444,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         }}>
           <summary aria-label="Workspace actions">•••</summary>
           <div className="menu-content">
+            <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title="MSBuild configuration for evaluation.">{configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}</select></label>
+            <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value || null })} title="Target framework for evaluation."><option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}</select></label>
             <button data-testid="open-find-action" onClick={(event) => {
               event.currentTarget.closest("details")?.removeAttribute("open");
               findActionAction.execute();
@@ -4635,6 +4617,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           issues={runConfigStore?.issues ?? []}
           initialId={runConfigInitialId}
           onCommit={commitRunConfigDialog}
+          onRun={runAction.execute}
           onClose={() => setRunConfigOpen(false)}
         />
       )}
