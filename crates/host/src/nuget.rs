@@ -680,25 +680,23 @@ fn text_field(value: &Value, key: &str) -> Option<String> {
 }
 
 pub fn parse_sources(stdout: &str) -> Result<Vec<Source>, String> {
-    let value: Value =
-        serde_json::from_str(stdout).map_err(|error| format!("invalid JSON: {error}"))?;
-    let sources = value
-        .get("sources")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "the response has no sources array".to_string())?;
-    Ok(sources
-        .iter()
-        .filter_map(|source| {
-            let name = source
-                .get("name")
-                .and_then(Value::as_str)
-                .filter(|name| !name.trim().is_empty())?;
-            Some(Source {
-                name: name.to_string(),
-                url: text_field(source, "url"),
-            })
-        })
-        .collect())
+    let mut sources = Vec::new();
+    for line in stdout.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let (enabled, value) = if let Some(value) = line.strip_prefix("E ") {
+            (true, value.trim())
+        } else if let Some(value) = line.strip_prefix("D ") {
+            (false, value.trim())
+        } else {
+            return Err("unrecognized short source listing".to_string());
+        };
+        if value.is_empty() {
+            return Err("source location is empty".to_string());
+        }
+        if enabled {
+            sources.push(Source { name: value.to_string(), url: None });
+        }
+    }
+    Ok(sources)
 }
 
 /// Merges installed packages with the outdated report so each row carries the latest version.
@@ -791,7 +789,7 @@ pub fn list(
         "list".to_string(),
         "source".to_string(),
         "--format".to_string(),
-        "json".to_string(),
+        "short".to_string(),
     ];
 
     let installed = command_result(
@@ -1156,7 +1154,6 @@ mod tests {
 
     const INSTALLED: &str = include_str!("../tests/fixtures/nuget/installed.json");
     const OUTDATED: &str = include_str!("../tests/fixtures/nuget/outdated.json");
-    const SOURCES: &str = include_str!("../tests/fixtures/nuget/sources.json");
 
     fn plan_at(root: &Path) -> Plan {
         let project = root.join("App.csproj");
@@ -1266,16 +1263,13 @@ mod tests {
     }
 
     #[test]
-    fn sources_are_parsed_and_invalid_source_json_is_an_error() {
-        let sources = parse_sources(SOURCES).unwrap();
-        assert_eq!(sources.len(), 1);
-        assert_eq!(sources[0].name, "nuget.org");
-        assert_eq!(
-            sources[0].url.as_deref(),
-            Some("https://api.nuget.org/v3/index.json")
-        );
-        assert!(parse_sources("not json").is_err());
-        assert!(parse_sources(r#"{"version":1}"#).is_err());
+    fn short_source_listing_only_reports_enabled_sources_and_rejects_unknown_rows() {
+        let sources = parse_sources("E https://api.nuget.org/v3/index.json\nD /tmp/disabled feed\nE /tmp/local feed\n").unwrap();
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].name, "https://api.nuget.org/v3/index.json");
+        assert_eq!(sources[1].name, "/tmp/local feed");
+        assert!(parse_sources("").unwrap().is_empty());
+        assert!(parse_sources("unexpected output").is_err());
     }
 
     #[test]

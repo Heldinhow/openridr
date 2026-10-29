@@ -49,6 +49,8 @@ test("NuGet groups installed and outdated packages by TFM with current, latest a
   await expect(page.getByTestId("nuget-panel")).toBeVisible();
   await expect(page.getByTestId("nuget-probe")).toContainText("dotnet was not run");
   await expect(page.getByTestId("nuget-project")).toHaveValue(cliProject);
+  await expect(page.getByTestId("nuget-sources")).toContainText("Enabled configured sources");
+  await expect(page.getByTestId("nuget-sources")).toContainText("Package origin is not reported");
 
   // Two TFMs are grouped; the outdated row carries both versions and the consulted source.
   await expect(page.getByTestId("nuget-tfm-net8.0")).toBeVisible();

@@ -333,7 +333,7 @@ export function NuGetPanel({
               : "Not all package data was read; this is not an all-up-to-date result."}
           </p>
           <p className="menu-note" data-testid="nuget-sources">
-            Sources consulted: {sources ?? "unknown"}{" "}
+            Enabled configured sources: {sources ?? (listing.sources.state === "ok" ? "none" : "unknown")}. Package origin is not reported.{" "}
             {listing.sources.state !== "ok"
               ? `· package data is available; source query failed${listing.sources.message ? `: ${listing.sources.message}` : "."}`
               : ""}
@@ -384,7 +384,7 @@ export function NuGetPanel({
                       <th scope="col">Package</th>
                       <th scope="col">Current</th>
                       <th scope="col">Latest</th>
-                      <th scope="col">Source</th>
+                      <th scope="col">Configured sources</th>
                       <th scope="col">Action</th>
                     </tr>
                   </thead>
