@@ -307,7 +307,7 @@ export function BuildPanel({
             </dd>
             <dt>Command</dt>
             <dd>
-              <code data-testid="build-command">{build.command.join(" ")}</code>
+              <code className="detail-command" data-testid="build-command">{build.command.join(" ")}</code>
             </dd>
             <dt>Working directory</dt>
             <dd>

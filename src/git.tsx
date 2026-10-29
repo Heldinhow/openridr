@@ -250,7 +250,7 @@ export function BranchWidget({
     return (
       <span className="toolbar-disabled" title={TRUST_MESSAGE}>
         <button type="button" data-testid="toolbar-branch" disabled aria-label={TRUST_MESSAGE} title={TRUST_MESSAGE}>
-          <Icon name="git" /> {TRUST_MESSAGE}
+          <Icon name="git" /> Git
         </button>
       </span>
     );
@@ -261,7 +261,7 @@ export function BranchWidget({
     return (
       <span className="toolbar-disabled" title={text}>
         <button type="button" data-testid="toolbar-branch" disabled aria-label={text} title={text}>
-          <Icon name="git" /> {text}
+          <Icon name="git" /> {status?.state === "not_a_repository" ? "No repo" : "Git unavailable"}
         </button>
       </span>
     );

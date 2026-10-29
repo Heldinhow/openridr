@@ -170,6 +170,8 @@ p {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .icon { flex: 0 0 auto; vertical-align: middle; }
@@ -1099,13 +1101,15 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   border-top: 1px solid var(--line);
   font-size: 11px;
   flex: 0 0 auto;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
-.status > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.status > span { white-space: nowrap; overflow: visible; text-overflow: clip; min-width: max-content; }
 .status > [data-testid="status-mode"], .status > [data-testid="status-keymap"], .status > [data-testid="status-cursor"], .status > [data-testid="status-encoding"], .status > [data-testid="status-indent"] { flex: 0 0 auto; }
-.status > [data-testid="status-evaluation"] { flex: 0 1 240px; }
+.status > [data-testid="status-evaluation"] { flex: 0 0 auto; }
 .status > [data-testid="status-breadcrumb"] { flex: 0 1 280px; }
 .status > [data-testid="status-sdk"] { flex: 0 1 auto; }
-.status > [data-testid="status-workspace"] { max-width: 160px; }
+.status > [data-testid="status-workspace"] { flex: 0 0 auto; max-width: 240px; }
 
 .modal-backdrop {
   position: fixed;
@@ -2365,3 +2369,33 @@ mark.search-hit {
 .find-usage-snippet { font-family: var(--mono); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .git-diff-modal { width: min(900px, 92vw); max-height: 82vh; }
 .git-diff-modal .eval-pre { max-height: 55vh; overflow: auto; white-space: pre; }
+
+/* Audit 23: keep actions visible and make long details locally inspectable. */
+.branch-menu > summary { max-width: 132px; }
+.branch-menu [data-testid="branch-current"] { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; }
+.branch-menu .branch-counters { flex: 0 0 auto; }
+.inspector-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.inspector-heading > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspector-close { flex: 0 0 auto; margin: 0; }
+.eval-details dd code.detail-path { display: block; max-width: 100%; overflow-x: auto; white-space: nowrap; overflow-wrap: normal; }
+.detail-command { display: block; max-width: 100%; overflow: auto; white-space: pre; user-select: text; }
+.problem-details .panel-title { position: sticky; top: 0; z-index: 1; }
+.terminal-panel > :not(.terminal-output) { flex: 0 0 auto; }
+.terminal-output { min-height: 0; }
+.terminal-confirm [data-testid="terminal-confirm-keep"] { order: 1; }
+.terminal-confirm [data-testid="terminal-confirm-stop"] { order: 2; color: var(--fg); background: transparent; border-color: var(--line); }
+.terminal-confirm [data-testid="terminal-confirm-stop"]:hover, [data-testid="confirm-discard"]:hover { border-color: var(--warning); color: var(--warning); }
+[data-testid="confirm-discard"] { color: var(--fg); background: transparent; border-color: var(--line); }
+[data-testid="confirm-keep"], [data-testid="confirm-save"] { border-color: var(--accent); }
+.eval-details-pane .eval-pre { white-space: pre; overflow-wrap: normal; }
+.run-config-dialog [disabled] { opacity: 0.62; cursor: not-allowed; background: var(--bg); color: var(--muted); }
+
+@media (max-width: 1100px) {
+  .toolbar .push { display: none; }
+  .toolbar { gap: 4px; }
+  .workspace-brand { min-width: 72px; max-width: 140px; }
+  .toolbar .toolbar-startup select { max-width: 120px; }
+  .toolbar-configuration { gap: 3px; }
+  .toolbar .eval-field select { max-width: 100px; }
+  .run-config-menu > summary { max-width: 150px; }
+}

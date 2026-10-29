@@ -374,3 +374,11 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 - O plano de csharp-ls já abria ao ser consultado; `Confirm and install` foi movido para depois dos detalhes dentro do disclosure. O plano do netcoredbg agora também abre ao consultar e mantém confirmação após todos os campos. E2E valida trust bloqueado, plano de csharp-ls e plano/flag ARM64 off/on, sem confirmar instalação.
 - Verificação: `bun run build` passou (aviso existente de chunk >500 kB). E2E headed Chrome: `csharp-ls.spec.ts -g "disabled trust and install plan"`, `debugger.spec.ts -g "macOS arm64 requires the experimental flag"` e `run-configs.spec.ts -g "saved run configurations drive build and run"` passaram 1/1 cada. Não foi usado slowMo 300 ms e não foram guardadas capturas novas.
 - Não verificados nesta fatia: suíte E2E completa, Windows x64, macOS Intel, leitor de tela/WCAG formal e fluxo Tauri nativo. Nenhuma instalação adicional foi executada.
+
+## Auditoria visual de layout e feedback transversal (ticket 23, parcial)
+
+- Barra/status agora rolam localmente sem truncar o estado da avaliação, e os controles da barra têm overflow próprio; Git usa rótulos compactos com o motivo completo em `aria-label`/`title`. O breadcrumb deixou de repetir o nome do workspace.
+- Detalhes de projeto mantêm paths inteiros em uma linha rolável, o comando do build pode ser rolado/selecionado, Close está no cabeçalho, o título de Problem details permanece acessível e botões de descarte/término não recebem destaque primário. O terminal reserva altura para cabeçalho/controles e deixa o output encolher/rolar.
+- `ui-layout.spec.ts` cobre 1600×1000, 1440×900 e 1100×700; `OPENRIDR_E2E_SLOW_MO` permite headed Chrome com slowMo controlado sem afetar o padrão.
+- Verificação: `bun run build` passou (aviso existente de chunk >500 kB). `OPENRIDR_E2E_SLOW_MO=300 ... bunx playwright test tests/e2e/ui-layout.spec.ts --headed` passou 3/3 em Chrome nesta máquina.
+- Parcial: Run configurations ainda não tem rodapé Run/Cancel/Apply/OK; eco/redraw PTY não foi normalizado para não simular emulador; não foram executados E2Es reais de Problems, detalhes do projeto, terminal ou diálogos nesta fatia. Windows/macOS Intel, leitor de tela/WCAG e Tauri nativo não verificados. Nenhuma captura foi criada ou alterada.

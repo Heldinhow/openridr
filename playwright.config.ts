@@ -12,6 +12,9 @@ export default defineConfig({
     baseURL: frontend,
     // Chrome by default; set PLAYWRIGHT_CHANNEL=chromium where Chrome is not installed.
     channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
+    launchOptions: {
+      slowMo: Number(process.env.OPENRIDR_E2E_SLOW_MO ?? 0),
+    },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

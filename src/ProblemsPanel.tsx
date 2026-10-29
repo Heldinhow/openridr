@@ -244,6 +244,7 @@ export function ProblemsPanel({
                 aria-current={selectedKey === row.key ? "true" : undefined}
                 onClick={() => selectRow(row)}
                 title={row.item.message}
+                aria-label={`${row.item.severityLabel} ${codeLabel(row.item)}: ${row.item.message} · ${row.snapshot.origin.label} · ${row.item.category}`}
               >
                 <span className={`problem-severity severity-${row.item.severityLabel}`}>
                   {row.item.severityLabel}

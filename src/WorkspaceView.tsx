@@ -3271,7 +3271,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }));
   const breadcrumbProject = activeEvaluationProject?.name ?? activeProject?.name ?? null;
   const statusBreadcrumb = [
-    workspace.name,
     breadcrumbProject && breadcrumbProject !== workspace.name ? breadcrumbProject : null,
     active ? baseName(active.path) : null,
   ].filter((part): part is string => Boolean(part)).join(" > ");
@@ -4379,7 +4378,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         </section>
 
         <aside className="eval-details-pane" hidden={!selectedProject || !projectDetailsOpen} aria-label="Project inspector">
-          <button className="inspector-close" onClick={() => setProjectDetailsOpen(false)}>Close project details</button>
             {selectedProject && (
               <section
                 className="eval-details"
@@ -4387,8 +4385,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 tabIndex={0}
                 data-testid="eval-details"
               >
-                <div className="panel-title">
-                  {selectedProject.name} <span className="tag">Evaluated project</span>
+                <div className="panel-title inspector-heading">
+                  <span>{selectedProject.name} <span className="tag">Evaluated project</span></span>
+                  <button className="inspector-close" onClick={() => setProjectDetailsOpen(false)}>Close project details</button>
                 </div>
                 <dl>
                   <dt>State</dt>
@@ -4398,7 +4397,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   </dd>
                   <dt>Path</dt>
                   <dd>
-                    <code>{selectedProject.path}</code>
+                    <code className="detail-path" title={selectedProject.path}>{selectedProject.path}</code>
                   </dd>
                   <dt>Kind</dt>
                   <dd>{selectedProject.kind}</dd>
@@ -4414,8 +4413,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   <dd data-testid="eval-target-path">
                     {selectedProject.targetPath
                       ? evaluation.stale
-                        ? `Previous evaluation (stale): ${selectedProject.targetPath}`
-                        : selectedProject.targetPath
+                        ? <>Previous evaluation (stale): <code className="detail-path" title={selectedProject.targetPath}>{selectedProject.targetPath}</code></>
+                        : <code className="detail-path" title={selectedProject.targetPath}>{selectedProject.targetPath}</code>
                       : "Not available"}
                   </dd>
                   <dt>OutputType</dt>
@@ -4701,7 +4700,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 Keep editing
               </button>
               <button
-                className="danger"
                 data-testid="confirm-discard"
                 onClick={discardConfirmed}
               >
