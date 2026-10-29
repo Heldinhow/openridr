@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import { EditorState, type Text } from "@codemirror/state";
-import { EditorView, GutterMarker, gutter, keymap } from "@codemirror/view";
+import { Decoration, EditorView, GutterMarker, gutter, keymap } from "@codemirror/view";
 import { Compartment, RangeSet } from "@codemirror/state";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
@@ -31,14 +31,14 @@ const theme = EditorView.theme(
       lineHeight: "1.65",
     },    ".cm-content": { caretColor: "var(--accent)" },
     ".cm-gutters": {
-      backgroundColor: "var(--panel)",
-      color: "var(--muted)",
-      borderRight: "1px solid var(--line)",
+      backgroundColor: "var(--bg)",
+      color: "#6f737a",
+      border: "0",
     },
-    ".cm-activeLine": { backgroundColor: "#171b21" },
-    ".cm-activeLineGutter": { backgroundColor: "#1b2027" },
+    ".cm-activeLine": { backgroundColor: "#26282c" },
+    ".cm-activeLineGutter": { backgroundColor: "#26282c" },
     "&.cm-focused": { outline: "none" },
-    ".cm-selectionBackground, ::selection": { backgroundColor: "#33404f !important" },
+    ".cm-selectionBackground, ::selection": { backgroundColor: "#214283 !important" },
     ".cm-cursor": { borderLeftColor: "var(--accent)" },
   },
   { dark: true },
@@ -143,7 +143,21 @@ function makeDebugGutter(
   currentLineRef: { current: number | null },
   onToggleBreakpointRef: { current: ((line: number) => void) | undefined },
 ) {
-  return gutter({
+  // Rider paints the whole breakpoint line and the paused line, not only the gutter dot.
+  const lineTint = EditorView.decorations.of((view) => {
+    const marks = [];
+    const current = currentLineRef.current;
+    for (const line of [...new Set(breakpointsRef.current)].sort((a, b) => a - b)) {
+      if (line < 1 || line > view.state.doc.lines) continue;
+      marks.push(Decoration.line({ class: line === current ? "cm-line-current" : "cm-line-breakpoint" }).range(view.state.doc.line(line).from));
+    }
+    if (current !== null && !breakpointsRef.current.includes(current) && current >= 1 && current <= view.state.doc.lines) {
+      marks.push(Decoration.line({ class: "cm-line-current" }).range(view.state.doc.line(current).from));
+      marks.sort((a, b) => a.from - b.from);
+    }
+    return Decoration.set(marks);
+  });
+  return [lineTint, gutter({
     class: "cm-debug-gutter",
     markers: (view) => {
       const markers = [];
@@ -174,7 +188,7 @@ function makeDebugGutter(
         return true;
       },
     },
-  });
+  })];
 }
 
 class ActionMarker extends GutterMarker {
@@ -601,13 +615,6 @@ export function CodeEditor({
     const state = EditorState.create({
       doc: value,
       extensions: [
-        basicSetup,
-        autocompletion({ override: [completionSource], activateOnTyping: false }),
-        StreamLanguage.define(csharp),
-        theme,
-        fontCompartment.current.of(editorTheme(editor)),
-        indentCompartment.current.of(editorIndent(editor)),
-        syntaxHighlighting(syntaxColors),
         actionGutterCompartment.current.of(
           makeActionGutter(gutterActionsRef, onGutterActionRef),
         ),
@@ -618,6 +625,13 @@ export function CodeEditor({
             onToggleBreakpointRef,
           ),
         ),
+        basicSetup,
+        autocompletion({ override: [completionSource], activateOnTyping: false }),
+        StreamLanguage.define(csharp),
+        theme,
+        fontCompartment.current.of(editorTheme(editor)),
+        indentCompartment.current.of(editorIndent(editor)),
+        syntaxHighlighting(syntaxColors),
         EditorView.contentAttributes.of({
           "aria-label": "Editor",
           "aria-multiline": "true",

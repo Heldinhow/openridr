@@ -1,17 +1,18 @@
 :root {
   color-scheme: dark;
-  --bg: #101216;
-  --panel: #191d23;
-  --raised: #232932;
-  --line: #303640;
-  --fg: #edf0f4;
-  --muted: #b5beca;
-  --accent: #f0a079;
+  --bg: #191a1c;
+  --panel: #1e1f22;
+  --raised: #2b2d30;
+  --line: #393b40;
+  --chrome: #26282c;
+  --fg: #dfe1e5;
+  --muted: #a0a3ab;
+  --accent: #548af7;
   --error: #ffaaa5;
   --warning: #f3cf7e;
   --success: #a7dfb0;
   --info: #add0ff;
-  --select: #2b3543;
+  --select: #30426e;
   --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -2431,3 +2432,86 @@ mark.search-hit {
   .run-config-menu > summary { max-width: 150px; min-width: 0; }
   .run-config-menu [data-testid="run-config-active"] { min-width: 0; }
 }
+
+
+/* Rider (dark) header, rail and status chrome. */
+.toolbar { background: var(--chrome); border-bottom: 0; min-height: 44px; gap: 4px; padding: 0 10px; }
+.toolbar > button, .toolbar-disabled > button, .toolbar-menu > summary { background: transparent; border-color: transparent; border-radius: 6px; }
+.toolbar > button:hover:not(:disabled), .toolbar-menu > summary:hover, .toolbar-disabled > button:hover:not(:disabled) { background: #ffffff1a; border-color: transparent; }
+.toolbar .icon { width: 18px; height: 18px; }
+.toolbar-icon-button { width: 32px; height: 32px; }
+.toolbar .run-button .icon { color: #5fb865; }
+.toolbar .debug-button .icon { color: #5fb865; }
+.toolbar .stop-button .icon { color: #e55765; fill: currentColor; }
+.workspace-brand .icon { color: #6b7fe6; }
+.workspace-brand strong { font-weight: 500; }
+.toolbar-menu[open] > summary { background: #ffffff1a; }
+.toolbar-menu > summary[data-testid="mode-badge"] { font-size: 12px; padding: 3px 8px; }
+.run-config-tag { display: none; }
+.run-config-menu > summary { max-width: 240px; }
+.toolrail { background: var(--chrome); border-right: 0; }
+.toolband-button { border-radius: 6px; width: 30px; height: 30px; }
+.toolband-button.active, .toolband-button[aria-pressed="true"] { background: #ffffff1a; border-color: transparent; box-shadow: none; }
+.toolband-button[aria-pressed="true"] { color: #fff; }
+.status { background: var(--chrome); border-top: 0; }
+
+/* Rider-like Solution tree: quiet metadata, compact rows, blue selection. */
+.side { background: var(--bg); }
+.side .panel-title { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; padding: 8px 10px 4px; }
+.side .panel-title .tag, .tree-row .tag { border: 0; background: transparent; padding: 0; color: var(--muted); font-size: 12px; }
+.tree-row .tag::before { content: "· "; }
+.tree-row .tag.warning { color: var(--warning); }
+.side .eval-controls { display: flex; align-items: center; gap: 6px; padding: 0 10px 6px; flex-wrap: wrap; }
+.side .eval-controls button { padding: 1px 8px; font-size: 12px; background: transparent; border-color: transparent; color: var(--muted); }
+.side .eval-controls button:hover:not(:disabled) { background: #ffffff1a; border-color: transparent; color: var(--fg); }
+.side .eval-controls .tag { border: 0; background: transparent; color: var(--muted); font-size: 11px; }
+.tree-row { border-radius: 4px; border-color: transparent; background: transparent; min-height: 26px; }
+.tree-row:hover { background: #ffffff0f; border-color: transparent; }
+.tree-row.selected { background: var(--select); border-color: transparent; box-shadow: none; }
+.tree-row .icon-project { color: #6b7fe6; }
+.tree-root { font-weight: 500; }
+.tree-folder { color: var(--fg); font-weight: 400; text-transform: none; }
+
+/* Rider gutter: breakpoint dot left of the numbers, tinted breakpoint/paused lines. */
+.cm-debug-gutter, .cm-action-gutter { border-right: 0; background: var(--bg); }
+.cm-debug-gutter { width: 1.4rem; }
+.cm-debug-marker { width: 1.4rem; font-size: 0; }
+.cm-debug-breakpoint::before, .cm-debug-both::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: #db5c5c; vertical-align: middle; }
+.cm-debug-current::before { content: "\25B6"; font-size: 11px; color: #f2c55c; }
+.cm-debug-both::before { box-shadow: 0 0 0 2px #f2c55c66; }
+.cm-line-breakpoint { background: #6c2a2e66; }
+.cm-line-current { background: #4a4a1d99; }
+
+/* Rider Run/Debug Configurations: label-left form, footer Run / Cancel / Apply / OK. */
+.run-config-dialog { width: min(860px, 100%); background: var(--chrome); }
+.run-config-list button { border-color: transparent; background: transparent; }
+.run-config-list button[aria-current="true"] { background: var(--select); color: var(--fg); }
+.run-config-field { color: var(--fg); font-size: 13px; }
+label.run-config-field { grid-template-columns: 190px minmax(0, 1fr); align-items: center; column-gap: 12px; }
+label.run-config-field > :not(span:first-child):not(input):not(select):not(textarea) { grid-column: 1 / -1; }
+.run-config-field > input, .run-config-field > select, .run-config-field > textarea { background: var(--bg); font-size: 13px; padding: 5px 8px; }
+.run-config-form .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.run-config-form .actions button { order: 0; }
+.run-config-form .actions [data-testid="run-config-duplicate"], .run-config-form .actions [data-testid="run-config-remove"] { order: -1; }
+.run-config-form .actions [data-testid="run-config-duplicate"] { margin-right: auto; }
+.run-config-form .actions [data-testid="run-config-run"] { order: 1; }
+.run-config-form .actions [data-testid="run-config-cancel"] { order: 2; }
+.run-config-form .actions [data-testid="run-config-apply"] { order: 3; }
+.run-config-form .actions [data-testid="run-config-save"] { order: 4; background: #3574f0; border-color: #3574f0; color: #fff; }
+.run-config-form .actions [data-testid="run-config-save"]:disabled { background: var(--panel); color: var(--muted); border-color: var(--line); }
+
+/* Rider default button: filled blue; dialogs on chrome grey. */
+button.primary:not(:disabled) { background: #3574f0; border-color: #3574f0; color: #fff; }
+button.primary:hover:not(:disabled) { background: #4a85f5; border-color: #4a85f5; }
+.modal { background: var(--chrome); border-radius: 8px; border-color: #43454a; }
+.modal input, .modal select, .modal textarea { background: var(--bg); }
+
+/* Rider tool windows: pill tabs on the editor background, icon-only editor actions. */
+.editor-action-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.output, .panel-body, .editor-pane { background: var(--bg); }
+.bottom-tabs, .tabbar { background: var(--bg); border-bottom: 0; padding: 4px 8px 0; gap: 2px; }
+.bottom-tabs .tab-label { border-radius: 6px; padding: 3px 10px; font-size: 13px; color: var(--fg); }
+.bottom-tabs .tab-label:hover { background: #ffffff14; }
+.bottom-tabs .tab-label.active { background: var(--select); box-shadow: none; }
+.tabbar .tab-label { font-size: 13px; }
+.workspace-tools > summary { background: var(--chrome); }

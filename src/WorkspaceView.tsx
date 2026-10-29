@@ -3424,7 +3424,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           disabled={buildAction.disabledReason !== null}
           onClick={buildAction.execute}
           title={buildAction.disabledReason ?? `Builds the selected startup project (${buildAction.shortcutTexts.join(" or ")}). Unsaved buffers need an explicit decision.`}
-        ><Icon name="build" /> Build</button>
+          className="toolbar-icon-button"
+          aria-label="Build"
+        ><Icon name="build" /></button>
         <RunConfigWidget
           configs={runConfigStore?.configs ?? []}
           defaultConfig={defaultRunConfig}
@@ -3443,8 +3445,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onSelect={(id) => void selectRunConfig(id)}
           onEdit={() => openRunConfigDialog()}
         />
+        {debugActive && (
+          <button
+            data-testid="toolbar-debug-stop"
+            className="toolbar-icon-button stop-button"
+            aria-label="Stop"
+            onClick={stopAction.execute}
+            title={stopAction.disabledReason ?? "Stops the adapter group and reports what was observed."}
+          >
+            <Icon name="stop" />
+          </button>
+        )}
         <button
           data-testid="toolbar-run"
+          className="toolbar-icon-button run-button"
+          aria-label={runRunning ? "Running" : "Run"}
           disabled={runAction.disabledReason !== null}
           onClick={() => runAction.execute()}
           title={
@@ -3452,11 +3467,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             `Runs the saved build (${runAction.shortcutTexts.join(" or ")}); unsaved buffers are never included.`
           }
         >
-          <Icon name="run" /> {runRunning ? "Running…" : "Run"}{" "}
-          <kbd>{runAction.shortcutLabels[0] ?? ""}</kbd>
+          <Icon name="run" />
         </button>
         <button
           data-testid="toolbar-debug"
+          className="toolbar-icon-button debug-button"
+          aria-label="Debug"
           disabled={debugStartAction.disabledReason !== null}
           onClick={debugStartAction.execute}
           title={
@@ -3464,44 +3480,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             `Starts the evaluated Debug assembly under netcoredbg (${debugStartAction.shortcutTexts.join(" or ")}).`
           }
         >
-          <Icon name="debug" /> Debug <kbd>{debugStartAction.shortcutLabels[0] ?? ""}</kbd>
-        </button>
-        {debugActive && (
-          <button
-            data-testid="toolbar-debug-stop"
-            onClick={stopAction.execute}
-            title={stopAction.disabledReason ?? "Stops the adapter group and reports what was observed."}
-          >
-            Stop
-          </button>
-        )}
-        <span className="toolbar-disabled" title="Search Everywhere arrives in F3.">
-          <button
-            type="button"
-            className="toolbar-icon-button"
-            data-testid="toolbar-search"
-            disabled={Boolean(searchAction.disabledReason)}
-            aria-label={searchAction.title}
-            title={searchAction.disabledReason ?? searchAction.shortcutTexts.join(" or ")}
-            onClick={searchAction.execute}
-          >
-            <Icon name="search" />
-          </button>
-        </span>
-        <button
-          type="button"
-          className="toolbar-icon-button"
-          data-testid="toolbar-settings"
-          aria-label={settingsAction.title}
-          title={settingsAction.shortcutTexts.join(" or ") || settingsAction.title}
-          onClick={settingsAction.execute}
-        >
-          <Icon name="settings" />
+          <Icon name="debug" />
         </button>
         <details className="toolbar-menu" data-testid="workspace-actions-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
-          <summary aria-label="Workspace actions">•••</summary>
+          <summary aria-label="Workspace actions" title="More actions">⋮</summary>
           <div className="menu-content">
             <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a configuration." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a configuration." : evaluationBusy ? "Wait for evaluation to finish before changing configuration." : "MSBuild configuration for evaluation."}>{configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}</select></label>
             <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value || null })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a TFM." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a TFM." : evaluationBusy ? "Wait for evaluation to finish before changing TFM." : "Target framework for evaluation."}><option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}</select></label>
@@ -3544,6 +3528,29 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             </button>
           </div>
         </details>
+        <span className="toolbar-disabled" title="Search Everywhere arrives in F3.">
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            data-testid="toolbar-search"
+            disabled={Boolean(searchAction.disabledReason)}
+            aria-label={searchAction.title}
+            title={searchAction.disabledReason ?? searchAction.shortcutTexts.join(" or ")}
+            onClick={searchAction.execute}
+          >
+            <Icon name="search" />
+          </button>
+        </span>
+        <button
+          type="button"
+          className="toolbar-icon-button"
+          data-testid="toolbar-settings"
+          aria-label={settingsAction.title}
+          title={settingsAction.shortcutTexts.join(" or ") || settingsAction.title}
+          onClick={settingsAction.execute}
+        >
+          <Icon name="settings" />
+        </button>
       </div>
 
       <div className="workspace-notices">

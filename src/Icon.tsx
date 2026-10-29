@@ -14,7 +14,8 @@ export type IconName =
   | "settings"
   | "git"
   | "package"
-  | "runconfig";
+  | "runconfig"
+  | "stop";
 
 export function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, string> = {
@@ -33,6 +34,7 @@ export function Icon({ name }: { name: IconName }) {
     settings: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1M7.7 16.3l-2.1 2.1",
     git: "M6 8v10M18 8v1c0 4-3 6-7 6H6M6 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm12 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z",
     package: "m12 3 8 4v10l-8 4-8-4V7l8-4Zm-8 4 8 4 8-4m-8 4v10M8 9l8-4",
+    stop: "M6 6h12v12H6V6Z",
     runconfig: "M4 7h6m4 0h6M4 17h10m4 0h2M12 4v6M18 14v6",
   };
   return <svg className={`icon icon-${name}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
