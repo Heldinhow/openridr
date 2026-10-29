@@ -8,7 +8,7 @@ import { reveal } from "./disclosures";
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 import { e2eHome, host } from "./environment";
 const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
-const logs = path.resolve(process.cwd(), "docs/evidence/logs");
+const logs = path.resolve(process.env.OPENRIDR_EVIDENCE_LOG_DIR ?? "docs/evidence/logs");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.describe.configure({ timeout: 180_000 });

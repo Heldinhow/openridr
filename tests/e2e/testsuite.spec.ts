@@ -6,7 +6,7 @@ import { host } from "./environment";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 

@@ -12,6 +12,7 @@ mod lsp;
 mod nuget;
 mod outline;
 pub mod process;
+mod recent;
 mod restore;
 pub mod sdk;
 mod run;
@@ -537,6 +538,12 @@ impl Host {
         if method == "git.info" {
             return self.git_info();
         }
+        if method == "recent.list" {
+            return Ok(recent::list());
+        }
+        if method == "workspace.pick" {
+            return pick_workspace();
+        }
         if method == "git.path" {
             return Ok(json!({ "path": git::path() }));
         }
@@ -562,7 +569,13 @@ impl Host {
                 let mut inner = self.inner.lock().unwrap();
                 Ok(self.snapshot_value(&mut inner))
             }
-            "workspace.open" => self.open_workspace(params),
+            "workspace.open" => {
+                let opened = self.open_workspace(params)?;
+                if let Some(path) = opened["workspace"]["path"].as_str() {
+                    recent::record(path);
+                }
+                Ok(opened)
+            }
             "workspace.close" => self.close_workspace(),
             "trust.grant" => self.grant_trust(),
             "trust.revoke" => self.revoke_trust(),
@@ -6247,6 +6260,30 @@ fn log_tail(log: &str, lines: usize) -> String {
     let all: Vec<&str> = log.lines().collect();
     let start = all.len().saturating_sub(lines);
     all[start..].join("\n")
+}
+
+/// Native file chooser for the welcome screen (macOS only, like the verified target).
+/// Returns `{ "path": null }` when the user cancels. No lock is held while it is open.
+fn pick_workspace() -> HostResult<Value> {
+    if !cfg!(target_os = "macos") {
+        return Err(HostError::new(
+            "unsupported",
+            "The file chooser is only implemented on macOS; type the path instead.",
+        ));
+    }
+    let output = Command::new("osascript")
+        .args([
+            "-e",
+            r#"POSIX path of (choose file with prompt "Open solution or project" default location (path to home folder) of type {"sln","slnx","csproj"})"#,
+        ])
+        .output()
+        .map_err(|error| HostError::new("pick_failed", format!("Cannot start the file chooser: {error}")))?;
+    if !output.status.success() {
+        // osascript exits 1 with "User canceled." when the dialog is dismissed.
+        return Ok(json!({ "path": null }));
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(json!({ "path": if path.is_empty() { None } else { Some(path) } }))
 }
 
 #[cfg(test)]

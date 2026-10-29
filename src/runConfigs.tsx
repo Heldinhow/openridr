@@ -600,6 +600,16 @@ export function RunConfigDialog({
                 ))}
               </select>,
             )}
+            <label className="run-config-field">
+              <span>Exe path (from evaluation)</span>
+              <input
+                type="text"
+                readOnly
+                data-testid="run-config-exe"
+                value={selectedProject?.targetPath ?? ""}
+                placeholder="Evaluate the project to resolve the output assembly"
+              />
+            </label>
             {field(
               "argumentsText",
               "Arguments (one per line, passed as separate argv entries)",

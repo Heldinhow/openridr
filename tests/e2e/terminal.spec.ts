@@ -96,6 +96,18 @@ test("a real shell runs in the workspace, interrupts a child with Ctrl+C and clo
 
     const output = page.getByTestId("terminal-output");
     const input = page.getByTestId("terminal-input");
+    expect((await output.boundingBox())!.height).toBeGreaterThanOrEqual(50);
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await expect(page.getByTestId("terminal-close")).toBeVisible();
+    await expect(page.getByTestId("terminal-interrupt")).toBeVisible();
+    await expect(input).toBeVisible();
+    expect((await output.boundingBox())!.height).toBeGreaterThanOrEqual(50);
+    const details = page.getByRole("region", { name: "Terminal details" });
+    expect(await details.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    await details.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => details.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     await input.fill("pwd");
     await input.press("Enter");

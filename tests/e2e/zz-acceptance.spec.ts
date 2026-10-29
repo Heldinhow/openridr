@@ -13,8 +13,8 @@ import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const host = "http://127.0.0.1:4317";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
-const logs = path.resolve(process.cwd(), "docs/evidence/logs");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+const logs = path.resolve(process.env.OPENRIDR_EVIDENCE_LOG_DIR ?? "docs/evidence/logs");
 const e2eHome = path.join(os.tmpdir(), "openridr-e2e-home");
 const realAdapter = path.join(
   process.env.HOME ?? "",

@@ -15,6 +15,22 @@ test.beforeEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
 
+test("a new layout starts with output hidden and remembers when it is opened", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => localStorage.removeItem("openridr.layout.v1"));
+  await page.reload();
+  await openTextOnly(page);
+  await expect(page.locator("#output-content")).toHaveCount(0);
+  await expect(page.getByTestId("toolband-build")).toHaveAttribute("aria-pressed", "false");
+
+  await page.getByTestId("toolband-build").click();
+  await expect(page.getByTestId("bottom-tab-build")).toBeVisible();
+  await page.reload();
+  await openTextOnly(page);
+  await expect(page.getByTestId("bottom-tab-build")).toBeVisible();
+  await expect(page.getByTestId("toolband-build")).toHaveAttribute("aria-pressed", "true");
+});
+
 test("tool windows open from the bands, toggle the active one and hide on Shift+Esc", async ({ page }) => {
   await page.goto("/");
   await openTextOnly(page);

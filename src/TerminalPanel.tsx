@@ -123,54 +123,56 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
           {disabledReason}
         </p>
       )}
-      <div className="terminal-meta">
-        <span>
-          Shell: <strong data-testid="terminal-shell">{terminal.shell || "not started"}</strong>
-        </span>
-        <span>
-          Cwd: <span data-testid="terminal-cwd">{terminal.cwd || "not started"}</span>
-        </span>
-        <span data-testid="terminal-size">
-          {terminal.cols}×{terminal.rows}
-        </span>
-        <span className={`tag ${terminal.state === "failed" ? "error" : ""}`} data-testid="terminal-state" role="status">
-          {stateLabels[terminal.state]}
-        </span>
-        <span className="muted" data-testid="terminal-process">
-          {terminal.processId === null ? "No shell process" : `Process ${terminal.processId}`}
-        </span>
-      </div>
+      <div className="terminal-toolbar">
+        <div className="terminal-meta" role="region" tabIndex={0} aria-label="Terminal details">
+          <span>
+            Shell: <strong data-testid="terminal-shell">{terminal.shell || "not started"}</strong>
+          </span>
+          <span>
+            Cwd: <span data-testid="terminal-cwd">{terminal.cwd || "not started"}</span>
+          </span>
+          <span data-testid="terminal-size">
+            {terminal.cols}×{terminal.rows}
+          </span>
+          <span className={`tag ${terminal.state === "failed" ? "error" : ""}`} data-testid="terminal-state" role="status">
+            {stateLabels[terminal.state]}
+          </span>
+          <span className="muted" data-testid="terminal-process">
+            {terminal.processId === null ? "No shell process" : `Process ${terminal.processId}`}
+          </span>
+        </div>
 
-      <div className="terminal-controls">
-        <button
-          data-testid="terminal-start"
-          disabled={disabledReason !== null || running || busy !== null}
-          onClick={() => void invoke("Start terminal", "terminal.start")}
-          title={
-            disabledReason ??
-            "Starts the discovered shell in the workspace root; the shell and cwd are shown above."
-          }
-        >
-          Start shell
-        </button>
-        {running && (
+        <div className="terminal-controls">
           <button
-            data-testid="terminal-close"
-            disabled={busy !== null}
-            onClick={() => setConfirmClose(true)}
-            title="Closing a running shell needs a decision: keep the terminal or terminate the shell."
+            data-testid="terminal-start"
+            disabled={disabledReason !== null || running || busy !== null}
+            onClick={() => void invoke("Start terminal", "terminal.start")}
+            title={
+              disabledReason ??
+              "Starts the discovered shell in the workspace root; the shell and cwd are shown above."
+            }
           >
-            Close…
+            Start shell
           </button>
-        )}
-        <button
-          data-testid="terminal-interrupt"
-          disabled={!running || busy !== null}
-          onClick={() => void send("\u0003")}
-          title="Sends Ctrl+C (byte 0x03) to the PTY so the foreground child receives SIGINT."
-        >
-          Ctrl+C
-        </button>
+          {running && (
+            <button
+              data-testid="terminal-close"
+              disabled={busy !== null}
+              onClick={() => setConfirmClose(true)}
+              title="Closing a running shell needs a decision: keep the terminal or terminate the shell."
+            >
+              Close…
+            </button>
+          )}
+          <button
+            data-testid="terminal-interrupt"
+            disabled={!running || busy !== null}
+            onClick={() => void send("\u0003")}
+            title="Sends Ctrl+C (byte 0x03) to the PTY so the foreground child receives SIGINT."
+          >
+            Ctrl+C
+          </button>
+        </div>
       </div>
 
       {confirmClose && (

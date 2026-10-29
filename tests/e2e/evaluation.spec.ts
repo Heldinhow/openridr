@@ -7,7 +7,7 @@ const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
 const brokenFixture = path.resolve(process.cwd(), "fixtures/BrokenImport");
 import { host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -74,6 +74,16 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
   await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
   await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
+  const dependencies = page.getByRole("group", { name: "OrderDesk.Cli dependencies" });
+  await expect(dependencies.locator("summary")).toBeVisible();
+  await expect(dependencies.getByText("References: OrderDesk.Core")).toBeHidden();
+  await dependencies.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(dependencies.getByText("References: OrderDesk.Core")).toBeVisible();
+  await page.keyboard.press("Enter");
+  if (process.env.OPENRIDR_EVALUATION_SCREENSHOT) {
+    await page.screenshot({ path: process.env.OPENRIDR_EVALUATION_SCREENSHOT });
+  }
   await expect(page.getByTestId("tree")).toContainText("References: OrderDesk.Core");
   await expect(page.getByTestId("tree")).toContainText("Packages: Microsoft.NET.Test.Sdk 17.11.1");
   await expect(page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs")).toBeVisible();

@@ -2609,3 +2609,31 @@ button.primary:hover:not(:disabled) { background: #4a85f5; border-color: #4a85f5
 .eval-controls { gap: 10px; }
 .eval-controls > button { background: transparent; border-color: transparent; padding: 2px 4px; color: var(--accent); }
 .eval-controls > button:hover:not(:disabled) { background: #ffffff14; }
+
+.search-box { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 10px; background: transparent; border-radius: 6px; color: var(--muted); }
+.search-box input { flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; outline: 0; color: var(--fg); font: inherit; }
+.search-box:focus-within { background: var(--panel); outline: 1px solid var(--accent); }
+.recent-list li:first-child button { background: var(--select); }
+.trust-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+.cs-badge, .json-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; font-size: 8px; font-weight: 700; line-height: 1; }
+.cs-badge { min-width: 17px; height: 13px; padding: 0 2px; border: 1px solid #5fa86a; border-radius: 3px; color: #7cc58a; background: #2f4a35; }
+.cs-badge.project { min-width: 20px; height: 14px; font-size: 9px; }
+.json-badge { color: #b48ee8; font-size: 12px; min-width: 17px; }
+.tree-chevron { width: 10px; color: var(--muted); font-size: 10px; flex: 0 0 auto; }
+.tree-root { font-weight: 600; display: flex; align-items: center; gap: 4px; }
+.tree-count { color: var(--muted); font-weight: 400; }
+.cs-badge::before { content: "C#"; }
+.json-badge::before { content: "{}"; }
+.tab-label .cs-badge, .tab-label .json-badge { margin-right: 6px; }
+.explorer-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.explorer-tools { display: inline-flex; gap: 2px; }
+.explorer-tools button { width: 22px; height: 22px; padding: 0; background: transparent; border-color: transparent; color: var(--muted); font-size: 13px; }
+.explorer-tools button:hover:not(:disabled) { background: #ffffff1a; color: var(--fg); }
+.tree-dependencies { padding: 2px 12px 2px 34px; color: var(--muted); font-size: 12px; }
+.inspection-summary { display: inline-flex; gap: 8px; align-items: center; margin-left: auto; padding: 0 8px; font-size: 12px; }
+.insp-error { color: #f75464; }
+.insp-warning { color: #e5b94d; }
+/* Evaluation controls: compact icon row; text stays in the accessible name. */
+.side .eval-controls { gap: 6px; padding: 2px 12px; }
+.side .eval-controls button { min-height: 22px; padding: 0 6px; font-size: 11px; background: transparent; border-color: transparent; color: var(--muted); }

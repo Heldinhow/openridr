@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { call, HostCallError, type ProcessInfo, type Snapshot } from "./host/client";
 
 type Props = {
@@ -21,6 +21,17 @@ export function ProcessPanel({ snapshot, onChange }: Props) {
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const processes = snapshot.processes ?? [];
+  const awaitingIds = processes
+    .filter((process) => process.awaitingDecision)
+    .map((process) => process.id)
+    .sort((a, b) => a - b)
+    .join(",");
+  const awaitingDecision = awaitingIds.length > 0;
+  const [expanded, setExpanded] = useState(awaitingDecision);
+
+  useEffect(() => {
+    if (awaitingIds) setExpanded(true);
+  }, [awaitingIds]);
 
   if (processes.length === 0) {
     return null;
@@ -33,14 +44,21 @@ export function ProcessPanel({ snapshot, onChange }: Props) {
       onChange(await call<Snapshot>(method, { id }));
     } catch (caught) {
       setError(messageOf(caught));
+      setExpanded(true);
     } finally {
       setBusy(null);
     }
   }
 
   return (
-    <section className="process-panel" aria-labelledby="processes-title" data-testid="processes-panel">
-      <h2 id="processes-title">Processes</h2>
+    <section className={`process-panel ${expanded ? "is-expanded" : "is-collapsed"}`} aria-labelledby="processes-title" data-testid="processes-panel">
+      <h2 id="processes-title">
+        <button type="button" className="process-toggle" data-testid="processes-toggle" aria-expanded={expanded} onClick={() => setExpanded((open) => !open)}>
+          Processes <span className="muted">· {processes.length}</span>
+          {awaitingDecision && <span className="warning"> · Decision needed</span>}
+        </button>
+      </h2>
+      {expanded && <>
       <p className="muted">
         OpenRidr tracks only processes the host started. Termination is shown after the host
         observes it; a missing exit code stays "exit unknown".
@@ -99,6 +117,7 @@ export function ProcessPanel({ snapshot, onChange }: Props) {
           {error}
         </p>
       )}
+      </>}
     </section>
   );
 }

@@ -123,6 +123,7 @@ export function SetupScreen({
 }: Props) {
   const [path, setPath] = useState(initialPath);
   const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState("");
   const [redetecting, setRedetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toolchainError, setToolchainError] = useState<string | null>(null);
@@ -133,7 +134,7 @@ export function SetupScreen({
   const sdk = snapshot?.sdk;
   const trusted = snapshot?.trust.granted ?? false;
 
-  async function open(target: string) {
+  async function open(target: string, enter = false) {
     if (!target.trim()) {
       setError("Enter an absolute path to a .sln, .csproj or a directory.");
       return;
@@ -144,6 +145,8 @@ export function SetupScreen({
     try {
       const opened = await call<Snapshot>("workspace.open", { path: target.trim() });
       onOpened(opened);
+      // Welcome clicks go straight in (Restricted mode); the typed-path form keeps the trust review step.
+      if (enter) onEnter();
     } catch (caught) {
       if (caught instanceof HostCallError) {
         setError(caught.message);
@@ -156,6 +159,15 @@ export function SetupScreen({
       }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function pick() {
+    try {
+      const { path: picked } = await call<{ path: string | null }>("workspace.pick");
+      if (picked) await open(picked, true);
+    } catch (caught) {
+      setError(messageOf(caught));
     }
   }
 
@@ -187,41 +199,58 @@ export function SetupScreen({
           <a className="welcome-link" href="#toolchain-title">Toolchain</a>
         </nav>
         <div className="setup" id="projects">
-        <form
-          className="open-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void open(path);
-          }}
-        >
-          <label htmlFor="workspace-path-input" className="sr-only">Workspace path (absolute)</label>
+        <div className="open-form">
           <div className="open-row">
-            <input
-              id="workspace-path-input"
-              data-testid="workspace-path-input"
-              value={path}
-              onChange={(event) => setPath(event.target.value)}
-              placeholder="Path to a .sln, .csproj or folder"
-              aria-describedby="workspace-path-help"
-              aria-invalid={error ? true : undefined}
-              autoFocus
-              spellCheck={false}
-              disabled={busy}
-            />
-            <button type="submit" className="welcome-button" data-testid="workspace-open" disabled={busy}>
+            <div className="search-box">
+              <Icon name="search" />
+              <input
+                data-testid="welcome-search"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+                placeholder="Search projects"
+                aria-label="Search projects"
+                spellCheck={false}
+              />
+            </div>
+            <button type="button" className="welcome-button" data-testid="workspace-pick" disabled={busy} onClick={() => void pick()}>
               {busy ? "Opening…" : "Open"}
             </button>
           </div>
-          <p className="hint" id="workspace-path-help">Absolute path. Opens in Restricted mode — no project code runs until you trust it.</p>
-        </form>
+          <p className="hint" id="workspace-path-help">Opens in Restricted mode — no project code runs until you trust it.</p>
+          {!window.__TAURI_INTERNALS__ && (
+            // Browser/E2E bridge only: Playwright cannot drive the native chooser, so it types the path.
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void open(path);
+              }}
+            >
+              <label htmlFor="workspace-path-input" className="sr-only">Workspace path (absolute)</label>
+              <div className="open-row">
+                <input
+                  id="workspace-path-input"
+                  data-testid="workspace-path-input"
+                  value={path}
+                  onChange={(event) => setPath(event.target.value)}
+                  placeholder="Path to a .sln, .csproj or folder"
+                  aria-describedby="workspace-path-help"
+                  aria-invalid={error ? true : undefined}
+                  spellCheck={false}
+                  disabled={busy}
+                />
+                <button type="submit" className="welcome-button" data-testid="workspace-open" disabled={busy}>Open path</button>
+              </div>
+            </form>
+          )}
+        </div>
 
         {recent.length > 0 && (
           <ul className="recent-list" data-testid="welcome-recent">
-            {recent.map((solution, index) => {
+            {recent.filter((solution) => solution.toLowerCase().includes(filter.trim().toLowerCase())).map((solution, index) => {
               const name = (solution.split(/[\\/]/).pop() ?? solution).replace(/\.(sln|csproj)$/i, "");
               return (
                 <li key={solution}>
-                  <button type="button" data-testid={`welcome-recent-${index}`} title={solution} onClick={() => void open(solution)} disabled={busy}>
+                  <button type="button" data-testid={`welcome-recent-${index}`} title={solution} onClick={() => void open(solution, true)} disabled={busy}>
                     <span className="project-badge" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>
                     <span className="recent-text"><strong>{name}</strong><span className="muted">{solution}</span></span>
                   </button>

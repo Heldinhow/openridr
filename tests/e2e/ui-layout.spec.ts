@@ -40,9 +40,11 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     const outputBox = (await output.boundingBox())!;
     expect(treeBox.width).toBe(280);
     expect(treeBox.y).toBe(44);
-    expect(treeBox.y + treeBox.height).toBe(viewport.height - 24);
+    expect(treeBox.y + treeBox.height).toBe(outputBox.y - 4);
     expect(editorBox.height).toBeGreaterThan(200);
     expect(outputBox.height).toBe(220);
+    expect(outputBox.x).toBe(treeBox.x);
+    expect(outputBox.x + outputBox.width).toBe(editorBox.x + editorBox.width);
     for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug", "mode-badge"]) {
       const box = (await page.getByTestId(id).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);

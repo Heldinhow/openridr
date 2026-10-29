@@ -37,7 +37,7 @@ export const bottomSizeRange = { min: 120, max: 500 };
 
 export const defaultShellLayout: ShellLayout = {
   left: { active: "solution", size: 280, open: true },
-  bottom: { active: "build", size: 220, open: true },
+  bottom: { active: "build", size: 220, open: false },
 };
 
 function clampSize(value: unknown, range: { min: number; max: number }, fallback: number) {

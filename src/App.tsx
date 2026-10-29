@@ -3,23 +3,12 @@ import { SetupScreen } from "./SetupScreen";
 import { WorkspaceView } from "./WorkspaceView";
 import { call, type Snapshot } from "./host/client";
 
-const RECENT_KEY = "openridr.recent";
-
-function loadRecent(): string[] {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string").slice(0, 6) : [];
-  } catch {
-    return [];
-  }
-}
-
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [stage, setStage] = useState<"setup" | "workspace">("setup");
   const [lastPath, setLastPath] = useState("");
   const [pendingFile, setPendingFile] = useState<string | null>(null);
-  const [recentSolutions, setRecentSolutions] = useState<string[]>(loadRecent);
+  const [recentSolutions, setRecentSolutions] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -38,14 +27,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const path = snapshot?.workspace?.path;
-    if (!path) return;
-    setRecentSolutions((current) => {
-      if (current[0] === path) return current;
-      const next = [path, ...current.filter((item) => item !== path)].slice(0, 6);
-      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-      return next;
-    });
+    // The host records every successful open; refetch whenever the workspace changes.
+    call<{ projects: string[] }>("recent.list")
+      .then((result) => setRecentSolutions(result.projects))
+      .catch(() => {});
   }, [snapshot?.workspace?.path]);
 
   function handleSnapshot(next: Snapshot) {

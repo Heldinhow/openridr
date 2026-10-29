@@ -38,6 +38,7 @@ import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
+import { FileIcon } from "./FileIcon";
 import { Icon } from "./Icon";
 import { Splitter } from "./Splitter";
 import { BottomToolWindow } from "./shell/BottomToolWindow";
@@ -373,6 +374,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const sidebarWidth = layout.left.size;
   const outputHeight = layout.bottom.size;
   const panelBodyRef = useRef<HTMLDivElement>(null);
+  const trustMenuRef = useRef<HTMLDetailsElement>(null);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
@@ -2541,6 +2543,91 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
+  function debugStartParams() {
+    return {
+      project: startupProject?.path,
+      configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
+      targetFramework: activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
+      args: activeRunConfig?.args ?? [],
+      workingDirectory: activeRunConfig?.workingDirectory ?? "",
+      env: activeRunConfig?.env ?? {},
+      envFiles: activeRunConfig?.envFiles ?? [],
+    };
+  }
+
+  // Rider-style one-click Debug: does the safe preparation the gates ask for (opt-in flag after
+  // an explicit confirm, restore, Debug build) and then launches. Every host gate still applies.
+  async function prepareAndDebug() {
+    setBottomTab("debug");
+    if (!trusted) return;
+    const wait = async (done: (s: Snapshot) => boolean) => {
+      for (let i = 0; i < 480; i++) {
+        const next = await call<Snapshot>("workspace.state");
+        onSnapshot(next);
+        if (done(next)) return next;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      throw new Error("timed out waiting for the host");
+    };
+    const consoleOf = (s: Snapshot) => {
+      const ready = s.evaluation.projects.filter((p) => p.kind === "console" && p.state === "ok" && p.targetPath);
+      return ready.length === 1 ? ready[0] : null;
+    };
+    try {
+      let snap = snapshot;
+      if (snap.debug.os === "macos" && snap.debug.arch === "aarch64" && !snap.debug.appleSiliconExperimental) {
+        if (!window.confirm("The netcoredbg macOS arm64 build is community supported and experimental. Enable it for this session (the approved 3.2.0-1092 release is installed only if missing) and continue debugging?")) return;
+        snap = await call<Snapshot>("debug.flag", { enabled: true, confirm: true });
+        onSnapshot(snap);
+      }
+      if (snap.debug.adapterState !== "ready") {
+        // Reuses the verified executable when present; downloads the approved release otherwise.
+        const planned = await call<Snapshot>("debug.plan");
+        snap = await call<Snapshot>("debug.install", { planId: planned.debug.plan?.planId, confirm: true });
+        onSnapshot(snap);
+        if (snap.debug.adapterState === "downloading" || snap.debug.adapterState === "installing" || snap.debug.adapterState === "verifying") {
+          snap = await wait((s) => !["downloading", "installing", "verifying"].includes(s.debug.adapterState));
+        }
+      }
+      if (snap.debug.adapterState !== "ready") throw new Error(snap.debug.gateReason ?? snap.debug.adapterMessage);
+      if (snap.restore.state !== "ok" && !(snap.restore.projects.length > 0 && snap.restore.projects.every((p) => p.state === "restored"))) {
+        setMessage({ tone: "info", text: "Preparing Debug: restoring packages…" });
+        onSnapshot(await call<Snapshot>("restore.start", {}));
+        snap = await wait((s) => s.restore.state !== "running");
+        if (snap.restore.state !== "ok") throw new Error("restore did not succeed; see the Build tab.");
+      }
+      const context = snap.evaluation.context;
+      if (!consoleOf(snap) || snap.restore.state === "ok") {
+        setMessage({ tone: "info", text: "Preparing Debug: evaluating the project model…" });
+        onSnapshot(await call<Snapshot>("evaluation.run", {
+          configuration: "Debug",
+          targetFramework: context.targetFramework ?? (snap.evaluation.availableTfms.length === 1 ? snap.evaluation.availableTfms[0] : null),
+        }));
+        snap = await wait((s) => s.evaluation.state !== "running");
+      }
+      const project = consoleOf(snap);
+      if (!project) throw new Error("no single evaluated console project; choose a startup project or TFM first.");
+      setMessage({ tone: "info", text: "Preparing Debug: building…" });
+      onSnapshot(await call<Snapshot>("build.start", {
+        project: project.path,
+        configuration: "Debug",
+        targetFramework: snap.evaluation.context.targetFramework,
+        savedNote: "Built by Debug; saved content only.",
+      }));
+      snap = await wait((s) => s.build.state !== "running");
+      if (snap.build.state !== "ok" || snap.build.exit !== 0) throw new Error("the Debug build failed; see the Build tab.");
+      onSnapshot(await call<Snapshot>("debug.start", {
+        project: project.path,
+        configuration: "Debug",
+        targetFramework: snap.evaluation.context.targetFramework,
+        args: [], workingDirectory: "", env: {}, envFiles: [],
+      }));
+      setMessage(null);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Debug could not start: ${messageOf(error)}` });
+    }
+  }
+
   async function startDebug() {
     if (debugDisabledReason) {
       setMessage({ tone: "error", text: `Debug unavailable: ${debugDisabledReason}` });
@@ -2554,18 +2641,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
     setBottomTab("debug");
     try {
-      onSnapshot(
-        await call<Snapshot>("debug.start", {
-          project: startupProject?.path,
-          configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
-          targetFramework:
-            activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
-          args: activeRunConfig?.args ?? [],
-          workingDirectory: activeRunConfig?.workingDirectory ?? "",
-          env: activeRunConfig?.env ?? {},
-          envFiles: activeRunConfig?.envFiles ?? [],
-        }),
-      );
+      onSnapshot(await call<Snapshot>("debug.start", debugStartParams()));
       setMessage(null);
     } catch (error) {
       setMessage({ tone: "error", text: `Debug could not start: ${messageOf(error)}` });
@@ -3399,6 +3475,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const currentProblems = withLocalEdits(snapshot.diagnostics, editedAt)
     .filter((diagnostic) => diagnostic.state === "current")
     .reduce((count, diagnostic) => count + diagnostic.items.length, 0);
+  const activeInspections = active
+    ? snapshot.diagnostics.snapshots
+        .filter((snap) => snap.state === "current" && snap.path && snap.path.replace(/\\/g, "/").endsWith(`/${active.path}`))
+        .flatMap((snap) => snap.items)
+        .reduce((count, item) => {
+          if (item.severityLabel === "error") count.error += 1;
+          else if (item.severityLabel === "warning") count.warning += 1;
+          return count;
+        }, { error: 0, warning: 0 })
+    : null;
   const bottomTabLabels = bottomTools.map(({ id, title }) => ({
     id: id as BottomToolId,
     label: id === "problems" && currentProblems > 0 ? `Problems (${currentProblems})` : title,
@@ -3481,7 +3567,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             {recentSolutions.length === 0 && <span className="menu-note">No recent solutions.</span>}
           </div>
         </details>
-        <details className="toolbar-menu trust-menu" onKeyDown={(event) => {
+        <details ref={trustMenuRef} className="toolbar-menu trust-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
           <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted mode" : "Restricted mode"}</summary>
@@ -3553,8 +3639,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           data-testid="toolbar-debug"
           className="toolbar-icon-button debug-button"
           aria-label="Debug"
-          disabled={debugStartAction.disabledReason !== null}
-          onClick={debugStartAction.execute}
+          aria-disabled={debugStartAction.disabledReason !== null}
+          onClick={() => {
+            // Like Rider: a blocked Debug click explains why in the Debug tab instead of doing nothing.
+            if (debugStartAction.disabledReason === null) debugStartAction.execute();
+            else void prepareAndDebug();
+          }}
           title={
             debugStartAction.disabledReason ??
             `Starts the evaluated Debug assembly under netcoredbg (${debugStartAction.shortcutTexts.join(" or ")}).`
@@ -3793,6 +3883,23 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
       </details>
 
+      {!trusted && (
+        <div className="notice warning trust-banner" role="status" data-testid="trust-prompt">
+          <span><strong>Restricted mode.</strong> Build, Run, Debug and analysis are off until you trust this workspace.</span>
+          <button
+            type="button"
+            className="primary"
+            data-testid="trust-prompt-open"
+            onClick={() => {
+              if (trustMenuRef.current) trustMenuRef.current.open = true;
+              trustMenuRef.current?.querySelector<HTMLInputElement>("input[type=checkbox]")?.focus();
+            }}
+          >
+            Trust workspace…
+          </button>
+        </div>
+      )}
+
       {message && (
         <div
           className={`notice ${message.tone === "error" ? "error" : ""}`}
@@ -3854,9 +3961,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         ) : (
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
           <div className="panel-title">
-            Solution Explorer{" "}
-            <span className="tag">
-              {showsEvaluatedTree ? "MSBuild evaluated" : "Text outline · not evaluated"}
+            <span className="explorer-heading">
+              <span>Solution ⌄{" "}
+                <span className="tag">
+                  {showsEvaluatedTree ? "MSBuild evaluated" : "Text outline · not evaluated"}
+                </span>
+              </span>
+              <span className="explorer-tools">
+                <button data-testid="tree-locate" aria-label="Select opened file" title="Select opened file" disabled={!activePath} onClick={() => {
+                  const owner = (showsEvaluatedTree ? evaluatedProjects.find((item) => item.sources.includes(activePath ?? "")) : projects.find((item) => item.files.includes(activePath ?? "")));
+                  if (owner) setExpanded((current) => new Set(current).add(owner.path));
+                  setSelectedProjectPath(owner?.path ?? null);
+                }}>◎</button>
+                <button data-testid="tree-expand-all" aria-label="Expand all" title="Expand all" onClick={() => setExpanded(new Set((showsEvaluatedTree ? evaluatedProjects : projects).map((item) => item.path)))}>⌄</button>
+                <button data-testid="tree-collapse-all" aria-label="Collapse all" title="Collapse all" onClick={() => setExpanded(new Set())}>⌃</button>
+              </span>
             </span>
           </div>
 
@@ -3913,7 +4032,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
           {showsEvaluatedTree ? (
             <div className="tree">
-              <div className="tree-root">{workspace.name}</div>
+              <div className="tree-root"><Icon name="project" /> {workspace.name} <span className="tree-count">· {showsEvaluatedTree ? evaluatedProjects.length : projects.length} projects</span></div>
               {projectGroups.map(([folder, items]) => (
                 <div key={folder || "root"}>
                   {folder && (
@@ -3937,7 +4056,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                           }}
                           title={project.path}
                         >
-                          <Icon name="project" /><span className="tree-name">{project.name}</span>
+                          <span className="tree-chevron" aria-hidden="true">{expanded.has(project.path) ? "▾" : "▸"}</span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
                           <span className="tag">{project.kind}</span>
                           {project.state === "failed" && <span className="tag error">error</span>}
                           {project.tfms.map((tfm) => (
@@ -3966,20 +4085,25 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                               </div>
                             )}
                             {project.note && <div className="tree-note">{project.note}</div>}
-                            {project.projectRefs.length > 0 && (
-                              <div className="tree-note tree-node tree-node-refs">
-                                References: {project.projectRefs.map((ref) => ref.name).join(", ")}
-                              </div>
-                            )}
-                            {project.packageRefs.length > 0 && (
-                              <div className="tree-note tree-node tree-node-packages">
-                                Packages:{" "}
-                                {project.packageRefs
-                                  .map((pkg) =>
-                                    pkg.version ? `${pkg.name} ${pkg.version}` : `${pkg.name} (version unknown)`,
-                                  )
-                                  .join(", ")}
-                              </div>
+                            {(project.projectRefs.length > 0 || project.packageRefs.length > 0) && (
+                              <details className="tree-dependencies" aria-label={`${project.name} dependencies`}>
+                                <summary>Dependencies</summary>
+                                {project.projectRefs.length > 0 && (
+                                  <div className="tree-note tree-node tree-node-refs">
+                                    References: {project.projectRefs.map((ref) => ref.name).join(", ")}
+                                  </div>
+                                )}
+                                {project.packageRefs.length > 0 && (
+                                  <div className="tree-note tree-node tree-node-packages">
+                                    Packages:{" "}
+                                    {project.packageRefs
+                                      .map((pkg) =>
+                                        pkg.version ? `${pkg.name} ${pkg.version}` : `${pkg.name} (version unknown)`,
+                                      )
+                                      .join(", ")}
+                                  </div>
+                                )}
+                              </details>
                             )}
                             {project.sources.map((file) => (
                               <button
@@ -3990,7 +4114,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                                 onClick={() => void openFile(file)}
                                 title={file}
                               >
-                                <Icon name="file" /><span className="tree-name">{baseName(file)}</span>
+                                <FileIcon path={file} /><span className="tree-name">{baseName(file)}</span>
                               </button>
                             ))}
                             {project.sources.length === 0 && !project.error && (
@@ -4006,7 +4130,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             </div>
           ) : (
             <div className="tree">
-              <div className="tree-root">{workspace.name}</div>
+              <div className="tree-root"><Icon name="project" /> {workspace.name} <span className="tree-count">· {showsEvaluatedTree ? evaluatedProjects.length : projects.length} projects</span></div>
               {projects.map((project) => {
                 const open = expanded.has(project.path);
                 return (
@@ -4018,7 +4142,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                       onClick={() => toggleProject(project.path)}
                       title={project.path}
                     >
-                      <Icon name="project" /><span className="tree-name">{project.name}</span>
+                      <span className="tree-chevron" aria-hidden="true">{expanded.has(project.path) ? "▾" : "▸"}</span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
                       <span className="tag">{project.kind}</span>
                       {project.tfms.map((tfm) => (
                         <span className="tag" key={tfm}>
@@ -4042,7 +4166,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                             onClick={() => void openFile(file)}
                             title={file}
                           >
-                            <Icon name="file" /><span className="tree-name">{baseName(file)}</span>
+                            <FileIcon path={file} /><span className="tree-name">{baseName(file)}</span>
                           </button>
                         ))}
                         {project.files.length === 0 && (
@@ -4097,6 +4221,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                       title={tab.path}
                       aria-label={`${baseName(tab.path)}${dirty ? ", modified" : ""}`}
                     >
+                      <FileIcon path={tab.path} />
                       {baseName(tab.path)}
                       {dirty && (
                         <span
@@ -4122,6 +4247,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 );
               })}
             </div>
+            {activeInspections && (activeInspections.error > 0 || activeInspections.warning > 0) && (
+              <span className="inspection-summary" data-testid="editor-inspections" title="Current diagnostics in this file">
+                {activeInspections.error > 0 && <span className="insp-error">✕ {activeInspections.error}</span>}
+                {activeInspections.warning > 0 && <span className="insp-warning">⚠ {activeInspections.warning}</span>}
+              </span>
+            )}
             <button
               className="save"
               data-testid="rename-open"

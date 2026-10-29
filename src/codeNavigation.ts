@@ -4,7 +4,9 @@ import { splitTestName } from "./testTree";
 export type GutterAction = {
   /** 1-based line in the active file. */
   line: number;
-  kind: "run" | "test";
+  kind: "run" | "test" | "fix";
+  /** 0-based column, only for "fix" (the diagnostic position). */
+  character?: number;
   label: string;
   disabledReason: string | null;
   testId: string | null;

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import { EditorState, type Text } from "@codemirror/state";
-import { Decoration, EditorView, GutterMarker, gutter, keymap } from "@codemirror/view";
+import { Decoration, EditorView, GutterMarker, WidgetType, gutter, keymap } from "@codemirror/view";
 import { Compartment, RangeSet } from "@codemirror/state";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
@@ -67,6 +67,10 @@ type Props = {
   currentLine?: number | null;
   /** Run/test markers derived from document symbols; one per unambiguous line. */
   gutterActions?: GutterAction[];
+  /** 1-based lines changed against HEAD, ascending. */
+  changedLines?: ChangedLine[];
+  /** Locals of the paused frame, printed after the current line. */
+  inlayText?: string;
   /** Incremented by the Rename action/menu; the inline field opens at the selection. */
   renameRequest?: number;
   /** Incremented by the Go to Declaration action/menu. */
@@ -219,6 +223,12 @@ class ActionMarker extends GutterMarker {
     if (this.action.kind === "run") {
       path.setAttribute("d", "M4 2.5l9 5.5-9 5.5z");
       path.setAttribute("fill", "currentColor");
+    } else if (this.action.kind === "fix") {
+      path.setAttribute("d", "M8 1.5a4.5 4.5 0 0 0-2.4 8.3c.5.4.9 1 .9 1.7h3c0-.7.4-1.3.9-1.7A4.5 4.5 0 0 0 8 1.5ZM6.5 13.5h3M7 15h2");
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "currentColor");
+      path.setAttribute("stroke-width", "1.3");
+      path.setAttribute("stroke-linecap", "round");
     } else {
       path.setAttribute("d", "M3 8.5l3 3L13 4.5");
       path.setAttribute("fill", "none");
@@ -243,6 +253,55 @@ class ActionMarker extends GutterMarker {
   }
 }
 
+class ChangeMarker extends GutterMarker {
+  constructor(private readonly kind: "add" | "mod") { super(); }
+  eq(other: ChangeMarker) { return other.kind === this.kind; }
+  elementClass = "";
+  toDOM() {
+    const bar = document.createElement("div");
+    bar.className = `cm-change-bar cm-change-${this.kind}`;
+    return bar;
+  }
+}
+
+// Rider's green/blue bar for lines changed against HEAD (computed from the saved file by the host diff).
+function makeChangeGutter(changes: ChangedLine[]) {
+  return gutter({
+    class: "cm-change-gutter",
+    markers: (view) => {
+      const markers = [];
+      for (const [line, kind] of changes) {
+        if (line < 1 || line > view.state.doc.lines) continue;
+        markers.push(new ChangeMarker(kind).range(view.state.doc.line(line).from));
+      }
+      return RangeSet.of(markers, true);
+    },
+  });
+}
+
+class InlayWidget extends WidgetType {
+  constructor(private readonly text: string) { super(); }
+  eq(other: InlayWidget) { return other.text === this.text; }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "cm-debug-inlay";
+    span.setAttribute("data-testid", "debug-inlay");
+    span.textContent = this.text;
+    return span;
+  }
+  ignoreEvent() { return true; }
+}
+
+// Rider prints the locals of the paused frame at the end of the current line.
+function makeInlay(line: number | null, text: string) {
+  return EditorView.decorations.of((view) => {
+    if (line === null || text === "" || line < 1 || line > view.state.doc.lines) return Decoration.none;
+    return Decoration.set([
+      Decoration.widget({ widget: new InlayWidget(text), side: 1 }).range(view.state.doc.line(line).to),
+    ]);
+  });
+}
+
 function makeActionGutter(
   actionsRef: { current: GutterAction[] },
   onActionRef: { current: ((action: GutterAction) => void) | undefined },
@@ -263,6 +322,8 @@ function makeActionGutter(
     },
   });
 }
+
+export type ChangedLine = [line: number, kind: "add" | "mod"];
 
 type InlineRename = {
   from: number;
@@ -287,6 +348,8 @@ export function CodeEditor({
   breakpoints = [],
   currentLine = null,
   gutterActions = [],
+  changedLines = [],
+  inlayText = "",
   renameRequest = 0,
   definitionRequest = 0,
   onToggleBreakpoint,
@@ -320,6 +383,10 @@ export function CodeEditor({
   const onToggleBreakpointRef = useRef(onToggleBreakpoint);
   const gutterCompartment = useRef(new Compartment());
   const actionGutterCompartment = useRef(new Compartment());
+  const changeCompartment = useRef(new Compartment());
+  const inlayCompartment = useRef(new Compartment());
+  const changedLinesRef = useRef(changedLines);
+  changedLinesRef.current = changedLines;
   const fontCompartment = useRef(new Compartment());
   const indentCompartment = useRef(new Compartment());
   breakpointsRef.current = breakpoints;
@@ -626,6 +693,8 @@ export function CodeEditor({
           ),
         ),
         basicSetup,
+        changeCompartment.current.of(makeChangeGutter(changedLinesRef.current)),
+        inlayCompartment.current.of(makeInlay(currentLine, inlayText)),
         autocompletion({ override: [completionSource], activateOnTyping: false }),
         StreamLanguage.define(csharp),
         theme,
@@ -765,6 +834,17 @@ export function CodeEditor({
       ),
     });
   }, [actionKey]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: inlayCompartment.current.reconfigure(makeInlay(currentLine, inlayText)) });
+  }, [currentLine, inlayText]);
+
+  const changeKey = changedLines.map(([line, kind]) => `${line}${kind}`).join(",");
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: changeCompartment.current.reconfigure(makeChangeGutter(changedLinesRef.current)),
+    });
+  }, [changeKey]);
 
   useEffect(() => {
     if (renameRequest === handledRename.current) return;

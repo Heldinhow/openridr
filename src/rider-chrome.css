@@ -3,6 +3,17 @@
   background: var(--chrome);
 }
 
+/* The bottom tool window extends beneath both the editor and the left slot. */
+.workspace-view .side,
+.workspace-view .splitter.vertical {
+  grid-row: 2 / 4;
+}
+
+.workspace-view > .output,
+.workspace-view .splitter.horizontal {
+  grid-column: 2 / 5;
+}
+
 .workspace-view .side,
 .workspace-view .editor-pane,
 .workspace-view > .output {
@@ -35,6 +46,20 @@
   padding-bottom: 2px;
 }
 
+.tree-dependencies {
+  padding: 0 0 0 38px;
+}
+
+.tree-dependencies > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--fg);
+}
+
+.tree-dependencies .tree-note {
+  padding-left: 20px;
+}
+
 .tabbar .tab {
   margin-right: 4px;
   border: 1px solid transparent;
@@ -53,7 +78,97 @@
   background: transparent;
 }
 
+/* Debug state must remain visible when CodeMirror also marks the active line. */
+.cm-editor .cm-line.cm-line-breakpoint {
+  background-color: #6c2a2e66;
+}
+
+.cm-editor .cm-line.cm-line-current {
+  background-color: #5c4a2399;
+}
+
 .workspace-tools > summary {
   padding-top: 4px;
   padding-bottom: 4px;
+}
+
+.process-panel .process-toggle {
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+}
+
+.workspace-view .process-panel.is-collapsed {
+  margin: 3px 0 0;
+  padding: 2px 8px;
+}
+
+.process-panel h2 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.process-panel .process-toggle:hover {
+  background: var(--raised);
+}
+
+.process-panel .process-toggle::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+}
+
+.process-panel .process-toggle[aria-expanded="true"]::before {
+  content: "▾";
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.terminal-toolbar .terminal-meta {
+  flex: 1 1 0;
+  min-width: 0;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.terminal-toolbar .terminal-meta > span:nth-child(2) {
+  order: 1;
+}
+
+.commit-diff-split .split-label {
+  padding: 4px 6px;
+  color: var(--muted);
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Search results sit above the selected item's preview. */
+.find-action {
+  width: min(720px, 100%);
+}
+
+.find-action .search-body {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(96px, 20vh) minmax(100px, 24vh);
+  gap: 0;
+}
+
+.find-action .action-list,
+.find-action .search-preview {
+  min-height: 0;
+  max-height: none;
+  border-radius: 0;
+}
+
+.find-action .search-preview {
+  border-top: 0;
 }

@@ -101,6 +101,9 @@ test("Settings opens from the bar and ⌘,, searches by name and explains the mi
   await expect(page.getByTestId("keymap-row-run.start").getByRole("rowheader")).toHaveText("Run");
   await expect(page.getByTestId("keymap-row-run.start").getByRole("button", { name: "Change shortcut for Run" })).toBeVisible();
   await expect(page.getByTestId("keymap-row-run.start").getByRole("button", { name: "Reset shortcut for Run" })).toBeDisabled();
+  if (process.env.OPENRIDR_SETTINGS_SCREENSHOT) {
+    await page.screenshot({ path: process.env.OPENRIDR_SETTINGS_SCREENSHOT });
+  }
   await expect(page.getByTestId("settings-scope")).not.toContainText("settings.json");
   const table = page.getByTestId("keymap-table");
   const dialog = page.getByTestId("settings-dialog");

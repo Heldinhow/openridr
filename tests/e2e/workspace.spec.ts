@@ -13,7 +13,7 @@ const coreTab = "src/OrderDesk.Core/Order.cs";
 const originalProgram = fs.readFileSync(program, "utf8");
 const originalCore = fs.readFileSync(core, "utf8");
 import { host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 const executableMethods = [
   "evaluation.run",
@@ -43,7 +43,7 @@ test("welcome lists recent solutions, persists them and reopens one", async ({ p
   const directory = process.env.OPENRIDR_SCREENSHOT_DIR;
   if (directory) await page.screenshot({ path: path.join(directory, "welcome-recent.png") });
   await page.getByTestId("welcome-recent-0").click();
-  await expect(page.getByTestId("workspace-path")).toContainText(solution);
+  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
 });
 
 test.beforeEach(() => {

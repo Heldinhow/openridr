@@ -344,6 +344,13 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.locator(".cm-lineNumbers")).toBeVisible();
     await expect(page.locator(".cm-debug-gutter")).toBeVisible();
     expect(await page.locator(".cm-debug-marker").count()).toBe(1);
+    await expect(page.locator(".cm-line-breakpoint")).toHaveCount(1);
+    const lineColor = (selector: string) => page.locator(selector).evaluate((line) => {
+      const channels = getComputedStyle(line).backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [];
+      return channels.slice(0, 3);
+    });
+    const breakpointColor = await lineColor(".cm-line-breakpoint");
+    expect(breakpointColor[0]).toBeGreaterThan(breakpointColor[1]);
 
     await page.getByTestId("bottom-tab-build").click();
     await page.getByTestId("build-action").click();
@@ -384,6 +391,10 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect.poll(() => page.getByTestId("debug-locals").evaluate(fullyVisibleInPanel)).toBe(true);
     await expect(page.getByTestId("debug-breakpoints")).toContainText("verified by the adapter");
     await expect(page.getByTestId("dap-log")).toContainText("event stopped · reason breakpoint");
+    await expect(page.locator(".cm-line-current")).toHaveCount(1);
+    const currentColor = await lineColor(".cm-line-current");
+    expect(currentColor[0]).toBeGreaterThan(currentColor[2]);
+    expect(currentColor[1]).toBeGreaterThan(currentColor[2]);
     await page.screenshot({ path: path.join(screenshots, "14-dap-paused.png"), fullPage: true });
 
     // Step into the constructor and back out, then step over the current statement.
@@ -454,6 +465,51 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await page.request.post(`${host}/call`, {
       data: { method: "workspace.close", params: {} },
     });
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("one click on Debug enables the flag, restores, builds and stops at a breakpoint", async ({
+  page,
+  request,
+}) => {
+  const realAdapter = path.join(
+    process.env.HOME ?? "",
+    "Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092",
+  );
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug1-"));
+  const copy = path.join(base, "Order Desk one click");
+  fs.cpSync(fixture, copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  fs.rmSync(debugToolDir, { recursive: true, force: true });
+  fs.mkdirSync(debugToolDir, { recursive: true });
+  fs.cpSync(realAdapter, path.join(debugToolDir, "3.2.0-1092"), { recursive: true });
+
+  try {
+    await page.goto("/");
+    await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-checkbox").check();
+    await page.getByTestId("trust-grant").click();
+    await page.getByTestId("open-text-only").click();
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+    await hostCall(request, "debug.setBreakpoints", {
+      path: path.join(copy, "src/OrderDesk.Cli/Program.cs"),
+      lines: [3],
+    });
+
+    page.on("dialog", (dialog) => void dialog.accept());
+    // aria-disabled (blocked but clickable) fails Playwright's enabled check, so force it.
+    await page.getByTestId("toolbar-debug").click({ force: true });
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 120_000 });
+    await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:3");
+    await page.getByTestId("debug-stop").click();
+  } finally {
+    await hostCall(request, "debug.stop");
     fs.rmSync(base, { recursive: true, force: true });
   }
 });

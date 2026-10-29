@@ -591,6 +591,57 @@ export function BranchWidget({
   );
 }
 
+type SplitCell = { text: string; kind: "ctx" | "del" | "add" | "empty" };
+
+// Pairs "-" and "+" runs of a unified diff into old | new rows; headers span both columns.
+function splitDiff(diff: string): Array<string | [SplitCell, SplitCell]> {
+  const rows: Array<string | [SplitCell, SplitCell]> = [];
+  let dels: string[] = [];
+  let adds: string[] = [];
+  const empty: SplitCell = { text: "", kind: "empty" };
+  const flush = () => {
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
+      rows.push([
+        i < dels.length ? { text: dels[i], kind: "del" } : empty,
+        i < adds.length ? { text: adds[i], kind: "add" } : empty,
+      ]);
+    }
+    dels = [];
+    adds = [];
+  };
+  let inHunk = false;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("@@")) { flush(); inHunk = true; rows.push(line); continue; }
+    if (!inHunk || line.startsWith("diff --git")) { flush(); inHunk = false; rows.push(line); continue; }
+    if (line.startsWith("-")) dels.push(line.slice(1));
+    else if (line.startsWith("+")) adds.push(line.slice(1));
+    else if (line.startsWith("\\")) continue;
+    else { flush(); const t = line.slice(1); rows.push([{ text: t, kind: "ctx" }, { text: t, kind: "ctx" }]); }
+  }
+  flush();
+  return rows;
+}
+
+function SideBySideDiff({ diff, staged }: { diff: string; staged: boolean }) {
+  const rows = useMemo(() => splitDiff(diff), [diff]);
+  const noPreviousFile = diff.split("\n").slice(0, 5).includes("--- /dev/null");
+  return (
+    <pre className="commit-diff commit-diff-split">
+      <span className="split-label" data-testid="commit-diff-left-label">{noPreviousFile ? "No previous file" : staged ? "HEAD" : "Index"}</span>
+      <span className="split-label" data-testid="commit-diff-right-label">{staged ? "Index" : "Working tree"}</span>
+      {rows.map((row, index) =>
+        typeof row === "string" ? (
+          <span key={index} className="split-head">{row}</span>
+        ) : (
+          row.map((cell, side) => (
+            <span key={`${index}-${side}`} className={`split-cell split-${cell.kind}`}>{cell.text}</span>
+          ))
+        ),
+      )}
+    </pre>
+  );
+}
+
 export function CommitPanel({
   status,
   statusError,
@@ -760,7 +811,7 @@ export function CommitPanel({
                 <div className="panel-title commit-diff-title" title={diffPath}>{diffPath}</div>
               {diff ? (
                 <>
-                  <pre className="commit-diff">{diff.diff || diff.message || "No diff."}</pre>
+                  {diff.diff ? <SideBySideDiff diff={diff.diff} staged={diff.staged} /> : <pre className="commit-diff">{diff.message || "No diff."}</pre>}
                   {diff.truncated && <p className="menu-note">Diff truncated at the declared limit.</p>}
                   {diff.state !== "ok" && <p className="menu-note">{diff.message}</p>}
                 </>
@@ -836,6 +887,7 @@ export function GitLogPanel({
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
 
   async function load() {
     if (!trusted) return;
@@ -884,6 +936,14 @@ export function GitLogPanel({
         <button type="button" data-testid="git-refresh" disabled={busy} onClick={() => void load()}>
           Refresh
         </button>
+        <input
+          type="search"
+          data-testid="git-log-filter"
+          aria-label="Filter commits by text, author or hash"
+          placeholder="Text, author or hash"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+        />
         <span className="menu-note">Up to {log?.limit ?? 200} commits on the current branch; no graph or pagination.</span>
       </div>
       {error && <p className="error" role="alert" data-testid="git-log-error">{error}</p>}
@@ -894,7 +954,10 @@ export function GitLogPanel({
       {log && log.state === "ok" && (
         <div className="git-log-body">
           <ul className="git-commit-list" aria-label="Commits">
-            {log.commits.map((commit) => (
+            {log.commits.filter((commit) => {
+              const needle = filter.trim().toLowerCase();
+              return needle === "" || `${commit.hash} ${commit.subject} ${commit.author}`.toLowerCase().includes(needle);
+            }).map((commit) => (
               <li key={commit.hash}>
                 <button
                   type="button"

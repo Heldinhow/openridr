@@ -10,6 +10,7 @@ import path from "node:path";
 import { host } from "./environment";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 const program = "src/OrderDesk.Cli/Program.cs";
 const order = "src/OrderDesk.Core/Order.cs";
 const brandNew = "src/OrderDesk.Core/E2eNewFile.cs";
@@ -113,6 +114,16 @@ test("commit tool commits only the checked files, preserves the index and amends
   await expect(page.getByTestId("commit-diff")).toContainText("// e2e worktree change");
   await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
 
+  await page.getByTestId(`commit-file-${program}`).click();
+  await expect(page.getByTestId("commit-diff-left-label")).toHaveText("HEAD");
+  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Index");
+  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
+
+  await page.getByTestId(`commit-file-${brandNew}`).click();
+  await expect(page.getByTestId("commit-diff-left-label")).toHaveText("No previous file");
+  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Working tree");
+  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
+
   // Commit Order.cs and the new file, explicitly not the staged Program.cs.
   await page.getByTestId(`commit-check-${program}`).uncheck();
   await expect(page.getByTestId(`commit-check-${program}`)).not.toBeChecked();
@@ -167,9 +178,12 @@ test("Git review keeps long diffs, paths, log metadata and commit feedback reada
   await expect(diff).toBeVisible();
   await expect(diff).toHaveAttribute("aria-label", `Git diff for ${longPath}`);
   const diffText = diff.locator("pre");
+  await expect(diff.getByTestId("commit-diff-left-label")).toHaveText("Index");
+  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("Working tree");
   await expect(diffText).toContainText("after after after");
   if (process.env.OPENRIDR_CAPTURE_GIT_UI === "1") {
-    await page.screenshot({ path: "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/ticket20-git-diff.png" });
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({ path: path.join(screenshots, "git-diff.png") });
   }
   expect(await diffText.evaluate((element) => element.scrollWidth)).toBeGreaterThan(
     await diffText.evaluate((element) => element.clientWidth),
@@ -190,7 +204,8 @@ test("Git review keeps long diffs, paths, log metadata and commit feedback reada
   await expect(page.getByTestId("git-log-files")).toContainText(longPath);
   await expect(page.getByTestId("git-log-files").locator("code").first()).toHaveText(longPath);
   if (process.env.OPENRIDR_CAPTURE_GIT_UI === "1") {
-    await page.screenshot({ path: "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/ticket20-git-log.png" });
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({ path: path.join(screenshots, "git-log.png") });
   }
 });
 
@@ -305,7 +320,7 @@ test("restricted mode and a non-repository explain themselves and every git meth
   );
   fs.writeFileSync(path.join(plain, "Class.cs"), "class C {}\n");
   // The shell layout persisted the Commit/Git tool windows from the repository workspace.
-  await page.evaluate(() => localStorage.removeItem("openridr.layout.v1"));
+  await page.evaluate(() => localStorage.setItem("openridr.layout.v1", JSON.stringify({ bottom: { active: "build", size: 220, open: true } })));
   await openTrusted(page, path.join(plain, "Plain.csproj"));
   const noRepoGit = page.getByTestId("toolbar-branch");
   await expect(noRepoGit).toBeDisabled();

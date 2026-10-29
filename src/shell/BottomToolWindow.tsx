@@ -11,10 +11,11 @@ const panelClasses: Record<BottomToolId, string> = {
   nuget: "nuget-output",
 };
 
-export function BottomToolWindow({ tabs, active, onSelect, panelRef, children }: {
+export function BottomToolWindow({ tabs, active, onSelect, onHide, panelRef, children }: {
   tabs: { id: BottomToolId; label: string }[];
   active: BottomToolId;
   onSelect: (id: BottomToolId) => void;
+  onHide: () => void;
   panelRef: RefObject<HTMLDivElement>;
   children: ReactNode;
 }) {
@@ -43,6 +44,9 @@ export function BottomToolWindow({ tabs, active, onSelect, panelRef, children }:
             {tab.label}
           </button>
         ))}
+        <button type="button" className="bottom-hide" data-testid="bottom-hide" aria-label="Hide tool window" title="Hide (Shift+Esc)" onClick={onHide}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M5 12h14" /></svg>
+        </button>
       </div>
       <div className="panel-body" role="tabpanel" key={active} ref={panelRef} id="output-content" aria-labelledby={`output-tab-${active}`}>
         {children}

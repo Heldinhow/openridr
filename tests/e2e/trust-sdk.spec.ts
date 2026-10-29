@@ -252,12 +252,20 @@ test("revoked workspace shows the remaining process and terminate observes the e
 
   await enterWorkspace(page);
   const row = page.getByTestId(`processes-row-${processInfo.id}`);
+  const processesToggle = page.getByTestId("processes-toggle");
+  await expect(processesToggle).toHaveAttribute("aria-expanded", "false");
+  expect((await page.getByTestId("processes-panel").boundingBox())!.height).toBeLessThan(44);
+  await expect(row).toHaveCount(0);
+  await processesToggle.click();
   await expect(row).toBeVisible();
   await expect(row).toContainText(`pid ${processInfo.pid}`);
+  await processesToggle.click();
+  await expect(row).toHaveCount(0);
 
   await reveal(page.getByTestId("trust-revoke"));
   await page.getByTestId("trust-revoke").click();
   await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  await expect(processesToggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByTestId(`processes-awaiting-${processInfo.id}`)).toBeVisible();
   await expect(page.getByTestId(`processes-state-${processInfo.id}`)).toContainText(
     "awaiting decision",

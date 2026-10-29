@@ -174,6 +174,20 @@ export function DebugPanel({
       )}
 
       <div className="debug-columns">
+        <section aria-label="Threads" data-testid="debug-threads">
+          <h3>Threads</h3>
+          {dap.threads.length === 0 ? (
+            <p className="muted">No threads.</p>
+          ) : (
+            <ul data-testid="dap-thread-list">
+              {dap.threads.map((thread) => (
+                <li key={thread.id} data-testid={`debug-thread-${thread.id}`}>
+                  {thread.name} <span className="muted">({thread.id})</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <section aria-label="Call frames" data-testid="debug-frames">
           <h3>Call frames</h3>
           {dap.frames.length === 0 ? (
@@ -244,15 +258,6 @@ export function DebugPanel({
 
       <details className="debug-context-details">
         <summary>Session details</summary>
-        {dap.threads.length > 0 && (
-          <p className="muted" data-testid="dap-thread-list">
-            Threads: {dap.threads.map((thread) => (
-              <span key={thread.id} data-testid={`debug-thread-${thread.id}`}>
-                {thread.name} ({thread.id}){" "}
-              </span>
-            ))}
-          </p>
-        )}
         <dl className="debug-identity" data-testid="dap-identity">
           <dt>Session</dt>
           <dd data-testid="dap-session">{dap.session || "none"}</dd>

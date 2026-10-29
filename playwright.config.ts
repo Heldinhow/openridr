@@ -10,6 +10,17 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: frontend,
+    // The app opens with the bottom tool window closed (Rider); the specs were written against it open.
+    storageState: {
+      cookies: [],
+      origins: [{
+        origin: new URL(frontend).origin,
+        localStorage: [{
+          name: "openridr.layout.v1",
+          value: JSON.stringify({ bottom: { active: "build", size: 220, open: true } }),
+        }],
+      }],
+    },
     // Chrome by default; set PLAYWRIGHT_CHANNEL=chromium where Chrome is not installed.
     channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
     launchOptions: {
