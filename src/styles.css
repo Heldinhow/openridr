@@ -2132,6 +2132,11 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   padding: 8px;
 }
 
+.search-class-suggestion {
+  display: block;
+  margin-top: 6px;
+}
+
 mark.search-hit {
   background: var(--accent);
   color: var(--bg);

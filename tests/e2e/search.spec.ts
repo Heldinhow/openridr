@@ -121,6 +121,60 @@ test("Classes and Symbols say Analysis not ready without trust; No results needs
   await expect(page.getByTestId("search-state")).toHaveCount(0);
 });
 
+test("symbol search reports visible results, host truncation, and suggests Classes for a type", async ({
+  page,
+}) => {
+  await page.route("**/call", async (route) => {
+    const request = route.request();
+    const body = request.postDataJSON() as { method: string; params: { query?: string } };
+    if (body.method !== "lsp.workspaceSymbol") return route.continue();
+    const typeQuery = body.params.query === "OrderDeskType";
+    const items = typeQuery
+      ? [{ name: "OrderDeskType", kind: 5 }]
+      : [
+          { name: "OrderDeskMethod", kind: 6 },
+          { name: "OrderDeskProperty", kind: 7 },
+        ];
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          state: "ok",
+          message: null,
+          missingAction: null,
+          session: 1,
+          items: items.map((item) => ({
+            ...item,
+            containerName: "OrderDesk",
+            uri: "file:///workspace/OrderDesk.cs",
+            path: programTab,
+            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+          })),
+          total: typeQuery ? 1 : 523,
+          truncated: !typeQuery,
+        },
+      }),
+    });
+  });
+  await page.goto("/");
+  await openTextOnly(page);
+  await page.keyboard.press("Meta+t");
+  await page.getByTestId("search-tab-symbols").click();
+  const input = page.getByTestId("find-action-input");
+  await input.fill("OrderDesk");
+  await expect(page.getByTestId("search-item-0")).toContainText("OrderDeskMethod");
+  await expect(page.getByTestId("search-status")).toContainText("2 visible results");
+  await expect(page.getByTestId("search-status")).toContainText("results truncated");
+  await expect(page.getByTestId("search-truncated")).toContainText("2 returned of 523 total symbols");
+
+  await input.fill("OrderDeskType");
+  await expect(page.getByTestId("search-empty")).toHaveText("No results");
+  await page.getByTestId("search-suggest-classes").click();
+  await expect(page.getByTestId("search-tab-classes")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("search-item-0")).toContainText("OrderDeskType");
+});
+
 test("⇧⌘A opens on Actions, executes the selected action and keeps disabled reasons", async ({
   page,
 }) => {

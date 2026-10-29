@@ -289,6 +289,12 @@ export function FindAction({
 
   const { hits, total: totalHits } = hitsResult;
   const selected = hits[Math.min(active, hits.length - 1)] ?? null;
+  const matchingTypes =
+    tab === "symbols" && symbolQuery && symbolQuery.toLowerCase() === needle && !symbolsLoading
+      ? (symbols?.items.filter(
+          (symbol) => TYPE_KINDS.has(symbol.kind) && symbol.name.toLowerCase().includes(needle),
+        ) ?? [])
+      : [];
 
   useEffect(() => {
     setActive(0);
@@ -408,7 +414,7 @@ export function FindAction({
       : tab === "text" && text?.truncated
         ? `Showing the first ${text.fileCount} files and ${text.matchCount} matches; refine the query.`
         : (tab === "classes" || tab === "symbols" || tab === "all") && symbols?.truncated
-          ? `Showing ${symbols.items.length} of ${symbols.total} symbols.`
+          ? `Symbol search was truncated by the host (${symbols.items.length} returned of ${symbols.total} total symbols).`
           : allLimited
             ? `Showing the first ${ALL_LIMIT} results; use a tab to narrow the search.`
             : null;
@@ -557,6 +563,16 @@ export function FindAction({
             {empty && (
               <li className="muted" data-testid="find-action-empty">
                 <span data-testid="search-empty">No results</span>
+                {matchingTypes.length > 0 && (
+                  <button
+                    type="button"
+                    className="search-class-suggestion"
+                    data-testid="search-suggest-classes"
+                    onClick={() => setTab("classes")}
+                  >
+                    Try Classes for matching types
+                  </button>
+                )}
               </li>
             )}
             {truncatedNote && (
@@ -618,7 +634,9 @@ export function FindAction({
         </div>
         <div className="actions">
           <span className="muted" data-testid="search-status">
-            {truncatedNote ?? "Enter opens the selected result · Tab changes scope · Esc closes"}
+            {query.trim() && !blockedNote && !loading
+              ? `${hits.length} visible result${hits.length === 1 ? "" : "s"}${truncatedNote ? " · results truncated" : ""}`
+              : truncatedNote ?? "Enter opens the selected result · Tab changes scope · Esc closes"}
           </span>
         </div>
       </div>

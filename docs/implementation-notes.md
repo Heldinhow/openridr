@@ -389,3 +389,9 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 - `git.path` só resolve o executável existente no PATH, sem iniciar processo ou abrir repositório, para exibir o caminho read-only no VCS em Restricted mode. Consulta de versão via `git.info` continua exigindo trust.
 - Verificação: `bun run build`, `bun run check`, teste Git path (1/1), `settings.spec.ts` headed Chrome (5/5) e teste de keymap de `actions.spec.ts` headed Chrome (1/1), ambos com `OPENRIDR_E2E_SLOW_MO=300`. Evidência: `docs/evidence/25-audit-settings-keymap.md`.
 - Não verificados: suíte E2E completa, Tauri nativo, leitor de tela/WCAG formal, Windows x64 e macOS Intel. Nenhuma captura foi criada ou incluída.
+
+## Auditoria visual da busca (ticket 26)
+
+- A busca mostra a quantidade de resultados visíveis; o aviso de truncamento separa os itens devolvidos pelo host do total global de símbolos, sem atribuir total global a Classes/Symbols filtrados. Em Symbols sem membros, oferece Classes somente quando a resposta contém tipo correspondente à consulta; a troca de aba não funde resultados.
+- E2E controla a resposta LSP para contagem, truncamento e sugestão contextual. Build e `tests/e2e/search.spec.ts` headed Chrome (5/5, slowMo 300 ms) passaram; evidência: `docs/evidence/26-search-discovery.md`.
+- Não verificados: suíte E2E completa e busca/caps com csharp-ls real. Estados existentes de análise não pronta, vazio e erro/retry não foram alterados.
