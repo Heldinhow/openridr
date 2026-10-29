@@ -43,3 +43,9 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 - A suíte headed Chrome completa passou 93/93 antes do gate final de elegibilidade do diálogo. Após esse gate, o teste focado de build-failed passou 1/1; a suíte completa não foi repetida depois das últimas mudanças.
 - Ticket 23 tem prova headed focada para Problems e rótulos longos de branch/comando/caminho. O `check` continua em andamento por critérios visuais subjetivos da toolbar/Problems; `bun run check` passou.
 - Commits locais apenas, sem push. Evidências, scratch e README preexistentes foram preservados. Validação em macOS ARM64; Tauri, WCAG, Windows e macOS Intel não verificados.
+
+## Follow-up: execução após rebuild (29/10/2026, commit `31bf890`)
+
+- Revisão encontrou que Run no diálogo com buffers sujos podia executar o build após Save all, mas não iniciar a configuração selecionada. Corrigido: a configuração selecionada só é iniciada após rebuild bem-sucedido.
+- O spec focado `run-configs` passou 4/4 em Chrome headed com `slowMo=300`; `bun run check` passou. Revisão de correção: nenhum finding.
+- A suíte completa 93/93 registrada acima ocorreu antes desta mudança; não foi repetida depois dela. Portanto, a cobertura após este commit limita-se ao spec focado e ao `check`.
