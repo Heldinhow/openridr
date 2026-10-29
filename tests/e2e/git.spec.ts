@@ -94,6 +94,7 @@ test("commit tool commits only the checked files, preserves the index and amends
   // The diff is the real git diff of the selected file.
   await page.getByTestId(`commit-file-${order}`).click();
   await expect(page.getByTestId("commit-diff")).toContainText("// e2e worktree change");
+  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
 
   // Commit Order.cs and the new file, explicitly not the staged Program.cs.
   await page.getByTestId(`commit-check-${program}`).uncheck();
@@ -128,6 +129,52 @@ test("commit tool commits only the checked files, preserves the index and amends
   expect(git(["show", "--name-only", "--format=", "HEAD"])).toContain(order);
   expect(git(["diff", "--cached", "--name-only"])).toBe(program);
   expect(git(["status", "--porcelain", "--", order])).toBe("");
+});
+
+test("Git review keeps long diffs, paths, log metadata and commit feedback readable", async ({ page }) => {
+  const longPath = `${"src/OrderDesk.Core/"}${"deeply-nested-review-folder/".repeat(3)}ReadablePath.cs`;
+  const absolutePath = path.join(repo, longPath);
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, `namespace OrderDesk.Core;\n\npublic static class ReadablePath { public static string Value => "${"before ".repeat(30)}"; }\n`);
+  git(["add", longPath]);
+  git(["commit", "-qm", "A deliberately descriptive history entry for the Git log layout"]);
+  fs.writeFileSync(absolutePath, `namespace OrderDesk.Core;\n\npublic static class ReadablePath { public static string Value => "${"after ".repeat(30)}"; }\n`);
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("toolband-commit").click();
+  const file = page.getByTestId(`commit-file-${longPath}`);
+  await expect(file).toBeVisible();
+  await file.click();
+
+  const diff = page.getByTestId("commit-diff");
+  await expect(diff).toBeVisible();
+  await expect(diff).toHaveAttribute("aria-label", `Git diff for ${longPath}`);
+  const diffText = diff.locator("pre");
+  await expect(diffText).toContainText("after after after");
+  if (process.env.OPENRIDR_CAPTURE_GIT_UI === "1") {
+    await page.screenshot({ path: "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/ticket20-git-diff.png" });
+  }
+  expect(await diffText.evaluate((element) => element.scrollWidth)).toBeGreaterThan(
+    await diffText.evaluate((element) => element.clientWidth),
+  );
+  await diff.getByRole("button", { name: "Close diff" }).click();
+
+  await page.getByTestId("commit-message").fill("Readable commit result");
+  await page.getByTestId("commit-submit").click();
+  await expect(page.getByTestId("commit-state")).toContainText("Committed");
+  await expect(page.getByTestId("commit-state")).toContainText("Readable commit result");
+  await expect(page.getByTestId("app-log")).toHaveCount(0);
+
+  await page.getByTestId("bottom-tab-git").click();
+  const commits = page.getByTestId(/^git-log-item-/);
+  await expect(commits.first()).toContainText("Readable commit result");
+  await expect(commits.first()).toContainText("OpenRidr E2E");
+  await commits.nth(1).click();
+  await expect(page.getByTestId("git-log-files")).toContainText(longPath);
+  await expect(page.getByTestId("git-log-files").locator("code").first()).toHaveText(longPath);
+  if (process.env.OPENRIDR_CAPTURE_GIT_UI === "1") {
+    await page.screenshot({ path: "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/ticket20-git-log.png" });
+  }
 });
 
 test("log lists commits and files; checkout and pull explain refusals; push needs a remote and confirmation", async ({

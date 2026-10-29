@@ -597,16 +597,12 @@ export function CommitPanel({
   trusted,
   initialPath = null,
   onRefresh,
-  onMessage,
-  onError,
 }: {
   status: GitStatus | null;
   statusError: string | null;
   trusted: boolean;
   initialPath?: string | null;
   onRefresh: () => Promise<void>;
-  onMessage: (text: string) => void;
-  onError: (text: string) => void;
 }) {
   const [selection, setSelection] = useState<Set<string> | null>(null);
   const [message, setMessage] = useState("");
@@ -684,7 +680,6 @@ export function CommitPanel({
       });
       if (result.state === "ok") {
         setState(result.message ?? "Commit created.");
-        onMessage(result.message ?? "Commit created.");
         setMessage("");
         setAmend(false);
         setSelection(null);
@@ -696,7 +691,6 @@ export function CommitPanel({
       await onRefresh();
     } catch (caught) {
       setError(messageOf(caught));
-      onError(messageOf(caught));
     } finally {
       setBusy(false);
     }
@@ -704,9 +698,7 @@ export function CommitPanel({
 
   return (
     <nav className="side commit-tool" aria-label="Commit" data-testid="commit-tool">
-      <div className="panel-title">
-        Commit <span className="tag">{status?.state === "ok" ? branchName(status) : "Git"}</span>
-      </div>
+      <div className="panel-title">Commit</div>
       {reason ? (
         <p className="tree-note" data-testid="commit-disabled-reason">{reason}</p>
       ) : (
@@ -751,8 +743,21 @@ export function CommitPanel({
             ))}
           </div>
           {diffPath && (
-            <div className="commit-diff-wrap" data-testid="commit-diff">
-              <div className="panel-title">{diffPath}</div>
+            <div className="modal-backdrop commit-diff-backdrop">
+              <section
+                className="modal commit-diff-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Git diff for ${diffPath}`}
+                data-testid="commit-diff"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setDiffPath(null);
+                    setDiff(null);
+                  }
+                }}
+              >
+                <div className="panel-title commit-diff-title" title={diffPath}>{diffPath}</div>
               {diff ? (
                 <>
                   <pre className="commit-diff">{diff.diff || diff.message || "No diff."}</pre>
@@ -762,6 +767,10 @@ export function CommitPanel({
               ) : (
                 <p className="menu-note">Loading diff…</p>
               )}
+                <div className="actions">
+                  <button type="button" autoFocus onClick={() => { setDiffPath(null); setDiff(null); }}>Close diff</button>
+                </div>
+              </section>
             </div>
           )}
           <div className="commit-form">

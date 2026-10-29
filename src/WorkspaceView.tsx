@@ -3702,8 +3702,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             trusted={trusted}
             initialPath={commitFocusPath}
             onRefresh={refreshGit}
-            onMessage={(text) => setMessage({ tone: "info", text })}
-            onError={(text) => setMessage({ tone: "error", text })}
           />
         ) : (
         <nav className="side" aria-label="Solution explorer" data-testid="tree">

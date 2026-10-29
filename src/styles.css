@@ -2180,24 +2180,28 @@ mark.search-hit {
 .commit-files { display: grid; gap: 2px; padding: 4px 6px; }
 .commit-row { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding-right: 8px; }
 .commit-row.selected { background: var(--select); }
-.commit-file { flex: 1 1 auto; display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; padding: 3px 4px; text-align: left; background: transparent; border: 0; }
-.commit-path { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.commit-diff-wrap { min-width: 0; border-top: 1px solid var(--line); padding: 6px 10px; }
-.commit-diff { max-height: 220px; min-width: 0; margin: 0; padding: 6px; overflow: auto; background: var(--bg); font-size: 0.72rem; white-space: pre; }
+.commit-file { flex: 1 1 auto; display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px 6px; min-width: 0; padding: 3px 4px; text-align: left; background: transparent; border: 0; }
+.commit-path { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.commit-diff-backdrop { z-index: 55; }
+.commit-diff-modal { width: min(1100px, 94vw); max-height: 90vh; display: flex; flex-direction: column; gap: 8px; }
+.commit-diff-title { min-width: 0; overflow-wrap: anywhere; }
+.commit-diff { max-height: 68vh; min-height: 12rem; min-width: 0; margin: 0; padding: 8px; overflow: auto; background: var(--bg); font-size: 0.78rem; white-space: pre; }
 .commit-form { display: grid; gap: 6px; min-width: 0; padding: 8px 10px; border-top: 1px solid var(--line); }
 .commit-message-field { display: grid; gap: 4px; }
 .commit-form textarea { width: 100%; padding: 6px; resize: vertical; color: var(--fg); background: var(--bg); border: 1px solid var(--line); font: inherit; }
 .commit-amend-field { display: flex; align-items: center; gap: 6px; }
 
 .git-log-panel { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
-.git-log-body { display: grid; grid-template-columns: minmax(220px, 42%) minmax(0, 1fr); gap: 10px; min-height: 0; }
+.git-log-body { display: grid; grid-template-columns: minmax(320px, 58%) minmax(0, 1fr); gap: 10px; min-height: 0; }
 .git-commit-list { max-height: 240px; margin: 0; padding: 0; overflow: auto; list-style: none; border: 1px solid var(--line); }
-.git-commit { width: 100%; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 4px 6px; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line); }
+.git-commit { width: 100%; display: grid; grid-template-columns: auto minmax(0, 2fr) minmax(8rem, 1.2fr) auto; gap: 2px 8px; align-items: baseline; padding: 5px 6px; text-align: left; white-space: normal; background: transparent; border: 0; border-bottom: 1px solid var(--line); }
 .git-commit.selected { background: var(--select); }
-.git-subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-subject { min-width: 0; overflow-wrap: anywhere; }
+.git-commit .menu-note { min-width: 0; overflow-wrap: anywhere; }
 .git-commit-details { min-width: 0; max-height: 240px; overflow: auto; }
 .git-file-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 0.75rem; }
 .git-file-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.git-file-list code, .git-file-list .menu-note { overflow-wrap: anywhere; }
 
 /* NuGet (F9): installed/outdated per project, plan confirmation and explicit restore. */
 .nuget-panel { display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; min-height: 0; }
