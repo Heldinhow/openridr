@@ -131,8 +131,13 @@ test("evaluated project details keep paths intact and Close with the heading", a
   const details = page.getByTestId("eval-details");
   await expect(details).toBeVisible();
   const projectPath = details.locator("code.detail-path").first();
+  await expect(details.getByText("Path", { exact: true })).toBeVisible();
+  await expect(projectPath).toHaveText("src/OrderDesk.Cli/OrderDesk.Cli.csproj");
   await expect(projectPath).toHaveCSS("white-space", "nowrap");
-  await expect(projectPath).toHaveAttribute("title", /OrderDesk\.Cli\.csproj$/);
+  await expect(projectPath).toHaveAttribute("title", "src/OrderDesk.Cli/OrderDesk.Cli.csproj");
+  await expect(page.getByTestId("status-workspace")).toHaveAttribute("title", fs.realpathSync(path.join(copy, "OrderDesk.sln")));
+  await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+  await expect(page.getByTestId("status-breadcrumb")).not.toContainText("OrderDesk.sln");
   const close = page.getByRole("button", { name: "Close project details" });
   await expect(close.locator("..")).toContainText("OrderDesk.Cli");
   await close.click();

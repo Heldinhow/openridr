@@ -86,9 +86,32 @@ test.afterEach(async ({ request }) => {
 
 test("a real run shows the saved build output and refuses a source saved after the build", async ({
   page,
+  request,
 }) => {
   const { base, copy } = tempCopy("Order Desk run");
   try {
+    const longArgument = `--e2e-long-argument=${"x".repeat(400)}`;
+    const config = await request.post(`${host}/call`, {
+      data: {
+        method: "runConfigs.write",
+        params: {
+          solution: path.join(copy, "OrderDesk.sln"),
+          activeId: "long-command",
+          configs: [{
+            id: "long-command",
+            name: "Long command",
+            project: "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+            configuration: "Debug",
+            targetFramework: "net8.0",
+            args: [longArgument],
+            workingDirectory: "src/OrderDesk.Cli",
+            env: {},
+            envFiles: [],
+          }],
+        },
+      },
+    });
+    expect((await config.json()).ok).toBe(true);
     await openTrustedEvaluated(page, path.join(copy, "OrderDesk.sln"));
     await restoreAndReload(page);
     fs.mkdirSync(screenshots, { recursive: true });
@@ -112,7 +135,13 @@ test("a real run shows the saved build output and refuses a source saved after t
       return content.top < viewport.bottom && content.bottom > viewport.top;
     })).toBe(true);
     await expect(page.getByTestId("run-build-id")).toContainText(buildId.split("·")[0].trim());
-    await expect(page.getByTestId("run-command")).toContainText("OrderDesk.Cli.dll");
+    const command = page.getByTestId("run-command");
+    await expect(command).toContainText("OrderDesk.Cli.dll");
+    await expect(command).toContainText(longArgument);
+    await expect(command).toHaveCSS("white-space", "pre");
+    await expect(command).toHaveCSS("user-select", "text");
+    await expect(command).toHaveCSS("overflow", "auto");
+    expect(await command.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
     await expect(page.getByTestId("run-cwd")).toContainText("Order Desk run/src/OrderDesk.Cli");
     await expect(page.getByTestId("run-identity")).toContainText("OrderDesk.Cli.dll");
     await page.getByTestId("run-log").scrollIntoViewIfNeeded();

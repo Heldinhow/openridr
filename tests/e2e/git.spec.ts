@@ -73,6 +73,23 @@ test.afterEach(async ({ request }) => {
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+test("long current branch stays compact while its full name remains accessible", async ({ page }) => {
+  const longBranch = `feature/${"long-branch-segment-".repeat(8)}end`;
+  git(["switch", "-q", "-c", longBranch]);
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+
+  const branch = page.getByTestId("toolbar-branch");
+  const label = page.getByTestId("branch-current");
+  await expect(label).toHaveText(longBranch);
+  await expect(label).toHaveCSS("text-overflow", "ellipsis");
+  expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  await expect(branch).toHaveAttribute("title", /Current branch:/);
+  await expect(branch).toHaveAccessibleName(/Current branch:/);
+  expect(await branch.getAttribute("title")).toContain(longBranch);
+  expect(await branch.getAttribute("aria-label")).toContain(longBranch);
+});
+
 test("commit tool commits only the checked files, preserves the index and amends on demand", async ({ page }) => {
   // A pre-existing staged change must survive a commit of different paths untouched.
   fs.appendFileSync(path.join(repo, program), "// staged by the user\n");
