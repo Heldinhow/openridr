@@ -23,7 +23,7 @@ import {
   lineSnippet,
   type GutterAction,
 } from "./codeNavigation";
-import { ProblemsPanel } from "./ProblemsPanel";
+import { ProblemsPanel, withLocalEdits } from "./ProblemsPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
 import {
   TestsPanel,
@@ -395,16 +395,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     });
   }
 
-  useEffect(() => {
-    // Poll the host so process states and appending trust decisions are not stale. The
-    // interval is local to this screen and cheap against the local host.
-    const timer = setInterval(() => {
-      call<Snapshot>("workspace.state")
-        .then(onSnapshot)
-        .catch(() => {});
-    }, 400);
-    return () => clearInterval(timer);
-  }, []);
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
@@ -841,9 +831,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   useEffect(() => {
     // Poll the host so process states and appending trust decisions are not stale. The
     // interval is local to this screen and cheap against the local host.
+    let latest = 0;
     const timer = setInterval(() => {
+      const sequence = ++latest;
       call<Snapshot>("workspace.state")
-        .then(onSnapshot)
+        .then((next) => {
+          // A slow answer must not overwrite a newer state.
+          if (sequence === latest) onSnapshot(next);
+        })
         .catch(() => {});
     }, 400);
     return () => clearInterval(timer);
@@ -3257,9 +3252,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               : "Project SDK unresolved"
   }`;
 
+  const currentProblems = withLocalEdits(snapshot.diagnostics, editedAt)
+    .filter((diagnostic) => diagnostic.state === "current")
+    .reduce((count, diagnostic) => count + diagnostic.items.length, 0);
   const bottomTabLabels = bottomTools.map(({ id, title }) => ({
     id: id as BottomToolId,
-    label: id === "problems" && snapshot.diagnostics.currentItems > 0 ? `Problems (${snapshot.diagnostics.currentItems})` : title,
+    label: id === "problems" && currentProblems > 0 ? `Problems (${currentProblems})` : title,
   }));
   const breadcrumbProject = activeEvaluationProject?.name ?? activeProject?.name ?? null;
   const statusBreadcrumb = [
