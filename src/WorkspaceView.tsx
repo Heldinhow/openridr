@@ -422,6 +422,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [buildDecision, setBuildDecision] = useState(false);
   const [runDecision, setRunDecision] = useState(false);
   const [pendingRunConfig, setPendingRunConfig] = useState<RunConfig | null>(null);
+  const [pendingRunAfterBuild, setPendingRunAfterBuild] = useState<RunConfig | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const autoEvaluation = useRef<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(
@@ -863,6 +864,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }, 400);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!pendingRunAfterBuild || build.state === "running") return;
+    const config = pendingRunAfterBuild;
+    setPendingRunAfterBuild(null);
+    if (
+      build.state === "ok" &&
+      build.exit === 0 &&
+      build.project?.path === config.project &&
+      build.configuration === config.configuration &&
+      (build.targetFramework ?? null) === (config.targetFramework ?? null)
+    ) {
+      void startRun(config);
+    }
+  }, [build, pendingRunAfterBuild]);
 
   useEffect(() => {
     if (initialFile) {
@@ -2202,32 +2218,38 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  async function startBuild(savedNote: string) {
-    if (!startupProject) {
+  async function startBuild(savedNote: string, requestedConfig?: RunConfig | null): Promise<boolean> {
+    const project = requestedConfig
+      ? consoleCandidates.find((item) => item.path === requestedConfig.project) ?? null
+      : startupProject;
+    if (!project) {
       setMessage({
         tone: "error",
         text: "Choose a console startup project before building.",
       });
-      return;
+      return false;
     }
     setBottomTab("build");
     try {
       onSnapshot(
         await call<Snapshot>("build.start", {
-          project: startupProject.path,
-          configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
+          project: project.path,
+          configuration:
+            requestedConfig?.configuration ?? activeRunConfig?.configuration ?? evaluation.context.configuration,
           targetFramework:
-            activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
+            requestedConfig?.targetFramework ?? activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
           savedNote,
         }),
       );
       setMessage(null);
+      return true;
     } catch (error) {
       const text = `Build could not start: ${messageOf(error)}`;
       setMessage({ tone: "error", text });
       if (error instanceof HostCallError && error.code === "restore_required") {
         setBottomTab("build");
       }
+      return false;
     }
   }
 
@@ -2243,17 +2265,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     void startBuild("Built saved content; no unsaved buffers were open.");
   }
 
-  async function saveAllAndBuild() {
+  async function saveAllAndBuild(requestedConfig?: RunConfig | null): Promise<boolean> {
     const dirty = dirtyCount;
     const failures = await saveAll();
     if (failures.length > 0) {
       setBuildDecision(false);
       setMessage({ tone: "error", text: failures.join(" ") });
-      return;
+      return false;
     }
     setBuildDecision(false);
-    await startBuild(
+    return startBuild(
       `Saved all ${dirty} modified buffer${dirty === 1 ? "" : "s"} before building.`,
+      requestedConfig,
     );
   }
 
@@ -2419,7 +2442,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   async function saveAllAndRebuild() {
     setRunDecision(false);
-    await saveAllAndBuild();
+    const requestedConfig = pendingRunConfig;
+    setPendingRunConfig(null);
+    const started = await saveAllAndBuild(requestedConfig);
+    if (requestedConfig && started) setPendingRunAfterBuild(requestedConfig);
   }
 
   function runSavedBuild() {

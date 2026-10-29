@@ -78,6 +78,87 @@ async function openConfigDialog(page: Page) {
   await expect(page.getByTestId("run-config-dialog")).toBeVisible();
 }
 
+async function saveNamedConfig(request: import("@playwright/test").APIRequestContext, solution: string) {
+  const response = await request.post(`${host}/call`, {
+    data: {
+      method: "runConfigs.write",
+      params: {
+        solution,
+        activeId: "rebuild-dialog-run",
+        configs: [{
+          id: "rebuild-dialog-run",
+          name: "Rebuild dialog run",
+          project: "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+          configuration: "Debug",
+          targetFramework: "net8.0",
+          args: ["--requested-config"],
+          workingDirectory: "src",
+          env: {},
+          envFiles: [],
+        }],
+      },
+    },
+  });
+  const body = await response.json();
+  expect(body.ok, JSON.stringify(body.error)).toBe(true);
+}
+
+async function dirtyProgram(page: Page, contents: string) {
+  await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText(contents);
+  await expect(page.getByTestId("dirty-marker")).toBeVisible();
+}
+
+async function requestDialogRunAndRebuild(page: Page) {
+  await openConfigDialog(page);
+  await page.getByTestId("run-config-run").click();
+  await expect(page.getByTestId("run-dirty-dialog")).toBeVisible();
+  await page.getByTestId("run-save-rebuild").click();
+}
+
+test("dialog Run saves and rebuilds before launching the requested configuration", async ({ page, request }) => {
+  const { base, copy } = tempCopy("Order Desk dialog rebuild run");
+  const solution = path.join(copy, "OrderDesk.sln");
+  try {
+    await saveNamedConfig(request, solution);
+    await openTrustedEvaluated(page, solution);
+    await restoreAndReload(page);
+    await build(page);
+    await dirtyProgram(page, program.replace("A-104", "B-777"));
+
+    await requestDialogRunAndRebuild(page);
+    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", { timeout: 60_000 });
+    await expect(page.getByTestId("run-state")).toContainText("Run exited", { timeout: 30_000 });
+    await expect(page.getByTestId("run-log")).toContainText("args=[--requested-config]");
+    await expect(page.getByTestId("run-log")).toContainText("Order B-777:");
+    await expect(page.getByTestId("run-cwd")).toContainText(`${copy}/src`);
+  } finally {
+    await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("dialog Run does not launch its requested configuration when rebuild fails", async ({ page, request }) => {
+  const { base, copy } = tempCopy("Order Desk failed dialog rebuild");
+  const solution = path.join(copy, "OrderDesk.sln");
+  try {
+    await saveNamedConfig(request, solution);
+    await openTrustedEvaluated(page, solution);
+    await restoreAndReload(page);
+    await build(page);
+    await dirtyProgram(page, `${program}\nnew Missing();\n`);
+
+    await requestDialogRunAndRebuild(page);
+    await expect(page.getByTestId("build-state")).toContainText("Build failed", { timeout: 60_000 });
+    await expect(page.getByTestId("run-state")).toHaveText("No program has run");
+  } finally {
+    await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 async function selectEvaluationOption(page: Page, value: string) {
   const menu = page.getByTestId("workspace-actions-menu");
   const summary = menu.locator("summary");
