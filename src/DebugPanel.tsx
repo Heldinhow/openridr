@@ -41,6 +41,10 @@ export function DebugPanel({
   const active = dap.state === "preparing" || dap.state === "running" || dap.state === "paused";
   const paused = dap.state === "paused";
   const terminal = ["terminated", "cancelled", "failed"].includes(dap.state);
+  const phaseLabel = dap.phase.replace(
+    new RegExp(`^${stateLabels[dap.state]}\\s*(?:[·:]\\s*)?`, "i"),
+    "",
+  );
 
   async function invoke(label: string, method: string, params: Record<string, unknown> = {}) {
     setBusy(label);
@@ -64,9 +68,11 @@ export function DebugPanel({
         >
           {stateLabels[dap.state]}
         </span>
-        <span className="muted" data-testid="dap-phase">
-          {dap.phase}
-        </span>
+        {phaseLabel !== "" && (
+          <span className="muted" data-testid="dap-phase">
+            {phaseLabel}
+          </span>
+        )}
         <span className="push" />
         {!active && (
           <button
@@ -128,7 +134,7 @@ export function DebugPanel({
       )}
       {terminal && (
         <p className="muted" data-testid="dap-terminal-note">
-          {dap.phase}. Logs and debuggee output below are the ones preserved from this session.
+          {dap.phase.replace(/[.]+$/, "")}. Logs and debuggee output below are preserved from this session.
         </p>
       )}
       {dap.sealed && (
@@ -137,65 +143,12 @@ export function DebugPanel({
         </p>
       )}
 
-      <dl className="debug-identity" data-testid="dap-identity">
-        <dt>Session</dt>
-        <dd data-testid="dap-session">{dap.session || "none"}</dd>
-        <dt>Project</dt>
-        <dd>{dap.project ? `${dap.project.name} · ${dap.project.path}` : "none"}</dd>
-        <dt>Build</dt>
-        <dd data-testid="dap-build-id">
-          {dap.buildId ?? "none"} · {dap.configuration || "no configuration"}
-          {dap.targetFramework ? ` / ${dap.targetFramework}` : ""}
-        </dd>
-        <dt>Assembly</dt>
-        <dd>
-          <code data-testid="dap-assembly">{dap.assembly ?? "none"}</code>
-        </dd>
-        <dt>Adapter</dt>
-        <dd data-testid="dap-adapter">
-          {dap.adapter.binary
-            ? `${dap.adapter.version} · ${dap.adapter.platform} · ${dap.adapter.argv.join(" ")}`
-            : "not started"}
-        </dd>
-        <dt>Working directory</dt>
-        <dd>
-          <code>{dap.cwd || "none"}</code>
-        </dd>
-        <dt>Process</dt>
-        <dd data-testid="dap-process">
-          {dap.processId === null
-            ? "none"
-            : `registry ${dap.processId} · adapter pid ${dap.pid ?? "unknown"}`}
-          {dap.debuggeePid === null
-            ? ""
-            : ` · debuggee pid ${dap.debuggeePid}`}
-          {dap.adapterExit !== null && dap.adapterExit !== undefined
-            ? ` · adapter exit ${dap.adapterExit}`
-            : ""}
-        </dd>
-        <dt>Exit</dt>
-        <dd data-testid="dap-exit">
-          {dap.exitKnown ? `exit ${dap.exit}` : "exit unknown"}
-        </dd>
-      </dl>
-
       {dap.termination && (
         <p className="muted" data-testid="dap-termination">
           Termination requested: {dap.termination.requested}. Observed:{" "}
           {dap.termination.observed}
           {dap.termination.killedAfterGrace ? " after the grace period" : ""}; exit{" "}
           {dap.termination.exit === null ? "unknown" : dap.termination.exit}.
-        </p>
-      )}
-
-      {dap.threads.length > 0 && (
-        <p className="muted" data-testid="dap-thread-list">
-          Threads:{" "}
-          {dap.threads.map((thread) => (
-            <span key={thread.id} data-testid={`debug-thread-${thread.id}`}>
-              {thread.name} ({thread.id}){" "}
-            </span>
-          ))}
         </p>
       )}
 
@@ -269,6 +222,54 @@ export function DebugPanel({
         </section>
       </div>
 
+      <details className="debug-context-details">
+        <summary>Session details</summary>
+        {dap.threads.length > 0 && (
+          <p className="muted" data-testid="dap-thread-list">
+            Threads: {dap.threads.map((thread) => (
+              <span key={thread.id} data-testid={`debug-thread-${thread.id}`}>
+                {thread.name} ({thread.id}){" "}
+              </span>
+            ))}
+          </p>
+        )}
+        <dl className="debug-identity" data-testid="dap-identity">
+          <dt>Session</dt>
+          <dd data-testid="dap-session">{dap.session || "none"}</dd>
+          <dt>Project</dt>
+          <dd>{dap.project ? `${dap.project.name} · ${dap.project.path}` : "none"}</dd>
+          <dt>Build</dt>
+          <dd data-testid="dap-build-id">
+            {dap.buildId ?? "none"} · {dap.configuration || "no configuration"}
+            {dap.targetFramework ? ` / ${dap.targetFramework}` : ""}
+          </dd>
+          <dt>Assembly</dt>
+          <dd><code data-testid="dap-assembly">{dap.assembly ?? "none"}</code></dd>
+          <dt>Adapter</dt>
+          <dd data-testid="dap-adapter">
+            {dap.adapter.binary
+              ? `${dap.adapter.version} · ${dap.adapter.platform} · ${dap.adapter.argv.join(" ")}`
+              : "not started"}
+          </dd>
+          <dt>Working directory</dt>
+          <dd><code>{dap.cwd || "none"}</code></dd>
+          <dt>Process</dt>
+          <dd data-testid="dap-process">
+            {dap.processId === null
+              ? "none"
+              : `registry ${dap.processId} · adapter pid ${dap.pid ?? "unknown"}`}
+            {dap.debuggeePid === null ? "" : ` · debuggee pid ${dap.debuggeePid}`}
+            {dap.adapterExit !== null && dap.adapterExit !== undefined
+              ? ` · adapter exit ${dap.adapterExit}`
+              : ""}
+          </dd>
+          <dt>Exit</dt>
+          <dd data-testid="dap-exit">
+            {dap.exitKnown ? `exit ${dap.exit}` : "exit unknown"}
+          </dd>
+        </dl>
+      </details>
+
       <section aria-label="Breakpoints" data-testid="debug-breakpoints">
         <h3>Breakpoints</h3>
         {dap.breakpoints.length === 0 ? (
@@ -300,7 +301,7 @@ export function DebugPanel({
         <summary>DAP, adapter and host log</summary>
         <pre data-testid="dap-log">{dap.log || "No DAP traffic yet."}</pre>
       </details>
-      <details className="debug-log-block" open>
+      <details className="debug-log-block">
         <summary>Debuggee output</summary>
         <pre data-testid="dap-output">{dap.output || "No debuggee output yet."}</pre>
       </details>

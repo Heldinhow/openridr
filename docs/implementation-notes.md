@@ -361,3 +361,9 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 - Débito conhecido, deferido por escopo: `WorkspaceView.tsx` com ~4.770 linhas e 96 hooks; `src/git.tsx` com três painéis; bloco run→stdout/stderr repetido em `crates/host/src/git.rs`; `openTrusted`/`openTextOnly` copiados em ≥5 specs; cópias restantes de `messageOf` em painéis antigos.
 - Limite de verificação desta máquina (Linux arm64, sem .NET SDK, sem macOS): F9 e F7 foram validados por `bun run build` e testes de host; `dotnet list`/`dotnet add`, respostas reais de `references`/`documentSymbol`, gutter com `Main`/teste reais, rename inline contra o csharp-ls, DAP/LSP, WebKit/Tauri e a suíte Playwright completa **não** foram exercitados aqui. Os specs novos (`nuget.spec.ts`, `code.spec.ts`) rodaram com Chromium do sistema e config temporária; `actions.spec.ts` assume macOS (`Meta`) e falha nesta VPS por isso.
 - Dois testes de `tools.rs` falham nesta VPS apenas por ausência do SDK em `/usr/local/share/dotnet`; não são regressão.
+
+## Auditoria visual Run/Tests/Debug (ticket 19)
+
+- Run output foi promovido à primeira área do painel Build; metadados de Build/Run ficam sob disclosure, logs limitados rolam localmente. Tests prioriza a seção da execução/resultados sobre metadados da descoberta; Debug prioriza frames/locals e move identidade/threads para Session details. Estados vazios não usam aparência de badge/controle, e o texto do estado DAP não se repete no detalhe.
+- Verificação real: `bun run build` passou; E2E focado no Chrome 155 headed (macOS 27.2 arm64, 1440×900, `slowMo:300`, SDK 8.0.408) para Run, resultados VSTest e pausa DAP: 3/3 passaram. Unidade não aplicável (sem lógica de host nova). Evidência: `docs/evidence/19-audit-run-tests-debug.md`; capturas fora do repo, para não incluí-las no commit.
+- Windows x64, macOS Intel e suíte E2E completa não verificados nesta fatia.

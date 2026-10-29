@@ -315,6 +315,13 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
 
     const results = page.getByTestId("tests-run-results-list").locator("li");
     await expect(results).toHaveCount(4);
+    await expect.poll(() => results.first().evaluate((element) => {
+      const panel = element.closest(".panel-body");
+      if (!panel) return false;
+      const content = element.getBoundingClientRect();
+      const viewport = panel.getBoundingClientRect();
+      return content.top < viewport.bottom && content.bottom > viewport.top;
+    })).toBe(true);
     const failedRow = results.filter({ hasText: "Deliberate_failure_for_runner_evidence" });
     await expect(
       failedRow.locator('[data-testid^="test-result-outcome-"]'),

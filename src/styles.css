@@ -1052,6 +1052,11 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .bottom-tabs .tab-label { padding: 6px 14px; border-right: 0; }
 .bottom-tabs .tab-label.active { background: transparent; box-shadow: inset 0 -2px var(--accent); }
 .build-panel { gap: 8px; }
+.build-panel[data-testid="build-panel"] { display: flex; flex-direction: column; }
+.build-panel[data-testid="build-panel"] > .run-output { order: 1; }
+.build-panel[data-testid="build-panel"] > .build-context-details { order: 2; }
+.build-panel[data-testid="build-panel"] > [data-testid="build-log"],
+.build-panel[data-testid="build-panel"] > [data-testid="build-log-truncated"] { order: 3; }
 .build-panel > p { margin: 0; padding: 5px 8px; background: var(--panel); border-radius: 3px; }
 .build-log { padding: 8px 10px; background: var(--panel); }
 .problems-list-wrap, .build-problems-list { overflow: auto; }
@@ -1388,6 +1393,38 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.build-context-details > summary,
+.debug-context-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.run-output {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.run-output > .build-context-details { order: 1; }
+.run-output > h3,
+.run-output > .run-log,
+.run-output > [data-testid="run-log-truncated"] { order: 0; }
+.run-output > .run-log { max-height: 16rem; overflow: auto; }
+.test-tree { max-height: 16rem; overflow: auto; }
+.tests-run-results-list { max-height: 16rem; overflow: auto; }
+.build-panel[aria-label="Test run"] { display: flex; flex-direction: column; }
+.build-panel[aria-label="Test run"] > .tests-run-results-list { order: 1; }
+.build-panel[aria-label="Test run"] > .build-context-details { order: 2; }
+.build-panel[aria-label="Test run"] > [data-testid="tests-run-log"] { order: 3; }
+.build-panel[data-testid="tests-panel"] { display: flex; flex-direction: column; }
+.build-panel[data-testid="tests-panel"] > :not(.build-controls) { order: 2; }
+.build-panel[data-testid="tests-panel"] > [data-testid="tests-run-panel"] { order: 1; }
+.build-panel[data-testid="tests-panel"] > .build-context-details,
+.build-panel[data-testid="tests-panel"] > [data-testid="tests-items"],
+.build-panel[data-testid="tests-panel"] > [data-testid="tests-log"] { order: 2; }
+.debug-columns { max-height: 18rem; overflow: auto; }
+.debug-log-block pre { max-height: 10rem; }
 
 .build-problems {
   border-top: 1px solid var(--line);

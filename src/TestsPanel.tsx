@@ -594,7 +594,9 @@ export function TestsPanel({
 
       {discovery.revision > 0 && (
         <>
-          <dl className="restore-meta build-meta">
+          <details className="build-context-details">
+            <summary>Discovery details</summary>
+            <dl className="restore-meta build-meta">
             <dt>Scope</dt>
             <dd data-testid="tests-scope">
               {discovery.project?.name ?? "unknown"} ·{" "}
@@ -622,7 +624,8 @@ export function TestsPanel({
             <dd data-testid="tests-exit">
               {discovery.exit === null ? "exit unknown" : `exit ${discovery.exit}`}
             </dd>
-          </dl>
+            </dl>
+          </details>
 
           {discovery.sealed && (
             <p className="warning" data-testid="tests-sealed">
@@ -764,7 +767,9 @@ export function TestsPanel({
                 : "Partial results: the results list was truncated; the counts come from the run summary, not from the full list."}
             </p>
           )}
-          <dl className="restore-meta build-meta">
+          <details className="build-context-details">
+            <summary>Test run details</summary>
+            <dl className="restore-meta build-meta">
             <dt>Command</dt>
             <dd>
               <code data-testid="tests-run-command">
@@ -790,7 +795,8 @@ export function TestsPanel({
             <dd>
               <code data-testid="tests-run-results">{run.resultsDirectory ?? "unknown"}</code>
             </dd>
-          </dl>
+            </dl>
+          </details>
           {run.termination && (
             <p className="muted" data-testid="tests-run-termination">
               Termination requested: {run.termination.requested}. Observed:{" "}

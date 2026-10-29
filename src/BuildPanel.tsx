@@ -225,7 +225,7 @@ export function BuildPanel({
           </button>
         )}
         <span
-          className={`tag ${run.state === "failed" ? "error" : ""}`}
+          className={run.revision === 0 ? "muted" : `tag ${run.state === "failed" ? "error" : ""}`}
           data-testid="run-state"
           role="status"
         >
@@ -233,7 +233,7 @@ export function BuildPanel({
           {run.stale ? " · stale" : ""}
         </span>
         <span
-          className={`tag ${build.state === "failed" ? "error" : ""}`}
+          className={build.revision === 0 ? "muted" : `tag ${build.state === "failed" ? "error" : ""}`}
           data-testid="build-state"
           role="status"
         >
@@ -289,7 +289,9 @@ export function BuildPanel({
 
       {build.revision > 0 && (
         <>
-          <dl className="restore-meta build-meta">
+          <details className="build-context-details">
+            <summary>Build details</summary>
+            <dl className="restore-meta build-meta">
             <dt>Startup project</dt>
             <dd data-testid="build-project">
               {build.project?.name ?? "unknown"} · {build.project?.kind ?? "unknown"} ·{" "}
@@ -317,7 +319,8 @@ export function BuildPanel({
             </dd>
             <dt>Saved content</dt>
             <dd data-testid="build-saved-note">{build.savedNote ?? "not recorded"}</dd>
-          </dl>
+            </dl>
+          </details>
           {obsolete && (
             <p className="warning" data-testid="build-obsolete" role="status">
               This build predates the current buffer edits. Its result is obsolete, not fixed;
@@ -370,7 +373,9 @@ export function BuildPanel({
 
       {run.revision > 0 && (
         <section className="run-output" aria-label="Run output" data-testid="run-panel">
-          <dl className="restore-meta build-meta">
+          <details className="build-context-details">
+            <summary>Run details</summary>
+            <dl className="restore-meta build-meta">
             <dt>Run</dt>
             <dd data-testid="run-identity">
               {run.runId ?? "unknown"} · project {run.project?.name ?? "unknown"} ·{" "}
@@ -401,7 +406,8 @@ export function BuildPanel({
             <dd>
               {timeLabel(run.startedAt)} / {timeLabel(run.finishedAt)}
             </dd>
-          </dl>
+            </dl>
+          </details>
           {run.sealed && (
             <p className="warning" data-testid="run-sealed">
               Previous run, not current: {run.staleReason}

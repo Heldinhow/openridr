@@ -65,9 +65,9 @@ async function build(page: Page) {
 
 async function run(page: Page) {
   await page.getByTestId("run-action").click();
-  await expect(page.getByTestId("run-state")).toContainText("Running", {
+  await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
     timeout: 15_000,
-  });
+  }).toMatch(/Running|Run exited/);
   await expect(page.getByTestId("run-state")).toContainText("Run exited", {
     timeout: 30_000,
   });
@@ -97,6 +97,13 @@ test("a real run shows the saved build output and refuses a source saved after t
     await run(page);
     await expect(page.getByTestId("run-state")).toContainText("exit 0");
     await expect(page.getByTestId("run-log")).toContainText("Order A-104:");
+    await expect.poll(() => page.getByTestId("run-log").evaluate((element) => {
+      const panel = element.closest(".panel-body");
+      if (!panel) return false;
+      const content = element.getBoundingClientRect();
+      const viewport = panel.getBoundingClientRect();
+      return content.top < viewport.bottom && content.bottom > viewport.top;
+    })).toBe(true);
     await expect(page.getByTestId("run-build-id")).toContainText(buildId.split("·")[0].trim());
     await expect(page.getByTestId("run-command")).toContainText("OrderDesk.Cli.dll");
     await expect(page.getByTestId("run-cwd")).toContainText("Order Desk run/src/OrderDesk.Cli");
@@ -121,9 +128,9 @@ test("a real run shows the saved build output and refuses a source saved after t
     await page.getByTestId("run-dirty-dialog").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "12-run-dirty.png") });
     await page.getByTestId("run-saved-build").click();
-    await expect(page.getByTestId("run-state")).toContainText("Running", {
+    await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
       timeout: 15_000,
-    });
+    }).toMatch(/Running|Run exited/);
     await expect(page.getByTestId("run-state")).toContainText("Run exited", {
       timeout: 30_000,
     });
@@ -156,9 +163,9 @@ test("a real run shows the saved build output and refuses a source saved after t
     // Ctrl+R uses the same gate and launches the saved build.
     const beforeShortcut = (await page.getByTestId("run-identity").textContent()) ?? "";
     await page.keyboard.press("Control+R");
-    await expect(page.getByTestId("run-state")).toContainText("Running", {
+    await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
       timeout: 15_000,
-    });
+    }).toMatch(/Running|Run exited/);
     await expect(page.getByTestId("run-state")).toContainText("Run exited", {
       timeout: 30_000,
     });

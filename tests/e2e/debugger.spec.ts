@@ -362,6 +362,20 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.getByTestId("dap-thread-list")).toContainText("Main Thread");
     await expect(page.getByTestId("debug-frames")).toContainText("Program.<Main>$()");
     await expect(page.getByTestId("debug-locals")).toContainText("order");
+    await expect.poll(() => page.getByTestId("debug-frames").evaluate((element) => {
+      const panel = element.closest(".panel-body");
+      if (!panel) return false;
+      const content = element.getBoundingClientRect();
+      const viewport = panel.getBoundingClientRect();
+      return content.top < viewport.bottom && content.bottom > viewport.top;
+    })).toBe(true);
+    await expect.poll(() => page.getByTestId("debug-locals").evaluate((element) => {
+      const panel = element.closest(".panel-body");
+      if (!panel) return false;
+      const content = element.getBoundingClientRect();
+      const viewport = panel.getBoundingClientRect();
+      return content.top < viewport.bottom && content.bottom > viewport.top;
+    })).toBe(true);
     await expect(page.getByTestId("debug-breakpoints")).toContainText("verified by the adapter");
     await expect(page.getByTestId("dap-log")).toContainText("event stopped · reason breakpoint");
     await page.screenshot({ path: path.join(screenshots, "14-dap-paused.png"), fullPage: true });
