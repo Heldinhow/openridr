@@ -32,6 +32,20 @@ const executableMethods = [
   "git.commit",
 ];
 
+test("welcome lists recent solutions, persists them and reopens one", async ({ page }) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await reveal(page.getByTestId("close-workspace"));
+  await page.getByTestId("close-workspace").click();
+  await expect(page.getByTestId("welcome-recent-0")).toContainText("OrderDesk.sln");
+  await page.reload();
+  await expect(page.getByTestId("welcome-recent-0")).toHaveAttribute("title", solution);
+  const directory = process.env.OPENRIDR_SCREENSHOT_DIR;
+  if (directory) await page.screenshot({ path: path.join(directory, "welcome-recent.png") });
+  await page.getByTestId("welcome-recent-0").click();
+  await expect(page.getByTestId("workspace-path")).toContainText(solution);
+});
+
 test.beforeEach(() => {
   fs.writeFileSync(program, originalProgram);
   fs.writeFileSync(core, originalCore);

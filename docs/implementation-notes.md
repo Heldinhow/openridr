@@ -410,3 +410,9 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 
 - Mudou: paleta e chrome, header (ícones, Back/Forward, badge do projeto, chevrons), árvore Solution com metadados discretos, gutter com bolinha de breakpoint à esquerda dos números e linha tingida (breakpoint/pausa), pílulas nas abas inferiores, Edit Run Configurations (rótulo à esquerda; rodapé Run/Cancel/Apply/OK), Settings com busca na coluna esquerda, ações de Debug só com ícone, linha "Process finished with exit code N." na saída do Run.
 - Ainda difere do Rider: sem botões de janela/menu nativo, sem rail direito/Monitoring, faixa "Workspace tools" e linha de dicas acima do editor, Solution com botões de avaliação, painel inferior aberto por padrão, sem barra verde de alteração, inlays do debug, Exe path e abas Configuration/Logs no diálogo de run config, preview de arquivo no Search Everywhere, painel Commit/Log e diff lado a lado do Git no formato do Rider. Telas 04, 08, 10, 12, 18–20 de `rider-compare` mostram só o estado do OpenRidr sem sessão/repositório real.
+
+## Welcome estilo Rider (2026-10-29)
+
+`SetupScreen.tsx` ganhou `recent` (vindo de `App.tsx`, carregado/salvo em `localStorage`); estilos em `styles.css` (`.welcome-*`, `.recent-list`). Verificado: `bun run check`, `ui-layout.spec.ts` + `workspace.spec.ts` (20 passed) e screenshot vazio. Não verificado: lista de recentes preenchida visualmente, app Tauri real, Windows/Intel.
+
+Welcome — recentes verificados (2026-10-29): spec `welcome lists recent solutions…` em `workspace.spec.ts` (fecha o workspace, vê o recente, recarrega, reabre por clique). Screenshot em `docs/evidence/rider-compare/welcome-recent.png`. O nome do recente omite `.sln`/`.csproj`, como o Rider. Continua não verificado: app Tauri real, Windows/Intel.

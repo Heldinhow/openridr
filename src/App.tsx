@@ -3,12 +3,23 @@ import { SetupScreen } from "./SetupScreen";
 import { WorkspaceView } from "./WorkspaceView";
 import { call, type Snapshot } from "./host/client";
 
+const RECENT_KEY = "openridr.recent";
+
+function loadRecent(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string").slice(0, 6) : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [stage, setStage] = useState<"setup" | "workspace">("setup");
   const [lastPath, setLastPath] = useState("");
   const [pendingFile, setPendingFile] = useState<string | null>(null);
-  const [recentSolutions, setRecentSolutions] = useState<string[]>([]);
+  const [recentSolutions, setRecentSolutions] = useState<string[]>(loadRecent);
 
   useEffect(() => {
     let active = true;
@@ -29,9 +40,12 @@ export default function App() {
   useEffect(() => {
     const path = snapshot?.workspace?.path;
     if (!path) return;
-    setRecentSolutions((current) =>
-      current[0] === path ? current : [path, ...current.filter((item) => item !== path)].slice(0, 6),
-    );
+    setRecentSolutions((current) => {
+      if (current[0] === path) return current;
+      const next = [path, ...current.filter((item) => item !== path)].slice(0, 6);
+      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+      return next;
+    });
   }, [snapshot?.workspace?.path]);
 
   function handleSnapshot(next: Snapshot) {
@@ -88,6 +102,7 @@ export default function App() {
       key={lastPath}
       snapshot={snapshot}
       initialPath={lastPath}
+      recent={recentSolutions}
       onOpened={handleOpened}
       onSnapshot={handleSnapshot}
       onEnter={() => setStage("workspace")}

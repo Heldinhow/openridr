@@ -14,7 +14,7 @@ import {
   type Snapshot,
   type OutlineProject,
 } from "./host/client";
-import { CodeEditor } from "./CodeEditor";
+import { CodeEditor, type ChangedLine } from "./CodeEditor";
 import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
@@ -180,6 +180,34 @@ type Props = {
 };
 
 const bottomTools = toolWindowsIn("bottom");
+
+const NO_CHANGED_LINES: ChangedLine[] = [];
+
+// "@@ -a,b +c,d @@" hunks -> new-file lines; hunks that also delete lines are "mod", pure additions "add".
+function changedLinesFromDiff(diff: string): ChangedLine[] {
+  const out: ChangedLine[] = [];
+  let line = 0;
+  let hunk = false;
+  const pending: number[] = [];
+  let deletes = 0;
+  const flush = () => {
+    const kind = deletes > 0 ? "mod" : "add";
+    for (const n of pending) out.push([n, kind]);
+    pending.length = 0;
+    deletes = 0;
+  };
+  for (const text of diff.split("\n")) {
+    const header = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(text);
+    if (header) { flush(); line = Number(header[1]); hunk = true; continue; }
+    if (!hunk) continue;
+    if (text.startsWith("+")) { pending.push(line++); }
+    else if (text.startsWith("-")) { deletes++; }
+    else if (text.startsWith("\\")) { continue; }
+    else { flush(); line++; }
+  }
+  flush();
+  return out;
+}
 
 function baseName(path: string) {
   return path.split("/").pop() ?? path;
@@ -785,7 +813,31 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         ? debugCurrentFrame.line
         : null
       : null;
+  const debugInlay = debugCurrentLine === null
+    ? ""
+    : (dap.locals?.scopes[0]?.variables ?? [])
+        .slice(0, 4)
+        .map((variable) => `${variable.name} = ${variable.value.length > 32 ? `${variable.value.slice(0, 31)}…` : variable.value}`)
+        .join(", ");
   const activeProjectPath = activeEvaluationProject?.path ?? activeProject?.path ?? null;
+  const [changedState, setChangedState] = useState<{ path: string; lines: ChangedLine[] }>({ path: "", lines: [] });
+  const changedLines = changedState.path === active?.path ? changedState.lines : NO_CHANGED_LINES;
+  const changedGitFile = active ? gitStatus?.files.find((entry) => entry.path === active.path) : undefined;
+  useEffect(() => {
+    // Saved file vs HEAD; staged-only files diff against the index, untracked files have no HEAD to compare.
+    const path = active?.path;
+    if (!path || !trusted || !changedGitFile || changedGitFile.untracked || changedGitFile.conflicted) {
+      setChangedState({ path: path ?? "", lines: [] });
+      return;
+    }
+    let live = true;
+    const staged = changedGitFile.staged && changedGitFile.worktree === " ";
+    call<GitDiffView>("git.diff", { path, staged })
+      .then((answer) => live && setChangedState({ path, lines: changedLinesFromDiff(answer.diff ?? "") }))
+      .catch(() => live && setChangedState({ path, lines: [] }));
+    return () => { live = false; };
+  }, [active?.path, trusted, changedGitFile?.index, changedGitFile?.worktree, gitStatus]);
+
   const gutterActions = useMemo(() => {
     if (
       !active ||
@@ -795,14 +847,35 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     ) {
       return [];
     }
-    return gutterActionsFor({
-      symbols: documentSymbols.response.symbols,
-      projectPath: activeProjectPath,
-      startupProjectPath: startupProject?.path ?? null,
-      testItems: testDiscovery.items,
-      runDisabledReason,
-      testDisabledReason: testRunBlocked,
-    });
+    const bulbs: GutterAction[] = [];
+    const seen = new Set<number>();
+    for (const snap of snapshot.diagnostics.snapshots) {
+      if (snap.state !== "current" || !snap.path || !snap.path.replace(/\\/g, "/").endsWith(`/${active.path}`)) continue;
+      for (const item of snap.items) {
+        if (!item.position || seen.has(item.position.line)) continue;
+        seen.add(item.position.line);
+        bulbs.push({
+          line: item.position.line + 1,
+          character: item.position.character,
+          kind: "fix",
+          label: `Show code actions for: ${item.message}`,
+          disabledReason: codeActionsDisabledReason,
+          testId: null,
+          testProject: null,
+        });
+      }
+    }
+    return [
+      ...gutterActionsFor({
+        symbols: documentSymbols.response.symbols,
+        projectPath: activeProjectPath,
+        startupProjectPath: startupProject?.path ?? null,
+        testItems: testDiscovery.items,
+        runDisabledReason,
+        testDisabledReason: testRunBlocked,
+      }),
+      ...bulbs,
+    ];
   }, [
     active?.path,
     active?.revision,
@@ -812,6 +885,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     testDiscovery.items,
     runDisabledReason,
     testRunBlocked,
+    snapshot.diagnostics,
+    codeActionsDisabledReason,
   ]);
 
   useEffect(() => {
@@ -1313,6 +1388,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   function handleGutterAction(action: GutterAction) {
+    if (action.kind === "fix") {
+      void requestCodeActions({ line: action.line - 1, character: action.character ?? 0 });
+      return;
+    }
     if (action.kind === "run") {
       requestRun();
       return;
@@ -3387,8 +3466,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           </summary>
           <div className="menu-content" data-testid="toolbar-project-menu">
             <span className="menu-heading">Recent solutions</span>
-            <span className="menu-note">This session only; recent solutions are not persisted yet.</span>
-            {recentSolutions.map((solution, index) => (
+                        {recentSolutions.map((solution, index) => (
               <button
                 key={solution}
                 type="button"
@@ -3729,6 +3807,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
       </div>
 
+      <div className="toolrail toolrail-right" data-testid="tool-windows-right" aria-label="Right tool windows">
+        {["Monitoring", "AI Assistant", "Database"].map((title) => (
+          <button
+            key={title}
+            type="button"
+            className="toolband-button"
+            disabled
+            aria-label={title}
+            title={`${title} is not part of OpenRidr`}
+          >
+            {title[0]}
+          </button>
+        ))}
+      </div>
+
       <div className="toolrail" data-testid="tool-windows">
         <ToolWindowBand
           slot="left"
@@ -3874,12 +3967,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                             )}
                             {project.note && <div className="tree-note">{project.note}</div>}
                             {project.projectRefs.length > 0 && (
-                              <div className="tree-note">
+                              <div className="tree-note tree-node tree-node-refs">
                                 References: {project.projectRefs.map((ref) => ref.name).join(", ")}
                               </div>
                             )}
                             {project.packageRefs.length > 0 && (
-                              <div className="tree-note">
+                              <div className="tree-note tree-node tree-node-packages">
                                 Packages:{" "}
                                 {project.packageRefs
                                   .map((pkg) =>
@@ -4395,11 +4488,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   }}
                   onGutterAction={handleGutterAction}
                   gutterActions={gutterActions}
+                  changedLines={changedLines}
                   renameRequest={renameRequest}
                   definitionRequest={definitionRequest}
                   onCursor={noteCursor}
                   breakpoints={activeBreakpoints}
                   currentLine={debugCurrentLine}
+                  inlayText={debugInlay}
                   onToggleBreakpoint={(line) => void toggleBreakpoint(line)}
                   target={
                     editorTarget?.path === active.path ? editorTarget : null
@@ -4540,7 +4635,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       {bottomOpen && (
         <>
       <Splitter label="Output panel height" value={visibleOutputHeight} min={120} max={outputMax} horizontal onChange={setOutputHeight} />
-      <BottomToolWindow tabs={bottomTabLabels} active={bottomTab} onSelect={setBottomTab} panelRef={panelBodyRef}>
+      <BottomToolWindow tabs={bottomTabLabels} active={bottomTab} onSelect={setBottomTab} onHide={() => setLayout((current) => ({ ...current, bottom: { ...current.bottom, open: false } }))} panelRef={panelBodyRef}>
         {renderBottomContent()}
       </BottomToolWindow>
         </>

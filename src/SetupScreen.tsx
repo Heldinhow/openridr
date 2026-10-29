@@ -8,6 +8,7 @@ import { Icon } from "./Icon";
 type Props = {
   snapshot: Snapshot | null;
   initialPath: string;
+  recent: string[];
   onOpened: (snapshot: Snapshot) => void;
   onSnapshot: (snapshot: Snapshot) => void;
   onEnter: () => void;
@@ -114,6 +115,7 @@ function ProjectSdkBody({
 export function SetupScreen({
   snapshot,
   initialPath,
+  recent,
   onOpened,
   onSnapshot,
   onEnter,
@@ -172,15 +174,19 @@ export function SetupScreen({
   return (
     <main className="setup-screen">
       <header className="chrome">
-        <span className="brand"><Icon name="code" /> OpenRidr</span>
-        <span className="muted">{workspace?.name ?? "No workspace open"}</span>
+        <span className="brand"><Icon name="code" /> Welcome to OpenRidr</span>
+        <span className="muted">{workspace?.name ?? ""}</span>
       </header>
-      <div className="setup">
-        <div className="welcome-heading"><span className="welcome-mark"><Icon name="code" /></span><div><p className="eyebrow">YOUR .NET WORKSPACE</p><h1>Open a solution</h1></div></div>
-        <p className="muted">
-          Pick up where your code begins. Open a solution, project, or folder.
-        </p>
-
+      <div className="welcome-body">
+        <nav className="welcome-nav" aria-label="Welcome">
+          <div className="welcome-logo">
+            <span className="welcome-mark"><Icon name="code" /></span>
+            <div><strong>OpenRidr</strong><span className="muted">C# workspace</span></div>
+          </div>
+          <a className="welcome-link active" href="#projects">Projects</a>
+          <a className="welcome-link" href="#toolchain-title">Toolchain</a>
+        </nav>
+        <div className="setup" id="projects">
         <form
           className="open-form"
           onSubmit={(event) => {
@@ -188,26 +194,42 @@ export function SetupScreen({
             void open(path);
           }}
         >
-          <label htmlFor="workspace-path-input">Workspace path (absolute)</label>
+          <label htmlFor="workspace-path-input" className="sr-only">Workspace path (absolute)</label>
           <div className="open-row">
             <input
               id="workspace-path-input"
               data-testid="workspace-path-input"
               value={path}
               onChange={(event) => setPath(event.target.value)}
-              placeholder="/Users/you/src/OrderDesk/OrderDesk.sln"
+              placeholder="Path to a .sln, .csproj or folder"
               aria-describedby="workspace-path-help"
               aria-invalid={error ? true : undefined}
               autoFocus
               spellCheck={false}
               disabled={busy}
             />
-            <button type="submit" className="primary" data-testid="workspace-open" disabled={busy}>
-              {busy ? "Opening…" : "Open workspace"}
+            <button type="submit" className="welcome-button" data-testid="workspace-open" disabled={busy}>
+              {busy ? "Opening…" : "Open"}
             </button>
           </div>
-          <p className="hint" id="workspace-path-help">Absolute path to a .sln, .csproj, or folder. Opens in Restricted mode — no project code runs until you trust it.</p>
+          <p className="hint" id="workspace-path-help">Absolute path. Opens in Restricted mode — no project code runs until you trust it.</p>
         </form>
+
+        {recent.length > 0 && (
+          <ul className="recent-list" data-testid="welcome-recent">
+            {recent.map((solution, index) => {
+              const name = (solution.split(/[\\/]/).pop() ?? solution).replace(/\.(sln|csproj)$/i, "");
+              return (
+                <li key={solution}>
+                  <button type="button" data-testid={`welcome-recent-${index}`} title={solution} onClick={() => void open(solution)} disabled={busy}>
+                    <span className="project-badge" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>
+                    <span className="recent-text"><strong>{name}</strong><span className="muted">{solution}</span></span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
 
         {error && (
           <div className="notice error" role="alert" data-testid="workspace-error">
@@ -387,6 +409,7 @@ export function SetupScreen({
             </ul>
           </section>
         )}
+        </div>
       </div>
     </main>
   );
