@@ -104,6 +104,19 @@ test("a real shell runs in the workspace, interrupts a child with Ctrl+C and clo
     await input.fill("echo terminal-e2e-$((6*7))");
     await input.press("Enter");
     await expect(output).toContainText("terminal-e2e-42");
+
+    // The bounded UI log displays the final CR-delimited progress segment, while the host keeps raw bytes.
+    await input.fill("printf 'progress-before-CR\\rprogress-after-CR\\n'");
+    await input.press("Enter");
+    await expect(output).toContainText("progress-after-CR");
+    const displayedLines = (await output.textContent())!.split("\n").map((line) => line.trim());
+    expect(displayedLines).toContain("progress-after-CR");
+    expect(displayedLines).not.toContain("progress-before-CR");
+    const rawSnapshot = await page.request.post(`${host}/call`, {
+      data: { method: "workspace.state", params: {} },
+    });
+    const rawTerminalLog = (await rawSnapshot.json()).data.terminal.log as string;
+    expect(rawTerminalLog).toContain("progress-before-CR\rprogress-after-CR\n");
     await page.screenshot({ path: path.join(screenshots, "15-terminal-running.png") });
 
     // Fake Ctrl+C must interrupt the real child: `done-42` only prints after 30 s.

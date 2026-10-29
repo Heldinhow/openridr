@@ -113,7 +113,7 @@ impl Output {
     fn push(&mut self, bytes: &[u8]) {
         self.seq += 1;
         let raw = String::from_utf8_lossy(bytes);
-        let text = strip_ansi(&raw).replace("\r\n", "\n").replace('\r', "\n");
+        let text = strip_ansi(&raw).replace("\r\n", "\n");
         self.pending.push_str(&text);
         while let Some(index) = self.pending.find('\n') {
             let line: String = self.pending.drain(..=index).collect();
@@ -197,7 +197,11 @@ fn strip_ansi(text: &str) -> String {
             }
             continue;
         }
-        if character == '\n' || character == '\t' || !character.is_control() {
+        if character == '\n'
+            || character == '\r'
+            || character == '\t'
+            || !character.is_control()
+        {
             out.push(character);
         }
     }
@@ -710,9 +714,18 @@ mod tests {
         output.push(b"one\ntwo\r\n");
         assert_eq!(output.seq, 1);
         assert_eq!(output.text(), "one\ntwo");
-        output.push(b"partial ");
+        output.push(b"progress-before-CR\rprogress-after-CR\n");
+        assert_eq!(
+            output.text(),
+            "one\ntwo\nprogress-before-CR\rprogress-after-CR"
+        );
         assert_eq!(output.seq, 2);
-        assert_eq!(output.text(), "one\ntwo\npartial");
+        output.push(b"partial ");
+        assert_eq!(output.seq, 3);
+        assert_eq!(
+            output.text(),
+            "one\ntwo\nprogress-before-CR\rprogress-after-CR\npartial"
+        );
         for index in 0..(MAX_LINES + 10) {
             output.push(format!("line {index}\n").as_bytes());
         }

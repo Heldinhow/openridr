@@ -134,15 +134,23 @@ test("saved run configurations drive build and run, persist and validate their f
 
     // Build and Run use the active configuration through the existing flow.
     await build(page);
-    await page.getByTestId("toolbar-run").click();
+    // Run from the dialog must use its just-saved draft, not the previous render's active config.
+    await openConfigDialog(page);
+    await page.getByTestId("run-config-args").fill("--dialog-run");
+    await page.getByTestId("run-config-run").click();
+    if (await page.getByTestId("run-dirty-dialog").isVisible()) {
+      await page.getByTestId("run-saved-build").click();
+    }
+    await expect(page.getByTestId("run-config-dialog")).toHaveCount(0);
     await expect(page.getByTestId("run-state")).toContainText("Run exited", {
       timeout: 30_000,
     });
     await expect(page.getByTestId("run-state")).toContainText("exit 0");
-    await expect(page.getByTestId("run-log")).toContainText("args=[--first|two words]");
+    await expect(page.getByTestId("run-log")).toContainText("args=[--dialog-run]");
     await expect(page.getByTestId("run-log")).toContainText("env=explicit");
     await expect(page.getByTestId("run-log")).toContainText("override=file");
     await expect(page.getByTestId("run-cwd")).toContainText(`${copy}/src`);
+
     fs.mkdirSync(screenshots, { recursive: true });
     await page.getByTestId("run-log").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "15-run-config-output.png") });
@@ -191,7 +199,7 @@ test("saved run configurations drive build and run, persist and validate their f
     await expect(page.getByTestId("run-config-option-default")).toBeVisible();
     await page.getByTestId("run-config-edit").click();
     await expect(page.getByTestId("run-config-name")).toHaveValue("F4 arguments");
-    await expect(page.getByTestId("run-config-args")).toHaveValue("--first\ntwo words");
+    await expect(page.getByTestId("run-config-args")).toHaveValue("--dialog-run");
     await expect(page.getByTestId("run-config-cwd")).toHaveValue("src");
     await expect(page.getByTestId("run-config-env-key-0")).toHaveValue("OPENRIDR_F4");
     await expect(page.getByTestId("run-config-env-value-0")).toHaveValue("explicit");

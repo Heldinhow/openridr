@@ -221,7 +221,7 @@ export function RunConfigDialog({
   issues: RunConfigIssue[];
   initialId: string;
   onCommit: (configs: RunConfig[], activeId: string) => Promise<RunConfigIssue[]>;
-  onRun: () => void;
+  onRun: (config: RunConfig) => void;
   onClose: () => void;
 }) {
   const initial =
@@ -398,7 +398,7 @@ export function RunConfigDialog({
         return;
       }
       if (close) onClose();
-      if (run) onRun();
+      if (run) onRun(config);
     } catch (error) {
       const field = errorField(error);
       setErrors(field ? { [field]: messageOf(error) } : {});

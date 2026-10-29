@@ -421,6 +421,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [buildDecision, setBuildDecision] = useState(false);
   const [runDecision, setRunDecision] = useState(false);
+  const [pendingRunConfig, setPendingRunConfig] = useState<RunConfig | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const autoEvaluation = useRef<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(
@@ -2151,9 +2152,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     );
   }
 
-  function invalidRunConfigReason() {
-    if (!activeRunConfig || activeRunConfigIssues.length === 0) return null;
-    return `The active run configuration “${activeRunConfig.name}” cannot run: ${activeRunConfigIssues
+  function invalidRunConfigReason(config: RunConfig | null = activeRunConfig) {
+    const issues = config
+      ? (runConfigStore?.issues ?? []).filter((issue) => issue.configId === config.id)
+      : [];
+    if (!config || issues.length === 0) return null;
+    return `The active run configuration “${config.name}” cannot run: ${issues
       .map((issue) => issue.message)
       .join(" ")} Edit the configuration before running.`;
   }
@@ -2327,14 +2331,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     });
   }
 
-  async function startRun() {
-    const invalid = invalidRunConfigReason();
+  async function startRun(requestedConfig?: RunConfig | null) {
+    const config = requestedConfig ?? activeRunConfig;
+    const invalid = invalidRunConfigReason(config);
     if (invalid) {
       setMessage({ tone: "error", text: invalid });
-      openRunConfigDialog(activeRunConfig?.id);
+      openRunConfigDialog(config?.id);
       return;
     }
-    if (!startupProject) {
+    const selectedProject = config
+      ? consoleCandidates.find((project) => project.path === config.project) ?? null
+      : startupProject;
+    if (!selectedProject) {
       setMessage({
         tone: "error",
         text: "Choose a console startup project before running.",
@@ -2345,14 +2353,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     try {
       onSnapshot(
         await call<Snapshot>("run.start", {
-          project: startupProject.path,
-          configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
+          project: selectedProject.path,
+          configuration: config?.configuration ?? evaluation.context.configuration,
           targetFramework:
-            activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
-          args: activeRunConfig?.args ?? [],
-          workingDirectory: activeRunConfig?.workingDirectory ?? "",
-          env: activeRunConfig?.env ?? {},
-          envFiles: activeRunConfig?.envFiles ?? [],
+            config?.targetFramework ?? evaluation.context.targetFramework,
+          args: config?.args ?? [],
+          workingDirectory: config?.workingDirectory ?? "",
+          env: config?.env ?? {},
+          envFiles: config?.envFiles ?? [],
         }),
       );
       setMessage(null);
@@ -2367,22 +2375,23 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  function requestRun() {
-    if (runDisabledReason) {
+  function requestRun(requestedConfig?: RunConfig) {
+    if (!requestedConfig && runDisabledReason) {
       setMessage({ tone: "error", text: `Run unavailable: ${runDisabledReason}` });
       return;
     }
-    const invalid = invalidRunConfigReason();
+    const invalid = invalidRunConfigReason(requestedConfig ?? activeRunConfig);
     if (invalid) {
       setMessage({ tone: "error", text: invalid });
-      openRunConfigDialog(activeRunConfig?.id);
+      openRunConfigDialog(requestedConfig?.id ?? activeRunConfig?.id);
       return;
     }
     if (dirtyCount > 0) {
+      setPendingRunConfig(requestedConfig ?? null);
       setRunDecision(true);
       return;
     }
-    void startRun();
+    void startRun(requestedConfig);
   }
 
   async function saveAllAndRebuild() {
@@ -2392,7 +2401,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   function runSavedBuild() {
     setRunDecision(false);
-    void startRun();
+    void startRun(pendingRunConfig);
+    setPendingRunConfig(null);
   }
 
   async function cancelRun() {
@@ -4617,7 +4627,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           issues={runConfigStore?.issues ?? []}
           initialId={runConfigInitialId}
           onCommit={commitRunConfigDialog}
-          onRun={runAction.execute}
+          onRun={(config) => requestRun(config)}
           onClose={() => setRunConfigOpen(false)}
         />
       )}

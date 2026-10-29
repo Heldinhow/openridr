@@ -187,6 +187,14 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     const activeConfig = page.getByTestId("run-config-active");
     await expect(activeConfig).toHaveText("Run configuration with a deliberately long visible name");
     expect(await activeConfig.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug"]) {
+      const box = (await page.getByTestId(id).boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    }
+    expect(await page.locator(".toolbar").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
+      await page.locator(".toolbar").evaluate((element) => element.clientWidth),
+    );
     const evaluationLabel = page.getByTestId("status-evaluation");
     await expect(evaluationLabel).toHaveAttribute("title", /^Evaluated · Debug · TFM .* · revision \d+$/);
     expect(await evaluationLabel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
