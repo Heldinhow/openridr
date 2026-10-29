@@ -382,3 +382,10 @@ Um commit por ticket, mensagem convencional (`feat(workspace): ...`, `feat(trust
 - `ui-layout.spec.ts` cobre 1600×1000, 1440×900 e 1100×700; `OPENRIDR_E2E_SLOW_MO` permite headed Chrome com slowMo controlado sem afetar o padrão.
 - Verificação: `bun run build` passou (aviso existente de chunk >500 kB). `OPENRIDR_E2E_SLOW_MO=300 ... bunx playwright test tests/e2e/ui-layout.spec.ts --headed` passou 3/3 em Chrome nesta máquina.
 - Parcial: Run configurations ainda não tem rodapé Run/Cancel/Apply/OK; eco/redraw PTY não foi normalizado para não simular emulador; não foram executados E2Es reais de Problems, detalhes do projeto, terminal ou diálogos nesta fatia. Windows/macOS Intel, leitor de tela/WCAG e Tauri nativo não verificados. Nenhuma captura foi criada ou alterada.
+
+## Auditoria visual de Settings e Keymap (ticket 25)
+
+- Keymap virou tabela compacta com cabeçalhos Action / Group / shortcut / Actions, sem grupo duplicado quando coincide com o título; remap, conflitos e reset individual seguem preservados e os controles têm nomes acessíveis. Appearance apresenta `Dark` como estado, não como seletor; Settings não expõe o caminho interno de `settings.json`.
+- `git.path` só resolve o executável existente no PATH, sem iniciar processo ou abrir repositório, para exibir o caminho read-only no VCS em Restricted mode. Consulta de versão via `git.info` continua exigindo trust.
+- Verificação: `bun run build`, `bun run check`, teste Git path (1/1), `settings.spec.ts` headed Chrome (5/5) e teste de keymap de `actions.spec.ts` headed Chrome (1/1), ambos com `OPENRIDR_E2E_SLOW_MO=300`. Evidência: `docs/evidence/25-audit-settings-keymap.md`.
+- Não verificados: suíte E2E completa, Tauri nativo, leitor de tela/WCAG formal, Windows x64 e macOS Intel. Nenhuma captura foi criada ou incluída.

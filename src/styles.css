@@ -1810,6 +1810,9 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 
 .keymap-dialog {
   width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
 }
 
 /* Settings: search, page tree and live global values */
@@ -1876,6 +1879,17 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 
 .settings-page h3 {
   margin: 0 0 10px;
+}
+
+.settings-theme-value {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--raised);
 }
 
 .settings-field {
@@ -2193,20 +2207,21 @@ mark.search-hit {
   font-size: 0.68rem;
 }
 
-.keymap-list .action-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 4px 8px;
-}
+.keymap-table-scroll { flex: 1 1 auto; min-height: 0; max-width: 100%; overflow: auto; }
+.keymap-list { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.keymap-list th, .keymap-list td { padding: 4px 7px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.keymap-list thead th { position: sticky; top: 0; color: var(--muted); font-size: 0.68rem; font-weight: 600; background: var(--panel); }
+.keymap-list tbody th { min-width: 150px; font-weight: 500; }
+.keymap-list td:nth-child(2) { min-width: 190px; }
+.keymap-group { display: block; color: var(--muted); font-size: 0.68rem; }
+.keymap-list .action-keys { display: block; margin: 1px 0 0; font: 0.72rem var(--mono); color: var(--fg); white-space: normal; }
+.keymap-conflict { display: block; font-size: 0.68rem; }
+.keymap-actions { white-space: nowrap; }
+.keymap-actions button { padding: 2px 6px; margin-right: 4px; }
 
-.keymap-list .action-row .action-keys {
-  margin-left: auto;
-}
-
-.keymap-list .action-row button {
-  padding: 2px 6px;
+@media (max-width: 700px) {
+  .settings-layout { grid-template-columns: 120px minmax(0, 1fr); gap: 8px; }
+  .keymap-list thead th:last-child { min-width: 120px; }
 }
 
 /* Git: branch popup, Commit tool window and Git log */

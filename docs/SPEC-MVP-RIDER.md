@@ -230,7 +230,7 @@ Atalhos mínimos do MVP (Mac / Windows):
 ### Git
 
 - Executa o `git` do PATH no host; sem libgit2, sem instalar git, sem repositório embutido.
-- Todos os métodos de Git exigem trust. Em Restricted mode, as tool windows dizem "Trust the workspace to use Git"; sem repositório, "Not a git repository". Nenhum comando de escrita roda antes de confirmação.
+- Operações Git que consultam o repositório ou executam comandos exigem trust. Em Restricted mode, as tool windows dizem "Trust the workspace to use Git"; sem repositório, "Not a git repository". Nenhum comando de escrita roda antes de confirmação. Settings pode resolver apenas o caminho do executável no PATH sem trust; consulta de versão/repositório continua gated.
 - Leitura: status (`--porcelain=v1 -z`), diff por arquivo, branches locais/remotas, log da branch atual (`--max-count=200`, com parents).
 - Commit: seleção por checkbox define os caminhos; o commit é `git commit --only -- <caminhos>` com a mensagem, e `--amend` quando marcado. O index do usuário não é alterado; desmarcar não faz `restore --staged`. Hooks do repositório rodam (sem `--no-verify`).
 - Branch: criar a partir da atual; checkout de branch local ou remota. Checkout e pull recusam árvore suja, merge/rebase/cherry-pick em andamento, com mensagem e sem auto-stash.
@@ -282,6 +282,7 @@ Todos seguem o dispatcher existente (`method`, `params`, `result`/erro com `deta
 | `git.commit` | `paths[]`, `message`, `amend` | commit criado (hash, resumo) | trust |
 | `git.pull` | — | resultado observado | trust + árvore limpa |
 | `git.push` | `confirm:true` | remote/branch e resultado observado | trust |
+| `git.path` | — | caminho do executável Git resolvido no PATH, sem iniciar processo | nenhum (metadado local; não abre repositório) |
 | `settings.read` / `settings.write` | objeto de settings | settings efetivas | nenhum / nenhum |
 | `runConfigs.read` / `runConfigs.write` | solução | lista + id ativo | nenhum / nenhum |
 | `nuget.planUpdate` / `nuget.applyUpdate` | projeto, id, versão / `planId` | plano (comando, versão, origem) / resultado + restore pendente | trust |
@@ -304,7 +305,7 @@ Todos seguem o dispatcher existente (`method`, `params`, `result`/erro com `deta
 - Uma spec Playwright nova por fatia, com a suíte inteira verde antes do commit. Specs existentes não são reescritas; os 1.326 cliques continuam valendo.
 - Unit tests de host apenas para lógica pura e parsing novo: `--porcelain=v1 -z`, `git log` com separadores, JSON do NuGet, `.env`, resolução de atalhos e precedência de perfis, caps/truncamento de símbolos e busca.
 - Fixtures: a solução `OrderDesk` continua a base. Git usa um repositório temporário descartável por teste (inicializado no próprio teste, nunca o repo do app). NuGet: parsing e recusa de CPM rodam offline; o teste que consulta o nuget.org é opt-in (`OPENRIDR_ENABLE_NETWORK_TESTS=1`) e registra a lacuna quando não roda.
-- Testes negativos de trust para todo método novo que executa algo (`git.*`, `nuget.*`): chamada direta em Restricted mode devolve `trust_required` e nenhum processo nasce.
+- Testes negativos de trust para todo método novo que executa algo (`git.*`, `nuget.*`), exceto metadado neutro `git.path`: chamada direta em Restricted mode devolve `trust_required` e nenhum processo nasce.
 - Testes de estado honesto: busca sem LSP, Git sem repo, Settings inválidas, NuGet offline, CPM, árvore suja no checkout/pull, descoberta stale no rerun failed.
 - Workers = 1 e `beforeEach`/`afterEach` restaurando arquivos, como no resto da suíte; o ambiente usa `OPENRIDR_HOME` isolado.
 

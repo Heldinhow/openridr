@@ -11,13 +11,12 @@ import type { ResolvedAction } from "./registry";
 type PanelProps = {
   actions: ResolvedAction[];
   keymap: Keymap;
-  path: string | null;
   platform: string;
   onChange: (keymap: Keymap) => Promise<string | null>;
 };
 
 /** Profile, remap, reset and conflicts; shared by the Keymap dialog and the Settings page. */
-export function KeymapPanel({ actions, keymap, path, platform, onChange }: PanelProps) {
+export function KeymapPanel({ actions, keymap, platform, onChange }: PanelProps) {
   const [capturing, setCapturing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,8 +55,7 @@ export function KeymapPanel({ actions, keymap, path, platform, onChange }: Panel
   return (
     <>
       <p className="muted">
-        Shortcuts are stored in {path ?? "settings.json"} and win over the profile. Two
-        actions on one shortcut are both kept; the first registered runs.
+        Custom shortcuts override the profile. Conflicts keep both actions; the first registered runs.
       </p>
       <label className="rename-field">
         <span>Profile</span>
@@ -83,51 +81,64 @@ export function KeymapPanel({ actions, keymap, path, platform, onChange }: Panel
           {error}
         </p>
       )}
-      <ul className="action-list keymap-list">
+      <div className="keymap-table-scroll">
+        <table className="keymap-list" data-testid="keymap-table">
+          <thead>
+            <tr><th scope="col">Action</th><th scope="col">Group / shortcut</th><th scope="col">Actions</th></tr>
+          </thead>
+          <tbody>
         {actions.map((action) => (
-          <li
-            className="action-row keymap-row"
+          <tr
+            className="keymap-row"
             key={action.id}
             data-testid={`keymap-row-${action.id}`}
           >
-            <span className="action-title">{action.title}</span>
-            <span className="muted action-group">{action.group}</span>
-            <span className="action-keys" data-testid={`keymap-shortcut-${action.id}`}>
-              {action.shortcutLabels.length > 0
-                ? action.shortcutLabels.join(" / ")
-                : action.chordLabels.join(" ") || "No shortcut"}
-            </span>
-            {action.conflicts.length > 0 && (
-              <span
-                className="warning"
-                data-testid={`keymap-conflict-${action.id}`}
-                title={`Same shortcut as ${action.conflicts.join(", ")}`}
-              >
-                Conflict: {action.conflicts.join(", ")}
+            <th scope="row">{action.title}</th>
+            <td>
+              <span className="keymap-group">{action.group === action.title ? "—" : action.group}</span>
+              <span className="action-keys" data-testid={`keymap-shortcut-${action.id}`}>
+                {action.shortcutLabels.length > 0
+                  ? action.shortcutLabels.join(" / ")
+                  : action.chordLabels.join(" ") || "No shortcut"}
               </span>
-            )}
-            <button
-              type="button"
-              data-testid={`keymap-change-${action.id}`}
-              aria-pressed={capturing === action.id}
-              onClick={() => {
-                setError(null);
-                setCapturing(capturing === action.id ? null : action.id);
-              }}
-            >
-              {capturing === action.id ? "Press keys…" : "Change"}
-            </button>
-            <button
-              type="button"
-              data-testid={`keymap-reset-${action.id}`}
-              disabled={!keymap.overrides[action.id]}
-              onClick={() => reset(action.id)}
-            >
-              Reset
-            </button>
-          </li>
+              {action.conflicts.length > 0 && (
+                <span
+                  className="warning keymap-conflict"
+                  data-testid={`keymap-conflict-${action.id}`}
+                  title={`Same shortcut as ${action.conflicts.join(", ")}`}
+                >
+                  Conflict: {action.conflicts.join(", ")}
+                </span>
+              )}
+            </td>
+            <td className="keymap-actions">
+              <button
+                type="button"
+                data-testid={`keymap-change-${action.id}`}
+                aria-pressed={capturing === action.id}
+                aria-label={`${capturing === action.id ? "Choose shortcut for" : "Change shortcut for"} ${action.title}`}
+                onClick={() => {
+                  setError(null);
+                  setCapturing(capturing === action.id ? null : action.id);
+                }}
+              >
+                {capturing === action.id ? "Press keys…" : "Change"}
+              </button>
+              <button
+                type="button"
+                data-testid={`keymap-reset-${action.id}`}
+                aria-label={`Reset shortcut for ${action.title}`}
+                disabled={!keymap.overrides[action.id]}
+                onClick={() => reset(action.id)}
+              >
+                Reset
+              </button>
+            </td>
+          </tr>
         ))}
-      </ul>
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }
@@ -135,7 +146,6 @@ export function KeymapPanel({ actions, keymap, path, platform, onChange }: Panel
 export function KeymapDialog({
   actions,
   keymap,
-  path,
   platform,
   onChange,
   onClose,
@@ -156,7 +166,6 @@ export function KeymapDialog({
         <KeymapPanel
           actions={actions}
           keymap={keymap}
-          path={path}
           platform={platform}
           onChange={onChange}
         />

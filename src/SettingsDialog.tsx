@@ -94,7 +94,6 @@ type GitInfo = {
 export function SettingsDialog({
   actions,
   settings,
-  path,
   platform,
   snapshot,
   onChange,
@@ -104,7 +103,6 @@ export function SettingsDialog({
 }: {
   actions: ResolvedAction[];
   settings: AppSettings;
-  path: string | null;
   platform: string;
   snapshot: Snapshot;
   onChange: (settings: AppSettings) => void;
@@ -131,18 +129,26 @@ export function SettingsDialog({
   }, []);
 
   useEffect(() => {
-    if (!snapshot.trust.granted) {
-      setGitError("Trust the workspace to use Git.");
-      return;
-    }
     let active = true;
-    call<GitInfo>("git.info")
-      .then((info) => {
-        if (active) setGit(info);
-      })
-      .catch((failure) => {
-        if (active) setGitError(messageOf(failure));
-      });
+    if (snapshot.trust.granted) {
+      call<GitInfo>("git.info")
+        .then((info) => { if (active) setGit(info); })
+        .catch((failure) => { if (active) setGitError(messageOf(failure)); });
+    } else {
+      setGitError("Trust the workspace to query Git.");
+      call<{ path: string | null }>("git.path")
+        .then(({ path: gitPath }) => {
+          if (active) setGit({
+            state: gitPath ? "found" : "missing",
+            path: gitPath,
+            version: null,
+            message: gitPath ? null : "git was not found on PATH.",
+          });
+        })
+        .catch((failure) => {
+          if (active) setGitError(messageOf(failure));
+        });
+    }
     return () => {
       active = false;
     };
@@ -265,8 +271,7 @@ export function SettingsDialog({
       >
         <h2 id="settings-title">Settings</h2>
         <p className="muted" data-testid="settings-scope">
-          Global settings for the whole app, saved in {path ?? "settings.json"}. There is no
-          per-project override.
+          Global settings for the whole app. There is no per-project override.
         </p>
         <input
           ref={searchRef}
@@ -306,16 +311,10 @@ export function SettingsDialog({
                 {field(
                   "theme",
                   "Theme",
-                  <select data-testid="settings-theme" value="dark" onChange={() => undefined}>
-                    <option value="dark">Dark</option>
-                    <option value="light" disabled>
-                      Light — unavailable
-                    </option>
-                  </select>,
+                  <span data-testid="settings-theme" className="settings-theme-value">Dark</span>,
                 )}
                 <p className="muted" data-testid="settings-theme-note">
-                  Light theme is unavailable in this build: OpenRidr ships one approved dark
-                  token set. The value is not selectable, not hidden.
+                  Light theme is unavailable in this build: OpenRidr ships one approved dark token set.
                 </p>
                 {field(
                   "zoom",
@@ -361,7 +360,6 @@ export function SettingsDialog({
               <KeymapPanel
                 actions={actions}
                 keymap={settings.keymap}
-                path={path}
                 platform={platform}
                 onChange={(keymap) => {
                   onChange({ ...settings, keymap });
@@ -527,7 +525,7 @@ export function SettingsDialog({
                         {git.state === "found" ? (git.path ?? "git from PATH") : "Not detected"}
                       </p>
                       <p className="muted" data-testid="settings-git-version">
-                        {git.version ?? (git.message ?? "git was not found on PATH.")}
+                        {git.version ?? (snapshot.trust.granted ? (git.message ?? "Git version unavailable.") : "Trust the workspace to query Git.")}
                       </p>
                     </>
                   ) : (

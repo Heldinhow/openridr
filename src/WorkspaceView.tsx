@@ -306,7 +306,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
-  const [settingsPath, setSettingsPath] = useState<string | null>(null);
   const [findActionOpen, setFindActionOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
   const [keymapOpen, setKeymapOpen] = useState(false);
@@ -366,10 +365,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }, [layout]);
   useEffect(() => {
     let active = true;
-    call<{ path: string; settings: unknown }>("settings.read")
+    call<{ settings: unknown }>("settings.read")
       .then((result) => {
         if (!active) return;
-        setSettingsPath(result.path);
         setSettings(normalizeSettings(result.settings));
       })
       .catch((error) => {
@@ -2564,10 +2562,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   async function saveSettings(): Promise<string | null> {
     try {
-      const result = await call<{ path: string; settings: unknown }>("settings.write", {
+      const result = await call<{ settings: unknown }>("settings.write", {
         settings,
       });
-      setSettingsPath(result.path);
       setSettings(normalizeSettings(result.settings));
       settingsBaseline.current = null;
       setSettingsOpen(false);
@@ -2580,10 +2577,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   async function saveKeymap(keymap: Keymap): Promise<string | null> {
     const next = { ...settings, keymap };
     try {
-      const result = await call<{ path: string; settings: unknown }>("settings.write", {
+      const result = await call<{ settings: unknown }>("settings.write", {
         settings: next,
       });
-      setSettingsPath(result.path);
       setSettings(normalizeSettings(result.settings));
       return null;
     } catch (error) {
@@ -4520,7 +4516,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         <KeymapDialog
           actions={resolvedActions}
           keymap={settings.keymap}
-          path={settingsPath}
           platform={snapshot.app.platform}
           onChange={saveKeymap}
           onClose={() => setKeymapOpen(false)}
@@ -4531,7 +4526,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         <SettingsDialog
           actions={resolvedActions}
           settings={settings}
-          path={settingsPath}
           platform={snapshot.app.platform}
           snapshot={snapshot}
           onChange={updateSettings}

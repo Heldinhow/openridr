@@ -533,6 +533,9 @@ impl Host {
         if method == "git.info" {
             return self.git_info();
         }
+        if method == "git.path" {
+            return Ok(json!({ "path": git::path() }));
+        }
         if method == "nuget.list" {
             return self.nuget_list(params);
         }

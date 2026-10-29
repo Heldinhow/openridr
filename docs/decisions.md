@@ -214,6 +214,10 @@ A auditoria de aceitação encontrou divergências pequenas entre a SPEC/rótulo
 
 No JSON válido do `dotnet list package`, projeto com `projects[]` presente e sem a propriedade `frameworks` representa lista vazia; `frameworks` presente com tipo inválido ou array vazio continua erro. Assim, a consulta `--outdated` não transforma a ausência em falha nem em prova falsa de pacotes atualizados. A consulta de fontes permanece independente: seu erro é apresentado como fonte desconhecida/consulta parcial em texto neutro, sem converter sucesso dos dados de pacotes em erro. A tabela usa overflow horizontal próprio, largura mínima e menos espaço vertical antes dos dados. Evidência de parser/UI é determinística; NuGet real/rede não foi executado.
 
+## 2026-10-29 — Ticket 25: metadados neutros do executável Git
+
+Settings precisa mostrar o caminho read-only resolvido pelo PATH mesmo em Restricted mode, mas a consulta de versão continua trust-gated (`git.info`). O novo `git.path` apenas procura o executável no PATH sem abrir repositório nem iniciar processo; `git.info` permanece a consulta completa protegida por trust. Settings oculta o caminho interno de settings.json e o keymap usa tabela sem rótulos redundantes.
+
 ## 2026-10-28 — MVP Rider: escopo, ordem e casca (grill F1–F9)
 
 O grill do MVP fixou a ordem **F1 casca → F2 ações/keymap → F3 busca → F4 run configs → F5 tests → F6 git → F8 settings → F9 nuget → F7 código**. F1/F2 são fundação, F3 consome o registro de ações, F4/F5/F6 dependem da barra e F7 (gutter, ⌥↩, menu de contexto, rename inline, Find Usages) é a fatia mais cara em UI, coerente com o handoff ("depois NuGet e gutter icons/Alt+Enter"). Consequência: F4/F5 entregam Run/Debug/Test pela tool window e pelo widget; os ícones de gutter de run/teste ficam todos na F7, junto do gutter de breakpoint existente. Registro completo em `~/.opencode/plan/openridr-ui/GRILL-MVP.md`; spec em [SPEC-MVP-RIDER](SPEC-MVP-RIDER.md).

@@ -81,15 +81,20 @@ pub struct GitInfo {
     pub message: Option<String>,
 }
 
-pub fn info() -> GitInfo {
-    let path = std::env::var_os("PATH")
+pub fn path() -> Option<String> {
+    std::env::var_os("PATH")
         .map(|value| {
             std::env::split_paths(&value)
                 .filter(|dir| !dir.as_os_str().is_empty())
                 .map(|dir| dir.join(if cfg!(windows) { "git.exe" } else { "git" }))
                 .find(|candidate| candidate.is_file())
+                .map(|candidate| candidate.to_string_lossy().into_owned())
         })
-        .flatten();
+        .flatten()
+}
+
+pub fn info() -> GitInfo {
+    let path = path();
     let version = Command::new("git")
         .arg("--version")
         .stdin(Stdio::null())
@@ -100,7 +105,7 @@ pub fn info() -> GitInfo {
     match (path, version) {
         (Some(path), Some(version)) => GitInfo {
             state: "found",
-            path: Some(path.to_string_lossy().into_owned()),
+            path: Some(path),
             version: Some(version),
             message: None,
         },

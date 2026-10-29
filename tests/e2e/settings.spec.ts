@@ -60,8 +60,9 @@ test.afterEach(() => {
 });
 
 test("Settings opens from the bar and ⌘,, searches by name and explains the missing light theme", async ({
-  page,
+  page, request,
 }) => {
+  await page.setViewportSize({ width: 1100, height: 700 });
   await page.goto("/");
   await openTextOnly(page);
   await page.keyboard.press("Meta+,");
@@ -70,13 +71,10 @@ test("Settings opens from the bar and ⌘,, searches by name and explains the mi
   await expect(page.getByTestId("settings-scope")).toContainText("Global settings");
   await expect(page.getByTestId("settings-scope")).toContainText("no per-project override");
 
-  // Appearance: dark is the only selectable theme; light is present but disabled with why.
+  // Appearance states the fixed theme without presenting a misleading selector.
   await expect(page.getByTestId("settings-page-title")).toHaveText("Appearance");
-  await expect(page.getByTestId("settings-theme")).toHaveValue("dark");
-  await expect(page.getByTestId("settings-theme").locator('option[value="light"]')).toHaveAttribute(
-    "disabled",
-    "",
-  );
+  await expect(page.getByTestId("settings-theme")).toHaveText("Dark");
+  await expect(page.getByTestId("settings-theme").locator("select")).toHaveCount(0);
   await expect(page.getByTestId("settings-theme-note")).toContainText("unavailable");
 
   // Searching a field name shows the page that owns it and highlights the field.
@@ -97,6 +95,30 @@ test("Settings opens from the bar and ⌘,, searches by name and explains the mi
   await selectPage(page, "keymap");
   await expect(page.getByTestId("keymap-active-profile")).toContainText("Rider (macOS)");
   await expect(page.getByTestId("keymap-shortcut-build.start")).toHaveText("⌘F9");
+  await expect(page.getByTestId("keymap-table").locator("thead th")).toHaveText([
+    "Action", "Group / shortcut", "Actions",
+  ]);
+  await expect(page.getByTestId("keymap-row-run.start").getByRole("rowheader")).toHaveText("Run");
+  await expect(page.getByTestId("keymap-row-run.start").getByRole("button", { name: "Change shortcut for Run" })).toBeVisible();
+  await expect(page.getByTestId("keymap-row-run.start").getByRole("button", { name: "Reset shortcut for Run" })).toBeDisabled();
+  await expect(page.getByTestId("settings-scope")).not.toContainText("settings.json");
+  const table = page.getByTestId("keymap-table");
+  const dialog = page.getByTestId("settings-dialog");
+  const tableBox = await table.boundingBox();
+  const dialogBox = await dialog.boundingBox();
+  expect(tableBox).not.toBeNull();
+  expect(dialogBox).not.toBeNull();
+  if (tableBox && dialogBox) {
+    expect(tableBox.x + tableBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width + 1);
+  }
+
+  // Restricted mode exposes the PATH-resolved executable, but querying its version remains gated.
+  await selectPage(page, "vcs");
+  await expect(page.getByTestId("settings-git-path")).toContainText("git");
+  await expect(page.getByTestId("settings-git-version")).toContainText("Trust the workspace to query Git");
+  const gitInfo = await request.post(`${host}/call`, { data: { method: "git.info", params: {} } });
+  expect((await gitInfo.json()).error.code).toBe("trust_required");
+
   await selectPage(page, "appearance");
 
   await page.getByTestId("settings-cancel").click();
