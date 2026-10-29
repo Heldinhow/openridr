@@ -423,3 +423,18 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 - O chrome agora delimita árvore, editor e saída com cantos arredondados; a aba ativa tem contorno discreto e a árvore usa linhas mais compactas. As dimensões dos painéis e os controles existentes foram mantidos.
 - Verificação: `bun run check` passou; `tests/e2e/ui-layout.spec.ts` passou 7/7 em Chrome no macOS ARM64, com capturas em 1600×1000, 1440×900 e 1100×700. O detector Impeccable não apontou problemas nos arquivos alterados.
 - Não verificados: app Tauri reconstruído com esta alteração, suíte E2E completa, Windows e macOS Intel. As observações nativas usaram o OpenRidr instalado anteriormente; a alteração foi inspecionada no Chrome. Permanecem diferenças funcionais e visuais entre os produtos, inclusive áreas e ações não implementadas.
+
+## Solution Explorer — continuação visual (2026-10-29, em andamento)
+
+- O título visível passou para “Solution”. Projetos avaliados agrupam referências e pacotes em “Dependencies”, recolhido por padrão e acessível pelo teclado; erros e metadados de avaliação continuam visíveis.
+- Chrome com host real no macOS ARM64: `evaluation.spec.ts`, `ui-layout.spec.ts` e `shell.spec.ts` passaram 15/15; teste focado de avaliação passou novamente com captura visual em `/tmp/openridr-evaluation-tree.png`. `bun run check` passou. O teste de layout novo confirma painel inferior fechado e restauração da escolha ao recarregar.
+- Comparação com Tauri reconstruído, demais estados do plano, suíte completa, Windows e macOS Intel não verificados. Os arquivos de implementação contêm alterações anteriores; esta continuação ainda não tem commit próprio.
+
+## Continuação Rider: painéis, Debug, busca e fontes NuGet (2026-10-29)
+
+- O painel inferior aberto agora ocupa a área sob Solution e editor. A lista de processos tem resumo recolhível e reabre quando há nova decisão pendente. A linha ativa do CodeMirror não encobre mais a cor de breakpoint ou de pausa. A prévia da busca mostra carregamento em vez do arquivo anterior. Metadados e ações do terminal compartilham a mesma faixa, deixando ao menos 50 px para saída na geometria 1440×900 verificada.
+- A consulta NuGet real revelou que `dotnet nuget list source --format json` não é aceito pelo SDK. O host passou a usar o formato curto suportado; a UI distingue fontes habilitadas configuradas da origem de cada pacote, que não é reportada. A consulta real em cópia de OrderDesk (SDK 8.0.408, feed nuget.org) listou 3 pacotes e 3 desatualizados; a fonte configurada foi exibida sem atribuição por pacote. O parser passou 13 testes, incluindo formatos habilitado, desabilitado, vazio e desconhecido; saída curta também foi observada em pt-BR.
+- Verificações: suíte Playwright completa 101/101 antes da mudança posterior de NuGet e do terminal; após essas mudanças, `nuget.spec.ts`, `search.spec.ts`, `terminal.spec.ts` e `trust-sdk.spec.ts` passaram 15/15, além da consulta real NuGet 1/1. Debug real com netcoredbg passou incluindo asserções das cores. Capturas e limites em `docs/evidence/28-rider-visual-pass.md`.
+- Não verificados após as últimas mudanças: suíte completa e bundle Tauri atualizados. O bundle anterior abriu na tela inicial e detectou o SDK; a árvore AX não expôs os controles WebKit para interação. Windows e macOS Intel não foram executados.
+
+- Suíte Playwright completa após Git (rótulos HEAD/índice/trabalho), busca (prévia abaixo da lista) e terminal compacto: 101/101 (macOS ARM64, SDK 8.0.408, netcoredbg e csharp-ls reais). Bundle Tauri e Windows/macOS Intel seguem não verificados quanto à interação.

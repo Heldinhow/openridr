@@ -22,6 +22,21 @@ Não autoriza push, PR, merge em remote, novo repositório nem instalação de f
 | [08 — NuGet](08-f9-nuget.md) | F9 | 01 | Instalados/desatualizados e update confirmado, sem restore implícito |
 | [09 — Código: gutter, ⌥↩, menu, rename, usages](09-f7-codigo.md) | F7 | 02, 05, 06 | Gutter Run/Test, Alt+Enter com prévia, menu de contexto, rename inline, Find Usages |
 
+## Pós-MVP — correções da auditoria visual (UI-AUDIT)
+
+Fonte: [UI-AUDIT.md](../UI-AUDIT.md), auditoria visual Chrome 155 em 29/10/2026. Estes tickets corrigem apresentação/ergonomia sem alterar contratos funcionais do MVP. Evidências e limitações estão no audit. Ordem de entrega: 19 → 20 → 21 → 22 → 23 → 24 → 25 → 26; cada ticket é uma unidade independente e exige commit local próprio.
+
+| Ticket | Escopo | Desvios | Bloqueado por |
+|---|---|---|---|
+| [19 — Saída e hierarquia de Build/Run/Tests/Debug](19-audit-run-tests-debug.md) | Resultado principal visível nos painéis de execução | A1, A2, L1, L2 | Nenhum |
+| [20 — Git: diff, caminhos e log legíveis](20-audit-git.md) | Revisão de diff e leitura de arquivos/histórico | A3, M8, L5 | Nenhum |
+| [21 — Estados disabled e planos de ferramentas](21-audit-disabled-tools.md) | Aparência indisponível e conteúdo material antes de confirmar | A4, A5, M1, M6 | Nenhum |
+| [22 — Editor: popups, rename e ações responsivas](22-audit-editor.md) | Posicionamento/visibilidade de ações de código e controles do editor | A6, M7, M13, L6, L9 | Nenhum |
+| [23 — Layout, detalhes e feedback transversal](23-audit-layout.md) | Barra/status em telas estreitas, Problems, project details, terminal e diálogos | A7, M2, M5, M10, M12, L3, L7 | Nenhum |
+| [24 — NuGet: estados sem pacotes e tabela](24-audit-nuget.md) | Parser de ausência de frameworks e legibilidade da lista/fontes | A8, M9 | Nenhum |
+| [25 — Settings e Keymap](25-audit-settings-keymap.md) | Tabela de atalhos, caminhos/configuração e tema indisponível | M4, M11, L8 | Nenhum |
+| [26 — Busca e workspace tools: dicas de descoberta](26-audit-discovery.md) | Contagem e sugestão contextual de busca | L4 | Nenhum |
+
 Ordem de implementação: **01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09** (F1, F2, F3, F4, F5, F6, F8, F9, F7).
 
 ## Gates válidos em todos os tickets

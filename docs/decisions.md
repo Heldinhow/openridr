@@ -279,3 +279,36 @@ A paleta passa a seguir o Rider (fundo `#191a1c`, chrome `#26282c`, seleção `#
 ## 2026-10-29 — Tela inicial no formato do Welcome do Rider
 
 A tela sem workspace vira sidebar (logo, Projects, Toolchain) + painel com campo de caminho, botão Open e lista de recentes; Toolchain continua na mesma página rolável para manter os `data-testid` e specs. Só entra o que existe: sem New Solution, Clone, Attach to Process nem Remote Development; sem seletor nativo (exigiria plugin de dialog do Tauri, dependência nova). Os recentes (até 6) passam a persistir em `localStorage` (`openridr.recent`), o que substitui o "só nesta sessão" anterior; no app Tauri e no navegador de dev o storage é separado. Evidência: `ui-layout.spec.ts` e `workspace.spec.ts` (20 passam), screenshot do welcome.
+
+## 2026-10-29 — Open abre o seletor nativo (macOS)
+
+O botão Open da tela inicial chama o método do host `workspace.pick`, que roda `osascript` (`choose file`, tipos sln/slnx/csproj) e devolve `{ path }` ou `{ path: null }` ao cancelar; o caminho segue o fluxo normal de `workspace.open` (Restricted). Escolhido no lugar de `tauri-plugin-dialog` para não adicionar dependência; só macOS (outros SO devolvem `unsupported`) e não escolhe pasta. O campo de caminho continua, com o botão "Open path" (e2e e Enter). Não verificado: cancelamento e escolha reais no seletor.
+
+## 2026-10-29 — Histórico de projetos no host (substitui o localStorage)
+
+O host grava cada `workspace.open` bem-sucedido em `recent.json` no app home (respeita `OPENRIDR_HOME`), mais recente primeiro, sem duplicatas, até 30 caminhos; `recent.list` devolve só os que ainda existem e não exige trust. A UI busca a lista ao montar e a cada troca de workspace. Isso substitui a chave `openridr.recent` do `localStorage` (histórico anterior nela não é migrado) e passa a ser compartilhado entre o app Tauri e a ponte de dev. Projetos abertos antes desta mudança não estão no histórico.
+
+## 2026-10-29 — Welcome só com Open no app
+
+No app Tauri a tela inicial tem apenas o botão Open (seletor nativo) e os recentes; o campo de caminho e "Open path" só aparecem fora do Tauri (navegador de dev/E2E), porque os specs Playwright não conseguem dirigir o seletor nativo e dependem de `workspace-path-input`/`workspace-open`.
+
+## 2026-10-29 — Open e recentes entram direto no workspace
+
+Escolher no seletor ou clicar num recente abre o workspace e entra no IDE em Restricted mode, sem a etapa "Review workspace trust" da tela inicial (que ficava abaixo da lista e parecia que nada abriu). O trust continua no menu da toolbar. O formulário de caminho (navegador/E2E) mantém a revisão.
+
+## Debug em um clique (2026-10-29)
+
+- **Substitui** "Debug never builds or restores implicitly" (ticket 14) apenas para o clique na toolbar: o atalho/ação `debug.start` segue estrito e bloqueado pelos gates. O confirm da flag é por sessão (não persiste) e deve listar flag, restore e build.
+
+- Clicar em Debug bloqueado executa `prepareAndDebug` (WorkspaceView): confirm da flag experimental Apple Silicon → `debug.flag` → plan/install (reusa o executável verificado) → restore → evaluation → build Debug → `debug.start`. Cada gate do host continua valendo; nada é feito sem o confirm. O botão usa `aria-disabled` (clicável) em vez de `disabled`.
+- Solution Explorer/abas: badge `C#` (`FileIcon`), chevrons, contagem de projetos. Também: barra de ícones no cabeçalho (locate/expand/collapse), nó Dependencies e resumo de inspeções (✕/⚠ do arquivo ativo). Controles de avaliação continuam visíveis e compactos (testes clicam `eval-run`/"Project details"; o menu ⋮ foi adiado por isso). O run no gutter já existia. Faltam inlay hints, usages e Scratches; sem comparação lado a lado com o Rider.
+
+## 2026-10-29 — Aproximação visual: largura inferior e processos
+
+A área inferior aberta passa a ocupar a largura sob Solution e editor; a árvore mantém sua largura e o painel conserva os controles de tamanho. Isso substitui a geometria da decisão de aproximação visual anterior, preservando os slots, `role="tab"` e o layout salvo. Um layout sem preferência salva continua com o painel inferior fechado, conforme a implementação já existente nesta continuação; abrir ou fechar é persistido.
+
+As referências e pacotes de projetos avaliados ficam dentro de um disclosure “Dependencies”, inicialmente recolhido e operável pelo teclado. A lista de processos é recolhível para não deslocar o editor permanentemente; decisões pendentes a abrem, continuam identificadas no resumo e permanecem acessíveis. O host e as garantias de trust, restore e término não mudam.
+
+## 2026-10-29 — Fontes NuGet no SDK 8
+
+`dotnet nuget list source` aceita `short` e `detailed`, não JSON. O host usa `--format short`, interpreta apenas linhas `E <localização>` e `D <localização>`, omite fontes desabilitadas e falha de forma explícita em saída desconhecida. O formato curto não inclui nome amigável: a localização é exibida como identificação, sem inventar um nome. A interface descreve essas fontes como configuradas e habilitadas, e informa que a origem específica de cada pacote não é reportada; não apresenta a lista como prova da fonte de um pacote. SDK 8.0.408 observado com saída em inglês e português; `global.json` permanece inalterado.
