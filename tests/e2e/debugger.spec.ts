@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -313,14 +314,10 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
       await page.getByTestId("workspace-tools-toggle").click();
     }
     await expect(page.getByTestId("tree")).toBeVisible();
-    await page.getByTestId("restore-action").click();
-    await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
-      timeout: 60_000,
-    });
-    await page.getByTestId("restore-reload").click();
-    await expect(page.getByTestId("eval-state")).toContainText("revision 2", { timeout: 30_000 });
+    await settleRestore(page);
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(2);
     await selectEvaluationTfm(page, "net8.0");
-    await expect(page.getByTestId("eval-state")).toContainText("revision 3", { timeout: 30_000 });
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(3);
 
     // The Debug launch stays blocked until a successful Debug build exists.
     await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
@@ -603,14 +600,10 @@ async function prepareDebugCopy(
   });
   expect(installed.data.debug.adapterState).toBe("ready");
 
-  await page.getByTestId("restore-action").click();
-  await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
-    timeout: 60_000,
-  });
-  await page.getByTestId("restore-reload").click();
-  await expect(page.getByTestId("eval-state")).toContainText("revision 2", { timeout: 30_000 });
+  await settleRestore(page);
+  await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(2);
   await selectEvaluationTfm(page, "net8.0");
-  await expect(page.getByTestId("eval-state")).toContainText("revision 3", { timeout: 30_000 });
+  await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(3);
 
   if (breakpointLine !== null) {
     const breakpoint = await hostCall(request, "debug.setBreakpoints", {

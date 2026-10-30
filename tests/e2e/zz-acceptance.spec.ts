@@ -7,6 +7,7 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs";
+import { revisionOf } from "./automatic";
 import os from "node:os";
 import path from "node:path";
 import { reveal } from "./disclosures";
@@ -105,9 +106,7 @@ async function waitEvaluation(page: Page, revision: number) {
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", {
     timeout: 60_000,
   });
-  await expect(page.getByTestId("eval-state")).toContainText(`revision ${revision}`, {
-    timeout: 60_000,
-  });
+  await expect.poll(() => revisionOf(page), { timeout: 60_000 }).toBeGreaterThanOrEqual(revision);
   await expect(page.getByTestId("eval-state")).not.toContainText("stale");
 }
 
@@ -298,24 +297,13 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await expect(page.getByTestId("eval-details")).toBeHidden();
     step("trusted evaluation revision 1 with three evaluated projects and TargetPath");
 
-    // ---- Explicit restore, never triggered by build/run/tests.
-    await page.getByTestId("bottom-tab-build").click();
-    await expect(page.getByTestId("build-disabled-reason")).toContainText(
-      "Dependencies are not restored",
-    );
-    await expect(page.getByTestId("build-restore-required")).toBeVisible();
-    await clickTestId(page, "restore-action");
-    await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
-      timeout: 120_000,
-    });
-    await expect(page.getByTestId("restore-state")).toContainText("exit 0");
-    await expect(page.getByTestId("restore-command")).toContainText("dotnet restore");
-    await expect(page.getByTestId("restore-log")).not.toBeEmpty();
-    await clickTestId(page, "restore-reload");
-    await waitEvaluation(page, 2);
+    // ---- Automatic restore after Trust; build, run and tests never start it themselves.
+    // The fixture may already be restored by earlier specs, so the journey only waits for the settled state.
+    await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 120_000 });
+    const beforeTfm = await revisionOf(page);
     await page.getByTestId("workspace-actions-menu").locator("summary").click();
     await page.getByTestId("eval-tfm").selectOption("net8.0");
-    await waitEvaluation(page, 3);
+    await expect.poll(() => revisionOf(page)).toBeGreaterThan(beforeTfm);
     const restored = await hostState(request);
     // The muxer path and detected SDK root depend on the machine; the pinned version does not.
     expect(restored.restore.sdkVersion).toBe("8.0.408");
@@ -984,9 +972,6 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
     await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: IntelliJ / Rider");
     await page.getByTestId("bottom-tab-build").click();
     await expect(page.getByTestId("build-action")).toContainText(/Cmd\+F9|Ctrl\+F9/);
-    await expect(page.getByTestId("build-disabled-reason")).toContainText(
-      "Dependencies are not restored",
-    );
     await page.getByTestId("bottom-tab-terminal").click();
     await expect(page.getByTestId("terminal-interrupt")).toHaveAttribute("title", /Ctrl\+C/);
 

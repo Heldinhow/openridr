@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { revisionOf } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -43,7 +44,7 @@ async function waitForEvaluation(page: Page, revision = 1) {
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", {
     timeout: 20_000,
   });
-  await expect(page.getByTestId("eval-state")).toContainText(`revision ${revision}`);
+  await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(revision);
 }
 
 function assets(copy: string, project: string) {
@@ -54,7 +55,7 @@ test.afterEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
 
-test("restore is explicit, streams a real log and reloads the evaluated model", async ({
+test("trust restores and evaluates by itself, streams a real log and reloads the model", async ({
   page,
 }) => {
   const { base, copy } = tempCopy("Order Desk restore");
@@ -62,29 +63,15 @@ test("restore is explicit, streams a real log and reloads the evaluated model", 
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
     await trustWorkspace(page);
     await enterWorkspace(page);
-    await waitForEvaluation(page);
 
-    // Opening and evaluating never restore: no assets file exists before the click.
-    await expect(page.getByTestId("eval-restore-banner")).toContainText(
-      "Restore not requested — package dependencies and analysis are incomplete",
-    );
-    await expect(page.getByTestId("restore-state")).toContainText("Restore not requested");
-    for (const project of ["src/OrderDesk.Cli", "src/OrderDesk.Core", "tests/OrderDesk.Tests"]) {
-      expect(fs.existsSync(assets(copy, project)), `${project} was restored implicitly`).toBe(
-        false,
-      );
-    }
-
-    await page.getByTestId("restore-action").click();
-    await expect(page.getByTestId("restore-command")).toContainText(
-      "dotnet restore",
-    );
-    await expect(page.getByTestId("restore-command")).toContainText("-nologo -v:minimal");
-    await expect(page.getByTestId("restore-command")).toContainText("OrderDesk.sln");
+    // Trust starts the restore; no click is needed.
     await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
       timeout: 60_000,
     });
     await expect(page.getByTestId("restore-state")).toContainText("exit 0");
+    await expect(page.getByTestId("restore-command")).toContainText("dotnet restore");
+    await expect(page.getByTestId("restore-command")).toContainText("-nologo -v:minimal");
+    await expect(page.getByTestId("restore-command")).toContainText("OrderDesk.sln");
     await expect(page.getByTestId("restore-log")).toContainText(/Restored|up-to-date/);
     await expect(page.getByTestId("restore-scope")).toContainText("Solution");
     await expect(page.getByTestId("restore-projects")).toContainText(
@@ -95,11 +82,14 @@ test("restore is explicit, streams a real log and reloads the evaluated model", 
     }
     await expect(page.getByTestId("restore-incomplete-OrderDesk.Tests")).toHaveCount(0);
 
-    // Success invalidates the old model; the old TargetPath is only labelled as previous.
-    await expect(page.getByTestId("eval-stale")).toBeVisible();
+    // The successful restore is followed by an evaluation on its own: the model is current.
     await expect(page.getByTestId("eval-target-path")).toContainText(
-      "Previous evaluation (stale)",
+      "src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
+      { timeout: 60_000 },
     );
+    await expect(page.getByTestId("eval-stale")).toHaveCount(0);
+    await expect(page.getByTestId("eval-restore")).toHaveText("Restored");
+    await expect(page.getByTestId("eval-restore-banner")).toHaveCount(0);
 
     await page.getByText("Restore log · stdout/stderr").click();
     await expect(page.getByTestId("restore-log")).toContainText("Restored");
@@ -108,18 +98,23 @@ test("restore is explicit, streams a real log and reloads the evaluated model", 
       path: path.join(screenshots, "04-restore.png"),
       fullPage: false,
     });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
 
-    await page.getByTestId("restore-reload").click();
-    await waitForEvaluation(page, 2);
-    await expect(page.getByTestId("eval-stale")).toHaveCount(0);
-    await expect(page.getByTestId("eval-target-path")).toContainText(
-      "src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
-    );
-    await expect(page.getByTestId("eval-target-path")).not.toContainText(
-      "Previous evaluation (stale)",
-    );
-    await expect(page.getByTestId("eval-restore")).toHaveText("Restored");
-    await expect(page.getByTestId("eval-restore-banner")).toHaveCount(0);
+test("restricted mode never restores by itself", async ({ page }) => {
+  const { base, copy } = tempCopy("Order Desk restricted");
+  try {
+    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    await enterWorkspace(page);
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    // Negative check: give a restore that would have started time to appear.
+    await page.waitForTimeout(2_000);
+    await expect(page.getByTestId("restore-state")).toContainText("Restore not requested");
+    for (const project of ["src/OrderDesk.Cli", "src/OrderDesk.Core", "tests/OrderDesk.Tests"]) {
+      expect(fs.existsSync(assets(copy, project)), `${project} was restored in Restricted`).toBe(false);
+    }
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -140,24 +135,18 @@ test("a failed restore keeps its log, the editor and a working retry", async ({ 
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
     await trustWorkspace(page);
     await enterWorkspace(page);
-    await waitForEvaluation(page);
-    expect(
-      fs.existsSync(assets(copy, "tests/OrderDesk.Tests")),
-      "evaluation restored the project",
-    ).toBe(false);
 
-    await page.getByTestId("restore-action").click();
     await expect(page.getByTestId("restore-state")).toContainText("Restore failed", {
       timeout: 60_000,
     });
     await expect(page.getByTestId("restore-state")).toContainText("exit 1");
+    await expect(page.getByTestId("status-restore")).toContainText("Restore failed");
     await expect(page.getByTestId("restore-log")).toContainText("NU1100");
     await expect(page.getByTestId("restore-log")).toContainText("Failed to restore");
     await expect(page.getByTestId("restore-incomplete-OrderDesk.Tests")).toContainText(
       "not restored",
     );
     await expect(page.getByTestId("restore-retry")).toBeVisible();
-    await expect(page.getByTestId("eval-stale")).toBeVisible();
     fs.mkdirSync(screenshots, { recursive: true });
     await page.screenshot({
       path: path.join(screenshots, "04-restore-failure.png"),
@@ -180,21 +169,36 @@ test("a failed restore keeps its log, the editor and a working retry", async ({ 
       "editor survived the failed restore",
     );
 
-    // Fix the copy and retry through the explicit action.
+    // Fix the copy and retry from the status bar, which needs no trip to the Build tab.
     fs.writeFileSync(testsProject, original);
-    await page.getByTestId("restore-retry").click();
+    await page.getByTestId("status-restore-retry").click();
     await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
       timeout: 60_000,
     });
     await expect(page.getByTestId("restore-state")).toContainText("exit 0");
     await expect(page.getByTestId("restore-incomplete-OrderDesk.Tests")).toHaveCount(0);
     expect(fs.existsSync(assets(copy, "tests/OrderDesk.Tests"))).toBe(true);
+    await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
 
-    await page.getByTestId("restore-reload").click();
-    await expect(page.getByTestId("eval-state")).toContainText("revision 2", {
-      timeout: 20_000,
-    });
-    await expect(page.getByTestId("eval-restore")).toHaveText("Restored");
+test("a project file changed on disk re-evaluates a Trusted workspace by itself", async ({ page }) => {
+  const { base, copy } = tempCopy("Order Desk project change");
+  try {
+    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    await trustWorkspace(page);
+    await enterWorkspace(page);
+    await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
+    await expect(page.getByTestId("eval-stale")).toHaveCount(0);
+
+    const project = path.join(copy, "src/OrderDesk.Cli/OrderDesk.Cli.csproj");
+    fs.appendFileSync(project, "\n<!-- changed on disk -->\n");
+    await expect(page.getByTestId("eval-stale")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("eval-stale")).toHaveCount(0, { timeout: 60_000 });
+    // Only the evaluation repeats; the assets are now older than the project, so restore is still the user's call.
+    await expect(page.getByTestId("eval-restore")).toContainText("Not restored");
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

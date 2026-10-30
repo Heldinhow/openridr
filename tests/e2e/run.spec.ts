@@ -41,18 +41,17 @@ async function openTrustedEvaluated(page: Page, project: string) {
   });
 }
 
+// Trust restores and evaluates by itself (docs/decisions.md); wait for that to settle, then pin the TFM.
 async function restoreAndReload(page: Page) {
-  await page.getByTestId("restore-action").click();
   await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
     timeout: 60_000,
   });
-  await page.getByTestId("restore-reload").click();
-  await expect(page.getByTestId("eval-state")).toContainText("revision 2", {
-    timeout: 30_000,
-  });
+  await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
+  const text = (await page.getByTestId("eval-state").textContent()) ?? "";
+  const before = Number(/revision (\d+)/.exec(text)?.[1] ?? 0);
   await page.getByTestId("workspace-actions-menu").locator("summary").click();
   await page.getByTestId("eval-tfm").selectOption("net8.0");
-  await expect(page.getByTestId("eval-state")).toContainText("revision 3", {
+  await expect(page.getByTestId("eval-state")).toContainText(`revision ${before + 1}`, {
     timeout: 30_000,
   });
   await expect(page.getByTestId("eval-state")).not.toContainText("stale");

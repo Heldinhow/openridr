@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -53,14 +54,8 @@ async function openTrustedEvaluated(page: Page, solution: string) {
 }
 
 async function restoreAndReload(page: Page) {
-  await page.getByTestId("restore-action").click();
-  await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
-    timeout: 60_000,
-  });
-  await page.getByTestId("restore-reload").click();
-  await expect(page.getByTestId("eval-state")).toContainText("revision 2", {
-    timeout: 30_000,
-  });
+  await settleRestore(page);
+  await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(2);
 }
 
 async function build(page: Page) {
@@ -289,16 +284,12 @@ test("saved run configurations drive build and run, persist and validate their f
 
     // TFM/Configuration changes in the bar write the active configuration and re-evaluate.
     await selectEvaluationOption(page, "Release");
-    await expect(page.getByTestId("eval-state")).toContainText("revision 3", {
-      timeout: 30_000,
-    });
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(3);
     await openConfigDialog(page);
     await expect(page.getByTestId("run-config-configuration")).toHaveValue("Release");
     await page.getByTestId("run-config-cancel").click();
     await selectEvaluationOption(page, "Debug");
-    await expect(page.getByTestId("eval-state")).toContainText("revision 4", {
-      timeout: 30_000,
-    });
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(4);
 
     // A .env line that is not KEY=VALUE keeps the dialog open with its field and reason.
     await openConfigDialog(page);
