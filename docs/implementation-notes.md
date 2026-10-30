@@ -445,3 +445,9 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 - **Não verificado:** smoke manual do app empacotado (abrir, Run com saída, Debug até o breakpoint, terminal). A janela Tauri nativa não é automatizável nesta sessão; os mesmos fluxos estão cobertos pelos specs E2E contra o host real na UI do navegador.
 - **Não verificado:** eco do terminal abaixo de 100 ms; IME e clipboard no WKWebView.
 - **Não verificado:** specs `csharp-ls` de renomear e de ações de código (timeouts também no branch base); journey `zz-acceptance` completa (passa até a etapa do csharp-ls, que não fica pronto neste ambiente).
+
+## Ticket 01 — separação estado/comandos (2026-10-30)
+
+- Novos módulos: `src/executionGates.ts` (razões de bloqueio de Build/Run/Debug, funções puras) e `src/executionCommands.ts` (chamadas ao host de avaliação, cancelamento de build/run, espera do host e o preparo Restore→Evaluate→Build do Run/Debug de um clique), no mesmo molde de `restoreCommands.ts`. Sem mudança de comportamento nem de `data-testid`.
+- `WorkspaceView.tsx`: 5269 → 5119 linhas; ocorrências de hooks 113 → 113 (o estado React continua no componente; só lógica pura e chamadas saíram). Teto restante: `startBuild`/`startRun`/`startDebug` ficam no componente porque abrem diálogos e trocam de aba.
+- Verificação (macOS ARM64, SDK 8.0.408): `restore, evaluation, build, run, run-configs, workspace, debugger` 46/46 antes e 46/46 depois (exit 0, 0 skips); `bun run check` exit 0. Logs em /tmp/t01 (não versionados).

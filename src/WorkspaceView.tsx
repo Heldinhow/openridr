@@ -68,6 +68,20 @@ import {
 } from "./git";
 import { NuGetPanel } from "./NuGetPanel";
 import {
+  buildDisabledReason as buildGate,
+  debugDisabledReason as debugGate,
+  runAvailabilityReason as runGate,
+  type GateContext,
+} from "./executionGates";
+import {
+  cancelBuild as buildCancel,
+  cancelRun as runCancel,
+  evaluateContext as evaluate,
+  launchParams as launchParamsFor,
+  prepareBuild as prepare,
+  waitForHost as waitHost,
+} from "./executionCommands";
+import {
   cancelRestore as restoreCancel,
   startRestore as restoreStart,
   type RestoreReporter,
@@ -660,29 +674,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         (evaluation.context.targetFramework ?? null));
   const buildRunning = build.state === "running";
   const buildObsolete = isBuildObsolete(build, editedAt);
-  const buildDisabledReason = !trusted
-    ? "Trust the workspace before building; nothing runs in Restricted mode."
-    : projectSdk.state !== "resolved"
-      ? "Resolve the project SDK before building; the host SDK is never substituted."
-      : evaluation.state === "running"
-        ? "Wait for the evaluation to finish before building."
-        : evaluation.stale
-          ? "The evaluated project model is stale; re-evaluate before building."
-          : !["ok", "partial"].includes(evaluation.state)
-            ? "Evaluate the project model before building; the build uses its TargetPath."
-            : !activeConfigEvaluated
-              ? "The run configuration has not been evaluated yet; re-evaluate the project model."
-              : restoreIncomplete
-              ? "Dependencies are not restored; run the explicit restore first."
-              : consoleCandidates.length === 0
-                ? "No console executable project is available in the current evaluation; libraries and test projects cannot be startup projects."
-                : activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)
-                  ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
-                  : !startupProject
-                    ? "More than one console project; choose the startup project explicitly."
-                    : buildRunning
-                      ? "A build is already running."
-                      : null;
   useEffect(() => {
     panelBodyRef.current?.scrollTo(0, 0);
   }, [bottomTab]);
@@ -737,101 +728,34 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const savedSourceAfterBuild = Object.entries(savedAt).some(
     ([path, saved]) => path.endsWith(".cs") && saved > buildReference,
   );
-  function runAvailabilityReason(
+  const dap = snapshot.dap;
+  const debugActive = ["preparing", "running", "paused"].includes(dap.state);
+  const gates: GateContext = {
+    trusted,
+    snapshot,
+    activeConfigEvaluated,
+    restoreIncomplete,
+    consoleCandidates,
+    startupProject,
+    activeConfigProjectInvalid: Boolean(
+      activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project),
+    ),
+    runRunning,
+    savedSourceAfterBuild,
+    debugActive,
+  };
+  const buildDisabledReason = buildGate(gates);
+  const runAvailabilityReason = (
     project: EvaluationProject | null,
     configEvaluated: boolean,
     invalidSelectedProject = false,
-  ) {
-    return !trusted
-      ? "Trust the workspace before running; nothing runs in Restricted mode."
-      : projectSdk.state !== "resolved"
-        ? "Resolve the project SDK before running; the host SDK is never substituted."
-        : evaluation.state === "running"
-          ? "Wait for the evaluation to finish before running."
-          : evaluation.stale
-            ? "The evaluated project model is stale; re-evaluate before running."
-            : !["ok", "partial"].includes(evaluation.state)
-              ? "Evaluate the project model before running; Run uses the saved build's TargetPath."
-              : !configEvaluated
-                ? "The run configuration has not been evaluated yet; re-evaluate the project model."
-                : consoleCandidates.length === 0
-                  ? "No console executable project is available in the current evaluation; libraries and test projects cannot be run."
-                  : invalidSelectedProject
-                    ? "The run configuration selects a project that is not an evaluated console project; edit the configuration."
-                  : !project
-                    ? "More than one console project; choose the startup project explicitly."
-                    : buildRunning
-                      ? "A build is running; wait for it to finish before running."
-                      : runRunning
-                        ? "A program is already running."
-                        : build.revision === 0
-                          ? "Build the startup project first; Run never builds or restores implicitly."
-                          : build.sealed
-                            ? "The saved build belongs to a previous context; rebuild before running."
-                            : build.stale
-                              ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
-                              : build.state !== "ok" || build.exit !== 0
-                                ? `The last build did not succeed (${
-                                    build.exit === null ? "exit unknown" : `exit ${build.exit}`
-                                  }); fix it and rebuild.`
-                                : build.project?.path !== project.path
-                                  ? "The saved build is for another startup project; build the selected one."
-                                  : savedSourceAfterBuild
-                                    ? "Sources were saved after this build; rebuild before running."
-                                    : null;
-  }
+  ) => runGate(gates, project, configEvaluated, invalidSelectedProject);
   const runDisabledReason = runAvailabilityReason(
     startupProject,
     activeConfigEvaluated,
-    Boolean(activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)),
+    gates.activeConfigProjectInvalid,
   );
-  const dap = snapshot.dap;
-  const debugActive = ["preparing", "running", "paused"].includes(dap.state);
-  const debugDisabledReason = !trusted
-    ? "Trust the workspace before debugging; nothing runs in Restricted mode."
-    : snapshot.debug.adapterState !== "ready"
-      ? `The debug adapter is not ready: ${snapshot.debug.gateReason ?? snapshot.debug.adapterMessage}`
-      : snapshot.app.platform === "macos" &&
-          snapshot.app.arch === "arm64" &&
-          !snapshot.debug.appleSiliconExperimental
-        ? "Enable the Apple Silicon experimental flag before debugging; nothing was launched."
-        : projectSdk.state !== "resolved"
-          ? "Resolve the project SDK before debugging; the host SDK is never substituted."
-          : evaluation.state === "running"
-            ? "Wait for the evaluation to finish before debugging."
-            : evaluation.stale
-              ? "The evaluated project model is stale; re-evaluate before debugging."
-              : !["ok", "partial"].includes(evaluation.state)
-                ? "Evaluate the project model before debugging; Debug uses its managed assembly."
-                : !activeConfigEvaluated
-                  ? "The run configuration has not been evaluated yet; re-evaluate the project model."
-                  : consoleCandidates.length === 0
-                  ? "No console executable project is available in the current evaluation."
-                  : activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project)
-                    ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
-                    : !startupProject
-                      ? "More than one console project; choose the startup project explicitly."
-                    : buildRunning
-                      ? "A build is running; wait for it to finish before debugging."
-                      : build.revision === 0
-                        ? "Build the startup project in Debug first; Debug never builds or restores implicitly."
-                        : build.configuration.toLowerCase() !== "debug"
-                          ? "The saved build is not a Debug build; build with Debug before debugging."
-                          : build.sealed
-                            ? "The saved build belongs to a previous context; rebuild before debugging."
-                            : build.stale
-                              ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
-                              : build.state !== "ok" || build.exit !== 0
-                                ? `The last build did not succeed (${
-                                    build.exit === null ? "exit unknown" : `exit ${build.exit}`
-                                  }); fix it and rebuild.`
-                                : build.project?.path !== startupProject.path
-                                  ? "The saved build is for another startup project; build the selected one."
-                                  : savedSourceAfterBuild
-                                    ? "Sources were saved after this build; rebuild before debugging."
-                                    : debugActive
-                                      ? "A debug session is already active."
-                                      : null;
+  const debugDisabledReason = debugGate(gates);
   const debugCurrentFrame =
     dap.frames.find((frame) => frame.id === dap.selectedFrameId) ?? dap.frames[0] ?? null;
   const activeBreakpoints = active
@@ -2210,17 +2134,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   ) {
     setEvaluating(true);
     try {
-      onSnapshot(
-        await call<Snapshot>("evaluation.run", { configuration, targetFramework }),
-      );
-      setMessage(null);
-    } catch (error) {
-      setMessage({ tone: "error", text: `Evaluation could not run: ${messageOf(error)}` });
-      try {
-        onSnapshot(await call<Snapshot>("workspace.state"));
-      } catch {
-        // The message above already explains the failure.
-      }
+      await evaluate({ onSnapshot, setMessage }, configuration, targetFramework);
     } finally {
       setEvaluating(false);
     }
@@ -2412,13 +2326,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     );
   }
 
-  async function cancelBuild() {
-    try {
-      onSnapshot(await call<Snapshot>("build.cancel"));
-    } catch (error) {
-      setMessage({ tone: "error", text: `Build cancellation failed: ${messageOf(error)}` });
-    }
-  }
+  const cancelBuild = () => buildCancel({ onSnapshot, setMessage });
 
   async function startTestDiscovery(project: string) {
     setBottomTab("tests");
@@ -2578,13 +2486,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     setPendingRunConfig(null);
   }
 
-  async function cancelRun() {
-    try {
-      onSnapshot(await call<Snapshot>("run.cancel"));
-    } catch (error) {
-      setMessage({ tone: "error", text: `Run cancellation failed: ${messageOf(error)}` });
-    }
-  }
+  const cancelRun = () => runCancel({ onSnapshot, setMessage });
 
   function debugStartParams() {
     return {
@@ -2598,65 +2500,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     };
   }
 
-  async function waitForHost(done: (s: Snapshot) => boolean) {
-    for (let i = 0; i < 480; i++) {
-      const next = await call<Snapshot>("workspace.state");
-      onSnapshot(next);
-      if (done(next)) return next;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    throw new Error("timed out waiting for the host");
-  }
+  const waitForHost = (done: (s: Snapshot) => boolean) => waitHost({ onSnapshot, setMessage }, done);
 
-  // Rider-style preparation shared by one-click Run and Debug: restore if needed, evaluate the
-  // project model and build. Every host gate still applies; nothing here bypasses trust.
-  async function prepareBuild(verb: "Run" | "Debug") {
-    let snap = snapshot;
-    if (snap.restore.state !== "ok" && !(snap.restore.projects.length > 0 && snap.restore.projects.every((p) => p.state === "restored"))) {
-      setMessage({ tone: "info", text: `Preparing ${verb}: restoring packages…` });
-      onSnapshot(await call<Snapshot>("restore.start", {}));
-      snap = await waitForHost((s) => s.restore.state !== "running");
-      if (snap.restore.state !== "ok") throw new Error("restore did not succeed; see the Build tab.");
-    }
-    const consoleOf = (s: Snapshot) => {
-      const ready = s.evaluation.projects.filter((p) => p.kind === "console" && p.state === "ok" && p.targetPath);
-      return ready.length === 1 ? ready[0] : null;
-    };
-    const configuration = activeRunConfig?.configuration ?? "Debug";
-    const context = snap.evaluation.context;
-    if (!consoleOf(snap) || snap.evaluation.stale || context.configuration !== configuration) {
-      setMessage({ tone: "info", text: `Preparing ${verb}: evaluating the project model…` });
-      onSnapshot(await call<Snapshot>("evaluation.run", {
-        configuration,
-        targetFramework: activeRunConfig?.targetFramework ?? context.targetFramework ?? (snap.evaluation.availableTfms.length === 1 ? snap.evaluation.availableTfms[0] : null),
-      }));
-      snap = await waitForHost((s) => s.evaluation.state !== "running");
-    }
-    const project = consoleOf(snap);
-    if (!project) throw new Error("no single evaluated console project; choose a startup project or TFM first.");
-    setMessage({ tone: "info", text: `Preparing ${verb}: building…` });
-    onSnapshot(await call<Snapshot>("build.start", {
-      project: project.path,
-      configuration,
-      targetFramework: snap.evaluation.context.targetFramework,
-      savedNote: `Built by ${verb}; saved content only.`,
-    }));
-    snap = await waitForHost((s) => s.build.state !== "running");
-    if (snap.build.state !== "ok" || snap.build.exit !== 0) throw new Error(`the ${verb} build failed; see the Build tab.`);
-    return { snap, project, configuration };
-  }
+  const prepareBuild = (verb: "Run" | "Debug") =>
+    prepare({ onSnapshot, setMessage }, snapshot, activeRunConfig, verb);
 
-  function launchParams(project: string, configuration: string, targetFramework: string | null) {
-    return {
-      project,
-      configuration,
-      targetFramework,
-      args: activeRunConfig?.args ?? [],
-      workingDirectory: activeRunConfig?.workingDirectory ?? "",
-      env: activeRunConfig?.env ?? {},
-      envFiles: activeRunConfig?.envFiles ?? [],
-    };
-  }
+  const launchParams = (project: string, configuration: string, targetFramework: string | null) =>
+    launchParamsFor(activeRunConfig, project, configuration, targetFramework);
 
   // One-click Run like Rider: a blocked Run click restores, builds and then runs.
   async function prepareAndRun() {
