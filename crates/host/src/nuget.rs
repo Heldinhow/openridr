@@ -792,17 +792,20 @@ pub fn list(
         "short".to_string(),
     ];
 
+    let no_references = !declares_package_reference(project);
     let installed = command_result(
         run(&installed_argv, root, sdk_root),
         &installed_argv,
         parse_listing,
         "dotnet list package",
+        no_references,
     );
     let outdated = command_result(
         run(&outdated_argv, root, sdk_root),
         &outdated_argv,
         parse_listing,
         "dotnet list package --outdated",
+        no_references,
     );
     let sources = match run(&sources_argv, root, sdk_root) {
         exec if exec.spawn_error.is_some() => Sources {
@@ -888,11 +891,15 @@ pub fn list(
     }
 }
 
+/// A project file without a `PackageReference` has no packages to list. dotnet still fails
+/// on it when it was never restored, so that one problem is not an error for such projects.
+/// Any other failure, or a project that references packages, keeps the real error.
 fn command_result(
     exec: Exec,
     argv: &[String],
     parse: fn(&str) -> Result<Vec<FrameworkPackages>, String>,
     label: &str,
+    no_references: bool,
 ) -> CommandResult {
     let command = display(argv);
     let (log, _) = cap_log(&format!(
@@ -914,7 +921,7 @@ fn command_result(
             truncated: false,
         };
     }
-    if exec.code != Some(0) {
+    if exec.code != Some(0) && !(no_references && only_missing_assets(&exec.stdout)) {
         return CommandResult {
             state: "failed",
             message: Some(first_line(&exec.stderr).unwrap_or_else(|| {
@@ -925,6 +932,17 @@ fn command_result(
                         .unwrap_or_else(|| "an unknown status".to_string())
                 )
             })),
+            command,
+            exit: exec.code,
+            log,
+            frameworks: Vec::new(),
+            truncated: false,
+        };
+    }
+    if exec.code != Some(0) {
+        return CommandResult {
+            state: "ok",
+            message: None,
             command,
             exit: exec.code,
             log,
@@ -955,6 +973,31 @@ fn command_result(
             truncated: false,
         },
     }
+}
+
+/// True when `dotnet list --format json` reports only the missing-assets problem.
+fn only_missing_assets(stdout: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(stdout) else {
+        return false;
+    };
+    value
+        .get("problems")
+        .and_then(Value::as_array)
+        .is_some_and(|problems| {
+            !problems.is_empty()
+                && problems.iter().all(|problem| {
+                    problem
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| text.starts_with("No assets file was found"))
+                })
+        })
+}
+
+/// Unreadable project files count as referencing packages, so their failures stay visible.
+// ponytail: plain text match on the project file; Directory.Build.props references are not seen.
+fn declares_package_reference(project: &Path) -> bool {
+    fs::read_to_string(project).map_or(true, |text| text.contains("PackageReference"))
 }
 
 fn run(argv: &[String], cwd: &Path, sdk_root: &Path) -> Exec {
@@ -1424,6 +1467,85 @@ mod tests {
         assert_eq!(frameworks[0].packages.len(), PACKAGE_LIMIT);
     }
 
+    const NO_ASSETS: &str = r#"{
+  "version": 1,
+  "parameters": "",
+  "problems": [
+    {
+      "project": "/work/OrderDesk.Cli.csproj",
+      "level": "error",
+      "text": "No assets file was found for `/work/OrderDesk.Cli.csproj`. Please run restore before running this command."
+    }
+  ],
+  "projects": [{ "path": "/work/OrderDesk.Cli.csproj" }]
+}
+"#;
+
+    fn listing_exec(code: Option<i32>, stdout: &str, stderr: &str) -> Exec {
+        Exec {
+            code,
+            stdout: stdout.to_string(),
+            stderr: stderr.to_string(),
+            spawn_error: None,
+        }
+    }
+
+    #[test]
+    fn a_project_without_package_references_is_an_empty_list_not_the_raw_error() {
+        let argv = vec!["dotnet".to_string(), "list".to_string()];
+        let result = command_result(
+            listing_exec(Some(1), NO_ASSETS, ""),
+            &argv,
+            parse_listing,
+            "dotnet list package --outdated",
+            true,
+        );
+        assert_eq!(result.state, "ok");
+        assert_eq!(result.message, None);
+        assert_eq!(result.exit, Some(1));
+        assert!(result.frameworks.is_empty());
+        assert!(result.log.contains("No assets file"));
+    }
+
+    #[test]
+    fn the_same_restore_failure_stays_an_error_when_the_project_references_packages() {
+        let argv = vec!["dotnet".to_string(), "list".to_string()];
+        let result = command_result(
+            listing_exec(Some(1), NO_ASSETS, ""),
+            &argv,
+            parse_listing,
+            "dotnet list package --outdated",
+            false,
+        );
+        assert_eq!(result.state, "failed");
+        assert_eq!(result.exit, Some(1));
+    }
+
+    #[test]
+    fn a_real_dotnet_failure_is_never_an_empty_list_even_without_references() {
+        let argv = vec!["dotnet".to_string(), "list".to_string()];
+        let network = command_result(
+            listing_exec(Some(1), "", "Unable to load the service index for source https://api.nuget.org\n"),
+            &argv,
+            parse_listing,
+            "dotnet list package --outdated",
+            true,
+        );
+        assert_eq!(network.state, "failed");
+        let mixed = command_result(
+            listing_exec(
+                Some(1),
+                &NO_ASSETS.replace("No assets file was found", "Unable to read the project"),
+                "",
+            ),
+            &argv,
+            parse_listing,
+            "dotnet list package --outdated",
+            true,
+        );
+        assert_eq!(mixed.state, "failed");
+    }
+
     #[test]
     fn an_unknown_exit_fails_and_preserves_stdout_and_stderr_in_the_log() {
         let argv = vec!["dotnet".to_string(), "list".to_string()];
@@ -1437,6 +1559,7 @@ mod tests {
             &argv,
             parse_listing,
             "dotnet list package",
+            true,
         );
         assert_eq!(result.state, "failed");
         assert_eq!(result.exit, None);
@@ -1460,6 +1583,7 @@ mod tests {
             &argv,
             parse_listing,
             "dotnet list package",
+            true,
         );
         assert_eq!(result.state, "failed");
         assert_eq!(result.exit, Some(0));
