@@ -317,3 +317,10 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 
 - **Substitui** "Run never builds or restores implicitly" apenas para o clique na toolbar (como já era para Debug): com Run bloqueado e o workspace em Trusted, `prepareAndRun` restaura (se preciso), avalia, builda e roda. O atalho/ação `run.start` segue estrito. `prepareBuild` é compartilhado com `prepareAndDebug`, que agora também usa a run config ativa (config, TFM, args, env).
 - O consentimento da flag experimental do netcoredbg deixou de usar `window.confirm`: o WKWebView do Tauri não o exibe e devolve `false`, então o clique em Debug no app desktop não fazia nada. Agora é o diálogo `debug-consent-dialog` ("Enable and debug"). Provado no navegador; o fluxo no app desktop precisa ser reconferido após rebuild do `.app`.
+
+## 2026-10-30 — Breakpoints guardam condição; hit count e log message ficam fora
+
+- O breakpoint por fonte passa a guardar `condition` além de linha, verified e message (`BreakpointView.condition`). `Launch.breakpoints` carrega as views, então a condição sobrevive ao restart. Mute all é um flag do host (`breakpointsMuted`): ligado, cada fonte é enviada com lista vazia; desligado, a lista volta. Mute também sobrevive ao próximo launch.
+- Condição é gravada sem sessão e reenviada no `setBreakpoints` quando a sessão está viva. Se o adaptador anunciou `supportsConditionalBreakpoints: false`, o host recusa com `unsupported` e a UI desabilita o editor com o motivo. Antes de qualquer sessão a capability é desconhecida e o editor fica habilitado.
+- **Hit count e log message não entram.** O netcoredbg 3.2.0-1092 não anuncia `supportsHitConditionalBreakpoints` nem `supportsLogPoints` (capabilities medidas no `initialize`, ticket 01). A UI mostra essa limitação em texto, em vez de um campo que falharia. Reabrir quando um adaptador que anuncie os dois for verificado.
+- Remover pela lista reenvia a fonte sem a linha. Editar condição e mute all não mudam o formato de `debug.setBreakpoints`, que continua recebendo linhas.

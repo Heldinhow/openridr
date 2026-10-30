@@ -51,8 +51,10 @@ pub struct Launch {
     pub adapter_platform: String,
     pub workspace_id: u64,
     pub context_id: u64,
-    /// Breakpoints set before the session started, kept by file.
-    pub breakpoints: BTreeMap<String, Vec<i64>>,
+    /// Breakpoints set before the session started, kept by file with their conditions.
+    pub breakpoints: BTreeMap<String, Vec<BreakpointView>>,
+    /// Mute all set before the session started; it survives the next launch.
+    pub breakpoints_muted: bool,
 }
 
 /// The exact `launch` request sent to the adapter: the evaluated assembly, the configured
@@ -84,6 +86,8 @@ pub struct BreakpointView {    pub path: String,
     pub line: i64,
     pub verified: bool,
     pub message: Option<String>,
+    /// Expression the adapter checks on each hit; `None` stops on every hit.
+    pub condition: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -224,6 +228,8 @@ pub struct DapView {
     pub stop_generation: u64,
     pub stopped: Option<StoppedView>,
     pub breakpoints: Vec<BreakpointView>,
+    /// Mute all: the adapter gets no breakpoints, the lines and conditions stay stored.
+    pub breakpoints_muted: bool,
     pub terminals: Vec<TerminalView>,
     pub log: String,
     pub log_truncated: bool,
@@ -295,6 +301,7 @@ struct Data {
     watch_results: Vec<EvaluationView>,
     watch_stop_seq: u64,
     breakpoints: BTreeMap<String, Vec<BreakpointView>>,
+    breakpoints_muted: bool,
     terminals: Vec<TerminalView>,
     terminal_ids: Vec<u64>,
 }
@@ -440,6 +447,7 @@ impl Dap {
                 selected_frame_id: None,
                 locals: None,
                 breakpoints: BTreeMap::new(),
+                breakpoints_muted: false,
                 terminals: Vec::new(),
                 terminal_ids: Vec::new(),
             }),
@@ -477,16 +485,15 @@ impl Dap {
         let breakpoints = launch
             .breakpoints
             .iter()
-            .map(|(path, lines)| {
+            .map(|(path, items)| {
                 (
                     path.clone(),
-                    lines
+                    items
                         .iter()
-                        .map(|line| BreakpointView {
-                            path: path.clone(),
-                            line: *line,
+                        .map(|item| BreakpointView {
                             verified: false,
                             message: None,
+                            ..item.clone()
                         })
                         .collect::<Vec<_>>(),
                 )
@@ -570,6 +577,7 @@ impl Dap {
                 selected_frame_id: None,
                 locals: None,
                 breakpoints,
+                breakpoints_muted: launch.breakpoints_muted,
                 terminals: Vec::new(),
                 terminal_ids: Vec::new(),
             }),
@@ -606,19 +614,12 @@ impl Dap {
         self.data.lock().unwrap().log.push(line.into());
     }
 
-    pub fn breakpoints(&self) -> BTreeMap<String, Vec<i64>> {
-        self.data
-            .lock()
-            .unwrap()
-            .breakpoints
-            .iter()
-            .map(|(path, items)| {
-                (
-                    path.clone(),
-                    items.iter().map(|item| item.line).collect::<Vec<_>>(),
-                )
-            })
-            .collect()
+    pub fn breakpoints_muted(&self) -> bool {
+        self.data.lock().unwrap().breakpoints_muted
+    }
+
+    pub fn breakpoints(&self) -> BTreeMap<String, Vec<BreakpointView>> {
+        self.data.lock().unwrap().breakpoints.clone()
     }
 
     pub fn view(&self) -> DapView {
@@ -683,6 +684,7 @@ impl Dap {
                 .values()
                 .flat_map(|items| items.iter().cloned())
                 .collect(),
+            breakpoints_muted: data.breakpoints_muted,
             terminals: data.terminals.clone(),
             log,
             log_truncated,
@@ -712,39 +714,88 @@ impl Dap {
         unique.sort_unstable();
         unique.dedup();
         let mut data = self.data.lock().unwrap();
-        data.breakpoints.insert(
-            path.to_string(),
-            unique
-                .iter()
-                .map(|line| BreakpointView {
-                    path: path.to_string(),
-                    line: *line,
-                    verified: false,
-                    message: None,
-                })
-                .collect(),
-        );
+        let previous = data.breakpoints.get(path).cloned().unwrap_or_default();
+        let entries: Vec<BreakpointView> = unique
+            .iter()
+            .map(|line| BreakpointView {
+                path: path.to_string(),
+                line: *line,
+                verified: false,
+                message: None,
+                condition: previous
+                    .iter()
+                    .find(|item| item.line == *line)
+                    .and_then(|item| item.condition.clone()),
+            })
+            .collect();
+        data.breakpoints.insert(path.to_string(), entries.clone());
         let live = matches!(data.state, "preparing" | "running" | "paused");
         drop(data);
         if live {
-            self.send_breakpoints(path, &unique);
+            self.send_breakpoints(path, &entries);
         }
     }
 
-    fn send_breakpoints(&self, path: &str, lines: &[i64]) {
-        let source = {
+    /// Sets or clears the condition of a breakpoint that already exists on `line`. Live sessions
+    /// get the whole source again, because DAP replaces the breakpoints of a source at once.
+    pub fn set_condition(&self, path: &str, line: i64, condition: Option<String>) -> HostResult<()> {
+        let mut data = self.data.lock().unwrap();
+        if data.adapter_capabilities.get("supportsConditionalBreakpoints") == Some(&false) {
+            return Err(HostError::new(
+                "unsupported",
+                "The debug adapter did not advertise conditional breakpoints.",
+            ));
+        }
+        let entries = data.breakpoints.get_mut(path).ok_or_else(|| {
+            HostError::new("invalid_state", "Set a breakpoint on this line first.")
+        })?;
+        let entry = entries
+            .iter_mut()
+            .find(|item| item.line == line)
+            .ok_or_else(|| HostError::new("invalid_state", "Set a breakpoint on this line first."))?;
+        entry.condition = condition;
+        let entries = entries.clone();
+        let live = matches!(data.state, "preparing" | "running" | "paused");
+        drop(data);
+        if live {
+            self.send_breakpoints(path, &entries);
+        }
+        Ok(())
+    }
+
+    /// Mute all sends an empty breakpoint list for every source; un-muting sends the stored lines.
+    pub fn set_muted(&self, muted: bool) {
+        let mut data = self.data.lock().unwrap();
+        data.breakpoints_muted = muted;
+        let sources = data.breakpoints.clone();
+        let live = matches!(data.state, "preparing" | "running" | "paused");
+        drop(data);
+        if live {
+            for (path, entries) in sources {
+                self.send_breakpoints(&path, &entries);
+            }
+        }
+    }
+
+    fn send_breakpoints(&self, path: &str, entries: &[BreakpointView]) {
+        let (source, muted) = {
             let data = self.data.lock().unwrap();
             let candidate = PathBuf::from(path);
-            if candidate.is_absolute() {
+            let source = if candidate.is_absolute() {
                 candidate
             } else {
                 data.root.join(candidate)
-            }
+            };
+            (source, data.breakpoints_muted)
         };
+        let active: &[BreakpointView] = if muted { &[] } else { entries };
         let params = json!({
             "source": { "path": source.to_string_lossy() },
-            "breakpoints": lines.iter().map(|line| json!({ "line": line })).collect::<Vec<_>>(),
-            "lines": lines,
+            "breakpoints": active.iter().map(|item| match &item.condition {
+                Some(condition) => json!({ "line": item.line, "condition": condition }),
+                None => json!({ "line": item.line }),
+            }).collect::<Vec<_>>(),
+            "lines": active.iter().map(|item| item.line).collect::<Vec<_>>(),
             "sourceModified": false,
         });
         let Ok(response) = self.request("setBreakpoints", params, REQUEST_TIMEOUT) else {
@@ -818,9 +869,9 @@ impl Dap {
             return;
         }
         let files = self.breakpoints();
-        for (path, lines) in files {
-            if !lines.is_empty() {
-                self.send_breakpoints(&path, &lines);
+        for (path, entries) in files {
+            if !entries.is_empty() {
+                self.send_breakpoints(&path, &entries);
             }
         }
         if let Err(error) = self.request("configurationDone", json!({}), REQUEST_TIMEOUT) {
@@ -2360,8 +2411,18 @@ while True:
             workspace_id: 1,
             context_id: 1,
             breakpoints: BTreeMap::new(),
+            breakpoints_muted: false,
         };
-        launch.breakpoints.insert("Program.cs".to_string(), vec![4]);
+        launch.breakpoints.insert(
+            "Program.cs".to_string(),
+            vec![BreakpointView {
+                path: "Program.cs".to_string(),
+                line: 4,
+                verified: false,
+                message: None,
+                condition: None,
+            }],
+        );
         let mut command = Command::new("python3");
         command.arg(&script);
         let dap = Dap::begin(launch, command, registry.clone()).unwrap();
@@ -2433,6 +2494,7 @@ while True:
             workspace_id: 1,
             context_id: 1,
             breakpoints: BTreeMap::new(),
+            breakpoints_muted: false,
         };
         let params = launch_parameters(&launch);
         assert_eq!(params["program"], "/work/bin/App.dll");

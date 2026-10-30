@@ -584,6 +584,7 @@ export type DapBreakpoint = {
   line: number;
   verified: boolean;
   message: string | null;
+  condition: string | null;
 };
 
 export type DapThread = { id: number; name: string };
@@ -668,6 +669,7 @@ export type Dap = {
   selectedThreadId: number | null;
   stopped: null | { reason: string; threadId: number | null; allThreadsStopped: boolean };
   breakpoints: DapBreakpoint[];
+  breakpointsMuted: boolean;
   terminals: {
     processId: number;
     pid: number;

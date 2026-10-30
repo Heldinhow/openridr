@@ -75,6 +75,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.stepInto",
     "debug.stepOut",
     "debug.setBreakpoints",
+    "debug.setBreakpointCondition",
+    "debug.setBreakpointsMuted",
     "debug.variables",
     "debug.children",
     "debug.selectThread",
@@ -469,6 +471,12 @@ impl Host {
         }
         if method == "debug.setBreakpoints" {
             return self.set_debug_breakpoints(params);
+        }
+        if method == "debug.setBreakpointCondition" {
+            return self.set_debug_breakpoint_condition(params);
+        }
+        if method == "debug.setBreakpointsMuted" {
+            return self.set_debug_breakpoints_muted(params);
         }
         if method == "debug.variables" {
             return self.debug_variables(params);
@@ -3211,6 +3219,7 @@ impl Host {
             workspace_id: token.workspace_id,
             context_id: token.context_id,
             breakpoints: inner.dap.breakpoints(),
+            breakpoints_muted: inner.dap.breakpoints_muted(),
         };
         let mut command = Command::new(&adapter.binary);
         command.arg("--interpreter=vscode");
@@ -3282,6 +3291,39 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let (_, relative) = resolve_in_workspace(&inner, &raw)?;
         inner.dap.set_breakpoints(&relative, &lines);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn set_debug_breakpoint_condition(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.setBreakpointCondition")?;
+        let raw = required_str(&params, "path")?;
+        let line = params
+            .get("line")
+            .and_then(Value::as_i64)
+            .filter(|line| *line >= 1)
+            .ok_or_else(|| {
+                HostError::new("invalid_state", "Breakpoint lines must be positive integers.")
+            })?;
+        let condition = params
+            .get("condition")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let mut inner = self.inner.lock().unwrap();
+        let (_, relative) = resolve_in_workspace(&inner, &raw)?;
+        inner.dap.set_condition(&relative, line, condition)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn set_debug_breakpoints_muted(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.setBreakpointsMuted")?;
+        let muted = params
+            .get("muted")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| HostError::new("invalid_state", "muted must be a boolean."))?;
+        let mut inner = self.inner.lock().unwrap();
+        inner.dap.set_muted(muted);
         Ok(self.snapshot_value(&mut inner))
     }
 

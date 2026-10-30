@@ -725,3 +725,77 @@ test("pauses a running program and restarts the session with the same configurat
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+const loopWithBreakpoint = [
+  "var total = 0;",
+  "for (var index = 0; index < 5; index++)",
+  "{",
+  "    total += index;",
+  "}",
+  "System.Console.WriteLine(total);",
+  "",
+].join("\n");
+
+test("a conditional breakpoint stops only when its condition is true", async ({ page, request }) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-condition-"));
+  try {
+    await prepareDebugCopy(page, request, base, loopWithBreakpoint, 4);
+    await page.getByTestId("bottom-tab-debug").click();
+    const condition = page.locator('input[data-testid^="debug-breakpoint-condition-"]');
+    await expect(condition).toHaveCount(1);
+    await condition.fill("index == 3");
+    await page.locator('button[data-testid^="debug-breakpoint-condition-save-"]').click();
+    await expect(condition).toHaveValue("index == 3");
+
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    // Only the fourth pass stops, so index is 3 and total is still 0 + 1 + 2.
+    await page.getByTestId("debug-evaluate-input").fill("index");
+    await page.getByTestId("debug-evaluate-run").click();
+    await expect(page.getByTestId("debug-evaluate-result")).toContainText("3");
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a condition that never holds lets the program finish", async ({ page, request }) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-condition-off-"));
+  try {
+    await prepareDebugCopy(page, request, base, loopWithBreakpoint, 4);
+    await page.getByTestId("bottom-tab-debug").click();
+    const condition = page.locator('input[data-testid^="debug-breakpoint-condition-"]');
+    await condition.fill("index > 10");
+    await page.locator('button[data-testid^="debug-breakpoint-condition-save-"]').click();
+    await expect(condition).toHaveValue("index > 10");
+
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Terminated", { timeout: 60_000 });
+    await expect(page.getByTestId("dap-state")).not.toContainText("Paused");
+    await expect(page.getByTestId("dap-output")).toContainText("10");
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("mute all keeps breakpoints out of the run", async ({ page, request }) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-mute-"));
+  try {
+    await prepareDebugCopy(page, request, base, loopWithBreakpoint, 4);
+    await page.getByTestId("bottom-tab-debug").click();
+    await page.getByTestId("debug-breakpoints-mute").click();
+    await expect(page.getByTestId("debug-breakpoints-mute")).toHaveAttribute("aria-pressed", "true");
+
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Terminated", { timeout: 60_000 });
+    await expect(page.getByTestId("dap-output")).toContainText("10");
+    await expect(page.getByTestId("debug-breakpoints")).toContainText("Program.cs:4");
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});

@@ -1,3 +1,4 @@
+import { DebugBreakpoint } from "./DebugBreakpoint";
 import { DebugEvaluate } from "./DebugEvaluate";
 import { DebugVariable } from "./DebugVariable";
 import { Icon } from "./Icon";
@@ -53,6 +54,10 @@ export function DebugPanel({
   const active = dap.state === "preparing" || dap.state === "running" || dap.state === "paused";
   const paused = dap.state === "paused";
   const terminal = ["terminated", "cancelled", "failed"].includes(dap.state);
+  const conditionDisabledReason =
+    dap.adapterCapabilities.supportsConditionalBreakpoints === false
+      ? "The debug adapter did not advertise conditional breakpoints."
+      : null;
   const phaseLabel = dap.phase.replace(
     new RegExp(`^${stateLabels[dap.state]}\\s*(?:[·:]\\s*)?`, "i"),
     "",
@@ -366,29 +371,62 @@ export function DebugPanel({
       />
 
       <section aria-label="Breakpoints" data-testid="debug-breakpoints">
-        <h3>Breakpoints</h3>
+        <div className="debug-breakpoints-head">
+          <h3>Breakpoints</h3>
+          {dap.breakpoints.length > 0 && (
+            <button
+              type="button"
+              data-testid="debug-breakpoints-mute"
+              aria-pressed={dap.breakpointsMuted}
+              disabled={busy !== null}
+              onClick={() =>
+                void invoke(
+                  dap.breakpointsMuted ? "Unmute breakpoints" : "Mute breakpoints",
+                  "debug.setBreakpointsMuted",
+                  { muted: !dap.breakpointsMuted },
+                )
+              }
+              title="Mute all ignores every breakpoint without deleting it; unmute restores them with their conditions."
+            >
+              {dap.breakpointsMuted ? "Unmute all" : "Mute all"}
+            </button>
+          )}
+        </div>
         {dap.breakpoints.length === 0 ? (
           <p className="muted" data-testid="debug-breakpoints-empty">
             No breakpoints. Click the gutter marker column or press {snapshot.app.platform === "macos" ? "Cmd+F8" : "Ctrl+F8"} on a line.
           </p>
         ) : (
-          <ul>
-            {dap.breakpoints.map((breakpoint) => (
-              <li
-                key={`${breakpoint.path}:${breakpoint.line}`}
-                data-testid={`debug-breakpoint-${breakpoint.path}:${breakpoint.line}`}
-              >
-                <code>
-                  {breakpoint.path}:{breakpoint.line}
-                </code>{" "}
-                <span className="muted">
-                  {breakpoint.verified
-                    ? "verified by the adapter"
-                    : `pending${breakpoint.message ? ` · ${breakpoint.message}` : ""}`}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul>
+              {dap.breakpoints.map((breakpoint) => (
+                <DebugBreakpoint
+                  key={`${breakpoint.path}:${breakpoint.line}`}
+                  breakpoint={breakpoint}
+                  conditionDisabledReason={conditionDisabledReason}
+                  busy={busy !== null}
+                  onSaveCondition={(condition) =>
+                    void invoke("Save condition", "debug.setBreakpointCondition", {
+                      path: breakpoint.path,
+                      line: breakpoint.line,
+                      condition,
+                    })
+                  }
+                  onRemove={() =>
+                    void invoke("Remove breakpoint", "debug.setBreakpoints", {
+                      path: breakpoint.path,
+                      lines: dap.breakpoints
+                        .filter((item) => item.path === breakpoint.path && item.line !== breakpoint.line)
+                        .map((item) => item.line),
+                    })
+                  }
+                />
+              ))}
+            </ul>
+            <p className="muted" data-testid="debug-breakpoints-unsupported">
+              Hit count and log message are not offered: netcoredbg 3.2.0-1092 does not advertise support for them.
+            </p>
+          </>
         )}
       </section>
 

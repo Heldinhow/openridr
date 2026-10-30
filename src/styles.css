@@ -1582,6 +1582,19 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .debug-columns h3 { margin: 0 0 4px; }
 .debug-columns ul { margin: 0.25rem 0; padding-left: 1.1rem; }
 .debug-frames li > .muted { display: block; width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.debug-breakpoints-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.debug-breakpoints-head h3 { margin: 0; }
+.debug-breakpoint-condition {
+  display: flex;
+  gap: 4px;
+  margin: 2px 0 6px;
+}
+.debug-breakpoint-condition input { flex: 1; min-width: 0; }
 .debug-log-tabs {
   display: flex;
   gap: 4px;
