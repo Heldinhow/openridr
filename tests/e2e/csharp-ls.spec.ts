@@ -1055,6 +1055,14 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
     await expect(
       page.getByTestId(`rename-count-${renameFiles.library}`),
     ).toContainText("2 edit");
+    // Apply and Cancel are inside the preview's visible box before any scrolling.
+    const previewBox = (await page.getByTestId("rename-preview").boundingBox())!;
+    for (const id of ["rename-apply", "rename-cancel-preview"]) {
+      const button = (await page.getByTestId(id).boundingBox())!;
+      expect(button.y + button.height, `${id} is past the preview's bottom edge`).toBeLessThanOrEqual(
+        previewBox.y + previewBox.height,
+      );
+    }
     await page.screenshot({
       path: path.join(screenshots, "09-rename-preview.png"),
       fullPage: false,
