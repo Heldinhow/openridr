@@ -72,6 +72,8 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 1440, height: 900
         await page.getByTestId("debug-stop").click();
       } finally {
         await request.post(`${host}/call`, { data: { method: "debug.stop", params: {} } });
+        // Leave the shared e2e home as it was: later specs expect no installed adapter.
+        fs.rmSync(toolDir, { recursive: true, force: true });
         fs.rmSync(base, { recursive: true, force: true });
       }
     });

@@ -125,7 +125,7 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
     await expect(page.getByTestId("tests-cwd")).toContainText(path.basename(copy));
     await expect(page.getByTestId("tests-sdk")).toContainText("8.0.408");
     await expect(page.getByTestId("tests-exit")).toHaveText("exit 0");
-    await expect(page.getByTestId("tests-discovery-id")).toContainText(/discovery:\d+:1/);
+    await expect(page.getByTestId("tests-discovery-id")).toContainText(/discovery:\d+:\d+/);
     await expect(page.getByTestId("tests-counts")).toContainText("4 tests · 0 selected");
     await expect(page.getByTestId("tests-counts")).toContainText(/discovery:\d+:1 · revision 1/);
     await expect(page.getByTestId("tests-log")).toContainText(
