@@ -485,8 +485,10 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 }
 .workspace-view.left-closed { grid-template-columns: 34px 0 0 minmax(0, 1fr) var(--tools-width, 0px) 34px; }
 .workspace-view.tools-open { --tools-width: 400px; }
-/* An opened install plan needs width so command, destination and integrity read without scrolling. */
-.workspace-view.tools-open:has(.analysis-plan[open]) { --tools-width: min(640px, 50vw); }
+/* An opened install plan needs width (wide windows only; narrower ones scroll the drawer) so command, destination and integrity read without scrolling. */
+@media (min-width: 1300px) {
+  .workspace-view.tools-open:has(.analysis-plan[open]) { --tools-width: 640px; }
+}
 .workspace-view.bottom-closed { grid-template-rows: 44px auto minmax(0, 1fr) 0 0 24px; }
 .workspace-view > .toolbar { grid-column: 1 / -1; grid-row: 1; position: relative; z-index: 30; }
 .workspace-view > .workspace-notices { grid-column: 4; grid-row: 2; max-height: 30vh; }

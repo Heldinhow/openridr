@@ -147,6 +147,10 @@ test("a failed restore keeps its log, the editor and a working retry", async ({ 
       "not restored",
     );
     await expect(page.getByTestId("restore-retry")).toBeVisible();
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-disabled-reason")).toContainText(
+      "The evaluated project model is stale; re-evaluate before building.",
+    );
     fs.mkdirSync(screenshots, { recursive: true });
     await page.screenshot({
       path: path.join(screenshots, "04-restore-failure.png"),

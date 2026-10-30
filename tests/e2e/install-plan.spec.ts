@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
+import { host } from "./environment";
 
 // Ticket 10: the install plan is readable at 1440x900 and scrolls visibly at 1100x700.
 const solution = path.resolve(process.cwd(), "fixtures/OrderDesk/OrderDesk.sln");
@@ -50,3 +51,32 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700
     }
   });
 }
+
+// Trusted first-install plan: Confirm and install is enabled and sits with the material fields. Nothing is clicked.
+test("trusted first-install plan shows an active Confirm and install at 1440x900", async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByTestId("workspace-path-input").fill(solution);
+  await page.getByTestId("workspace-open").click();
+  await page.getByTestId("trust-checkbox").check();
+  await page.getByTestId("trust-grant").click();
+  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
+  const state = await (await request.post(`${host}/call`, { data: { method: "workspace.state", params: {} } })).json();
+  test.skip(state.data.tools["csharp-ls"].state === "ready", "csharp-ls already installed in this E2E home; run with a fresh OPENRIDR_E2E_HOME");
+  await page.getByTestId("install-plan-open").click();
+  const confirm = page.getByTestId("install-confirm");
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toBeEnabled();
+  await expect(confirm).toHaveText("Confirm and install");
+  const drawer = await page.getByTestId("workspace-tools").boundingBox();
+  const box = (await confirm.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(drawer!.y + drawer!.height);
+  for (const id of ["install-command", "install-destination", "install-staging", "install-integrity", "install-permissions"]) {
+    const field = (await page.getByTestId(id).boundingBox())!;
+    expect(field.y + field.height, `${id} is visible with the active confirm`).toBeLessThanOrEqual(drawer!.y + drawer!.height);
+    expect(box.y).toBeGreaterThan(field.y);
+  }
+  await page.screenshot({ path: "docs/evidence/screenshots/10-install-confirm-active-1440x900.png" });
+});
