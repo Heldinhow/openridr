@@ -532,12 +532,6 @@ export function TestsPanel({
         >
           {discoveryStateLabel(discovery)}
         </span>
-        {discovery.discoveryId && (
-          <span className="muted" data-testid="tests-discovery-id">
-            {discovery.discoveryId} · revision {discovery.revision} · context{" "}
-            {discovery.contextId ?? "unknown"}
-          </span>
-        )}
       </div>
 
       {disabledReason && (
@@ -597,6 +591,24 @@ export function TestsPanel({
           <details className="build-context-details">
             <summary>Discovery details</summary>
             <dl className="restore-meta build-meta">
+            {discovery.discoveryId && (
+              <>
+                <dt>Discovery</dt>
+                <dd data-testid="tests-discovery-id">
+                  {discovery.discoveryId} · revision {discovery.revision} · context{" "}
+                  {discovery.contextId ?? "unknown"}
+                </dd>
+              </>
+            )}
+            <dt>Tree</dt>
+            <dd data-testid="tests-tree-state" role="status">
+              {treeStateLabel(discovery, stale, discovery.sealed)}
+            </dd>
+            <dt>Grouping</dt>
+            <dd data-testid="tests-grouping">
+              Grouping derived from test names: project &gt; namespace prefix &gt; class &gt; method.
+              Nothing is parsed from source files; every tooltip carries the full name.
+            </dd>
             <dt>Scope</dt>
             <dd data-testid="tests-scope">
               {discovery.project?.name ?? "unknown"} ·{" "}
@@ -655,13 +667,6 @@ export function TestsPanel({
             {items.length} test{items.length === 1 ? "" : "s"} · {selected.size} selected ·{" "}
             {discovery.discoveryId ?? "no discovery"} · revision {discovery.revision}
             {discovery.partial ? " · partial" : ""}
-          </p>
-          <p className="muted" data-testid="tests-tree-state" role="status">
-            {treeStateLabel(discovery, stale, discovery.sealed)}
-          </p>
-          <p className="muted" data-testid="tests-grouping">
-            Grouping derived from test names: project &gt; namespace prefix &gt; class &gt; method.
-            Nothing is parsed from source files; every tooltip carries the full name.
           </p>
           {items.length > 0 && (
             <label className="tests-filter-row">

@@ -282,7 +282,8 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });
-    const discoveryIdText = await page.getByTestId("tests-discovery-id").innerText();
+    // The discovery identity lives in the folded details, so read its text rather than its rendered text.
+    const discoveryIdText = (await page.getByTestId("tests-discovery-id").textContent()) ?? "";
     const discoveryId = discoveryIdText.split(" ")[0];
     const discoveryRevision = discoveryIdText.match(/revision (\d+)/)?.[1];
 

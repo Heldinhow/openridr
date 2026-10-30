@@ -2673,3 +2673,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 /* Run tool window: output first, the run head stays on one line. */
 .run-window { display: grid; gap: 6px; padding: 8px; align-content: start; min-height: 0; }
 .run-window-head { display: flex; align-items: center; gap: 8px; }
+
+/* Tests: the tree sits right under the controls; discovery metadata folds below it. */
+.build-panel[data-testid="tests-panel"] > .build-context-details { order: 3; }
+.build-panel[data-testid="tests-panel"] { gap: 4px; }

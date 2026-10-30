@@ -100,8 +100,8 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     await expect(height).toHaveAttribute("aria-valuenow", "236");
     await page.getByTestId("bottom-tab-build").focus();
     await page.keyboard.press("ArrowRight");
-    await expect(page.getByTestId("bottom-tab-problems")).toBeFocused();
-    await expect(page.getByTestId("bottom-tab-problems")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("bottom-tab-run")).toBeFocused();
+    await expect(page.getByTestId("bottom-tab-run")).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("toolbar-run")).toBeDisabled();
 
   });
