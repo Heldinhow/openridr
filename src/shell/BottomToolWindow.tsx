@@ -3,6 +3,7 @@ import type { BottomToolId } from "./toolWindows";
 
 const panelClasses: Record<BottomToolId, string> = {
   build: "build-output",
+  run: "run-output-panel",
   problems: "problems-output",
   debug: "",
   terminal: "terminal-output-panel",

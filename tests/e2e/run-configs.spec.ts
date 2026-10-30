@@ -130,9 +130,13 @@ test("dialog Run saves and rebuilds before launching the requested configuration
 
     await requestDialogRunAndRebuild(page);
     await expect(page.getByTestId("build-state")).toContainText("Build succeeded", { timeout: 60_000 });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toContainText("Run exited", { timeout: 30_000 });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("args=[--requested-config]");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("Order B-777:");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-cwd")).toContainText(`${copy}/src`);
   } finally {
     await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
@@ -152,6 +156,7 @@ test("dialog Run does not launch its requested configuration when rebuild fails"
 
     await requestDialogRunAndRebuild(page);
     await expect(page.getByTestId("build-state")).toContainText("Build failed", { timeout: 60_000 });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toHaveText("No program has run");
   } finally {
     await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
@@ -213,6 +218,7 @@ test("dialog Run refuses a failed saved build", async ({ page, request }) => {
       "Run unavailable: The last build did not succeed",
     );
     await expect(page.getByTestId("run-config-dialog")).toHaveCount(0);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toHaveText("No program has run");
   } finally {
     await request.post(`${host}/call`, {
@@ -274,16 +280,23 @@ test("saved run configurations drive build and run, persist and validate their f
       await page.getByTestId("run-saved-build").click();
     }
     await expect(page.getByTestId("run-config-dialog")).toHaveCount(0);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toContainText("Run exited", {
       timeout: 30_000,
     });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toContainText("exit 0");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("args=[--dialog-run]");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("env=explicit");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("override=file");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-cwd")).toContainText(`${copy}/src`);
 
     fs.mkdirSync(screenshots, { recursive: true });
+    await page.getByTestId("bottom-tab-run").click();
     await page.getByTestId("run-log").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "15-run-config-output.png") });
 

@@ -24,6 +24,7 @@ import {
   type GutterAction,
 } from "./codeNavigation";
 import { ProblemsPanel, withLocalEdits } from "./ProblemsPanel";
+import { RunPanel } from "./RunPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
 import {
   TestsPanel,
@@ -2478,7 +2479,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       });
       return;
     }
-    setBottomTab("build");
+    setBottomTab("run");
     try {
       onSnapshot(
         await call<Snapshot>("run.start", {
@@ -3636,6 +3637,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   function renderBottomContent() {
     switch (bottomTab) {
+      case "run":
+        return <RunPanel run={run} onCancelRun={() => void cancelRun()} />;
       case "build":
         return (
           <BuildPanel
@@ -3645,7 +3648,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             dirtyCount={dirtyCount}
             runDisabledReason={runDisabledReason}
             onRun={requestRun}
-            onCancelRun={() => void cancelRun()}
             onSaveAndRebuild={() => void saveAllAndRebuild()}
             evaluation={evaluation}
             startupPath={startupProject?.path ?? null}

@@ -2669,3 +2669,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .workspace-tools-body { display: grid; gap: 8px; padding: 8px 12px; align-content: start; }
 .trust-banner { padding: 4px 12px; }
 .trust-banner .notice-dismiss { float: none; margin-left: 0; }
+
+/* Run tool window: output first, the run head stays on one line. */
+.run-window { display: grid; gap: 6px; padding: 8px; align-content: start; min-height: 0; }
+.run-window-head { display: flex; align-items: center; gap: 8px; }

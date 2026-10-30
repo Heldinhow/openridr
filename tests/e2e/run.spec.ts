@@ -71,10 +71,13 @@ async function build(page: Page) {
 
 async function run(page: Page) {
   await expect(page.getByTestId("run-action")).toBeEnabled();
+  await page.getByTestId("bottom-tab-build").click();
   await page.getByTestId("run-action").click();
+  await page.getByTestId("bottom-tab-run").click();
   await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
     timeout: 15_000,
   }).toMatch(/Running|Run exited/);
+  await page.getByTestId("bottom-tab-run").click();
   await expect(page.getByTestId("run-state")).toContainText("Run exited", {
     timeout: 30_000,
   });
@@ -125,8 +128,11 @@ test("a real run shows the saved build output and refuses a source saved after t
     await build(page);
     const buildId = (await page.getByTestId("build-id").textContent()) ?? "";
     await run(page);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toContainText("exit 0");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("Order A-104:");
+    await page.getByTestId("bottom-tab-run").click();
     await expect.poll(() => page.getByTestId("run-log").evaluate((element) => {
       const panel = element.closest(".panel-body");
       if (!panel) return false;
@@ -134,7 +140,9 @@ test("a real run shows the saved build output and refuses a source saved after t
       const viewport = panel.getBoundingClientRect();
       return content.top < viewport.bottom && content.bottom > viewport.top;
     })).toBe(true);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-build-id")).toContainText(buildId.split("·")[0].trim());
+    await page.getByTestId("bottom-tab-run").click();
     const command = page.getByTestId("run-command");
     await expect(command).toContainText("OrderDesk.Cli.dll");
     await expect(command).toContainText(longArgument);
@@ -142,8 +150,11 @@ test("a real run shows the saved build output and refuses a source saved after t
     await expect(command).toHaveCSS("user-select", "text");
     await expect(command).toHaveCSS("overflow", "auto");
     expect(await command.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-cwd")).toContainText("Order Desk run/src/OrderDesk.Cli");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-identity")).toContainText("OrderDesk.Cli.dll");
+    await page.getByTestId("bottom-tab-run").click();
     await page.getByTestId("run-log").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "12-run-log.png") });
 
@@ -158,20 +169,27 @@ test("a real run shows the saved build output and refuses a source saved after t
     await expect(page.getByTestId("run-dirty-warning")).toContainText(
       "Running the saved build; 1 unsaved buffer is not included",
     );
+    await page.getByTestId("bottom-tab-run").click();
     const firstRun = (await page.getByTestId("run-identity").textContent()) ?? "";
+    await page.getByTestId("bottom-tab-build").click();
     await page.getByTestId("run-action").click();
     await expect(page.getByTestId("run-dirty-dialog")).toBeVisible();
     await page.getByTestId("run-dirty-dialog").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "12-run-dirty.png") });
     await page.getByTestId("run-saved-build").click();
+    await page.getByTestId("bottom-tab-run").click();
     await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
       timeout: 15_000,
     }).toMatch(/Running|Run exited/);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toContainText("Run exited", {
       timeout: 30_000,
     });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-identity")).not.toHaveText(firstRun);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("Order A-104:");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).not.toContainText("Order B-777");
 
     // Saved after the build: Run is blocked until a rebuild, with the reason visible.
@@ -193,19 +211,26 @@ test("a real run shows the saved build output and refuses a source saved after t
     await build(page);
     await expect(page.getByTestId("run-action")).toBeEnabled();
     await run(page);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("Order B-777:");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).not.toContainText("Order A-104:");
 
     // Ctrl+R uses the same gate and launches the saved build.
+    await page.getByTestId("bottom-tab-run").click();
     const beforeShortcut = (await page.getByTestId("run-identity").textContent()) ?? "";
     await page.keyboard.press("Control+R");
+    await page.getByTestId("bottom-tab-run").click();
     await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
       timeout: 15_000,
     }).toMatch(/Running|Run exited/);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toContainText("Run exited", {
       timeout: 30_000,
     });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-identity")).not.toHaveText(beforeShortcut);
+    await page.getByTestId("bottom-tab-run").click();
     await page.getByTestId("run-log").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "12-run-rebuilt.png") });
   } finally {
@@ -237,23 +262,34 @@ test("stopping a real long-running program reports requested and observed termin
     await build(page);
     fs.mkdirSync(screenshots, { recursive: true });
 
+    await page.getByTestId("bottom-tab-build").click();
     await page.getByTestId("run-action").click();
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toContainText("Running", {
       timeout: 15_000,
     });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("long-running");
 
+    await page.getByTestId("bottom-tab-run").click();
     await page.getByTestId("run-stop").click();
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-state")).toContainText("Run cancelled", {
       timeout: 15_000,
     });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-termination")).toContainText(
       "Termination requested: SIGTERM",
     );
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-termination")).toContainText("Observed: exited");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-exit")).toHaveText(/^exit (unknown|-?\d+)$/);
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("long-running");
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-stop")).toHaveCount(0);
+    await page.getByTestId("bottom-tab-run").click();
     await page.getByTestId("run-termination").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "12-run-cancelled.png") });
   } finally {
@@ -267,6 +303,7 @@ test("one click on Run restores, builds and shows the program output", async ({ 
     await openTrustedEvaluated(page, path.join(copy, "OrderDesk.sln"));
     // aria-disabled (blocked but clickable) fails Playwright's enabled check, so force it.
     await page.getByTestId("toolbar-run").click({ force: true });
+    await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("Order A-104", { timeout: 120_000 });
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
