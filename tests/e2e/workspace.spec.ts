@@ -535,3 +535,20 @@ test("direct host calls fail before trust and reject paths outside the workspace
 
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
+
+test("toolbar dropdowns are not clipped by the 44px bar", async ({ page }) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await page.getByTestId("trust-prompt-open").click();
+  const grant = page.getByTestId("trust-grant");
+  await expect(grant).toBeVisible();
+  // elementFromPoint at the button centre is the button itself only if nothing clips or covers it.
+  const hit = await grant.evaluate((button) => {
+    const box = button.getBoundingClientRect();
+    return button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+  });
+  expect(hit).toBe(true);
+  // An outside click closes the dropdown.
+  await page.getByTestId("tree").click({ position: { x: 5, y: 5 } });
+  await expect(grant).toBeHidden();
+});

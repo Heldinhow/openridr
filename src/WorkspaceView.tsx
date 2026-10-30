@@ -375,6 +375,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const outputHeight = layout.bottom.size;
   const panelBodyRef = useRef<HTMLDivElement>(null);
   const trustMenuRef = useRef<HTMLDetailsElement>(null);
+  // Toolbar dropdowns are <details>: close them on an outside click and when trust changes.
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      document.querySelectorAll<HTMLDetailsElement>("details.toolbar-menu[open]").forEach((menu) => {
+        if (!menu.contains(event.target as Node)) menu.open = false;
+      });
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
+  useEffect(() => {
+    if (trustMenuRef.current) trustMenuRef.current.open = false;
+  }, [snapshot.trust.granted]);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
