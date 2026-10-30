@@ -188,6 +188,10 @@ test("Git review keeps long diffs, paths, log metadata and commit feedback reada
   expect(await diffText.evaluate((element) => element.scrollWidth)).toBeGreaterThan(
     await diffText.evaluate((element) => element.clientWidth),
   );
+  // Each side keeps its whole line: a cell never overflows its own column under the other one.
+  for (const cell of [diffText.locator(".split-del").first(), diffText.locator(".split-add").first()]) {
+    expect(await cell.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
   await diff.getByRole("button", { name: "Close diff" }).click();
 
   await page.getByTestId("commit-message").fill("Readable commit result");

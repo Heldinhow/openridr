@@ -2598,7 +2598,8 @@ button.primary:hover:not(:disabled) { background: #4a85f5; border-color: #4a85f5
 .process-finished { margin: 8px 0 0; font: 13px var(--mono); color: var(--muted); }
 
 /* Side-by-side commit diff: one grid shared by every row keeps the old | new columns aligned. */
-.commit-diff-split { display: grid; grid-template-columns: minmax(50%, max-content) minmax(50%, max-content); align-content: start; }
+/* Columns never shrink below their content: long lines scroll the <pre> instead of hiding under the other column. */
+.commit-diff-split { display: grid; grid-template-columns: repeat(2, minmax(max-content, 1fr)); align-content: start; }
 .commit-diff-split .split-head { grid-column: 1 / -1; color: var(--muted); }
 .commit-diff-split .split-cell { padding: 0 6px; }
 .commit-diff-split .split-del { background: #5a2d33; }
