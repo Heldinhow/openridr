@@ -67,6 +67,11 @@ import {
 } from "./git";
 import { NuGetPanel } from "./NuGetPanel";
 import {
+  cancelRestore as restoreCancel,
+  startRestore as restoreStart,
+  type RestoreReporter,
+} from "./restoreCommands";
+import {
   chordPrefixFor,
   chordTarget,
   defaultSettings,
@@ -2303,22 +2308,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     void openFile(projectSdk.globalJsonPath ?? "global.json");
   }
 
-  async function startRestore(method: "restore.start" | "restore.retry", project?: string) {
-    try {
-      onSnapshot(await call<Snapshot>(method, project ? { project } : {}));
-      setMessage(null);
-    } catch (error) {
-      setMessage({ tone: "error", text: `Restore could not start: ${messageOf(error)}` });
-    }
-  }
-
-  async function cancelRestore() {
-    try {
-      onSnapshot(await call<Snapshot>("restore.cancel"));
-    } catch (error) {
-      setMessage({ tone: "error", text: `Restore cancellation failed: ${messageOf(error)}` });
-    }
-  }
+  const restoreReporter: RestoreReporter = { onSnapshot, setMessage };
+  const startRestore = (method: "restore.start" | "restore.retry", project?: string) =>
+    restoreStart(restoreReporter, method, project);
+  const cancelRestore = () => restoreCancel(restoreReporter);
 
   async function startBuild(savedNote: string, requestedConfig?: RunConfig | null): Promise<boolean> {
     const project = requestedConfig
