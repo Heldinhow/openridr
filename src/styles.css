@@ -2678,3 +2678,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 /* Tests: the tree sits right under the controls; discovery metadata folds below it. */
 .build-panel[data-testid="tests-panel"] > .build-context-details { order: 3; }
 .build-panel[data-testid="tests-panel"] { gap: 4px; }
+
+/* xterm owns the screen: it fills the output area and keeps its own scrollback. */
+.terminal-screen { white-space: normal; overflow: hidden; padding: 4px 6px; }
+.terminal-screen .xterm { height: 100%; }

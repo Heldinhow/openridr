@@ -342,3 +342,11 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 
 - `terminal.read {since}` devolve `{revision, chunk: {from, end, truncated, bytes}}` com os bytes do PTY exatamente como escritos (sem `strip_ansi`, sem corte de 4.000 linhas). Buffer de 1 MiB; o que cai antes do offset vem com `truncated: true`. Offsets valem por `revision`. Leitura é somente-leitura, como `terminal.state`.
 - `bytes` vai como array JSON de inteiros (sem dependência nova). Upgrade para base64 se a vazão incomodar.
+
+## 2026-10-30 — Terminal interativo com xterm.js (dependência aprovada)
+
+- **Dependência nova aprovada pelo mantenedor:** `@xterm/xterm` e `@xterm/addon-fit` (emulador de terminal no navegador/WKWebView, sem canvas addon). Candidata registrada em `research/03`; nenhuma outra biblioteca de terminal entra.
+- O terminal abre sozinho com prompt quando o workspace está Trusted e o shell ainda não existe (uma vez por contexto). Restricted não inicia shell.
+- A tela renderiza os bytes crus de `terminal.read` (fatia 06). Digitação vai direto ao PTY (`terminal.write`, em fila, ordem preservada). Resize do painel vai para `terminal.resize`.
+- **Testids:** `terminal-output` passa a ser o elemento do xterm (mesmo id, mesmo papel de saída). `terminal-input`/`terminal-send` ficam como **espelho de acessibilidade**: uma linha digitada e enviada com Enter, como antes. Nenhum testid foi renomeado ou removido.
+- **Não verificado:** latência de eco abaixo de 100 ms (o teste E2E não mede tempo); comportamento de IME e clipboard no WKWebView do app empacotado.
