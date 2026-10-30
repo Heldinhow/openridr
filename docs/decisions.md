@@ -350,3 +350,9 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 - A tela renderiza os bytes crus de `terminal.read` (fatia 06). Digitação vai direto ao PTY (`terminal.write`, em fila, ordem preservada). Resize do painel vai para `terminal.resize`.
 - **Testids:** `terminal-output` passa a ser o elemento do xterm (mesmo id, mesmo papel de saída). `terminal-input`/`terminal-send` ficam como **espelho de acessibilidade**: uma linha digitada e enviada com Enter, como antes. Nenhum testid foi renomeado ou removido.
 - **Não verificado:** latência de eco abaixo de 100 ms (o teste E2E não mede tempo); comportamento de IME e clipboard no WKWebView do app empacotado.
+
+## 2026-10-30 — App local instalável (uso pessoal)
+
+- O bundle `.app` é gerado por `bun run app:install` (`scripts/install-app.sh`) e copiado para `/Applications/OpenRidr.app`. `bundle.active` passa a `true`, com target `app`.
+- Assinatura ad-hoc, sem notarização. Ícone provisório: o PNG já existente no repositório. Procedimento e aviso do Gatekeeper em `docs/install-app.md`.
+- Atualizar = rodar o comando de novo após subir a versão. Nada é instalado em `~/Library` ou fora de `/Applications`.

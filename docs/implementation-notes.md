@@ -438,3 +438,10 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 - Não verificados após as últimas mudanças: suíte completa e bundle Tauri atualizados. O bundle anterior abriu na tela inicial e detectou o SDK; a árvore AX não expôs os controles WebKit para interação. Windows e macOS Intel não foram executados.
 
 - Suíte Playwright completa após Git (rótulos HEAD/índice/trabalho), busca (prévia abaixo da lista) e terminal compacto: 101/101 (macOS ARM64, SDK 8.0.408, netcoredbg e csharp-ls reais). Bundle Tauri e Windows/macOS Intel seguem não verificados quanto à interação.
+
+## Fase 1 — fluxo sem atrito (verificação)
+
+- **Verificado:** build do bundle `.app` e instalação em `/Applications`; o app inicia e fica em execução (processo confirmado e encerrado).
+- **Não verificado:** smoke manual do app empacotado (abrir, Run com saída, Debug até o breakpoint, terminal). A janela Tauri nativa não é automatizável nesta sessão; os mesmos fluxos estão cobertos pelos specs E2E contra o host real na UI do navegador.
+- **Não verificado:** eco do terminal abaixo de 100 ms; IME e clipboard no WKWebView.
+- **Não verificado:** specs `csharp-ls` de renomear e de ações de código (timeouts também no branch base); journey `zz-acceptance` completa (passa até a etapa do csharp-ls, que não fica pronto neste ambiente).
