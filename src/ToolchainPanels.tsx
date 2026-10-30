@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { call, HostCallError, type Snapshot } from "./host/client";
 
 function messageOf(error: unknown) {
@@ -62,6 +62,12 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
+  const planRef = useRef<HTMLDetailsElement>(null);
+  const [reviews, setReviews] = useState(0);
+  // Each review scrolls the plan to the top of the drawer so its fields and Confirm read together.
+  useEffect(() => {
+    if (reviews > 0) planRef.current?.scrollIntoView({ block: "start" });
+  }, [reviews]);
 
   const disabledReason = !trusted
     ? "Trust the workspace before installing a tool; trust and installation are separate decisions."
@@ -111,7 +117,9 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
             disabled={busy}
             onClick={() => {
               setPlanOpen(true);
-              void run(() => call<Snapshot>("tools.plan", { tool: "csharp-ls" }));
+              void run(() => call<Snapshot>("tools.plan", { tool: "csharp-ls" })).then(() =>
+                setReviews((count) => count + 1),
+              );
             }}
             title="Shows the exact version, source, platform, destination, command and permissions. It does not download or execute anything."
           >
@@ -197,6 +205,7 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
         <details
           className="eval-log analysis-plan"
           data-testid="install-plan"
+          ref={planRef}
           open={planOpen}
           onToggle={(event) => setPlanOpen(event.currentTarget.open)}
         >
