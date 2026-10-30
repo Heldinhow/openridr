@@ -612,6 +612,17 @@ export type DapScope = {
 
 export type DapLocals = { frameId: number; scopes: DapScope[] };
 
+/** Result of an expression evaluated in the current pause. */
+export type DapEvaluation = {
+  expression: string;
+  value: string | null;
+  typeName: string | null;
+  variablesReference: number;
+  error: string | null;
+};
+
+export type DapWatch = { expression: string; result: DapEvaluation | null };
+
 /** Children of one expanded variable, valid only for the pause that produced them. */
 export type DapChildren = {
   variablesReference: number;
@@ -651,6 +662,8 @@ export type Dap = {
   selectedFrameId: number | null;
   locals: DapLocals | null;
   children: DapChildren[];
+  evaluation: DapEvaluation | null;
+  watches: DapWatch[];
   stopGeneration: number;
   selectedThreadId: number | null;
   stopped: null | { reason: string; threadId: number | null; allThreadsStopped: boolean };

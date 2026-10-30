@@ -114,6 +114,25 @@ pub struct VariableView {
     pub variables_reference: i64,
 }
 
+/// The result of one expression evaluated in the current pause (typed or a watch).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvaluationView {
+    pub expression: String,
+    pub value: Option<String>,
+    pub type_name: Option<String>,
+    pub variables_reference: i64,
+    pub error: Option<String>,
+}
+
+/// A watch expression: kept across pauses, evaluated once per pause.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchView {
+    pub expression: String,
+    pub result: Option<EvaluationView>,
+}
+
 /// The children of one expandable variable, fetched for the current stop generation only.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -199,6 +218,8 @@ pub struct DapView {
     pub selected_thread_id: Option<i64>,
     pub locals: Option<LocalsView>,
     pub children: Vec<ChildrenView>,
+    pub evaluation: Option<EvaluationView>,
+    pub watches: Vec<WatchView>,
     /// Increments on every stop and resume; the UI keys pause-scoped state by it.
     pub stop_generation: u64,
     pub stopped: Option<StoppedView>,
@@ -267,6 +288,12 @@ struct Data {
     /// Expanded children keyed by `variablesReference`, valid only for `children_stop_seq`.
     children: BTreeMap<i64, ChildrenView>,
     children_stop_seq: u64,
+    /// Last typed evaluation, valid only for the pause in which it ran.
+    evaluation: Option<(u64, EvaluationView)>,
+    /// Watch expressions survive pauses; their results belong to `watch_stop_seq`.
+    watches: Vec<String>,
+    watch_results: Vec<EvaluationView>,
+    watch_stop_seq: u64,
     breakpoints: BTreeMap<String, Vec<BreakpointView>>,
     terminals: Vec<TerminalView>,
     terminal_ids: Vec<u64>,
@@ -399,6 +426,10 @@ impl Dap {
                 adapter_capabilities: BTreeMap::new(),
                 children: BTreeMap::new(),
                 children_stop_seq: 0,
+                evaluation: None,
+                watches: Vec::new(),
+                watch_results: Vec::new(),
+                watch_stop_seq: 0,
                 selected_thread_id: None,
                 configuration_done: false,
                 cleanup_started: false,
@@ -525,6 +556,10 @@ impl Dap {
                 adapter_capabilities: BTreeMap::new(),
                 children: BTreeMap::new(),
                 children_stop_seq: 0,
+                evaluation: None,
+                watches: Vec::new(),
+                watch_results: Vec::new(),
+                watch_stop_seq: 0,
                 selected_thread_id: None,
                 configuration_done: false,
                 cleanup_started: false,
@@ -623,6 +658,24 @@ impl Dap {
             } else {
                 Vec::new()
             },
+            evaluation: data
+                .evaluation
+                .clone()
+                .filter(|(stop, _)| *stop == data.stop_seq)
+                .map(|(_, result)| result),
+            watches: data
+                .watches
+                .iter()
+                .map(|expression| WatchView {
+                    expression: expression.clone(),
+                    result: data
+                        .watch_results
+                        .iter()
+                        .find(|result| result.expression == *expression)
+                        .filter(|_| data.watch_stop_seq == data.stop_seq)
+                        .cloned(),
+                })
+                .collect(),
             stop_generation: data.stop_seq,
             stopped: data.stopped.clone(),
             breakpoints: data
@@ -1189,6 +1242,7 @@ impl Dap {
         if let Some(frame) = top_frame {
             let _ = self.load_locals_for(frame.id, session, stop_seq);
         }
+        self.refresh_watches(session, stop_seq);
         let mut data = self.data.lock().unwrap();
         if data.session == session && data.stop_seq == stop_seq && !data.sealed {
             data.phase = format!(
@@ -1224,6 +1278,112 @@ impl Dap {
         };
         self.load_pause(session, stop_seq, Some(thread_id));
         Ok(())
+    }
+
+    /// Evaluates an expression in the selected frame of the current pause. The result is kept
+    /// only for this pause; a late answer after a stop or resume is refused.
+    pub fn evaluate(&self, expression: &str) -> HostResult<()> {
+        let expression = expression.trim();
+        if expression.is_empty() {
+            return Err(HostError::new("invalid_state", "The expression is empty."));
+        }
+        let (session, stop_seq, frame_id) = self.paused_context("Expressions")?;
+        let result = self.evaluate_in(expression, frame_id, "repl");
+        let mut data = self.data.lock().unwrap();
+        if data.session != session || data.stop_seq != stop_seq || data.sealed {
+            return Err(HostError::new(
+                "stale_context",
+                "An evaluation from an older pause was discarded.",
+            ));
+        }
+        data.evaluation = Some((stop_seq, result));
+        Ok(())
+    }
+
+    /// Adds a watch and, when paused, evaluates it right away.
+    pub fn add_watch(&self, expression: &str) -> HostResult<()> {
+        let expression = expression.trim().to_string();
+        if expression.is_empty() {
+            return Err(HostError::new("invalid_state", "The watch expression is empty."));
+        }
+        {
+            let mut data = self.data.lock().unwrap();
+            if !data.watches.contains(&expression) {
+                data.watches.push(expression);
+            }
+        }
+        let paused = {
+            let data = self.data.lock().unwrap();
+            (data.state == "paused" && !data.sealed).then_some((data.session, data.stop_seq))
+        };
+        if let Some((session, stop_seq)) = paused {
+            self.refresh_watches(session, stop_seq);
+        }
+        Ok(())
+    }
+
+    pub fn remove_watch(&self, expression: &str) {
+        let mut data = self.data.lock().unwrap();
+        data.watches.retain(|watch| watch != expression);
+        data.watch_results.retain(|result| result.expression != expression);
+    }
+
+    /// Evaluates every watch against the top frame of the current pause.
+    fn refresh_watches(&self, session: u64, stop_seq: u64) {
+        let (expressions, frame_id) = {
+            let data = self.data.lock().unwrap();
+            (data.watches.clone(), data.frames.first().map(|frame| frame.id))
+        };
+        let results: Vec<EvaluationView> = expressions
+            .iter()
+            .map(|expression| self.evaluate_in(expression, frame_id, "watch"))
+            .collect();
+        let mut data = self.data.lock().unwrap();
+        if data.session != session || data.stop_seq != stop_seq || data.sealed {
+            data.log
+                .push("[dap] late watches discarded (old stop generation)".to_string());
+            return;
+        }
+        data.watch_results = results;
+        data.watch_stop_seq = stop_seq;
+    }
+
+    /// Session, stop generation and selected frame, only while the debuggee is paused.
+    fn paused_context(&self, what: &str) -> HostResult<(u64, u64, Option<i64>)> {
+        let data = self.data.lock().unwrap();
+        if data.state != "paused" || data.sealed {
+            return Err(HostError::new(
+                "invalid_state",
+                format!("{what} can be evaluated only while the debuggee is paused."),
+            ));
+        }
+        Ok((data.session, data.stop_seq, data.selected_frame_id))
+    }
+
+    fn evaluate_in(&self, expression: &str, frame_id: Option<i64>, context: &str) -> EvaluationView {
+        let mut params = json!({ "expression": expression, "context": context });
+        if let Some(frame) = frame_id {
+            params["frameId"] = json!(frame);
+        }
+        match self.request("evaluate", params, REQUEST_TIMEOUT) {
+            Ok(body) => EvaluationView {
+                expression: expression.to_string(),
+                value: body.get("result").and_then(Value::as_str).map(str::to_string),
+                type_name: body.get("type").and_then(Value::as_str).map(str::to_string),
+                variables_reference: body
+                    .get("variablesReference")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0),
+                error: None,
+            },
+            Err(error) => EvaluationView {
+                expression: expression.to_string(),
+                value: None,
+                type_name: None,
+                variables_reference: 0,
+                error: Some(error.to_string()),
+            },
+        }
     }
 
     /// Fetches scopes/variables for one frame of the current pause. A frame from an older stop

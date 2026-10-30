@@ -1,3 +1,4 @@
+import { DebugEvaluate } from "./DebugEvaluate";
 import { DebugVariable } from "./DebugVariable";
 import { Icon } from "./Icon";
 import { useState } from "react";
@@ -317,6 +318,23 @@ export function DebugPanel({
           </dd>
         </dl>
       </details>
+
+      <DebugEvaluate
+        paused={paused}
+        evaluation={dap.evaluation}
+        watches={dap.watches}
+        expansions={dap.children}
+        onEvaluate={(expression) =>
+          void invoke("Evaluate", "debug.evaluate", { expression })
+        }
+        onAddWatch={(expression) => void invoke("Add watch", "debug.addWatch", { expression })}
+        onRemoveWatch={(expression) =>
+          void invoke("Remove watch", "debug.removeWatch", { expression })
+        }
+        onExpand={(variablesReference) =>
+          void invoke("Expand variable", "debug.children", { variablesReference })
+        }
+      />
 
       <section aria-label="Breakpoints" data-testid="debug-breakpoints">
         <h3>Breakpoints</h3>

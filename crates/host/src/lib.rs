@@ -78,6 +78,9 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.variables",
     "debug.children",
     "debug.selectThread",
+    "debug.evaluate",
+    "debug.addWatch",
+    "debug.removeWatch",
     "tests.discover",
     "tests.run",
     "processes.probe",
@@ -474,6 +477,15 @@ impl Host {
         }
         if method == "debug.selectThread" {
             return self.debug_select_thread(params);
+        }
+        if method == "debug.evaluate" {
+            return self.debug_evaluate(params);
+        }
+        if method == "debug.addWatch" {
+            return self.debug_watch(params, true);
+        }
+        if method == "debug.removeWatch" {
+            return self.debug_watch(params, false);
         }
         if method == "lsp.start" {
             return self.start_lsp(params);
@@ -3277,6 +3289,29 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let dap = inner.dap.clone();
         dap.load_locals(frame_id)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_evaluate(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.evaluate")?;
+        let expression = required_str(&params, "expression")?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        dap.evaluate(&expression)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_watch(&self, params: Value, add: bool) -> HostResult<Value> {
+        let method = if add { "debug.addWatch" } else { "debug.removeWatch" };
+        let _token = self.require_trust(method)?;
+        let expression = required_str(&params, "expression")?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        if add {
+            dap.add_watch(&expression)?;
+        } else {
+            dap.remove_watch(&expression);
+        }
         Ok(self.snapshot_value(&mut inner))
     }
 

@@ -436,6 +436,20 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.getByTestId("debug-locals")).toContainText("Id", { timeout: 15_000 });
     await expect(page.getByTestId("debug-locals")).toContainText("A-104");
     await expect(orderToggle).toHaveAttribute("aria-expanded", "true");
+
+    // Typed expressions run in the selected frame; an invalid one shows the adapter's message.
+    await page.getByTestId("debug-evaluate-input").fill("order.Total");
+    await page.getByTestId("debug-evaluate-run").click();
+    await expect(page.getByTestId("debug-evaluate-result")).toContainText("42", { timeout: 15_000 });
+    await page.getByTestId("debug-evaluate-input").fill("notAName");
+    await page.getByTestId("debug-evaluate-run").click();
+    await expect(page.getByTestId("debug-evaluate-result").locator(".warning")).toBeVisible({
+      timeout: 15_000,
+    });
+    // A watch is kept and evaluated against the current pause.
+    await page.getByTestId("debug-watch-input").fill("order.Id");
+    await page.getByTestId("debug-watch-add").click();
+    await expect(page.getByTestId("debug-watch-0")).toContainText("A-104", { timeout: 15_000 });
     await page.screenshot({ path: path.join(screenshots, "14-dap-stepped.png"), fullPage: true });
 
     // Continue runs to the real exit; the exit code is observed, not assumed.
