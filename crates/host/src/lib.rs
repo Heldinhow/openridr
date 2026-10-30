@@ -81,6 +81,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.evaluate",
     "debug.addWatch",
     "debug.removeWatch",
+    "debug.pause",
     "tests.discover",
     "tests.run",
     "processes.probe",
@@ -477,6 +478,9 @@ impl Host {
         }
         if method == "debug.selectThread" {
             return self.debug_select_thread(params);
+        }
+        if method == "debug.pause" {
+            return self.control_debug("pause");
         }
         if method == "debug.evaluate" {
             return self.debug_evaluate(params);
@@ -3240,6 +3244,7 @@ impl Host {
             "stepOver" => dap.step_over()?,
             "stepInto" => dap.step_into()?,
             "stepOut" => dap.step_out()?,
+            "pause" => dap.pause()?,
             _ => {
                 return Err(HostError::new("invalid_state", "Unknown debug action."));
             }

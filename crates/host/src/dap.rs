@@ -1550,6 +1550,36 @@ impl Dap {
         self.resume("stepOut")
     }
 
+    /// Asks the adapter to stop a running debuggee. Nothing is marked as paused here: the
+    /// `stopped` event that follows is the only thing that starts a pause.
+    pub fn pause(&self) -> HostResult<()> {
+        {
+            let data = self.data.lock().unwrap();
+            if data.state != "running" || data.sealed {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "Pause is available only while the debuggee is running.",
+                ));
+            }
+        }
+        // netcoredbg refuses `pause` for a thread id it has not reported (E_FAIL), and the
+        // host only learns thread ids at a pause. Ask the adapter for the live ones now.
+        let thread_id = self
+            .request("threads", json!({}), REQUEST_TIMEOUT)
+            .ok()
+            .map(|body| parse_threads(&body))
+            .and_then(|threads| threads.first().map(|thread| thread.id))
+            .unwrap_or(1);
+        self.request("pause", json!({ "threadId": thread_id }), REQUEST_TIMEOUT)
+            .map(|_| ())
+            .map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!("The adapter refused pause: {error}"),
+                )
+            })
+    }
+
     fn resume(&self, command: &str) -> HostResult<()> {
         let thread_id = {
             let data = self.data.lock().unwrap();

@@ -23,7 +23,9 @@ export type IconName =
   | "resume"
   | "stepOver"
   | "stepInto"
-  | "stepOut";
+  | "stepOut"
+  | "pause"
+  | "restart";
 
 export function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, string> = {
@@ -52,6 +54,8 @@ export function Icon({ name }: { name: IconName }) {
     stepInto: "M12 3v13m-5-5 5 5 5-5M5 21h14",
     stepOut: "M12 17V4m-5 5 5-5 5 5M5 21h14",
     runconfig: "M4 7h6m4 0h6M4 17h10m4 0h2M12 4v6M18 14v6",
+    pause: "M8 5v14M16 5v14",
+    restart: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5",
   };
   return <svg className={`icon icon-${name}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }

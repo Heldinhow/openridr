@@ -2693,6 +2693,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       openRunConfigDialog(activeRunConfig?.id);
       return;
     }
+    await requestDebugStart();
+  }
+
+  // Restart calls this directly: the guards in startDebug read the render that still shows the stopped-by-restart session.
+  async function requestDebugStart() {
     setBottomTab("debug");
     try {
       onSnapshot(await call<Snapshot>("debug.start", debugStartParams()));
@@ -2740,7 +2745,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  async function debugAction(method: "debug.continue" | "debug.stepOver" | "debug.stepInto") {
+  async function restartDebug() {
+    await stopDebug();
+    await requestDebugStart();
+  }
+
+  async function debugAction(
+    method: "debug.continue" | "debug.pause" | "debug.stepOver" | "debug.stepInto" | "debug.stepOut",
+  ) {
     try {
       onSnapshot(await call<Snapshot>(method));
     } catch (error) {
@@ -2942,6 +2954,40 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         if (dap.state === "paused") void debugAction("debug.stepInto");
       },
       disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.continue",
+      title: "Resume",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "paused") void debugAction("debug.continue");
+      },
+      disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.stepOut",
+      title: "Step Out",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "paused") void debugAction("debug.stepOut");
+      },
+      disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.pause",
+      title: "Pause",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "running") void debugAction("debug.pause");
+      },
+      disabledReason: dap.state === "running" ? null : "The debuggee is not running.",
+    }),
+    define({
+      id: "debug.stop",
+      title: "Stop Debugging",
+      group: "Debug",
+      execute: () => void stopDebug(),
+      disabledReason: debugActive ? null : "No debug session to stop.",
     }),
     define({
       id: "debug.toggleBreakpoint",
@@ -3615,6 +3661,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               onLaunch={() => void startDebug()}
               onSnapshot={onSnapshot}
               onError={(text) => setMessage({ tone: "error", text })}
+              onRestart={() => void restartDebug()}
               onOpenFrame={(path, line) => void navigateTo(path, { line: line - 1, character: 0 })}
             />
           </div>

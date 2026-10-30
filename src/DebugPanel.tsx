@@ -17,6 +17,8 @@ type Props = {
   onError: (message: string) => void;
   /** Opens a frame's source at its 1-based DAP line in the editor. */
   onOpenFrame: (path: string, line: number) => void;
+  /** Stops the session and starts it again with the active run configuration. */
+  onRestart: () => void;
 };
 
 function messageOf(error: unknown): string {
@@ -41,7 +43,10 @@ export function DebugPanel({
   onSnapshot,
   onError,
   onOpenFrame,
+  onRestart,
 }: Props) {
+  const stopKey = snapshot.app.platform === "windows" ? "Ctrl+F2" : "⌘F2";
+  const stepOutKey = snapshot.app.platform === "windows" ? "Shift+F8" : "⇧F8";
   const dap = snapshot.dap;
   const [busy, setBusy] = useState<string | null>(null);
   const [logTab, setLogTab] = useState<"console" | "output">("console");
@@ -103,9 +108,33 @@ export function DebugPanel({
             aria-label="Stop"
             disabled={busy !== null}
             onClick={() => void invoke("Debug stop", "debug.stop")}
-            title="Sends DAP disconnect, terminates the adapter group and reports what was observed; no cleanup is presumed."
+            title={`Stop (${stopKey}). Sends DAP disconnect, terminates the adapter group and reports what was observed; no cleanup is presumed.`}
           >
             <Icon name="stop" />
+          </button>
+        )}
+        {active && (
+          <button
+            data-testid="debug-restart"
+            className="toolbar-icon-button"
+            aria-label="Restart"
+            disabled={busy !== null}
+            onClick={onRestart}
+            title="Stops the session and starts it again with the active run configuration."
+          >
+            <Icon name="restart" />
+          </button>
+        )}
+        {dap.state === "running" && (
+          <button
+            data-testid="debug-pause"
+            className="toolbar-icon-button"
+            aria-label="Pause"
+            disabled={busy !== null}
+            onClick={() => void invoke("Pause", "debug.pause")}
+            title="Pauses the running debuggee; the stop shows its frames and locals."
+          >
+            <Icon name="pause" />
           </button>
         )}
         {paused && (
@@ -113,10 +142,10 @@ export function DebugPanel({
             <button
               data-testid="debug-continue"
             className="toolbar-icon-button"
-            aria-label="Continue"
+            aria-label="Resume"
               disabled={busy !== null}
-              onClick={() => void invoke("Continue", "debug.continue")}
-              title="Resumes every thread (F5)."
+              onClick={() => void invoke("Resume", "debug.continue")}
+              title="Resumes every thread (F9)."
             >
               <Icon name="resume" />
             </button>
@@ -146,7 +175,7 @@ export function DebugPanel({
             aria-label="Step out"
               disabled={busy !== null}
               onClick={() => void invoke("Step out", "debug.stepOut")}
-              title="Steps out of the current function."
+              title={`Steps out of the current function (${stepOutKey}).`}
             >
               <Icon name="stepOut" />
             </button>
