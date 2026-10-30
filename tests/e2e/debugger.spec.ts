@@ -799,3 +799,84 @@ test("mute all keeps breakpoints out of the run", async ({ page, request }) => {
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("an unhandled exception stops at its origin by default", async ({ page, request }) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-unhandled-"));
+  try {
+    await prepareDebugCopy(
+      page,
+      request,
+      base,
+      [
+        "var total = 0;",
+        "total += 1;",
+        'throw new System.InvalidOperationException("boom");',
+        "",
+      ].join("\n"),
+      null,
+    );
+    await page.getByTestId("bottom-tab-debug").click();
+    await expect(page.getByTestId("debug-exceptions-thrown")).not.toBeChecked();
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    await expect(page.getByTestId("dap-log")).toContainText("reason exception");
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("thrown exceptions stop only when the filter is on", async ({ page, request }) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-thrown-"));
+  try {
+    // The exception is caught, so only the thrown filter can stop here.
+    await prepareDebugCopy(
+      page,
+      request,
+      base,
+      [
+        "var caught = 0;",
+        "try { throw new System.InvalidOperationException(\"boom\"); }",
+        "catch (System.InvalidOperationException) { caught++; }",
+        "System.Console.WriteLine(caught);",
+        "",
+      ].join("\n"),
+      null,
+    );
+    await page.getByTestId("bottom-tab-debug").click();
+    // Controlled checkbox: it shows the host state only after the answer, so wait for it.
+    await page.getByTestId("debug-exceptions-thrown").click();
+    await expect(page.getByTestId("debug-exceptions-thrown")).toBeChecked({ timeout: 15_000 });
+
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    await expect(page.getByTestId("dap-log")).toContainText("reason exception");
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("run to cursor stops on the chosen line without keeping a breakpoint", async ({ page, request }) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-run-to-"));
+  try {
+    await prepareDebugCopy(page, request, base, loopWithBreakpoint, 1);
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+
+    // Opening the top frame shows Program.cs in the editor, as the call stack does.
+    await page.getByTestId("debug-frames").getByRole("button", { name: "Program.<Main>$()" }).click();
+    // Line 6 is the WriteLine after the loop; no breakpoint is set there.
+    await page.locator(".cm-line", { hasText: "WriteLine" }).click({ timeout: 10_000 });
+    await page.keyboard.press("Alt+F9");
+    await expect(page.locator(".cm-line-current")).toContainText("WriteLine", { timeout: 60_000 });
+    await expect(page.getByTestId("dap-state")).toContainText("Paused");
+    await expect(page.getByTestId("debug-breakpoints")).not.toContainText(":6");
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});

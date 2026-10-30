@@ -157,6 +157,7 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
   "debug.continue": both([shortcut("f9")]),
   "debug.stop": both([shortcut("f2", { primary: true })]),
   "debug.stepOut": both([shortcut("f8", { shift: true })]),
+  "debug.runToCursor": both([shortcut("f9", { alt: true })]),
   "debug.stepInto": both([shortcut("f7")]),
   "debug.toggleBreakpoint": both([shortcut("f8", { primary: true })]),
   "code.goToDeclaration": {

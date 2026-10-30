@@ -324,3 +324,9 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 - Condição é gravada sem sessão e reenviada no `setBreakpoints` quando a sessão está viva. Se o adaptador anunciou `supportsConditionalBreakpoints: false`, o host recusa com `unsupported` e a UI desabilita o editor com o motivo. Antes de qualquer sessão a capability é desconhecida e o editor fica habilitado.
 - **Hit count e log message não entram.** O netcoredbg 3.2.0-1092 não anuncia `supportsHitConditionalBreakpoints` nem `supportsLogPoints` (capabilities medidas no `initialize`, ticket 01). A UI mostra essa limitação em texto, em vez de um campo que falharia. Reabrir quando um adaptador que anuncie os dois for verificado.
 - Remover pela lista reenvia a fonte sem a linha. Editar condição e mute all não mudam o formato de `debug.setBreakpoints`, que continua recebendo linhas.
+
+## 2026-10-30 — Exceções: só não tratadas por padrão; Run to Cursor é breakpoint temporário
+
+- Exception filter é `user-unhandled` por padrão. A caixa "Break on thrown exceptions" troca para `all` (filtro que o netcoredbg anuncia em `exceptionBreakpointFilters`). A escolha vive no estado do host como os breakpoints e sobrevive ao próximo launch. Se o adaptador anunciar filtros sem `all`, a caixa fica desabilitada com o motivo.
+- Run to Cursor não cria breakpoint persistente: `debug.runToCursor` guarda uma linha temporária no estado, enviada com a fonte e retirada na próxima retomada (`continue`/step). A linha nunca entra em `Data.breakpoints`, então não aparece na lista.
+- Não usa `goto`, porque netcoredbg 3.2.0-1092 não anuncia `supportsGotoTargetsRequest`.

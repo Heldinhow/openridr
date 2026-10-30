@@ -2750,6 +2750,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     await requestDebugStart();
   }
 
+  async function runToCursor() {
+    if (!active) return;
+    try {
+      onSnapshot(
+        await call<Snapshot>("debug.runToCursor", {
+          path: active.path,
+          line: cursorRef.current.line + 1,
+        }),
+      );
+    } catch (error) {
+      setMessage({ tone: "error", text: `Run to Cursor failed: ${messageOf(error)}` });
+    }
+  }
+
   async function debugAction(
     method: "debug.continue" | "debug.pause" | "debug.stepOver" | "debug.stepInto" | "debug.stepOut",
   ) {
@@ -2972,6 +2986,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         if (dap.state === "paused") void debugAction("debug.stepOut");
       },
       disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.runToCursor",
+      title: "Run to Cursor",
+      group: "Debug",
+      execute: () => void runToCursor(),
+      disabledReason:
+        dap.state !== "paused"
+          ? "No paused debug session."
+          : active?.path.endsWith(".cs")
+            ? null
+            : "Open a C# file to run to a line.",
     }),
     define({
       id: "debug.pause",

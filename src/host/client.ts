@@ -670,6 +670,8 @@ export type Dap = {
   stopped: null | { reason: string; threadId: number | null; allThreadsStopped: boolean };
   breakpoints: DapBreakpoint[];
   breakpointsMuted: boolean;
+  exceptionFilters: string[];
+  adapterExceptionFilters: string[];
   terminals: {
     processId: number;
     pid: number;

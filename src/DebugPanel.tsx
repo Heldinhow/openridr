@@ -54,6 +54,10 @@ export function DebugPanel({
   const active = dap.state === "preparing" || dap.state === "running" || dap.state === "paused";
   const paused = dap.state === "paused";
   const terminal = ["terminated", "cancelled", "failed"].includes(dap.state);
+  const exceptionDisabledReason =
+    dap.adapterExceptionFilters.length > 0 && !dap.adapterExceptionFilters.includes("all")
+      ? "The debug adapter does not offer thrown-exception breakpoints."
+      : null;
   const conditionDisabledReason =
     dap.adapterCapabilities.supportsConditionalBreakpoints === false
       ? "The debug adapter did not advertise conditional breakpoints."
@@ -392,6 +396,20 @@ export function DebugPanel({
             </button>
           )}
         </div>
+        <label className="debug-exceptions" title={exceptionDisabledReason ?? "Off: only unhandled exceptions stop. On: every thrown exception stops."}>
+          <input
+            type="checkbox"
+            data-testid="debug-exceptions-thrown"
+            checked={dap.exceptionFilters.includes("all")}
+            disabled={exceptionDisabledReason !== null || busy !== null}
+            onChange={(event) =>
+              void invoke("Exception filter", "debug.setExceptionBreakpoints", {
+                thrown: event.target.checked,
+              })
+            }
+          />{" "}
+          Break on thrown exceptions
+        </label>
         {dap.breakpoints.length === 0 ? (
           <p className="muted" data-testid="debug-breakpoints-empty">
             No breakpoints. Click the gutter marker column or press {snapshot.app.platform === "macos" ? "Cmd+F8" : "Ctrl+F8"} on a line.

@@ -55,6 +55,8 @@ pub struct Launch {
     pub breakpoints: BTreeMap<String, Vec<BreakpointView>>,
     /// Mute all set before the session started; it survives the next launch.
     pub breakpoints_muted: bool,
+    /// Exception filters chosen before the launch; they survive it too.
+    pub exception_filters: Vec<String>,
 }
 
 /// The exact `launch` request sent to the adapter: the evaluated assembly, the configured
@@ -230,6 +232,8 @@ pub struct DapView {
     pub breakpoints: Vec<BreakpointView>,
     /// Mute all: the adapter gets no breakpoints, the lines and conditions stay stored.
     pub breakpoints_muted: bool,
+    pub exception_filters: Vec<String>,
+    pub adapter_exception_filters: Vec<String>,
     pub terminals: Vec<TerminalView>,
     pub log: String,
     pub log_truncated: bool,
@@ -302,6 +306,10 @@ struct Data {
     watch_stop_seq: u64,
     breakpoints: BTreeMap<String, Vec<BreakpointView>>,
     breakpoints_muted: bool,
+    exception_filters: Vec<String>,
+    adapter_exception_filters: Vec<String>,
+    /// Run to Cursor's temporary breakpoint: sent with its source until the next resume.
+    run_to: Option<(String, i64)>,
     terminals: Vec<TerminalView>,
     terminal_ids: Vec<u64>,
 }
@@ -448,6 +456,9 @@ impl Dap {
                 locals: None,
                 breakpoints: BTreeMap::new(),
                 breakpoints_muted: false,
+                exception_filters: vec!["user-unhandled".to_string()],
+                adapter_exception_filters: Vec::new(),
+                run_to: None,
                 terminals: Vec::new(),
                 terminal_ids: Vec::new(),
             }),
@@ -578,6 +589,9 @@ impl Dap {
                 locals: None,
                 breakpoints,
                 breakpoints_muted: launch.breakpoints_muted,
+                exception_filters: launch.exception_filters.clone(),
+                adapter_exception_filters: Vec::new(),
+                run_to: None,
                 terminals: Vec::new(),
                 terminal_ids: Vec::new(),
             }),
@@ -685,6 +699,8 @@ impl Dap {
                 .flat_map(|items| items.iter().cloned())
                 .collect(),
             breakpoints_muted: data.breakpoints_muted,
+            exception_filters: data.exception_filters.clone(),
+            adapter_exception_filters: data.adapter_exception_filters.clone(),
             terminals: data.terminals.clone(),
             log,
             log_truncated,
@@ -777,8 +793,57 @@ impl Dap {
         }
     }
 
+    pub fn exception_filters(&self) -> Vec<String> {
+        self.data.lock().unwrap().exception_filters.clone()
+    }
+
+    /// Breaks on every thrown exception (`all`) or only on unhandled ones (`user-unhandled`).
+    pub fn set_thrown_exceptions(&self, thrown: bool) -> HostResult<()> {
+        let filter = if thrown { "all" } else { "user-unhandled" };
+        let offered = self.data.lock().unwrap().adapter_exception_filters.clone();
+        if !offered.is_empty() && !offered.iter().any(|item| item == filter) {
+            return Err(HostError::new(
+                "unsupported",
+                format!("The debug adapter does not offer the `{filter}` exception filter."),
+            ));
+        }
+        let mut data = self.data.lock().unwrap();
+        data.exception_filters = vec![filter.to_string()];
+        let live = matches!(data.state, "running" | "paused");
+        let filters = data.exception_filters.clone();
+        drop(data);
+        if live {
+            self.request(
+                "setExceptionBreakpoints",
+                json!({ "filters": filters }),
+                REQUEST_TIMEOUT,
+            )
+            .map_err(|error| HostError::new("operation_failed", format!("The adapter refused exception filters: {error}")))?;
+        }
+        Ok(())
+    }
+
+    /// Run to Cursor: resumes with a temporary breakpoint on `line`. It is never stored, and the
+    /// next resume takes it off the adapter.
+    pub fn run_to(&self, path: &str, line: i64) -> HostResult<()> {
+        self.resume("continue", Some((path.to_string(), line)))
+    }
+
+    /// Sends the stored breakpoints of one source again, with Run to Cursor's line if it applies.
+    fn resend_source(&self, path: &str) {
+        let entries = self
+            .data
+            .lock()
+            .unwrap()
+            .breakpoints
+            .get(path)
+            .cloned()
+            .unwrap_or_default();
+        self.send_breakpoints(path, &entries);
+    }
+
     fn send_breakpoints(&self, path: &str, entries: &[BreakpointView]) {
-        let (source, muted) = {
+        let (source, muted, run_to) = {
             let data = self.data.lock().unwrap();
             let candidate = PathBuf::from(path);
             let source = if candidate.is_absolute() {
@@ -786,9 +851,23 @@ impl Dap {
             } else {
                 data.root.join(candidate)
             };
-            (source, data.breakpoints_muted)
+            let run_to = data
+                .run_to
+                .as_ref()
+                .filter(|(target, _)| target == path)
+                .map(|(_, line)| *line);
+            (source, data.breakpoints_muted, run_to)
         };
-        let active: &[BreakpointView] = if muted { &[] } else { entries };
+        let mut active: Vec<BreakpointView> = if muted { Vec::new() } else { entries.to_vec() };
+        if let Some(line) = run_to.filter(|line| !active.iter().any(|item| item.line == *line)) {
+            active.push(BreakpointView {
+                path: path.to_string(),
+                line,
+                verified: false,
+                message: None,
+                condition: None,
+            });
+        }
         let params = json!({
             "source": { "path": source.to_string_lossy() },
             "breakpoints": active.iter().map(|item| match &item.condition {
@@ -801,6 +880,10 @@ impl Dap {
         let Ok(response) = self.request("setBreakpoints", params, REQUEST_TIMEOUT) else {
             return;
         };
+        // Muted answers list no stored breakpoint, so they cannot be matched by position.
+        if muted {
+            return;
+        }
         let Some(items) = response.get("breakpoints").and_then(Value::as_array) else {
             return;
         };
@@ -851,7 +934,18 @@ impl Dap {
             REQUEST_TIMEOUT,
         );
         match initialize {
-            Ok(body) => self.data.lock().unwrap().adapter_capabilities = adapter_flags(&body),
+            Ok(body) => {
+                let mut data = self.data.lock().unwrap();
+                data.adapter_capabilities = adapter_flags(&body);
+                data.adapter_exception_filters = body
+                    .get("exceptionBreakpointFilters")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|item| item.get("filter").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect();
+            }
             Err(error) => {
                 self.fail(format!("DAP initialize failed: {error}"));
                 return;
@@ -873,6 +967,15 @@ impl Dap {
             if !entries.is_empty() {
                 self.send_breakpoints(&path, &entries);
             }
+        }
+        let filters = self.data.lock().unwrap().exception_filters.clone();
+        if let Err(error) = self.request(
+            "setExceptionBreakpoints",
+            json!({ "filters": filters }),
+            REQUEST_TIMEOUT,
+        ) {
+            self.fail(format!("DAP setExceptionBreakpoints failed: {error}"));
+            return;
         }
         if let Err(error) = self.request("configurationDone", json!({}), REQUEST_TIMEOUT) {
             self.fail(format!("DAP configurationDone failed: {error}"));
@@ -1586,19 +1689,19 @@ impl Dap {
     }
 
     pub fn continue_(&self) -> HostResult<()> {
-        self.resume("continue")
+        self.resume("continue", None)
     }
 
     pub fn step_over(&self) -> HostResult<()> {
-        self.resume("next")
+        self.resume("next", None)
     }
 
     pub fn step_into(&self) -> HostResult<()> {
-        self.resume("stepIn")
+        self.resume("stepIn", None)
     }
 
     pub fn step_out(&self) -> HostResult<()> {
-        self.resume("stepOut")
+        self.resume("stepOut", None)
     }
 
     /// Asks the adapter to stop a running debuggee. Nothing is marked as paused here: the
@@ -1631,7 +1734,7 @@ impl Dap {
             })
     }
 
-    fn resume(&self, command: &str) -> HostResult<()> {
+    fn resume(&self, command: &str, run_to: Option<(String, i64)>) -> HostResult<()> {
         let thread_id = {
             let data = self.data.lock().unwrap();
             if data.state != "paused" || data.sealed {
@@ -1665,6 +1768,16 @@ impl Dap {
             data.phase = format!("Requested {command}; waiting for the adapter.");
             data.stop_seq
         };
+        // The previous Run to Cursor line leaves the adapter here; the new one, if any, goes on
+        // before the adapter resumes.
+        let stale = self.data.lock().unwrap().run_to.take();
+        if let Some((path, _)) = &stale {
+            self.resend_source(path);
+        }
+        if let Some((path, line)) = &run_to {
+            self.data.lock().unwrap().run_to = Some((path.clone(), *line));
+            self.resend_source(path);
+        }
         let result = self.request(command, json!({ "threadId": thread_id }), REQUEST_TIMEOUT);
         let mut data = self.data.lock().unwrap();
         if data.sealed {
@@ -2412,6 +2525,7 @@ while True:
             context_id: 1,
             breakpoints: BTreeMap::new(),
             breakpoints_muted: false,
+            exception_filters: vec!["user-unhandled".to_string()],
         };
         launch.breakpoints.insert(
             "Program.cs".to_string(),
@@ -2495,6 +2609,7 @@ while True:
             context_id: 1,
             breakpoints: BTreeMap::new(),
             breakpoints_muted: false,
+            exception_filters: vec!["user-unhandled".to_string()],
         };
         let params = launch_parameters(&launch);
         assert_eq!(params["program"], "/work/bin/App.dll");

@@ -77,6 +77,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.setBreakpoints",
     "debug.setBreakpointCondition",
     "debug.setBreakpointsMuted",
+    "debug.setExceptionBreakpoints",
+    "debug.runToCursor",
     "debug.variables",
     "debug.children",
     "debug.selectThread",
@@ -477,6 +479,12 @@ impl Host {
         }
         if method == "debug.setBreakpointsMuted" {
             return self.set_debug_breakpoints_muted(params);
+        }
+        if method == "debug.setExceptionBreakpoints" {
+            return self.set_debug_exception_breakpoints(params);
+        }
+        if method == "debug.runToCursor" {
+            return self.debug_run_to_cursor(params);
         }
         if method == "debug.variables" {
             return self.debug_variables(params);
@@ -3220,6 +3228,7 @@ impl Host {
             context_id: token.context_id,
             breakpoints: inner.dap.breakpoints(),
             breakpoints_muted: inner.dap.breakpoints_muted(),
+            exception_filters: inner.dap.exception_filters(),
         };
         let mut command = Command::new(&adapter.binary);
         command.arg("--interpreter=vscode");
@@ -3324,6 +3333,33 @@ impl Host {
             .ok_or_else(|| HostError::new("invalid_state", "muted must be a boolean."))?;
         let mut inner = self.inner.lock().unwrap();
         inner.dap.set_muted(muted);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn set_debug_exception_breakpoints(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.setExceptionBreakpoints")?;
+        let thrown = params
+            .get("thrown")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| HostError::new("invalid_state", "thrown must be a boolean."))?;
+        let mut inner = self.inner.lock().unwrap();
+        inner.dap.set_thrown_exceptions(thrown)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_run_to_cursor(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.runToCursor")?;
+        let raw = required_str(&params, "path")?;
+        let line = params
+            .get("line")
+            .and_then(Value::as_i64)
+            .filter(|line| *line >= 1)
+            .ok_or_else(|| {
+                HostError::new("invalid_state", "Breakpoint lines must be positive integers.")
+            })?;
+        let mut inner = self.inner.lock().unwrap();
+        let (_, relative) = resolve_in_workspace(&inner, &raw)?;
+        inner.dap.run_to(&relative, line)?;
         Ok(self.snapshot_value(&mut inner))
     }
 
