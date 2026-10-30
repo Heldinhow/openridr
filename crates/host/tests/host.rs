@@ -3769,6 +3769,51 @@ fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() 
 
 #[cfg(unix)]
 #[test]
+fn terminal_read_returns_raw_pty_bytes_by_offset_and_keeps_them_after_seal() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let host = Host::new();
+    let workspace = temp_workspace(&["Raw.csproj"]);
+    open(&host, &workspace.path().join("Raw.csproj"));
+    grant(&host);
+    let _cleanup = TerminalCleanup(&host);
+    host.dispatch("terminal.start", json!({})).unwrap();
+    host.dispatch(
+        "terminal.write",
+        json!({ "data": "printf '\\033[31mraw-marker\\033[0m\\n'\r" }),
+    )
+    .unwrap();
+
+    let read = |since: u64| {
+        let value = host.dispatch("terminal.read", json!({ "since": since })).unwrap();
+        let chunk = value["chunk"].clone();
+        let bytes: Vec<u8> = chunk["bytes"].as_array().unwrap().iter().map(|byte| byte.as_u64().unwrap() as u8).collect();
+        (value["revision"].as_u64().unwrap(), chunk["from"].as_u64().unwrap(), chunk["end"].as_u64().unwrap(), bytes)
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let (revision, mut from, mut end, mut seen) = read(0);
+    // The typed command echoes "raw-marker" too; wait for the ESC-prefixed output the shell printed.
+    while !seen.windows(b"\x1b[31mraw-marker".len()).any(|window| window == b"\x1b[31mraw-marker") {
+        assert!(std::time::Instant::now() < deadline, "no raw output within 10s");
+        std::thread::sleep(Duration::from_millis(50));
+        (_, from, end, seen) = read(0);
+    }
+    assert!(revision > 0);
+    assert_eq!(from, 0);
+    assert!(seen.contains(&0x1b), "ESC bytes must reach the client unfiltered");
+
+    let (_, next_from, next_end, empty) = read(end);
+    assert_eq!((next_from, next_end), (end, end));
+    assert!(empty.is_empty());
+
+    host.dispatch("trust.revoke", json!({})).unwrap();
+    // Shell output may still arrive while the seal lands; what was read before must be kept as is.
+    let (_, _, sealed_end, kept) = read(0);
+    assert!(sealed_end >= end);
+    assert!(kept.starts_with(&seen));
+}
+
+#[cfg(unix)]
+#[test]
 fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_it() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let host = Host::new();

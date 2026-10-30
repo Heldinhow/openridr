@@ -26,6 +26,8 @@ const MIN_ROWS: u16 = 5;
 
 const MAX_LINES: usize = 4_000;
 const MAX_CHARS: usize = 120_000;
+/// Raw PTY bytes kept for `terminal.read`; the UI emulates the screen, so it needs the bytes as sent.
+const MAX_RAW_BYTES: usize = 1 << 20;
 
 /// Picks the shell that is actually available. `$SHELL`/`COMSPEC` counts only when it is an
 /// absolute, executable file; otherwise the first usable platform default wins.
@@ -107,11 +109,31 @@ struct Output {
     pending: String,
     dropped: bool,
     seq: u64,
+    raw: VecDeque<u8>,
+    /// Absolute offset of `raw[0]`; bytes before it were dropped to respect `MAX_RAW_BYTES`.
+    raw_base: u64,
+}
+
+/// Raw bytes from `from` (absolute offset) to `end`. `truncated` means the caller asked for
+/// bytes that were already dropped, so the chunk starts at the oldest byte still kept.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RawChunk {
+    pub from: u64,
+    pub end: u64,
+    pub truncated: bool,
+    pub bytes: Vec<u8>,
 }
 
 impl Output {
     fn push(&mut self, bytes: &[u8]) {
         self.seq += 1;
+        self.raw.extend(bytes);
+        if self.raw.len() > MAX_RAW_BYTES {
+            let excess = self.raw.len() - MAX_RAW_BYTES;
+            self.raw.drain(..excess);
+            self.raw_base += excess as u64;
+        }
         let raw = String::from_utf8_lossy(bytes);
         let text = strip_ansi(&raw).replace("\r\n", "\n");
         self.pending.push_str(&text);
@@ -145,6 +167,18 @@ impl Output {
             };
             self.chars = self.chars.saturating_sub(front.chars().count() + 1);
             self.dropped = true;
+        }
+    }
+
+    fn read_raw(&self, since: u64) -> RawChunk {
+        let end = self.raw_base + self.raw.len() as u64;
+        let from = since.clamp(self.raw_base, end);
+        let skip = (from - self.raw_base) as usize;
+        RawChunk {
+            from,
+            end,
+            truncated: since < self.raw_base,
+            bytes: self.raw.iter().skip(skip).copied().collect(),
         }
     }
 
@@ -442,6 +476,13 @@ impl Terminal {
                 attachment: None,
             }),
         }
+    }
+
+    /// Raw PTY bytes after the absolute offset `since`, exactly as the shell wrote them, with the
+    /// revision that owns those offsets.
+    pub fn read(&self, since: u64) -> (u64, RawChunk) {
+        let data = self.data.lock().unwrap();
+        (data.revision, data.output.read_raw(since))
     }
 
     pub fn view(&self) -> TerminalView {
@@ -850,5 +891,46 @@ mod tests {
         let later = terminal.view();
         assert!(!later.log.contains("late"));
         assert_eq!(later.finished_at, None);
+    }
+
+    #[test]
+    fn raw_read_returns_the_bytes_as_written_from_an_offset() {
+        let mut output = Output::default();
+        output.push(b"\x1b[31mred\x1b[0m\r\n");
+        let all = output.read_raw(0);
+        assert_eq!(all.bytes, b"\x1b[31mred\x1b[0m\r\n".to_vec());
+        assert_eq!((all.from, all.end, all.truncated), (0, 14, false));
+
+        output.push(b"ls");
+        let next = output.read_raw(all.end);
+        assert_eq!(next.bytes, b"ls".to_vec());
+        assert_eq!((next.from, next.end), (14, 16));
+        assert!(output.read_raw(16).bytes.is_empty());
+    }
+
+    #[test]
+    fn a_full_buffer_drops_the_oldest_bytes_and_says_so() {
+        let mut output = Output::default();
+        output.push(&vec![b'a'; MAX_RAW_BYTES]);
+        output.push(b"tail");
+        let chunk = output.read_raw(0);
+        assert!(chunk.truncated);
+        assert_eq!((chunk.from, chunk.end), (4, (MAX_RAW_BYTES + 4) as u64));
+        assert_eq!(chunk.bytes.len(), MAX_RAW_BYTES);
+        assert!(chunk.bytes.ends_with(b"tail"));
+    }
+
+    #[test]
+    fn raw_bytes_survive_past_the_line_cut_and_ignore_offsets_ahead_of_the_end() {
+        let mut output = Output::default();
+        for _ in 0..(MAX_LINES + 5) {
+            output.push(b"line\n");
+        }
+        let chunk = output.read_raw(0);
+        assert_eq!(chunk.bytes.len(), (MAX_LINES + 5) * 5);
+        assert!(!chunk.truncated);
+        let ahead = output.read_raw(10_000_000);
+        assert_eq!((ahead.from, ahead.end), (ahead.end, ahead.end));
+        assert!(ahead.bytes.is_empty());
     }
 }

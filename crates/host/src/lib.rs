@@ -414,6 +414,9 @@ impl Host {
         if method == "tests.run_cancel" {
             return self.cancel_test_run();
         }
+        if method == "terminal.read" {
+            return self.read_terminal(params);
+        }
         if method == "terminal.start" {
             return self.start_terminal(params);
         }
@@ -2705,6 +2708,15 @@ impl Host {
         accept_locked(&inner, token)?;
         inner.terminal.write(&data)?;
         Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Read-only, like `terminal.state`: raw PTY bytes after `since`, so the UI can emulate the
+    /// screen without the filtered log. Offsets belong to one `revision`; a new shell restarts at 0.
+    fn read_terminal(&self, params: Value) -> HostResult<Value> {
+        let since = params.get("since").and_then(Value::as_u64).unwrap_or(0);
+        let inner = self.inner.lock().unwrap();
+        let (revision, chunk) = inner.terminal.read(since);
+        Ok(json!({ "revision": revision, "chunk": chunk }))
     }
 
     fn resize_terminal(&self, params: Value) -> HostResult<Value> {
