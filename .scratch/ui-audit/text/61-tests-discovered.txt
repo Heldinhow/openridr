@@ -1,0 +1,128 @@
+OrderDesk.sln
+Trusted mode
+audit-branch
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Run OrderDesk.Cli
+default
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore succeeded · exit 0 · Analysis: unavailable
+Processes
+
+OpenRidr tracks only processes the host started. Termination is shown after the host observes it; a missing exit code stays "exit unknown".
+
+restore:solution pid 68359 exited · exit 0
+lsp:csharp-ls pid 68371 exited · exit 0
+restore:solution pid 68570 exited · exit 0
+tests:OrderDesk.Tests pid 69643 exited · exit 0
+Commit
+audit-branch
+Refresh
+0 of 0 selected
+
+The working tree is clean.
+
+Commit message
+Amend the last commit
+Commit
+
+Committed 11f3ea4 Audit commit
+
+ Rename symbol…
+ Code actions…
+ Save
+Your code, in focus.
+
+Open a file from the solution explorer to start editing.
+
+Save file
+⌘S
+Go to definition
+⌘B
+Rename symbol
+Shift+F6
+Run saved build
+Ctrl+R
+
+Text editing is always available. Analysis and execution require trust.
+
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+Test project
+OrderDesk.Tests
+TFM
+Not selected
+net8.0
+Refresh tests
+Run all
+Run selected
+Debug selected
+Rerun failed
+Discovered 4 tests · exit 0
+discovery:3:1 · revision 1 · context 5
+Scope
+OrderDesk.Tests · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected
+Command
+/Users/helder/.dotnet/dotnet test /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk-git/tests/OrderDesk.Tests/OrderDesk.Tests.csproj -c Debug --no-restore --list-tests --nologo -v:minimal
+Working directory
+/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk-git
+Project SDK
+8.0.408 · /Users/helder/.dotnet
+Exit
+exit 0
+
+4 tests · 0 selected · discovery:3:1 · revision 1
+
+4 tests grouped from their fully qualified names.
+
+Grouping derived from test names: project > namespace prefix > class > method. Nothing is parsed from source files; every tooltip carries the full name.
+
+Filter
+▾
+OrderDesk.Tests
+4
+▾
+OrderDesk.Tests
+4
+▾
+OrderTests
+4
+not run OrderDesk.Tests.OrderTests.Id_is_preserved display name: OrderDesk.Tests.OrderTests.Id_is_preserved · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest
+not run OrderDesk.Tests.OrderTests.Total_is_preserved display name: OrderDesk.Tests.OrderTests.Total_is_preserved · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest
+not run OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence display name: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest
+not run OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes display name: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest
+  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk-git/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll
+  OrderDesk.Tests -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk-git/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll
+Test run for /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk-git/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+The following Tests are available:
+    OrderDesk.Tests.OrderTests.Id_is_preserved
+    OrderDesk.Tests.OrderTests.Total_is_preserved
+    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
+OrderDesk.sln
+OrderDesk.sln
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 2
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+No file open

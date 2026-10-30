@@ -1,57 +1,57 @@
 {
   "awaitingDecision": false,
   "command": [
-    "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+    "/Users/helder/.dotnet/dotnet",
     "restore",
-    "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/OrderDesk.sln",
+    "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/OrderDesk.sln",
     "-nologo",
     "-v:minimal"
   ],
-  "contextId": 4,
-  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance",
+  "contextId": 67,
+  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance",
   "exit": 0,
-  "finishedAt": 1793199742125,
-  "log": "  Determining projects to restore...\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli/OrderDesk.Cli.csproj (in 39 ms).\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Core/OrderDesk.Core.csproj (in 36 ms).\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/OrderDesk.Tests.csproj (in 149 ms).",
+  "finishedAt": 1793295916674,
+  "log": "  Determining projects to restore...\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/src/OrderDesk.Core/OrderDesk.Core.csproj (in 37 ms).\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/src/OrderDesk.Cli/OrderDesk.Cli.csproj (in 40 ms).\n  Restored /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/OrderDesk.Tests.csproj (in 151 ms).",
   "logTruncated": false,
-  "processId": 1,
+  "processId": 25,
   "projects": [
     {
-      "assetsModifiedAt": 1793199741987,
-      "assetsPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Cli/obj/project.assets.json",
+      "assetsModifiedAt": 1793295916463,
+      "assetsPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/src/OrderDesk.Cli/obj/project.assets.json",
       "name": "OrderDesk.Cli",
       "path": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
-      "projectModifiedAt": 1793199738435,
+      "projectModifiedAt": 1793295903489,
       "reason": null,
       "state": "restored"
     },
     {
-      "assetsModifiedAt": 1793199741987,
-      "assetsPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Core/obj/project.assets.json",
+      "assetsModifiedAt": 1793295916462,
+      "assetsPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/src/OrderDesk.Core/obj/project.assets.json",
       "name": "OrderDesk.Core",
       "path": "src/OrderDesk.Core/OrderDesk.Core.csproj",
-      "projectModifiedAt": 1793199738434,
+      "projectModifiedAt": 1793295903489,
       "reason": null,
       "state": "restored"
     },
     {
-      "assetsModifiedAt": 1793199742098,
-      "assetsPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/obj/project.assets.json",
+      "assetsModifiedAt": 1793295916573,
+      "assetsPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/obj/project.assets.json",
       "name": "OrderDesk.Tests",
       "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
-      "projectModifiedAt": 1793199738430,
+      "projectModifiedAt": 1793295903487,
       "reason": null,
       "state": "restored"
     }
   ],
-  "revision": 1,
+  "revision": 10,
   "scope": "solution",
-  "sdkRoot": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+  "sdkRoot": "/Users/helder/.dotnet",
   "sdkVersion": "8.0.408",
   "sealed": false,
   "staleReason": null,
-  "startedAt": 1793199741186,
+  "startedAt": 1793295915830,
   "state": "ok",
-  "target": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/OrderDesk.sln",
+  "target": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/OrderDesk.sln",
   "termination": null,
-  "workspaceId": 3
+  "workspaceId": 47
 }

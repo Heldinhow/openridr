@@ -1,0 +1,189 @@
+OrderDesk.sln
+Trusted mode
+Not a git repository
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Run OrderDesk.Cli
+default
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore not requested · Analysis: unavailable
+Solution Explorer
+MSBuild evaluated
+Re-evaluate
+Evaluated · revision 1
+Project details
+OrderDesk.sln
+src
+▸
+OrderDesk.Cli
+console
+net8.0
+▾
+OrderDesk.Core
+library
+net8.0
+Order.cs
+tests
+▾
+OrderDesk.Tests
+test
+net8.0
+References: OrderDesk.Core
+Packages: Microsoft.NET.Test.Sdk 17.11.1, xunit 2.9.2, xunit.runner.visualstudio 2.8.2
+OrderTests.cs
+Program.cs
+×
+ Rename symbol…
+ Code actions…
+ Save
+OrderDesk.Cli / Program.cs / net8.0 · revision 0 · saved 0 · saved
+1
+2
+3
+4
+5
+using OrderDesk.Core;
+
+
+var order = new Order("A-104", 42m);
+Console.WriteLine($"Order {order.Id}: {order.Total:C}");
+
+
+Ctrl+Space: completion · Cmd+B: go to definition · Shift+F6: rename · Shift+F12: find usages · Option+Enter: code actions
+Close project details
+OrderDesk.Cli Evaluated project
+State
+Evaluated
+Path
+src/OrderDesk.Cli/OrderDesk.Cli.csproj
+Kind
+console
+TFMs
+net8.0
+Configuration
+Debug
+TFM selection
+Not selected
+Evaluated TFM
+net8.0
+TargetPath
+/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+OutputType
+Exe
+Project references
+OrderDesk.Core
+Packages
+0 packages
+Restore
+Restored
+Evaluation
+revision 1 · context 8 · workspace 6
+Open project file
+$ /Users/helder/.dotnet/dotnet msbuild /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/OrderDesk.Cli.csproj -nologo -getProperty:… -getItem:… -p:Configuration=Debug
+exit 0
+518 ms
+--- stdout
+{
+  "Properties": {
+    "Configuration": "Debug",
+    "TargetFramework": "net8.0",
+    "TargetFrameworks": "",
+    "TargetPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
+    "TargetDir": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/bin/Debug/net8.0/",
+    "TargetFileName": "OrderDesk.Cli.dll",
+    "OutputType": "Exe",
+    "MSBuildProjectName": "OrderDesk.Cli",
+    "IsTestProject": ""
+  },
+  "Items": {
+    "ProjectReference": [
+      {
+        "Identity": "../OrderDesk.Core/OrderDesk.Core.csproj",
+        "Targets": "",
+        "OutputItemType": "",
+        "ReferenceSourceTarget": "ProjectReference",
+        "FullPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Core/OrderDesk.Core.csproj",
+        "RootDir": "/",
+        "Filename": "OrderDesk.Core",
+        "Extension": ".csproj",
+        "RelativeDir": "../OrderDesk.Core/",
+        "Directory": "private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Core/",
+        "RecursiveDir": "",
+        "ModifiedTime": "2026-10-29 06:34:16.3349512",
+        "CreatedTime": "2026-10-29 06:34:16.3348432",
+        "AccessedTime": "2026-10-29 06:34:16.3737762",
+        "DefiningProjectFullPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+        "DefiningProjectDirectory": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/",
+        "DefiningProjectName": "OrderDesk.Cli",
+        "DefiningProjectExtension": ".csproj"
+      }
+    ],
+    "PackageReference": [],
+    "Compile": [
+      {
+        "Identity": "Program.cs",
+        "FullPath": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/Program.cs",
+        "RootDir": "/",
+        "Filename": "Program",
+        "Extension": ".cs",
+        "RelativeDir": "",
+        "Directory": "private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/",
+        "RecursiveDir": "",
+        "ModifiedTime": "2026-10-29 06:34:16.3480830",
+        "CreatedTime": "2026-10-29 06:34:16.3477016",
+        "AccessedTime": "2026-10-29 06:34:16.3745222",
+        "DefiningProjectFullPath": "/Users/helder/.dotnet/sdk/8.0.408/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.DefaultItems.props",
+        "DefiningProjectDirectory": "/Users/helder/.dotnet/sdk/8.0.408/Sdks/Microsoft.NET.Sdk/targets/",
+        "DefiningProjectName": "Microsoft.NET.Sdk.DefaultItems",
+        "DefiningProjectExtension": ".props"
+      }
+    ]
+  }
+}
+--- stderr
+
+Evaluation log
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+Not selected
+net8.0
+Build (Cmd+F9)
+Run (Ctrl+R)
+No program has run
+No build has run
+
+Run unavailable: Build the startup project first; Run never builds or restores implicitly.
+
+OrderDesk.sln
+OrderDesk.sln > OrderDesk.Cli > Program.cs
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 1
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+Ln 1, Col 1

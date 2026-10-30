@@ -1,0 +1,190 @@
+OrderDesk.sln
+Trusted mode
+mvp-rider
+↑11
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Run OrderDesk.Cli
+default
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore not requested · Analysis: unavailable
+Commit
+mvp-rider
+Refresh
+53 of 53 selected
+docs/evidence/logs/10-code-actions-diagnostic-actions.json
+Modified
+docs/evidence/logs/10-csharp-ls-actions.json
+Modified
+docs/evidence/logs/10-lsp-diagnostic.log
+Modified
+docs/evidence/logs/10-lsp.log
+Modified
+docs/evidence/logs/14-e2e-debug-session.json
+Modified
+docs/evidence/logs/18-acceptance-final.json
+Modified
+docs/evidence/logs/18-acceptance-pre-revoke.json
+Modified
+docs/evidence/logs/18-acceptance-summary.json
+Modified
+docs/evidence/logs/18-build-failed.json
+Modified
+docs/evidence/logs/18-build-fixed.json
+Modified
+docs/evidence/logs/18-dap.json
+Modified
+docs/evidence/logs/18-debug-install.json
+Modified
+docs/evidence/logs/18-lsp-session.json
+Modified
+docs/evidence/logs/18-restore.json
+Modified
+docs/evidence/logs/18-run.json
+Modified
+docs/evidence/logs/18-terminal.json
+Modified
+docs/evidence/logs/18-tests-cancel.json
+Modified
+docs/evidence/logs/18-tests-run-all.json
+Modified
+docs/evidence/logs/18-ui-audit.json
+Modified
+docs/evidence/screenshots/05-csharp-ls-install.png
+Modified
+docs/evidence/screenshots/05-csharp-ls.png
+Modified
+docs/evidence/screenshots/06-problems-awaiting.png
+Modified
+docs/evidence/screenshots/06-problems.png
+Modified
+docs/evidence/screenshots/08-completion-unavailable.png
+Modified
+docs/evidence/screenshots/08-completion.png
+Modified
+docs/evidence/screenshots/08-definition.png
+Modified
+docs/evidence/screenshots/09-rename-applied.png
+Modified
+docs/evidence/screenshots/09-rename-preview-files.png
+Modified
+docs/evidence/screenshots/09-rename-preview.png
+Modified
+docs/evidence/screenshots/09-rename-prompt.png
+Modified
+docs/evidence/screenshots/09-rename-stale.png
+Modified
+docs/evidence/screenshots/10-code-actions-applied.png
+Modified
+docs/evidence/screenshots/10-code-actions-diagnostic.png
+Modified
+docs/evidence/screenshots/10-code-actions-empty.png
+Modified
+docs/evidence/screenshots/10-code-actions-list.png
+Modified
+docs/evidence/screenshots/10-code-actions-preview.png
+Modified
+docs/evidence/screenshots/10-code-actions-stale.png
+Modified
+docs/evidence/screenshots/18-build-failed.png
+Modified
+docs/evidence/screenshots/18-dap-stopped.png
+Modified
+docs/evidence/screenshots/18-debug-paused.png
+Modified
+docs/evidence/screenshots/18-layout-1100x700.png
+Modified
+docs/evidence/screenshots/18-screen-01-trust.png
+Modified
+docs/evidence/screenshots/18-screen-02-editor-build.png
+Modified
+docs/evidence/screenshots/18-screen-03-solution-explorer.png
+Modified
+docs/evidence/screenshots/18-screen-04-problems.png
+Modified
+docs/evidence/screenshots/18-screen-05-debug.png
+Modified
+docs/evidence/screenshots/18-screen-06-terminal.png
+Modified
+docs/evidence/screenshots/18-screen-07-tests.png
+Modified
+docs/evidence/screenshots/18-terminal-started.png
+Modified
+docs/evidence/screenshots/18-tests-cancel.png
+Modified
+docs/evidence/screenshots/18-toolchain-trusted.png
+Modified
+.scratch/
+Untracked
+new file
+docs/evidence/ui-audit/
+Untracked
+new file
+Commit message
+Amend the last commit
+Commit
+ Rename symbol…
+ Code actions…
+ Save
+Your code, in focus.
+
+Open a file from the solution explorer to start editing.
+
+Save file
+⌘S
+Go to definition
+⌘B
+Rename symbol
+Shift+F6
+Run saved build
+Ctrl+R
+
+Text editing is always available. Analysis and execution require trust.
+
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+Project
+OrderDesk.Cli
+OrderDesk.Core
+OrderDesk.Tests
+Refresh
+Project SDK 8.0.408 · /Users/helder/.dotnet
+
+dotnet list package --outdated returned invalid data: a project has no frameworks array
+
+Not all package data was read; this is not an all-up-to-date result.
+
+Sources consulted: unknown — dotnet nuget list source failed; the configured source is unknown.
+
+Target framework net8.0
+Package	Current	Latest	Source	Action
+No packages are referenced for this TFM.
+dotnet list package · ok · exit 0
+dotnet list package --outdated · failed · exit 0
+OrderDesk.sln
+OrderDesk.sln
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 1
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+No file open

@@ -112,7 +112,7 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   expect(trusted.state).toBe("resolved");
   expect(trusted.resolvedVersion).toBe("8.0.408");
   expect(trusted.root).toBeTruthy();
-  await expect(page.getByTestId("trust-note")).toContainText("recorded in host memory");
+  await expect(page.getByTestId("trust-note")).toContainText("remembered for this project path");
 
   await enterWorkspace(page);
   await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");

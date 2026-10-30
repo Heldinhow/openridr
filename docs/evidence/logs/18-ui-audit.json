@@ -6,7 +6,7 @@
       "bodyWidth": 1440,
       "runInside": true,
       "testsTabInside": true,
-      "toolbarHeight": 43
+      "toolbarHeight": 44
     },
     "minimum": {
       "innerWidth": 1100,
@@ -14,15 +14,15 @@
       "bodyWidth": 1100,
       "runInside": true,
       "testsTabInside": true,
-      "toolbarHeight": 43
+      "toolbarHeight": 44
     }
   },
   "theme": {
-    "bg": "#101216",
-    "panel": "#191d23",
-    "fg": "#edf0f4",
-    "muted": "#b5beca",
-    "accent": "#f0a079",
+    "bg": "#191a1c",
+    "panel": "#1e1f22",
+    "fg": "#dfe1e5",
+    "muted": "#aaadb5",
+    "accent": "#548af7",
     "error": "#ffaaa5",
     "warning": "#f3cf7e",
     "success": "#a7dfb0",
@@ -33,15 +33,15 @@
     "testid": "workspace-open",
     "outlineStyle": "solid",
     "outlineWidth": "2px",
-    "outlineColor": "rgb(240, 160, 121)"
+    "outlineColor": "rgb(84, 138, 247)"
   },
   "contrast": {
-    "fgOnBg": 16.4,
-    "mutedOnPanel": 9.01,
-    "accentOnPanel": 8.06,
-    "errorOnBg": 10.31,
-    "warningOnBg": 12.53,
-    "successOnBg": 12.34,
+    "fgOnBg": 13.3,
+    "mutedOnPanel": 7.34,
+    "accentOnPanel": 4.99,
+    "errorOnBg": 9.57,
+    "warningOnBg": 11.64,
+    "successOnBg": 11.46,
     "buttonBorderOnRaised": 3.03
   },
   "accessibleNameOffenders": {

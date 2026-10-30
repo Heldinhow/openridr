@@ -171,8 +171,8 @@ p {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
-  /* clip, not auto: auto also clips y and cuts every dropdown (trust, run config, ⋮) at 44px */
-  overflow-x: clip;
+  /* visible: any overflow value clips the dropdowns (trust, run config, branches, ⋮); .workspace-view clips at the window edge */
+  overflow: visible;
 }
 
 .icon { flex: 0 0 auto; vertical-align: middle; }
@@ -478,14 +478,15 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .workspace-view {
   height: 100%;
   display: grid;
-  grid-template-columns: 34px var(--sidebar-width, 280px) 4px minmax(0, 1fr) 34px;
+  grid-template-columns: 34px var(--sidebar-width, 280px) 4px minmax(0, 1fr) var(--tools-width, 0px) 34px;
   grid-template-rows: 44px auto minmax(0, 1fr) 4px var(--output-height, 220px) 24px;
   overflow: hidden;
   position: relative;
 }
-.workspace-view.left-closed { grid-template-columns: 34px 0 0 minmax(0, 1fr) 34px; }
+.workspace-view.left-closed { grid-template-columns: 34px 0 0 minmax(0, 1fr) var(--tools-width, 0px) 34px; }
+.workspace-view.tools-open { --tools-width: 400px; }
 .workspace-view.bottom-closed { grid-template-rows: 44px auto minmax(0, 1fr) 0 0 24px; }
-.workspace-view > .toolbar { grid-column: 1 / -1; grid-row: 1; }
+.workspace-view > .toolbar { grid-column: 1 / -1; grid-row: 1; position: relative; z-index: 30; }
 .workspace-view > .workspace-notices { grid-column: 4; grid-row: 2; max-height: 30vh; }
 .workspace-view > .toolrail { grid-column: 1; grid-row: 2 / 6; }
 .workspace-view .side { grid-column: 2; grid-row: 2 / 6; }
@@ -2592,7 +2593,10 @@ button.primary:hover:not(:disabled) { background: #4a85f5; border-color: #4a85f5
 .cm-debug-inlay { margin-left: 1.5em; padding: 0 6px; border-radius: 3px; background: #ffffff14; color: var(--muted); font-size: 0.85em; user-select: none; }
 
 
-.workspace-view > .toolrail-right { grid-column: 5; grid-row: 2 / 6; }
+.workspace-view > .toolrail-right { grid-column: 6; grid-row: 2 / 6; }
+.workspace-view > .tools-drawer { grid-column: 5; grid-row: 2 / 6; min-width: 0; overflow: auto; background: var(--panel); border-left: 1px solid var(--line); }
+.tools-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.tools-drawer-head button { border: 0; background: transparent; }
 .toolrail-right .toolband-button { font-size: 11px; font-weight: 600; }
 
 .bottom-tabs { align-items: center; }
@@ -2637,3 +2641,8 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 /* Evaluation controls: compact icon row; text stays in the accessible name. */
 .side .eval-controls { gap: 6px; padding: 2px 12px; }
 .side .eval-controls button { min-height: 22px; padding: 0 6px; font-size: 11px; background: transparent; border-color: transparent; color: var(--muted); }
+
+/* Tools window (restore, adapter, installer, LSP, processes) lives in the bottom panel, not over the editor. */
+.workspace-tools-body { display: grid; gap: 8px; padding: 8px 12px; align-content: start; }
+.trust-banner { padding: 4px 12px; }
+.trust-banner .notice-dismiss { float: none; margin-left: 0; }

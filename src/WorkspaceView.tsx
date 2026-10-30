@@ -375,7 +375,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const outputHeight = layout.bottom.size;
   const panelBodyRef = useRef<HTMLDivElement>(null);
   const trustMenuRef = useRef<HTMLDetailsElement>(null);
-  // Toolbar dropdowns are <details>: close them on an outside click and when trust changes.
+  // Toolbar dropdowns are <details>: close them on an outside click.
   useEffect(() => {
     const close = (event: PointerEvent) => {
       document.querySelectorAll<HTMLDetailsElement>("details.toolbar-menu[open]").forEach((menu) => {
@@ -385,9 +385,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, []);
-  useEffect(() => {
-    if (trustMenuRef.current) trustMenuRef.current.open = false;
-  }, [snapshot.trust.granted]);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
@@ -465,6 +462,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [buildDecision, setBuildDecision] = useState(false);
   const [runDecision, setRunDecision] = useState(false);
   const [debugConsent, setDebugConsent] = useState(false);
+  const [trustBannerDismissed, setTrustBannerDismissed] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [pendingRunConfig, setPendingRunConfig] = useState<RunConfig | null>(null);
   const [pendingRunAfterBuild, setPendingRunAfterBuild] = useState<RunConfig | null>(null);
   const [evaluating, setEvaluating] = useState(false);
@@ -508,6 +507,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const showsProcesses = snapshot.processes.some(
     (process) => process.workspaceId === workspace.id,
   );
+  // A process that needs a decision opens the Tools window (right side) instead of a strip over the editor.
+  const awaitingProcessIds = snapshot.processes
+    .filter((process) => process.workspaceId === workspace.id && process.awaitingDecision)
+    .map((process) => process.id)
+    .join(",");
+  useEffect(() => {
+    if (awaitingProcessIds) setToolsOpen(true);
+  }, [awaitingProcessIds]);
   const evaluationAvailable = trusted && projectSdk.state === "resolved";
   const evaluationBusy = evaluating || evaluation.state === "running";
   const restore = snapshot.restore;
@@ -3398,6 +3405,170 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
+  function renderToolsContent() {
+    return (
+      <div className="workspace-tools-body">
+      <section className="restore-panel" aria-label="Restore" data-testid="restore-panel">
+        <div className="restore-head">
+          <strong>Restore</strong>
+          <span
+            className={`tag ${restore.state === "failed" ? "error" : ""}`}
+            data-testid="restore-state"
+            role="status"
+          >
+            {restoreStateLabel(restore)}
+          </span>
+          <span className="muted" data-testid="restore-scope">
+            Scope: {workspace.kind === "solution" ? "Solution" : "Project"} ·{" "}
+            {restore.revision > 0 ? baseName(restore.target) : workspace.name}
+          </span>
+          <span className="push" />
+          {!restoring && (
+            <button
+              data-testid="restore-action"
+              disabled={!restoreAvailable}
+              onClick={() => void startRestore("restore.start")}
+              title={
+                restoreDisabledReason ??
+                "Runs dotnet restore for this workspace with the project SDK. Nothing restores automatically."
+              }
+            >
+              {restore.state === "ok" ? "Restore again" : "Restore"}
+            </button>
+          )}
+          {restoring && (
+            <button
+              data-testid="restore-cancel"
+              onClick={() => void cancelRestore()}
+              title="Requests termination of the restore process group and reports what was observed."
+            >
+              Cancel restore
+            </button>
+          )}
+          {(restore.state === "failed" || restore.state === "cancelled") && (
+            <button
+              data-testid="restore-retry"
+              disabled={!restoreAvailable}
+              onClick={() => void startRestore("restore.retry")}
+              title={
+                restoreDisabledReason ??
+                "Runs the explicit restore again; nothing is fixed or restored silently."
+              }
+            >
+              Retry restore
+            </button>
+          )}
+          {restore.state === "ok" && (
+            <button
+              data-testid="restore-reload"
+              disabled={!restoreAvailable || evaluationBusy}
+              onClick={() => void runEvaluation()}
+              title="Calls evaluation.run with the current configuration and TFM; the old TargetPath is not current until then."
+            >
+              Reload evaluated model
+            </button>
+          )}
+        </div>
+        {!restoreAvailable && !restoring && (
+          <p className="muted" data-testid="restore-disabled-reason">
+            {restoreDisabledReason}
+          </p>
+        )}
+        {restore.revision > 0 && (
+          <>
+            <dl className="restore-meta">
+              <dt>Target</dt>
+              <dd>
+                <code>{restore.target}</code>
+              </dd>
+              <dt>Command</dt>
+              <dd>
+                <code data-testid="restore-command">{restore.command.join(" ")}</code>
+              </dd>
+              <dt>Working directory</dt>
+              <dd>
+                <code>{restore.cwd}</code>
+              </dd>
+              <dt>Project SDK</dt>
+              <dd>
+                {restore.sdkVersion ?? "unknown"} · <code>{restore.sdkRoot ?? "unknown"}</code>
+              </dd>
+            </dl>
+            {restore.sealed && (
+              <p className="warning" data-testid="restore-sealed">
+                Previous restore, not current: {restore.staleReason}
+              </p>
+            )}
+            {restore.termination && (
+              <p className="muted" data-testid="restore-termination">
+                Termination requested: {restore.termination.requested}. Observed:{" "}
+                {restore.termination.observed}
+                {restore.termination.killedAfterGrace ? " after the grace period" : ""}.
+              </p>
+            )}
+            {restore.awaitingDecision && (
+              <p className="warning" data-testid="restore-awaiting">
+                Still running; the host has not confirmed termination. Decide in the process
+                panel.
+              </p>
+            )}
+            {restoreIncompleteAfterRun && (
+              <div className="notice warning" data-testid="restore-incomplete">
+                <strong>Dependencies incomplete.</strong> Editing stays available; analysis and
+                later build/run/test steps need these projects restored.
+                <ul>
+                  {restore.projects
+                    .filter((project) => project.state !== "restored")
+                    .map((project) => (
+                      <li key={project.path} data-testid={`restore-incomplete-${project.name}`}>
+                        {project.name} —{" "}
+                        {project.state === "unknown" ? "restore unknown" : "not restored"}:{" "}
+                        {project.reason ?? "obj/project.assets.json is missing or stale"}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+            {restore.projects.length > 0 && !restoreIncompleteAfterRun && (
+              <p className="muted" data-testid="restore-projects">
+                {restore.projects.length} project
+                {restore.projects.length === 1 ? "" : "s"} report restored assets.
+              </p>
+            )}
+            <details className="eval-log" open={restore.state === "running" || restore.state === "failed"}>
+              <summary>
+                Restore log · stdout/stderr{restore.logTruncated ? " · truncated" : ""}
+              </summary>
+              <pre className="eval-pre" data-testid="restore-log">
+                {restore.log || "No output yet."}
+              </pre>
+            </details>
+          </>
+        )}
+      </section>
+
+      {restoreIncomplete && (
+        <div className="notice warning" data-testid="eval-restore-banner" role="status">
+          <strong>
+            {restore.revision > 0
+              ? "Restore incomplete — package dependencies and analysis are incomplete."
+              : "Restore not requested — package dependencies and analysis are incomplete."}
+          </strong>{" "}
+          {restore.revision > 0
+            ? "Fix the cause and retry the explicit restore; editing stays available."
+            : "Opening or evaluating never restores. Use Restore to run it explicitly, then reload the evaluated model."}
+        </div>
+      )}
+
+      <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
+      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
+      <LspPanel snapshot={snapshot} onChange={onSnapshot} />
+
+      {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
+      </div>
+    );
+  }
+
   function renderBottomContent() {
     switch (bottomTab) {
       case "build":
@@ -3580,7 +3751,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   return (
     <main
-      className={`workspace-view ${leftOpen ? "" : "left-closed"} ${bottomOpen ? "" : "bottom-closed"}`}
+      className={`workspace-view ${leftOpen ? "" : "left-closed"} ${bottomOpen ? "" : "bottom-closed"} ${toolsOpen ? "tools-open" : ""}`}
       data-density={settings.appearance.density}
       style={{
         "--sidebar-width": `${sidebarWidth}px`,
@@ -3775,166 +3946,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       </div>
 
       <div className="workspace-notices">
-      <details className="workspace-tools">
-        <summary data-testid="workspace-tools-toggle">Workspace tools <span className={restoreIncomplete || restore.state === "failed" ? "warning" : "muted"}>{restoreIncomplete ? "Restore required" : restoreStateLabel(restore)} · Analysis: {lsp.state}</span></summary>
-      <section className="restore-panel" aria-label="Restore" data-testid="restore-panel">
-        <div className="restore-head">
-          <strong>Restore</strong>
-          <span
-            className={`tag ${restore.state === "failed" ? "error" : ""}`}
-            data-testid="restore-state"
-            role="status"
-          >
-            {restoreStateLabel(restore)}
-          </span>
-          <span className="muted" data-testid="restore-scope">
-            Scope: {workspace.kind === "solution" ? "Solution" : "Project"} ·{" "}
-            {restore.revision > 0 ? baseName(restore.target) : workspace.name}
-          </span>
-          <span className="push" />
-          {!restoring && (
-            <button
-              data-testid="restore-action"
-              disabled={!restoreAvailable}
-              onClick={() => void startRestore("restore.start")}
-              title={
-                restoreDisabledReason ??
-                "Runs dotnet restore for this workspace with the project SDK. Nothing restores automatically."
-              }
-            >
-              {restore.state === "ok" ? "Restore again" : "Restore"}
-            </button>
-          )}
-          {restoring && (
-            <button
-              data-testid="restore-cancel"
-              onClick={() => void cancelRestore()}
-              title="Requests termination of the restore process group and reports what was observed."
-            >
-              Cancel restore
-            </button>
-          )}
-          {(restore.state === "failed" || restore.state === "cancelled") && (
-            <button
-              data-testid="restore-retry"
-              disabled={!restoreAvailable}
-              onClick={() => void startRestore("restore.retry")}
-              title={
-                restoreDisabledReason ??
-                "Runs the explicit restore again; nothing is fixed or restored silently."
-              }
-            >
-              Retry restore
-            </button>
-          )}
-          {restore.state === "ok" && (
-            <button
-              data-testid="restore-reload"
-              disabled={!restoreAvailable || evaluationBusy}
-              onClick={() => void runEvaluation()}
-              title="Calls evaluation.run with the current configuration and TFM; the old TargetPath is not current until then."
-            >
-              Reload evaluated model
-            </button>
-          )}
-        </div>
-        {!restoreAvailable && !restoring && (
-          <p className="muted" data-testid="restore-disabled-reason">
-            {restoreDisabledReason}
-          </p>
-        )}
-        {restore.revision > 0 && (
-          <>
-            <dl className="restore-meta">
-              <dt>Target</dt>
-              <dd>
-                <code>{restore.target}</code>
-              </dd>
-              <dt>Command</dt>
-              <dd>
-                <code data-testid="restore-command">{restore.command.join(" ")}</code>
-              </dd>
-              <dt>Working directory</dt>
-              <dd>
-                <code>{restore.cwd}</code>
-              </dd>
-              <dt>Project SDK</dt>
-              <dd>
-                {restore.sdkVersion ?? "unknown"} · <code>{restore.sdkRoot ?? "unknown"}</code>
-              </dd>
-            </dl>
-            {restore.sealed && (
-              <p className="warning" data-testid="restore-sealed">
-                Previous restore, not current: {restore.staleReason}
-              </p>
-            )}
-            {restore.termination && (
-              <p className="muted" data-testid="restore-termination">
-                Termination requested: {restore.termination.requested}. Observed:{" "}
-                {restore.termination.observed}
-                {restore.termination.killedAfterGrace ? " after the grace period" : ""}.
-              </p>
-            )}
-            {restore.awaitingDecision && (
-              <p className="warning" data-testid="restore-awaiting">
-                Still running; the host has not confirmed termination. Decide in the process
-                panel.
-              </p>
-            )}
-            {restoreIncompleteAfterRun && (
-              <div className="notice warning" data-testid="restore-incomplete">
-                <strong>Dependencies incomplete.</strong> Editing stays available; analysis and
-                later build/run/test steps need these projects restored.
-                <ul>
-                  {restore.projects
-                    .filter((project) => project.state !== "restored")
-                    .map((project) => (
-                      <li key={project.path} data-testid={`restore-incomplete-${project.name}`}>
-                        {project.name} —{" "}
-                        {project.state === "unknown" ? "restore unknown" : "not restored"}:{" "}
-                        {project.reason ?? "obj/project.assets.json is missing or stale"}
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            )}
-            {restore.projects.length > 0 && !restoreIncompleteAfterRun && (
-              <p className="muted" data-testid="restore-projects">
-                {restore.projects.length} project
-                {restore.projects.length === 1 ? "" : "s"} report restored assets.
-              </p>
-            )}
-            <details className="eval-log" open={restore.state === "running" || restore.state === "failed"}>
-              <summary>
-                Restore log · stdout/stderr{restore.logTruncated ? " · truncated" : ""}
-              </summary>
-              <pre className="eval-pre" data-testid="restore-log">
-                {restore.log || "No output yet."}
-              </pre>
-            </details>
-          </>
-        )}
-      </section>
-
-      {restoreIncomplete && (
-        <div className="notice warning" data-testid="eval-restore-banner" role="status">
-          <strong>
-            {restore.revision > 0
-              ? "Restore incomplete — package dependencies and analysis are incomplete."
-              : "Restore not requested — package dependencies and analysis are incomplete."}
-          </strong>{" "}
-          {restore.revision > 0
-            ? "Fix the cause and retry the explicit restore; editing stays available."
-            : "Opening or evaluating never restores. Use Restore to run it explicitly, then reload the evaluated model."}
-        </div>
-      )}
-
-      <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
-      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
-      <LspPanel snapshot={snapshot} onChange={onSnapshot} />
-      </details>
-
-      {!trusted && (
+      {!trusted && !trustBannerDismissed && (
         <div className="notice warning trust-banner" role="status" data-testid="trust-prompt">
           <span><strong>Restricted mode.</strong> Build, Run, Debug and analysis are off until you trust this workspace.</span>
           <button
@@ -3948,6 +3960,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           >
             Trust workspace…
           </button>
+          <button type="button" className="notice-dismiss" data-testid="trust-prompt-dismiss" aria-label="Dismiss trust banner" onClick={() => setTrustBannerDismissed(true)}>×</button>
         </div>
       )}
 
@@ -3962,10 +3975,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         </div>
       )}
 
-      {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
       </div>
 
       <div className="toolrail toolrail-right" data-testid="tool-windows-right" aria-label="Right tool windows">
+        <button
+          type="button"
+          className={`toolband-button ${toolsOpen ? "active" : ""}`}
+          data-testid="workspace-tools-toggle"
+          aria-label="Workspace tools"
+          aria-pressed={toolsOpen}
+          title={`Workspace tools · ${restoreIncomplete ? "Restore required" : restoreStateLabel(restore)} · Analysis: ${lsp.state}`}
+          onClick={() => setToolsOpen((open) => !open)}
+        >
+          <Icon name="shield" />
+        </button>
         {["Monitoring", "AI Assistant", "Database"].map((title) => (
           <button
             key={title}
@@ -3979,6 +4002,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           </button>
         ))}
       </div>
+
+      {toolsOpen && (
+        <aside className="tools-drawer" aria-label="Workspace tools" data-testid="workspace-tools">
+          <div className="tools-drawer-head">
+            <strong>Workspace tools</strong>
+            <button type="button" aria-label="Close workspace tools" data-testid="workspace-tools-close" onClick={() => setToolsOpen(false)}>×</button>
+          </div>
+          {renderToolsContent()}
+        </aside>
+      )}
 
       <div className="toolrail" data-testid="tool-windows">
         <ToolWindowBand

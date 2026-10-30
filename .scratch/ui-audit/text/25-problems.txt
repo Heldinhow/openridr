@@ -1,0 +1,113 @@
+OrderDesk.sln
+Trusted mode
+Not a git repository
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Run OrderDesk.Cli
+default
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore succeeded · exit 0 · Analysis: unavailable
+Processes
+
+OpenRidr tracks only processes the host started. Termination is shown after the host observes it; a missing exit code stays "exit unknown".
+
+restore:solution pid 67393 exited · exit 0
+build:OrderDesk.Cli pid 67455 exited · exit 0
+run:OrderDesk.Cli pid 67458 exited · exit 0
+restore:solution pid 67670 exited · exit 0
+build:OrderDesk.Cli pid 67683 exited · exit 0
+run:OrderDesk.Cli pid 67685 exited · exit 0
+Solution Explorer
+MSBuild evaluated
+Re-evaluate
+Evaluated · revision 2
+Project details
+OrderDesk.sln
+src
+▾
+OrderDesk.Cli
+console
+net8.0
+References: OrderDesk.Core
+Program.cs
+▾
+OrderDesk.Core
+library
+net8.0
+Order.cs
+tests
+▾
+OrderDesk.Tests
+test
+net8.0
+References: OrderDesk.Core
+Packages: Microsoft.NET.Test.Sdk 17.11.1, xunit 2.9.2, xunit.runner.visualstudio 2.8.2
+OrderTests.cs
+Program.cs
+×
+ Rename symbol…
+ Code actions…
+ Save
+OrderDesk.Cli / Program.cs / net8.0 · revision 0 · saved 0 · saved
+1
+2
+3
+4
+5
+using OrderDesk.Core;
+
+
+var order = new Order("A-104", 42m);
+Console.WriteLine($"Order {order.Id}: {order.Total:C}");
+
+
+Ctrl+Space: completion · Cmd+B: go to definition · Shift+F6: rename · Shift+F12: find usages · Option+Enter: code actions
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+No analysis origin has published diagnostics · coverage partial · Analyzer coverage: not verified · No solution-wide clean state is claimed
+0 errors · 0 warnings · 0 information · 0 hints
+Build · dotnet · 0 problems · separate origin
+Document
+All documents
+Analysis coverage is partial. Analysis has not started. Install csharp-ls, restore the workspace and start analysis explicitly.
+
+No analysis session has published diagnostics. Absence of a server or publication is not 'no problems'.
+
+Problem details
+
+Select a problem to see its full message, origin, category, session and revision. A diagnostic is never opened at a guessed position.
+
+Build · dotnet
+Current
+0 problems · build:6:2 · revision 2 · separate from LSP · csharp-ls
+A build result covers the compiled startup project; it is not a clean-state claim for the solution.
+
+No MSBuild diagnostics were parsed from this build's log. Unrecognized lines stay in the raw log; absence of parsed problems is not a clean-solution claim.
+
+OrderDesk.sln
+OrderDesk.sln > OrderDesk.Cli > Program.cs
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 2
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+Ln 1, Col 1

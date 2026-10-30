@@ -1,0 +1,351 @@
+OrderDesk.sln
+Trusted mode
+Not a git repository
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Audit run
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore succeeded · exit 0 · Analysis: ready
+Processes
+
+OpenRidr tracks only processes the host started. Termination is shown after the host observes it; a missing exit code stays "exit unknown".
+
+restore:solution pid 68359 exited · exit 0
+lsp:csharp-ls pid 68371 running
+Terminate
+Keep running
+Solution Explorer
+MSBuild evaluated
+Re-evaluate
+Evaluated · revision 2
+Project details
+OrderDesk.sln
+src
+▾
+OrderDesk.Cli
+console
+net8.0
+References: OrderDesk.Core
+Program.cs
+▾
+OrderDesk.Core
+library
+net8.0
+Order.cs
+tests
+▾
+OrderDesk.Tests
+test
+net8.0
+References: OrderDesk.Core
+Packages: Microsoft.NET.Test.Sdk 17.11.1, xunit 2.9.2, xunit.runner.visualstudio 2.8.2
+OrderTests.cs
+Program.cs
+×
+ Rename symbol…
+ Code actions…
+ Save
+OrderDesk.Cli / Program.cs / net8.0 · revision 0 · saved 0 · saved
+1
+2
+3
+4
+5
+using OrderDesk.Core;
+
+
+var order = new Order("A-104", 42m);
+Console.WriteLine($"Order {order.Id}: {order.Total:C}");
+
+
+Ctrl+Space: completion · Cmd+B: go to definition · Shift+F6: rename · Shift+F12: find usages · Option+Enter: code actions
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+Not selected
+net8.0
+Build (Cmd+F9)
+Run (Ctrl+R)
+No program has run
+No build has run
+
+Run unavailable: Build the startup project first; Run never builds or restores implicitly.
+
+Settings
+
+Global settings for the whole app, saved in /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/home/settings.json. There is no per-project override.
+
+Appearance
+Keymap
+Editor
+Build
+Version Control
+Keymap
+
+Shortcuts are stored in /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/home/settings.json and win over the profile. Two actions on one shortcut are both kept; the first registered runs.
+
+Profile
+Rider (macOS)
+IntelliJ
+
+Active profile: Rider (macOS)
+
+Find Action
+General
+⇧⌘A
+Change
+Reset
+Keymap: change shortcuts
+General
+No shortcut
+Change
+Reset
+Save
+File
+⌘S
+Change
+Reset
+Hide Active Tool Window
+Tool Windows
+⇧Esc
+Change
+Reset
+Solution Explorer
+Tool Windows
+No shortcut
+Change
+Reset
+Commit
+Tool Windows
+No shortcut
+Change
+Reset
+Build
+Tool Windows
+No shortcut
+Change
+Reset
+Problems
+Tool Windows
+No shortcut
+Change
+Reset
+Debug
+Tool Windows
+No shortcut
+Change
+Reset
+Terminal
+Tool Windows
+No shortcut
+Change
+Reset
+Tests
+Tool Windows
+No shortcut
+Change
+Reset
+Git
+Tool Windows
+No shortcut
+Change
+Reset
+NuGet
+Tool Windows
+No shortcut
+Change
+Reset
+Build
+Build
+⌘F9
+Change
+Reset
+Run
+Run
+⌃F5 / ⌃R
+Change
+Reset
+Debug
+Debug
+⌥F5 / ⌃D
+Change
+Reset
+Stop
+Run
+⇧F5
+Change
+Reset
+Step Over
+Debug
+F8
+Change
+Reset
+Step Into
+Debug
+F7
+Change
+Reset
+Toggle Breakpoint
+Debug
+⌘F8
+Change
+Reset
+Go to Declaration
+Code
+F12 / ⌘B
+Change
+Reset
+Find Usages
+Code
+⇧F12
+Change
+Reset
+Show Context Actions
+Code
+⌥↩
+Change
+Reset
+Rename Symbol
+Code
+⇧F6
+Change
+Reset
+Search Everywhere
+Search
+⌘T
+Change
+Reset
+Go to File
+Search
+⇧⌘T
+Change
+Reset
+Go to Symbol
+Search
+⌥⇧⌘T
+Change
+Reset
+Find in Path
+Search
+⌥⇧⌘E
+Change
+Reset
+Go to Line
+Search
+⌘G
+Change
+Reset
+Run All Tests
+Tests
+⌘U L
+Change
+Reset
+Run Selected Tests
+Tests
+⌘U R
+Change
+Reset
+Debug Selected Tests
+Tests
+⌘U D
+Change
+Reset
+Rerun Failed Tests
+Tests
+⌘U F
+Change
+Reset
+Stop Test Run
+Tests
+No shortcut
+Change
+Reset
+Refresh Tests
+Tests
+No shortcut
+Change
+Reset
+Show Test Quick List
+Tests
+⌥⇧U
+Change
+Reset
+Commit…
+Git
+⌥⇧⌘K
+Change
+Reset
+Push…
+Git
+⇧⌘K
+Change
+Reset
+Update Project…
+Git
+⌥⌘W
+Change
+Reset
+New Branch…
+Git
+⌥⌘N
+Change
+Reset
+Edit Run Configurations…
+Run
+No shortcut
+Change
+Reset
+Open Settings
+Settings
+⌘,
+Change
+Reset
+Redetect SDKs
+Build
+No shortcut
+Change
+Reset
+Open global.json
+Build
+No shortcut
+Change
+Reset
+Close Workspace
+Workspace
+No shortcut
+Change
+Reset
+Cancel
+Save
+OrderDesk.sln
+OrderDesk.sln > OrderDesk.Cli > Program.cs
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 2
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+Ln 1, Col 1

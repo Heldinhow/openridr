@@ -36,7 +36,8 @@ export default defineConfig({
       timeout: 300_000,
       reuseExistingServer: false,
       // Dev/test-only probe used by the process-boundary E2E. Never set in the desktop app.
-      env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome },
+      // OPENRIDR_TRUST_STORE=off: specs reopen the same fixture and expect Restricted mode each time.
+      env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome, OPENRIDR_TRUST_STORE: "off" },
     },
     {
       command: "bun run dev --config vite.e2e.config.ts",

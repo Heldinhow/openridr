@@ -12,7 +12,7 @@
     {
       "title": "Generate type 'MissingType' - Generate class 'MissingType' in new file",
       "supported": "false",
-      "reason": "Generate type 'MissingType' - Generate class 'MissingType' in new fileno kind/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order Desk actions diagnostic/src/OrderDesk.Cli/MissingType.cs is not readable: No such file or directory (os error 2)"
+      "reason": "Generate type 'MissingType' - Generate class 'MissingType' in new fileno kind/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order Desk actions diagnostic/src/OrderDesk.Cli/MissingType.cs is not readable: No such file or directory (os error 2)"
     },
     {
       "title": "Generate type 'MissingType' - Generate class 'MissingType'",

@@ -25,6 +25,7 @@ mod test_discovery;
 #[path = "test_run.rs"]
 mod test_run;
 mod tools;
+mod trusted;
 
 pub use error::{HostError, HostResult};
 pub use evaluation::{Evaluation, EvaluationContext};
@@ -577,7 +578,7 @@ impl Host {
                 Ok(opened)
             }
             "workspace.close" => self.close_workspace(),
-            "trust.grant" => self.grant_trust(),
+            "trust.grant" => self.grant_trust(&params),
             "trust.revoke" => self.revoke_trust(),
             "sdk.redetect" => self.redetect_sdks(),
             "processes.terminate" => self.terminate_process(params),
@@ -867,6 +868,15 @@ impl Host {
         inner.tests = Arc::new(test_discovery::Tests::idle());
         inner.test_run = Arc::new(test_run::TestRun::idle());
         inner.dap = Arc::new(dap::Dap::idle());
+        // A path the user already trusted opens trusted; nothing else is carried over.
+        let remembered = inner
+            .workspace
+            .as_ref()
+            .filter(|workspace| trusted::is_trusted(&workspace.path.to_string_lossy()))
+            .map(|workspace| workspace.id);
+        if let Some(workspace_id) = remembered {
+            apply_trust(&mut inner, workspace_id);
+        }
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -921,7 +931,8 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
-    fn grant_trust(&self) -> HostResult<Value> {
+    /// `remember: true` (sent by the UI) also persists the decision for this workspace path.
+    fn grant_trust(&self, params: &Value) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
         let Some(workspace_id) = inner.workspace.as_ref().map(|workspace| workspace.id) else {
             return Err(HostError::new(
@@ -929,20 +940,15 @@ impl Host {
                 "Open a workspace before trusting it.",
             ));
         };
+        if params["remember"].as_bool() == Some(true) {
+            if let Some(workspace) = inner.workspace.as_ref() {
+                trusted::remember(&workspace.path.to_string_lossy());
+            }
+        }
         if inner.trusted {
             return Ok(self.snapshot_value(&mut inner));
         }
-        inner.ensure_inventory();
-        inner.trusted = true;
-        inner.context_seq += 1;
-        inner.nuget_plan = None;
-        inner.trust_decision = Some(TrustDecision {
-            granted_at: now_ms(),
-            workspace_id,
-            revoked_at: None,
-        });
-        let project = inspect_project_sdk(&inner);
-        inner.project_sdk = project;
+        apply_trust(&mut inner, workspace_id);
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -955,6 +961,9 @@ impl Host {
         else {
             return Err(HostError::new("invalid_state", "No workspace is open."));
         };
+        if let Some(workspace) = inner.workspace.as_ref() {
+            trusted::forget(&workspace.path.to_string_lossy());
+        }
         inner.trusted = false;
         inner.context_seq += 1;
         inner.nuget_plan = None;
@@ -5670,6 +5679,21 @@ fn validate_test_tfm(
         }
     }
     Ok(())
+}
+
+/// Shared by an explicit grant and by opening an already-trusted path.
+fn apply_trust(inner: &mut Inner, workspace_id: u64) {
+    inner.ensure_inventory();
+    inner.trusted = true;
+    inner.context_seq += 1;
+    inner.nuget_plan = None;
+    inner.trust_decision = Some(TrustDecision {
+        granted_at: now_ms(),
+        workspace_id,
+        revoked_at: None,
+    });
+    let project = inspect_project_sdk(inner);
+    inner.project_sdk = project;
 }
 
 fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {

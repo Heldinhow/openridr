@@ -1,0 +1,115 @@
+OrderDesk.sln
+Restricted mode
+Trust the workspace to use Git
+Startup project
+No console project
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Run config
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore not requested · Analysis: unavailable
+Solution Explorer
+Text outline · not evaluated
+Evaluate project model
+Not evaluated
+OrderDesk.sln
+▾
+OrderDesk.Cli
+console
+net8.0
+References: OrderDesk.Core
+Program.cs
+▾
+OrderDesk.Core
+library
+net8.0
+Order.cs
+▾
+OrderDesk.Tests
+test
+net8.0
+References: OrderDesk.Core
+OrderTests.cs
+
+Read from project text only. MSBuild has not run and nothing is evaluated.
+
+ Rename symbol…
+ Code actions…
+ Save
+Your code, in focus.
+
+Open a file from the solution explorer to start editing.
+
+Save file
+⌘S
+Go to definition
+⌘B
+Rename symbol
+Shift+F6
+Run saved build
+Ctrl+R
+
+Text editing is always available. Analysis and execution require trust.
+
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+DebugNot startedNo debug session.Start debugging
+
+Trust the workspace before debugging; nothing runs in Restricted mode.
+
+Session
+none
+Project
+none
+Build
+none · no configuration
+Assembly
+none
+Adapter
+not started
+Working directory
+none
+Process
+none
+Exit
+exit unknown
+Call frames
+
+No paused frames.
+
+Locals
+
+No current locals.
+
+Breakpoints
+
+No breakpoints. Click the gutter marker column or press Cmd+F8 on a line.
+
+DAP, adapter and host log
+Debuggee output
+No debuggee output yet.
+OrderDesk.sln
+OrderDesk.sln
+Restricted mode
+Host SDK 10.0.100 · Project SDK not inspected
+Text outline · not evaluated
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+No file open

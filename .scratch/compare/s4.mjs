@@ -1,0 +1,23 @@
+import { start, shot, txt } from "./lib.mjs";
+const { b, p } = await start();
+let dialogs = [];
+p.on("dialog", d => { dialogs.push(d.message().slice(0,80)); d.accept(); });
+await p.goto("http://127.0.0.1:1420");
+await p.getByTestId("workspace-path-input").fill("/tmp/OrderDesk/OrderDesk.sln");
+await p.getByTestId("workspace-open").click();
+await p.getByTestId("trust-checkbox").check();
+await p.getByTestId("trust-grant").click();
+await p.waitForTimeout(2000);
+await p.getByRole("button",{name:"Open workspace"}).click();
+await p.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+await p.waitForTimeout(1500);
+const line = p.locator(".cm-line").nth(2);
+const lb = await line.boundingBox(); const gb = await p.locator(".cm-debug-gutter").boundingBox();
+await p.mouse.click(gb.x+5, lb.y+lb.height/2);
+await shot(p, "o06-breakpoint");
+await p.getByTestId("toolbar-debug").click({force:true});
+const t0=Date.now(); for (let i=0;i<120;i++) { await p.waitForTimeout(1500); const t = await txt(p, 6000); if (i%4==0) console.log(Math.round((Date.now()-t0)/1000),"s", t.match(/Preparing[^|]*/)?.[0]); if (/Debug could not|DebugPaused|Paused\b/.test(t.slice(t.indexOf("Debug"))) && /(Debug could not|dap-paused)/.test(t) ) break; if (await p.getByTestId("dap-state").textContent().then(x=>/Paused|Terminated|Failed/i.test(x)).catch(()=>false)) break; if (/Debug could not/.test(t)) break; }
+await shot(p, "o07-debug");
+console.log("dialogs", dialogs);
+console.log(await txt(p, 3500));
+await b.close();

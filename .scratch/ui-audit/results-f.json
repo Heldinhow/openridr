@@ -1,0 +1,392 @@
+{
+  "results": [
+    {
+      "name": "95-build-failed",
+      "label": "Build failed with a real compiler error",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": "13px/19.5px system-ui"
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "96-problems-error",
+      "label": "Problems with a navigable compiler error",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": "13px/19.5px system-ui"
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "problem-message",
+            "text": "The type or namespace name 'Orderr' could not be found (are ",
+            "w": 192,
+            "sw": 674
+          },
+          {
+            "cls": "problem-message",
+            "text": "The type or namespace name 'Orderr' could not be found (are ",
+            "w": 376,
+            "sw": 674
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "select",
+            "text": "All documentssrc/OrderDesk.Cli/Program.c",
+            "w": 200,
+            "h": 21
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "97-problem-selected",
+      "label": "Selected problem with details",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": "13px/19.5px system-ui"
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "problem-message",
+            "text": "The type or namespace name 'Orderr' could not be found (are ",
+            "w": 192,
+            "sw": 674
+          },
+          {
+            "cls": "problem-message",
+            "text": "The type or namespace name 'Orderr' could not be found (are ",
+            "w": 376,
+            "sw": 674
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "select",
+            "text": "All documentssrc/OrderDesk.Cli/Program.c",
+            "w": 200,
+            "h": 21
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "98-problem-navigated",
+      "label": "Problem navigated in the editor",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": "13px/19.5px system-ui"
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "problem-message",
+            "text": "The type or namespace name 'Orderr' could not be found (are ",
+            "w": 192,
+            "sw": 674
+          },
+          {
+            "cls": "problem-message",
+            "text": "The type or namespace name 'Orderr' could not be found (are ",
+            "w": 376,
+            "sw": 674
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "select",
+            "text": "All documentssrc/OrderDesk.Cli/Program.c",
+            "w": 200,
+            "h": 21
+          }
+        ],
+        "unlabeled": []
+      }
+    }
+  ],
+  "failures": [],
+  "ms": 18815
+}

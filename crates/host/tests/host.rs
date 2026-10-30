@@ -4024,3 +4024,38 @@ fn run_and_debug_validate_launch_options_before_any_process() {
         .iter()
         .all(|process| process["state"] == "exited"));
 }
+
+#[test]
+fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _store = EnvVar::remove("OPENRIDR_TRUST_STORE");
+    let workspace = temp_workspace(&["Remember.csproj"]);
+    let project = workspace.path().join("Remember.csproj");
+    let granted = |host: &Host| host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
+
+    // A grant without `remember` is session-only.
+    let first = Host::new();
+    open(&first, &project);
+    first.dispatch("trust.grant", json!({})).unwrap();
+    let second = Host::new();
+    open(&second, &project);
+    assert!(!granted(&second));
+
+    // `remember` persists per path; a new host (app restart) opens it trusted, other paths do not.
+    second.dispatch("trust.grant", json!({ "remember": true })).unwrap();
+    let third = Host::new();
+    open(&third, &project);
+    assert!(granted(&third));
+    let other = temp_workspace(&["Other.csproj"]);
+    open(&third, &other.path().join("Other.csproj"));
+    assert!(!granted(&third));
+
+    // Revoking forgets the decision.
+    open(&third, &project);
+    third.dispatch("trust.revoke", json!({})).unwrap();
+    let fourth = Host::new();
+    open(&fourth, &project);
+    assert!(!granted(&fourth));
+}

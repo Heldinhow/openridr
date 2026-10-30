@@ -16,7 +16,7 @@
       "title": "Extract interface...",
       "supported": "false",
       "disabled": "",
-      "detail": "Extract interface...no kind/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order Desk actions/src/OrderDesk.Core/IOrder.cs is not readable: No such file or directory (os error 2)"
+      "detail": "Extract interface...no kind/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order Desk actions/src/OrderDesk.Core/IOrder.cs is not readable: No such file or directory (os error 2)"
     },
     {
       "title": "Generate constructor 'Order()'",

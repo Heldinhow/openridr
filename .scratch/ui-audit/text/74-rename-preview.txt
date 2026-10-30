@@ -1,0 +1,151 @@
+OrderDesk.sln
+Trusted mode
+Not a git repository
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Audit run
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore succeeded · exit 0 · Analysis: ready
+Rename preview: 3 files · 6 edits; nothing has been applied.
+×
+Processes
+
+OpenRidr tracks only processes the host started. Termination is shown after the host observes it; a missing exit code stays "exit unknown".
+
+restore:solution pid 68359 exited · exit 0
+lsp:csharp-ls pid 68371 exited · exit 0
+restore:solution pid 68570 exited · exit 0
+tests:OrderDesk.Tests pid 69643 exited · exit 0
+tests:run:OrderDesk.Tests pid 69646 exited · exit 1
+tests:run:OrderDesk.Tests pid 69649 exited · exit 1
+restore:solution pid 69754 exited · exit 0
+lsp:csharp-ls pid 69760 running
+Terminate
+Keep running
+Solution Explorer
+MSBuild evaluated
+Re-evaluate
+Evaluated · revision 2
+Project details
+OrderDesk.sln
+src
+▾
+OrderDesk.Cli
+console
+net8.0
+References: OrderDesk.Core
+Program.cs
+▾
+OrderDesk.Core
+library
+net8.0
+Order.cs
+tests
+▾
+OrderDesk.Tests
+test
+net8.0
+References: OrderDesk.Core
+Packages: Microsoft.NET.Test.Sdk 17.11.1, xunit 2.9.2, xunit.runner.visualstudio 2.8.2
+OrderTests.cs
+Program.cs
+×
+ Rename symbol…
+ Code actions…
+ Save
+OrderDesk.Cli / Program.cs / net8.0 · revision 0 · saved 0 · saved
+Rename to “order2”
+
+3 files · 6 edits · session 2 · source revision 0 · 2 not opened here. Nothing has been applied.
+
+prepareRename accepted the position.
+
+src/OrderDesk.Cli/Program.cs open buffer 1 edit
+src/OrderDesk.Core/Order.cs not opened here 2 edits
+tests/OrderDesk.Tests/OrderTests.cs not opened here 3 edits
+src/OrderDesk.Cli/Program.cs
+open buffer
+1 edit
+line 3
+− var order = new Order("A-104", 42m);
++ var order = new order2("A-104", 42m);
+src/OrderDesk.Core/Order.cs
+not opened here
+2 edits
+line 3
+− public sealed class Order
++ public sealed class order2
+line 5
+−     public Order(string id, decimal total)
++     public order2(string id, decimal total)
+tests/OrderDesk.Tests/OrderTests.cs
+not opened here
+3 edits
+line 11
+−         var order = new Order("A-104", 42m);
++         var order = new order2("A-104", 42m);
+line 19
+−         var order = new Order("A-104", 42m);
++         var order = new order2("A-104", 42m);
+line 27
+−         var order = new Order("A-104", 42m);
++         var order = new order2("A-104", 42m);
+Apply to buffers
+Cancel
+1
+2
+3
+4
+5
+using OrderDesk.Core;
+
+
+var order = new Order("A-104", 42m);
+Console.WriteLine($"Order {order.Id}: {order.Total:C}");
+
+
+Rename Order at 3:17; Enter previews, Esc cancels.
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+Not selected
+net8.0
+Build (Cmd+F9)
+Run (Ctrl+R)
+No program has run
+No build has run
+
+Run unavailable: Build the startup project first; Run never builds or restores implicitly.
+
+OrderDesk.sln
+OrderDesk.sln > OrderDesk.Cli > Program.cs
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 2
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+Ln 3, Col 21

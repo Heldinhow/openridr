@@ -1,0 +1,93 @@
+OrderDesk.sln
+Trusted mode
+main
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Run OrderDesk.Cli
+default
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore succeeded · exit 0 · Analysis: unavailable
+Committed 11f3ea4 Audit commit
+×
+Processes
+
+OpenRidr tracks only processes the host started. Termination is shown after the host observes it; a missing exit code stays "exit unknown".
+
+restore:solution pid 68359 exited · exit 0
+lsp:csharp-ls pid 68371 exited · exit 0
+restore:solution pid 68570 exited · exit 0
+Commit
+main
+Refresh
+0 of 0 selected
+
+The working tree is clean.
+
+Commit message
+Amend the last commit
+Commit
+
+Committed 11f3ea4 Audit commit
+
+ Rename symbol…
+ Code actions…
+ Save
+Your code, in focus.
+
+Open a file from the solution explorer to start editing.
+
+Save file
+⌘S
+Go to definition
+⌘B
+Rename symbol
+Shift+F6
+Run saved build
+Ctrl+R
+
+Text editing is always available. Analysis and execution require trust.
+
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+Not selected
+net8.0
+Build (Cmd+F9)
+Run (Ctrl+R)
+No program has run
+No build has run
+
+Run unavailable: Build the startup project first; Run never builds or restores implicitly.
+
+OrderDesk.sln
+OrderDesk.sln
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 2
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+No file open
