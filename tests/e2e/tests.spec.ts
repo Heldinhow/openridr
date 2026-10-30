@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -67,15 +68,11 @@ async function waitForEvaluation(page: Page, revision = 1) {
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", {
     timeout: 20_000,
   });
-  await expect(page.getByTestId("eval-state")).toContainText(`revision ${revision}`);
+  await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(revision);
 }
 
 async function restoreAndReload(page: Page, revision = 2) {
-  await page.getByTestId("restore-action").click();
-  await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
-    timeout: 90_000,
-  });
-  await page.getByTestId("restore-reload").click();
+  await settleRestore(page);
   await waitForEvaluation(page, revision);
 }
 

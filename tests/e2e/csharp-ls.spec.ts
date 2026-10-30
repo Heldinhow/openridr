@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { revisionOf } from "./automatic";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -83,7 +84,7 @@ async function waitForEvaluation(page: Page, revision?: number) {
     timeout: 30_000,
   });
   if (revision !== undefined) {
-    await expect(page.getByTestId("eval-state")).toContainText(`revision ${revision}`);
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(revision);
   }
 }
 
@@ -235,10 +236,11 @@ test("install plan is exact, cancel is inert, and the real install reaches verif
       expect(fs.existsSync(plan.destination), "cancel created a tool directory").toBe(false);
       expect(fs.existsSync(plan.staging), "cancel created a staging directory").toBe(false);
       // Other specs leave exited processes in the shared registry; cancel must create none
-      // for this workspace.
+      // for this workspace. The automatic restore after Trust is its own process and is not counted.
       expect(
         (await hostState(request)).processes.filter(
-          (process: { workspaceId: number }) => process.workspaceId === workspaceId,
+          (process: { workspaceId: number; kind: string }) =>
+            process.workspaceId === workspaceId && !process.kind.startsWith("restore:"),
         ),
       ).toEqual([]);
       await page.getByTestId("install-plan-open").click();

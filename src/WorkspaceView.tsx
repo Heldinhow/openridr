@@ -474,6 +474,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [pendingRunAfterBuild, setPendingRunAfterBuild] = useState<RunConfig | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const autoEvaluation = useRef<number | null>(null);
+  const autoRestore = useRef<number | null>(null);
+  const autoEvaluatedAfterRestore = useRef<number | null>(null);
+  const autoReevaluated = useRef<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(projects.map((project) => project.path)),
   );
@@ -940,6 +943,31 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     snapshot.contextId,
     runConfigsLoaded,
   ]);
+
+  // docs/decisions.md: a Trusted workspace restores by itself, once per context; Restricted runs nothing.
+  useEffect(() => {
+    if (!trusted || restore.state !== "idle" || !restoreAvailable) return;
+    if (restore.projects.length > 0 && restore.projects.every((project) => project.state === "restored")) return;
+    if (autoRestore.current === snapshot.contextId) return;
+    autoRestore.current = snapshot.contextId;
+    void startRestore("restore.start");
+  }, [trusted, restore.state, restoreAvailable, snapshot.contextId]);
+
+  // The host's state poll marks the model stale when a project file changes on disk; a Trusted workspace re-evaluates it.
+  useEffect(() => {
+    if (!trusted || !evaluation.staleReason?.includes("changed on disk")) return;
+    const key = `${evaluation.revision}:${evaluation.staleReason}`;
+    if (autoReevaluated.current === key) return;
+    autoReevaluated.current = key;
+    void runEvaluation();
+  }, [trusted, evaluation.revision, evaluation.staleReason]);
+
+  // A finished restore makes the old model stale; evaluate once per restore so the tree matches the assets.
+  useEffect(() => {
+    if (!trusted || restore.state !== "ok" || autoEvaluatedAfterRestore.current === restore.revision) return;
+    autoEvaluatedAfterRestore.current = restore.revision;
+    void runEvaluation();
+  }, [trusted, restore.state, restore.revision]);
 
   useEffect(() => {
     if (evaluation.revision === 0) return;
@@ -3496,7 +3524,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               onClick={() => void startRestore("restore.start")}
               title={
                 restoreDisabledReason ??
-                "Runs dotnet restore for this workspace with the project SDK. Nothing restores automatically."
+                "Runs dotnet restore for this workspace with the project SDK. A Trusted workspace restores by itself; this runs it again."
               }
             >
               {restore.state === "ok" ? "Restore again" : "Restore"}
@@ -4976,6 +5004,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         trusted={trusted}
         sdkSummary={sdkSummary}
         evaluation={evaluationStatus}
+        restore={{
+          state: restore.state,
+          label: restoreStateLabel(restore),
+          onCancel: () => void cancelRestore(),
+          onRetry: restoreAvailable ? () => void startRestore("restore.retry") : null,
+        }}
         dirtyCount={dirtyCount}
         breadcrumb={statusBreadcrumb}
         cursor={active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}

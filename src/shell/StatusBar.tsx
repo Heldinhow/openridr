@@ -1,10 +1,18 @@
 type EvaluationStatus = { text: string; title?: string; testId?: string };
 
-export function StatusBar({ workspace, trusted, sdkSummary, evaluation, dirtyCount, breadcrumb, cursor, indent }: {
+type RestoreStatus = {
+  state: "idle" | "running" | "ok" | "failed" | "cancelled";
+  label: string;
+  onCancel: () => void;
+  onRetry: (() => void) | null;
+};
+
+export function StatusBar({ workspace, trusted, sdkSummary, evaluation, restore, dirtyCount, breadcrumb, cursor, indent }: {
   workspace: { name: string; path: string };
   trusted: boolean;
   sdkSummary: string;
   evaluation: EvaluationStatus;
+  restore: RestoreStatus;
   dirtyCount: number;
   breadcrumb: string;
   cursor: string;
@@ -18,6 +26,20 @@ export function StatusBar({ workspace, trusted, sdkSummary, evaluation, dirtyCou
         {trusted ? "Trusted mode" : "Restricted mode"}
       </span>
       <span data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
+      {restore.state === "running" && (
+        <span data-testid="status-restore">
+          Restoring packages…{" "}
+          <button type="button" data-testid="status-restore-cancel" onClick={restore.onCancel}>Cancel restore</button>
+        </span>
+      )}
+      {(restore.state === "failed" || restore.state === "cancelled") && (
+        <span className="error" data-testid="status-restore" title={restore.label}>
+          {restore.label}{" "}
+          {restore.onRetry && (
+            <button type="button" data-testid="status-restore-retry" onClick={restore.onRetry}>Retry restore</button>
+          )}
+        </span>
+      )}
       {evaluation.testId ? (
         <span data-testid={evaluation.testId} title={evaluation.title}>{evaluation.text}</span>
       ) : (
