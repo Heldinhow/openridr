@@ -45,7 +45,7 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     expect(outputBox.height).toBe(220);
     expect(outputBox.x).toBe(treeBox.x);
     expect(outputBox.x + outputBox.width).toBe(editorBox.x + editorBox.width);
-    for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug", "mode-badge"]) {
+    for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug", "toolbar-settings", "toolbar-run-config", "mode-badge"]) {
       const box = (await page.getByTestId(id).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
