@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -291,6 +292,24 @@ test("stopping a real long-running program reports requested and observed termin
     await page.getByTestId("bottom-tab-run").click();
     await page.getByTestId("run-termination").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "12-run-cancelled.png") });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("one click on Run on a prepared workspace neither restores nor re-evaluates", async ({ page }) => {
+  const { base, copy } = tempCopy("Order Desk prepared");
+  try {
+    await openTrustedEvaluated(page, path.join(copy, "OrderDesk.sln"));
+    await settleRestore(page);
+    const revision = await revisionOf(page);
+    const restoreCommand = await page.getByTestId("restore-command").textContent();
+    await page.getByTestId("toolbar-run").click({ force: true });
+    await page.getByTestId("bottom-tab-run").click();
+    await expect(page.getByTestId("run-log")).toContainText("Order A-104", { timeout: 120_000 });
+    expect(await revisionOf(page)).toBe(revision);
+    await expect(page.getByTestId("restore-command")).toHaveText(restoreCommand ?? "");
+    await expect(page.getByTestId("restore-state")).not.toContainText("Restoring");
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

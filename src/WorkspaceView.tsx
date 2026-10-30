@@ -2624,7 +2624,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     };
     const configuration = activeRunConfig?.configuration ?? "Debug";
     const context = snap.evaluation.context;
-    if (!consoleOf(snap) || snap.restore.state === "ok" || context.configuration !== configuration) {
+    if (!consoleOf(snap) || snap.evaluation.stale || context.configuration !== configuration) {
       setMessage({ tone: "info", text: `Preparing ${verb}: evaluating the project model…` });
       onSnapshot(await call<Snapshot>("evaluation.run", {
         configuration,
