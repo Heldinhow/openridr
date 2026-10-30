@@ -1582,6 +1582,15 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .debug-columns h3 { margin: 0 0 4px; }
 .debug-columns ul { margin: 0.25rem 0; padding-left: 1.1rem; }
 .debug-frames li > .muted { display: block; width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.debug-log-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.debug-log-tabs [aria-selected="true"] {
+  font-weight: 600;
+  border-bottom: 2px solid var(--accent);
+}
 .debug-log-block pre {
   max-height: 14rem;
   overflow: auto;

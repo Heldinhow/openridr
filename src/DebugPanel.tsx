@@ -40,6 +40,7 @@ export function DebugPanel({
 }: Props) {
   const dap = snapshot.dap;
   const [busy, setBusy] = useState<string | null>(null);
+  const [logTab, setLogTab] = useState<"console" | "output">("console");
   const active = dap.state === "preparing" || dap.state === "running" || dap.state === "paused";
   const paused = dap.state === "paused";
   const terminal = ["terminated", "cancelled", "failed"].includes(dap.state);
@@ -330,14 +331,51 @@ export function DebugPanel({
         )}
       </section>
 
-      <details className="debug-log-block">
-        <summary>DAP, adapter and host log</summary>
-        <pre data-testid="dap-log">{dap.log || "No DAP traffic yet."}</pre>
-      </details>
-      <details className="debug-log-block">
-        <summary>Debuggee output</summary>
-        <pre data-testid="dap-output">{dap.output || "No debuggee output yet."}</pre>
-      </details>
+      <div className="debug-log-block">
+        <div className="debug-log-tabs" role="tablist" aria-label="Debug logs">
+          <button
+            type="button"
+            role="tab"
+            id="debug-tab-console"
+            aria-selected={logTab === "console"}
+            aria-controls="debug-panel-console"
+            data-testid="debug-tab-console"
+            onClick={() => setLogTab("console")}
+          >
+            Console
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="debug-tab-output"
+            aria-selected={logTab === "output"}
+            aria-controls="debug-panel-output"
+            data-testid="debug-tab-output"
+            onClick={() => setLogTab("output")}
+          >
+            Debug Output
+          </button>
+        </div>
+        {/* Both panes stay mounted so their text remains readable while the other tab is open. */}
+        <pre
+          role="tabpanel"
+          id="debug-panel-console"
+          aria-labelledby="debug-tab-console"
+          hidden={logTab !== "console"}
+          data-testid="dap-output"
+        >
+          {dap.output || "No debuggee output yet."}
+        </pre>
+        <pre
+          role="tabpanel"
+          id="debug-panel-output"
+          aria-labelledby="debug-tab-output"
+          hidden={logTab !== "output"}
+          data-testid="dap-log"
+        >
+          {dap.log || "No DAP traffic yet."}
+        </pre>
+      </div>
     </section>
   );
 }

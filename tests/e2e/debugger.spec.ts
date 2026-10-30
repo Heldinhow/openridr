@@ -394,6 +394,13 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect.poll(() => page.getByTestId("debug-locals").evaluate(fullyVisibleInPanel)).toBe(true);
     await expect(page.getByTestId("debug-breakpoints")).toContainText("verified by the adapter");
     await expect(page.getByTestId("dap-log")).toContainText("event stopped · reason breakpoint");
+    // The logs are tabs: the inactive one is hidden but keeps its text.
+    await expect(page.getByTestId("dap-output")).toBeVisible();
+    await page.getByTestId("debug-tab-output").click();
+    await expect(page.getByTestId("dap-log")).toBeVisible();
+    await expect(page.getByTestId("dap-output")).toBeHidden();
+    await page.getByTestId("debug-tab-console").click();
+    await expect(page.getByTestId("dap-output")).toBeVisible();
     await expect(page.locator(".cm-line-current")).toHaveCount(1);
     const currentColor = await lineColor(".cm-line-current");
     expect(currentColor[0]).toBeGreaterThan(currentColor[2]);
