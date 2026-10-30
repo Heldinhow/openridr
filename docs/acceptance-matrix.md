@@ -1,4 +1,134 @@
-# Matriz de aceitação P0 — OpenRidr
+# Matriz de aceite por feature — OpenRidr (MVP Rider + Fase 1)
+
+Data: 2026-10-30. Branch `fase-1-fluxo-sem-atrito`, base de código `96e1e41` + o commit `docs(acceptance)` desta matriz.
+Alvo verificado: macOS ARM64 (M2), Chrome real + host real (`bun run test:e2e`), SDK do projeto 8.0.408 em `~/.dotnet`, host 10.0.100, netcoredbg e csharp-ls reais instalados no home do E2E.
+**Windows e macOS Intel estão fora do escopo desta matriz: não verificado, sem promessa.** O histórico P0 de 28/10 (AC-01…AC-34, E01…E17, A18, L18) está preservado no **Apêndice A**, sem alteração de conteúdo.
+
+**Decisão: release NÃO aprovado.** Esta matriz não transforma ausência de prova em aprovação. Smoke nativo do app empacotado, G-LEGAL e G-PKG seguem abertos (seção 5).
+
+## 1. Como ler
+
+| Coluna | Significado |
+|---|---|
+| Esperado | Cláusula da SPEC/MVP/ticket da Fase 1 que define o comportamento. |
+| Prova automatizada | `arquivo.spec.ts:linha` (teste nomeado) ou teste Rust. Só conta o que rodou nesta data (seção 2). |
+| Prova NATIVA | Janela Tauri real do bundle. Hoje só existe o screenshot da tela Welcome (`docs/evidence/screenshots/14-bundle-welcome.png`); todo o resto é **não verificado** até o smoke do ticket 14. |
+| Defeitos/limites | Severidade A/M/B (alta/média/baixa). IDs `A1…`, `M1…`, `L1…` = `docs/UI-AUDIT.md` (28/10, **não reauditados** depois da Fase 1, salvo os fechados pelos tickets 03–13). IDs `D-xx` = achados novos desta matriz (seção 4). |
+| Status | **verificado** = prova automatizada real passou nesta data, no ambiente web (Chrome + host real); a prova nativa continua em coluna própria. **parcial** = parte da prova falhou/timeout/falta ou há defeito aberto relevante. **não verificado** = sem prova executada. **bloqueado** = depende de gate/decisão aberta. |
+
+Skip e timeout nunca contam como passe. Nenhum spec foi pulado nas execuções abaixo (0 skips); os 2 timeouts e as 3 falhas estão listados.
+
+## 2. Execuções reais desta matriz (2026-10-30, macOS ARM64)
+
+Comando base: `PATH=$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/<spec>.ts`, um spec por vez, portas 1420/4317 livres antes. Logs fora do repositório (`/tmp/t01`); números abaixo são os registrados.
+
+| Spec(s) | Resultado | Observação |
+|---|---|---|
+| restore, evaluation, build, run, run-configs, workspace, debugger (juntos, pós-ticket 01) | **46 passed**, exit 0, 0 skips | debugger: 12 testes reais com netcoredbg, nenhum skip |
+| gates, restore, run, install-plan, ui-layout (juntos, pós-ticket 10) | **21 passed**, exit 0 | |
+| csharp-ls (10 testes) | **8 passed, 2 timeout (3 min cada)** | `:1145` rename obsoleto e `:1427` invalidação de code actions: **não verificado** (timeout também no branch base; causa em investigação, roadmap 12) |
+| git | 5 passed | |
+| nuget | 4 passed | |
+| settings | 5 passed | |
+| actions | 6 passed | |
+| search | 6 passed | |
+| tests | 6 passed | |
+| testsuite | 2 passed | |
+| trust-sdk | 3 passed | |
+| shell | 4 passed | |
+| code | 3 passed | |
+| editor-overflow | 2 passed | |
+| disabled-states | 3 passed | |
+| ui-fold | 4 passed | |
+| ui-layout | 7 passed | |
+| install-plan | 3 passed | o teste "first-install" usa home E2E novo; faz skip se o csharp-ls já está instalado no home usado |
+| environment | 1 passed | |
+| terminal | **4 passed com `TERM=xterm-256color`; 2 failed + 2 passed com `TERM=dumb`** | ver D-02 |
+| zz-acceptance | **1 passed (UI audit), 1 failed (jornada P0)** | ver D-03 |
+| `cargo test --workspace --no-fail-fast` | exit 101: lib 173 ok, debugger 9 ok, test_discovery 9 ok, test_run 5 ok, **host.rs 47 ok / 13 falhas** | ver D-01 |
+| `bun run check` | exit 0 | |
+
+Contagens antigas (49/101/102 testes, 192 testes Rust, "E2E 49") são **histórico** (Apêndice A e `docs/implementation-notes.md`) e não valem como estado atual.
+
+## 3. Matriz por feature
+
+Legenda de tickets: `F1…F9` = `docs/tickets-mvp/`; `Fase1 NN` = `.scratch/fase-1-fluxo-sem-atrito/issues/NN`; `Mapa NN` = `.scratch/roadmap/issues/NN`. Prova NATIVA = **não verificado** em todas as linhas, salvo onde indicado.
+
+| # | Feature / fluxo | Esperado | Prova automatizada | Defeitos / limites | Ticket corretivo | Status |
+|---|---|---|---|---|---|---|
+| 1 | Welcome, recentes, abrir solução, ambiguidade | SPEC P0 AC-08, AC-11; F1 | `workspace.spec.ts:35` welcome lists recent…; `:460` ambiguous and empty directories ask…; `:93` opens the fixture in restricted mode | Nativo: só a tela Welcome do bundle abriu (screenshot 14). Nome do recente sem `.sln` por desenho | Fase1 14 (smoke nativo) | verificado |
+| 2 | Trust, Restricted, revogação, processos remanescentes | AC-01, AC-07, G1; Fase1 stories 8–9 | `trust-sdk.spec.ts:71` trust resolves…revoke blocks…; `:230` revoked workspace shows the remaining process…; `workspace.spec.ts:507` direct host calls fail before trust; `gates.spec.ts:53` Build and Run name Restricted mode; `disabled-states.spec.ts:43` | — | — | verificado |
+| 3 | SDK do projeto vs host, `global.json`, toolchain | AC-02; AGENTS.md (qualquer raiz detectada vale) | `trust-sdk.spec.ts:175` missing project SDK is distinct and global.json is never rewritten; `environment.spec.ts:4`; Rust `host.rs` (13 falhas, D-01) | D-01 (M): testes Rust fixam SDK/caminho da máquina | Mapa 07 (guardrails) / novo ticket D-01 | parcial |
+| 4 | Solution Explorer: árvore avaliada, TFM, detalhes do projeto, falha de avaliação | AC-08–AC-10; Fase1 story 2 | `evaluation.spec.ts:63` trust evaluates every project…; `:149` a broken import stays in the tree…; `:183` saving a project file…re-evaluates; `ui-layout.spec.ts:110` evaluated project details keep paths intact | **Operações de arquivo (criar/renomear/mover/apagar na árvore) estão FORA DA BASE**: a trilha existe só na raiz `debug-parity` e não foi incorporada a esta branch. M10 (path quebra no meio) coberto por `ui-layout.spec.ts:110` | — (fora da base); M10 sem dono | verificado |
+| 5 | Editor: abrir, editar, salvar, conflito de disco, fechar com buffer sujo | AC-11 | `workspace.spec.ts:137`, `:161`, `:189`, `:227`, `:265`, `:285`, `:312`, `:335`, `:392`, `:446`; `editor-overflow.spec.ts:5`, `:43` | M13 (editor em 1100 vira ícones sem rótulo), L9 (breadcrumb mostra contadores internos), M12 (cor do botão destrutivo): não reauditados | M12/M13/L9 sem dono | verificado |
+| 6 | Menu de contexto e ações do editor | F7 | `code.spec.ts:27` editor context menu lists F7 actions…; `:69` Alt+Enter…; `:81` trusted but unanalyzed editor explains Find Usages and Go To Definition gates | M6 (menu abre longe do ponteiro) não reauditado | M6 sem dono | verificado |
+| 7 | csharp-ls: instalação, sessão, Problems, completion, definition | AC-12, AC-14, AC-16; Mapa 08 | `csharp-ls.spec.ts:134`, `:171`, `:292` problems navigate real diagnostics…, `:556` analysis loads…survives a crash…, `:676` completion and definition… (todos passed) | Instalação real roda no home temporário do E2E; cargo `lsp_*` falham por D-01 (cascata de lock) | D-01 | verificado |
+| 8 | Rename (prévia, cancelar inerte, aplicar a buffers) | AC-12; F7 | `csharp-ls.spec.ts:1011` rename previews real cross-project edits… (passed); `:1145` a stale rename preview is rejected… (**timeout 3 min**) | D-04 (M): timeout do rename obsoleto, também na base; M7 (campo é popup, não sobre a palavra); A6 fechado pelo Fase1 11 | Mapa 12 | parcial |
+| 9 | Code actions (listar, prévia, invalidar antes de escrever) | AC-13 | `csharp-ls.spec.ts:1268` code actions are listed…(passed); `:1536` …forward the current diagnostic… (passed); `:1427` code action lists and previews are invalidated… (**timeout 3 min**) | D-04 (M) | Mapa 12 | parcial |
+| 10 | Find Usages (painel, navegação) | F7 | Só o gate sem análise: `code.spec.ts:81`. **Nenhum spec exercita resultados reais de referências** | D-05 (M): fluxo real de Find Usages sem prova automatizada | novo ticket (spec real de `lsp.references`) | não verificado |
+| 11 | Restore automático após Trust (contrato novo) | Fase1 02: restore + avaliação sozinhos após Trust, progresso, cancelar, retry, nova avaliação ao mudar `.csproj`; Restricted nunca restaura; build/run/debug/testes **nunca** restauram por si (`restore::require_restored`, decisions 2026-10-28 ticket 04) | `restore.spec.ts:58` trust restores and evaluates by itself…; `:106` restricted mode never restores by itself; `:123` a failed restore keeps its log…retry; `:191` a project file changed on disk re-evaluates…; `:211` direct restore denied before trust; `build.spec.ts:152` build waits for the automatic restore… | O contrato **mudou**: não é mais "restore explícito" (AC-03 do Apêndice A descreve o contrato antigo). Gate "Dependencies are not restored" sem assert de texto | Fase1 01 (parcial) | verificado |
+| 12 | Build (log cru, erro navegável, buffers sujos) | AC-17–AC-20 | `build.spec.ts:66` a real build reports its raw log…navigates to it; `:152`; `gates.spec.ts:30` Run is gated until built (inclui build obsoleto) | Gates sem assert de texto: sealed, another startup project, not restored (ver Fase1 01) | Fase1 01 / Mapa 07 | verificado |
+| 13 | Run e janela Run (saída, exit, parar, um clique) | Fase1 03, 05; AC-17–AC-20 | `run.spec.ts:90` a real run shows the saved build output…; `:241` stopping a real long-running program…; `:300` one click on Run on a prepared workspace…; `:318` one click on Run restores, builds and shows the output | A1 fechado (Fase1 03) | — | verificado |
+| 14 | Debug (breakpoint, step, frames, locals, condicionais, exceções, um clique) | AC-21–AC-23; Fase1 05 | `debugger.spec.ts:55`, `:193`, `:262`, `:512`, `:623`, `:676`, `:732`, `:756`, `:777`, `:796`, `:823`, `:855` (12 passed, 0 skips) | macOS ARM64: netcoredbg é "community supported" e a flag experimental continua por desenho; Windows/Intel fora de escopo. Nativo: não verificado | Fase1 14 | verificado |
+| 15 | Terminal xterm (prompt automático, Ctrl+C/D, tela cheia, resize, cores) | Fase1 06–07 (stories 17–23) | `terminal.spec.ts:34` restricted…starts no shell; `:74` a real shell runs…Ctrl+C…; `:223` Ctrl+D…; `:245` a full-screen program…q returns | D-02 (B/M): com `TERM=dumb` herdado o shell não é "fully functional" e as cores não aparecem (2 falhas); com `TERM=xterm-256color` 4/4 | novo ticket D-02 (forçar TERM no PTY) | parcial |
+| 16 | Testes (descoberta VSTest, run, TRX, cancelar, MTP, árvore agrupada) | AC-27–AC-31; F5 | `tests.spec.ts:92`, `:190`, `:229`, `:263`, `:413`, `:512`; `testsuite.spec.ts:54`, `:188` | A2 fechado (Fase1 04) | — | verificado |
+| 17 | Git (commit, diff, log, branch, checkout/pull/push) | F6 | `git.spec.ts:77`, `:94`, `:162`, `:216`, `:286` | A3 fechado (Fase1 08); M8/L3/L5 não reauditados. `git.rs` com dívida (Mapa 07) | Mapa 07 | verificado |
+| 18 | NuGet (instalados/desatualizados, sem pacotes, CPM) | F9 | `nuget.spec.ts:38`, `:46`, `:75`, `:88` | A8 fechado (Fase1 13); M9 (tabela abaixo da dobra) não reauditado | M9 sem dono | verificado |
+| 19 | Settings, Keymap, Find Action | F2, F8 | `settings.spec.ts:62`, `:131`, `:181`, `:232`, `:271`; `actions.spec.ts:36`, `:91`, `:117`, `:165`, `:197`, `:232` | M4 (keymap não é tabela), M11 (caminho absoluto de settings.json), L8 (tema com uma opção): não reauditados | M4/M11/L8 sem dono | verificado |
+| 20 | Search Everywhere (Files, Classes, Symbols, Text, Actions) | F3 | `search.spec.ts:19`, `:51`, `:104`, `:134`, `:162`, `:216` | L4 (sem contagem de resultados) não reauditado | L4 sem dono | verificado |
+| 21 | Run configurations | F4 | `run-configs.spec.ts:116`, `:142`, `:174`, `:226`; `disabled-states.spec.ts:62` | M3 (rodapé Save/Duplicate/Remove/Cancel) parcialmente tratado pelos testes de dialog Run (`:116`–`:174`) | M3 sem dono | verificado |
+| 22 | Casca/layout 1440×900 e 1100×700, tool windows, barra superior, primeira dobra | F1; Fase1 04, 12 | `shell.spec.ts:18`, `:34`, `:71`, `:103`; `ui-layout.spec.ts:17` (×2 larguras), `:110`, `:150` (×2); `ui-fold.spec.ts` (4); `editor-overflow.spec.ts` | A4/A7 fechados (Fase1 09, 12); M1, M2, M5, L1–L2, L6–L7 não reauditados | M/L sem dono | verificado |
+| 23 | Plano de instalação de ferramentas (csharp-ls/netcoredbg) | Fase1 10 (A5) | `install-plan.spec.ts:9` (1440×900 e 1100×700), `:56` trusted first-install shows an active Confirm and install; `csharp-ls.spec.ts:134`, `:171` | Em 1100×700 o plano não cabe sem rolar (por desenho; drawer rola). Teste de primeira instalação faz skip com home onde o csharp-ls já existe | — | verificado |
+| 24 | Estados desabilitados com razão visível | Fase1 09 (A4) | `disabled-states.spec.ts:43`, `:53`, `:62`; `gates.spec.ts` | — | — | verificado |
+| 25 | App local `.app` (gerar, instalar, atualizar) | Fase1 14; `docs/install-app.md` | Build do bundle: `bun run tauri build --bundles app` exit 0 (2026-10-30, 15 MiB, ad-hoc). Abriu como processo próprio (screenshot 14) | **Nativo: Run, Debug e terminal no app empacotado NÃO verificados** (D-06). Sem assinatura/notarização por desenho. `app:install` não foi rodado nesta rodada | Fase1 14; Mapa 13 | parcial |
+| 26 | Jornada P0 de aceitação (restricted→trust→SDKs→restore→LSP→build→run→testes→PTY→DAP) | Apêndice A, AC-01…AC-34 | `zz-acceptance.spec.ts` UI audit passed; **jornada falhou** em `ensureCsharpLs` (`install-plan-open` não encontrado) | D-03 (M) | novo ticket D-03 | parcial |
+| 27 | Fronteiras do host (Rust) | decisions.md; testes de fronteira | `cargo test --workspace --no-fail-fast`: 173+9+9+5 passed; `host.rs` 47 passed / 13 failed | D-01 (M) | novo ticket D-01 | parcial |
+| 28 | Gates de release (G-LEGAL, G-PKG, G-NATIVE) | `docs/release-decision.md` | Nenhuma prova possível por spec | Sem ticket de código; decisão do Helder (Mapa 10) | Mapa 10 | bloqueado |
+
+Contagem (28 linhas): **verificado 19**, **parcial 7** (3, 8, 9, 15, 25, 26, 27), **não verificado 1** (10), **bloqueado 1** (28), fora da base 1 sub-item (file ops, linha 4). Prova NATIVA: **0 de 28 verificadas** (linha 1 e 25 têm só o screenshot do Welcome).
+
+## 4. Defeitos e limites novos desta rodada (não corrigidos)
+
+| ID | Sev. | Achado | Evidência | Ticket proposto |
+|---|---|---|---|---|
+| D-01 | M | 13 testes de `crates/host/tests/host.rs` falham nesta máquina: `sdk_inventory…` espera SDK `8.0.416` e a máquina tem `8.0.408`; `restore_reports…` exige `sdkRoot` terminando em `OpenRidr/sdks/8.0.408`, contra a regra do AGENTS.md (qualquer raiz detectada, ex. `~/.dotnet`). Os outros 11 falham em cascata por `PoisonError` do `ENV_LOCK`. | `cargo test --workspace --no-fail-fast` exit 101 (log `/tmp/t01/m/cargo2.log`) | Tornar os dois asserts independentes do caminho/versão da máquina (contrato = versão resolvida) |
+| D-02 | M | O PTY só define `TERM=xterm-256color` quando `TERM` não existe (`terminal.rs`); herdando `TERM=dumb` (ex.: app aberto a partir de shell/ferramenta) `less` avisa "terminal is not fully functional" e as cores ANSI não aparecem. Os specs de terminal dependem do `TERM` do chamador. | `terminal.spec.ts` 2 failed com `TERM=dumb`, 4/4 com `TERM=xterm-256color` | Forçar `TERM=xterm-256color` no PTY (o emulador é o xterm.js) e fixar no spec |
+| D-03 | M | A jornada `zz-acceptance.spec.ts:166` quebra na etapa csharp-ls: `install-plan-open` não existe naquele estado da UI (drawer/menu). Sem ela não há prova de ponta a ponta atual (restore→LSP→build→run→testes→PTY→DAP). | 1 failed, 1 passed (UI audit), 2 execuções | Atualizar a jornada ao layout da Fase 1 (abrir o drawer antes do plano) e rodá-la verde |
+| D-04 | M | Dois testes csharp-ls estouram 3 min (rename obsoleto, code actions invalidadas), também no branch base. Pode ser defeito de produto (late answers) ou espera do spec. | `csharp-ls.spec.ts:1145`, `:1427` | Mapa 12 (causa) |
+| D-05 | M | Find Usages real não tem prova automatizada; só o gate "sem análise" (`code.spec.ts:81`). | grep de `tests/e2e` | Spec real de `lsp.references` com navegação |
+| D-06 | A | Nenhuma prova NATIVA de Run/Debug/terminal no app empacotado; a automação da janela Tauri exige permissão de Automação do macOS (e o WKWebView não expõe os controles na árvore de acessibilidade). | Fase1 14; screenshot 14 só do Welcome | Mapa 13 (smoke manual do Helder; checklist em `docs/implementation-notes.md`, "Ticket 14") |
+| D-07 | M | Cobertura de texto ausente em gates de Build/Run/Debug: sealed, another startup project, not a Debug build, Apple Silicon dentro do gate de Debug, "Dependencies are not restored", "More than one console project", program already running, debug session already active. | `docs/implementation-notes.md` (correções da revisão) | Fase1 01 / Mapa 07 |
+| D-08 | B | Mensagem "The saved build is stale: …evaluation.." termina com ponto duplo (texto vem do host + ponto do gate). | `gates.spec.ts:30` (probe) | Corrigir pontuação |
+
+## 5. Defeitos e limites já conhecidos (herdados)
+
+| Origem | Sev. | Item | Dono |
+|---|---|---|---|
+| UI-AUDIT A1–A8 | A | Fechados pelos tickets Fase1 03, 04, 08, 09, 10, 11, 12, 13 (todos `resolved`; A5 fechado no ticket 10 com prova de geometria) | — |
+| UI-AUDIT M1–M13 | M | Abertos, **não reauditados** pós-Fase 1 (M1 tools numa faixa, M2 Problems, M3 run configs, M4 keymap, M5 terminal, M6 menu de contexto, M7 rename, M8 git log, M9 NuGet, M10 detalhes do projeto, M11 settings, M12 botão destrutivo, M13 editor 1100) | **sem dono** |
+| UI-AUDIT L1–L9 | B | Abertos, não reauditados | **sem dono** |
+| Dívida | M | `WorkspaceView.tsx` 5119 linhas / 113 hooks e `git.rs` | Fase1 01 (partial), Mapa 07 |
+| G-LEGAL | A | Sem `LICENSE`/`NOTICE`/`THIRD_PARTY_NOTICES`, ícone provisório (`docs/release-decision.md`) | **sem ticket de código** |
+| G-PKG | A | Sem assinatura/notarização, sem instalador público | **sem ticket de código** |
+| G-NATIVE | A | = D-06 | Mapa 13 |
+| csharp-ls | B | Verificação de assinatura NuGet pulada pelo `dotnet tool install`; netcoredbg sem assinatura/notarização (Apêndice A, G3) | aceito/documentado |
+| Plataformas | — | Windows, macOS Intel, Linux: **não verificado**, sem promessa | fora de escopo |
+
+## 6. Decisões que dependem do Helder
+
+1. Executar (ou autorizar a automação do) smoke nativo do bundle: abrir OrderDesk → Run com saída → Debug até breakpoint → terminal com prompt, com screenshots (Mapa 13 / Fase1 14).
+2. G-LEGAL e G-PKG entram no MVP aberto ou ficam para depois? (Mapa 10; sem ticket de código hoje.)
+3. Os 22 desvios M/L do UI-AUDIT entram na estabilização do MVP ou ficam em backlog? (Mapa 10 d.)
+4. csharp-ls rename/code actions: aceitar o timeout como limite do ambiente ou investigar a causa agora (Mapa 12)?
+5. Aprovar abrir tickets para D-01, D-02, D-03 e D-05, que são correções pequenas de teste/host sem mudar produto (exceto D-02, que muda o `TERM` do PTY).
+
+---
+
+# Apêndice A — Histórico P0 (2026-10-28), preservado
+
+> Estado histórico. Os números de testes, as células AC × ambiente e o contrato de restore "explícito" deste apêndice refletem a base `4b8885c` de 28/10 e **foram superados** pela Fase 1 (restore automático após Trust). Mantidos como registro de evidência (E01…E17, A18, L18).
+
+## A.0 Matriz de aceitação P0 — OpenRidr
 
 Data: 28/10/2026. Base de código: `4b8885c` + o commit `feat(acceptance)` desta entrega.
 Escopo: fatia P0 (tickets 01–17) e consolidação do ticket 18. Documento em PT-BR; UI em inglês.
@@ -7,7 +137,7 @@ Escopo: fatia P0 (tickets 01–17) e consolidação do ticket 18. Documento em P
 executado, o que está bloqueado e o que não foi verificado. Ela não transforma ausência de
 prova em aprovação, não cobre Linux/outras arquiteturas e não é parecer jurídico.
 
-## Como ler os estados
+### Como ler os estados
 
 | Estado | Significado |
 |---|---|
@@ -19,7 +149,7 @@ Evidência: `E01`…`E17` = `docs/evidence/NN-*.md`; `A18` = `docs/evidence/18-a
 `L18-*` = `docs/evidence/logs/18-*`; `S18-*` = `docs/evidence/screenshots/18-*`.
 Os logs de cada ticket (comandos, saídas e exits) estão em `docs/evidence/logs/`.
 
-## Ambientes
+### Ambientes
 
 | Ambiente | SO / arquitetura | Versões observadas | SDK host | SDK do projeto | TFM | Ferramentas/assets | Executado |
 |---|---|---|---|---|---|---|---|
@@ -31,7 +161,7 @@ O repositório é local (sem remote); não há CI Windows configurado. CI que s�
 não comprova a UI desktop e não fecharia o gate. Nenhum mínimo de macOS/Windows foi inventado;
 as versões acima são as reais desta máquina.
 
-## Matriz AC-01…AC-34 × ambiente
+### Matriz AC-01…AC-34 × ambiente
 
 | AC | Cláusula (resumo) | macOS ARM64 | macOS Intel | Windows x64 |
 |---|---|---|---|---|
@@ -74,7 +204,7 @@ as versões acima são as reais desta máquina.
 Os 3 bloqueios Mac são AC-24, AC-33 e AC-34; todas as células Intel/Windows são `not_verified`.
 Não há percentual de cobertura nem contagem de arquivos inventada.
 
-## Gates compartilhados G1–G5
+### Gates compartilhados G1–G5
 
 | Gate | macOS ARM64 | macOS Intel | Windows x64 |
 |---|---|---|---|
@@ -84,7 +214,7 @@ Não há percentual de cobertura nem contagem de arquivos inventada.
 | G4 — UI e privacidade | **approved com limitações** — UI inglesa, tema, foco, nomes, teclado e logs locais; sem leitor de tela, janela nativa não dirigida, teclado Windows só por código (A18) | **not_verified** | **not_verified** |
 | G5 — validação e proveniência | **approved** — matriz, logs, comandos, exits e limitações por ambiente; release bloqueado pelos gates abertos | **not_verified** | **not_verified** |
 
-## Matriz de Debug (separada do núcleo)
+### Matriz de Debug (separada do núcleo)
 
 | Plataforma | Asset da versão aprovada | Flag / opt-in | Prova DAP real | Decisão |
 |---|---|---|---|---|
@@ -94,7 +224,7 @@ Não há percentual de cobertura nem contagem de arquivos inventada.
 
 Linux e outras arquiteturas Windows estão fora do P0; não há promessa.
 
-## .NET: o que está comprovado
+### .NET: o que está comprovado
 
 | Alegação | Estado | Evidência |
 |---|---|---|
@@ -108,7 +238,7 @@ Linux e outras arquiteturas Windows estão fora do P0; não há promessa.
 | Versões mínimas de SO | **não declaradas** | Registradas apenas as versões reais desta máquina; sem mínimo inventado |
 | Linux/outras arquiteturas | **fora do escopo** | Sem promessa |
 
-## Comandos, contexto e exits observados
+### Comandos, contexto e exits observados
 
 Contexto real: cópia temporária de `fixtures/OrderDesk` em diretório com espaço no nome; host
 `openridr-host-http` em `127.0.0.1:4317`; Vite em `1420`; Chrome real; ferramentas reais.
@@ -136,7 +266,7 @@ Logs: `L18-acceptance-summary.json`, `L18-acceptance-pre-revoke.json`, `L18-acce
 
 `exit:null` significa desconhecido; não foi convertido em 0. Falha de término continua visível.
 
-## Limitações e lacunas que esta matriz não esconde
+### Limitações e lacunas que esta matriz não esconde
 
 - **Windows x64**: nenhum núcleo, UI desktop, PTY, VSTest ou DAP executado; CI local não existe.
 - **macOS Intel**: nenhum núcleo executado; sem asset osx-x64 do netcoredbg 3.2; sem substituição.
