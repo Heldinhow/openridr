@@ -312,3 +312,8 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 ## 2026-10-29 — Fontes NuGet no SDK 8
 
 `dotnet nuget list source` aceita `short` e `detailed`, não JSON. O host usa `--format short`, interpreta apenas linhas `E <localização>` e `D <localização>`, omite fontes desabilitadas e falha de forma explícita em saída desconhecida. O formato curto não inclui nome amigável: a localização é exibida como identificação, sem inventar um nome. A interface descreve essas fontes como configuradas e habilitadas, e informa que a origem específica de cada pacote não é reportada; não apresenta a lista como prova da fonte de um pacote. SDK 8.0.408 observado com saída em inglês e português; `global.json` permanece inalterado.
+
+## 2026-10-29 — Run em um clique e consentimento do debugger dentro do app
+
+- **Substitui** "Run never builds or restores implicitly" apenas para o clique na toolbar (como já era para Debug): com Run bloqueado e o workspace em Trusted, `prepareAndRun` restaura (se preciso), avalia, builda e roda. O atalho/ação `run.start` segue estrito. `prepareBuild` é compartilhado com `prepareAndDebug`, que agora também usa a run config ativa (config, TFM, args, env).
+- O consentimento da flag experimental do netcoredbg deixou de usar `window.confirm`: o WKWebView do Tauri não o exibe e devolve `false`, então o clique em Debug no app desktop não fazia nada. Agora é o diálogo `debug-consent-dialog` ("Enable and debug"). Provado no navegador; o fluxo no app desktop precisa ser reconferido após rebuild do `.app`.

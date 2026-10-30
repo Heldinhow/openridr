@@ -145,7 +145,7 @@ test("a real run shows the saved build output and refuses a source saved after t
     await expect(page.getByTestId("run-cwd")).toContainText("Order Desk run/src/OrderDesk.Cli");
     await expect(page.getByTestId("run-identity")).toContainText("OrderDesk.Cli.dll");
     await page.getByTestId("run-log").scrollIntoViewIfNeeded();
-    await page.screenshot({ path: path.join(screenshots, "12-run-output.png") });
+    await page.screenshot({ path: path.join(screenshots, "12-run-log.png") });
 
     // An unsaved edit: the warning names the saved build and Run never saves silently.
     const edited = originalProgram.replace("A-104", "B-777");
@@ -256,6 +256,18 @@ test("stopping a real long-running program reports requested and observed termin
     await expect(page.getByTestId("run-stop")).toHaveCount(0);
     await page.getByTestId("run-termination").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "12-run-cancelled.png") });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("one click on Run restores, builds and shows the program output", async ({ page }) => {
+  const { base, copy } = tempCopy("Order Desk one click");
+  try {
+    await openTrustedEvaluated(page, path.join(copy, "OrderDesk.sln"));
+    // aria-disabled (blocked but clickable) fails Playwright's enabled check, so force it.
+    await page.getByTestId("toolbar-run").click({ force: true });
+    await expect(page.getByTestId("run-log")).toContainText("Order A-104", { timeout: 120_000 });
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

@@ -451,6 +451,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [buildDecision, setBuildDecision] = useState(false);
   const [runDecision, setRunDecision] = useState(false);
+  const [debugConsent, setDebugConsent] = useState(false);
   const [pendingRunConfig, setPendingRunConfig] = useState<RunConfig | null>(null);
   const [pendingRunAfterBuild, setPendingRunAfterBuild] = useState<RunConfig | null>(null);
   const [evaluating, setEvaluating] = useState(false);
@@ -2555,28 +2556,91 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     };
   }
 
-  // Rider-style one-click Debug: does the safe preparation the gates ask for (opt-in flag after
-  // an explicit confirm, restore, Debug build) and then launches. Every host gate still applies.
-  async function prepareAndDebug() {
-    setBottomTab("debug");
-    if (!trusted) return;
-    const wait = async (done: (s: Snapshot) => boolean) => {
-      for (let i = 0; i < 480; i++) {
-        const next = await call<Snapshot>("workspace.state");
-        onSnapshot(next);
-        if (done(next)) return next;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      throw new Error("timed out waiting for the host");
-    };
+  async function waitForHost(done: (s: Snapshot) => boolean) {
+    for (let i = 0; i < 480; i++) {
+      const next = await call<Snapshot>("workspace.state");
+      onSnapshot(next);
+      if (done(next)) return next;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error("timed out waiting for the host");
+  }
+
+  // Rider-style preparation shared by one-click Run and Debug: restore if needed, evaluate the
+  // project model and build. Every host gate still applies; nothing here bypasses trust.
+  async function prepareBuild(verb: "Run" | "Debug") {
+    let snap = snapshot;
+    if (snap.restore.state !== "ok" && !(snap.restore.projects.length > 0 && snap.restore.projects.every((p) => p.state === "restored"))) {
+      setMessage({ tone: "info", text: `Preparing ${verb}: restoring packages…` });
+      onSnapshot(await call<Snapshot>("restore.start", {}));
+      snap = await waitForHost((s) => s.restore.state !== "running");
+      if (snap.restore.state !== "ok") throw new Error("restore did not succeed; see the Build tab.");
+    }
     const consoleOf = (s: Snapshot) => {
       const ready = s.evaluation.projects.filter((p) => p.kind === "console" && p.state === "ok" && p.targetPath);
       return ready.length === 1 ? ready[0] : null;
     };
+    const configuration = activeRunConfig?.configuration ?? "Debug";
+    const context = snap.evaluation.context;
+    if (!consoleOf(snap) || snap.restore.state === "ok" || context.configuration !== configuration) {
+      setMessage({ tone: "info", text: `Preparing ${verb}: evaluating the project model…` });
+      onSnapshot(await call<Snapshot>("evaluation.run", {
+        configuration,
+        targetFramework: activeRunConfig?.targetFramework ?? context.targetFramework ?? (snap.evaluation.availableTfms.length === 1 ? snap.evaluation.availableTfms[0] : null),
+      }));
+      snap = await waitForHost((s) => s.evaluation.state !== "running");
+    }
+    const project = consoleOf(snap);
+    if (!project) throw new Error("no single evaluated console project; choose a startup project or TFM first.");
+    setMessage({ tone: "info", text: `Preparing ${verb}: building…` });
+    onSnapshot(await call<Snapshot>("build.start", {
+      project: project.path,
+      configuration,
+      targetFramework: snap.evaluation.context.targetFramework,
+      savedNote: `Built by ${verb}; saved content only.`,
+    }));
+    snap = await waitForHost((s) => s.build.state !== "running");
+    if (snap.build.state !== "ok" || snap.build.exit !== 0) throw new Error(`the ${verb} build failed; see the Build tab.`);
+    return { snap, project, configuration };
+  }
+
+  function launchParams(project: string, configuration: string, targetFramework: string | null) {
+    return {
+      project,
+      configuration,
+      targetFramework,
+      args: activeRunConfig?.args ?? [],
+      workingDirectory: activeRunConfig?.workingDirectory ?? "",
+      env: activeRunConfig?.env ?? {},
+      envFiles: activeRunConfig?.envFiles ?? [],
+    };
+  }
+
+  // One-click Run like Rider: a blocked Run click restores, builds and then runs.
+  async function prepareAndRun() {
+    setBottomTab("build");
+    if (!trusted || runRunning || buildRunning) return;
+    try {
+      const { snap, project, configuration } = await prepareBuild("Run");
+      onSnapshot(await call<Snapshot>("run.start", launchParams(project.path, configuration, snap.evaluation.context.targetFramework)));
+      setMessage(null);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Run could not start: ${messageOf(error)}` });
+    }
+  }
+
+  // One-click Debug: after the explicit experimental opt-in (an in-app dialog, since the Tauri
+  // webview does not show window.confirm), install the adapter if missing, prepare and launch.
+  async function prepareAndDebug(consented = false) {
+    setBottomTab("debug");
+    if (!trusted) return;
     try {
       let snap = snapshot;
       if (snap.debug.os === "macos" && snap.debug.arch === "aarch64" && !snap.debug.appleSiliconExperimental) {
-        if (!window.confirm("The netcoredbg macOS arm64 build is community supported and experimental. Enable it for this session (the approved 3.2.0-1092 release is installed only if missing) and continue debugging?")) return;
+        if (!consented) {
+          setDebugConsent(true);
+          return;
+        }
         snap = await call<Snapshot>("debug.flag", { enabled: true, confirm: true });
         onSnapshot(snap);
       }
@@ -2586,42 +2650,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         snap = await call<Snapshot>("debug.install", { planId: planned.debug.plan?.planId, confirm: true });
         onSnapshot(snap);
         if (snap.debug.adapterState === "downloading" || snap.debug.adapterState === "installing" || snap.debug.adapterState === "verifying") {
-          snap = await wait((s) => !["downloading", "installing", "verifying"].includes(s.debug.adapterState));
+          snap = await waitForHost((s) => !["downloading", "installing", "verifying"].includes(s.debug.adapterState));
         }
       }
       if (snap.debug.adapterState !== "ready") throw new Error(snap.debug.gateReason ?? snap.debug.adapterMessage);
-      if (snap.restore.state !== "ok" && !(snap.restore.projects.length > 0 && snap.restore.projects.every((p) => p.state === "restored"))) {
-        setMessage({ tone: "info", text: "Preparing Debug: restoring packages…" });
-        onSnapshot(await call<Snapshot>("restore.start", {}));
-        snap = await wait((s) => s.restore.state !== "running");
-        if (snap.restore.state !== "ok") throw new Error("restore did not succeed; see the Build tab.");
-      }
-      const context = snap.evaluation.context;
-      if (!consoleOf(snap) || snap.restore.state === "ok") {
-        setMessage({ tone: "info", text: "Preparing Debug: evaluating the project model…" });
-        onSnapshot(await call<Snapshot>("evaluation.run", {
-          configuration: "Debug",
-          targetFramework: context.targetFramework ?? (snap.evaluation.availableTfms.length === 1 ? snap.evaluation.availableTfms[0] : null),
-        }));
-        snap = await wait((s) => s.evaluation.state !== "running");
-      }
-      const project = consoleOf(snap);
-      if (!project) throw new Error("no single evaluated console project; choose a startup project or TFM first.");
-      setMessage({ tone: "info", text: "Preparing Debug: building…" });
-      onSnapshot(await call<Snapshot>("build.start", {
-        project: project.path,
-        configuration: "Debug",
-        targetFramework: snap.evaluation.context.targetFramework,
-        savedNote: "Built by Debug; saved content only.",
-      }));
-      snap = await wait((s) => s.build.state !== "running");
-      if (snap.build.state !== "ok" || snap.build.exit !== 0) throw new Error("the Debug build failed; see the Build tab.");
-      onSnapshot(await call<Snapshot>("debug.start", {
-        project: project.path,
-        configuration: "Debug",
-        targetFramework: snap.evaluation.context.targetFramework,
-        args: [], workingDirectory: "", env: {}, envFiles: [],
-      }));
+      const { snap: built, project, configuration } = await prepareBuild("Debug");
+      onSnapshot(await call<Snapshot>("debug.start", launchParams(project.path, configuration, built.evaluation.context.targetFramework)));
       setMessage(null);
     } catch (error) {
       setMessage({ tone: "error", text: `Debug could not start: ${messageOf(error)}` });
@@ -3626,8 +3660,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           data-testid="toolbar-run"
           className="toolbar-icon-button run-button"
           aria-label={runRunning ? "Running" : "Run"}
-          disabled={runAction.disabledReason !== null}
-          onClick={() => runAction.execute()}
+          aria-disabled={runAction.disabledReason !== null}
+          onClick={() => {
+            // Like Rider: Run on a project without a current build restores, builds and then runs.
+            if (runAction.disabledReason === null) runAction.execute();
+            else void prepareAndRun();
+          }}
           title={
             runAction.disabledReason ??
             `Runs the saved build (${runAction.shortcutTexts.join(" or ")}); unsaved buffers are never included.`
@@ -4861,6 +4899,43 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 excluded)
               </button>
               <button data-testid="build-decision-cancel" onClick={() => setBuildDecision(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {debugConsent && (
+        <div className="modal-backdrop">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="debug-consent-title"
+            data-testid="debug-consent-dialog"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setDebugConsent(false);
+            }}
+          >
+            <h2 id="debug-consent-title">Enable the experimental debugger?</h2>
+            <p>
+              The netcoredbg macOS arm64 build is community supported and experimental. Enabling it
+              applies to this session; the approved 3.2.0-1092 release is installed only if missing.
+              Debug then restores, builds and starts.
+            </p>
+            <div className="actions">
+              <button
+                data-testid="debug-consent-accept"
+                autoFocus
+                onClick={() => {
+                  setDebugConsent(false);
+                  void prepareAndDebug(true);
+                }}
+              >
+                Enable and debug
+              </button>
+              <button data-testid="debug-consent-cancel" onClick={() => setDebugConsent(false)}>
                 Cancel
               </button>
             </div>

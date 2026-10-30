@@ -502,9 +502,10 @@ test("one click on Debug enables the flag, restores, builds and stops at a break
       lines: [3],
     });
 
-    page.on("dialog", (dialog) => void dialog.accept());
     // aria-disabled (blocked but clickable) fails Playwright's enabled check, so force it.
     await page.getByTestId("toolbar-debug").click({ force: true });
+    // The Tauri webview has no window.confirm, so consent is an in-app dialog.
+    await page.getByTestId("debug-consent-accept").click();
     await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 120_000 });
     await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:3");
     await page.getByTestId("debug-stop").click();
