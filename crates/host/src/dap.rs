@@ -114,6 +114,15 @@ pub struct VariableView {
     pub variables_reference: i64,
 }
 
+/// The children of one expandable variable, fetched for the current stop generation only.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChildrenView {
+    pub variables_reference: i64,
+    pub variables: Vec<VariableView>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScopeView {
@@ -188,6 +197,9 @@ pub struct DapView {
     pub frames: Vec<FrameView>,
     pub selected_frame_id: Option<i64>,
     pub locals: Option<LocalsView>,
+    pub children: Vec<ChildrenView>,
+    /// Increments on every stop and resume; the UI keys pause-scoped state by it.
+    pub stop_generation: u64,
     pub stopped: Option<StoppedView>,
     pub breakpoints: Vec<BreakpointView>,
     pub terminals: Vec<TerminalView>,
@@ -250,6 +262,9 @@ struct Data {
     frames: Vec<FrameView>,
     selected_frame_id: Option<i64>,
     locals: Option<LocalsView>,
+    /// Expanded children keyed by `variablesReference`, valid only for `children_stop_seq`.
+    children: BTreeMap<i64, ChildrenView>,
+    children_stop_seq: u64,
     breakpoints: BTreeMap<String, Vec<BreakpointView>>,
     terminals: Vec<TerminalView>,
     terminal_ids: Vec<u64>,
@@ -280,6 +295,35 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+/// Reads the `variables` array of a DAP answer (used for scopes and for expanded children).
+fn variable_views(body: &Value) -> Vec<VariableView> {
+    body.get("variables")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|variable| VariableView {
+            name: variable
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("?")
+                .to_string(),
+            value: variable
+                .get("value")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            type_name: variable
+                .get("type")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            variables_reference: variable
+                .get("variablesReference")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+        })
+        .collect()
 }
 
 /// Keeps only the boolean `supports*` flags: the adapter answer also carries many fields the view does not use.
@@ -350,6 +394,8 @@ impl Dap {
                 seq: 0,
                 initialized_event: false,
                 adapter_capabilities: BTreeMap::new(),
+                children: BTreeMap::new(),
+                children_stop_seq: 0,
                 configuration_done: false,
                 cleanup_started: false,
                 stop_seq: 0,
@@ -473,6 +519,8 @@ impl Dap {
                 seq: 0,
                 initialized_event: false,
                 adapter_capabilities: BTreeMap::new(),
+                children: BTreeMap::new(),
+                children_stop_seq: 0,
                 configuration_done: false,
                 cleanup_started: false,
                 stop_seq: 1,
@@ -564,6 +612,12 @@ impl Dap {
             frames: data.frames.clone(),
             selected_frame_id: data.selected_frame_id,
             locals: data.locals.clone(),
+            children: if data.children_stop_seq == data.stop_seq {
+                data.children.values().cloned().collect()
+            } else {
+                Vec::new()
+            },
+            stop_generation: data.stop_seq,
             stopped: data.stopped.clone(),
             breakpoints: data
                 .breakpoints
@@ -1215,35 +1269,7 @@ impl Dap {
                     json!({ "variablesReference": reference }),
                     REQUEST_TIMEOUT,
                 ) {
-                    Ok(body) => {
-                        for variable in body
-                            .get("variables")
-                            .and_then(Value::as_array)
-                            .cloned()
-                            .unwrap_or_default()
-                        {
-                            variables.push(VariableView {
-                                name: variable
-                                    .get("name")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("?")
-                                    .to_string(),
-                                value: variable
-                                    .get("value")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string(),
-                                type_name: variable
-                                    .get("type")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string),
-                                variables_reference: variable
-                                    .get("variablesReference")
-                                    .and_then(Value::as_i64)
-                                    .unwrap_or(0),
-                            });
-                        }
-                    }
+                    Ok(body) => variables = variable_views(&body),
                     Err(error) => {
                         self.note(format!("[dap] variables failed for {name}: {error}"));
                     }
@@ -1268,6 +1294,53 @@ impl Dap {
             frame_id,
             scopes: views,
         });
+        Ok(())
+    }
+
+    /// Fetches the children of one expandable variable of the current pause. Like locals, an
+    /// answer that arrives after the pause changed is refused, so it cannot be shown as current.
+    pub fn load_children(&self, variables_reference: i64) -> HostResult<()> {
+        let (session, stop_seq) = {
+            let data = self.data.lock().unwrap();
+            if data.state != "paused" || data.sealed {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "Variables can be expanded only while the debuggee is paused.",
+                ));
+            }
+            (data.session, data.stop_seq)
+        };
+        let answer = self.request(
+            "variables",
+            json!({ "variablesReference": variables_reference }),
+            REQUEST_TIMEOUT,
+        );
+        let child = match answer {
+            Ok(body) => ChildrenView {
+                variables_reference,
+                variables: variable_views(&body),
+                error: None,
+            },
+            Err(error) => ChildrenView {
+                variables_reference,
+                variables: Vec::new(),
+                error: Some(error.to_string()),
+            },
+        };
+        let mut data = self.data.lock().unwrap();
+        if data.session != session || data.stop_seq != stop_seq || data.sealed {
+            data.log
+                .push("[dap] late children discarded (old stop generation)".to_string());
+            return Err(HostError::new(
+                "stale_context",
+                "A variables response from an older pause was discarded.",
+            ));
+        }
+        if data.children_stop_seq != stop_seq {
+            data.children.clear();
+            data.children_stop_seq = stop_seq;
+        }
+        data.children.insert(variables_reference, child);
         Ok(())
     }
 

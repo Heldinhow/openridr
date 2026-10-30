@@ -612,6 +612,13 @@ export type DapScope = {
 
 export type DapLocals = { frameId: number; scopes: DapScope[] };
 
+/** Children of one expanded variable, valid only for the pause that produced them. */
+export type DapChildren = {
+  variablesReference: number;
+  variables: DapVariable[];
+  error: string | null;
+};
+
 /** One real DAP session. `exitKnown:false` means the adapter never reported an exit code. */
 export type Dap = {
   state: "idle" | "preparing" | "running" | "paused" | "terminated" | "cancelled" | "failed";
@@ -643,6 +650,8 @@ export type Dap = {
   frames: DapFrame[];
   selectedFrameId: number | null;
   locals: DapLocals | null;
+  children: DapChildren[];
+  stopGeneration: number;
   stopped: null | { reason: string; threadId: number | null; allThreadsStopped: boolean };
   breakpoints: DapBreakpoint[];
   terminals: {

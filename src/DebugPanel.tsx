@@ -1,3 +1,4 @@
+import { DebugVariable } from "./DebugVariable";
 import { Icon } from "./Icon";
 import { useState } from "react";
 import {
@@ -226,7 +227,7 @@ export function DebugPanel({
               {paused ? "Select a frame to load its scopes." : "No current locals."}
             </p>
           ) : (
-            <div>
+            <div key={dap.stopGeneration}>
               {dap.locals.scopes.map((scope, index) => (
                 <div key={`${scope.name}-${index}`} data-testid={`debug-scope-${index}`}>
                   <strong>{scope.name}</strong>
@@ -235,15 +236,15 @@ export function DebugPanel({
                   ) : null}
                   <ul>
                     {scope.variables.map((variable, position) => (
-                      <li key={`${variable.name}-${position}`} data-testid={`debug-local-${position}`}>
-                        <code>{variable.name}</code>
-                        {variable.type ? <span className="muted"> · {variable.type}</span> : null}
-                        {" = "}
-                        <span>{variable.value}</span>
-                        {variable.variablesReference > 0 ? (
-                          <span className="muted"> (nested; not expanded)</span>
-                        ) : null}
-                      </li>
+                      <DebugVariable
+                        key={`${variable.name}-${position}`}
+                        variable={variable}
+                        testId={`debug-local-${position}`}
+                        expansions={dap.children}
+                        onExpand={(variablesReference) =>
+                          void invoke("Expand variable", "debug.children", { variablesReference })
+                        }
+                      />
                     ))}
                     {scope.variables.length === 0 && (
                       <li className="muted">No top-level variables in this scope.</li>

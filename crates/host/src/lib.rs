@@ -76,6 +76,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.stepOut",
     "debug.setBreakpoints",
     "debug.variables",
+    "debug.children",
     "tests.discover",
     "tests.run",
     "processes.probe",
@@ -466,6 +467,9 @@ impl Host {
         }
         if method == "debug.variables" {
             return self.debug_variables(params);
+        }
+        if method == "debug.children" {
+            return self.debug_children(params);
         }
         if method == "lsp.start" {
             return self.start_lsp(params);
@@ -3269,6 +3273,24 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let dap = inner.dap.clone();
         dap.load_locals(frame_id)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_children(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.children")?;
+        let variables_reference = params
+            .get("variablesReference")
+            .and_then(Value::as_i64)
+            .filter(|reference| *reference > 0)
+            .ok_or_else(|| {
+                HostError::new(
+                    "invalid_state",
+                    "debug.children needs a positive variablesReference.",
+                )
+            })?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        dap.load_children(variables_reference)?;
         Ok(self.snapshot_value(&mut inner))
     }
 

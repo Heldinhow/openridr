@@ -414,6 +414,13 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
       timeout: 15_000,
     });
     await expect(page.getByTestId("debug-locals")).not.toContainText('order … null');
+
+    // A nested variable expands on demand from the adapter; the fields are real, not placeholders.
+    const orderToggle = page.getByRole("button", { name: "Expand order" });
+    await orderToggle.click();
+    await expect(page.getByTestId("debug-locals")).toContainText("Id", { timeout: 15_000 });
+    await expect(page.getByTestId("debug-locals")).toContainText("A-104");
+    await expect(orderToggle).toHaveAttribute("aria-expanded", "true");
     await page.screenshot({ path: path.join(screenshots, "14-dap-stepped.png"), fullPage: true });
 
     // Continue runs to the real exit; the exit code is observed, not assumed.
