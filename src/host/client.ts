@@ -652,6 +652,7 @@ export type Dap = {
   locals: DapLocals | null;
   children: DapChildren[];
   stopGeneration: number;
+  selectedThreadId: number | null;
   stopped: null | { reason: string; threadId: number | null; allThreadsStopped: boolean };
   breakpoints: DapBreakpoint[];
   terminals: {

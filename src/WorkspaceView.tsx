@@ -3615,6 +3615,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               onLaunch={() => void startDebug()}
               onSnapshot={onSnapshot}
               onError={(text) => setMessage({ tone: "error", text })}
+              onOpenFrame={(path, line) => void navigateTo(path, { line: line - 1, character: 0 })}
             />
           </div>
         );

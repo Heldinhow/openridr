@@ -196,6 +196,7 @@ pub struct DapView {
     pub threads: Vec<ThreadView>,
     pub frames: Vec<FrameView>,
     pub selected_frame_id: Option<i64>,
+    pub selected_thread_id: Option<i64>,
     pub locals: Option<LocalsView>,
     pub children: Vec<ChildrenView>,
     /// Increments on every stop and resume; the UI keys pause-scoped state by it.
@@ -261,6 +262,7 @@ struct Data {
     threads: Vec<ThreadView>,
     frames: Vec<FrameView>,
     selected_frame_id: Option<i64>,
+    selected_thread_id: Option<i64>,
     locals: Option<LocalsView>,
     /// Expanded children keyed by `variablesReference`, valid only for `children_stop_seq`.
     children: BTreeMap<i64, ChildrenView>,
@@ -278,6 +280,7 @@ impl Data {
         self.stopped = None;
         self.frames.clear();
         self.threads.clear();
+        self.selected_thread_id = None;
         self.locals = None;
         self.selected_frame_id = None;
         let line = format!("[dap] session {state} · {}", self.phase);
@@ -396,6 +399,7 @@ impl Dap {
                 adapter_capabilities: BTreeMap::new(),
                 children: BTreeMap::new(),
                 children_stop_seq: 0,
+                selected_thread_id: None,
                 configuration_done: false,
                 cleanup_started: false,
                 stop_seq: 0,
@@ -521,6 +525,7 @@ impl Dap {
                 adapter_capabilities: BTreeMap::new(),
                 children: BTreeMap::new(),
                 children_stop_seq: 0,
+                selected_thread_id: None,
                 configuration_done: false,
                 cleanup_started: false,
                 stop_seq: 1,
@@ -611,6 +616,7 @@ impl Dap {
             threads: data.threads.clone(),
             frames: data.frames.clone(),
             selected_frame_id: data.selected_frame_id,
+            selected_thread_id: data.selected_thread_id,
             locals: data.locals.clone(),
             children: if data.children_stop_seq == data.stop_seq {
                 data.children.values().cloned().collect()
@@ -1177,6 +1183,7 @@ impl Dap {
             data.threads = threads;
             data.frames = frames;
             data.selected_frame_id = data.frames.first().map(|frame| frame.id);
+            data.selected_thread_id = Some(thread_id);
         }
         let top_frame = self.data.lock().unwrap().frames.first().cloned();
         if let Some(frame) = top_frame {
@@ -1194,6 +1201,29 @@ impl Dap {
                 data.threads.len()
             );
         }
+    }
+
+    /// Focuses another thread of the current pause: its frames replace the list and the top
+    /// frame's locals load. A thread outside the current pause is refused.
+    pub fn select_thread(&self, thread_id: i64) -> HostResult<()> {
+        let (session, stop_seq) = {
+            let data = self.data.lock().unwrap();
+            if data.state != "paused" || data.sealed {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "Threads can be selected only while the debuggee is paused.",
+                ));
+            }
+            if !data.threads.iter().any(|thread| thread.id == thread_id) {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "That thread does not belong to the current pause.",
+                ));
+            }
+            (data.session, data.stop_seq)
+        };
+        self.load_pause(session, stop_seq, Some(thread_id));
+        Ok(())
     }
 
     /// Fetches scopes/variables for one frame of the current pause. A frame from an older stop

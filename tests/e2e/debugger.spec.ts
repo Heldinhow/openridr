@@ -412,6 +412,14 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.getByTestId("debug-frames")).toContainText(/Order\.cs:[5-9]/, {
       timeout: 15_000,
     });
+    // A frame with source opens in the editor at its line; its locals replace the list.
+    await page.getByRole("button", { name: "Program.<Main>$()" }).click();
+    await expect(page.getByTestId("breadcrumb")).toContainText("Program.cs");
+    await expect(page.getByRole("button", { name: "Program.<Main>$()" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("debug-locals")).toContainText("order");
     await page.getByTestId("debug-step-out").click();
     await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:3", {
       timeout: 15_000,
@@ -526,6 +534,111 @@ test("one click on Debug enables the flag, restores, builds and stops at a break
     await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 120_000 });
     await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:3");
     await page.getByTestId("debug-stop").click();
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("selects another thread and shows its own frames while paused", async ({ page, request }) => {
+  const realAdapter = path.join(
+    process.env.HOME ?? "",
+    "Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092",
+  );
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-threads-"));
+  const copy = path.join(base, "Order Desk threads");
+  fs.cpSync(fixture, copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  // A second thread blocks on a gate and stops at line 10, while Main waits in Join.
+  const program = path.join(copy, "src/OrderDesk.Cli/Program.cs");
+  fs.writeFileSync(
+    program,
+    [
+      "using System.Threading;",
+      "var gate = new ManualResetEventSlim(false);",
+      "var worker = new Thread(() => Worker(gate));",
+      "worker.Start();",
+      "gate.Set();",
+      "worker.Join();",
+      "static void Worker(ManualResetEventSlim gate)",
+      "{",
+      "    gate.Wait();",
+      '    var label = "worker";',
+      "    System.Console.WriteLine(label);",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  fs.rmSync(debugToolDir, { recursive: true, force: true });
+  fs.mkdirSync(debugToolDir, { recursive: true });
+  fs.cpSync(realAdapter, path.join(debugToolDir, "3.2.0-1092"), { recursive: true });
+
+  try {
+    await page.goto("/");
+    await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-checkbox").check();
+    await page.getByTestId("trust-grant").click();
+    await expect(page.getByTestId("mode-trusted")).toBeVisible();
+    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("workspace-tools-toggle").click();
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+
+    const flagged = await hostCall(request, "debug.flag", { enabled: true, confirm: true });
+    expect(flagged.ok, JSON.stringify(flagged.error)).toBe(true);
+    const planned = await hostCall(request, "debug.plan");
+    const installed = await hostCall(request, "debug.install", {
+      planId: planned.data.debug.plan.planId,
+      confirm: true,
+    });
+    expect(installed.data.debug.adapterState).toBe("ready");
+
+    await page.getByTestId("restore-action").click();
+    await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
+      timeout: 60_000,
+    });
+    await page.getByTestId("restore-reload").click();
+    await expect(page.getByTestId("eval-state")).toContainText("revision 2", { timeout: 30_000 });
+    await selectEvaluationTfm(page, "net8.0");
+    await expect(page.getByTestId("eval-state")).toContainText("revision 3", { timeout: 30_000 });
+
+    const breakpoint = await hostCall(request, "debug.setBreakpoints", {
+      path: program,
+      lines: [10],
+    });
+    expect(breakpoint.ok, JSON.stringify(breakpoint.error)).toBe(true);
+    await page.getByTestId("bottom-tab-build").click();
+    await page.getByTestId("build-action").click();
+    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
+      timeout: 60_000,
+    });
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    await page.getByTestId("bottom-tab-debug").click();
+
+    const threads = page.locator('[data-testid^="debug-thread-"]');
+    await expect.poll(() => threads.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
+    const pressed = page.locator('[data-testid^="debug-thread-"] button[aria-pressed="true"]');
+    await expect(pressed).toHaveCount(1);
+    const stoppedThread = await pressed.textContent();
+    // The thread that hit the breakpoint is selected and shows the worker frame.
+    expect(stoppedThread).not.toBeNull();
+    await expect(page.getByTestId("debug-frames")).toContainText("Worker");
+
+    // Capture the other thread's id first: a filter on the pressed state would move after the click.
+    const otherId = await threads
+      .filter({ hasNot: page.locator('button[aria-pressed="true"]') })
+      .first()
+      .getAttribute("data-testid");
+    const otherButton = page.getByTestId(otherId!).locator("button");
+    await otherButton.click();
+    await expect(otherButton).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("debug-frames")).not.toContainText("Worker", { timeout: 15_000 });
+    await expect(page.getByTestId("debug-frames")).toContainText("Program.<Main>");
   } finally {
     await hostCall(request, "debug.stop");
     fs.rmSync(base, { recursive: true, force: true });

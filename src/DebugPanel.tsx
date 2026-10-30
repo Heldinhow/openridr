@@ -14,6 +14,8 @@ type Props = {
   onLaunch: () => void;
   onSnapshot: (snapshot: Snapshot) => void;
   onError: (message: string) => void;
+  /** Opens a frame's source at its 1-based DAP line in the editor. */
+  onOpenFrame: (path: string, line: number) => void;
 };
 
 function messageOf(error: unknown): string {
@@ -37,6 +39,7 @@ export function DebugPanel({
   onLaunch,
   onSnapshot,
   onError,
+  onOpenFrame,
 }: Props) {
   const dap = snapshot.dap;
   const [busy, setBusy] = useState<string | null>(null);
@@ -184,7 +187,17 @@ export function DebugPanel({
             <ul data-testid="dap-thread-list">
               {dap.threads.map((thread) => (
                 <li key={thread.id} data-testid={`debug-thread-${thread.id}`}>
-                  {thread.name} <span className="muted">({thread.id})</span>
+                  <button
+                    type="button"
+                    aria-pressed={dap.selectedThreadId === thread.id}
+                    onClick={() =>
+                      void invoke("Select thread", "debug.selectThread", {
+                        threadId: thread.id,
+                      })
+                    }
+                  >
+                    {thread.name} <span className="muted">({thread.id})</span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -203,11 +216,12 @@ export function DebugPanel({
                   <button
                     data-testid={`debug-frame-${frame.id}`}
                     aria-pressed={dap.selectedFrameId === frame.id}
-                    onClick={() =>
+                    onClick={() => {
                       void invoke("Frame variables", "debug.variables", {
                         frameId: frame.id,
-                      })
-                    }
+                      });
+                      if (frame.path) onOpenFrame(frame.path, frame.line);
+                    }}
                     title={`Load locals for frame ${frame.id}`}
                   >
                     {frame.name}

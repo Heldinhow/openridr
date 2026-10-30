@@ -77,6 +77,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.setBreakpoints",
     "debug.variables",
     "debug.children",
+    "debug.selectThread",
     "tests.discover",
     "tests.run",
     "processes.probe",
@@ -470,6 +471,9 @@ impl Host {
         }
         if method == "debug.children" {
             return self.debug_children(params);
+        }
+        if method == "debug.selectThread" {
+            return self.debug_select_thread(params);
         }
         if method == "lsp.start" {
             return self.start_lsp(params);
@@ -3273,6 +3277,18 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let dap = inner.dap.clone();
         dap.load_locals(frame_id)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_select_thread(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.selectThread")?;
+        let thread_id = params
+            .get("threadId")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| HostError::new("invalid_state", "debug.selectThread needs threadId."))?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        dap.select_thread(thread_id)?;
         Ok(self.snapshot_value(&mut inner))
     }
 
