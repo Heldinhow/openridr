@@ -202,6 +202,8 @@ pub struct DapView {
     pub finished_at: Option<u64>,
     pub sealed: bool,
     pub stale_reason: Option<String>,
+    /// Boolean `supports*` flags from netcoredbg's `initialize` answer, as it sent them.
+    pub adapter_capabilities: BTreeMap<String, bool>,
 }
 
 struct Data {
@@ -239,6 +241,7 @@ struct Data {
     next_id: i64,
     seq: i64,
     initialized_event: bool,
+    adapter_capabilities: BTreeMap<String, bool>,
     configuration_done: bool,
     cleanup_started: bool,
     stop_seq: u64,
@@ -277,6 +280,16 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+/// Keeps only the boolean `supports*` flags: the adapter answer also carries many fields the view does not use.
+fn adapter_flags(body: &Value) -> BTreeMap<String, bool> {
+    body.as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| key.starts_with("supports"))
+        .filter_map(|(key, value)| value.as_bool().map(|flag| (key.clone(), flag)))
+        .collect()
 }
 
 fn adapter_view(binary: &str, version: &str, platform: &str) -> AdapterView {
@@ -336,6 +349,7 @@ impl Dap {
                 next_id: 0,
                 seq: 0,
                 initialized_event: false,
+                adapter_capabilities: BTreeMap::new(),
                 configuration_done: false,
                 cleanup_started: false,
                 stop_seq: 0,
@@ -458,6 +472,7 @@ impl Dap {
                 next_id: 0,
                 seq: 0,
                 initialized_event: false,
+                adapter_capabilities: BTreeMap::new(),
                 configuration_done: false,
                 cleanup_started: false,
                 stop_seq: 1,
@@ -567,6 +582,7 @@ impl Dap {
             finished_at: data.finished_at,
             sealed: data.sealed,
             stale_reason: data.stale_reason.clone(),
+            adapter_capabilities: data.adapter_capabilities.clone(),
         }
     }
 
@@ -670,9 +686,12 @@ impl Dap {
             }),
             REQUEST_TIMEOUT,
         );
-        if let Err(error) = initialize {
-            self.fail(format!("DAP initialize failed: {error}"));
-            return;
+        match initialize {
+            Ok(body) => self.data.lock().unwrap().adapter_capabilities = adapter_flags(&body),
+            Err(error) => {
+                self.fail(format!("DAP initialize failed: {error}"));
+                return;
+            }
         }
         if let Err(error) = self.request("launch", launch_parameters(&launch), LAUNCH_TIMEOUT) {
             self.fail(format!("DAP launch failed: {error}"));
@@ -1790,6 +1809,15 @@ mod tests {
             rest = &rest[start + length..];
         }
         values
+    }
+
+    #[test]
+    fn adapter_flags_keep_only_boolean_supports_entries() {
+        let body = json!({"supportsConditionalBreakpoints": true, "supportsGotoTargetsRequest": false, "exceptionBreakpointFilters": [], "supportsFoo": "yes"});
+        let flags = adapter_flags(&body);
+        assert_eq!(flags.get("supportsConditionalBreakpoints"), Some(&true));
+        assert_eq!(flags.get("supportsGotoTargetsRequest"), Some(&false));
+        assert_eq!(flags.len(), 2);
     }
 
     #[test]

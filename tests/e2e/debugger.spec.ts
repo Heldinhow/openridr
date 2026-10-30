@@ -377,6 +377,9 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.getByTestId("dap-assembly")).toContainText("OrderDesk.Cli.dll");
     await expect(page.getByTestId("dap-adapter")).toContainText("3.2.0");
     await expect(page.getByTestId("dap-adapter")).toContainText("--interpreter=vscode");
+    // Flags netcoredbg 3.2.0 answers to `initialize`; an unadvertised one must stay absent.
+    await expect(page.getByTestId("dap-capabilities")).toContainText("supportsConditionalBreakpoints");
+    await expect(page.getByTestId("dap-capabilities")).not.toContainText("supportsGotoTargetsRequest");
     await expect(page.getByTestId("dap-thread-list")).toContainText("Main Thread");
     await expect(page.getByTestId("debug-frames")).toContainText("Program.<Main>$()");
     await expect(page.getByTestId("debug-locals")).toContainText("order");

@@ -637,6 +637,8 @@ export type Dap = {
     exit: number | null;
     killedAfterGrace: boolean;
   };
+  /** Boolean `supports*` flags from the adapter `initialize` answer. */
+  adapterCapabilities: Record<string, boolean>;
   threads: DapThread[];
   frames: DapFrame[];
   selectedFrameId: number | null;

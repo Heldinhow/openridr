@@ -276,6 +276,13 @@ export function DebugPanel({
               ? `${dap.adapter.version} · ${dap.adapter.platform} · ${dap.adapter.argv.join(" ")}`
               : "not started"}
           </dd>
+          <dt>Adapter capabilities</dt>
+          <dd data-testid="dap-capabilities">
+            {Object.entries(dap.adapterCapabilities)
+              .filter(([, supported]) => supported)
+              .map(([name]) => name)
+              .join(", ") || "none reported"}
+          </dd>
           <dt>Working directory</dt>
           <dd><code>{dap.cwd || "none"}</code></dd>
           <dt>Process</dt>
