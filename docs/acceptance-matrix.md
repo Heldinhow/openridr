@@ -1,6 +1,6 @@
 # Matriz de aceite por feature — OpenRidr (MVP Rider + Fase 1)
 
-Data: 2026-10-30. Branch `fase-1-fluxo-sem-atrito`, as execuções da seção 2 rodaram em commits diferentes, indicados por linha (`0587ee3` → `6c323ed` → `9bf0bec` → `96a0de7`…`1bc3d02`); a matriz foi revisada no commit `docs(acceptance)` final desta rodada. Os logs completos ficam em `/tmp/t01` e **não são versionados**; versionados ficam este resumo (comandos, exits e contagens) e os screenshots em `docs/evidence/`.
+Data: 2026-10-30. Branch `fase-1-fluxo-sem-atrito`, as execuções da seção 2 rodaram em commits diferentes, indicados por linha (`0587ee3` → `6c323ed` → `9bf0bec` → `96a0de7`…`1bc3d02`); a matriz foi revisada no commit `docs(acceptance)` final desta rodada. Os logs completos ficam em `/tmp/t01` e **não são versionados**; versionados ficam o resumo `docs/evidence/logs/matrix-2026-10-30-summary.md`, este resumo (comandos, exits e contagens) e os screenshots em `docs/evidence/`.
 Alvo verificado: macOS ARM64 (M2), Chrome real + host real (`bun run test:e2e`), SDK do projeto 8.0.408 em `~/.dotnet`, host 10.0.100, netcoredbg e csharp-ls reais instalados no home do E2E.
 **Windows e macOS Intel estão fora do escopo desta matriz: não verificado, sem promessa.** O histórico P0 de 28/10 (AC-01…AC-34, E01…E17, A18, L18) está preservado no **Apêndice A**, sem alteração de conteúdo.
 
@@ -26,7 +26,7 @@ Comando base: `PATH=$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNE
 |---|---|---|
 | restore, evaluation, build, run, run-configs, workspace, debugger (juntos, em `0587ee3`) | **46 passed**, exit 0, 0 skips | debugger: 12 testes reais com netcoredbg, nenhum skip |
 | gates, restore, run, install-plan, ui-layout (juntos, em `9bf0bec`) | **21 passed**, exit 0 | |
-| csharp-ls (10 testes, em `6c323ed`) | **8 passed, 2 timeout (3 min cada)** | `:1145` rename obsoleto e `:1427` invalidação de code actions: **não verificado** (timeout também no branch base; causa em investigação, roadmap 12) |
+| csharp-ls (10 testes) — **histórico**, em `6c323ed` | 8 passed, 2 timeout (3 min cada) | Superado: após `7eb1cb2` o spec inteiro passou **10/10** (exit 0, 2026-10-30; ver linhas 8–9 e `docs/evidence/logs/matrix-2026-10-30-summary.md`) |
 | git | 5 passed | specs abaixo (git … zz-acceptance) rodaram um por vez em `9bf0bec` |
 | nuget | 4 passed | |
 | settings | 5 passed | |
@@ -92,14 +92,15 @@ Legenda de tickets: `F1…F9` = `docs/tickets-mvp/`; `Fase1 NN` = `.scratch/fase
 
 Contagem (33 linhas, 1–28 mais 24a–24e): **verificado/verificado\* 31**, **parcial 1** (25 app local), **não verificado 0**, **bloqueado 1** (28). Prova NATIVA: 0 de 33 verificadas (só o screenshot do Welcome). Gutter Run (Main): não verificado.
 
-## 4. Defeitos e limites novos desta rodada (D-01, D-02, D-03, D-04, D-05, D-09, D-10 e D-11 corrigidos depois; D-06, D-07 e D-08 seguem abertos)
+## 4. Defeitos e limites novos desta rodada (D-01, D-02, D-03, D-04, D-05, D-09, D-10 e D-11 corrigidos depois; D-06, D-07, D-08 e D-12 seguem abertos)
 
 | ID | Sev. | Achado | Evidência | Ticket proposto |
 |---|---|---|---|---|
 | D-01 | M | **Corrigido** em `96a0de7`; a falha restante (`initialize_failure…`) foi reescrita com stub em `e9d3804`. 13 testes de `crates/host/tests/host.rs` falham nesta máquina: `sdk_inventory…` espera SDK `8.0.416` e a máquina tem `8.0.408`; `restore_reports…` exige `sdkRoot` terminando em `OpenRidr/sdks/8.0.408`, contra a regra do `AGENTS.md:47` da base (seção ".NET SDK 8.0.408") ("qualquer raiz detectada pode satisfazer o pin… o contrato é a versão resolvida e o `sdkRoot` absoluto"). Os outros 11 falham em cascata por `PoisonError` do `ENV_LOCK`. | exit 101 em `9bf0bec`; as 13 falhas foram contadas no log não versionado `/tmp/t01/m/cargo2.log` (13 linhas `FAILED`) | Tornar os dois asserts independentes do caminho/versão da máquina (contrato = versão resolvida) |
 | D-02 | B | **Corrigido** em `8e45eda`. O PTY só define `TERM=xterm-256color` quando `TERM` não existe (`terminal.rs`); herdando `TERM=dumb` (ex.: app aberto a partir de shell/ferramenta) `less` avisa "terminal is not fully functional" e as cores ANSI não aparecem. Os specs de terminal dependem do `TERM` do chamador. | `terminal.spec.ts` 2 failed com `TERM=dumb`, 4/4 com `TERM=xterm-256color` | Forçar `TERM=xterm-256color` no PTY (o emulador é o xterm.js) e fixar no spec |
 | D-03 | M | **Corrigido** em `702761b`. A jornada `zz-acceptance.spec.ts:166` quebra na etapa csharp-ls: `install-plan-open` não existe naquele estado da UI (drawer/menu). Sem ela não há prova de ponta a ponta atual (restore→LSP→build→run→testes→PTY→DAP). | 1 failed, 1 passed (UI audit), 2 execuções | Atualizar a jornada ao layout da Fase 1 (abrir o drawer antes do plano) e rodá-la verde |
-| D-04 | M | **Corrigido** em `7eb1cb2`: os 2 specs usam foco por teclado sob o popover (a causa era drift de spec; ver diagnóstico no issue 12). `csharp-ls.spec.ts` inteiro: 10 passed, exit 0. | `/tmp/t01/m/d04full.log` (não versionado) | — |
+| D-04 | M | **Specs corrigidos** em `7eb1cb2` (foco por teclado sob o popover; csharp-ls 10/10, exit 0). A causa não foi só drift de spec: o popover de rename/code actions **cobre o centro do editor**, então um usuário real também não consegue clicar no editor com a prévia aberta (ligado a M7 do UI-AUDIT). | `docs/evidence/logs/matrix-2026-10-30-summary.md` (resumo versionado; logs completos em `/tmp/t01/m`, não versionados). Issues 12 e 14 do roadmap: `/Users/helder/Projetos/openridr/.scratch/roadmap/issues/` (não rastreados) | Ver D-12 |
+| D-12 | B/M | **Aberto (UX):** com a prévia de rename ou a lista de code actions aberta, o popover cobre o centro do editor e o clique no editor não chega ao texto. Hoje só Esc/botões fecham. Sem correção de produto nesta rodada. | `csharp-ls.spec.ts:1145`, `:1427` (diagnóstico do issue 12) | Ticket proposto: a prévia não cobrir o editor (painel lateral/inferior) ou fechar ao clicar fora; escolher severidade B ou M conforme decisão de UX |
 | D-05 | M | **Corrigido** em `1bc3d02`. Find Usages real não tem prova automatizada; só o gate "sem análise" (`code.spec.ts:81`). | grep de `tests/e2e` | Spec real de `lsp.references` com navegação |
 | D-06 | A | Nenhuma prova NATIVA de Run/Debug/terminal no app empacotado; a automação da janela Tauri exige permissão de Automação do macOS (e o WKWebView não expõe os controles na árvore de acessibilidade). | Fase1 14; screenshot 14 só do Welcome | Mapa 13 (smoke manual do Helder; checklist em `docs/implementation-notes.md`, "Ticket 14") |
 | D-07 | M | Cobertura de texto ausente em gates de Build/Run/Debug: sealed, another startup project, not a Debug build, Apple Silicon dentro do gate de Debug, "Dependencies are not restored", "More than one console project", program already running, debug session already active. | `docs/implementation-notes.md`, seção "Correções da revisão independente (2026-10-30)" | Fase1 01 / Mapa 07 |
