@@ -498,3 +498,7 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 - **Prova:** `restore evaluation build run run-configs workspace debugger gates trust-sdk zz-acceptance` → 54 passed, `bun run check` exit 0 (base: 51 passed no mesmo conjunto sem `trust-sdk`).
 - **Ordem de efeitos:** Run-após-rebuild e os 4 efeitos de restore/avaliação mudaram de posição de registro, sem dependência de ordem (ver `docs/evidence/logs/ticket01-progress.md`).
 - **Buracos de cobertura fechados:** `zy-restore-interrupt.spec.ts` — Cancel restore durante o restore automático e Revoke trust durante o restore, com um `Directory.Build.targets` na cópia temporária que atrasa o restore de forma determinística (`sleep 40` antes de `_GenerateRestoreGraphProjectEntry`); 3 repetições × 2 testes passaram, e nenhum `sleep` órfão sobrou (grupo de processos encerrado). Falha de rede real do restore: **não coberto** (precisa de rede/feed real).
+
+## D-07 — gates de Build/Run/Debug com texto afirmado (2026-10-31)
+
+`tests/e2e/execution-gates.spec.ts` importa `src/executionGates.ts` direto (sem host nem browser) e afirma a mensagem de cada gate — antes só alguns tinham assert E2E. Inclui os que não eram alcançáveis pelos seams (sealed, "another startup project", "not a Debug build", Apple Silicon, "not restored", "More than one console project", "program already running", "debug session already active"). Prova as funções puras; a fiação até a UI continua coberta pelos specs E2E existentes. Resultado: 4 passed.
