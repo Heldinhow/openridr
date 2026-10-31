@@ -481,3 +481,11 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 - **Não verificado:** Revoke de Trust, Git, Settings, Search, testes, rename/code actions e layout 1100×700 na janela nativa; Windows e macOS Intel.
 - **D-13 (B/M, aberto):** o popover de Trust fica aberto após conceder Trust (como o D-10 após Revoke) até um clique fora; ticket proposto: fechar ao concluir o grant, com spec de geometria.
 - **Privacidade:** a captura do primeiro painel (listagem da home) foi removida e a da folha "Go to" recortada; o hostname do prompt do terminal foi coberto por tarja nas capturas 17 e 18.
+
+## Ticket 01 — fatia 2: fluxo de execução fora do WorkspaceView (2026-10-31)
+
+- `src/useExecutionFlow.ts` (novo, um hook por arquivo) recebeu, sem mudança de comportamento, testids, mensagens ou gates: `startBuild`, `requestBuild`, `saveAllAndBuild`, `buildSavedContent`, `cancelBuild`, `startRun`, `requestRun`, `saveAllAndRebuild`, `runSavedBuild`, `cancelRun`, `prepareAndRun`, `prepareAndDebug`, `startDebug`, `requestDebugStart`, `stopDebug` (e `debugStartParams`/`waitForHost`/`prepareBuild`/`launchParams`), o estado de decisão/preparação (`buildDecision`, `runDecision`, `debugConsent`, `pendingRunConfig`, `pendingRunAfterBuild`) e o efeito de Run-após-rebuild.
+- **Medida:** `WorkspaceView.tsx` 5126 → 4844 linhas; ocorrências de hooks 113 → 107 (o hook novo tem 344 linhas e 7).
+- **Prova:** `restore, evaluation, build, run, run-configs, workspace, debugger, gates` 50 passed; `zz-acceptance` 2 passed (após corrigir o passo do terminal, ver abaixo); `bun run check` exit 0.
+- **Teto restante (ticket continua partial):** o estado/efeitos de avaliação (`evaluating`, auto-avaliação, `evaluateContext`/`runEvaluation`), o fluxo de testes (`startTestDiscovery`/`startTestRun`) e o restante do componente (editor, git, busca, diálogos) continuam no `WorkspaceView`; não foi feita refatoração geral.
+- **Teste:** o passo `dotnet --version` do terminal na jornada `zz-acceptance` dependia do PATH do shell de login do usuário (outra `dotnet` na frente, sem o SDK 8.0.408); falhava igual no HEAD anterior. Trocado por `echo terminal-sum-42`; a resolução do SDK segue provada pelos passos de restore/build/run/testes.
