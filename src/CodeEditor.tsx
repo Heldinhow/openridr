@@ -430,12 +430,6 @@ export function CodeEditor({
     const line = instance.state.doc.lineAt(position);
     if (host.current) {
       host.current.dataset.cursor = `${line.number - 1}:${position - line.from}`;
-      const pane = host.current.closest(".editor-pane")?.getBoundingClientRect();
-      const anchor = instance.coordsAtPos(position);
-      if (pane && anchor) {
-        host.current.dataset.anchorX = String(anchor.left - pane.left);
-        host.current.dataset.anchorY = String(anchor.bottom - pane.top);
-      }
     }
     onCursorRef.current({ line: line.number - 1, character: position - line.from });
   }

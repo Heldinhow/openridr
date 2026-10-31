@@ -1054,16 +1054,15 @@ async function expectInViewport(page: Page, locator: Locator) {
 
 /** A real point in the editor text that hit-tests to the editor, not to the open popup. */
 async function uncoveredEditorPoint(page: Page, popupTestId: string) {
-  const editorBox = await page.locator(".cm-content").boundingBox();
+  const editorBox = await page.locator(".cm-scroller").boundingBox();
   const popupBox = await page.getByTestId(popupTestId).boundingBox();
   if (!editorBox || !popupBox) throw new Error("The editor or popup has no measurable box.");
-  // D-12 is about the popup covering the editor; this proves the geometry is real.
+  // M7: the popup is docked below the editor and must not cover its text.
   expect(
-    popupBox.x < editorBox.x + editorBox.width &&
-      popupBox.x + popupBox.width > editorBox.x &&
-      popupBox.y < editorBox.y + editorBox.height &&
-      popupBox.y + popupBox.height > editorBox.y,
+    popupBox.y >= editorBox.y + editorBox.height - 1 ||
+      popupBox.y + popupBox.height <= editorBox.y + 1,
   ).toBe(true);
+  expect(editorBox.height).toBeGreaterThanOrEqual(100);
   for (const xFraction of [0.92, 0.75, 0.6, 0.4, 0.2, 0.08]) {
     for (const yFraction of [0.92, 0.75, 0.6, 0.4, 0.2, 0.08]) {
       const point = {
@@ -1233,6 +1232,13 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
       path: path.join(screenshots, "09-rename-preview.png"),
       fullPage: false,
     });
+    // M7: docked preview leaves editor text usable at the narrow supported size too.
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await page.screenshot({
+      path: path.join(screenshots, "m7-rename-preview-1100x700.png"),
+      fullPage: false,
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByTestId("rename-preview").evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
@@ -1500,6 +1506,10 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
 
     await page.setViewportSize({ width: 1100, height: 700 });
     await expect(panel).toBeVisible();
+    await page.screenshot({
+      path: path.join(screenshots, "m7-code-actions-1100x700.png"),
+      fullPage: false,
+    });
     await expect(page.getByTestId("rename-open")).toHaveAccessibleName(/Rename symbol/);
     await expect(page.getByTestId("code-actions-open")).toHaveAccessibleName(/Code actions/);
     await expect(page.getByTestId("save-file")).toHaveAccessibleName(/Save/);

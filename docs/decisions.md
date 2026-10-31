@@ -356,3 +356,10 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 - O bundle `.app` é gerado por `bun run app:install` (`scripts/install-app.sh`) e copiado para `/Applications/OpenRidr.app`. `bundle.active` passa a `true`, com target `app`.
 - Assinatura ad-hoc, sem notarização. Ícone provisório: o PNG já existente no repositório. Procedimento e aviso do Gatekeeper em `docs/install-app.md`.
 - Atualizar = rodar o comando de novo após subir a versão. Nada é instalado em `~/Library` ou fora de `/Applications`.
+
+## 2026-10-31 — M7: previews de rename/code actions/Find Usages docados abaixo do editor
+
+- **Substitui** o overlay flutuante ancorado no cursor (`.editor-popup`, `position:absolute`). Rename preview, lista/preview de code actions e Find Usages agora são um painel docado no fluxo flex do `.editor-pane`, abaixo do editor (`order:2`, `max-height: min(32%, 300px)`, rolagem interna; Apply/Cancel continuam sticky). O texto do editor encolhe, não é coberto.
+- Removidos `editorPopupStyle()` e os `data-anchor-x/y` do `CodeEditor` (só serviam o overlay). `data-testid`, `role="dialog"`, foco no heading, Esc, guards de Apply e D12/D13 não mudaram.
+- O teste D-12 passou a afirmar a geometria nova: popup não sobrepõe `.cm-scroller` e o editor mantém ≥100 px a 1100×700. 32% foi o menor ajuste que cumpre isso; 45% deixava o editor com 71 px.
+- Não faz: rename inline sobre a palavra com destaque de range (outro ponto de M7 no UI-AUDIT) — fora deste ticket.

@@ -227,16 +227,6 @@ function isDirty(tab: Tab) {
   return tab.revision !== tab.savedRevision || tab.conflict !== null;
 }
 
-function editorPopupStyle() {
-  const editor = document.querySelector<HTMLElement>('[data-testid="editor-shell"]');
-  const x = Number(editor?.dataset.anchorX ?? 24);
-  const y = Number(editor?.dataset.anchorY ?? 24);
-  return {
-    left: `max(8px, min(${x}px, calc(100% - 536px)))`,
-    top: `max(8px, min(calc(${y}px + 10px), calc(100% - 420px)))`,
-  };
-}
-
 function lineDiffCount(buffer: string, disk: string) {
   const left = buffer.split("\n");
   const right = disk.split("\n");
@@ -3955,7 +3945,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               {findUsages && (
                 <FindUsagesPanel
                   className="rename-preview find-usages editor-popup"
-                  style={editorPopupStyle()}
                   response={findUsages.response}
                   snippets={findUsages.snippets}
                   onNavigate={(path, position) => void navigateTo(path, position)}
@@ -3977,7 +3966,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   data-id={previewId(editPreview)}
                   data-files={previewDocs.length}
                   data-edits={previewEditCount(editPreview)}
-                  style={editorPopupStyle()}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") cancelEditPreview();
                   }}
@@ -4100,7 +4088,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   data-state={actionList.response.state}
                   data-session={actionList.session}
                   data-revision={actionList.sourceRevision}
-                  style={editorPopupStyle()}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") cancelActionList();
                   }}

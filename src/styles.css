@@ -1182,16 +1182,14 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   font-size: 0.95rem;
 }
 
+/* M7: previews dock below the editor (flex order) instead of floating over the text. */
 .editor-popup {
-  position: absolute;
-  z-index: 60;
+  order: 2;
+  flex: 0 0 auto;
   box-sizing: border-box;
-  width: min(520px, calc(100% - 16px));
-  max-height: min(60%, 420px);
+  max-height: min(32%, 300px);
   overflow: auto;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  box-shadow: 0 10px 28px #0009;
+  border-top: 1px solid var(--accent);
 }
 
 /* Apply and Cancel stay inside the preview box at every size; -10px pushed them past its bottom edge. */
@@ -1201,10 +1199,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   z-index: 1;
   padding: 6px 0 0;
   background: var(--panel);
-}
-
-@media (max-width: 560px) {
-  .editor-popup { left: 8px !important; width: calc(100% - 16px); }
 }
 
 .rename-files {
