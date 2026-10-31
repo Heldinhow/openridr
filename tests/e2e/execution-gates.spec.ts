@@ -79,6 +79,10 @@ test("Run gates name their reason", () => {
   expect(run(context({ build: { sealed: true } }))).toBe("The saved build belongs to a previous context; rebuild before running.");
   expect(run(context({ build: { stale: true, staleReason: "sources changed" } }))).toBe("The saved build is stale: sources changed.");
   expect(run(context({ build: { stale: true } }))).toBe("The saved build is stale: no current build.");
+  // The host's reason is a full sentence that already ends with a period: the gate must not double it (D-08).
+  expect(run(context({ build: { stale: true, staleReason: "The project model was re-evaluated; build again." } }))).toBe(
+    "The saved build is stale: The project model was re-evaluated; build again.",
+  );
   expect(run(context({ build: { state: "failed", exit: 1 } }))).toBe("The last build did not succeed (exit 1); fix it and rebuild.");
   expect(run(context({ build: { state: "failed", exit: null } }))).toBe("The last build did not succeed (exit unknown); fix it and rebuild.");
   expect(run(context({ build: { project: { path: "other.csproj" } } }))).toBe("The saved build is for another startup project; build the selected one.");

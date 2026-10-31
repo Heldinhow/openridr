@@ -31,7 +31,7 @@ function savedBuildReason(
       : build.sealed
         ? `The saved build belongs to a previous context; rebuild before ${verb}.`
         : build.stale
-          ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
+          ? `The saved build is stale: ${(build.staleReason ?? "no current build").replace(/\.$/, "")}.`
           : build.state !== "ok" || build.exit !== 0
             ? `The last build did not succeed (${
                 build.exit === null ? "exit unknown" : `exit ${build.exit}`
