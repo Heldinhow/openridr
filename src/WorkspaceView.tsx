@@ -473,6 +473,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     () => new Set(projects.map((project) => project.path)),
   );
   const [editPreview, setEditPreview] = useState<EditPreview | null>(null);
+  const editPreviewRef = useRef<EditPreview | null>(null);
+  editPreviewRef.current = editPreview;
+  const editPreviewApplySeq = useRef(0);
   const [actionList, setActionList] = useState<ActionList | null>(null);
   const [documentSymbols, setDocumentSymbols] = useState<DocumentSymbolsState | null>(null);
   const [findUsages, setFindUsages] = useState<FindUsagesState | null>(null);
@@ -1020,6 +1023,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   useEffect(() => {
     if (!editPreview) return;
     if (activePath !== editPreview.sourcePath) {
+      editPreviewApplySeq.current += 1;
       setEditPreview(null);
       setMessage({
         tone: "info",
@@ -1068,6 +1072,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     if (!editPreview || editPreview.kind !== "action") return;
     const tab = tabs.find((item) => item.path === editPreview.sourcePath);
     if (!tab || tab.revision !== editPreview.sourceRevision || tab.conflict) {
+      editPreviewApplySeq.current += 1;
       setEditPreview(null);
       setMessage({
         tone: "info",
@@ -1081,6 +1086,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       contextIdRef.current !== editPreview.contextId ||
       workspaceIdRef.current !== editPreview.workspaceId
     ) {
+      editPreviewApplySeq.current += 1;
       setEditPreview(null);
       setMessage({
         tone: "error",
@@ -1621,6 +1627,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
     const tabRevisions: Record<string, number> = {};
     for (const tab of tabsRef.current) tabRevisions[tab.path] = tab.revision;
+    editPreviewApplySeq.current += 1;
     setActionList(null);
     setEditPreview({
       kind: "action",
@@ -1743,6 +1750,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
     const tabRevisions: Record<string, number> = {};
     for (const openTab of tabsRef.current) tabRevisions[openTab.path] = openTab.revision;
+    editPreviewApplySeq.current += 1;
     setEditPreview({
       kind: "rename",
       response,
@@ -1766,7 +1774,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   function cancelEditPreview() {
+    // Cancel is disabled while Apply is revalidating; every dismissal path (button, popup Esc, editor Esc/click)
+    // must obey the same guard so a cancel cannot race the post-await application.
+    if (editPreview?.applying) return;
     const preview = editPreview;
+    editPreviewApplySeq.current += 1;
     setEditPreview(null);
     setMessage({
       tone: "info",
@@ -1780,12 +1792,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   useEffect(() => {
     if (!editPreview && !actionList) return;
     const close = () => {
-      if (editPreview) {
-        if (editPreview.applying) return;
-        cancelEditPreview();
-      } else {
-        cancelActionList();
-      }
+      if (editPreview) cancelEditPreview();
+      else cancelActionList();
     };
     const inEditorText = (target: EventTarget | null) =>
       target instanceof Element &&
@@ -1857,6 +1865,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     const preview = editPreview;
     if (!preview || preview.applying) return;
     const id = previewId(preview);
+    const application = ++editPreviewApplySeq.current;
     const label = preview.kind === "rename" ? "Rename" : "Code action";
     const fail = (reason: string) => {
       setEditPreview((current) =>
@@ -1897,6 +1906,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
     if (problems.length > 0) {
       fail(`${problems.join("; ")}. No buffer or file was changed.`);
+      return;
+    }
+    const stillOpen = editPreviewRef.current;
+    if (
+      application !== editPreviewApplySeq.current ||
+      !stillOpen ||
+      previewId(stillOpen) !== id ||
+      !stillOpen.applying
+    ) {
+      setMessage({
+        tone: "info",
+        text: `${label} not applied: the preview was dismissed while revalidating.`,
+      });
       return;
     }
     const afterReads = revalidateEditPreview(preview);

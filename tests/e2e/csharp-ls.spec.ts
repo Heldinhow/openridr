@@ -959,11 +959,32 @@ async function placeCursorAtColumnZero(page: Page, line: number) {
   );
 }
 
-async function openRenamePreview(page: Page, trigger: "shortcut" | "button" = "button") {
-  await placeCursor(page, 2, 20);
+/** Put the cursor on the first occurrence of `text` in a 0-based line, independent of indentation. */
+async function placeCursorOnText(page: Page, line: number, text: string) {
+  await placeCursorAtColumnZero(page, line);
+  const lineText = await page.locator(".cm-line").nth(line).innerText();
+  const character = lineText.indexOf(text);
+  if (character < 0) throw new Error(`"${text}" not found on line ${line + 1}: ${lineText}`);
+  for (let index = 0; index < character; index += 1) {
+    await page.keyboard.press("ArrowRight");
+  }
+  await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+    "data-cursor",
+    `${line}:${character}`,
+  );
+}
+
+async function openRenamePreview(
+  page: Page,
+  trigger: "shortcut" | "button" = "button",
+  newName = "Purchase",
+  target = "Order",
+) {
+  await placeCursorOnText(page, 2, target);
+  await expect(page.getByTestId("rename-open")).toBeEnabled({ timeout: 30_000 });
   if (trigger === "shortcut") await page.keyboard.press("Shift+F6");
   else await page.getByTestId("rename-open").click();
-  await page.getByTestId("rename-input").fill("Purchase");
+  await page.getByTestId("rename-input").fill(newName);
   await page.getByTestId("rename-submit").click();
   await expect(page.getByTestId("rename-preview")).toBeVisible({ timeout: 30_000 });
 }
@@ -972,6 +993,52 @@ async function openActionList(page: Page) {
   await placeCursor(page, 2, 20);
   await page.keyboard.press("Alt+Enter");
   await expect(page.getByTestId("code-actions")).toBeVisible({ timeout: 30_000 });
+}
+
+async function openCodeActionPreview(page: Page) {
+  await openActionList(page);
+  await page
+    .getByTestId("code-actions")
+    .getByRole("button", { name: "Convert to positional record", exact: true })
+    .click();
+  await expect(page.getByTestId("rename-preview")).toBeVisible();
+  await expect(page.getByTestId("rename-preview")).toHaveAttribute("data-origin", "action");
+}
+
+/** Block the first `file.read` so the Apply revalidation is observably in flight. */
+async function blockNextFileRead(page: Page) {
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let delayed = false;
+  let released = false;
+  const routePattern = "**/__host/call";
+  await page.route(routePattern, async (route) => {
+    const body = route.request().postDataJSON() as { method?: string } | null;
+    if (!delayed && body?.method === "file.read") {
+      delayed = true;
+      await blocked;
+      try {
+        await route.continue();
+      } finally {
+        finish();
+      }
+      return;
+    }
+    await route.continue();
+  });
+  return async () => {
+    if (released) return;
+    released = true;
+    release();
+    if (delayed) await finished;
+    await page.unroute(routePattern);
+  };
 }
 
 async function expectInViewport(page: Page, locator: Locator) {
@@ -1016,12 +1083,23 @@ async function uncoveredEditorPoint(page: Page, popupTestId: string) {
 }
 
 async function expectEditorUnchanged(page: Page) {
+  await expect(page.locator('[data-testid^="tab-"]')).toHaveCount(1);
+  const tab = page.getByTestId(`tab-${renameFiles.library}`);
+  await expect(tab.getByRole("tab")).not.toHaveAttribute("aria-label", /modified/);
   await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
   await expect(page.getByTestId("editor")).not.toContainText("Purchase");
   await expect(page.getByTestId("editor-revision")).toHaveText("");
-  await expect(
-    page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
-  ).toHaveCount(0);
+  await expect(tab.getByTestId("dirty-marker")).toHaveCount(0);
+}
+
+async function expectEditorAcceptsTyping(page: Page) {
+  const editor = page.getByTestId("editor");
+  await editor.focus();
+  await expect(editor).toBeFocused();
+  await page.keyboard.insertText("ZZ");
+  await expect(editor).toContainText("ZZ");
+  await page.keyboard.press("Meta+Z");
+  await expect(editor).not.toContainText("ZZ");
 }
 
 async function startRenameSession(
@@ -1700,6 +1778,20 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     const renamePoint = await uncoveredEditorPoint(page, "rename-preview");
     await page.mouse.click(renamePoint.x, renamePoint.y);
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "rename cancelled; no buffer or file changed.",
+    );
+    await expectEditorUnchanged(page);
+
+    // A click inside the preview does not close it; its Cancel button still works.
+    await openRenamePreview(page);
+    await page.getByTestId("rename-preview-summary").click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await page.getByTestId("rename-cancel-preview").click();
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "rename cancelled; no buffer or file changed.",
+    );
     await expectEditorUnchanged(page);
 
     // Rename preview: Esc with actual editor focus closes it.
@@ -1713,81 +1805,142 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     ).toBe(true);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "rename cancelled; no buffer or file changed.",
+    );
     await expectEditorUnchanged(page);
 
-    // Code actions: same two ways out.
+    // Code-action list: same two ways out, plus an internal click that keeps it open.
     await openActionList(page);
     await expectInViewport(page, page.getByTestId("code-actions-close"));
     const actionPoint = await uncoveredEditorPoint(page, "code-actions");
     await page.mouse.click(actionPoint.x, actionPoint.y);
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText("Code actions closed; nothing was applied.");
     await openActionList(page);
     await page.getByTestId("editor").focus();
     await expect(page.getByTestId("editor")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
-
-    // A click inside the popup does not close it.
+    await expect(page.getByTestId("app-log")).toContainText("Code actions closed; nothing was applied.");
     await openActionList(page);
     await page.getByTestId("code-actions-summary").click();
     await expect(page.getByTestId("code-actions")).toBeVisible();
     await page.getByTestId("code-actions-close").click();
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expectEditorUnchanged(page);
 
-    // The same point remains available at the supported narrow size.
+    // Code-action preview: click and Esc close it without touching buffers.
+    await openCodeActionPreview(page);
+    await expectInViewport(page, page.getByTestId("rename-apply"));
+    await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
+    const previewPoint = await uncoveredEditorPoint(page, "rename-preview");
+    await page.mouse.click(previewPoint.x, previewPoint.y);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "code action cancelled; no buffer or file changed.",
+    );
+    await expectEditorUnchanged(page);
+    await openCodeActionPreview(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "code action cancelled; no buffer or file changed.",
+    );
+    await expectEditorUnchanged(page);
+
+    // The same points remain available at the supported narrow size.
     await page.setViewportSize({ width: 1100, height: 700 });
     await openActionList(page);
     await expectInViewport(page, page.getByTestId("code-actions-close"));
     const narrowPoint = await uncoveredEditorPoint(page, "code-actions");
     await page.mouse.click(narrowPoint.x, narrowPoint.y);
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expectEditorUnchanged(page);
     await openRenamePreview(page);
     await expectInViewport(page, page.getByTestId("rename-apply"));
     await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
     const narrowRenamePoint = await uncoveredEditorPoint(page, "rename-preview");
     await page.mouse.click(narrowRenamePoint.x, narrowRenamePoint.y);
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expectEditorUnchanged(page);
     await page.setViewportSize({ width: 1440, height: 900 });
 
-    // Every dismissal above left both the buffer and the disk untouched.
+    // Every dismissal above left contents, revision, tabs and dirty state untouched on disk and in buffers.
     await expectEditorUnchanged(page);
     expect(sourceHashes(copy)).toEqual(before);
 
-    // While Apply is revalidating, an editor click must not cancel or turn it into a no-op.
-    await openRenamePreview(page);
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let delayed = false;
-    const routePattern = "**/__host/call";
-    await page.route(routePattern, async (route) => {
-      const body = route.request().postDataJSON() as { method?: string } | null;
-      if (!delayed && body?.method === "file.read") {
-        delayed = true;
-        await blocked;
-      }
-      await route.continue();
-    });
+    // Apply + Esc in the popup while Apply is revalidating: Cancel is disabled and cannot win the race.
+    await openCodeActionPreview(page);
+    const releaseAfterEsc = await blockNextFileRead(page);
+    try {
+      await page.getByTestId("rename-apply").click();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await expect(page.getByTestId("rename-cancel-preview")).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("rename-preview")).toBeVisible();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await releaseAfterEsc();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0, { timeout: 20_000 });
+    } finally {
+      await releaseAfterEsc();
+    }
+    await expect(page.getByTestId("editor")).toContainText("record Order");
+    await expect(page.getByTestId("editor-revision")).toContainText("Modified");
+    await expect(
+      page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
+    ).toBeVisible();
+    await expect(page.getByTestId("app-log")).toContainText("Code action applied to 1 file");
+    await expect(page.getByTestId("app-log")).toContainText("Nothing was written to disk");
+    expect(sourceHashes(copy)).toEqual(before);
+
+    // Apply + editor click while Apply is revalidating: same guard, then the real rename applies.
+    await openRenamePreview(page, "button", "Purchase", "Order");
+    const releaseAfterClick = await blockNextFileRead(page);
     try {
       await page.getByTestId("rename-apply").click();
       await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
       const applyingPoint = await uncoveredEditorPoint(page, "rename-preview");
       await page.mouse.click(applyingPoint.x, applyingPoint.y);
       await expect(page.getByTestId("rename-preview")).toBeVisible();
-      release();
-      await expect(page.getByTestId("rename-preview")).toHaveCount(0, {
-        timeout: 20_000,
-      });
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await releaseAfterClick();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0, { timeout: 20_000 });
     } finally {
-      release();
-      await page.unroute(routePattern);
+      await releaseAfterClick();
     }
-    await expect(page.getByTestId("editor")).toContainText("public sealed class Purchase");
-    await expect(
-      page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
-    ).toBeVisible();
-    // Apply changed buffers only; nothing reached disk.
+    await expect(page.getByTestId("editor")).toContainText("record Purchase");
+    await expect(page.getByTestId("editor-revision")).toContainText("Modified");
+    await expect(page.getByTestId("app-log")).toContainText(/Rename applied to \d+ file/);
+    await expect(page.getByTestId("app-log")).toContainText("Nothing was written to disk");
+    expect(sourceHashes(copy)).toEqual(before);
+
+    // Post-await identity: another file becoming active invalidates the pending application.
+    await page.getByTestId(`tab-${renameFiles.program}`).click();
+    await page.getByTestId(`tab-${renameFiles.library}`).click();
+    await openRenamePreview(page, "button", "Renamed", "Purchase");
+    const releaseAfterSwitch = await blockNextFileRead(page);
+    try {
+      await page.getByTestId("rename-apply").click();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await page.getByTestId(`tab-${renameFiles.program}`).click();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+      await releaseAfterSwitch();
+      await expect(page.getByTestId("app-log")).toContainText(
+        "Rename not applied: the preview was dismissed while revalidating.",
+      );
+    } finally {
+      await releaseAfterSwitch();
+    }
+    await page.getByTestId(`tab-${renameFiles.library}`).click();
+    await expect(page.getByTestId("editor")).toContainText("record Purchase");
+    await expect(page.getByTestId("editor")).not.toContainText("record Renamed");
+    expect(sourceHashes(copy)).toEqual(before);
+
+    // The editor still accepts real typing after the popups are gone.
+    await expectEditorAcceptsTyping(page);
     expect(sourceHashes(copy)).toEqual(before);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });

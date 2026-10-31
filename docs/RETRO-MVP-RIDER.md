@@ -55,3 +55,8 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 - O diff herdado (efeito de `pointerdown`/Esc + spec) foi validado, não tratado como prova: o spec foi reforçado para hit-testing real (`elementFromPoint`), foco real (`toBeFocused`), sobreposição geométrica do popup, 1440×900 e 1100×700, buffer+disco intactos e Apply em revalidação.
 - Red sem o listener (exit 1, popup permaneceu) → green 1/1; `csharp-ls.spec.ts` focado 10/10 (teste de instalação real excluído); `bun run check` e `bun run build` exit 0. A suíte completa não foi repetida.
 - Limites: o popup continua sobrepondo o centro do editor (M7 não redimensionado); a saída é pelo texto alcançável do editor ou Esc com foco nele, não por qualquer clique fora; nativo Tauri não verificado e D-13 não alterado.
+
+## Auditoria D12 — cancelamento central e identidade pós-await (2026-10-31)
+
+- O guard de `applying` foi movido para `cancelEditPreview`, cobrindo também o Esc do popup; o Apply ganhou sequência + identidade pós-`file.read` para não executar `setTabs` depois de uma prévia descartada.
+- Evidência red/green: remover o guard central falha no Esc durante Apply; remover o bloco pós-await falha na mensagem de identidade; restaurado o arquivo exato, D12 1/1 e spec focado 10/10. O overlay/M7 continua aberto e não foi declarado resolvido.
