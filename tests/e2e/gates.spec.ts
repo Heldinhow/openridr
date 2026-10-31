@@ -1,7 +1,8 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { host } from "./environment";
 
 // Text of the Build/Run/Debug gates in src/executionGates.ts, asserted at real seams.
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
@@ -27,17 +28,62 @@ async function openTrustedRestored(page: Page) {
   return base;
 }
 
-async function openRestrictedWorkspace(page: Page) {
+function createRestrictedWorkspace() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-d13-"));
   const copy = path.join(base, "OrderDesk");
   fs.cpSync(fixture, copy, { recursive: true, filter: (s) => !/[\\/](bin|obj)([\\/]|$)/.test(s) });
+  return { base, solution: path.join(copy, "OrderDesk.sln") };
+}
+
+async function enterRestrictedWorkspace(page: Page, solution: string) {
   await page.goto("/");
-  await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+  await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
   await page.getByTestId("open-text-only").click();
   await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
   await expect(page.getByTestId("tree")).toBeVisible();
-  return base;
+}
+
+async function closeOwnedWorkspace(request: APIRequestContext) {
+  const response = await request.post(`${host}/call`, {
+    data: { method: "workspace.close", params: {} },
+  });
+  const body = (await response.json()) as { ok: boolean; error?: unknown };
+  if (!body.ok) {
+    throw new Error(`workspace.close failed: ${JSON.stringify(body.error)}`);
+  }
+}
+
+/**
+ * Close the host workspace before removing its temp copy. If the body already failed, keep that original
+ * failure visible; cleanup errors are logged and the directory is left in place because the host may own it.
+ */
+async function cleanupD13Workspace(
+  base: string,
+  request: APIRequestContext,
+  opened: boolean,
+  bodyFailed: boolean,
+) {
+  if (opened) {
+    try {
+      await closeOwnedWorkspace(request);
+    } catch (error) {
+      if (bodyFailed) {
+        console.error("D13 workspace cleanup failed after test failure:", error);
+        return;
+      }
+      throw error;
+    }
+  }
+  try {
+    fs.rmSync(base, { recursive: true, force: true });
+  } catch (error) {
+    if (bodyFailed) {
+      console.error("D13 temp-copy removal failed after test failure:", error);
+      return;
+    }
+    throw error;
+  }
 }
 
 const hostCallPattern = "**/__host/call";
@@ -199,11 +245,18 @@ const trustViewports = [
 ];
 
 for (const viewport of trustViewports) {
-  test(`D-13 grant stays open until host success and closes without blocking the tree at ${viewport.name}`, async ({ page }) => {
-    const base = await openRestrictedWorkspace(page);
+  test(`D-13 grant stays open until host success and closes without blocking the tab at ${viewport.name}`, async ({
+    page,
+    request,
+  }) => {
+    const { base, solution } = createRestrictedWorkspace();
     const tab = page.getByTestId("tab-src/OrderDesk.Core/Order.cs");
     const target = tab.getByTestId("close-buffer");
+    let opened = false;
+    let bodyFailed = false;
     try {
+      await enterRestrictedWorkspace(page, solution);
+      opened = true;
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs").click();
       await expect(page.getByTestId("editor")).toBeVisible();
@@ -251,18 +304,37 @@ for (const viewport of trustViewports) {
         };
       });
       expect(nowReachable).toEqual({ popup: false, target: true });
+
+      // The focused summary must behave like real keyboard UI: Enter reopens, Escape closes and returns focus.
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("trust-banner")).toBeVisible();
+      await expect(page.getByTestId("mode-trusted")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("trust-banner")).toBeHidden();
+      await expect(page.getByTestId("mode-badge")).toBeFocused();
+
       await target.click();
       await expect(tab).toHaveCount(0);
+    } catch (error) {
+      bodyFailed = true;
+      throw error;
     } finally {
-      fs.rmSync(base, { recursive: true, force: true });
+      await cleanupD13Workspace(base, request, opened, bodyFailed);
     }
   });
 }
 
 // The rejection is injected at the UI bridge boundary, not a real host failure. The retry below uses the real host.
-test("D-13 rejected grant keeps the popover open with an error and retry succeeds", async ({ page }) => {
-  const base = await openRestrictedWorkspace(page);
+test("D-13 rejected grant keeps the popover open with an error and retry succeeds", async ({
+  page,
+  request,
+}) => {
+  const { base, solution } = createRestrictedWorkspace();
+  let opened = false;
+  let bodyFailed = false;
   try {
+    await enterRestrictedWorkspace(page, solution);
+    opened = true;
     await page.getByTestId("mode-badge").click();
     await page.getByTestId("trust-checkbox").check();
     const stopRejecting = await rejectNextTrustGrant(page);
@@ -286,7 +358,10 @@ test("D-13 rejected grant keeps the popover open with an error and retry succeed
     await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
     await expect(page.getByTestId("mode-badge")).toBeFocused();
     await expect(page.getByTestId("trust-error")).toHaveCount(0);
+  } catch (error) {
+    bodyFailed = true;
+    throw error;
   } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+    await cleanupD13Workspace(base, request, opened, bodyFailed);
   }
 });
