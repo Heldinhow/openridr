@@ -140,7 +140,7 @@ Não verificado nativamente: Git, Settings/Keymap, Search Everywhere, Run config
 | UI-AUDIT A1–A8 | A | Fechados pelos tickets Fase1 03, 04, 08, 09, 10, 11, 12, 13 (todos `resolved`; A5 fechado no ticket 10 com prova de geometria) | — |
 | UI-AUDIT M1–M13 | M | Abertos, **não reauditados** pós-Fase 1 (M1 tools numa faixa, M2 Problems, M3 run configs, M4 keymap, M5 terminal, M6 menu de contexto, M7 rename, M8 git log, M9 NuGet, M10 detalhes do projeto, M11 settings, M12 botão destrutivo, M13 editor 1100) | **sem dono** |
 | UI-AUDIT L1–L9 | B | Abertos, não reauditados | **sem dono** |
-| Dívida | M | `WorkspaceView.tsx` 4844 linhas / 107 hooks após `9a558c8` (era 5119/113; fluxo Build/Run/Debug em `useExecutionFlow.ts`; avaliação, testes e o resto seguem no componente) e `git.rs` | Fase1 01 (partial), Mapa 07 |
+| Dívida | M | `WorkspaceView.tsx` 4672 linhas / 95 hooks após `cdfa541` (era 5126/113; Build/Run/Debug, restore/avaliação e store de run configs em hooks próprios; testes e o resto seguem no componente) e `git.rs` | Fase1 01 (partial), Mapa 07 |
 | G-LEGAL | A | Sem `LICENSE`/`NOTICE`/`THIRD_PARTY_NOTICES`, ícone provisório (`docs/release-decision.md`) | **sem ticket de código** |
 | G-PKG | A | Sem assinatura/notarização, sem instalador público | **sem ticket de código** |
 | G-NATIVE | A | Smoke macOS ARM64 feito em 2026-10-31 (seção 3b), numa cópia da fixture; fora dele: atalhos, fechamento com buffers sujos e diálogos de conflito/rename na janela nativa não verificados; Windows não verificado | Mapa 13 (parcialmente fechado) |
