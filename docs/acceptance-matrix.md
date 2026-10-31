@@ -120,7 +120,7 @@ Não verificado nativamente: Settings/Keymap, Search Everywhere, Run configurati
 
 ### Denominador explícito (33 itens da seção 3)
 
-**Contagem: 1 provado / 16 parciais / 16 não verificados (total 33).** (Atualizado no checkpoint r4: itens 19 e 20 saíram de não verificado para parcial.) Critério: provado só quando o escopo do item inteiro foi observado no .app; sub-itens observados contam como parcial. O número antigo "14/33" somava parciais e provados (14 rótulos distintos da 3b), por isso não era prova.
+**Contagem: 1 provado / 17 parciais / 15 não verificados (total 33).** (Atualizado no checkpoint r4: itens 7, 19 e 20 saíram de não verificado para parcial.) Critério: provado só quando o escopo do item inteiro foi observado no .app; sub-itens observados contam como parcial. O número antigo "14/33" somava parciais e provados (14 rótulos distintos da 3b), por isso não era prova.
 
 | # | Item (seção 3) | Status nativo | Evidência / lacuna |
 |---|---|---|---|
@@ -130,7 +130,7 @@ Não verificado nativamente: Settings/Keymap, Search Everywhere, Run configurati
 | 4 | Solution Explorer: árvore avaliada, TFM, detalhes, falha | parcial | árvore avaliada e TFM (native-07, native-19); falha de avaliação e detalhes não |
 | 5 | Editor: abrir, editar, salvar, conflito, fechar com buffer sujo | parcial | abrir e breakpoint (native-12/13); salvar, conflito e fechar sujo não |
 | 6 | Menu de contexto e ações do editor | não verificado | — |
-| 7 | csharp-ls: instalação, sessão, Problems, completion, definition | não verificado | nativo não exercido (existe prova web/CLI, não conta) |
+| 7 | csharp-ls: instalação, sessão, Problems, completion, definition | parcial | Painel Problems observado no estado "Analysis has not started" (0 erros, 0 avisos, coverage partial; native-27). Análise não iniciada: não achei na UI nativa a ação de restaurar/iniciar análise (⋮ tem Find Action, Keymap, Redetect SDKs, Commit, Close Workspace). Sem diagnóstico real, completion e definition não verificados nativamente (prova web/CLI não conta) | native-27 |
 | 8 | Rename (prévia, cancelar inerte, aplicar a buffers) | não verificado | — |
 | 9 | Code actions (listar, prévia, invalidar) | não verificado | — |
 | 10 | Find Usages (painel, navegação) | não verificado | — |
