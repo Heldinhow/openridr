@@ -1102,9 +1102,9 @@ async function expectDismissedWithoutEdits(
   expect(sourceHashes(copy)).toEqual(before);
 }
 
-async function expectEditorAcceptsTyping(page: Page) {
+async function expectEditorAcceptsTyping(page: Page, focus = true) {
   const editor = page.getByTestId("editor");
-  await editor.focus();
+  if (focus) await editor.focus();
   await expect(editor).toBeFocused();
   await page.keyboard.insertText("ZZ");
   await expect(editor).toContainText("ZZ");
@@ -2075,8 +2075,10 @@ for (const scenario of focusTypingCases) {
       await expectEditorUnchanged(page);
       await scenario.open(page);
       await scenario.dismiss(page);
+      // Dismissal itself must leave real editor focus; do not focus before this assert.
+      await expect(page.getByTestId("editor")).toBeFocused();
       await expectDismissedWithoutEdits(page, copy, before);
-      await expectEditorAcceptsTyping(page);
+      await expectEditorAcceptsTyping(page, false);
       // Undo restores the text but legitimately advances the buffer revision and dirty state.
       await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
       await expect(page.getByTestId("editor-revision")).toContainText("Modified");
