@@ -449,7 +449,7 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 ## Ticket 01 — separação estado/comandos (2026-10-30)
 
 - Novos módulos: `src/executionGates.ts` (razões de bloqueio de Build/Run/Debug, funções puras) e `src/executionCommands.ts` (chamadas ao host de avaliação, cancelamento de build/run, espera do host e o preparo Restore→Evaluate→Build do Run/Debug de um clique), no mesmo molde de `restoreCommands.ts`. Sem mudança de comportamento nem de `data-testid`.
-- `WorkspaceView.tsx`: 5269 → 5119 linhas; ocorrências de hooks 113 → 113 (o estado React continua no componente; só lógica pura e chamadas saíram). Teto restante: `startBuild`/`startRun`/`startDebug` ficam no componente porque abrem diálogos e trocam de aba.
+- `WorkspaceView.tsx`: 5269 → 5119 linhas (medida em `0587ee3`; a base de comparação posterior é `b8bd154` = 5126); ocorrências de hooks 113 → 113 (o estado React continua no componente; só lógica pura e chamadas saíram). Teto restante: `startBuild`/`startRun`/`startDebug` ficam no componente porque abrem diálogos e trocam de aba.
 - Verificação (macOS ARM64, SDK 8.0.408): `restore, evaluation, build, run, run-configs, workspace, debugger` 46/46 antes e 46/46 depois (exit 0, 0 skips); `bun run check` exit 0. Logs em /tmp/t01 (não versionados).
 
 ## Ticket 10 — plano de instalação legível (2026-10-30)
