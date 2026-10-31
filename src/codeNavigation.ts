@@ -68,14 +68,18 @@ function methodSymbol(
       bareName(symbol.name) === method &&
       (symbol.containerName
         ? simpleName(symbol.containerName) === kind
-        : symbols.some(
-            (owner) =>
-              owner.kind === 5 &&
-              owner.name === kind &&
-              owner.startLine <= symbol.line &&
-              symbol.line <= owner.endLine,
-          )),
+        : enclosingClass(symbols, symbol)?.name === kind),
   );
+}
+
+/** Without a containerName the owner is the smallest class range holding the method (its immediate parent). */
+function enclosingClass(symbols: FlatSymbol[], method: FlatSymbol) {
+  let owner: FlatSymbol | undefined;
+  for (const candidate of symbols) {
+    if (candidate.kind !== 5 || candidate.startLine > method.line || method.line > candidate.endLine) continue;
+    if (!owner || candidate.endLine - candidate.startLine < owner.endLine - owner.startLine) owner = candidate;
+  }
+  return owner;
 }
 
 /** Run is shown only on the single `Main` of the startup project's file; a second `Main`
