@@ -65,6 +65,8 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 ## D13 — Trust popover fecha no sucesso (2026-10-31)
 
 - O fechamento usa o boundary de sucesso já existente no `TrustControls.onChange` do toolbar; pending e erro não chamam `onChange` e continuam visíveis. O foco volta ao summary ao fechar.
-- Red 3/3 (grant/retry deixavam o popover visível) → green 3/3; geometria/hit-testing em 1440×900 e 1100×700; foco no summary seguido de Enter/Escape reais; cleanup fecha o workspace via dispatch antes de apagar a cópia.
-- Regressões finais: gates 5/5 (D13 + D10 + Restricted), restore 2/2 (restore/eval automáticos e Restricted sem restore), check exit 0; build não repetido com produto inalterado. Logs em `/tmp/openridr-d13-review/`.
+- Red 3/3 (grant/retry deixavam o popover visível) → green 3/3; geometria/hit-testing em 1440×900 e 1100×700; foco no summary seguido de Enter/Escape reais.
+- Cleanup D13 usa snapshot `workspace.state` + `realpath` da solução e só fecha a cópia própria; posse/close incerto retém e reporta. Partial-open red 2/2 com cleanup legado → green 2/2; cenário retained deixa a cópia alvo e o workspace de outra cópia do teste intactos.
+- Regressões finais: gates 7/7 (D13 5 + D10 + Restricted), restore 2/2, check standalone exit 0; build não repetido com produto inalterado. Logs em `/tmp/openridr-d13-final/`.
+- Hook: **check standalone verificado; hook histórico não comprovado**. O `.githooks/pre-commit` versionado é 100755, mas o `core.hooksPath` histórico aponta para o root sem `pre-commit`; este followup usa `git -c core.hooksPath=.githooks` e trace em `/tmp/openridr-d13-final/hook-trace.jsonl`.
 - Limites: erro injetado é boundary de UI, não falha real de host/rede; nativo/Windows/Intel/full suite não verificados. Candidato a auditoria independente.
