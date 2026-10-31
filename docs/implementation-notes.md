@@ -454,7 +454,7 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 
 ## Ticket 10 — plano de instalação legível (2026-10-30)
 
-- Com o plano aberto, o drawer de ferramentas alarga (`min(640px, 50vw)`, CSS `:has`) e cada "Review install plan" rola o plano para o topo do drawer. Em 1440×900 comando, destino, staging, integridade, permissões e `Confirm and install` ficam visíveis sem rolar; em 1100×700 o drawer rola (overflow não oculto). O confirm fica abaixo dos campos materiais. Fluxo de instalação inalterado.
+- Com o plano aberto, o drawer de ferramentas alarga (640px fixo, CSS `:has`, só com `@media (min-width: 1300px)`; abaixo disso o drawer fica em 400px e rola) e cada "Review install plan" rola o plano para o topo do drawer. Em 1440×900 comando, destino, staging, integridade, permissões e `Confirm and install` ficam visíveis sem rolar; em 1100×700 o drawer rola (overflow não oculto). O confirm fica abaixo dos campos materiais. Fluxo de instalação inalterado.
 - `tests/e2e/install-plan.spec.ts` agora afirma a geometria nas duas larguras (red: 1440×900 falhava com a integridade em y≈948 > 876) e grava `docs/evidence/screenshots/10-install-plan-{1440x900,1100x700}.png`.
 - Verificação: `install-plan, disabled-states, ui-layout` 12/12; `csharp-ls.spec.ts:134` e `:171` (plano exato e instalação real em home temporário do E2E) + install-plan 4/4. Não verificado: no 1100×700 o plano não cabe sem rolar (por desenho); em `csharp-ls.spec.ts` os testes de rename obsoleto (:1145) e invalidação de code actions (:1427) deram timeout de 3 min neste ambiente, como já registrado para o branch base.
 
