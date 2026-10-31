@@ -693,10 +693,15 @@ pub fn pump(mut reader: impl Read, terminal: Arc<Terminal>) {
 pub fn command(shell: &Path, cwd: &Path) -> CommandBuilder {
     let mut builder = CommandBuilder::new(shell.as_os_str());
     builder.cwd(cwd);
-    if std::env::var_os("TERM").is_none() {
+    if term_needs_override(std::env::var_os("TERM").as_deref()) {
         builder.env("TERM", "xterm-256color");
     }
     builder
+}
+
+/// The emulator is xterm.js, so a missing, empty or `dumb` TERM inherited from the launcher is replaced.
+fn term_needs_override(term: Option<&std::ffi::OsStr>) -> bool {
+    term.map_or(true, |value| value.is_empty() || value == "dumb")
 }
 
 pub fn clamp_size(cols: Option<u64>, rows: Option<u64>) -> (u16, u16) {
@@ -715,6 +720,16 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dumb_or_missing_term_is_replaced_but_a_real_one_is_kept() {
+        use std::ffi::OsStr;
+        assert!(term_needs_override(None));
+        assert!(term_needs_override(Some(OsStr::new(""))));
+        assert!(term_needs_override(Some(OsStr::new("dumb"))));
+        assert!(!term_needs_override(Some(OsStr::new("xterm-256color"))));
+        assert!(!term_needs_override(Some(OsStr::new("screen"))));
+    }
 
     fn existing(names: &[&'static str]) -> impl Fn(&Path) -> bool {
         let names: Vec<&'static str> = names.to_vec();
