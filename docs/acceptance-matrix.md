@@ -120,7 +120,7 @@ Não verificado nativamente: Settings/Keymap, Search Everywhere, Run configurati
 
 ### Denominador explícito (33 itens da seção 3)
 
-**Contagem: 1 provado / 14 parciais / 18 não verificados (total 33).** Critério: provado só quando o escopo do item inteiro foi observado no .app; sub-itens observados contam como parcial. O número antigo "14/33" somava parciais e provados (14 rótulos distintos da 3b), por isso não era prova.
+**Contagem: 1 provado / 16 parciais / 16 não verificados (total 33).** (Atualizado no checkpoint r4: itens 19 e 20 saíram de não verificado para parcial.) Critério: provado só quando o escopo do item inteiro foi observado no .app; sub-itens observados contam como parcial. O número antigo "14/33" somava parciais e provados (14 rótulos distintos da 3b), por isso não era prova.
 
 | # | Item (seção 3) | Status nativo | Evidência / lacuna |
 |---|---|---|---|
@@ -140,10 +140,10 @@ Não verificado nativamente: Settings/Keymap, Search Everywhere, Run configurati
 | 14 | Debug (breakpoint, step, frames, locals, condicionais, exceções) | parcial | breakpoint, Paused, Resume (native-13–16); step, condicionais e exceções não |
 | 15 | Terminal xterm (prompt, Ctrl+C/D, tela cheia, resize) | parcial | prompt e `echo ok` (native-17/18); Ctrl+C/D, tela cheia e resize não |
 | 16 | Testes (descoberta VSTest, run, TRX, cancelar, MTP) | não verificado | — |
-| 17 | Git (commit, diff, log, branch, checkout/pull/push) | parcial | Trusted no home isolado; branch, log e diff do `Order.cs` observados após reabrir pelo Welcome; commit pela UI (`47b4753`, árvore limpa) e changed files do commit. Faltam: checkout, pull, push | native-21, 22, 23 |
+| 17 | Git (commit, diff, log, branch, checkout/pull/push) | parcial | Trusted no home isolado; branch, log e diff do `Order.cs` observados após reabrir pelo Welcome; commit pela UI (`47b4753`, árvore limpa) e changed files do commit. Faltam: checkout, pull, push. Defeito aberto (causa não confirmada): o popup de branches lista refs do worktree `openridr-fase1` (`origin/main`, `origin/mvp-rider`, `ticket/*`), não as da cópia (`feature-b` e `origin/fase-1-…` ausentes); o rótulo mostra "no upstream" apesar de `branch.fase-1-…` apontar para `origin` na cópia. O código do host resolve a mesma raiz para status e branches; causa não localizada | native-21, 22, 23 |
 | 18 | NuGet (instalados/desatualizados, sem pacotes, CPM) | parcial | aba NuGet com sem pacotes e fonte (native-07); desatualizados e CPM não |
-| 19 | Settings, Keymap, Find Action | não verificado | — |
-| 20 | Search Everywhere | não verificado | — |
+| 19 | Settings, Keymap, Find Action | parcial | Settings abre (Appearance/Keymap/Editor/Build/Version Control) e a página Keymap lista perfil Rider (macOS) com Change/Reset (native-24); ⇧⌘A abre Find Action com atalho e `id: view.findAction` (native-25). Faltam: alterar atalho, conflito, Reset, salvar |  native-24, 25 |
+| 20 | Search Everywhere | parcial | ⇧⌘A abre no tab Actions; tab Files filtra (`order` → 7 resultados com prévia); tab Text (`Order` → 34 resultados destacados, native-26); Symbols mostra "Analysis not ready. Start analysis." (sem análise, não prova). Faltam: Classes, Symbols com análise, Enter abrir resultado | native-25, 26 |
 | 21 | Run configurations | não verificado | — |
 | 22 | Layout 1440×900 e 1100×700, tool windows, barra | não verificado | 1440×900 visto (native-19); 1100×700 não |
 | 23 | Plano de instalação de ferramentas | não verificado | — |
