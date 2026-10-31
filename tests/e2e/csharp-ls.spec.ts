@@ -1198,7 +1198,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     await expect(page.getByTestId("rename-preview")).toBeVisible({
       timeout: 30_000,
     });
-    await page.getByTestId("editor").click();
+    await page.getByTestId("editor").focus(); // the open popover covers the editor centre; keyboard focus keeps the edit real
     await page.keyboard.press("Meta+End");
     await page.keyboard.insertText("// buffer edit during preview\n");
     await expect(page.getByTestId("editor")).toContainText("buffer edit during preview");
@@ -1450,7 +1450,7 @@ test("code action lists and previews are invalidated before any write", async ({
     await expect(page.getByTestId("code-actions")).toBeVisible({ timeout: 30_000 });
 
     // Editing the source buffer discards the pending list.
-    await page.getByTestId("editor").click();
+    await page.getByTestId("editor").focus(); // the open popover covers the editor centre; keyboard focus keeps the edit real
     await page.keyboard.press("Meta+End");
     await page.keyboard.insertText("// buffer edit during actions\n");
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
@@ -1463,7 +1463,7 @@ test("code action lists and previews are invalidated before any write", async ({
       .getByRole("button", { name: "Convert to positional record", exact: true })
       .click();
     await expect(page.getByTestId("rename-preview")).toBeVisible();
-    await page.getByTestId("editor").click();
+    await page.getByTestId("editor").focus(); // the open popover covers the editor centre; keyboard focus keeps the edit real
     await page.keyboard.press("Meta+End");
     await page.keyboard.insertText("// second buffer edit\n");
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
