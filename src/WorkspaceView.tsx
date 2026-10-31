@@ -1875,6 +1875,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       );
       setMessage({ tone: "error", text: `${label} not applied: ${reason}` });
     };
+    const stillOwnsPreview = () => {
+      const current = editPreviewRef.current;
+      return (
+        application === editPreviewApplySeq.current &&
+        current !== null &&
+        previewId(current) === id &&
+        current.applying
+      );
+    };
     const reason = revalidateEditPreview(preview);
     if (reason) {
       fail(reason);
@@ -1904,21 +1913,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         problems.push(`${document.path} changed on disk after the preview`);
       }
     }
+    // A late read from an old application must not mutate a newer preview or status, whether it
+    // succeeded or failed. Only the owner of the current preview may report a read problem.
+    if (!stillOwnsPreview()) return;
     if (problems.length > 0) {
       fail(`${problems.join("; ")}. No buffer or file was changed.`);
-      return;
-    }
-    const stillOpen = editPreviewRef.current;
-    if (
-      application !== editPreviewApplySeq.current ||
-      !stillOpen ||
-      previewId(stillOpen) !== id ||
-      !stillOpen.applying
-    ) {
-      setMessage({
-        tone: "info",
-        text: `${label} not applied: the preview was dismissed while revalidating.`,
-      });
       return;
     }
     const afterReads = revalidateEditPreview(preview);
