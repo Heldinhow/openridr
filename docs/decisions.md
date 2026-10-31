@@ -359,10 +359,10 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 
 ## 2026-10-31 — M7: previews de rename/code actions/Find Usages docados abaixo do editor
 
-- **Substitui** o overlay flutuante ancorado no cursor (`.editor-popup`, `position:absolute`). Rename preview, lista/preview de code actions e Find Usages agora são um painel docado no fluxo flex do `.editor-pane`, abaixo do editor (`order:2`, `min-height: 100px`, `max-height: min(40%, 300px)`, rolagem interna; Apply/Cancel continuam sticky). O texto do editor encolhe, não é coberto.
+- **Substitui** o overlay flutuante ancorado no cursor (`.editor-popup`, `position:absolute`). Rename preview, lista/preview de code actions e Find Usages agora são um painel docado no fluxo flex do `.editor-pane`, abaixo do editor (inicialmente `order:2`, `min-height: 100px`, `max-height: min(40%, 300px)`; **superseded**: `order` saiu no ticket 34 e o teto passou a 50% no ticket 32; rolagem interna; Apply/Cancel sticky). O texto do editor encolhe, não é coberto.
 - Removidos `editorPopupStyle()` e os `data-anchor-x/y` do `CodeEditor` (só serviam o overlay). `data-testid`, `role="dialog"`, foco no heading, Esc, guards de Apply e D12/D13 não mudaram.
-- O teste D-12 passou a afirmar a geometria nova: popup não sobrepõe `.cm-scroller` e o editor mantém ≥100 px a 1100×700. 32% foi o menor ajuste que cumpre isso; 45% deixava o editor com 71 px.
-- Janelas baixas (`max-height: 760px`): o `<p class="muted">` de resumo do painel some (repete a notice de status acima) e a linha de dicas do LSP fica oculta enquanto há painel docado, para a primeira ação/Apply/Cancel caberem a 1100×700 com editor ≥100 px (40% foi o limite que cumpriu as duas coisas; 45–50% deixaram o editor com 65–85 px).
+- O teste D-12 passou a afirmar a geometria nova: popup não sobrepõe `.cm-scroller` e o editor mantém ≥100 px a 1100×700. Histórico de tetos medidos a 1100×700: 45% deixou o editor com 71 px, 32% passou; o valor final é 50% desde o ticket 32 (ver abaixo).
+- **Superseded (ticket 34):** a regra de janelas baixas que ocultava o resumo `p.muted` e a linha de dicas do LSP foi removida: texto de segurança/truncamento e o `role="status"` não se escondem. Ver "ticket 34".
 - **Escopo M7 dividido.** **M7a (overlap/docking): resolvido** por esta decisão. **M7b (rename inline sobre o identificador, com range destacado e Enter aplicando; UI-AUDIT linha M7, SPEC F7 #61): continua aberto/pendente** — não implementado: exigiria reposicionar o `inline-rename` do `CodeEditor` sobre a palavra com decoração de range, mudança de fluxo (Enter hoje abre prévia, não aplica) que reabre decisões F7/D12. M7 **não** está fechado.
 - **Supersede** "popup no cursor"/"popups próximos à posição do editor" de `SPEC-MVP-RIDER.md` (⌥↩) e do ticket 22 para code actions, rename preview e Find Usages; o rename inline continua regido por F7/M7b.
 
@@ -372,3 +372,10 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 - Decisão: enquanto existe um `.editor-popup`, a linha do grid do painel inferior encolhe para `min(--output-height, 96px)` (abas continuam visíveis e clicáveis; volta ao tamanho do usuário ao fechar o preview). O preview ganha `max-height: min(50%, 300px)`. Sem overlay, sem mudança de testid/foco/Esc/guards.
 - Teste: a 1100×700 com Problems aberto, as 2 primeiras ações + Close (code actions) e a 3ª linha + Apply/Cancel (rename) ficam dentro do painel, o painel termina acima da dock e o editor fica ≥100 px. Red antes do CSS (preview terminava 17 px abaixo da dock), green depois.
 - M7b continua aberto.
+
+- **1440×900 também muda (ticket 32):** a regra `:has(.editor-popup)` vale para qualquer altura, não só 1100×700 — com qualquer preview (rename, code actions, Find Usages) aberto, a linha do painel inferior cai para ≤96 px e volta ao tamanho do usuário ao fechar.
+
+## 2026-10-31 — Ticket 34: revisão final do M7a
+
+- (A) O resumo/aviso dos popups **não é mais ocultado**; só espaçamento e tamanho cedem (`.editor-popup p` 0,72rem, margens 1 px). (B) A linha `role="status"` do editor fica visível durante o preview, em uma linha com reticências e texto completo no `title`; comentário corrigido. (C) Os popups docados vêm **depois** de `.editor-body` no DOM e perdem `order`: a ordem de Tab é a visual; nada depende de combinador `~`.
+- Testes (vermelhos sem a correção, log em `docs/evidence/logs/m7-ticket34-red.md`): resumo "Nothing has been applied" e status visíveis, popup depois do editor no DOM, a 1100×700 com Problems aberto.

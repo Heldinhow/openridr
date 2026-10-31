@@ -44,11 +44,11 @@ test("editor action popups stay inside the editor and keep preview actions reach
   await page.setViewportSize({ width: 1100, height: 700 });
   await page.setContent(`
     <section class="editor-pane" aria-label="Editor" style="width:700px;height:500px">
+      <div class="editor-body" style="min-height:100px">Editor</div>
       <div class="rename-preview editor-popup">
         <h2>Rename preview</h2><div style="height:700px">Preview details</div>
         <div class="actions"><button>Apply</button><button>Cancel</button></div>
       </div>
-      <div class="editor-body" style="min-height:100px">Editor</div>
     </section>`);
   await page.addStyleTag({ content: fs.readFileSync(path.resolve("src/styles.css"), "utf8") });
   const pane = page.getByRole("region", { name: "Editor" });

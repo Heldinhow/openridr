@@ -3942,6 +3942,92 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 </span>
               </div>
 
+              {active.conflict && (
+                <div className="notice error" data-testid="conflict-banner" role="alert">
+                  <strong>File changed on disk.</strong> {active.path} was modified outside
+                  OpenRidr. Your buffer is preserved; nothing was overwritten.
+                  <div className="actions">
+                    <button data-testid="conflict-reload" onClick={reloadFromDisk}>
+                      Reload from disk (discard my edits)
+                    </button>
+                    <button data-testid="conflict-overwrite" onClick={() => void overwriteDisk()}>
+                      Overwrite disk
+                    </button>
+                  </div>
+                  <details className="conflict-compare" data-testid="conflict-compare">
+                    <summary>Compare buffer and disk</summary>
+                    <div className="conflict-compare-grid">
+                      <section aria-label="Buffer version">
+                        <h3>Buffer · unsaved · revision {active.revision}</h3>
+                        <p className="muted">
+                          Based on <code data-testid="conflict-buffer-hash">{active.hash}</code>
+                        </p>
+                        <pre data-testid="conflict-compare-buffer">{active.content}</pre>
+                      </section>
+                      <section aria-label="Disk version">
+                        <h3>Disk · external change</h3>
+                        <p className="muted">
+                          Disk hash{" "}
+                          <code data-testid="conflict-disk-hash">{active.conflict.hash}</code>
+                        </p>
+                        <pre data-testid="conflict-compare-disk">{active.conflict.content}</pre>
+                      </section>
+                    </div>
+                    <p className="muted" data-testid="conflict-compare-diff">
+                      {activeConflictDiff
+                        ? `${countLabel(activeConflictDiff.removed, "line")} removed · ${countLabel(activeConflictDiff.added, "line")} added`
+                        : "Line diff skipped: one version has more than 1200 lines; compare hashes only."}
+                    </p>
+                  </details>
+                </div>
+              )}
+
+              <div className="editor-body" id="editor-content" role="tabpanel" aria-label={baseName(active.path)}>
+                <CodeEditor
+                  key={active.path}
+                  value={active.content}
+                  path={active.path}
+                  platform={snapshot.app.platform}
+                  revision={active.revision}
+                  editor={settings.editor}
+                  onChange={(value) => updateContent(active.path, value)}
+                  onSave={() => void save()}
+                  onDefinition={(location) =>
+                    void navigateTo(location.path, {
+                      line: location.line,
+                      character: location.character,
+                    })
+                  }
+                  onRename={(position) => requestRename(position)}
+                  onRenameSubmit={submitRenameInline}
+                  onRenameCancel={cancelRenameRequest}
+                  onCodeActions={(position) => void requestCodeActions(position)}
+                  onContextMenu={(position, at) => {
+                    noteCursor(position);
+                    setContextMenu({
+                      x: at.x,
+                      y: at.y,
+                      line: position.line,
+                      character: position.character,
+                    });
+                    if (trusted) void refreshGit();
+                  }}
+                  onGutterAction={handleGutterAction}
+                  gutterActions={gutterActions}
+                  changedLines={changedLines}
+                  renameRequest={renameRequest}
+                  definitionRequest={definitionRequest}
+                  onCursor={noteCursor}
+                  breakpoints={activeBreakpoints}
+                  currentLine={debugCurrentLine}
+                  inlayText={debugInlay}
+                  onToggleBreakpoint={(line) => void toggleBreakpoint(line)}
+                  target={
+                    editorTarget?.path === active.path ? editorTarget : null
+                  }
+                />
+              </div>
+
               {findUsages && (
                 <FindUsagesPanel
                   className="rename-preview find-usages editor-popup"
@@ -4172,92 +4258,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   </div>
                 </section>
               )}
-
-              {active.conflict && (
-                <div className="notice error" data-testid="conflict-banner" role="alert">
-                  <strong>File changed on disk.</strong> {active.path} was modified outside
-                  OpenRidr. Your buffer is preserved; nothing was overwritten.
-                  <div className="actions">
-                    <button data-testid="conflict-reload" onClick={reloadFromDisk}>
-                      Reload from disk (discard my edits)
-                    </button>
-                    <button data-testid="conflict-overwrite" onClick={() => void overwriteDisk()}>
-                      Overwrite disk
-                    </button>
-                  </div>
-                  <details className="conflict-compare" data-testid="conflict-compare">
-                    <summary>Compare buffer and disk</summary>
-                    <div className="conflict-compare-grid">
-                      <section aria-label="Buffer version">
-                        <h3>Buffer · unsaved · revision {active.revision}</h3>
-                        <p className="muted">
-                          Based on <code data-testid="conflict-buffer-hash">{active.hash}</code>
-                        </p>
-                        <pre data-testid="conflict-compare-buffer">{active.content}</pre>
-                      </section>
-                      <section aria-label="Disk version">
-                        <h3>Disk · external change</h3>
-                        <p className="muted">
-                          Disk hash{" "}
-                          <code data-testid="conflict-disk-hash">{active.conflict.hash}</code>
-                        </p>
-                        <pre data-testid="conflict-compare-disk">{active.conflict.content}</pre>
-                      </section>
-                    </div>
-                    <p className="muted" data-testid="conflict-compare-diff">
-                      {activeConflictDiff
-                        ? `${countLabel(activeConflictDiff.removed, "line")} removed · ${countLabel(activeConflictDiff.added, "line")} added`
-                        : "Line diff skipped: one version has more than 1200 lines; compare hashes only."}
-                    </p>
-                  </details>
-                </div>
-              )}
-
-              <div className="editor-body" id="editor-content" role="tabpanel" aria-label={baseName(active.path)}>
-                <CodeEditor
-                  key={active.path}
-                  value={active.content}
-                  path={active.path}
-                  platform={snapshot.app.platform}
-                  revision={active.revision}
-                  editor={settings.editor}
-                  onChange={(value) => updateContent(active.path, value)}
-                  onSave={() => void save()}
-                  onDefinition={(location) =>
-                    void navigateTo(location.path, {
-                      line: location.line,
-                      character: location.character,
-                    })
-                  }
-                  onRename={(position) => requestRename(position)}
-                  onRenameSubmit={submitRenameInline}
-                  onRenameCancel={cancelRenameRequest}
-                  onCodeActions={(position) => void requestCodeActions(position)}
-                  onContextMenu={(position, at) => {
-                    noteCursor(position);
-                    setContextMenu({
-                      x: at.x,
-                      y: at.y,
-                      line: position.line,
-                      character: position.character,
-                    });
-                    if (trusted) void refreshGit();
-                  }}
-                  onGutterAction={handleGutterAction}
-                  gutterActions={gutterActions}
-                  changedLines={changedLines}
-                  renameRequest={renameRequest}
-                  definitionRequest={definitionRequest}
-                  onCursor={noteCursor}
-                  breakpoints={activeBreakpoints}
-                  currentLine={debugCurrentLine}
-                  inlayText={debugInlay}
-                  onToggleBreakpoint={(line) => void toggleBreakpoint(line)}
-                  target={
-                    editorTarget?.path === active.path ? editorTarget : null
-                  }
-                />
-              </div>
             </>
           ) : (
             <div className="empty-editor">

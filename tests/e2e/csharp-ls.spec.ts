@@ -1234,6 +1234,9 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
     await page.setViewportSize({ width: 1100, height: 700 });
     // Apply/Cancel stay inside the docked panel and the editor keeps usable height.
     await page.getByTestId("bottom-tab-problems").click();
+    await expect(page.getByTestId("rename-preview-summary")).toBeVisible();
+    await expect(page.getByTestId("rename-preview-summary")).toContainText("Nothing has been applied");
+    await expect(page.getByTestId("editor-lsp-status")).toBeVisible();
     const narrowPreview = (await page.getByTestId("rename-preview").boundingBox())!;
     const dock = (await page.getByTestId("bottom-tab-problems").boundingBox())!;
     expect(narrowPreview.y + narrowPreview.height).toBeLessThanOrEqual(dock.y + 0.5);
@@ -1517,6 +1520,17 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     // The first action and Close are visible inside the docked panel; the editor keeps height.
     // Ticket 32: with the Problems tool window open the bottom dock yields, so two actions fit.
     await page.getByTestId("bottom-tab-problems").click();
+    // Ticket 34: safety text and the role=status line stay visible; the popup follows the editor in DOM/Tab order.
+    await expect(panel.getByTestId("code-actions-summary")).toBeVisible();
+    await expect(panel.getByTestId("code-actions-summary")).toContainText("Nothing has been applied");
+    await expect(page.getByTestId("editor-lsp-status")).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const body = document.querySelector(".editor-body")!;
+        const popup = document.querySelector(".editor-popup")!;
+        return Boolean(body.compareDocumentPosition(popup) & Node.DOCUMENT_POSITION_FOLLOWING);
+      }),
+    ).toBe(true);
     const narrowPanel = (await panel.boundingBox())!;
     for (const locator of [
       panel.getByTestId("code-actions-list").getByRole("button").nth(0),

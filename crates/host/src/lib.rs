@@ -6486,6 +6486,8 @@ fn workspace_symbol_items(list: &lsp::WorkspaceSymbolList, root: &Path) -> (Vec<
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn symbols_outside_the_workspace_are_filtered_not_truncated() {
         let temp = tempfile::tempdir().unwrap();
@@ -6514,7 +6516,6 @@ mod tests {
         assert!(workspace_symbol_items(&capped, &root).1, "real truncation is kept");
     }
 
-    use super::*;
 
     fn target(path: &Path) -> lsp::DefinitionTarget {
         lsp::DefinitionTarget {

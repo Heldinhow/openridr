@@ -957,6 +957,7 @@ export function CodeEditor({
         data-testid="editor-lsp-status"
         data-state={status.state}
         role="status"
+        title={status.text}
       >
         {status.text}
       </div>

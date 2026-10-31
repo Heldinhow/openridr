@@ -1184,9 +1184,8 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   font-size: 0.95rem;
 }
 
-/* M7: previews dock below the editor (flex order) instead of floating over the text. */
+/* M7: previews dock below the editor. They follow .editor-body in the DOM, so Tab order matches the visual order. */
 .editor-popup {
-  order: 2;
   flex: 0 0 auto;
   box-sizing: border-box;
   min-height: 100px;
@@ -1196,17 +1195,17 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   border-top: 1px solid var(--accent);
 }
 
+/* Compact, never hidden: safety/truncation text stays; only spacing and size give way. */
 .editor-popup h2 { margin: 0 0 2px; font-size: 0.85rem; }
-.editor-popup p { margin: 2px 0; font-size: 0.75rem; }
+.editor-popup p { margin: 1px 0; font-size: 0.72rem; line-height: 1.25; }
 
-/* Short windows: the summary repeats the status notice above, so the list and Apply/Cancel get the room. */
-@media (max-height: 760px) {
-  .editor-popup > p.muted { display: none; }
-}
-
-/* The keyboard-hint line is redundant while a preview is docked; its height goes to the editor. */
-.editor-popup ~ .editor-body .editor-lsp-status {
-  display: none;
+/* While a preview is docked, the role=status line shrinks to one line (full text in its title). */
+.editor-pane:has(.editor-popup) .editor-lsp-status {
+  padding: 2px 14px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Apply and Cancel stay inside the preview box at every size; -10px pushed them past its bottom edge. */
