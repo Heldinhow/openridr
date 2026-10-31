@@ -15,6 +15,18 @@ test.setTimeout(120_000);
 
 // The delaying `sleep 4040` is unique to this spec; it must exist while restoring and be gone after Cancel/Revoke.
 const sleepAlive = () => spawnSync("pgrep", ["-f", "sleep 4040"]).status === 0;
+// Edge: pgrep matches the whole command line, so any process of anyone whose command contains "sleep 4040" counts.
+// The spec refuses to start if one exists (it never kills a process it did not create) and, in `finally`, removes only
+// the sleep of its own failed run.
+const killSleep = () => spawnSync("pkill", ["-f", "sleep 4040"]);
+
+test.beforeEach(() => {
+  expect(sleepAlive(), "a foreign `sleep 4040` is already running; stop it before running this spec").toBe(false);
+});
+
+test.afterEach(() => {
+  killSleep();
+});
 
 function tempCopy(name: string) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-restore-int-"));
