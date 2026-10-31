@@ -586,6 +586,7 @@ fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks
     assert_eq!(trusted["sdk"]["project"]["rollForward"], "disable");
     let project_root = trusted["sdk"]["project"]["root"].as_str().unwrap();
     assert!(Path::new(project_root).is_absolute(), "{project_root}");
+    assert!(Path::new(project_root).join("sdk/8.0.408").is_dir(), "{project_root}");
     // Host and project SDKs may live in one root (e.g. ~/.dotnet); the contract is the separate versions below.
     assert_eq!(trusted["sdk"]["host"]["version"], "10.0.100");
 }
@@ -1438,7 +1439,9 @@ fn restore_reports_the_exact_command_and_creates_real_assets() {
         root.to_string_lossy()
     );
     assert_eq!(restore["sdkVersion"], "8.0.408");
-    assert!(Path::new(restore["sdkRoot"].as_str().unwrap()).is_absolute());
+    let restore_root = Path::new(restore["sdkRoot"].as_str().unwrap());
+    assert!(restore_root.is_absolute());
+    assert!(restore_root.join("sdk/8.0.408").is_dir(), "{restore_root:?}");
     let command: Vec<String> = restore["command"]
         .as_array()
         .unwrap()
@@ -2834,7 +2837,9 @@ fn build_reports_the_exact_command_raw_log_exit_and_real_problems() {
     assert_eq!(build["targetFramework"], Value::Null);
     assert_eq!(build["cwd"].as_str().unwrap(), root.to_string_lossy());
     assert_eq!(build["sdkVersion"], "8.0.408");
-    assert!(Path::new(build["sdkRoot"].as_str().unwrap()).is_absolute());
+    let build_root = Path::new(build["sdkRoot"].as_str().unwrap());
+    assert!(build_root.is_absolute());
+    assert!(build_root.join("sdk/8.0.408").is_dir(), "{build_root:?}");
     assert!(build["buildId"].as_str().unwrap().starts_with("build:"));
     assert_eq!(
         build["savedNote"],
