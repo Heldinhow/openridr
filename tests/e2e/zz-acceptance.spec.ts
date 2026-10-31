@@ -111,6 +111,10 @@ async function waitEvaluation(page: Page, revision: number) {
 }
 
 async function ensureCsharpLs(page: Page, request: APIRequestContext) {
+  // Fase 1 layout: the installer lives in the Workspace tools drawer, closed by default.
+  if (!(await page.getByTestId("workspace-tools").isVisible())) {
+    await page.getByTestId("workspace-tools-toggle").click();
+  }
   const before = await hostState(request);
   if (before.tools["csharp-ls"].state === "ready") {
     await expect(page.getByTestId("install-ready")).toBeVisible();
@@ -624,8 +628,8 @@ public sealed class LongTests
 
     // ---- Real PTY: discovered shell, cwd, input, Ctrl+C, explicit close.
     await page.getByTestId("bottom-tab-terminal").click();
-    await page.getByTestId("terminal-start").click();
-    await expect(page.getByTestId("terminal-state")).toHaveText("Running");
+    // Fase 1: Trust opens the shell with a prompt by itself; there is no Start click.
+    await expect(page.getByTestId("terminal-state")).toHaveText("Running", { timeout: 30_000 });
     await expect(page.getByTestId("terminal-shell")).toContainText(/(zsh|bash|sh)/);
     await expect(page.getByTestId("terminal-cwd")).toHaveText(fs.realpathSync(copy));
     await screenshot(page, "18-terminal-started.png");
@@ -651,9 +655,8 @@ public sealed class LongTests
     await expect(terminalOutput).toContainText("prompt-back");
     await expect(terminalOutput).not.toContainText("never-42");
     await waitForPrompt(request);
-    await terminalInput.fill(
-      'SDK="$HOME/Library/Application Support/OpenRidr/sdks/8.0.408"; "$SDK/dotnet" --version',
-    );
+    // global.json in the copy pins 8.0.408; any detected SDK root satisfies it (no managed-path assumption).
+    await terminalInput.fill("dotnet --version");
     await terminalInput.press("Enter");
     await expect(terminalOutput).toContainText("8.0.408", { timeout: 60_000 });
     await waitForPrompt(request);
@@ -797,7 +800,10 @@ public sealed class LongTests
           item.workspaceId === beforeRevoke.workspace.id && item.state === "running",
       ),
     ).toEqual([]);
-    await page.locator(".tab.active").getByTestId("close-buffer").click();
+    // The trust popover stays open after Revoke and covers the tab strip; close it first.
+    await page.getByTestId("editor").click();
+    await expect(page.getByTestId("trust-grant-reason")).toBeHidden();
+    await page.locator(".tab.active").getByTestId("close-buffer").click({ timeout: 15_000 });
     await page.getByTestId("confirm-discard").click();
     await expect(page.getByTestId(`tab-${libraryRel}`)).toHaveCount(0);
 
