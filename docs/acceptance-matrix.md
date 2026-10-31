@@ -110,7 +110,7 @@ Bundle `src-tauri/target/release/bundle/macos/OpenRidr.app` do HEAD `c7439ad` (S
 | 14 Debug | Diálogo de consentimento experimental do produto → "Enable and debug" → `Paused` no breakpoint da linha 3 com Threads, Call frames (`Program.<Main>$()  …/Program.cs:3`) e Locals (`args`, `order = null`); Resume → `Terminated` com a saída do debuggee. Adaptador existente reutilizado, nada instalado | native-13, 14, 15, 16 |
 | 5 Editor (parcial) | Abrir `Program.cs` pela árvore; breakpoint por **Cmd+F8** (ponto vermelho na linha 3). Salvar/conflito/fechar com buffer sujo: não verificado | native-12, 13 |
 | 15 / 24d Terminal | Shell `/bin/zsh` já rodando após o Trust, cwd da cópia, prompt; `echo ok` → `ok` (canvas xterm fora do AX; prova por captura) | native-17, 18 |
-| 17 Git (parcial) | Branch `fase-1-fluxo-…`, log com `0056d7f`, painel Commit com `src/OrderDesk.Core/Order.cs` Modified (checkbox marcado). Faltam: diff, commit pela UI, changed files do commit, checkout/pull/push | native-21, 22 |
+| 17 Git (parcial) | Branch `fase-1-fluxo-…`, log, painel Commit com `src/OrderDesk.Core/Order.cs` Modified; diff do arquivo (Index × Working tree, dialog Close diff); commit pela UI do arquivo marcado (`47b4753`, árvore limpa); log atualizado por Refresh, commit com changed files (`M src/OrderDesk.Core/Order.cs`; captura não publicada, mostra autor git). Faltam: checkout, pull, push | native-21, 22, 23 |
 | 18 NuGet (parcial) | Aba NuGet: "No packages are referenced by this project.", fonte nuget.org | native-07 |
 | 25 App local | Todos os fluxos acima rodaram no `.app` gerado, como processo próprio | todas |
 
@@ -140,7 +140,7 @@ Não verificado nativamente: Settings/Keymap, Search Everywhere, Run configurati
 | 14 | Debug (breakpoint, step, frames, locals, condicionais, exceções) | parcial | breakpoint, Paused, Resume (native-13–16); step, condicionais e exceções não |
 | 15 | Terminal xterm (prompt, Ctrl+C/D, tela cheia, resize) | parcial | prompt e `echo ok` (native-17/18); Ctrl+C/D, tela cheia e resize não |
 | 16 | Testes (descoberta VSTest, run, TRX, cancelar, MTP) | não verificado | — |
-| 17 | Git (commit, diff, log, branch, checkout/pull/push) | parcial | Trusted no home isolado; branch `fase-1-fluxo-…` e log (`0056d7f`) visíveis após reabrir pelo Welcome; `Order.cs` Modified no painel Commit. Faltam: diff, commit pela UI, changed files do commit, checkout/pull/push | native-21, native-22 |
+| 17 | Git (commit, diff, log, branch, checkout/pull/push) | parcial | Trusted no home isolado; branch, log e diff do `Order.cs` observados após reabrir pelo Welcome; commit pela UI (`47b4753`, árvore limpa) e changed files do commit. Faltam: checkout, pull, push | native-21, 22, 23 |
 | 18 | NuGet (instalados/desatualizados, sem pacotes, CPM) | parcial | aba NuGet com sem pacotes e fonte (native-07); desatualizados e CPM não |
 | 19 | Settings, Keymap, Find Action | não verificado | — |
 | 20 | Search Everywhere | não verificado | — |
