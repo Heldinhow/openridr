@@ -74,12 +74,7 @@ import {
   runAvailabilityReason as runGate,
   type GateContext,
 } from "./executionGates";
-import { evaluateContext as evaluate } from "./executionCommands";
-import {
-  cancelRestore as restoreCancel,
-  startRestore as restoreStart,
-  type RestoreReporter,
-} from "./restoreCommands";
+import { useEvaluationFlow } from "./useEvaluationFlow";
 import {
   chordPrefixFor,
   chordTarget,
@@ -475,11 +470,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [trustBannerDismissed, setTrustBannerDismissed] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [evaluating, setEvaluating] = useState(false);
-  const autoEvaluation = useRef<number | null>(null);
-  const autoRestore = useRef<number | null>(null);
-  const autoEvaluatedAfterRestore = useRef<number | null>(null);
-  const autoReevaluated = useRef<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(projects.map((project) => project.path)),
   );
@@ -528,7 +518,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     if (awaitingProcessIds) setToolsOpen(true);
   }, [awaitingProcessIds]);
   const evaluationAvailable = trusted && projectSdk.state === "resolved";
-  const evaluationBusy = evaluating || evaluation.state === "running";
   const restore = snapshot.restore;
   const restoring = restore.state === "running";
   const lsp = snapshot.lsp;
@@ -646,6 +635,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     runConfigStore && runConfigStore.activeId !== DEFAULT_RUN_CONFIG_ID
       ? runConfigStore.configs.find((config) => config.id === runConfigStore.activeId) ?? null
       : null;
+  const { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore } = useEvaluationFlow({
+    snapshot, trusted, restoreAvailable, evaluationAvailable, runConfigsLoaded, activeNamedConfig, runConfigStore,
+    commitRunConfigs, onSnapshot, setMessage,
+  });
+  const evaluationBusy = evaluating || evaluation.state === "running";
   const startupProject = activeNamedConfig
     ? consoleCandidates.find((project) => project.path === activeNamedConfig.project) ?? null
     : defaultStartupProject;
@@ -833,54 +827,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     snapshot.diagnostics,
     codeActionsDisabledReason,
   ]);
-
-  useEffect(() => {
-    // The active configuration is the source of truth, so the first evaluation waits for the
-    // per-solution store and uses its Configuration/TFM instead of a second default.
-    if (!runConfigsLoaded) return;
-    if (!evaluationAvailable || evaluation.state !== "idle" || evaluation.staleReason) {
-      return;
-    }
-    if (autoEvaluation.current === snapshot.contextId) {
-      return;
-    }
-    autoEvaluation.current = snapshot.contextId;
-    void evaluateContext(
-      activeNamedConfig?.configuration ?? evaluation.context.configuration,
-      activeNamedConfig?.targetFramework ?? evaluation.context.targetFramework,
-    );
-  }, [
-    evaluationAvailable,
-    evaluation.state,
-    evaluation.staleReason,
-    snapshot.contextId,
-    runConfigsLoaded,
-  ]);
-
-  // docs/decisions.md: a Trusted workspace restores by itself, once per context; Restricted runs nothing.
-  useEffect(() => {
-    if (!trusted || restore.state !== "idle" || !restoreAvailable) return;
-    if (restore.projects.length > 0 && restore.projects.every((project) => project.state === "restored")) return;
-    if (autoRestore.current === snapshot.contextId) return;
-    autoRestore.current = snapshot.contextId;
-    void startRestore("restore.start");
-  }, [trusted, restore.state, restoreAvailable, snapshot.contextId]);
-
-  // The host's state poll marks the model stale when a project file changes on disk; a Trusted workspace re-evaluates it.
-  useEffect(() => {
-    if (!trusted || !evaluation.staleReason?.includes("changed on disk")) return;
-    const key = `${evaluation.revision}:${evaluation.staleReason}`;
-    if (autoReevaluated.current === key) return;
-    autoReevaluated.current = key;
-    void runEvaluation();
-  }, [trusted, evaluation.revision, evaluation.staleReason]);
-
-  // A finished restore makes the old model stale; evaluate once per restore so the tree matches the assets.
-  useEffect(() => {
-    if (!trusted || restore.state !== "ok" || autoEvaluatedAfterRestore.current === restore.revision) return;
-    autoEvaluatedAfterRestore.current = restore.revision;
-    void runEvaluation();
-  }, [trusted, restore.state, restore.revision]);
 
   useEffect(() => {
     if (evaluation.revision === 0) return;
@@ -2103,51 +2049,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     return store;
   }
 
-  async function evaluateContext(
-    configuration: string,
-    targetFramework: string | null,
-  ) {
-    setEvaluating(true);
-    try {
-      await evaluate({ onSnapshot, setMessage }, configuration, targetFramework);
-    } finally {
-      setEvaluating(false);
-    }
-  }
-
-  async function runEvaluation(next?: {
-    configuration?: string;
-    targetFramework?: string | null;
-  }) {
-    const configuration = next?.configuration ?? evaluation.context.configuration;
-    const targetFramework =
-      next && "targetFramework" in next
-        ? next.targetFramework ?? null
-        : evaluation.context.targetFramework;
-    if (
-      activeNamedConfig &&
-      (activeNamedConfig.configuration !== configuration ||
-        (activeNamedConfig.targetFramework ?? null) !== targetFramework)
-    ) {
-      // Every toolbar/panel Configuration or TFM change writes the active configuration;
-      // the evaluation follows it so there is a single source of truth.
-      const configs = (runConfigStore?.configs ?? []).map((config) =>
-        config.id === activeNamedConfig.id
-          ? { ...config, configuration, targetFramework }
-          : config,
-      );
-      try {
-        await commitRunConfigs(configs, activeNamedConfig.id);
-      } catch (error) {
-        setMessage({
-          tone: "error",
-          text: `The active run configuration could not be updated: ${messageOf(error)}`,
-        });
-      }
-    }
-    await evaluateContext(configuration, targetFramework);
-  }
-
   function openRunConfigDialog(id?: string) {
     setRunConfigInitialId(id ?? activeRunConfig?.id ?? DEFAULT_RUN_CONFIG_ID);
     setRunConfigOpen(true);
@@ -2225,11 +2126,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   function openGlobalJson() {
     void openFile(projectSdk.globalJsonPath ?? "global.json");
   }
-
-  const restoreReporter: RestoreReporter = { onSnapshot, setMessage };
-  const startRestore = (method: "restore.start" | "restore.retry", project?: string) =>
-    restoreStart(restoreReporter, method, project);
-  const cancelRestore = () => restoreCancel(restoreReporter);
 
   const {
     buildDecision, setBuildDecision, runDecision, setRunDecision, debugConsent, setDebugConsent,
