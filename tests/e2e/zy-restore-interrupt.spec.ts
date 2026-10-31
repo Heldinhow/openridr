@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 // Interrupting the automatic restore: Cancel restore while it runs, and Revoke trust while it runs.
 // A Directory.Build.targets in the temp copy makes `dotnet restore` wait (a `sleep` before NuGet's `_GenerateRestoreGraphProjectEntry`), so the
@@ -12,13 +13,16 @@ const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 test.use({ viewport: { width: 1440, height: 900 } });
 test.setTimeout(120_000);
 
+// The delaying `sleep 4040` is unique to this spec; it must exist while restoring and be gone after Cancel/Revoke.
+const sleepAlive = () => spawnSync("pgrep", ["-f", "sleep 4040"]).status === 0;
+
 function tempCopy(name: string) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-restore-int-"));
   const copy = path.join(base, name);
   fs.cpSync(fixture, copy, { recursive: true, filter: (s) => !/[\\/](bin|obj)([\\/]|$)/.test(s) });
   fs.writeFileSync(
     path.join(copy, "Directory.Build.targets"),
-    '<Project><Target Name="SlowRestore" BeforeTargets="_GenerateRestoreGraphProjectEntry"><Exec Command="sleep 40" /></Target></Project>\n',
+    '<Project><Target Name="SlowRestore" BeforeTargets="_GenerateRestoreGraphProjectEntry"><Exec Command="sleep 4040" /></Target></Project>\n',
   );
   return { base, copy };
 }
@@ -39,8 +43,10 @@ test("Cancel restore during the automatic restore ends it as cancelled and keeps
   const { base, copy } = tempCopy("Order Desk restore cancel");
   try {
     await openAndTrust(page, copy);
+    await expect.poll(sleepAlive, { timeout: 15_000 }).toBe(true);
     await page.getByTestId("restore-cancel").click();
     await expect(page.getByTestId("restore-state")).toContainText("Restore cancelled", { timeout: 30_000 });
+    await expect.poll(sleepAlive, { timeout: 15_000 }).toBe(false);
     await expect(page.getByTestId("restore-cancel")).toHaveCount(0);
     await expect(page.getByTestId("tree")).toBeVisible();
     // A cancelled restore is not retried by itself (once per context) and leaves a working retry.
@@ -56,8 +62,10 @@ test("Revoke trust during the automatic restore stops it and nothing evaluates a
   const { base, copy } = tempCopy("Order Desk restore revoke");
   try {
     await openAndTrust(page, copy);
+    await expect.poll(sleepAlive, { timeout: 15_000 }).toBe(true);
     await page.getByTestId("mode-badge").click();
     await page.getByTestId("trust-revoke").click();
+    await expect.poll(sleepAlive, { timeout: 15_000 }).toBe(false);
     await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await expect(page.getByTestId("restore-cancel")).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId("restore-state")).not.toContainText("Restoring…");
