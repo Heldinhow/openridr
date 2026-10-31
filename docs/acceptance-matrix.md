@@ -115,7 +115,47 @@ Bundle `src-tauri/target/release/bundle/macos/OpenRidr.app` do HEAD `c7439ad` (S
 
 Não verificado nativamente: Git, Settings/Keymap, Search Everywhere, Run configurations (diálogo), Problems, rename/code actions/find usages, testes, layout em 1100×700, fechamento com buffers sujos, Revoke de Trust. **D-13 (B/M, aprovado no fluxo web; não reverificado nativamente):** o popover de Trust permanecia aberto após **conceder** Trust e cobria parte da árvore/abas até um clique fora (mesma família do D-10, que só tratou o Revoke); a correção web está em `gates.spec.ts` e não foi reexecutada na janela Tauri.
 
-**Atualização 2026-10-31 (ponto/Trust).** A suspeita de defeito do Welcome "recent" foi **falso positivo**: um `NSOpenPanel` órfão, aberto por um Open anterior, bloqueava a webview (`docs/evidence/logs/native-welcome-recent-open-defect-2026-10-31.md`). A linha 2 (Trust, incluindo D-13 pós-grant e Revoke) passa a **provada nativamente** no .app de `7063510` (SHA-256 `34a87b38…684904`). Continua não verificado nativamente: Git, Settings/Keymap, Search Everywhere, run configurations, Problems, rename/code actions/find usages (1440×900 e 1100×700, M7a), testes, buffers sujos/conflitos.
+**Atualização 2026-10-31 (ponto/Trust).** A suspeita de defeito do Welcome "recent" foi **falso positivo**: um `NSOpenPanel` órfão, aberto por um Open anterior, bloqueava a webview (`docs/evidence/logs/native-welcome-recent-open-defect-2026-10-31.md`). A linha 2 (Trust) ganha sub-itens nativos (grant, D-13 pós-grant, Revoke) no .app de `7063510` (SHA-256 `34a87b38…684904`), mas segue **parcial**: o item também cobre processos remanescentes, não verificados. Continua não verificado nativamente: Git, Settings/Keymap, Search Everywhere, run configurations, Problems, rename/code actions/find usages (1440×900 e 1100×700, M7a), testes, buffers sujos/conflitos.
+
+### Denominador explícito (33 itens da seção 3)
+
+**Contagem: 1 provado / 13 parciais / 19 não verificados (total 33).** Critério: provado só quando o escopo do item inteiro foi observado no .app; sub-itens observados contam como parcial. O número antigo "14/33" somava parciais e provados (14 rótulos distintos da 3b), por isso não era prova.
+
+| # | Item (seção 3) | Status nativo | Evidência / lacuna |
+|---|---|---|---|
+| 1 | Welcome, recentes, abrir solução, ambiguidade | parcial | Open via NSOpenPanel provado (c7439ad, native-00–04); recentes e ambiguidade não exercidos nesta rodada |
+| 2 | Trust, Restricted, revogação, processos remanescentes | parcial | grant, D-13 pós-grant e Revoke provados (`7063510`, native-19/20); processos remanescentes não verificados |
+| 3 | SDK do projeto vs host, `global.json`, toolchain | parcial | barra de status Host/Project SDK (native-07); toolchain/`global.json` não exercidos |
+| 4 | Solution Explorer: árvore avaliada, TFM, detalhes, falha | parcial | árvore avaliada e TFM (native-07, native-19); falha de avaliação e detalhes não |
+| 5 | Editor: abrir, editar, salvar, conflito, fechar com buffer sujo | parcial | abrir e breakpoint (native-12/13); salvar, conflito e fechar sujo não |
+| 6 | Menu de contexto e ações do editor | não verificado | — |
+| 7 | csharp-ls: instalação, sessão, Problems, completion, definition | não verificado | nativo não exercido (existe prova web/CLI, não conta) |
+| 8 | Rename (prévia, cancelar inerte, aplicar a buffers) | não verificado | — |
+| 9 | Code actions (listar, prévia, invalidar) | não verificado | — |
+| 10 | Find Usages (painel, navegação) | não verificado | — |
+| 11 | Restore automático após Trust | provado | `Restore succeeded · exit 0` sem clique (native-08) |
+| 12 | Build (log cru, erro navegável, buffers sujos) | parcial | `Build succeeded · exit 0` por Run (native-10); erro navegável e buffers sujos não |
+| 13 | Run e janela Run (saída, exit, parar, um clique) | parcial | saída e exit 0 (native-09–11); parar não |
+| 14 | Debug (breakpoint, step, frames, locals, condicionais, exceções) | parcial | breakpoint, Paused, Resume (native-13–16); step, condicionais e exceções não |
+| 15 | Terminal xterm (prompt, Ctrl+C/D, tela cheia, resize) | parcial | prompt e `echo ok` (native-17/18); Ctrl+C/D, tela cheia e resize não |
+| 16 | Testes (descoberta VSTest, run, TRX, cancelar, MTP) | não verificado | — |
+| 17 | Git (commit, diff, log, branch, checkout/pull/push) | não verificado | — |
+| 18 | NuGet (instalados/desatualizados, sem pacotes, CPM) | parcial | aba NuGet com sem pacotes e fonte (native-07); desatualizados e CPM não |
+| 19 | Settings, Keymap, Find Action | não verificado | — |
+| 20 | Search Everywhere | não verificado | — |
+| 21 | Run configurations | não verificado | — |
+| 22 | Layout 1440×900 e 1100×700, tool windows, barra | não verificado | 1440×900 visto (native-19); 1100×700 não |
+| 23 | Plano de instalação de ferramentas | não verificado | — |
+| 24 | Estados desabilitados com razão visível | não verificado | — |
+| 24a | Problems (painel, severidade, origem, navegação) | não verificado | — |
+| 24b | Gutter Run/Test e Alt+Enter | não verificado | — |
+| 24c | Debug de teste desabilitado por decisão | não verificado | — |
+| 24d | Terminal automático com prompt | parcial | shell iniciado após Trust com prompt (native-17); parada/revoke do shell visto em native-20 |
+| 24e | Project details e Trust→SDK no drawer | parcial | barra de status SDK (native-07); drawer de project details não |
+| 25 | App local `.app` (gerar, instalar, atualizar) | parcial | geração e execução do bundle; instalar em /Applications e atualizar não |
+| 26 | Jornada P0 de aceitação | não verificado | — |
+| 27 | Fronteiras do host (Rust) | não verificado | nativo não aplicável; prova via cargo test, não conta aqui |
+| 28 | Gates de release (G-LEGAL, G-PKG, G-NATIVE) | não verificado | — |
 
 ## 4. Defeitos e limites novos desta rodada (D-01, D-02, D-03, D-04, D-05, D-09, D-10, D-11, D-12 e D-13 corrigidos; batch D12/D13 aprovado pela auditoria independente terminal — não é aceite global)
 
