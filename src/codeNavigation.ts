@@ -19,6 +19,9 @@ type FlatSymbol = {
   containerName: string;
   line: number;
   character: number;
+  /** Whole-symbol line span, used when the server gives no containerName (csharp-ls sends a flat list). */
+  startLine: number;
+  endLine: number;
 };
 
 /** Document symbols are nested; matching only needs the immediate parent name. */
@@ -32,6 +35,8 @@ export function flattenDocumentSymbols(symbols: DocumentSymbol[]): FlatSymbol[] 
         containerName: node.containerName,
         line: node.selectionRange.start.line,
         character: node.selectionRange.start.character,
+        startLine: node.range.start.line,
+        endLine: node.range.end.line,
       });
       walk(node.children);
     }
@@ -45,6 +50,12 @@ function simpleName(name: string) {
   return last.split("+").pop() ?? last;
 }
 
+/** csharp-ls names methods with their parameter list ("Id_is_preserved()"). */
+function bareName(name: string) {
+  const open = name.indexOf("(");
+  return open < 0 ? name : name.slice(0, open);
+}
+
 function methodSymbol(
   symbols: FlatSymbol[],
   className: string,
@@ -54,8 +65,16 @@ function methodSymbol(
   return symbols.find(
     (symbol) =>
       symbol.kind === 6 &&
-      symbol.name === method &&
-      simpleName(symbol.containerName) === kind,
+      bareName(symbol.name) === method &&
+      (symbol.containerName
+        ? simpleName(symbol.containerName) === kind
+        : symbols.some(
+            (owner) =>
+              owner.kind === 5 &&
+              owner.name === kind &&
+              owner.startLine <= symbol.line &&
+              symbol.line <= owner.endLine,
+          )),
   );
 }
 
@@ -83,7 +102,7 @@ export function gutterActionsFor({
   if (projectPath !== null && projectPath === startupProjectPath) {
     const mains = new Set(
       flat
-        .filter((symbol) => symbol.kind === 6 && symbol.name === "Main")
+        .filter((symbol) => symbol.kind === 6 && bareName(symbol.name) === "Main")
         .map((symbol) => symbol.line + 1),
     );
     if (mains.size === 1) runLine = [...mains][0];

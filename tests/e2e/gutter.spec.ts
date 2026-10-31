@@ -14,10 +14,6 @@ test.use({ viewport: { width: 1440, height: 900 } });
 test.setTimeout(240_000);
 
 test("the test gutter runs one test from the editor and reports its result", async ({ page }) => {
-  // D-11: csharp-ls 0.28 answers documentSymbol as a flat list with names like "Id_is_preserved()" and no
-  // containerName, so gutterActionsFor (codeNavigation.ts) never matches a discovered test and no gutter icon
-  // appears. Expected failure until the matching is fixed; when it is, remove test.fail() and this spec proves D-09.
-  test.fail();
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-gutter-"));
   const copy = path.join(base, "OrderDesk");
   fs.cpSync(fixture, copy, { recursive: true, filter: (s) => !/[\\/](bin|obj)([\\/]|$)/.test(s) });
@@ -57,7 +53,7 @@ test("the test gutter runs one test from the editor and reports its result", asy
     await gutters.first().click();
     await page.getByTestId("bottom-tab-tests").click();
     await expect(page.getByTestId("tests-run-state")).toContainText("Run completed", { timeout: 120_000 });
-    await expect(page.getByTestId("tests-run-counts")).toContainText("1 results · 1 passed");
+    await expect(page.getByTestId("tests-run-counts")).toContainText("1 result · 1 passed · 0 failed");
   } finally {
     await page.request.post(`${host}/call`, { data: { method: "lsp.stop", params: {} } }).catch(() => {});
     await page.request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => {});
