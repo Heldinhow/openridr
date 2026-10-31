@@ -1,4 +1,11 @@
-import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  request as playwrightRequest,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -139,6 +146,12 @@ async function cleanupD13Workspace(
     return { removed: false, retained: true, reason: `temp-copy removal failed: ${String(error)}` };
   }
   return { removed: true, retained: false, reason: null };
+}
+
+function reportRetention(reason: string, bodyFailed: boolean) {
+  const text = `D13 cleanup retained the copy: ${reason}`;
+  if (bodyFailed) console.error(text);
+  else throw new Error(text);
 }
 
 const hostCallPattern = "**/__host/call";
@@ -373,10 +386,7 @@ for (const viewport of trustViewports) {
       throw error;
     } finally {
       const cleanup = await cleanupD13Workspace(base, request, solution);
-      if (cleanup.retained) {
-        if (bodyFailed) console.error(`D13 cleanup retained ${base}: ${cleanup.reason}`);
-        else throw new Error(`D13 cleanup retained ${base}: ${cleanup.reason}`);
-      }
+      if (cleanup.retained) reportRetention(`${base}: ${cleanup.reason}`, bodyFailed);
     }
   });
 }
@@ -418,10 +428,7 @@ test("D-13 rejected grant keeps the popover open with an error and retry succeed
     throw error;
   } finally {
     const cleanup = await cleanupD13Workspace(base, request, solution);
-    if (cleanup.retained) {
-      if (bodyFailed) console.error(`D13 cleanup retained ${base}: ${cleanup.reason}`);
-      else throw new Error(`D13 cleanup retained ${base}: ${cleanup.reason}`);
-    }
+    if (cleanup.retained) reportRetention(`${base}: ${cleanup.reason}`, bodyFailed);
   }
 });
 
@@ -431,19 +438,31 @@ test("D-13 partial-open cleanup closes the test-owned workspace before removing 
 }) => {
   const { base, solution } = createRestrictedWorkspace();
   let originalError: Error | null = null;
+  let bodyFailed = false;
+  let cleanup: CleanupResult | null = null;
   try {
     await openWorkspaceCandidate(page, solution);
     expect(sameWorkspacePath(await activeWorkspacePath(request), solution)).toBe(true);
     // The real host opened the workspace, then the helper fails before open-text-only completes.
     throw new Error("controlled partial-open failure");
   } catch (error) {
+    bodyFailed = true;
     originalError = error as Error;
   }
-  const cleanup = await cleanupD13Workspace(base, request, solution);
-  expect(originalError?.message).toBe("controlled partial-open failure");
-  expect(cleanup).toEqual({ removed: true, retained: false, reason: null });
-  expect(await activeWorkspacePath(request)).toBeNull();
-  expect(fs.existsSync(base)).toBe(false);
+  try {
+    cleanup = await cleanupD13Workspace(base, request, solution);
+    expect(originalError?.message).toBe("controlled partial-open failure");
+    expect(cleanup).toEqual({ removed: true, retained: false, reason: null });
+    expect(await activeWorkspacePath(request)).toBeNull();
+    expect(fs.existsSync(base)).toBe(false);
+  } finally {
+    if (cleanup?.retained) {
+      const recovery = await cleanupD13Workspace(base, request, solution);
+      if (recovery.retained) {
+        reportRetention(`partial-open recovery retained ${base}: ${recovery.reason}`, bodyFailed);
+      }
+    }
+  }
 });
 
 test("D-13 cleanup retains the target copy when another test workspace is active", async ({
@@ -452,6 +471,7 @@ test("D-13 cleanup retains the target copy when another test workspace is active
 }) => {
   const target = createRestrictedWorkspace();
   const foreign = createRestrictedWorkspace();
+  let bodyFailed = false;
   try {
     await openWorkspaceCandidate(page, foreign.solution);
     expect(sameWorkspacePath(await activeWorkspacePath(request), foreign.solution)).toBe(true);
@@ -462,15 +482,78 @@ test("D-13 cleanup retains the target copy when another test workspace is active
     expect(fs.existsSync(path.join(target.base, "OrderDesk", "OrderDesk.sln"))).toBe(true);
     expect(fs.existsSync(foreign.base)).toBe(true);
     expect(sameWorkspacePath(await activeWorkspacePath(request), foreign.solution)).toBe(true);
+  } catch (error) {
+    bodyFailed = true;
+    throw error;
   } finally {
-    const active = await activeWorkspacePath(request).catch(() => null);
-    if (sameWorkspacePath(active, foreign.solution)) {
-      await closeOwnedWorkspace(request);
+    let reason: string | null = null;
+    let active: string | null;
+    try {
+      active = await activeWorkspacePath(request);
+    } catch (error) {
+      active = null;
+      reason = `retained cleanup snapshot unconfirmed: ${String(error)}`;
     }
-    const after = await activeWorkspacePath(request).catch(() => null);
-    if (after === null) {
+    if (reason === null && active !== null) {
+      if (!sameWorkspacePath(active, foreign.solution)) {
+        reason = `retained cleanup found unexpected active workspace ${active}`;
+      } else {
+        try {
+          await closeOwnedWorkspace(request);
+        } catch (error) {
+          reason = `retained cleanup could not close the foreign sentinel: ${String(error)}`;
+        }
+        if (reason === null) {
+          let after: string | null;
+          try {
+            after = await activeWorkspacePath(request);
+          } catch (error) {
+            after = active;
+            reason = `retained cleanup post-close state unconfirmed: ${String(error)}`;
+          }
+          if (reason === null && after !== null) {
+            reason = `retained cleanup saw ${after} still active after close`;
+          }
+        }
+      }
+    }
+    if (reason !== null) {
+      reportRetention(reason, bodyFailed);
+    } else {
       fs.rmSync(target.base, { recursive: true, force: true });
       fs.rmSync(foreign.base, { recursive: true, force: true });
+    }
+  }
+});
+
+test("D-13 cleanup retains the copy when workspace state is unavailable", async ({
+  page,
+  request,
+}) => {
+  const { base, solution } = createRestrictedWorkspace();
+  let bodyFailed = false;
+  try {
+    await openWorkspaceCandidate(page, solution);
+    expect(sameWorkspacePath(await activeWorkspacePath(request), solution)).toBe(true);
+    const unavailable = await playwrightRequest.newContext();
+    await unavailable.dispose();
+    const retained = await cleanupD13Workspace(base, unavailable, solution);
+    expect(retained.retained).toBe(true);
+    expect(retained.reason).toContain("workspace state unconfirmed");
+    expect(fs.existsSync(base)).toBe(true);
+    expect(sameWorkspacePath(await activeWorkspacePath(request), solution)).toBe(true);
+
+    const recovered = await cleanupD13Workspace(base, request, solution);
+    expect(recovered).toEqual({ removed: true, retained: false, reason: null });
+    expect(await activeWorkspacePath(request)).toBeNull();
+    expect(fs.existsSync(base)).toBe(false);
+  } catch (error) {
+    bodyFailed = true;
+    throw error;
+  } finally {
+    const recovery = await cleanupD13Workspace(base, request, solution);
+    if (recovery.retained) {
+      reportRetention(`snapshot-unavailable recovery retained ${base}: ${recovery.reason}`, bodyFailed);
     }
   }
 });
