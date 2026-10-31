@@ -1197,7 +1197,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 
 /* Compact, never hidden: safety/truncation text stays; only spacing and size give way. */
 .editor-popup h2 { margin: 0 0 2px; font-size: 0.85rem; }
-.editor-popup p { margin: 1px 0; font-size: 0.72rem; line-height: 1.25; }
+.editor-popup p { margin: 1px 0; font-size: 0.75rem; line-height: 1.25; }
 
 /* While a preview is docked, the role=status line shrinks to one line (full text in its title). */
 .editor-pane:has(.editor-popup) .editor-lsp-status {

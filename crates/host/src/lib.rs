@@ -6511,11 +6511,19 @@ mod tests {
         };
         let (items, truncated) = workspace_symbol_items(&list, &root);
         assert_eq!(items.len(), 1);
-        assert!(!truncated, "a filtered outside symbol is not a host truncation");
-        let capped = lsp::WorkspaceSymbolList { truncated: true, ..list };
-        assert!(workspace_symbol_items(&capped, &root).1, "real truncation is kept");
+        assert!(
+            !truncated,
+            "a filtered outside symbol is not a host truncation"
+        );
+        let capped = lsp::WorkspaceSymbolList {
+            truncated: true,
+            ..list
+        };
+        assert!(
+            workspace_symbol_items(&capped, &root).1,
+            "real truncation is kept"
+        );
     }
-
 
     fn target(path: &Path) -> lsp::DefinitionTarget {
         lsp::DefinitionTarget {
