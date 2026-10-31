@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 // Interrupting the automatic restore: Cancel restore while it runs, and Revoke trust while it runs.
 // A Directory.Build.targets in the temp copy makes `dotnet restore` wait (a `sleep` before NuGet's
@@ -14,7 +15,8 @@ const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 test.use({ viewport: { width: 1440, height: 900 } });
 test.setTimeout(120_000);
 
-type DelayProcess = { pid: number; pgid: number; started: string };
+type ProcessSnapshot = { pid: number; started: string; command: string };
+type DelayProcess = ProcessSnapshot & { token: string };
 
 /** Quote a path for /bin/sh without relying on the working directory. */
 function shellQuote(value: string) {
@@ -29,16 +31,21 @@ function xmlAttribute(value: string) {
     .replace(/>/g, "&gt;");
 }
 
-/** Snapshot of a PID; the start time distinguishes it from a later process that reuses the PID. */
-function processSnapshot(pid: number): DelayProcess | null {
-  const result = spawnSync("ps", ["-p", String(pid), "-o", "pgid=,lstart="], {
+/** ps emits a double space for single-digit days; both reader and snapshot must collapse it. */
+function normalizeSpaces(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+/** Snapshot of a PID; start time plus the per-run token in argv identify the delayed leaf. */
+function processSnapshot(pid: number): ProcessSnapshot | null {
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "lstart=,command="], {
     encoding: "utf8",
   });
   if (result.status !== 0) return null;
-  const [pgidText, ...startedParts] = result.stdout.trim().split(/\s+/);
-  const pgid = Number(pgidText);
-  const started = startedParts.join(" ").trim();
-  return Number.isInteger(pgid) && started ? { pid, pgid, started } : null;
+  const parts = result.stdout.trim().split(/\s+/);
+  const started = normalizeSpaces(parts.slice(0, 5).join(" "));
+  const command = parts.slice(5).join(" ");
+  return started && command ? { pid, started, command } : null;
 }
 
 /** Records written by the delay script itself; no command-line matching is involved. */
@@ -47,15 +54,15 @@ function readOwnedProcesses(pidDir: string): DelayProcess[] {
   const records: DelayProcess[] = [];
   for (const name of fs.readdirSync(pidDir)) {
     try {
-      const [pidText, pgidText, ...startedParts] = fs
+      const [pidText, startedText, token] = fs
         .readFileSync(path.join(pidDir, name), "utf8")
         .trim()
         .split("|");
       const pid = Number(pidText);
-      const pgid = Number(pgidText);
-      const started = startedParts.join("|").trim();
-      if (Number.isInteger(pid) && pid > 0 && Number.isInteger(pgid) && started) {
-        records.push({ pid, pgid, started });
+      const started = normalizeSpaces(startedText ?? "");
+      const normalizedToken = (token ?? "").trim();
+      if (Number.isInteger(pid) && pid > 0 && started && normalizedToken) {
+        records.push({ pid, started, token: normalizedToken, command: "" });
       }
     } catch {
       // The delay script was still writing this record; the next poll reads it whole.
@@ -66,22 +73,20 @@ function readOwnedProcesses(pidDir: string): DelayProcess[] {
 
 function ownedAlive(record: DelayProcess) {
   const current = processSnapshot(record.pid);
-  return current !== null && current.started === record.started;
+  return (
+    current !== null &&
+    current.started === record.started &&
+    current.command.includes(record.token)
+  );
 }
 
-/** Kill only PIDs whose recorded start time still matches; a reused or foreign PID is never touched. */
+/**
+ * PID-only cleanup for the leaf delay. Signalling an unrecorded process group would claim ownership of
+ * siblings that were never observed; the host still interrupts the restore's own group.
+ */
 function stopOwnedProcesses(pidDir: string) {
-  const ownGroup = processSnapshot(process.pid)?.pgid;
   for (const record of readOwnedProcesses(pidDir)) {
-    const current = processSnapshot(record.pid);
-    if (!current || current.started !== record.started) continue;
-    if (current.pgid === record.pgid && current.pgid > 1 && current.pgid !== ownGroup) {
-      try {
-        process.kill(-current.pgid, "SIGKILL");
-      } catch {
-        // The group already exited.
-      }
-    }
+    if (!ownedAlive(record)) continue;
     try {
       process.kill(record.pid, "SIGKILL");
     } catch {
@@ -90,21 +95,58 @@ function stopOwnedProcesses(pidDir: string) {
   }
 }
 
+function sleepBinary() {
+  const result = spawnSync("sh", ["-c", "command -v sleep"], { encoding: "utf8" });
+  const value = result.stdout.trim();
+  if (result.status !== 0 || !value) throw new Error("sleep executable not found");
+  return value;
+}
+
+/** A unique sleep path keeps the per-run token observable in argv after exec. */
+function createDelayBinary(base: string, token: string) {
+  const link = path.join(base, `sleep-${token}`);
+  fs.symlinkSync(sleepBinary(), link);
+  return link;
+}
+
+function writeOwnedRecord(pidDir: string, snapshot: ProcessSnapshot, token: string) {
+  fs.writeFileSync(
+    path.join(pidDir, String(snapshot.pid)),
+    `${snapshot.pid}|${snapshot.started}|${token}\n`,
+  );
+}
+
+async function stopTestChild(child: ChildProcess, expected: ProcessSnapshot | null) {
+  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
+  const current = processSnapshot(child.pid);
+  if (
+    !current ||
+    (expected !== null &&
+      (current.started !== expected.started || current.command !== expected.command))
+  ) {
+    return;
+  }
+  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  child.kill("SIGKILL");
+  await closed;
+}
+
 function tempCopy(name: string) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-restore-int-"));
   const copy = path.join(base, name);
   const pidDir = path.join(base, "restore-delay-pids");
   fs.mkdirSync(pidDir);
   fs.cpSync(fixture, copy, { recursive: true, filter: (s) => !/[\\/](bin|obj)([\\/]|$)/.test(s) });
+  const token = randomUUID();
+  const delayBinary = createDelayBinary(base, token);
   const delayScript = path.join(copy, "restore-delay.sh");
   fs.writeFileSync(
     delayScript,
     [
       "#!/bin/sh",
-      `pgid=$(ps -o pgid= -p "$$" | tr -d ' ')`,
       `started=$(ps -o lstart= -p "$$" | sed 's/^ *//;s/ *$//' )`,
-      `printf '%s|%s|%s\\n' "$$" "$pgid" "$started" > ${shellQuote(pidDir)}/$$`,
-      "exec sleep 4040",
+      `printf '%s|%s|%s\\n' "$$" "$started" ${shellQuote(token)} > ${shellQuote(pidDir)}/$$`,
+      `exec ${shellQuote(delayBinary)} 4040`,
       "",
     ].join("\n"),
   );
@@ -182,24 +224,64 @@ test("Revoke trust during the automatic restore stops it and nothing evaluates a
   }
 });
 
-test("ownership cleanup leaves a foreign sleep 4040 untouched", async () => {
+test("ownership cleanup stops only the recorded delay and leaves a simultaneous foreign sleep untouched", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-owned-"));
+  const pidDir = path.join(base, "pids");
+  fs.mkdirSync(pidDir);
+  const token = randomUUID();
+  const owned = spawn(createDelayBinary(base, token), ["4040"], { stdio: "ignore" });
+  const foreign = spawn("sleep", ["4040"], { stdio: "ignore" });
+  const ownedSnapshot = owned.pid === undefined ? null : processSnapshot(owned.pid);
+  const foreignSnapshot = foreign.pid === undefined ? null : processSnapshot(foreign.pid);
+  try {
+    expect(ownedSnapshot).not.toBeNull();
+    expect(foreignSnapshot).not.toBeNull();
+    writeOwnedRecord(pidDir, ownedSnapshot!, token);
+    stopOwnedProcesses(pidDir);
+    await expect
+      .poll(() => !ownedAlive({ ...ownedSnapshot!, token }), { timeout: 10_000 })
+      .toBe(true);
+    expect(foreign.pid === undefined ? null : processSnapshot(foreign.pid)).toEqual(foreignSnapshot);
+  } finally {
+    await stopTestChild(owned, ownedSnapshot);
+    await stopTestChild(foreign, foreignSnapshot);
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("ownership cleanup ignores malformed and mismatched records", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-owned-"));
   const pidDir = path.join(base, "pids");
   fs.mkdirSync(pidDir);
   const sentinel = spawn("sleep", ["4040"], { stdio: "ignore" });
+  const snapshot = sentinel.pid === undefined ? null : processSnapshot(sentinel.pid);
   try {
-    const before = sentinel.pid === undefined ? null : processSnapshot(sentinel.pid);
-    expect(before).not.toBeNull();
+    expect(snapshot).not.toBeNull();
+    fs.writeFileSync(path.join(pidDir, "malformed"), "not-a-record\n");
+    fs.writeFileSync(
+      path.join(pidDir, "mismatched"),
+      `${snapshot!.pid}|${snapshot!.started}|wrong-token\n`,
+    );
     stopOwnedProcesses(pidDir);
-    expect(sentinel.pid === undefined ? null : processSnapshot(sentinel.pid)).toEqual(before);
+    expect(sentinel.pid === undefined ? null : processSnapshot(sentinel.pid)).toEqual(snapshot);
   } finally {
-    if (sentinel.pid !== undefined) {
-      try {
-        process.kill(sentinel.pid, "SIGKILL");
-      } catch {
-        // The sentinel already exited.
-      }
-    }
+    await stopTestChild(sentinel, snapshot);
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("empty ownership records leave a foreign sleep 4040 untouched", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-owned-"));
+  const pidDir = path.join(base, "pids");
+  fs.mkdirSync(pidDir);
+  const sentinel = spawn("sleep", ["4040"], { stdio: "ignore" });
+  const snapshot = sentinel.pid === undefined ? null : processSnapshot(sentinel.pid);
+  try {
+    expect(snapshot).not.toBeNull();
+    stopOwnedProcesses(pidDir);
+    expect(sentinel.pid === undefined ? null : processSnapshot(sentinel.pid)).toEqual(snapshot);
+  } finally {
+    await stopTestChild(sentinel, snapshot);
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
