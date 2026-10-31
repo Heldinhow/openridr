@@ -71,3 +71,44 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 - Hook: **check standalone verificado; hook histórico não comprovado**. O `.githooks/pre-commit` versionado é 100755, mas o `core.hooksPath` histórico aponta para o root sem `pre-commit`; este followup usa `git -c core.hooksPath=.githooks` e trace em `/tmp/openridr-d13-final-review/hook-trace.jsonl`.
 - **Auditoria independente terminal: APROVADO** (Standards e Spec, 0 findings) no intervalo fixo `6de4bea..1c2eb25`, por leitura + evidência registrada, sem novas suítes; P2 partial-open/unknown-state e hook contemporâneo fechados em `1c2eb25`. Isto fecha o **batch D12/D13**; D12 permanece aprovado desde `7d5b62e`. Receipts em `/tmp/openridr-review-1c2eb25-v2qjn/`. Não é aceite global.
 - Limites: cleanup aceito só no host E2E exclusivo/serial, 1 worker, sem outro ator; snapshot->close não é transação/atomic ownership. Erro injetado é boundary de UI, não falha real de host/rede; nativo/Windows/Intel/full suite não verificados. M7/overlay permanece não resolvido.
+
+## 2026-10-31 — M7a + prova nativa
+
+### O que funcionou
+- **Isolamento do app de prova:** `OPENRIDR_HOME` apontando para um home descartável, cópia da fixture em repo git próprio e um remote bare local. Nada tocou o projeto real, o app pessoal ou o estado de trust do usuário.
+- **Denominador fixo e regra estrita:** 33 itens numerados, com "provado" só quando o escopo inteiro do item foi observado no `.app`. Sub-itens observados contam como parcial.
+- **Evidência atribuída por SHA de binário:** cada captura diz qual SHA prova o quê (`34a87b38`, `35038ee6`, `810e70a8`, `4943eba3`). Um delta de CSS não reabre provas anteriores; só é declarado.
+- **Rebaixamento honesto:** o item 11 foi rebaixado de provado para parcial quando o escopo se mostrou maior que o sinal (`Restore succeeded`). A manchete caiu de 1/22 para 0/23 sem drama.
+- **Dois canais de interação:** AX/agent-desktop com refs qualificadas para ações semânticas, e teclado para o que a webview não expõe.
+
+### O que doeu
+- **Falso positivo do Welcome (NSOpenPanel órfão):** um painel modal de `openAndSavePanelService` deixado por um Open anterior bloqueava a webview. `screencapture -l <winid>` não mostra painel, então parecia clique que não funcionava. Ficou como defeito aberto por um ciclo inteiro de sessão.
+- **Captura de tela inteira só para diagnóstico:** é a única forma de enxergar painéis fora da janela, mas mostra o desktop inteiro. Quem fez a captura precisa cortar antes de publicar.
+- **Popup de branches com refs de outra cópia (r4):** não reproduzido depois (r5). Causa não confirmada; a hipótese mais provável é captura de outra janela do mesmo bundle id. Ficou registrado como não-defeito com evidência, não como encerrado.
+- **Duas leituras erradas na contagem:** a narrativa "14/33" somava parciais e provados. Reconciliar a matriz custou três rodadas de revisão.
+- **Privacidade descoberta tarde:** prompt zsh com usuário/host apareceu em capturas que passaram por revisão de conteúdo visível. OCR achou depois. Havia 96 PNGs rastreados com identificadores, dos quais a maioria é anterior à sessão.
+- **E2E de 1100×700 cego ao corte:** o teste de layout não abria o painel Problems, então o corte do preview só apareceu depois da prova nativa.
+- **Consumo de contexto por imagens:** cada captura reduzida custa muito. Sem limite de uma imagem por verificação, a sessão esgotou contexto várias vezes.
+- **Acerto de coordenadas:** clique por coordenada de ponto errou com frequência (escala 2×, janela sem foco, faixas que mudam de altura com Problems aberto).
+
+### Ações de melhoria (pit of success)
+1. **Cenário e2e com tool window aberta:** o teste de layout 1100×700 deve abrir o painel Problems e verificar que o preview de rename, de code actions e de Find Usages continua com Apply/Cancel e 1ª linha visíveis. Hoje isso só é checado no `.app`.
+2. **Gate de OCR antes de commitar evidência:** um script que roda tesseract sobre PNGs novos e recusa commit se achar `usuário@host`, `/Users/`, `/private/var/folders` ou o nome de autor git. Ficaria no mesmo lugar dos outros hooks.
+3. **Remover prompts do terminal nas capturas por construção:** o recorte deve começar abaixo da linha do prompt, não depender de OCR depois.
+4. **Descarte de buffers de teste automatizado:** o fluxo "fechar com buffer sujo" deveria ter um atalho de sessão de teste que descarta sem diálogo, para não precisar de clique de coordenada.
+5. **Registrar SHA por evidência desde o primeiro commit:** a regra de atribuição funcionou, mas a primeira versão do log não tinha SHA. Modelo: `SHA + PID + janela + comando` no cabeçalho de cada log.
+6. **Limite de imagens por verificação:** uma captura por item, reduzida, com OCR no mesmo passo. Captura de diagnóstico fica fora do repo.
+
+### Privacidade e política de push (pendente, decisão do Helder)
+- **96 PNGs rastreados com achados de OCR** (categorias: prompt com host, `/Users/<nome>`, `/private/var/folders`, nome de autor). A lista completa, com commit introdutor de cada arquivo, está em `docs/evidence/logs/privacy-redaction-2026-10-31.md`. Nenhuma imagem pré-existente foi alterada.
+- **Histórico local contém blobs com host e usuário** (ex.: native-19 em `b2f7d78`, native-20 em `8b223c6`). **Não publicar o branch sem filtrar esses blobs** (`git filter-repo` ou reescrita controlada) ou publicar só uma cópia limpa. A escolha é do Helder; nada foi executado.
+
+### Agent-desktop e AX
+- **Destravou:** fechar aba suja (diálogo "Close modified file?" → "Discard and close") e as ações de rename, code actions e Find Usages por refs qualificadas, sem coordenadas.
+- **Não destravou:** completion. `press ctrl+space` foi entregue sem popup, e `type` no editor retornou `ACTION_FAILED` com o buffer inalterado. A webview do editor não expõe ref de texto nem caret.
+- **Regra adotada:** ação só com ref vigente, retry só com `disposition.retry: safe`, leitura de estado depois de toda ação `delivered_unverified`.
+
+### Lacunas e limites
+- **M7b (campo inline sobre a palavra com range)** continua aberto; não implementado.
+- **Itens sem prova nativa completa:** 2 (Revoke com Run ativo), 5 (salvar e fechar aba com Keep editing), 7 (completion), 8 (rename 1440 no SHA final), 9 (invalidação antes de escrever), 12 (erro navegável), 16 (Rerun failed, cancelar, TRX, MTP), 21 (Environment vazio, `.env` válido, troca de Configuration/TFM).
+- **Windows e macOS Intel não foram executados.**
