@@ -135,5 +135,41 @@ export function useEvaluationFlow(c: EvaluationFlowInput) {
     autoEvaluatedAfterRestore.current = restore.revision;
     void runEvaluation();
   }, [trusted, restore.state, restore.revision]);
-  return { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore };
+
+  async function selectRunConfig(id: string) {
+    try {
+      const store = await commitRunConfigs(runConfigStore?.configs ?? [], id);
+      setMessage(null);
+      const selected = store.configs.find((config) => config.id === id);
+      if (
+        selected &&
+        (selected.configuration !== evaluation.context.configuration ||
+          (selected.targetFramework ?? null) !==
+            (evaluation.context.targetFramework ?? null))
+      ) {
+        await evaluateContext(selected.configuration, selected.targetFramework ?? null);
+      }
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: `The run configuration could not be selected: ${messageOf(error)}`,
+      });
+    }
+  }
+
+  async function commitRunConfigDialog(configs: RunConfig[], activeId: string) {
+    const store = await commitRunConfigs(configs, activeId);
+    const selected = store.configs.find((config) => config.id === activeId);
+    if (
+      selected &&
+      (selected.configuration !== evaluation.context.configuration ||
+        (selected.targetFramework ?? null) !==
+          (evaluation.context.targetFramework ?? null))
+    ) {
+      await evaluateContext(selected.configuration, selected.targetFramework ?? null);
+    }
+    return store.issues;
+  }
+
+  return { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore, selectRunConfig, commitRunConfigDialog };
 }

@@ -10,7 +10,6 @@ import {
   type ReferencesResponse,
   type RenameResponse,
   type RunConfig,
-  type RunConfigStore,
   type Snapshot,
   type OutlineProject,
 } from "./host/client";
@@ -75,6 +74,7 @@ import {
   type GateContext,
 } from "./executionGates";
 import { useEvaluationFlow } from "./useEvaluationFlow";
+import { useRunConfigs } from "./useRunConfigs";
 import {
   chordPrefixFor,
   chordTarget,
@@ -464,8 +464,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const diskEpoch = useRef(new Map<string, number>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
-  const [runConfigStore, setRunConfigStore] = useState<RunConfigStore | null>(null);
-  const [runConfigsLoaded, setRunConfigsLoaded] = useState(false);
+  const { runConfigStore, runConfigsLoaded, commitRunConfigs } = useRunConfigs({ workspacePath: workspace.path, setMessage });
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [trustBannerDismissed, setTrustBannerDismissed] = useState(false);
@@ -635,7 +634,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     runConfigStore && runConfigStore.activeId !== DEFAULT_RUN_CONFIG_ID
       ? runConfigStore.configs.find((config) => config.id === runConfigStore.activeId) ?? null
       : null;
-  const { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore } = useEvaluationFlow({
+  const { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore, selectRunConfig, commitRunConfigDialog } = useEvaluationFlow({
     snapshot, trusted, restoreAvailable, evaluationAvailable, runConfigsLoaded, activeNamedConfig, runConfigStore,
     commitRunConfigs, onSnapshot, setMessage,
   });
@@ -2017,76 +2016,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  useEffect(() => {
-    let alive = true;
-    call<RunConfigStore>("runConfigs.read", { solution: workspace.path })
-      .then((store) => {
-        if (alive) setRunConfigStore(store);
-      })
-      .catch((error) => {
-        if (alive) {
-          setMessage({
-            tone: "error",
-            text: `Run configurations could not be read: ${messageOf(error)}`,
-          });
-        }
-      })
-      .finally(() => {
-        if (alive) setRunConfigsLoaded(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [workspace.path]);
-
-  async function commitRunConfigs(configs: RunConfig[], activeId: string) {
-    const store = await call<RunConfigStore>("runConfigs.write", {
-      solution: workspace.path,
-      activeId,
-      configs,
-    });
-    setRunConfigStore(store);
-    return store;
-  }
-
   function openRunConfigDialog(id?: string) {
     setRunConfigInitialId(id ?? activeRunConfig?.id ?? DEFAULT_RUN_CONFIG_ID);
     setRunConfigOpen(true);
-  }
-
-  async function selectRunConfig(id: string) {
-    try {
-      const store = await commitRunConfigs(runConfigStore?.configs ?? [], id);
-      setMessage(null);
-      const selected = store.configs.find((config) => config.id === id);
-      if (
-        selected &&
-        (selected.configuration !== evaluation.context.configuration ||
-          (selected.targetFramework ?? null) !==
-            (evaluation.context.targetFramework ?? null))
-      ) {
-        await evaluateContext(selected.configuration, selected.targetFramework ?? null);
-      }
-    } catch (error) {
-      setMessage({
-        tone: "error",
-        text: `The run configuration could not be selected: ${messageOf(error)}`,
-      });
-    }
-  }
-
-  async function commitRunConfigDialog(configs: RunConfig[], activeId: string) {
-    const store = await commitRunConfigs(configs, activeId);
-    const selected = store.configs.find((config) => config.id === activeId);
-    if (
-      selected &&
-      (selected.configuration !== evaluation.context.configuration ||
-        (selected.targetFramework ?? null) !==
-          (evaluation.context.targetFramework ?? null))
-    ) {
-      await evaluateContext(selected.configuration, selected.targetFramework ?? null);
-    }
-    return store.issues;
   }
 
   function setStartupProject(path: string) {
