@@ -584,6 +584,7 @@ export type DapBreakpoint = {
   line: number;
   verified: boolean;
   message: string | null;
+  condition: string | null;
 };
 
 export type DapThread = { id: number; name: string };
@@ -612,6 +613,24 @@ export type DapScope = {
 
 export type DapLocals = { frameId: number; scopes: DapScope[] };
 
+/** Result of an expression evaluated in the current pause. */
+export type DapEvaluation = {
+  expression: string;
+  value: string | null;
+  typeName: string | null;
+  variablesReference: number;
+  error: string | null;
+};
+
+export type DapWatch = { expression: string; result: DapEvaluation | null };
+
+/** Children of one expanded variable, valid only for the pause that produced them. */
+export type DapChildren = {
+  variablesReference: number;
+  variables: DapVariable[];
+  error: string | null;
+};
+
 /** One real DAP session. `exitKnown:false` means the adapter never reported an exit code. */
 export type Dap = {
   state: "idle" | "preparing" | "running" | "paused" | "terminated" | "cancelled" | "failed";
@@ -637,12 +656,22 @@ export type Dap = {
     exit: number | null;
     killedAfterGrace: boolean;
   };
+  /** Boolean `supports*` flags from the adapter `initialize` answer. */
+  adapterCapabilities: Record<string, boolean>;
   threads: DapThread[];
   frames: DapFrame[];
   selectedFrameId: number | null;
   locals: DapLocals | null;
+  children: DapChildren[];
+  evaluation: DapEvaluation | null;
+  watches: DapWatch[];
+  stopGeneration: number;
+  selectedThreadId: number | null;
   stopped: null | { reason: string; threadId: number | null; allThreadsStopped: boolean };
   breakpoints: DapBreakpoint[];
+  breakpointsMuted: boolean;
+  exceptionFilters: string[];
+  adapterExceptionFilters: string[];
   terminals: {
     processId: number;
     pid: number;
@@ -669,6 +698,9 @@ export type LspCapabilities = {
   rename: boolean;
   prepareRename: boolean;
   codeActions: boolean;
+  workspaceSymbol: boolean;
+  references: boolean;
+  documentSymbol: boolean;
   pushDiagnostics: boolean;
   pullDiagnostics: boolean;
   semanticTokens: boolean;
@@ -731,6 +763,44 @@ export type Diagnostics = {
 };
 
 export type LspPosition = { line: number; character: number };
+
+export type WorkspaceFiles = {
+  files: string[];
+  returned: number;
+  total: number;
+  truncated: boolean;
+};
+
+export type TextMatch = { line: number; character: number; text: string };
+export type TextFileResult = { path: string; matches: TextMatch[] };
+
+export type TextSearch = {
+  query: string;
+  caseSensitive: boolean;
+  files: TextFileResult[];
+  fileCount: number;
+  matchCount: number;
+  truncated: boolean;
+};
+
+export type WorkspaceSymbol = {
+  name: string;
+  kind: number;
+  containerName: string;
+  uri: string;
+  path: string;
+  range: LspRange;
+};
+
+export type WorkspaceSymbolResult = {
+  state: "ok" | "analysis_not_ready" | "unsupported" | "stale" | "failed";
+  message: string | null;
+  missingAction: string | null;
+  session: number;
+  items: WorkspaceSymbol[];
+  total: number;
+  truncated: boolean;
+};
 
 export type LspRange = { start: LspPosition; end: LspPosition };
 
@@ -821,10 +891,42 @@ export type CodeActionsResponse = AnalysisResponse & {
   diagnosticsUsed: number;
 };
 
-/** Shared answer for `lsp.completion`, `lsp.definition`, `lsp.rename` and `lsp.codeActions`.
- * Unavailable/unsupported answers are data with empty lists, never fabricated items. */
+export type DocumentSymbol = {
+  name: string;
+  kind: number;
+  containerName: string;
+  range: LspRange;
+  selectionRange: LspRange;
+  children: DocumentSymbol[];
+};
+
+export type DocumentSymbolResponse = AnalysisResponse & {
+  method: "lsp.documentSymbol";
+  symbols: DocumentSymbol[];
+  symbolCount: number;
+  totalSymbols: number;
+  rejectedSymbols: number;
+};
+
+export type ReferencesResponse = AnalysisResponse & {
+  method: "lsp.references";
+  references: DefinitionLocation[];
+  referenceCount: number;
+  totalReferences: number;
+  rejectedReferences: number;
+};
+
+/** Shared answer for `lsp.completion`, `lsp.definition`, `lsp.rename`, `lsp.codeActions`,
+ * `lsp.references` and `lsp.documentSymbol`. Unavailable/unsupported answers are data with
+ * empty lists, never fabricated items. */
 export type AnalysisResponse = {
-  method: "lsp.completion" | "lsp.definition" | "lsp.rename" | "lsp.codeActions";
+  method:
+    | "lsp.completion"
+    | "lsp.definition"
+    | "lsp.rename"
+    | "lsp.codeActions"
+    | "lsp.references"
+    | "lsp.documentSymbol";
   state: "ok" | "unsupported" | "unavailable" | "stale" | "timeout" | "failed";
   message: string | null;
   session: number;
@@ -894,6 +996,33 @@ export type Lsp = {
   stoppedReason: string | null;
   workspaceId: number | null;
   contextId: number | null;
+};
+
+export type RunConfig = {
+  id: string;
+  name: string;
+  project: string;
+  configuration: string;
+  targetFramework: string | null;
+  args: string[];
+  workingDirectory: string;
+  env: Record<string, string>;
+  envFiles: string[];
+};
+
+export type RunConfigIssue = {
+  configId: string;
+  field: string;
+  reason: string;
+  message: string;
+};
+
+export type RunConfigStore = {
+  solution: string;
+  path: string;
+  activeId: string;
+  configs: RunConfig[];
+  issues: RunConfigIssue[];
 };
 
 export type Snapshot = {
@@ -973,6 +1102,11 @@ declare global {
 }
 
 const hostUrl = import.meta.env.VITE_HOST_URL ?? "http://127.0.0.1:4317";
+
+/** The message to show for a rejected host call or any other thrown value. */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export async function call<T>(method: string, params: unknown = {}): Promise<T> {
   if (window.__TAURI_INTERNALS__) {

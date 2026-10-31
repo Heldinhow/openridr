@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
+import { indentWithTab } from "@codemirror/commands";
 import { EditorState, type Text } from "@codemirror/state";
-import { EditorView, GutterMarker, gutter, keymap } from "@codemirror/view";
+import { Decoration, EditorView, GutterMarker, WidgetType, gutter, keymap } from "@codemirror/view";
 import { Compartment, RangeSet } from "@codemirror/state";
-import { HighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
+import type { EditorSettings } from "./actions/keymap";
 import {
   autocompletion,
   insertCompletionText,
@@ -16,29 +18,27 @@ import {
 } from "@codemirror/autocomplete";
 import {
   call,
-  HostCallError,
+  messageOf,
   type AnalysisResponse,
   type DefinitionLocation,
 } from "./host/client";
+import type { GutterAction } from "./codeNavigation";
 
 const theme = EditorView.theme(
   {
     "&": { height: "100%", backgroundColor: "var(--bg)", color: "var(--fg)" },
     ".cm-scroller": {
-      fontFamily: "var(--mono)",
-      fontSize: "13px",
       lineHeight: "1.65",
-    },
-    ".cm-content": { caretColor: "var(--accent)" },
+    },    ".cm-content": { caretColor: "var(--accent)" },
     ".cm-gutters": {
-      backgroundColor: "var(--panel)",
-      color: "var(--muted)",
-      borderRight: "1px solid var(--line)",
+      backgroundColor: "var(--bg)",
+      color: "#6f737a",
+      border: "0",
     },
-    ".cm-activeLine": { backgroundColor: "#171b21" },
-    ".cm-activeLineGutter": { backgroundColor: "#1b2027" },
+    ".cm-activeLine": { backgroundColor: "#26282c" },
+    ".cm-activeLineGutter": { backgroundColor: "#26282c" },
     "&.cm-focused": { outline: "none" },
-    ".cm-selectionBackground, ::selection": { backgroundColor: "#33404f !important" },
+    ".cm-selectionBackground, ::selection": { backgroundColor: "#214283 !important" },
     ".cm-cursor": { borderLeftColor: "var(--accent)" },
   },
   { dark: true },
@@ -60,26 +60,42 @@ type Props = {
   path: string;
   platform: string;
   revision: number;
+  editor: EditorSettings;
   /** 1-based breakpoint lines for this file. */
   breakpoints?: number[];
   /** 1-based line of the current pause, when this file is the paused frame. */
   currentLine?: number | null;
+  /** Run/test markers derived from document symbols; one per unambiguous line. */
+  gutterActions?: GutterAction[];
+  /** 1-based lines changed against HEAD, ascending. */
+  changedLines?: ChangedLine[];
+  /** Locals of the paused frame, printed after the current line. */
+  inlayText?: string;
+  /** Incremented by the Rename action/menu; the inline field opens at the selection. */
+  renameRequest?: number;
+  /** Incremented by the Go to Declaration action/menu. */
+  definitionRequest?: number;
   onToggleBreakpoint?: (line: number) => void;
   onChange: (value: string) => void;
   onSave: () => void;
   onDefinition: (location: DefinitionLocation) => void;
   onRename: (position: { line: number; character: number }) => void;
+  onRenameSubmit: (
+    position: { line: number; character: number },
+    newName: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  onRenameCancel: () => void;
   onCodeActions: (position: { line: number; character: number }) => void;
+  onContextMenu: (
+    position: { line: number; character: number },
+    at: { x: number; y: number },
+  ) => void;
+  onGutterAction: (action: GutterAction) => void;
   onCursor: (position: { line: number; character: number }) => void;
   target?: Target | null;
 };
 
 type Status = { state: string; text: string };
-
-function messageOf(error: unknown): string {
-  if (error instanceof HostCallError || error instanceof Error) return error.message;
-  return String(error);
-}
 
 function offsetAt(doc: Text, position: { line: number; character: number }): number {
   const lineNumber = Math.min(Math.max(position.line + 1, 1), doc.lines);
@@ -89,6 +105,24 @@ function offsetAt(doc: Text, position: { line: number; character: number }): num
 
 function failureText(kind: string, response: AnalysisResponse): string {
   return `${kind} ${response.state}: ${response.message ?? "csharp-ls did not answer."}`;
+}
+
+/** Editor font and indentation come from Settings and are reconfigured through compartments,
+ * so changing them while a file is open applies without remounting the view. */
+function editorTheme(settings: EditorSettings) {
+  return EditorView.theme({
+    ".cm-scroller": {
+      fontFamily: `"${settings.fontFamily}", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`,
+      fontSize: `${settings.fontSize}px`,
+    },
+  });
+}
+
+function editorIndent(settings: EditorSettings) {
+  return [
+    EditorState.tabSize.of(settings.indentSize),
+    indentUnit.of(settings.useTabs ? "\t" : " ".repeat(settings.indentSize)),
+  ];
 }
 
 class DebugMarker extends GutterMarker {
@@ -113,7 +147,21 @@ function makeDebugGutter(
   currentLineRef: { current: number | null },
   onToggleBreakpointRef: { current: ((line: number) => void) | undefined },
 ) {
-  return gutter({
+  // Rider paints the whole breakpoint line and the paused line, not only the gutter dot.
+  const lineTint = EditorView.decorations.of((view) => {
+    const marks = [];
+    const current = currentLineRef.current;
+    for (const line of [...new Set(breakpointsRef.current)].sort((a, b) => a - b)) {
+      if (line < 1 || line > view.state.doc.lines) continue;
+      marks.push(Decoration.line({ class: line === current ? "cm-line-current" : "cm-line-breakpoint" }).range(view.state.doc.line(line).from));
+    }
+    if (current !== null && !breakpointsRef.current.includes(current) && current >= 1 && current <= view.state.doc.lines) {
+      marks.push(Decoration.line({ class: "cm-line-current" }).range(view.state.doc.line(current).from));
+      marks.sort((a, b) => a.from - b.from);
+    }
+    return Decoration.set(marks);
+  });
+  return [lineTint, gutter({
     class: "cm-debug-gutter",
     markers: (view) => {
       const markers = [];
@@ -144,22 +192,176 @@ function makeDebugGutter(
         return true;
       },
     },
+  })];
+}
+
+class ActionMarker extends GutterMarker {
+  constructor(
+    private readonly action: GutterAction,
+    private readonly run: () => void,
+  ) {
+    super();
+  }
+
+  toDOM() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `cm-gutter-action cm-gutter-${this.action.kind}${
+      this.action.disabledReason ? " is-unavailable" : ""
+    }`;
+    const title = this.action.disabledReason
+      ? `${this.action.label} unavailable: ${this.action.disabledReason}`
+      : this.action.label;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.setAttribute("data-testid", `gutter-${this.action.kind}-${this.action.line}`);
+    if (this.action.disabledReason) button.setAttribute("aria-disabled", "true");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    if (this.action.kind === "run") {
+      path.setAttribute("d", "M4 2.5l9 5.5-9 5.5z");
+      path.setAttribute("fill", "currentColor");
+    } else if (this.action.kind === "fix") {
+      path.setAttribute("d", "M8 1.5a4.5 4.5 0 0 0-2.4 8.3c.5.4.9 1 .9 1.7h3c0-.7.4-1.3.9-1.7A4.5 4.5 0 0 0 8 1.5ZM6.5 13.5h3M7 15h2");
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "currentColor");
+      path.setAttribute("stroke-width", "1.3");
+      path.setAttribute("stroke-linecap", "round");
+    } else {
+      path.setAttribute("d", "M3 8.5l3 3L13 4.5");
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "currentColor");
+      path.setAttribute("stroke-width", "1.8");
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("stroke-linejoin", "round");
+    }
+    svg.append(path);
+    button.append(svg);
+    button.addEventListener("mousedown", (event) => {
+      // Do not move the CodeMirror selection or open a native drag.
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.run();
+    });
+    return button;
+  }
+}
+
+class ChangeMarker extends GutterMarker {
+  constructor(private readonly kind: "add" | "mod") { super(); }
+  eq(other: ChangeMarker) { return other.kind === this.kind; }
+  elementClass = "";
+  toDOM() {
+    const bar = document.createElement("div");
+    bar.className = `cm-change-bar cm-change-${this.kind}`;
+    return bar;
+  }
+}
+
+// Rider's green/blue bar for lines changed against HEAD (computed from the saved file by the host diff).
+function makeChangeGutter(changes: ChangedLine[]) {
+  return gutter({
+    class: "cm-change-gutter",
+    markers: (view) => {
+      const markers = [];
+      for (const [line, kind] of changes) {
+        if (line < 1 || line > view.state.doc.lines) continue;
+        markers.push(new ChangeMarker(kind).range(view.state.doc.line(line).from));
+      }
+      return RangeSet.of(markers, true);
+    },
   });
 }
+
+class InlayWidget extends WidgetType {
+  constructor(private readonly text: string) { super(); }
+  eq(other: InlayWidget) { return other.text === this.text; }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "cm-debug-inlay";
+    span.setAttribute("data-testid", "debug-inlay");
+    span.textContent = this.text;
+    return span;
+  }
+  ignoreEvent() { return true; }
+}
+
+// Rider prints the locals of the paused frame at the end of the current line.
+function makeInlay(line: number | null, text: string) {
+  return EditorView.decorations.of((view) => {
+    if (line === null || text === "" || line < 1 || line > view.state.doc.lines) return Decoration.none;
+    return Decoration.set([
+      Decoration.widget({ widget: new InlayWidget(text), side: 1 }).range(view.state.doc.line(line).to),
+    ]);
+  });
+}
+
+function makeActionGutter(
+  actionsRef: { current: GutterAction[] },
+  onActionRef: { current: ((action: GutterAction) => void) | undefined },
+) {
+  return gutter({
+    class: "cm-action-gutter",
+    markers: (view) => {
+      const markers = [];
+      for (const action of actionsRef.current) {
+        if (action.line < 1 || action.line > view.state.doc.lines) continue;
+        markers.push(
+          new ActionMarker(action, () => onActionRef.current?.(action)).range(
+            view.state.doc.line(action.line).from,
+          ),
+        );
+      }
+      return RangeSet.of(markers, true);
+    },
+  });
+}
+
+export type ChangedLine = [line: number, kind: "add" | "mod"];
+
+type InlineRename = {
+  from: number;
+  to: number;
+  left: number;
+  top: number;
+  width: number;
+  line: number;
+  character: number;
+  source: string;
+  value: string;
+  busy: boolean;
+  error: string | null;
+};
 
 export function CodeEditor({
   value,
   path,
   platform,
   revision,
+  editor,
   breakpoints = [],
   currentLine = null,
+  gutterActions = [],
+  changedLines = [],
+  inlayText = "",
+  renameRequest = 0,
+  definitionRequest = 0,
   onToggleBreakpoint,
   onChange,
   onSave,
   onDefinition,
   onRename,
+  onRenameSubmit,
+  onRenameCancel,
   onCodeActions,
+  onContextMenu,
+  onGutterAction,
   onCursor,
   target,
 }: Props) {
@@ -169,14 +371,27 @@ export function CodeEditor({
   const onSaveRef = useRef(onSave);
   const onDefinitionRef = useRef(onDefinition);
   const onRenameRef = useRef(onRename);
+  const onRenameSubmitRef = useRef(onRenameSubmit);
+  const onRenameCancelRef = useRef(onRenameCancel);
   const onCodeActionsRef = useRef(onCodeActions);
+  const onContextMenuRef = useRef(onContextMenu);
+  const onGutterActionRef = useRef(onGutterAction);
   const onCursorRef = useRef(onCursor);
   const breakpointsRef = useRef<number[]>(breakpoints);
   const currentLineRef = useRef<number | null>(currentLine);
+  const gutterActionsRef = useRef<GutterAction[]>(gutterActions);
   const onToggleBreakpointRef = useRef(onToggleBreakpoint);
   const gutterCompartment = useRef(new Compartment());
+  const actionGutterCompartment = useRef(new Compartment());
+  const changeCompartment = useRef(new Compartment());
+  const inlayCompartment = useRef(new Compartment());
+  const changedLinesRef = useRef(changedLines);
+  changedLinesRef.current = changedLines;
+  const fontCompartment = useRef(new Compartment());
+  const indentCompartment = useRef(new Compartment());
   breakpointsRef.current = breakpoints;
   currentLineRef.current = currentLine;
+  gutterActionsRef.current = gutterActions;
   onToggleBreakpointRef.current = onToggleBreakpoint;
   const pathRef = useRef(path);
   const revisionRef = useRef(revision);
@@ -184,16 +399,30 @@ export function CodeEditor({
   onSaveRef.current = onSave;
   onDefinitionRef.current = onDefinition;
   onRenameRef.current = onRename;
+  onRenameSubmitRef.current = onRenameSubmit;
+  onRenameCancelRef.current = onRenameCancel;
   onCodeActionsRef.current = onCodeActions;
+  onContextMenuRef.current = onContextMenu;
+  onGutterActionRef.current = onGutterAction;
   onCursorRef.current = onCursor;
   pathRef.current = path;
   revisionRef.current = revision;
   const applyingExternal = useRef(false);
   const completionSeq = useRef(0);
   const definitionSeq = useRef(0);
+  const inlineSeq = useRef(0);
+  const inlineRef = useRef<InlineRename | null>(null);
+  const handledRename = useRef(renameRequest);
+  const handledDefinition = useRef(definitionRequest);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [inline, setInline] = useState<InlineRename | null>(null);
+  inlineRef.current = inline;
+  const actionKey = gutterActions
+    .map((action) => `${action.line}:${action.kind}:${action.disabledReason ?? ""}`)
+    .join("|");
   const [status, setStatus] = useState<Status>({
     state: "idle",
-    text: `Ctrl+Space: completion · ${platform === "macos" ? "Cmd+B" : "Ctrl+B"}: go to definition · Shift+F6: rename · ${platform === "macos" ? "Option" : "Alt"}+Enter: code actions`,
+    text: `Ctrl+Space: completion · ${platform === "macos" ? "Cmd+B" : "Ctrl+B"}: go to definition · Shift+F6: rename · Shift+F12: find usages · ${platform === "macos" ? "Option" : "Alt"}+Enter: code actions`,
   });
 
   function publishCursor(instance: EditorView) {
@@ -355,16 +584,101 @@ export function CodeEditor({
     onDefinitionRef.current(location);
   }
 
+  function cancelInlineRename(notifyParent: boolean) {
+    inlineSeq.current += 1;
+    setInline(null);
+    setStatus({
+      state: "idle",
+      text: `Ctrl+Space: completion · ${platform === "macos" ? "Cmd+B" : "Ctrl+B"}: go to definition · Shift+F6: rename · Shift+F12: find usages · ${platform === "macos" ? "Option" : "Alt"}+Enter: code actions`,
+    });
+    if (notifyParent) onRenameCancelRef.current();
+  }
+
+  function startInlineRename(instance: EditorView) {
+    const head = instance.state.selection.main.head;
+    const word = instance.state.wordAt(head);
+    if (!word || word.from === word.to) {
+      setStatus({
+        state: "unavailable",
+        text: "Rename needs an identifier under the cursor; nothing was requested.",
+      });
+      return;
+    }
+    const doc = instance.state.doc;
+    const line = doc.lineAt(word.from);
+    const start = instance.coordsAtPos(word.from);
+    const end = instance.coordsAtPos(word.to);
+    const shell = host.current?.getBoundingClientRect();
+    if (!start || !shell) return;
+    inlineSeq.current += 1;
+    const left = Math.max(8, Math.min(start.left - shell.left, shell.width - 280));
+    const top = start.bottom - shell.top + 4;
+    setInline({
+      from: word.from,
+      to: word.to,
+      left,
+      top: top + 180 > shell.height ? Math.max(8, start.top - shell.top - 44) : top,
+      width: Math.max(240, (end?.right ?? start.right) - start.left + 24),
+      line: line.number - 1,
+      character: word.from - line.from,
+      source: doc.sliceString(word.from, word.to),
+      value: doc.sliceString(word.from, word.to),
+      busy: false,
+      error: null,
+    });
+    setStatus({
+      state: "ok",
+      text: `Rename ${doc.sliceString(word.from, word.to)} at ${line.number}:${word.from - line.from + 1}; Enter previews, Esc cancels.`,
+    });
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  async function submitInlineRename() {
+    const current = inlineRef.current;
+    const instance = view.current;
+    if (!current || current.busy) return;
+    if (!instance || instance.state.doc.sliceString(current.from, current.to) !== current.source) {
+      cancelInlineRename(true);
+      setStatus({
+        state: "stale",
+        text: "Rename discarded: the buffer changed while the field was open; nothing was requested.",
+      });
+      return;
+    }
+    const name = current.value.trim();
+    if (!name) {
+      setInline({ ...current, error: "Enter the new name." });
+      return;
+    }
+    const sequence = ++inlineSeq.current;
+    setInline({ ...current, busy: true, error: null });
+    let result: { ok: boolean; error?: string };
+    try {
+      result = await onRenameSubmitRef.current(
+        { line: current.line, character: current.character },
+        name,
+      );
+    } catch (error) {
+      result = { ok: false, error: messageOf(error) };
+    }
+    if (sequence !== inlineSeq.current) return;
+    if (result.ok) {
+      setInline(null);
+      return;
+    }
+    setInline((live) =>
+      live ? { ...live, busy: false, error: result.error ?? "Rename failed." } : live,
+    );
+  }
+
   useEffect(() => {
     if (!host.current) return;
     const state = EditorState.create({
       doc: value,
       extensions: [
-        basicSetup,
-        autocompletion({ override: [completionSource], activateOnTyping: false }),
-        StreamLanguage.define(csharp),
-        theme,
-        syntaxHighlighting(syntaxColors),
+        actionGutterCompartment.current.of(
+          makeActionGutter(gutterActionsRef, onGutterActionRef),
+        ),
         gutterCompartment.current.of(
           makeDebugGutter(
             breakpointsRef,
@@ -372,6 +686,15 @@ export function CodeEditor({
             onToggleBreakpointRef,
           ),
         ),
+        basicSetup,
+        changeCompartment.current.of(makeChangeGutter(changedLinesRef.current)),
+        inlayCompartment.current.of(makeInlay(currentLine, inlayText)),
+        autocompletion({ override: [completionSource], activateOnTyping: false }),
+        StreamLanguage.define(csharp),
+        theme,
+        fontCompartment.current.of(editorTheme(editor)),
+        indentCompartment.current.of(editorIndent(editor)),
+        syntaxHighlighting(syntaxColors),
         EditorView.contentAttributes.of({
           "aria-label": "Editor",
           "aria-multiline": "true",
@@ -379,6 +702,7 @@ export function CodeEditor({
           spellcheck: "false",
         }),
         keymap.of([
+          indentWithTab,
           {
             key: "Mod-s",
             preventDefault: true,
@@ -427,9 +751,35 @@ export function CodeEditor({
             },
           },
         ]),
+        EditorView.domEventHandlers({
+          contextmenu(event, instance) {
+            const position =
+              instance.posAtCoords({ x: event.clientX, y: event.clientY }) ??
+              instance.state.selection.main.head;
+            const line = instance.state.doc.lineAt(position);
+            instance.dispatch({ selection: { anchor: position } });
+            instance.focus();
+            event.preventDefault();
+            onContextMenuRef.current(
+              { line: line.number - 1, character: position - line.from },
+              { x: event.clientX, y: event.clientY },
+            );
+            return true;
+          },
+        }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !applyingExternal.current) {
             onChangeRef.current(update.state.doc.toString());
+          }
+          if (inlineRef.current && (update.docChanged || update.selectionSet)) {
+            const wasBusy = inlineRef.current.busy;
+            inlineSeq.current += 1;
+            setInline(null);
+            if (wasBusy) onRenameCancelRef.current();
+            setStatus({
+              state: "stale",
+              text: "Rename field discarded: the buffer or selection changed.",
+            });
           }
           if (update.selectionSet || update.docChanged) {
             publishCursor(update.view);
@@ -452,11 +802,60 @@ export function CodeEditor({
     const instance = view.current;
     if (!instance) return;
     instance.dispatch({
+      effects: [
+        fontCompartment.current.reconfigure(editorTheme(editor)),
+        indentCompartment.current.reconfigure(editorIndent(editor)),
+      ],
+    });
+  }, [editor.fontFamily, editor.fontSize, editor.indentSize, editor.useTabs]);
+
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance) return;
+    instance.dispatch({
       effects: gutterCompartment.current.reconfigure(
         makeDebugGutter(breakpointsRef, currentLineRef, onToggleBreakpointRef),
       ),
     });
   }, [breakpoints.join(","), currentLine]);
+
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance) return;
+    instance.dispatch({
+      effects: actionGutterCompartment.current.reconfigure(
+        makeActionGutter(gutterActionsRef, onGutterActionRef),
+      ),
+    });
+  }, [actionKey]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: inlayCompartment.current.reconfigure(makeInlay(currentLine, inlayText)) });
+  }, [currentLine, inlayText]);
+
+  const changeKey = changedLines.map(([line, kind]) => `${line}${kind}`).join(",");
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: changeCompartment.current.reconfigure(makeChangeGutter(changedLinesRef.current)),
+    });
+  }, [changeKey]);
+
+  useEffect(() => {
+    if (renameRequest === handledRename.current) return;
+    handledRename.current = renameRequest;
+    const instance = view.current;
+    if (instance) startInlineRename(instance);
+    // The nonce is the only trigger; the selection is read when the action runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renameRequest]);
+
+  useEffect(() => {
+    if (definitionRequest === handledDefinition.current) return;
+    handledDefinition.current = definitionRequest;
+    void requestDefinition();
+    // The nonce is the only trigger; the cursor is read when the action runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [definitionRequest]);
 
   useEffect(() => {
     const instance = view.current;
@@ -491,11 +890,74 @@ export function CodeEditor({
   return (
     <div className="editor-stack">
       <div className="code-editor" data-testid="editor-shell" ref={host} />
+      {inline && (
+        <form
+          className="inline-rename"
+          data-testid="inline-rename"
+          style={{ left: inline.left, top: inline.top, width: inline.width }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitInlineRename();
+          }}
+          onBlur={(event) => {
+            // The submit button is disabled while waiting, so it stops holding focus and the
+            // form blurs. Do not cancel the request the user just submitted.
+            if (inline.busy) return;
+            const next = event.relatedTarget as Node | null;
+            if (next && event.currentTarget.contains(next)) return;
+            cancelInlineRename(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            cancelInlineRename(true);
+            view.current?.focus();
+          }}
+        >
+          <span className="inline-rename-source" data-testid="rename-source">
+            {path} · {inline.line + 1}:{inline.character + 1} · <mark>{inline.source}</mark>
+          </span>
+          <div className="inline-rename-row">
+            <input
+              ref={inputRef}
+              data-testid="rename-input"
+              autoFocus
+              value={inline.value}
+              aria-label={`New name for ${inline.source}`}
+              aria-describedby={inline.error ? "rename-error" : undefined}
+              readOnly={inline.busy}
+              onChange={(event) =>
+                setInline((live) => (live ? { ...live, value: event.target.value } : live))
+              }
+            />
+            <button type="submit" data-testid="rename-submit" disabled={inline.busy}>
+              {inline.busy ? "Waiting for csharp-ls…" : "Preview rename"}
+            </button>
+            <button
+              type="button"
+              data-testid="rename-cancel"
+              onClick={() => {
+                cancelInlineRename(true);
+                view.current?.focus();
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+          {inline.error && (
+            <p className="error" role="alert" id="rename-error" data-testid="rename-error">
+              {inline.error}
+            </p>
+          )}
+        </form>
+      )}
       <div
         className="editor-lsp-status"
         data-testid="editor-lsp-status"
         data-state={status.state}
         role="status"
+        title={status.text}
       >
         {status.text}
       </div>

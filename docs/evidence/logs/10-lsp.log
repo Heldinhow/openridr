@@ -1,30 +1,30 @@
-LSP session 8 · log level info · /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/csharp-ls/0.28/csharp-ls --solution /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order Desk actions/OrderDesk.sln --loglevel info
-cwd /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order Desk actions
+LSP session 8 · log level info · /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/csharp-ls/0.28/csharp-ls --solution /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order Desk actions/OrderDesk.sln --loglevel info
+cwd /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order Desk actions
 DOTNET_ROOT /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot
 $ /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/dotnet --list-sdks
 8.0.408 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/sdk]
 $ /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/dotnet --list-runtimes
 Microsoft.NETCore.App 8.0.15 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/shared/Microsoft.NETCore.App]
-Microsoft.NETCore.App 10.0.0 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/shared/Microsoft.NETCore.App]
+Microsoft.NETCore.App 10.0.14 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/shared/Microsoft.NETCore.App]
 Composite host root reused; inputs are unchanged.
 [client] initialize id 1
-[stderr] 4:39:56.354 info: LifeCycle[0]
+[stderr] 21:51:40.467 info: LifeCycle[0]
 [stderr]       initializing, csharp-ls version 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
 [server] csharp-ls: initializing, version 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
-[stderr] 4:39:56.375 info: LifeCycle[0]
+[stderr] 21:51:40.485 info: LifeCycle[0]
 [stderr]       csharp-ls is released under MIT license and is not affiliated with Microsoft Corp.; see https://github.com/razzmatazz/csharp-language-server
 [server] csharp-ls: csharp-ls is released under MIT license and is not affiliated with Microsoft Corp.; see https://github.com/razzmatazz/csharp-language-server
-[stderr] 4:39:56.388 info: Roslyn.Solution[0]
+[stderr] 21:51:40.496 info: Roslyn.Solution[0]
 [stderr]       SDK instances found, as reported by MSBuild:
 [stderr]       - SDK=".NET Core SDK", Version=8.0.408, MSBuildPath="/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/sdk/8.0.408", DiscoveryType=DotNetSdk
-[stderr] 4:39:56.389 info: Roslyn.Solution[0]
+[stderr] 21:51:40.497 info: Roslyn.Solution[0]
 [stderr]       MSBuildLocator: will register ".NET Core SDK", Version=8.0.408 as default instance
-[stderr] 4:39:56.394 info: LifeCycle[0]
-[stderr]       handleInitialize: using workspaceFolders: [{"uri":"file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order%20Desk%20actions","name":"OrderDesk.sln"}]
-[client] initialize accepted · completion · definition · rename (prepare) · code actions · diagnostics (pull advertised) · semantic tokens · push diagnostics
+[stderr] 21:51:40.501 info: LifeCycle[0]
+[stderr]       handleInitialize: using workspaceFolders: [{"uri":"file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order%20Desk%20actions","name":"OrderDesk.sln"}]
+[client] initialize accepted · completion · definition · rename (prepare) · code actions · workspace symbols · references · document symbols · diagnostics (pull advertised) · semantic tokens · push diagnostics
 [client] server csharp-ls 0.28.0.0
 [server] request workspace/configuration · answered [{}]
-[stderr] 4:39:56.460 info: LifeCycle[0]
+[stderr] 21:51:40.564 info: LifeCycle[0]
 [stderr]       initialize: initial csharp config: { logLevel = Some "info"
 [stderr]         applyFormattingOptions = None
 [stderr]         analyzersEnabled = None
@@ -35,8 +35,8 @@ Composite host root reused; inputs are unchanged.
 [stderr]                        debugMode = Some false }
 [stderr]         solutionPathOverride =
 [stderr]          Some
-[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order Desk actions/OrderDesk.sln" }
-[stderr] 4:39:56.482 info: Workspace[0]
+[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order Desk actions/OrderDesk.sln" }
+[stderr] 21:51:40.583 info: Workspace[0]
 [stderr]       didChangeConfiguration: csharp config updated: { logLevel = Some "info"
 [stderr]         applyFormattingOptions = None
 [stderr]         analyzersEnabled = None
@@ -47,16 +47,17 @@ Composite host root reused; inputs are unchanged.
 [stderr]                        debugMode = Some false }
 [stderr]         solutionPathOverride =
 [stderr]          Some
-[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order Desk actions/OrderDesk.sln" }
-[server] csharp-ls: Loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order Desk actions/OrderDesk.sln"...
-[stderr] 4:39:56.534 info: Roslyn.Solution[0]
-[stderr]       Will use MSBuild props: map [(TargetFramework, net8.0)]
+[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order Desk actions/OrderDesk.sln" }
+[server] csharp-ls: Loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order Desk actions/OrderDesk.sln"...
 [client] didOpen src/OrderDesk.Core/Order.cs version 1
-[server] csharp-ls: Finished loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order Desk actions/OrderDesk.sln"
+[stderr] 21:51:40.632 info: Roslyn.Solution[0]
+[stderr]       Will use MSBuild props: map [(TargetFramework, net8.0)]
+[server] csharp-ls: Finished loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order Desk actions/OrderDesk.sln"
 [client] solution loaded; waiting for diagnostics
-[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-UDCGoj/Order%20Desk%20actions/src/OrderDesk.Core/Order.cs · server version null · client revision 1
-[client] textDocument/completion id 2 answered
-[stderr] 4:40:00.492 warn: CodeAction[0]
+[client] textDocument/documentSymbol id 2 answered
+[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-joBRH6/Order%20Desk%20actions/src/OrderDesk.Core/Order.cs · server version null · client revision 1
+[client] textDocument/completion id 3 answered
+[stderr] 21:51:44.186 warn: CodeAction[0]
 [stderr]       Error in asyncMaybeOnException
 [stderr]       System.AggregateException: One or more errors occurred. (Void SetGenerateEqualsAndGetHashCodeFromMembersGenerateOperators(System.String, Boolean))
 [stderr]        ---> System.NotImplementedException: Void SetGenerateEqualsAndGetHashCodeFromMembersGenerateOperators(System.String, Boolean)
@@ -67,7 +68,7 @@ Composite host root reused; inputs are unchanged.
 [stderr]          at Microsoft.CodeAnalysis.CodeActions.CodeActionWithOptions.GetOperationsAsync(Solution originalSolution, Object options, IProgress`1 progress, CancellationToken cancellationToken)
 [stderr]          at Microsoft.CodeAnalysis.CodeActions.CodeActionWithOptions.GetOperationsCoreAsync(Solution originalSolution, IProgress`1 progress, CancellationToken cancellationToken)
 [stderr]          --- End of inner exception stack trace ---
-[stderr] 4:40:00.492 warn: CodeAction[0]
+[stderr] 21:51:44.186 warn: CodeAction[0]
 [stderr]       Error in asyncMaybeOnException
 [stderr]       System.AggregateException: One or more errors occurred. (Void SetGenerateEqualsAndGetHashCodeFromMembersGenerateOperators(System.String, Boolean))
 [stderr]        ---> System.NotImplementedException: Void SetGenerateEqualsAndGetHashCodeFromMembersGenerateOperators(System.String, Boolean)
@@ -78,7 +79,7 @@ Composite host root reused; inputs are unchanged.
 [stderr]          at Microsoft.CodeAnalysis.CodeActions.CodeActionWithOptions.GetOperationsAsync(Solution originalSolution, Object options, IProgress`1 progress, CancellationToken cancellationToken)
 [stderr]          at Microsoft.CodeAnalysis.CodeActions.CodeActionWithOptions.GetOperationsCoreAsync(Solution originalSolution, IProgress`1 progress, CancellationToken cancellationToken)
 [stderr]          --- End of inner exception stack trace ---
-[stderr] 4:40:00.554 warn: CodeAction[0]
+[stderr] 21:51:44.248 warn: CodeAction[0]
 [stderr]       Error in asyncMaybeOnException
 [stderr]       System.AggregateException: One or more errors occurred. (Void SetGenerateEqualsAndGetHashCodeFromMembersGenerateOperators(System.String, Boolean))
 [stderr]        ---> System.NotImplementedException: Void SetGenerateEqualsAndGetHashCodeFromMembersGenerateOperators(System.String, Boolean)
@@ -89,5 +90,5 @@ Composite host root reused; inputs are unchanged.
 [stderr]          at Microsoft.CodeAnalysis.CodeActions.CodeActionWithOptions.GetOperationsAsync(Solution originalSolution, Object options, IProgress`1 progress, CancellationToken cancellationToken)
 [stderr]          at Microsoft.CodeAnalysis.CodeActions.CodeActionWithOptions.GetOperationsCoreAsync(Solution originalSolution, IProgress`1 progress, CancellationToken cancellationToken)
 [stderr]          --- End of inner exception stack trace ---
-[client] textDocument/codeAction id 3 answered
-[client] code actions at 2:20 · session 8 · 6 returned, 5 supported, 1 unsupported, 0 diagnostic(s) · actions-8-1-a298b2f4ea590485
+[client] textDocument/codeAction id 4 answered
+[client] code actions at 2:20 · session 8 · 6 returned, 5 supported, 1 unsupported, 0 diagnostic(s) · actions-8-1-e3d9ed89f90fc4bd

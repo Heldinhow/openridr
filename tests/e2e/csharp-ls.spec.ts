@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { revisionOf } from "./automatic";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -7,8 +8,8 @@ import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 import { e2eHome, host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
-const logs = path.resolve(process.cwd(), "docs/evidence/logs");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+const logs = path.resolve(process.env.OPENRIDR_EVIDENCE_LOG_DIR ?? "docs/evidence/logs");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.describe.configure({ timeout: 180_000 });
@@ -83,7 +84,7 @@ async function waitForEvaluation(page: Page, revision?: number) {
     timeout: 30_000,
   });
   if (revision !== undefined) {
-    await expect(page.getByTestId("eval-state")).toContainText(`revision ${revision}`);
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(revision);
   }
 }
 
@@ -128,6 +129,43 @@ async function ensureTool(page: Page, request: APIRequestContext) {
 test.afterEach(async ({ request }) => {
   await hostCall(request, "lsp.stop").catch(() => {});
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+});
+
+test("disabled trust and install plan communicate state before any confirmation", async ({
+  page,
+}) => {
+  await openWorkspace(page, fixture);
+  await expect(page.getByTestId("trust-grant")).toBeDisabled();
+  await expect(page.getByTestId("trust-grant-reason")).toBeVisible();
+  await expect(page.getByTestId("trust-grant")).toHaveAttribute(
+    "aria-describedby",
+    "trust-grant-reason",
+  );
+  expect(
+    await page.getByTestId("trust-grant").evaluate((button) => getComputedStyle(button).color),
+  ).not.toBe("rgb(84, 138, 247)");
+
+  await trustWorkspace(page);
+  await enterWorkspace(page);
+  await page.getByTestId("install-plan-open").click();
+  const plan = page.getByTestId("install-plan");
+  await expect(plan).toBeVisible();
+  await expect(plan).toHaveAttribute("open", "");
+  for (const field of [
+    "install-tool",
+    "install-source",
+    "install-platform",
+    "install-destination",
+    "install-staging",
+    "install-command",
+    "install-cwd",
+    "install-permissions",
+    "install-integrity",
+    "install-existing",
+  ]) {
+    await expect(page.getByTestId(field)).toBeVisible();
+  }
+  await expect(plan.getByTestId("install-confirm")).toBeVisible();
 });
 
 test("install plan is exact, cancel is inert, and the real install reaches verifying", async ({
@@ -198,10 +236,11 @@ test("install plan is exact, cancel is inert, and the real install reaches verif
       expect(fs.existsSync(plan.destination), "cancel created a tool directory").toBe(false);
       expect(fs.existsSync(plan.staging), "cancel created a staging directory").toBe(false);
       // Other specs leave exited processes in the shared registry; cancel must create none
-      // for this workspace.
+      // for this workspace. The automatic restore after Trust is its own process and is not counted.
       expect(
         (await hostState(request)).processes.filter(
-          (process: { workspaceId: number }) => process.workspaceId === workspaceId,
+          (process: { workspaceId: number; kind: string }) =>
+            process.workspaceId === workspaceId && !process.kind.startsWith("restore:"),
         ),
       ).toEqual([]);
       await page.getByTestId("install-plan-open").click();
@@ -322,10 +361,37 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     expect(brokenItem.position).not.toBeNull();
 
     const row = page.getByTestId("problem-row-0");
+    const problemsList = page.getByTestId("problems-list");
+    for (const column of [
+      "Severity",
+      "Code",
+      "Message",
+      "Location",
+      "Document",
+      "Origin",
+      "Category",
+      "Revision",
+      "State",
+    ]) {
+      await expect(problemsList.locator(".problem-head")).toContainText(column);
+    }
+    await expect(row).toContainText(brokenItem.severityLabel);
     await expect(row).toContainText("CS0246");
     await expect(row).toContainText("LSP · csharp-ls");
     await expect(row).toContainText("unknown");
+    await expect(row).toContainText("Program.cs");
+    await expect(page.getByTestId("problems-counts")).toContainText("1 error");
     await row.click();
+    await expect(row).toHaveAttribute("aria-current", "true");
+    expect(await row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    expect(await problemsList.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    expect(
+      await row.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const panel = element.closest(".problems-list-wrap")!.getBoundingClientRect();
+        return box.bottom > panel.top && box.top < panel.bottom;
+      }),
+    ).toBe(true);
     await expect(page.getByTestId("editor-shell")).toHaveAttribute(
       "data-cursor",
       `${brokenItem.position.line}:${brokenItem.position.character}`,
@@ -461,7 +527,7 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     // Revoke: analysis is unavailable, items keep their session as stale, editing works.
     await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await expect(page.getByTestId("problem-stale")).toContainText("Trust was revoked");
     await expect(
       page.locator('[data-testid^="problem-row-"]').first(),
@@ -583,7 +649,7 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
     await expect(page.getByTestId("lsp-state")).toContainText("Stopped", {
       timeout: 30_000,
     });
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     const stopped = await hostState(request);
     const lspProcess = stopped.processes.find(
       (process: { id: number }) => process.id === stopped.lsp.processId,
@@ -835,7 +901,7 @@ test("completion and definition use the real session and discard stale answers",
     // After revoke, the same shortcuts explain the missing trust instead of failing silently.
     await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await page.getByTestId("editor").click();
     await page.keyboard.press("Control+Space");
     await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
@@ -891,6 +957,171 @@ async function placeCursorAtColumnZero(page: Page, line: number) {
     "data-cursor",
     `${line}:0`,
   );
+}
+
+/** Put the cursor on the first occurrence of `text` in a 0-based line, independent of indentation. */
+async function placeCursorOnText(page: Page, line: number, text: string) {
+  await placeCursorAtColumnZero(page, line);
+  const lineText = await page.locator(".cm-line").nth(line).innerText();
+  const character = lineText.indexOf(text);
+  if (character < 0) throw new Error(`"${text}" not found on line ${line + 1}: ${lineText}`);
+  for (let index = 0; index < character; index += 1) {
+    await page.keyboard.press("ArrowRight");
+  }
+  await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+    "data-cursor",
+    `${line}:${character}`,
+  );
+}
+
+async function openRenamePreview(
+  page: Page,
+  trigger: "shortcut" | "button" = "button",
+  newName = "Purchase",
+  target = "Order",
+) {
+  await placeCursorOnText(page, 2, target);
+  await expect(page.getByTestId("rename-open")).toBeEnabled({ timeout: 30_000 });
+  if (trigger === "shortcut") await page.keyboard.press("Shift+F6");
+  else await page.getByTestId("rename-open").click();
+  await page.getByTestId("rename-input").fill(newName);
+  await page.getByTestId("rename-submit").click();
+  await expect(page.getByTestId("rename-preview")).toBeVisible({ timeout: 30_000 });
+}
+
+async function openActionList(page: Page) {
+  await placeCursor(page, 2, 20);
+  await page.keyboard.press("Alt+Enter");
+  await expect(page.getByTestId("code-actions")).toBeVisible({ timeout: 30_000 });
+}
+
+async function openCodeActionPreview(page: Page) {
+  await openActionList(page);
+  await page
+    .getByTestId("code-actions")
+    .getByRole("button", { name: "Convert to positional record", exact: true })
+    .click();
+  await expect(page.getByTestId("rename-preview")).toBeVisible();
+  await expect(page.getByTestId("rename-preview")).toHaveAttribute("data-origin", "action");
+}
+
+/** Block the first `file.read` so the Apply revalidation is observably in flight. */
+async function blockNextFileRead(page: Page, outcome: "continue" | "abort" = "continue") {
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let delayed = false;
+  let released = false;
+  const routePattern = "**/__host/call";
+  await page.route(routePattern, async (route) => {
+    const body = route.request().postDataJSON() as { method?: string } | null;
+    if (!delayed && body?.method === "file.read") {
+      delayed = true;
+      await blocked;
+      try {
+        if (outcome === "abort") await route.abort("failed");
+        else await route.continue();
+      } finally {
+        finish();
+      }
+      return;
+    }
+    await route.continue();
+  });
+  return async () => {
+    if (released) return;
+    released = true;
+    release();
+    if (delayed) await finished;
+    await page.unroute(routePattern);
+  };
+}
+
+async function expectInViewport(page: Page, locator: Locator) {
+  const viewport = page.viewportSize();
+  const box = await locator.boundingBox();
+  if (!viewport || !box) throw new Error("The element has no measurable box.");
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+}
+
+/** A real point in the visible editor that hit-tests to the editor, not to the docked popup. */
+async function editorPointOutsidePopup(page: Page, popupTestId: string) {
+  const editorBox = await page.locator(".cm-scroller").boundingBox();
+  const popupBox = await page.getByTestId(popupTestId).boundingBox();
+  if (!editorBox || !popupBox) throw new Error("The editor or popup has no measurable box.");
+  // M7: the popup is docked below the editor and must not cover its text (sub-pixel layout only).
+  expect(
+    popupBox.y >= editorBox.y + editorBox.height - 0.5 ||
+      popupBox.y + popupBox.height <= editorBox.y + 0.5,
+  ).toBe(true);
+  expect(editorBox.height).toBeGreaterThanOrEqual(100);
+  for (const xFraction of [0.92, 0.75, 0.6, 0.4, 0.2, 0.08]) {
+    for (const yFraction of [0.92, 0.75, 0.6, 0.4, 0.2, 0.08]) {
+      const point = {
+        x: editorBox.x + editorBox.width * xFraction,
+        y: editorBox.y + editorBox.height * yFraction,
+      };
+      const hit = await page.evaluate(({ x, y }) => {
+        const element = document.elementFromPoint(x, y);
+        return {
+          editor: Boolean(element?.closest('[data-testid="editor-shell"] .cm-editor')),
+          popup: Boolean(element?.closest(".editor-popup")),
+        };
+      }, point);
+      if (hit.editor && !hit.popup) return point;
+    }
+  }
+  throw new Error(`No uncovered editor text is clickable under ${popupTestId}.`);
+}
+
+async function expectEditorUnchanged(page: Page) {
+  await expect(page.locator('[data-testid^="tab-"]')).toHaveCount(1);
+  const tab = page.getByTestId(`tab-${renameFiles.library}`);
+  await expect(tab.getByRole("tab")).not.toHaveAttribute("aria-label", /modified/);
+  await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+  await expect(page.getByTestId("editor")).not.toContainText("Purchase");
+  await expect(page.getByTestId("editor-revision")).toHaveText("");
+  await expect(tab.getByTestId("dirty-marker")).toHaveCount(0);
+}
+
+async function expectDismissedWithoutEdits(
+  page: Page,
+  copy: string,
+  before: Record<string, string>,
+) {
+  await expectEditorUnchanged(page);
+  expect(sourceHashes(copy)).toEqual(before);
+}
+
+async function expectEditorAcceptsTyping(page: Page, focus = true) {
+  const editor = page.getByTestId("editor");
+  if (focus) await editor.focus();
+  await expect(editor).toBeFocused();
+  await page.keyboard.insertText("ZZ");
+  await expect(editor).toContainText("ZZ");
+  await page.keyboard.press("Meta+Z");
+  await expect(editor).not.toContainText("ZZ");
+}
+
+async function dismissWithEditorClick(page: Page, popupTestId: string) {
+  const point = await editorPointOutsidePopup(page, popupTestId);
+  await page.mouse.click(point.x, point.y);
+  await expect(page.getByTestId(popupTestId)).toHaveCount(0);
+}
+
+async function dismissWithEditorEscape(page: Page, popupTestId: string) {
+  await page.getByTestId("editor").focus();
+  await expect(page.getByTestId("editor")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId(popupTestId)).toHaveCount(0);
 }
 
 async function startRenameSession(
@@ -960,9 +1191,8 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
       `${renameFiles.library} · 3:21`,
     );
     fs.mkdirSync(screenshots, { recursive: true });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-prompt.png"),
-      fullPage: false,
     });
     await page.getByTestId("rename-input").fill("Purchase");
     await page.getByTestId("rename-submit").click();
@@ -989,16 +1219,46 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
     await expect(
       page.getByTestId(`rename-count-${renameFiles.library}`),
     ).toContainText("2 edit");
-    await page.screenshot({
+    // Apply and Cancel are inside the preview's visible box before any scrolling.
+    const previewBox = (await page.getByTestId("rename-preview").boundingBox())!;
+    for (const id of ["rename-apply", "rename-cancel-preview"]) {
+      const button = (await page.getByTestId(id).boundingBox())!;
+      expect(button.y + button.height, `${id} is past the preview's bottom edge`).toBeLessThanOrEqual(
+        previewBox.y + previewBox.height,
+      );
+    }
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-preview.png"),
-      fullPage: false,
     });
+    // M7: docked preview leaves editor text usable at the narrow supported size too.
+    await page.setViewportSize({ width: 1100, height: 700 });
+    // Apply/Cancel stay inside the docked panel and the editor keeps usable height.
+    await page.getByTestId("bottom-tab-problems").click();
+    await expect(page.getByTestId("rename-preview-summary")).toBeVisible();
+    await expect(page.getByTestId("rename-preview-summary")).toContainText("Nothing has been applied");
+    await expect(page.getByTestId("editor-lsp-status")).toBeVisible();
+    const narrowPreview = (await page.getByTestId("rename-preview").boundingBox())!;
+    const dock = (await page.getByTestId("bottom-tab-problems").boundingBox())!;
+    expect(narrowPreview.y + narrowPreview.height).toBeLessThanOrEqual(dock.y + 0.5);
+    for (const locator of [
+      page.getByTestId("rename-file-index").locator("li").nth(2),
+      page.getByTestId("rename-apply"),
+      page.getByTestId("rename-cancel-preview"),
+    ]) {
+      const b = (await locator.boundingBox())!;
+      expect(b.y).toBeGreaterThanOrEqual(narrowPreview.y);
+      expect(b.y + b.height).toBeLessThanOrEqual(narrowPreview.y + narrowPreview.height);
+    }
+    expect((await page.locator(".cm-scroller").boundingBox())!.height).toBeGreaterThanOrEqual(100);
+    await page.locator(".editor-pane").screenshot({
+      path: path.join(screenshots, "m7-rename-preview-1100x700.png"),
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByTestId("rename-preview").evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-preview-files.png"),
-      fullPage: false,
     });
 
     // Cancel changes no buffer and no disk byte.
@@ -1031,7 +1291,7 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
       "public sealed class Purchase",
     );
     await expect(page.getByTestId("editor")).toContainText("public Purchase(");
-    await expect(page.getByTestId("editor-revision")).toContainText("modified");
+    await expect(page.getByTestId("editor-revision")).toContainText(/modified/i);
     await expect(page.getByTestId("app-log")).toContainText(
       "Nothing was written to disk",
     );
@@ -1046,9 +1306,8 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
         `${file} was written by Apply`,
       ).toBe(true);
     });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-applied.png"),
-      fullPage: false,
     });
 
     await page.getByTestId(`tab-${renameFiles.program}`).click();
@@ -1110,9 +1369,8 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     expect(fs.readFileSync(library).equals(before[0])).toBe(true);
     expect(fs.readFileSync(program).equals(before[1])).toBe(true);
     expect(fs.readFileSync(tests, "utf8")).toBe(external);
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-stale.png"),
-      fullPage: false,
     });
     await page.getByTestId("rename-cancel-preview").click();
     fs.writeFileSync(tests, before[2]);
@@ -1124,7 +1382,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     await expect(page.getByTestId("rename-preview")).toBeVisible({
       timeout: 30_000,
     });
-    await page.getByTestId("editor").click();
+    await page.getByTestId("editor").focus(); // the open popover covers the editor centre; keyboard focus keeps the edit real
     await page.keyboard.press("Meta+End");
     await page.keyboard.insertText("// buffer edit during preview\n");
     await expect(page.getByTestId("editor")).toContainText("buffer edit during preview");
@@ -1142,6 +1400,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     await page.getByTestId("rename-cancel-preview").click();
 
     // A cancelled request whose answer arrives late never opens a preview.
+    await placeCursor(page, 2, 20);
     const paused = await hostState(request);
     stoppedPid = paused.lsp.pid as number;
     process.kill(stoppedPid, "SIGSTOP");
@@ -1153,6 +1412,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
       { timeout: 5_000 },
     );
     await page.getByTestId("rename-cancel").click();
+    await expect(page.getByTestId("editor-lsp-status")).not.toContainText("Rename ");
     resume();
     await page.waitForTimeout(1_500);
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
@@ -1170,7 +1430,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     });
     await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await page.getByTestId("rename-apply").click();
     await expect(page.getByTestId("rename-stale")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("rename-stale")).toContainText(
@@ -1205,6 +1465,13 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
       "from csharp-ls",
     );
     const panel = page.getByTestId("code-actions");
+    const editorPane = page.getByRole("region", { name: "Editor" });
+    const panelBox = (await panel.boundingBox())!;
+    const paneBox = (await editorPane.boundingBox())!;
+    expect(panelBox.x).toBeGreaterThanOrEqual(paneBox.x);
+    expect(panelBox.y).toBeGreaterThanOrEqual(paneBox.y);
+    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(paneBox.y + paneBox.height);
     const discovered = await panel
       .locator("button[data-title]")
       .evaluateAll((nodes) =>
@@ -1244,10 +1511,54 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
       JSON.stringify(discovered),
     ).toBe(true);
     fs.mkdirSync(screenshots, { recursive: true });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-list.png"),
-      fullPage: false,
     });
+
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await expect(panel).toBeVisible();
+    // The first action and Close are visible inside the docked panel; the editor keeps height.
+    // Ticket 32: with the Problems tool window open the bottom dock yields, so two actions fit.
+    await page.getByTestId("bottom-tab-problems").click();
+    // Ticket 34: safety text and the role=status line stay visible; the popup follows the editor in DOM/Tab order.
+    await expect(panel.getByTestId("code-actions-summary")).toBeVisible();
+    await expect(panel.getByTestId("code-actions-summary")).toContainText("Nothing has been applied");
+    await expect(page.getByTestId("editor-lsp-status")).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const body = document.querySelector(".editor-body")!;
+        const popup = document.querySelector(".editor-popup")!;
+        return Boolean(body.compareDocumentPosition(popup) & Node.DOCUMENT_POSITION_FOLLOWING);
+      }),
+    ).toBe(true);
+    const narrowPanel = (await panel.boundingBox())!;
+    for (const locator of [
+      panel.getByTestId("code-actions-list").getByRole("button").nth(0),
+      panel.getByTestId("code-actions-list").getByRole("button").nth(1),
+      page.getByTestId("code-actions-close"),
+    ]) {
+      const b = (await locator.boundingBox())!;
+      expect(b.y).toBeGreaterThanOrEqual(narrowPanel.y);
+      expect(b.y + b.height).toBeLessThanOrEqual(narrowPanel.y + narrowPanel.height);
+    }
+    expect((await page.locator(".cm-scroller").boundingBox())!.height).toBeGreaterThanOrEqual(100);
+    await page.locator(".editor-pane").screenshot({
+      path: path.join(screenshots, "m7-code-actions-1100x700.png"),
+    });
+    await expect(page.getByTestId("rename-open")).toHaveAccessibleName(/Rename symbol/);
+    await expect(page.getByTestId("code-actions-open")).toHaveAccessibleName(/Code actions/);
+    await expect(page.getByTestId("save-file")).toHaveAccessibleName(/Save/);
+    for (const locator of [
+      panel.getByRole("heading", { name: "Code actions" }),
+      page.getByTestId("code-actions-close"),
+    ]) {
+      const box = (await locator.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(1100);
+      expect(box.y + box.height).toBeLessThanOrEqual(700);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     await panel
       .getByRole("button", { name: "Convert to positional record", exact: true })
@@ -1264,14 +1575,13 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await expect(
       page.getByTestId(`rename-diff-${renameFiles.library}`),
     ).toContainText("record Order(string Id, decimal Total);");
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-preview.png"),
-      fullPage: false,
     });
     await page.getByTestId("rename-cancel-preview").click();
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
-    await expect(page.getByTestId("editor-revision")).toContainText("revision 0");
+    await expect(page.getByTestId("editor-revision")).toHaveText("");
     expect(sourceHashes(copy)).toEqual(beforeDisk);
 
     // A position csharp-ls answers with an empty array keeps editing possible and never
@@ -1284,9 +1594,8 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await expect(page.getByTestId("code-actions-empty")).toContainText(
       "No code actions",
     );
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-empty.png"),
-      fullPage: false,
     });
     await page.getByTestId("code-actions-close").click();
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
@@ -1309,15 +1618,14 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await expect(
       page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
     ).toBeVisible();
-    await expect(page.getByTestId("editor-revision")).toContainText("revision 1");
+    await expect(page.getByTestId("editor-revision")).toContainText("Modified");
     await expect(page.getByTestId("app-log")).toContainText(
       "diagnostics are not marked fixed",
     );
     expect(sourceHashes(copy)).toEqual(beforeDisk);
     expect(fs.readFileSync(library, "utf8")).toContain("public sealed class Order");
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-applied.png"),
-      fullPage: false,
     });
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
@@ -1350,7 +1658,7 @@ test("code action lists and previews are invalidated before any write", async ({
     await expect(page.getByTestId("code-actions")).toBeVisible({ timeout: 30_000 });
 
     // Editing the source buffer discards the pending list.
-    await page.getByTestId("editor").click();
+    await page.getByTestId("editor").focus(); // the open popover covers the editor centre; keyboard focus keeps the edit real
     await page.keyboard.press("Meta+End");
     await page.keyboard.insertText("// buffer edit during actions\n");
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
@@ -1363,7 +1671,7 @@ test("code action lists and previews are invalidated before any write", async ({
       .getByRole("button", { name: "Convert to positional record", exact: true })
       .click();
     await expect(page.getByTestId("rename-preview")).toBeVisible();
-    await page.getByTestId("editor").click();
+    await page.getByTestId("editor").focus(); // the open popover covers the editor centre; keyboard focus keeps the edit real
     await page.keyboard.press("Meta+End");
     await page.keyboard.insertText("// second buffer edit\n");
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
@@ -1390,9 +1698,8 @@ test("code action lists and previews are invalidated before any write", async ({
     await expect(page.getByTestId("editor")).not.toContainText(
       "record Order(string Id, decimal Total);",
     );
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-stale.png"),
-      fullPage: false,
     });
     await page.getByTestId("rename-cancel-preview").click();
     fs.writeFileSync(library, originalDisk);
@@ -1421,7 +1728,7 @@ test("code action lists and previews are invalidated before any write", async ({
     await expect(page.getByTestId("rename-preview")).toBeVisible();
     await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expect(page.getByTestId("editor")).not.toContainText(
       "record Order(string Id, decimal Total);",
@@ -1506,9 +1813,8 @@ test("code actions forward the current diagnostic and list the real quick fix", 
       ),
     );
     fs.mkdirSync(screenshots, { recursive: true });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-diagnostic.png"),
-      fullPage: false,
     });
     await page.getByTestId("code-actions-close").click();
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
@@ -1516,3 +1822,315 @@ test("code actions forward the current diagnostic and list the real quick fix", 
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+// D-12: an open rename preview / code-action list must not trap the editor. A click on uncovered editor text or Esc
+// with real editor focus dismisses it without applying; clicks inside the popup keep it usable.
+test("D-12: editor text click or Esc with editor focus dismisses rename and code-action popups", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk popover close");
+  const before = sourceHashes(copy);
+  try {
+    await startRenameSession(page, request, copy);
+
+    // Rename preview: the popup overlaps the editor, but an uncovered text point remains clickable.
+    await openRenamePreview(page, "shortcut");
+    await expectInViewport(page, page.getByTestId("rename-apply"));
+    await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
+    const renamePoint = await editorPointOutsidePopup(page, "rename-preview");
+    await page.mouse.click(renamePoint.x, renamePoint.y);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "rename cancelled; no buffer or file changed.",
+    );
+    await expectDismissedWithoutEdits(page, copy, before);
+
+    // A click inside the preview does not close it; its Cancel button still works.
+    await openRenamePreview(page);
+    await page.getByTestId("rename-preview-summary").click();
+    await expect(page.getByTestId("rename-preview")).toBeVisible();
+    await page.getByTestId("rename-cancel-preview").click();
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "rename cancelled; no buffer or file changed.",
+    );
+    await expectDismissedWithoutEdits(page, copy, before);
+
+    // Rename preview: Esc with actual editor focus closes it.
+    await openRenamePreview(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    expect(
+      await page.evaluate(
+        () => document.activeElement?.closest('[data-testid="editor-shell"] .cm-editor') !== null,
+      ),
+    ).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "rename cancelled; no buffer or file changed.",
+    );
+    await expectDismissedWithoutEdits(page, copy, before);
+
+    // Code-action list: same two ways out, plus an internal click that keeps it open.
+    await openActionList(page);
+    await expectInViewport(page, page.getByTestId("code-actions-close"));
+    const actionPoint = await editorPointOutsidePopup(page, "code-actions");
+    await page.mouse.click(actionPoint.x, actionPoint.y);
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText("Code actions closed; nothing was applied.");
+    await expectDismissedWithoutEdits(page, copy, before);
+    await openActionList(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText("Code actions closed; nothing was applied.");
+    await expectDismissedWithoutEdits(page, copy, before);
+    await openActionList(page);
+    await page.getByTestId("code-actions-summary").click();
+    await expect(page.getByTestId("code-actions")).toBeVisible();
+    await page.getByTestId("code-actions-close").click();
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expectDismissedWithoutEdits(page, copy, before);
+
+    // Code-action preview: click and Esc close it without touching buffers.
+    await openCodeActionPreview(page);
+    await expectInViewport(page, page.getByTestId("rename-apply"));
+    await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
+    const previewPoint = await editorPointOutsidePopup(page, "rename-preview");
+    await page.mouse.click(previewPoint.x, previewPoint.y);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "code action cancelled; no buffer or file changed.",
+    );
+    await expectDismissedWithoutEdits(page, copy, before);
+    await openCodeActionPreview(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expect(page.getByTestId("app-log")).toContainText(
+      "code action cancelled; no buffer or file changed.",
+    );
+    await expectDismissedWithoutEdits(page, copy, before);
+
+    // The same click/Esc paths remain available at the supported narrow size.
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await openActionList(page);
+    await expectInViewport(page, page.getByTestId("code-actions-close"));
+    const narrowPoint = await editorPointOutsidePopup(page, "code-actions");
+    await page.mouse.click(narrowPoint.x, narrowPoint.y);
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expectDismissedWithoutEdits(page, copy, before);
+    await openActionList(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await expectDismissedWithoutEdits(page, copy, before);
+    await openRenamePreview(page);
+    await expectInViewport(page, page.getByTestId("rename-apply"));
+    await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
+    const narrowRenamePoint = await editorPointOutsidePopup(page, "rename-preview");
+    await page.mouse.click(narrowRenamePoint.x, narrowRenamePoint.y);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expectDismissedWithoutEdits(page, copy, before);
+    await openRenamePreview(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expectDismissedWithoutEdits(page, copy, before);
+    await openCodeActionPreview(page);
+    await expectInViewport(page, page.getByTestId("rename-apply"));
+    await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
+    const narrowPreviewPoint = await editorPointOutsidePopup(page, "rename-preview");
+    await page.mouse.click(narrowPreviewPoint.x, narrowPreviewPoint.y);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expectDismissedWithoutEdits(page, copy, before);
+    await openCodeActionPreview(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expectDismissedWithoutEdits(page, copy, before);
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // Every dismissal above left contents, revision, tabs and dirty state untouched on disk and in buffers.
+    await expectEditorUnchanged(page);
+    expect(sourceHashes(copy)).toEqual(before);
+
+    // A late failed read from a discarded application must not mutate a newer preview or status.
+    await page.getByTestId(`tree-file-${renameFiles.program}`).click();
+    await page.getByTestId(`tab-${renameFiles.library}`).click();
+    await openRenamePreview(page, "button", "Purchase", "Order");
+    const oldPreviewId = await page.getByTestId("rename-preview").getAttribute("data-id");
+    const releaseFailedRead = await blockNextFileRead(page, "abort");
+    try {
+      await page.getByTestId("rename-apply").click();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await page.getByTestId(`tab-${renameFiles.program}`).click();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+      await page.getByTestId(`tab-${renameFiles.library}`).click();
+      await openRenamePreview(page, "button", "Purchase", "Order");
+      const newPreviewId = await page.getByTestId("rename-preview").getAttribute("data-id");
+      expect(newPreviewId).not.toBe(oldPreviewId);
+      await releaseFailedRead();
+      await expect(page.getByTestId("rename-preview")).toBeVisible();
+      await expect(page.getByTestId("rename-preview")).toHaveAttribute("data-id", newPreviewId!);
+      await expect(page.getByTestId("rename-stale")).toHaveCount(0);
+      await expect(page.getByTestId("rename-apply")).toHaveText("Apply to buffers");
+      await expect(page.getByTestId("app-log")).toContainText("Rename preview:");
+      await expect(page.getByTestId("app-log")).not.toContainText("not applied");
+      await page.getByTestId("rename-cancel-preview").click();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    } finally {
+      await releaseFailedRead();
+    }
+    await page.getByTestId(`tab-${renameFiles.program}`).getByTestId("close-buffer").click();
+    await expect(page.getByTestId(`tab-${renameFiles.program}`)).toHaveCount(0);
+    await expectDismissedWithoutEdits(page, copy, before);
+
+    // Apply + Esc in the popup while Apply is revalidating: Cancel is disabled and cannot win the race.
+    await openCodeActionPreview(page);
+    const releaseAfterEsc = await blockNextFileRead(page);
+    try {
+      await page.getByTestId("rename-apply").click();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await expect(page.getByTestId("rename-cancel-preview")).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("rename-preview")).toBeVisible();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await releaseAfterEsc();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0, { timeout: 20_000 });
+    } finally {
+      await releaseAfterEsc();
+    }
+    await expect(page.getByTestId("editor")).toContainText("record Order");
+    await expect(page.getByTestId("editor-revision")).toContainText("Modified");
+    await expect(
+      page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
+    ).toBeVisible();
+    await expect(page.getByTestId("app-log")).toContainText("Code action applied to 1 file");
+    await expect(page.getByTestId("app-log")).toContainText("Nothing was written to disk");
+    expect(sourceHashes(copy)).toEqual(before);
+
+    // Apply + editor click while Apply is revalidating: same guard, then the real rename applies.
+    await openRenamePreview(page, "button", "Purchase", "Order");
+    const releaseAfterClick = await blockNextFileRead(page);
+    try {
+      await page.getByTestId("rename-apply").click();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      const applyingPoint = await editorPointOutsidePopup(page, "rename-preview");
+      await page.mouse.click(applyingPoint.x, applyingPoint.y);
+      await expect(page.getByTestId("rename-preview")).toBeVisible();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await releaseAfterClick();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0, { timeout: 20_000 });
+    } finally {
+      await releaseAfterClick();
+    }
+    await expect(page.getByTestId("editor")).toContainText("record Purchase");
+    await expect(page.getByTestId("editor-revision")).toContainText("Modified");
+    await expect(page.getByTestId("app-log")).toContainText(/Rename applied to \d+ file/);
+    await expect(page.getByTestId("app-log")).toContainText("Nothing was written to disk");
+    expect(sourceHashes(copy)).toEqual(before);
+
+    // Post-await identity: another file becoming active invalidates the pending application.
+    await page.getByTestId(`tab-${renameFiles.program}`).click();
+    await page.getByTestId(`tab-${renameFiles.library}`).click();
+    await openRenamePreview(page, "button", "Renamed", "Purchase");
+    const releaseAfterSwitch = await blockNextFileRead(page);
+    try {
+      await page.getByTestId("rename-apply").click();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      await page.getByTestId(`tab-${renameFiles.program}`).click();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+      await releaseAfterSwitch();
+      await expect(page.getByTestId("app-log")).toContainText(
+        "rename preview discarded: another file became active; nothing was applied.",
+      );
+      await expect(page.getByTestId("app-log")).not.toContainText("not applied");
+    } finally {
+      await releaseAfterSwitch();
+    }
+    await page.getByTestId(`tab-${renameFiles.library}`).click();
+    await expect(page.getByTestId("editor")).toContainText("record Purchase");
+    await expect(page.getByTestId("editor")).not.toContainText("record Renamed");
+    expect(sourceHashes(copy)).toEqual(before);
+
+    // The editor still accepts real typing after the popups are gone.
+    await expectEditorAcceptsTyping(page);
+    expect(sourceHashes(copy)).toEqual(before);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+const focusTypingCases: Array<{
+  name: string;
+  open: (page: Page) => Promise<void>;
+  dismiss: (page: Page) => Promise<void>;
+}> = [
+  {
+    name: "rename preview click",
+    open: (page) => openRenamePreview(page),
+    dismiss: (page) => dismissWithEditorClick(page, "rename-preview"),
+  },
+  {
+    name: "rename preview Esc",
+    open: (page) => openRenamePreview(page),
+    dismiss: (page) => dismissWithEditorEscape(page, "rename-preview"),
+  },
+  {
+    name: "code-action list click",
+    open: (page) => openActionList(page),
+    dismiss: (page) => dismissWithEditorClick(page, "code-actions"),
+  },
+  {
+    name: "code-action list Esc",
+    open: (page) => openActionList(page),
+    dismiss: (page) => dismissWithEditorEscape(page, "code-actions"),
+  },
+  {
+    name: "code-action preview click",
+    open: (page) => openCodeActionPreview(page),
+    dismiss: (page) => dismissWithEditorClick(page, "rename-preview"),
+  },
+  {
+    name: "code-action preview Esc",
+    open: (page) => openCodeActionPreview(page),
+    dismiss: (page) => dismissWithEditorEscape(page, "rename-preview"),
+  },
+];
+
+for (const scenario of focusTypingCases) {
+  test(`D-12 focus and typing after ${scenario.name}`, async ({ page, request }) => {
+    const { base, copy } = tempCopy(`Order Desk focus ${scenario.name}`);
+    const before = sourceHashes(copy);
+    try {
+      await startRenameSession(page, request, copy);
+      await expectEditorUnchanged(page);
+      await scenario.open(page);
+      await scenario.dismiss(page);
+      // Dismissal itself must leave real editor focus; do not focus before this assert.
+      await expect(page.getByTestId("editor")).toBeFocused();
+      await expectDismissedWithoutEdits(page, copy, before);
+      await expectEditorAcceptsTyping(page, false);
+      // Undo restores the text but legitimately advances the buffer revision and dirty state.
+      await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+      await expect(page.getByTestId("editor-revision")).toContainText("Modified");
+      await expect(
+        page.getByTestId(`tab-${renameFiles.library}`).getByRole("tab"),
+      ).toHaveAttribute("aria-label", /modified/);
+      await expect(
+        page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
+      ).toBeVisible();
+      expect(sourceHashes(copy)).toEqual(before);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+}

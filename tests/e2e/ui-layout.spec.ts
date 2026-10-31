@@ -1,9 +1,19 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { host } from "./environment";
 
-for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700 }]) {
+const temporaryWorkspaces: string[] = [];
+
+test.afterEach(async ({ request }) => {
+  await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+  for (const directory of temporaryWorkspaces.splice(0)) {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 900 }, { width: 1100, height: 700 }]) {
   test(`IDE layout, resize and keyboard at ${viewport.width}x${viewport.height}`, async ({ page, request }) => {
     await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
     await page.setViewportSize(viewport);
@@ -30,10 +40,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700
     const outputBox = (await output.boundingBox())!;
     expect(treeBox.width).toBe(280);
     expect(treeBox.y).toBe(44);
-    expect(treeBox.y + treeBox.height).toBe(viewport.height - 24);
+    expect(treeBox.y + treeBox.height).toBe(outputBox.y - 4);
     expect(editorBox.height).toBeGreaterThan(200);
     expect(outputBox.height).toBe(220);
-    for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug", "mode-badge"]) {
+    expect(outputBox.x).toBe(treeBox.x);
+    expect(outputBox.x + outputBox.width).toBe(editorBox.x + editorBox.width);
+    for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug", "toolbar-settings", "toolbar-run-config", "mode-badge"]) {
       const box = (await page.getByTestId(id).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
@@ -88,8 +100,110 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700
     await expect(height).toHaveAttribute("aria-valuenow", "236");
     await page.getByTestId("bottom-tab-build").focus();
     await page.keyboard.press("ArrowRight");
-    await expect(page.getByTestId("bottom-tab-problems")).toBeFocused();
-    await expect(page.getByTestId("bottom-tab-problems")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("bottom-tab-run")).toBeFocused();
+    await expect(page.getByTestId("bottom-tab-run")).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("toolbar-run")).toBeDisabled();
+
+  });
+}
+
+test("evaluated project details keep paths intact and Close with the heading", async ({ page, request }) => {
+  await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-project-details-"));
+  temporaryWorkspaces.push(base);
+  const copy = path.join(base, "fixture");
+  fs.cpSync(path.resolve("fixtures/OrderDesk"), copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+  await page.getByTestId("workspace-open").click();
+  await page.getByTestId("trust-checkbox").check();
+  await page.getByTestId("trust-grant").click();
+  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("workspace-tools-toggle").click();
+  await page.getByTestId("eval-run").click();
+  await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+  await page.getByTestId("tree-project-OrderDesk.Cli").click();
+  await page.getByRole("button", { name: "Project details" }).click();
+
+  const details = page.getByTestId("eval-details");
+  await expect(details).toBeVisible();
+  const projectPath = details.locator("code.detail-path").first();
+  await expect(details.getByText("Path", { exact: true })).toBeVisible();
+  await expect(projectPath).toHaveText("src/OrderDesk.Cli/OrderDesk.Cli.csproj");
+  await expect(projectPath).toHaveCSS("white-space", "nowrap");
+  await expect(projectPath).toHaveAttribute("title", "src/OrderDesk.Cli/OrderDesk.Cli.csproj");
+  await expect(page.getByTestId("status-workspace")).toHaveAttribute("title", fs.realpathSync(path.join(copy, "OrderDesk.sln")));
+  await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+  await expect(page.getByTestId("status-breadcrumb")).not.toContainText("OrderDesk.sln");
+  const close = page.getByRole("button", { name: "Close project details" });
+  await expect(close.locator("..")).toContainText("OrderDesk.Cli");
+  await close.click();
+  await expect(details).toBeHidden();
+});
+
+for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 900 }, { width: 1100, height: 700 }]) {
+  test(`toolbar labels truncate with full titles at ${viewport.width}x${viewport.height}`, async ({ page, request }) => {
+    await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-layout-"));
+    temporaryWorkspaces.push(base);
+    const copy = path.join(base, "fixture");
+    fs.cpSync(path.resolve("fixtures/OrderDesk"), copy, {
+      recursive: true,
+      filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+    });
+    const solution = path.join(copy, "OrderDesk.sln");
+    const stored = await request.post(`${host}/call`, {
+      data: {
+        method: "runConfigs.write",
+        params: {
+          solution,
+          activeId: "layout-long",
+          configs: [{
+            id: "layout-long",
+            name: "Run configuration with a deliberately long visible name",
+            project: "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+            configuration: "Debug",
+            targetFramework: "net8.0",
+            args: [],
+            workingDirectory: "src/OrderDesk.Cli",
+            env: {},
+            envFiles: [],
+          }],
+        },
+      },
+    });
+    const body = await stored.json();
+    expect(body.ok, JSON.stringify(body.error)).toBe(true);
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await page.getByTestId("workspace-path-input").fill(solution);
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-checkbox").check();
+    await page.getByTestId("trust-grant").click();
+    await expect(page.getByTestId("mode-trusted")).toBeVisible();
+    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("workspace-tools-toggle").click();
+    await page.getByTestId("eval-run").click();
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+
+    const activeConfig = page.getByTestId("run-config-active");
+    await expect(activeConfig).toHaveText("Run configuration with a deliberately long visible name");
+    expect(await activeConfig.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug"]) {
+      const box = (await page.getByTestId(id).boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    }
+    expect(await page.locator(".toolbar").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
+      await page.locator(".toolbar").evaluate((element) => element.clientWidth),
+    );
+    const evaluationLabel = page.getByTestId("status-evaluation");
+    await expect(evaluationLabel).toHaveAttribute("title", /^Evaluated · Debug · TFM .* · revision \d+$/);
+    expect(await evaluationLabel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
   });
 }

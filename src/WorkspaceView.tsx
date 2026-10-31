@@ -1,25 +1,106 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   call,
   HostCallError,
+  messageOf,
   type CodeAction,
   type CodeActionsResponse,
+  type DocumentSymbolResponse,
   type EvaluationProject,
+  type ReferencesResponse,
   type RenameResponse,
+  type RunConfig,
   type Snapshot,
   type OutlineProject,
 } from "./host/client";
-import { CodeEditor } from "./CodeEditor";
-import { ProblemsPanel } from "./ProblemsPanel";
+import { CodeEditor, type ChangedLine } from "./CodeEditor";
+import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
+import { FindUsagesPanel } from "./FindUsagesPanel";
+import {
+  gutterActionAt,
+  gutterActionsFor,
+  lineSnippet,
+  type GutterAction,
+} from "./codeNavigation";
+import { ProblemsPanel, withLocalEdits } from "./ProblemsPanel";
+import { RunPanel } from "./RunPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
-import { TestsPanel } from "./TestsPanel";
+import {
+  TestsPanel,
+  failedTestIds,
+  rerunFailedReason,
+  testDebugUnavailable,
+  testRunBlockedReason,
+} from "./TestsPanel";
+import { TestsQuickList } from "./TestsQuickList";
 import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
+import { FileIcon } from "./FileIcon";
 import { Icon } from "./Icon";
 import { Splitter } from "./Splitter";
+import { BottomToolWindow } from "./shell/BottomToolWindow";
+import { StatusBar } from "./shell/StatusBar";
+import { ToolWindowBand } from "./shell/ToolWindowBand";
+import { FindAction, type SearchTab } from "./actions/FindAction";
+import { KeymapDialog } from "./actions/KeymapDialog";
+import { SettingsDialog } from "./SettingsDialog";
+import {
+  DEFAULT_RUN_CONFIG_ID,
+  RunConfigDialog,
+  RunConfigWidget,
+  deriveDefaultRunConfig,
+  type RunConfigView,
+} from "./runConfigs";
+import {
+  BranchWidget,
+  CommitPanel,
+  GitLogPanel,
+  gitBlockedReason,
+  gitPushBlockedReason,
+  gitUpdateBlockedReason,
+  type GitDiff as GitDiffView,
+  type GitIntent,
+  type GitStatus,
+} from "./git";
+import { NuGetPanel } from "./NuGetPanel";
+import { useExecutionFlow } from "./useExecutionFlow";
+import {
+  buildDisabledReason as buildGate,
+  debugDisabledReason as debugGate,
+  runAvailabilityReason as runGate,
+  type GateContext,
+} from "./executionGates";
+import { useEvaluationFlow } from "./useEvaluationFlow";
+import { useRunConfigs } from "./useRunConfigs";
+import {
+  chordPrefixFor,
+  chordTarget,
+  defaultSettings,
+  matches,
+  normalizeSettings,
+  type AppSettings,
+  type Keymap,
+} from "./actions/keymap";
+import {
+  firstActionFor,
+  requireAction,
+  resolveActions,
+  type Action,
+  type ResolvedAction,
+} from "./actions/registry";
+import {
+  loadShellLayout,
+  saveShellLayout,
+  toolWindows,
+  toolWindowsIn,
+  type BottomToolId,
+  type ShellLayout,
+  type ToolWindowId,
+  type ToolWindowSlot,
+} from "./shell/toolWindows";
 
 type Tab = {
   path: string;
@@ -30,16 +111,25 @@ type Tab = {
   conflict: null | { content: string; hash: string };
 };
 
-type RenamePrompt = {
+type DocumentSymbolsState = {
   path: string;
-  line: number;
-  character: number;
   revision: number;
   session: number;
   contextId: number;
   workspaceId: number;
-  busy: boolean;
-  error: string | null;
+  response: DocumentSymbolResponse;
+};
+
+type FindUsagesState = {
+  response: ReferencesResponse;
+  snippets: Record<string, string | null>;
+};
+
+type ContextMenuState = {
+  x: number;
+  y: number;
+  line: number;
+  character: number;
 };
 
 type RenamePreview = {
@@ -90,29 +180,47 @@ type Confirmation =
   | { kind: "workspace" }
   | { kind: "window" };
 
-type BottomTab = "build" | "problems" | "debug" | "terminal" | "tests";
-
 type Props = {
   snapshot: Snapshot;
   initialFile: string | null;
+  recentSolutions: string[];
+  onOpenRecent: (path: string) => Promise<void>;
   onSnapshot: (snapshot: Snapshot) => void;
   onClosed: (snapshot: Snapshot) => void;
 };
 
-const bottomTabs: { id: BottomTab; label: string }[] = [
-  { id: "build", label: "Build" },
-  { id: "problems", label: "Problems" },
-  { id: "debug", label: "Debug" },
-  { id: "terminal", label: "Terminal" },
-  { id: "tests", label: "Tests" },
-];
+const bottomTools = toolWindowsIn("bottom");
+
+const NO_CHANGED_LINES: ChangedLine[] = [];
+
+// "@@ -a,b +c,d @@" hunks -> new-file lines; hunks that also delete lines are "mod", pure additions "add".
+function changedLinesFromDiff(diff: string): ChangedLine[] {
+  const out: ChangedLine[] = [];
+  let line = 0;
+  let hunk = false;
+  const pending: number[] = [];
+  let deletes = 0;
+  const flush = () => {
+    const kind = deletes > 0 ? "mod" : "add";
+    for (const n of pending) out.push([n, kind]);
+    pending.length = 0;
+    deletes = 0;
+  };
+  for (const text of diff.split("\n")) {
+    const header = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(text);
+    if (header) { flush(); line = Number(header[1]); hunk = true; continue; }
+    if (!hunk) continue;
+    if (text.startsWith("+")) { pending.push(line++); }
+    else if (text.startsWith("-")) { deletes++; }
+    else if (text.startsWith("\\")) { continue; }
+    else { flush(); line++; }
+  }
+  flush();
+  return out;
+}
 
 function baseName(path: string) {
   return path.split("/").pop() ?? path;
-}
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
 }
 
 function isDirty(tab: Tab) {
@@ -210,7 +318,7 @@ function restoreStateLabel(restore: Snapshot["restore"]) {
   }
 }
 
-export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: Props) {
+export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRecent, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
   const trusted = snapshot.trust.granted;
@@ -224,10 +332,58 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [bottomTab, setBottomTab] = useState<BottomTab>("build");
+  const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [findActionOpen, setFindActionOpen] = useState(false);
+  const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
+  const [keymapOpen, setKeymapOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsBaseline = useRef<AppSettings | null>(null);
+  const [quickListOpen, setQuickListOpen] = useState(false);
+  const [testProjectPath, setTestProjectPath] = useState("");
+  const [testSelected, setTestSelected] = useState<Set<string>>(new Set());
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [gitStatusError, setGitStatusError] = useState<string | null>(null);
+  const [gitIntent, setGitIntent] = useState<GitIntent | null>(null);
+  const [commitFocusPath, setCommitFocusPath] = useState<string | null>(null);
+  const refreshGit = useCallback(async () => {
+    if (!trusted) {
+      setGitStatus(null);
+      setGitStatusError(null);
+      return;
+    }
+    try {
+      setGitStatus(await call<GitStatus>("git.status"));
+      setGitStatusError(null);
+    } catch (error) {
+      setGitStatusError(messageOf(error));
+    }
+  }, [trusted]);
+  useEffect(() => {
+    // Refresh on workspace/trust changes; tool windows refresh on open and after operations.
+    void refreshGit();
+  }, [refreshGit, workspace.id]);
+  function openGitIntent(kind: GitIntent["kind"]) {
+    setGitIntent((current) => ({ kind, nonce: (current?.nonce ?? 0) + 1 }));
+  }
+  const [activeSlot, setActiveSlot] = useState<ToolWindowSlot>("bottom");
+  const bottomTab = layout.bottom.active as BottomToolId;
+  const bottomOpen = layout.bottom.open;
+  const leftOpen = layout.left.open;
+  const sidebarWidth = layout.left.size;
+  const outputHeight = layout.bottom.size;
   const panelBodyRef = useRef<HTMLDivElement>(null);
-  const [sidebarWidth, setSidebarWidth] = useState(280);
-  const [outputHeight, setOutputHeight] = useState(220);
+  const trustMenuRef = useRef<HTMLDetailsElement>(null);
+  // Toolbar dropdowns are <details>: close them on an outside click.
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      document.querySelectorAll<HTMLDetailsElement>("details.toolbar-menu[open]").forEach((menu) => {
+        if (!menu.contains(event.target as Node)) menu.open = false;
+      });
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
@@ -243,6 +399,49 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
+  useEffect(() => {
+    saveShellLayout(layout);
+  }, [layout]);
+  useEffect(() => {
+    let active = true;
+    call<{ settings: unknown }>("settings.read")
+      .then((result) => {
+        if (!active) return;
+        setSettings(normalizeSettings(result.settings));
+      })
+      .catch((error) => {
+        // Defaults keep the app usable; the Keymap dialog shows the write failure if any.
+        if (active) setMessage({ tone: "error", text: `Settings could not be read: ${messageOf(error)}` });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function setBottomTab(tab: BottomToolId) {
+    setActiveSlot("bottom");
+    setLayout((current) => ({ ...current, bottom: { ...current.bottom, active: tab, open: true } }));
+  }
+
+  function setSidebarWidth(value: number) {
+    setLayout((current) => ({ ...current, left: { ...current.left, size: value } }));
+  }
+
+  function setOutputHeight(value: number) {
+    setLayout((current) => ({ ...current, bottom: { ...current.bottom, size: value } }));
+  }
+
+  function toggleToolWindow(slot: ToolWindowSlot, id: ToolWindowId) {
+    setActiveSlot(slot);
+    setLayout((current) => {
+      const state = current[slot];
+      const next = state.active === id
+        ? { ...state, open: !state.open }
+        : { ...state, active: id, open: true };
+      return slot === "left" ? { ...current, left: next } : { ...current, bottom: next };
+    });
+  }
+
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
@@ -255,19 +454,28 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const diskEpoch = useRef(new Map<string, number>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
-  const [buildDecision, setBuildDecision] = useState(false);
-  const [runDecision, setRunDecision] = useState(false);
-  const [evaluating, setEvaluating] = useState(false);
-  const autoEvaluation = useRef<number | null>(null);
+  const { runConfigStore, runConfigsLoaded, commitRunConfigs } = useRunConfigs({ workspacePath: workspace.path, setMessage });
+  const [runConfigOpen, setRunConfigOpen] = useState(false);
+  const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
+  const [trustBannerDismissed, setTrustBannerDismissed] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(projects.map((project) => project.path)),
   );
-  const [renamePrompt, setRenamePrompt] = useState<RenamePrompt | null>(null);
   const [editPreview, setEditPreview] = useState<EditPreview | null>(null);
+  const editPreviewRef = useRef<EditPreview | null>(null);
+  editPreviewRef.current = editPreview;
+  const editPreviewApplySeq = useRef(0);
   const [actionList, setActionList] = useState<ActionList | null>(null);
-  const [renameName, setRenameName] = useState("");
+  const [documentSymbols, setDocumentSymbols] = useState<DocumentSymbolsState | null>(null);
+  const [findUsages, setFindUsages] = useState<FindUsagesState | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [gitDiffView, setGitDiffView] = useState<GitDiffView | null>(null);
+  const [renameRequest, setRenameRequest] = useState(0);
+  const [definitionRequest, setDefinitionRequest] = useState(0);
   const renameSeq = useRef(0);
   const actionSeq = useRef(0);
+  const findUsagesSeq = useRef(0);
   const cursorRef = useRef({ line: 0, character: 0 });
   const [cursor, setCursor] = useState({ line: 0, character: 0 });
   const editPreviewHeading = useRef<HTMLHeadingElement | null>(null);
@@ -293,8 +501,15 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const showsProcesses = snapshot.processes.some(
     (process) => process.workspaceId === workspace.id,
   );
+  // A process that needs a decision opens the Tools window (right side) instead of a strip over the editor.
+  const awaitingProcessIds = snapshot.processes
+    .filter((process) => process.workspaceId === workspace.id && process.awaitingDecision)
+    .map((process) => process.id)
+    .join(",");
+  useEffect(() => {
+    if (awaitingProcessIds) setToolsOpen(true);
+  }, [awaitingProcessIds]);
   const evaluationAvailable = trusted && projectSdk.state === "resolved";
-  const evaluationBusy = evaluating || evaluation.state === "running";
   const restore = snapshot.restore;
   const restoring = restore.state === "running";
   const lsp = snapshot.lsp;
@@ -335,6 +550,30 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             : editPreview
               ? "Finish or cancel the current preview first."
               : null;
+  const findUsagesDisabledReason = !active
+    ? "Open a file to find usages."
+    : !trusted
+      ? "Trust the workspace before finding usages; no analysis runs in Restricted mode."
+      : !lspActive
+        ? "Start analysis before finding usages."
+        : !lsp.capabilities?.references
+          ? "csharp-ls did not advertise references for this session."
+          : active.conflict
+            ? "Resolve the disk conflict before finding usages in this file."
+            : editPreview
+              ? "Finish or cancel the current preview first."
+              : null;
+  const goToDefinitionDisabledReason = !active
+    ? "Open a file to go to a declaration."
+    : !trusted
+      ? "Trust the workspace before going to a declaration; no analysis runs in Restricted mode."
+      : !lspActive
+        ? "Start analysis before going to a declaration."
+        : !lsp.capabilities?.definition
+          ? "csharp-ls did not advertise definitions for this session."
+          : active.conflict
+            ? "Resolve the disk conflict before navigating from this file."
+            : null;
   const lspSent = useRef<{ session: number; paths: Set<string> }>({
     session: 0,
     paths: new Set(),
@@ -381,34 +620,38 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const consoleCandidates = evaluatedProjects.filter(
     (project) => project.kind === "console" && project.state === "ok" && project.targetPath,
   );
-  const startupProject =
+  const defaultStartupProject =
     consoleCandidates.find((project) => project.path === startupPath) ??
     (consoleCandidates.length === 1 ? consoleCandidates[0] : null);
+  const activeNamedConfig =
+    runConfigStore && runConfigStore.activeId !== DEFAULT_RUN_CONFIG_ID
+      ? runConfigStore.configs.find((config) => config.id === runConfigStore.activeId) ?? null
+      : null;
+  const { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore, selectRunConfig, commitRunConfigDialog } = useEvaluationFlow({
+    snapshot, trusted, restoreAvailable, evaluationAvailable, runConfigsLoaded, activeNamedConfig, runConfigStore,
+    commitRunConfigs, onSnapshot, setMessage,
+  });
+  const evaluationBusy = evaluating || evaluation.state === "running";
+  const startupProject = activeNamedConfig
+    ? consoleCandidates.find((project) => project.path === activeNamedConfig.project) ?? null
+    : defaultStartupProject;
+  const defaultRunConfig = deriveDefaultRunConfig(defaultStartupProject, evaluation);
+  const activeRunConfig: RunConfigView | null = activeNamedConfig ?? defaultRunConfig;
+  const activeRunConfigIssues = activeRunConfig
+    ? (runConfigStore?.issues ?? []).filter(
+        (issue) => issue.configId === activeRunConfig.id,
+      )
+    : [];
+  const activeConfigEvaluated =
+    !activeNamedConfig ||
+    (activeNamedConfig.configuration === evaluation.context.configuration &&
+      (activeNamedConfig.targetFramework ?? null) ===
+        (evaluation.context.targetFramework ?? null));
   const buildRunning = build.state === "running";
   const buildObsolete = isBuildObsolete(build, editedAt);
-  const buildDisabledReason = !trusted
-    ? "Trust the workspace before building; nothing runs in Restricted mode."
-    : projectSdk.state !== "resolved"
-      ? "Resolve the project SDK before building; the host SDK is never substituted."
-      : evaluation.state === "running"
-        ? "Wait for the evaluation to finish before building."
-        : evaluation.stale
-          ? "The evaluated project model is stale; re-evaluate before building."
-          : !["ok", "partial"].includes(evaluation.state)
-            ? "Evaluate the project model before building; the build uses its TargetPath."
-            : restoreIncomplete
-              ? "Dependencies are not restored; run the explicit restore first."
-              : consoleCandidates.length === 0
-                ? "No console executable project is available in the current evaluation; libraries and test projects cannot be startup projects."
-                : !startupProject
-                  ? "More than one console project; choose the startup project explicitly."
-                  : buildRunning
-                    ? "A build is already running."
-                    : null;
   useEffect(() => {
     panelBodyRef.current?.scrollTo(0, 0);
   }, [bottomTab]);
-  const requestBuildRef = useRef<() => void>(() => {});
   const tests = snapshot.tests;
   const testDiscovery = tests.discovery;
   const testCandidates = evaluatedProjects.filter(
@@ -431,6 +674,28 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 : testDiscovery.state === "discovering"
                   ? "A test discovery is already running."
                   : null;
+  const testDiscoveryKey = `${testDiscovery.discoveryId ?? "none"}:${testDiscovery.revision}`;
+  useEffect(() => {
+    if (testCandidates.some((project) => project.path === testProjectPath)) return;
+    setTestProjectPath(testCandidates.length === 1 ? testCandidates[0].path : "");
+    // Selection follows the evaluated project list, not typing.
+  }, [testCandidates.map((project) => project.path).join("|"), testProjectPath]);
+  useEffect(() => {
+    setTestSelected(new Set());
+  }, [testDiscoveryKey]);
+  const testProject = testCandidates.find((project) => project.path === testProjectPath) ?? null;
+  const testRunBlocked = testRunBlockedReason({
+    disabledReason: testsDisabledReason,
+    discovery: testDiscovery,
+    run: snapshot.tests.run,
+    editedAt,
+  });
+  const testRerunBlocked = rerunFailedReason({
+    disabledReason: testsDisabledReason,
+    discovery: testDiscovery,
+    run: snapshot.tests.run,
+    editedAt,
+  });
   const run = snapshot.run;
   const runRunning = run.state === "running";
   const runShortcut = runShortcutLabel(snapshot.app.platform);
@@ -438,88 +703,34 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   const savedSourceAfterBuild = Object.entries(savedAt).some(
     ([path, saved]) => path.endsWith(".cs") && saved > buildReference,
   );
-  const runDisabledReason = !trusted
-    ? "Trust the workspace before running; nothing runs in Restricted mode."
-    : projectSdk.state !== "resolved"
-      ? "Resolve the project SDK before running; the host SDK is never substituted."
-      : evaluation.state === "running"
-        ? "Wait for the evaluation to finish before running."
-        : evaluation.stale
-          ? "The evaluated project model is stale; re-evaluate before running."
-          : !["ok", "partial"].includes(evaluation.state)
-            ? "Evaluate the project model before running; Run uses the saved build's TargetPath."
-            : consoleCandidates.length === 0
-              ? "No console executable project is available in the current evaluation; libraries and test projects cannot be run."
-              : !startupProject
-                ? "More than one console project; choose the startup project explicitly."
-                : buildRunning
-                  ? "A build is running; wait for it to finish before running."
-                  : runRunning
-                    ? "A program is already running."
-                    : build.revision === 0
-                      ? "Build the startup project first; Run never builds or restores implicitly."
-                      : build.sealed
-                        ? "The saved build belongs to a previous context; rebuild before running."
-                        : build.stale
-                          ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
-                          : build.state !== "ok" || build.exit !== 0
-                            ? `The last build did not succeed (${
-                                build.exit === null ? "exit unknown" : `exit ${build.exit}`
-                              }); fix it and rebuild.`
-                            : build.project?.path !== startupProject.path
-                              ? "The saved build is for another startup project; build the selected one."
-                              : savedSourceAfterBuild
-                                ? "Sources were saved after this build; rebuild before running."
-                                : null;
-  const requestRunRef = useRef<() => void>(() => {});
-  const requestDebugRef = useRef<() => void>(() => {});
-  const debugStepOverRef = useRef<() => void>(() => {});
-  const debugStepIntoRef = useRef<() => void>(() => {});
-  const toggleBreakpointAtRef = useRef<(line: number) => void>(() => {});
-  const dapPausedRef = useRef(false);
   const dap = snapshot.dap;
   const debugActive = ["preparing", "running", "paused"].includes(dap.state);
-  const debugDisabledReason = !trusted
-    ? "Trust the workspace before debugging; nothing runs in Restricted mode."
-    : snapshot.debug.adapterState !== "ready"
-      ? `The debug adapter is not ready: ${snapshot.debug.gateReason ?? snapshot.debug.adapterMessage}`
-      : snapshot.app.platform === "macos" &&
-          snapshot.app.arch === "arm64" &&
-          !snapshot.debug.appleSiliconExperimental
-        ? "Enable the Apple Silicon experimental flag before debugging; nothing was launched."
-        : projectSdk.state !== "resolved"
-          ? "Resolve the project SDK before debugging; the host SDK is never substituted."
-          : evaluation.state === "running"
-            ? "Wait for the evaluation to finish before debugging."
-            : evaluation.stale
-              ? "The evaluated project model is stale; re-evaluate before debugging."
-              : !["ok", "partial"].includes(evaluation.state)
-                ? "Evaluate the project model before debugging; Debug uses its managed assembly."
-                : consoleCandidates.length === 0
-                  ? "No console executable project is available in the current evaluation."
-                  : !startupProject
-                    ? "More than one console project; choose the startup project explicitly."
-                    : buildRunning
-                      ? "A build is running; wait for it to finish before debugging."
-                      : build.revision === 0
-                        ? "Build the startup project in Debug first; Debug never builds or restores implicitly."
-                        : build.configuration.toLowerCase() !== "debug"
-                          ? "The saved build is not a Debug build; build with Debug before debugging."
-                          : build.sealed
-                            ? "The saved build belongs to a previous context; rebuild before debugging."
-                            : build.stale
-                              ? `The saved build is stale: ${build.staleReason ?? "no current build"}.`
-                              : build.state !== "ok" || build.exit !== 0
-                                ? `The last build did not succeed (${
-                                    build.exit === null ? "exit unknown" : `exit ${build.exit}`
-                                  }); fix it and rebuild.`
-                                : build.project?.path !== startupProject.path
-                                  ? "The saved build is for another startup project; build the selected one."
-                                  : savedSourceAfterBuild
-                                    ? "Sources were saved after this build; rebuild before debugging."
-                                    : debugActive
-                                      ? "A debug session is already active."
-                                      : null;
+  const gates: GateContext = {
+    trusted,
+    snapshot,
+    activeConfigEvaluated,
+    restoreIncomplete,
+    consoleCandidates,
+    startupProject,
+    activeConfigProjectInvalid: Boolean(
+      activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project),
+    ),
+    runRunning,
+    savedSourceAfterBuild,
+    debugActive,
+  };
+  const buildDisabledReason = buildGate(gates);
+  const runAvailabilityReason = (
+    project: EvaluationProject | null,
+    configEvaluated: boolean,
+    invalidSelectedProject = false,
+  ) => runGate(gates, project, configEvaluated, invalidSelectedProject);
+  const runDisabledReason = runAvailabilityReason(
+    startupProject,
+    activeConfigEvaluated,
+    gates.activeConfigProjectInvalid,
+  );
+  const debugDisabledReason = debugGate(gates);
   const debugCurrentFrame =
     dap.frames.find((frame) => frame.id === dap.selectedFrameId) ?? dap.frames[0] ?? null;
   const activeBreakpoints = active
@@ -533,19 +744,81 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         ? debugCurrentFrame.line
         : null
       : null;
-
+  const debugInlay = debugCurrentLine === null
+    ? ""
+    : (dap.locals?.scopes[0]?.variables ?? [])
+        .slice(0, 4)
+        .map((variable) => `${variable.name} = ${variable.value.length > 32 ? `${variable.value.slice(0, 31)}…` : variable.value}`)
+        .join(", ");
+  const activeProjectPath = activeEvaluationProject?.path ?? activeProject?.path ?? null;
+  const [changedState, setChangedState] = useState<{ path: string; lines: ChangedLine[] }>({ path: "", lines: [] });
+  const changedLines = changedState.path === active?.path ? changedState.lines : NO_CHANGED_LINES;
+  const changedGitFile = active ? gitStatus?.files.find((entry) => entry.path === active.path) : undefined;
   useEffect(() => {
-    // Evaluate automatically once per trusted context; a stale model always needs an
-    // explicit re-evaluate so a late result cannot be mistaken for the latest one.
-    if (!evaluationAvailable || evaluation.state !== "idle" || evaluation.staleReason) {
+    // Saved file vs HEAD; staged-only files diff against the index, untracked files have no HEAD to compare.
+    const path = active?.path;
+    if (!path || !trusted || !changedGitFile || changedGitFile.untracked || changedGitFile.conflicted) {
+      setChangedState({ path: path ?? "", lines: [] });
       return;
     }
-    if (autoEvaluation.current === snapshot.contextId) {
-      return;
+    let live = true;
+    const staged = changedGitFile.staged && changedGitFile.worktree === " ";
+    call<GitDiffView>("git.diff", { path, staged })
+      .then((answer) => live && setChangedState({ path, lines: changedLinesFromDiff(answer.diff ?? "") }))
+      .catch(() => live && setChangedState({ path, lines: [] }));
+    return () => { live = false; };
+  }, [active?.path, trusted, changedGitFile?.index, changedGitFile?.worktree, gitStatus]);
+
+  const gutterActions = useMemo(() => {
+    if (
+      !active ||
+      !documentSymbols ||
+      documentSymbols.path !== active.path ||
+      documentSymbols.revision !== active.revision
+    ) {
+      return [];
     }
-    autoEvaluation.current = snapshot.contextId;
-    void runEvaluation();
-  }, [evaluationAvailable, evaluation.state, evaluation.staleReason, snapshot.contextId]);
+    const bulbs: GutterAction[] = [];
+    const seen = new Set<number>();
+    for (const snap of snapshot.diagnostics.snapshots) {
+      if (snap.state !== "current" || !snap.path || !snap.path.replace(/\\/g, "/").endsWith(`/${active.path}`)) continue;
+      for (const item of snap.items) {
+        if (!item.position || seen.has(item.position.line)) continue;
+        seen.add(item.position.line);
+        bulbs.push({
+          line: item.position.line + 1,
+          character: item.position.character,
+          kind: "fix",
+          label: `Show code actions for: ${item.message}`,
+          disabledReason: codeActionsDisabledReason,
+          testId: null,
+          testProject: null,
+        });
+      }
+    }
+    return [
+      ...gutterActionsFor({
+        symbols: documentSymbols.response.symbols,
+        projectPath: activeProjectPath,
+        startupProjectPath: startupProject?.path ?? null,
+        testItems: testDiscovery.items,
+        runDisabledReason,
+        testDisabledReason: testRunBlocked,
+      }),
+      ...bulbs,
+    ];
+  }, [
+    active?.path,
+    active?.revision,
+    documentSymbols,
+    activeProjectPath,
+    startupProject?.path,
+    testDiscovery.items,
+    runDisabledReason,
+    testRunBlocked,
+    snapshot.diagnostics,
+    codeActionsDisabledReason,
+  ]);
 
   useEffect(() => {
     if (evaluation.revision === 0) return;
@@ -562,13 +835,19 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   useEffect(() => {
     // Poll the host so process states and appending trust decisions are not stale. The
     // interval is local to this screen and cheap against the local host.
+    let latest = 0;
     const timer = setInterval(() => {
+      const sequence = ++latest;
       call<Snapshot>("workspace.state")
-        .then(onSnapshot)
+        .then((next) => {
+          // A slow answer must not overwrite a newer state.
+          if (sequence === latest) onSnapshot(next);
+        })
         .catch(() => {});
     }, 400);
     return () => clearInterval(timer);
   }, []);
+
 
   useEffect(() => {
     if (initialFile) {
@@ -637,6 +916,81 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }, [lsp.session, lsp.state, tabs]);
 
+  useEffect(() => {
+    // Gutter positions come from the server's document symbols, never from source parsing.
+    // No analysis, capability or open document means no positions and therefore no icons.
+    const path = active?.path;
+    if (!path || !active || !trusted || !lspActive || !lsp.capabilities?.documentSymbol) {
+      setDocumentSymbols(null);
+      return;
+    }
+    const revision = active.revision;
+    const session = lsp.session;
+    const contextId = snapshot.contextId;
+    const workspaceId = workspace.id;
+    setDocumentSymbols((current) =>
+      current &&
+      current.path === path &&
+      current.session === session &&
+      current.contextId === contextId &&
+      current.workspaceId === workspaceId
+        ? current
+        : null,
+    );
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const synchronized = await flushPendingChanges();
+        if (cancelled || !synchronized) return;
+        try {
+          const response = await call<DocumentSymbolResponse>("lsp.documentSymbol", { path });
+          if (cancelled) return;
+          const tab = tabsRef.current.find((item) => item.path === path);
+          const live = lspViewRef.current;
+          if (
+            !tab ||
+            tab.revision !== revision ||
+            live.session !== response.session ||
+            contextIdRef.current !== response.contextId ||
+            workspaceIdRef.current !== response.workspaceId ||
+            activePathRef.current !== path
+          ) {
+            return;
+          }
+          setDocumentSymbols({
+            path,
+            revision,
+            session: response.session,
+            contextId: response.contextId,
+            workspaceId: response.workspaceId,
+            response,
+          });
+        } catch {
+          if (!cancelled) {
+            setDocumentSymbols((current) =>
+              current && current.path === path && current.session === session
+                ? null
+                : current,
+            );
+          }
+        }
+      })();
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    active?.path,
+    active?.revision,
+    lspActive,
+    lsp.session,
+    lsp.capabilities?.documentSymbol,
+    snapshot.contextId,
+    workspace.id,
+    trusted,
+  ]);
+
   function queueDidChange(path: string, text: string) {
     if (!lspActiveRef.current) return;
     lspPending.current.set(path, text);
@@ -653,31 +1007,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
   }
 
   useEffect(() => {
-    if (!renamePrompt) return;
-    if (activePath !== renamePrompt.path) {
-      renameSeq.current += 1;
-      setRenamePrompt(null);
-      setMessage({ tone: "info", text: "Rename cancelled: another file became active." });
-      return;
-    }
-    const tab = tabs.find((item) => item.path === renamePrompt.path);
-    if (!tab || tab.revision !== renamePrompt.revision || tab.conflict) {
-      renameSeq.current += 1;
-      setRenamePrompt(null);
-      setMessage({
-        tone: "error",
-        text: "Rename prompt discarded: the source buffer changed; nothing was requested.",
-      });
-    }
-  }, [activePath, tabs, renamePrompt]);
-
-  useEffect(() => {
     if (editPreview) editPreviewHeading.current?.focus();
   }, [editPreview ? previewId(editPreview) : null]);
 
   useEffect(() => {
     if (!editPreview) return;
     if (activePath !== editPreview.sourcePath) {
+      editPreviewApplySeq.current += 1;
       setEditPreview(null);
       setMessage({
         tone: "info",
@@ -726,6 +1062,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     if (!editPreview || editPreview.kind !== "action") return;
     const tab = tabs.find((item) => item.path === editPreview.sourcePath);
     if (!tab || tab.revision !== editPreview.sourceRevision || tab.conflict) {
+      editPreviewApplySeq.current += 1;
       setEditPreview(null);
       setMessage({
         tone: "info",
@@ -739,6 +1076,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       contextIdRef.current !== editPreview.contextId ||
       workspaceIdRef.current !== editPreview.workspaceId
     ) {
+      editPreviewApplySeq.current += 1;
       setEditPreview(null);
       setMessage({
         tone: "error",
@@ -936,19 +1274,66 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       return;
     }
     renameSeq.current += 1;
-    setRenameName("");
+    noteCursor(position);
     setMessage(null);
-    setRenamePrompt({
-      path: active.path,
-      line: position.line,
-      character: position.character,
-      revision: active.revision,
-      session: lsp.session,
-      contextId: snapshot.contextId,
-      workspaceId: workspace.id,
-      busy: false,
-      error: null,
-    });
+    setRenameRequest((current) => current + 1);
+  }
+
+  function cancelRenameRequest() {
+    renameSeq.current += 1;
+    setMessage(null);
+  }
+
+  function handleGutterAction(action: GutterAction) {
+    if (action.kind === "fix") {
+      void requestCodeActions({ line: action.line - 1, character: action.character ?? 0 });
+      return;
+    }
+    if (action.kind === "run") {
+      requestRun();
+      return;
+    }
+    if (!action.testId || !action.testProject) return;
+    if (testRunBlocked) {
+      setMessage({ tone: "error", text: `Test run unavailable: ${testRunBlocked}` });
+      return;
+    }
+    void startTestRun(action.testProject, "selected", [action.testId]);
+  }
+
+  function openCommitPanel(path: string | null = null) {
+    setCommitFocusPath(path);
+    setLayout((current) => ({
+      ...current,
+      left: { ...current.left, active: "commit", open: true },
+    }));
+  }
+
+  async function showGitDiff(path: string) {
+    const file = gitStatus?.files.find((entry) => entry.path === path);
+    const staged = Boolean(file && file.staged && file.worktree === " ");
+    try {
+      setGitDiffView(await call<GitDiffView>("git.diff", { path, staged }));
+    } catch (error) {
+      setGitDiffView({
+        state: "failed",
+        message: messageOf(error),
+        path,
+        staged,
+        diff: "",
+        truncated: false,
+      });
+    }
+  }
+
+  async function copyPath(path: string) {
+    try {
+      if (!navigator.clipboard) throw new Error("the clipboard is not accessible in this context");
+      await navigator.clipboard.writeText(path);
+      setMessage({ tone: "info", text: `Copied path: ${path}` });
+    } catch (error) {
+      setMessage({ tone: "error", text: `Copy Path unavailable: ${messageOf(error)}` });
+    }
   }
 
   async function requestCodeActions(position = cursorRef.current) {
@@ -1067,6 +1452,116 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     setMessage({ tone: "info", text: "Code actions closed; nothing was applied." });
   }
 
+  async function requestFindUsages(position = cursorRef.current) {
+    if (!active) return;
+    if (findUsagesDisabledReason) {
+      setMessage({ tone: "error", text: `Find Usages unavailable: ${findUsagesDisabledReason}` });
+      return;
+    }
+    const sourcePath = active.path;
+    const sourceRevision = active.revision;
+    const session = lsp.session;
+    const contextId = snapshot.contextId;
+    const workspaceId = workspace.id;
+    const sequence = ++findUsagesSeq.current;
+    setFindUsages(null);
+    setMessage(null);
+    const synchronized = await flushPendingChanges();
+    if (sequence !== findUsagesSeq.current) return;
+    if (!synchronized) {
+      setMessage({
+        tone: "error",
+        text: "Find Usages unavailable: the current buffer could not be sent to analysis.",
+      });
+      return;
+    }
+    const tab = tabsRef.current.find((item) => item.path === sourcePath);
+    const live = lspViewRef.current;
+    if (
+      !tab ||
+      tab.revision !== sourceRevision ||
+      tab.conflict ||
+      live.session !== session ||
+      activePathRef.current !== sourcePath
+    ) {
+      setMessage({
+        tone: "error",
+        text: "Find Usages discarded: the document or analysis session changed before the request.",
+      });
+      return;
+    }
+    let response: ReferencesResponse;
+    try {
+      response = await call<ReferencesResponse>("lsp.references", {
+        path: sourcePath,
+        line: position.line,
+        character: position.character,
+        revision: sourceRevision,
+      });
+    } catch (error) {
+      if (sequence !== findUsagesSeq.current) return;
+      setMessage({ tone: "error", text: `Find Usages unavailable: ${messageOf(error)}` });
+      return;
+    }
+    if (sequence !== findUsagesSeq.current) return;
+    const currentTab = tabsRef.current.find((item) => item.path === sourcePath);
+    const liveAfter = lspViewRef.current;
+    if (
+      !currentTab ||
+      currentTab.revision !== sourceRevision ||
+      currentTab.conflict ||
+      liveAfter.session !== response.session ||
+      contextIdRef.current !== response.contextId ||
+      workspaceIdRef.current !== response.workspaceId ||
+      activePathRef.current !== sourcePath
+    ) {
+      setMessage({
+        tone: "error",
+        text: "Find Usages discarded: the document, workspace or analysis session changed while csharp-ls was answering.",
+      });
+      return;
+    }
+    const snippets: Record<string, string | null> = {};
+    const byPath = new Map<string, number[]>();
+    for (const reference of response.references) {
+      byPath.set(reference.path, [...(byPath.get(reference.path) ?? []), reference.line]);
+    }
+    await Promise.all(
+      [...byPath.entries()].map(async ([path, lines]) => {
+        const open = tabsRef.current.find((item) => item.path === path);
+        let content: string | null = open?.content ?? null;
+        if (content === null) {
+          try {
+            content = (await call<{ content: string }>("file.read", { path })).content;
+          } catch {
+            content = null;
+          }
+        }
+        for (const line of lines) {
+          snippets[`${path}:${line}`] = content === null ? null : lineSnippet(content, line);
+        }
+      }),
+    );
+    if (sequence !== findUsagesSeq.current) return;
+    setFindUsages({ response, snippets });
+    if (response.state !== "ok") {
+      setMessage({
+        tone: "error",
+        text: `Find Usages ${response.state}: ${response.message ?? "csharp-ls did not answer."}`,
+      });
+    } else if (response.referenceCount === 0) {
+      setMessage({
+        tone: "info",
+        text: `Find Usages: csharp-ls returned no references at ${sourcePath}:${position.line + 1}:${position.character + 1}.`,
+      });
+    } else {
+      setMessage({
+        tone: "info",
+        text: `Find Usages: ${countLabel(response.referenceCount, "reference")} from csharp-ls; the list is read-only.`,
+      });
+    }
+  }
+
   function revalidateActionList(list: ActionList): string | null {
     const live = lspViewRef.current;
     if (!["loading", "ready", "partial", "awaiting_diagnostics"].includes(live.state)) {
@@ -1122,6 +1617,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
     const tabRevisions: Record<string, number> = {};
     for (const tab of tabsRef.current) tabRevisions[tab.path] = tab.revision;
+    editPreviewApplySeq.current += 1;
     setActionList(null);
     setEditPreview({
       kind: "action",
@@ -1145,12 +1641,6 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     });
   }
 
-  function cancelRenamePrompt() {
-    renameSeq.current += 1;
-    setRenamePrompt(null);
-    setMessage({ tone: "info", text: "Rename cancelled; no request was kept." });
-  }
-
   async function flushPendingChanges() {
     if (lspChangeTimer.current !== null) {
       window.clearTimeout(lspChangeTimer.current);
@@ -1165,116 +1655,100 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     return results.every((result) => result.status === "fulfilled");
   }
 
-  async function submitRename() {
-    const prompt = renamePrompt;
-    if (!prompt || prompt.busy) return;
-    const name = renameName.trim();
-    if (!name) {
-      setRenamePrompt({ ...prompt, error: "Enter the new name." });
-      return;
+  async function submitRenameInline(
+    position: { line: number; character: number },
+    newName: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const tab = tabsRef.current.find((item) => item.path === activePathRef.current);
+    if (!tab) return { ok: false, error: "Rename unavailable: no file is active." };
+    if (renameDisabledReason) {
+      return { ok: false, error: `Rename unavailable: ${renameDisabledReason}` };
     }
-    const sequence = ++renameSeq.current;
-    setRenamePrompt({ ...prompt, busy: true, error: null });
     if (!lspActiveRef.current) {
-      setRenamePrompt((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error: "Analysis is not running; no rename was requested.",
-            }
-          : current,
-      );
-      return;
+      return { ok: false, error: "Analysis is not running; no rename was requested." };
     }
+    const sourcePath = tab.path;
+    const sourceRevision = tab.revision;
+    const session = lspViewRef.current.session;
+    const contextId = contextIdRef.current;
+    const workspaceId = workspaceIdRef.current;
+    const sequence = ++renameSeq.current;
     // Analysis must see the buffer the preview is based on; a pending debounce would let
     // csharp-ls compute the rename from older text.
     const synchronized = await flushPendingChanges();
-    if (sequence !== renameSeq.current) return;
-    if (!synchronized) {
-      setRenamePrompt((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error:
-                "Could not send the current buffer to analysis; no rename was requested.",
-            }
-          : current,
-      );
-      return;
+    if (sequence !== renameSeq.current) {
+      return { ok: false, error: "Rename cancelled; no preview was opened." };
     }
-    const tab = tabsRef.current.find((item) => item.path === prompt.path);
+    if (!synchronized) {
+      return {
+        ok: false,
+        error: "Could not send the current buffer to analysis; no rename was requested.",
+      };
+    }
     const live = lspViewRef.current;
-    if (!tab || tab.revision !== prompt.revision || tab.conflict || live.session !== prompt.session) {
-      setRenamePrompt(null);
-      setMessage({
-        tone: "error",
-        text: "Rename discarded: the document or analysis session changed while the prompt was open.",
-      });
-      return;
+    const current = tabsRef.current.find((item) => item.path === sourcePath);
+    if (
+      !current ||
+      current.revision !== sourceRevision ||
+      current.conflict ||
+      live.session !== session ||
+      activePathRef.current !== sourcePath
+    ) {
+      const error =
+        "Rename discarded: the document or analysis session changed before the request.";
+      setMessage({ tone: "error", text: error });
+      return { ok: false, error };
     }
     let response: RenameResponse;
     try {
       response = await call<RenameResponse>("lsp.rename", {
-        path: prompt.path,
-        line: prompt.line,
-        character: prompt.character,
-        newName: name,
-        revision: prompt.revision,
+        path: sourcePath,
+        line: position.line,
+        character: position.character,
+        newName,
+        revision: sourceRevision,
       });
     } catch (error) {
-      if (sequence !== renameSeq.current) return;
-      setRenamePrompt((current) =>
-        current
-          ? { ...current, busy: false, error: `Rename unavailable: ${messageOf(error)}` }
-          : current,
-      );
-      return;
+      if (sequence !== renameSeq.current) {
+        return { ok: false, error: "Rename cancelled; no preview was opened." };
+      }
+      return { ok: false, error: `Rename unavailable: ${messageOf(error)}` };
     }
-    if (sequence !== renameSeq.current) return;
-    const currentTab = tabsRef.current.find((item) => item.path === prompt.path);
+    if (sequence !== renameSeq.current) {
+      return { ok: false, error: "Rename cancelled; no preview was opened." };
+    }
+    const currentTab = tabsRef.current.find((item) => item.path === sourcePath);
     const liveAfter = lspViewRef.current;
     if (
       !currentTab ||
-      currentTab.revision !== prompt.revision ||
+      currentTab.revision !== sourceRevision ||
       currentTab.conflict ||
-      liveAfter.session !== prompt.session ||
-      contextIdRef.current !== prompt.contextId ||
-      workspaceIdRef.current !== prompt.workspaceId
+      liveAfter.session !== session ||
+      contextIdRef.current !== contextId ||
+      workspaceIdRef.current !== workspaceId
     ) {
-      setRenamePrompt(null);
-      setMessage({
-        tone: "error",
-        text: "Rename response discarded: the document, workspace or analysis session changed while csharp-ls was answering; nothing was applied.",
-      });
-      return;
+      const error =
+        "Rename response discarded: the document, workspace or analysis session changed while csharp-ls was answering; nothing was applied.";
+      setMessage({ tone: "error", text: error });
+      return { ok: false, error };
     }
     if (response.state !== "ok" || response.documentCount === 0) {
-      setRenamePrompt((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error: `Rename ${response.state}: ${
-                response.message ?? "csharp-ls returned no edits."
-              }`,
-            }
-          : current,
-      );
-      return;
+      return {
+        ok: false,
+        error: `Rename ${response.state}: ${response.message ?? "csharp-ls returned no edits."}`,
+      };
     }
     const tabRevisions: Record<string, number> = {};
-    for (const tab of tabsRef.current) tabRevisions[tab.path] = tab.revision;
-    setRenamePrompt(null);
+    for (const openTab of tabsRef.current) tabRevisions[openTab.path] = openTab.revision;
+    editPreviewApplySeq.current += 1;
     setEditPreview({
       kind: "rename",
       response,
-      sourcePath: prompt.path,
-      sourceRevision: prompt.revision,
-      session: prompt.session,
-      contextId: prompt.contextId,
-      workspaceId: prompt.workspaceId,
+      sourcePath,
+      sourceRevision,
+      session,
+      contextId,
+      workspaceId,
       tabRevisions,
       stale: null,
       applying: false,
@@ -1286,16 +1760,48 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         "edit",
       )}; nothing has been applied.`,
     });
+    return { ok: true };
   }
 
   function cancelEditPreview() {
+    // Cancel is disabled while Apply is revalidating; every dismissal path (button, popup Esc, editor Esc/click)
+    // must obey the same guard so a cancel cannot race the post-await application.
+    if (editPreview?.applying) return;
     const preview = editPreview;
+    editPreviewApplySeq.current += 1;
     setEditPreview(null);
     setMessage({
       tone: "info",
       text: `${preview ? previewKindLabel(preview) : "Preview"} cancelled; no buffer or file changed.`,
     });
   }
+
+  // D-12: an open rename preview or code-action list must not trap the editor. A click on the editor text, or Esc
+  // while the editor really has focus, cancels it with the same "nothing applied" path as its own Cancel/Esc.
+  // Clicks inside the popup and an Apply already revalidating are left alone.
+  useEffect(() => {
+    if (!editPreview && !actionList) return;
+    const close = () => {
+      if (editPreview) cancelEditPreview();
+      else cancelActionList();
+    };
+    const inEditorText = (target: EventTarget | null) =>
+      target instanceof Element &&
+      target.closest(".cm-editor") !== null &&
+      target.closest('[data-testid="editor-shell"]') !== null;
+    const onPointerDown = (event: PointerEvent) => {
+      if (inEditorText(event.target)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && inEditorText(document.activeElement)) close();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [editPreview, actionList]);
 
   function revalidateEditPreview(preview: EditPreview): string | null {
     const live = lspViewRef.current;
@@ -1349,6 +1855,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     const preview = editPreview;
     if (!preview || preview.applying) return;
     const id = previewId(preview);
+    const application = ++editPreviewApplySeq.current;
     const label = preview.kind === "rename" ? "Rename" : "Code action";
     const fail = (reason: string) => {
       setEditPreview((current) =>
@@ -1357,6 +1864,15 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
           : current,
       );
       setMessage({ tone: "error", text: `${label} not applied: ${reason}` });
+    };
+    const stillOwnsPreview = () => {
+      const current = editPreviewRef.current;
+      return (
+        application === editPreviewApplySeq.current &&
+        current !== null &&
+        previewId(current) === id &&
+        current.applying
+      );
     };
     const reason = revalidateEditPreview(preview);
     if (reason) {
@@ -1387,6 +1903,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         problems.push(`${document.path} changed on disk after the preview`);
       }
     }
+    // A late read from an old application must not mutate a newer preview or status, whether it
+    // succeeded or failed. Only the owner of the current preview may report a read problem.
+    if (!stillOwnsPreview()) return;
     if (problems.length > 0) {
       fail(`${problems.join("; ")}. No buffer or file was changed.`);
       return;
@@ -1539,30 +2058,42 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
-  async function runEvaluation(next?: {
-    configuration?: string;
-    targetFramework?: string | null;
-  }) {
-    const configuration = next?.configuration ?? evaluation.context.configuration;
-    const targetFramework =
-      next && "targetFramework" in next
-        ? next.targetFramework ?? null
-        : evaluation.context.targetFramework;
-    setEvaluating(true);
-    try {
-      onSnapshot(
-        await call<Snapshot>("evaluation.run", { configuration, targetFramework }),
-      );
-      setMessage(null);
-    } catch (error) {
-      setMessage({ tone: "error", text: `Evaluation could not run: ${messageOf(error)}` });
-      try {
-        onSnapshot(await call<Snapshot>("workspace.state"));
-      } catch {
-        // The message above already explains the failure.
-      }
-    } finally {
-      setEvaluating(false);
+  function openRunConfigDialog(id?: string) {
+    setRunConfigInitialId(id ?? activeRunConfig?.id ?? DEFAULT_RUN_CONFIG_ID);
+    setRunConfigOpen(true);
+  }
+
+  function setStartupProject(path: string) {
+    if (!activeNamedConfig) {
+      setStartupPath(path);
+      return;
+    }
+    const configs = (runConfigStore?.configs ?? []).map((config) =>
+      config.id === activeNamedConfig.id ? { ...config, project: path } : config,
+    );
+    void commitRunConfigs(configs, activeNamedConfig.id).catch((error) =>
+      setMessage({
+        tone: "error",
+        text: `The run configuration could not be updated: ${messageOf(error)}`,
+      }),
+    );
+  }
+
+  function invalidRunConfigReason(config: RunConfig | null = activeRunConfig) {
+    const issues = config
+      ? (runConfigStore?.issues ?? []).filter((issue) => issue.configId === config.id)
+      : [];
+    if (!config || issues.length === 0) return null;
+    return `The active run configuration “${config.name}” cannot run: ${issues
+      .map((issue) => issue.message)
+      .join(" ")} Edit the configuration before running.`;
+  }
+
+  function openConfigOnFieldError(error: unknown) {
+    if (!(error instanceof HostCallError)) return;
+    const field = (error.details as { field?: string } | undefined)?.field;
+    if (["args", "workingDirectory", "env", "envFiles"].includes(field ?? "")) {
+      openRunConfigDialog(activeRunConfig?.id);
     }
   }
 
@@ -1570,92 +2101,16 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     void openFile(projectSdk.globalJsonPath ?? "global.json");
   }
 
-  async function startRestore(method: "restore.start" | "restore.retry") {
-    try {
-      onSnapshot(await call<Snapshot>(method, {}));
-      setMessage(null);
-    } catch (error) {
-      setMessage({ tone: "error", text: `Restore could not start: ${messageOf(error)}` });
-    }
-  }
-
-  async function cancelRestore() {
-    try {
-      onSnapshot(await call<Snapshot>("restore.cancel"));
-    } catch (error) {
-      setMessage({ tone: "error", text: `Restore cancellation failed: ${messageOf(error)}` });
-    }
-  }
-
-  async function startBuild(savedNote: string) {
-    if (!startupProject) {
-      setMessage({
-        tone: "error",
-        text: "Choose a console startup project before building.",
-      });
-      return;
-    }
-    setBottomTab("build");
-    try {
-      onSnapshot(
-        await call<Snapshot>("build.start", {
-          project: startupProject.path,
-          configuration: evaluation.context.configuration,
-          targetFramework: evaluation.context.targetFramework,
-          savedNote,
-        }),
-      );
-      setMessage(null);
-    } catch (error) {
-      const text = `Build could not start: ${messageOf(error)}`;
-      setMessage({ tone: "error", text });
-      if (error instanceof HostCallError && error.code === "restore_required") {
-        setBottomTab("build");
-      }
-    }
-  }
-
-  function requestBuild() {
-    if (buildDisabledReason) {
-      setMessage({ tone: "error", text: `Build unavailable: ${buildDisabledReason}` });
-      return;
-    }
-    if (dirtyCount > 0) {
-      setBuildDecision(true);
-      return;
-    }
-    void startBuild("Built saved content; no unsaved buffers were open.");
-  }
-
-  async function saveAllAndBuild() {
-    const dirty = dirtyCount;
-    const failures = await saveAll();
-    if (failures.length > 0) {
-      setBuildDecision(false);
-      setMessage({ tone: "error", text: failures.join(" ") });
-      return;
-    }
-    setBuildDecision(false);
-    await startBuild(
-      `Saved all ${dirty} modified buffer${dirty === 1 ? "" : "s"} before building.`,
-    );
-  }
-
-  async function buildSavedContent() {
-    const excluded = dirtyCount;
-    setBuildDecision(false);
-    await startBuild(
-      `Built saved content; ${excluded} unsaved buffer${excluded === 1 ? "" : "s"} excluded.`,
-    );
-  }
-
-  async function cancelBuild() {
-    try {
-      onSnapshot(await call<Snapshot>("build.cancel"));
-    } catch (error) {
-      setMessage({ tone: "error", text: `Build cancellation failed: ${messageOf(error)}` });
-    }
-  }
+  const {
+    buildDecision, setBuildDecision, runDecision, setRunDecision, debugConsent, setDebugConsent,
+    startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
+    startRun, requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
+    prepareAndRun, prepareAndDebug, startDebug, requestDebugStart, stopDebug,
+  } = useExecutionFlow({
+    snapshot, trusted, evaluation, build, buildRunning, runRunning, dirtyCount, consoleCandidates, startupProject,
+    activeRunConfig, activeConfigEvaluated, buildDisabledReason, debugDisabledReason, runAvailabilityReason,
+    onSnapshot, setMessage, setBottomTab, saveAll, invalidRunConfigReason, openRunConfigDialog, openConfigOnFieldError,
+  });
 
   async function startTestDiscovery(project: string) {
     setBottomTab("tests");
@@ -1717,95 +2172,13 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
-  async function startRun() {
-    if (!startupProject) {
-      setMessage({
-        tone: "error",
-        text: "Choose a console startup project before running.",
-      });
-      return;
-    }
-    setBottomTab("build");
-    try {
-      onSnapshot(
-        await call<Snapshot>("run.start", {
-          project: startupProject.path,
-          configuration: evaluation.context.configuration,
-          targetFramework: evaluation.context.targetFramework,
-        }),
-      );
-      setMessage(null);
-    } catch (error) {
-      setMessage({ tone: "error", text: `Run could not start: ${messageOf(error)}` });
-      try {
-        onSnapshot(await call<Snapshot>("workspace.state"));
-      } catch {
-        // The message above already explains the failure.
-      }
-    }
-  }
-
-  function requestRun() {
-    if (runDisabledReason) {
-      setMessage({ tone: "error", text: `Run unavailable: ${runDisabledReason}` });
-      return;
-    }
-    if (dirtyCount > 0) {
-      setRunDecision(true);
-      return;
-    }
-    void startRun();
-  }
-
-  async function saveAllAndRebuild() {
-    setRunDecision(false);
-    await saveAllAndBuild();
-  }
-
-  function runSavedBuild() {
-    setRunDecision(false);
-    void startRun();
-  }
-
-  async function cancelRun() {
-    try {
-      onSnapshot(await call<Snapshot>("run.cancel"));
-    } catch (error) {
-      setMessage({ tone: "error", text: `Run cancellation failed: ${messageOf(error)}` });
-    }
-  }
-
-  async function startDebug() {
-    if (debugDisabledReason) {
-      setMessage({ tone: "error", text: `Debug unavailable: ${debugDisabledReason}` });
-      return;
-    }
-    setBottomTab("debug");
-    try {
-      onSnapshot(
-        await call<Snapshot>("debug.start", {
-          project: startupProject?.path,
-          configuration: evaluation.context.configuration,
-          targetFramework: evaluation.context.targetFramework,
-        }),
-      );
-      setMessage(null);
-    } catch (error) {
-      setMessage({ tone: "error", text: `Debug could not start: ${messageOf(error)}` });
-      try {
-        onSnapshot(await call<Snapshot>("workspace.state"));
-      } catch {
-        // The message above already explains the failure.
-      }
-    }
-  }
-
-  async function stopDebug() {
-    try {
-      onSnapshot(await call<Snapshot>("debug.stop"));
-    } catch (error) {
-      setMessage({ tone: "error", text: `Debug stop failed: ${messageOf(error)}` });
-    }
+  function toggleTestSelected(id: string) {
+    setTestSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   async function toggleBreakpoint(line: number) {
@@ -1832,7 +2205,28 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
-  async function debugAction(method: "debug.continue" | "debug.stepOver" | "debug.stepInto") {
+  async function restartDebug() {
+    await stopDebug();
+    await requestDebugStart();
+  }
+
+  async function runToCursor() {
+    if (!active) return;
+    try {
+      onSnapshot(
+        await call<Snapshot>("debug.runToCursor", {
+          path: active.path,
+          line: cursorRef.current.line + 1,
+        }),
+      );
+    } catch (error) {
+      setMessage({ tone: "error", text: `Run to Cursor failed: ${messageOf(error)}` });
+    }
+  }
+
+  async function debugAction(
+    method: "debug.continue" | "debug.pause" | "debug.stepOver" | "debug.stepInto" | "debug.stepOut",
+  ) {
     try {
       onSnapshot(await call<Snapshot>(method));
     } catch (error) {
@@ -1840,63 +2234,635 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
-  requestBuildRef.current = requestBuild;
-  requestRunRef.current = requestRun;
-  requestDebugRef.current = () => void startDebug();
-  debugStepOverRef.current = () => void debugAction("debug.stepOver");
-  debugStepIntoRef.current = () => void debugAction("debug.stepInto");
-  toggleBreakpointAtRef.current = (line) => void toggleBreakpoint(line);
-  dapPausedRef.current = snapshot.dap.state === "paused";
+  function hideActiveToolWindow() {
+    const other: ToolWindowSlot = activeSlot === "left" ? "bottom" : "left";
+    const slot: ToolWindowSlot | null = layout[activeSlot].open
+      ? activeSlot
+      : layout[other].open
+        ? other
+        : null;
+    if (!slot) return;
+    setLayout((current) => {
+      const state = current[slot];
+      const next = { ...state, open: false };
+      return slot === "left" ? { ...current, left: next } : { ...current, bottom: next };
+    });
+    document.querySelector<HTMLElement>('[data-testid="editor"]')?.focus();
+  }
+
+  function stopExecution() {
+    if (debugActive) {
+      void stopDebug();
+    } else if (runRunning) {
+      void cancelRun();
+    }
+  }
+
+  function openSearch(tab: SearchTab | "last") {
+    setKeymapOpen(false);
+    setSearchTab(tab);
+    setFindActionOpen(true);
+  }
+
+  function openFindAction() {
+    openSearch("actions");
+  }
+
+  function closeSearch() {
+    setFindActionOpen(false);
+    focusEditor();
+  }
+
+  function focusEditor() {
+    const editor = document.querySelector<HTMLElement>('[data-testid="editor"]');
+    (editor?.querySelector<HTMLElement>(".cm-content") ?? editor)?.focus();
+  }
+
+  function openSearchFile(path: string) {
+    setFindActionOpen(false);
+    focusEditor();
+    void openFile(path);
+  }
+
+  function openSearchLocation(path: string, line: number, character: number) {
+    setFindActionOpen(false);
+    focusEditor();
+    void navigateTo(path, { line, character });
+  }
+
+  function openKeymap() {
+    setFindActionOpen(false);
+    setKeymapOpen(true);
+  }
+
+  function openSettings() {
+    if (settingsOpen) return;
+    setFindActionOpen(false);
+    setKeymapOpen(false);
+    settingsBaseline.current = settings;
+    setSettingsOpen(true);
+  }
+
+  /** Draft changes apply live; Cancel restores the snapshot taken when Settings opened. */
+  function updateSettings(next: AppSettings) {
+    setSettings(next);
+  }
+
+  function cancelSettings() {
+    if (settingsBaseline.current) setSettings(settingsBaseline.current);
+    settingsBaseline.current = null;
+    setSettingsOpen(false);
+  }
+
+  async function saveSettings(): Promise<string | null> {
+    try {
+      const result = await call<{ settings: unknown }>("settings.write", {
+        settings,
+      });
+      setSettings(normalizeSettings(result.settings));
+      settingsBaseline.current = null;
+      setSettingsOpen(false);
+      return null;
+    } catch (error) {
+      return `Settings were not saved: ${messageOf(error)}`;
+    }
+  }
+
+  async function saveKeymap(keymap: Keymap): Promise<string | null> {
+    const next = { ...settings, keymap };
+    try {
+      const result = await call<{ settings: unknown }>("settings.write", {
+        settings: next,
+      });
+      setSettings(normalizeSettings(result.settings));
+      return null;
+    } catch (error) {
+      return `Settings were not saved: ${messageOf(error)}`;
+    }
+  }
+
+  function define(action: Omit<Action, "editor"> & { editor?: boolean }): Action {
+    return { editor: true, ...action };
+  }
+
+  const actions: Action[] = [
+    define({
+      id: "view.findAction",
+      title: "Find Action",
+      group: "General",
+      execute: openFindAction,
+    }),
+    define({
+      id: "view.keymap",
+      title: "Keymap: change shortcuts",
+      group: "General",
+      execute: openKeymap,
+    }),
+    define({
+      id: "file.save",
+      title: "Save",
+      group: "File",
+      execute: () => void save(),
+      disabledReason: active ? null : "Open a file to save.",
+    }),
+    define({
+      id: "toolWindow.hideActive",
+      title: "Hide Active Tool Window",
+      group: "Tool Windows",
+      editor: false,
+      execute: hideActiveToolWindow,
+      disabledReason:
+        layout.left.open || layout.bottom.open ? null : "No tool window is open.",
+    }),
+    ...toolWindows.map((tool) =>
+      define({
+        id: `toolWindow.${tool.id}`,
+        title: tool.title,
+        group: "Tool Windows",
+        execute: () => toggleToolWindow(tool.slot, tool.id),
+      }),
+    ),
+    define({
+      id: "build.start",
+      title: "Build",
+      group: "Build",
+      execute: requestBuild,
+      disabledReason: buildDisabledReason,
+    }),
+    define({
+      id: "run.start",
+      title: "Run",
+      group: "Run",
+      execute: requestRun,
+      disabledReason: runDisabledReason,
+    }),
+    define({
+      id: "debug.start",
+      title: "Debug",
+      group: "Debug",
+      execute: () => void startDebug(),
+      disabledReason: debugDisabledReason,
+    }),
+    define({
+      id: "run.stop",
+      title: "Stop",
+      group: "Run",
+      execute: stopExecution,
+      disabledReason:
+        debugActive || runRunning ? null : "Nothing is running; there is no session to stop.",
+    }),
+    define({
+      id: "debug.stepOver",
+      title: "Step Over",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "paused") void debugAction("debug.stepOver");
+      },
+      disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.stepInto",
+      title: "Step Into",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "paused") void debugAction("debug.stepInto");
+      },
+      disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.continue",
+      title: "Resume",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "paused") void debugAction("debug.continue");
+      },
+      disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.stepOut",
+      title: "Step Out",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "paused") void debugAction("debug.stepOut");
+      },
+      disabledReason: dap.state === "paused" ? null : "No paused debug session.",
+    }),
+    define({
+      id: "debug.runToCursor",
+      title: "Run to Cursor",
+      group: "Debug",
+      execute: () => void runToCursor(),
+      disabledReason:
+        dap.state !== "paused"
+          ? "No paused debug session."
+          : active?.path.endsWith(".cs")
+            ? null
+            : "Open a C# file to run to a line.",
+    }),
+    define({
+      id: "debug.pause",
+      title: "Pause",
+      group: "Debug",
+      execute: () => {
+        if (dap.state === "running") void debugAction("debug.pause");
+      },
+      disabledReason: dap.state === "running" ? null : "The debuggee is not running.",
+    }),
+    define({
+      id: "debug.stop",
+      title: "Stop Debugging",
+      group: "Debug",
+      execute: () => void stopDebug(),
+      disabledReason: debugActive ? null : "No debug session to stop.",
+    }),
+    define({
+      id: "debug.toggleBreakpoint",
+      title: "Toggle Breakpoint",
+      group: "Debug",
+      execute: () => void toggleBreakpoint(cursorRef.current.line + 1),
+      disabledReason: !active
+        ? "Open a file to set a breakpoint."
+        : !active.path.endsWith(".cs")
+          ? "Breakpoints are supported for C# sources only."
+          : null,
+    }),
+    define({
+      id: "code.goToDeclaration",
+      title: "Go to Declaration",
+      group: "Code",
+      execute: () => setDefinitionRequest((current) => current + 1),
+      disabledReason: goToDefinitionDisabledReason,
+    }),
+    define({
+      id: "code.findUsages",
+      title: "Find Usages",
+      group: "Code",
+      execute: () => void requestFindUsages(),
+      disabledReason: findUsagesDisabledReason,
+    }),
+    define({
+      id: "code.contextActions",
+      title: "Show Context Actions",
+      group: "Code",
+      execute: () => void requestCodeActions(),
+      disabledReason: codeActionsDisabledReason,
+    }),
+    define({
+      id: "code.rename",
+      title: "Rename Symbol",
+      group: "Code",
+      execute: () => requestRename(),
+      disabledReason: renameDisabledReason,
+    }),
+    define({
+      id: "search.everywhere",
+      title: "Search Everywhere",
+      group: "Search",
+      execute: () => openSearch("last"),
+    }),
+    define({
+      id: "search.file",
+      title: "Go to File",
+      group: "Search",
+      execute: () => openSearch("files"),
+    }),
+    define({
+      id: "search.symbol",
+      title: "Go to Symbol",
+      group: "Search",
+      execute: () => openSearch("symbols"),
+    }),
+    define({
+      id: "search.text",
+      title: "Find in Path",
+      group: "Search",
+      execute: () => openSearch("text"),
+    }),
+    define({
+      id: "search.line",
+      title: "Go to Line",
+      group: "Search",
+      execute: () => undefined,
+      disabledReason: "Go to Line arrives in F3.",
+    }),
+    define({
+      id: "tests.runAll",
+      title: "Run All Tests",
+      group: "Tests",
+      execute: () => {
+        if (testProject) void startTestRun(testProject.path, "all", []);
+      },
+      disabledReason: testRunBlocked,
+    }),
+    define({
+      id: "tests.runSelected",
+      title: "Run Selected Tests",
+      group: "Tests",
+      execute: () => {
+        if (testProject) void startTestRun(testProject.path, "selected", Array.from(testSelected));
+      },
+      disabledReason:
+        testRunBlocked ??
+        (testSelected.size === 0
+          ? "Select at least one discovered test; an empty selection never runs all tests."
+          : null),
+    }),
+    define({
+      id: "tests.debugSelected",
+      title: "Debug Selected Tests",
+      group: "Tests",
+      execute: () =>
+        setMessage({ tone: "error", text: `Debug selected unavailable: ${testDebugUnavailable}` }),
+      disabledReason: testDebugUnavailable,
+    }),
+    define({
+      id: "tests.rerunFailed",
+      title: "Rerun Failed Tests",
+      group: "Tests",
+      execute: () => {
+        if (testProject) {
+          void startTestRun(
+            testProject.path,
+            "selected",
+            failedTestIds(snapshot.tests.run, testDiscovery),
+          );
+        }
+      },
+      disabledReason: testRerunBlocked,
+    }),
+    define({
+      id: "tests.stop",
+      title: "Stop Test Run",
+      group: "Tests",
+      execute: () => {
+        if (testDiscovery.state === "discovering") void cancelTestDiscovery();
+        else if (snapshot.tests.run.state === "running") void cancelTestRun();
+      },
+      disabledReason:
+        testDiscovery.state === "discovering" || snapshot.tests.run.state === "running"
+          ? null
+          : "No test discovery or run is active.",
+    }),
+    define({
+      id: "tests.refresh",
+      title: "Refresh Tests",
+      group: "Tests",
+      execute: () => {
+        if (testProject) void startTestDiscovery(testProject.path);
+      },
+      disabledReason:
+        testsDisabledReason ??
+        (testProject
+          ? null
+          : "Select an evaluated test project explicitly; discovery never guesses."),
+    }),
+    define({
+      id: "tests.quickList",
+      title: "Show Test Quick List",
+      group: "Tests",
+      execute: () => setQuickListOpen(true),
+    }),
+    define({
+      id: "git.commit",
+      title: "Commit…",
+      group: "Git",
+      execute: () => openCommitPanel(),
+      disabledReason: gitBlockedReason(gitStatus, gitStatusError, trusted),
+    }),
+    define({
+      id: "git.push",
+      title: "Push…",
+      group: "Git",
+      execute: () => openGitIntent("push"),
+      disabledReason: gitPushBlockedReason(gitStatus, gitStatusError, trusted),
+    }),
+    define({
+      id: "git.update",
+      title: "Update Project…",
+      group: "Git",
+      execute: () => openGitIntent("update"),
+      disabledReason: gitUpdateBlockedReason(gitStatus, gitStatusError, trusted),
+    }),
+    define({
+      id: "git.branchCreate",
+      title: "New Branch…",
+      group: "Git",
+      execute: () => openGitIntent("branchCreate"),
+      disabledReason: gitBlockedReason(gitStatus, gitStatusError, trusted),
+    }),
+    define({
+      id: "run.configure",
+      title: "Edit Run Configurations…",
+      group: "Run",
+      execute: () => openRunConfigDialog(),
+    }),
+    define({
+      id: "settings.open",
+      title: "Open Settings",
+      group: "Settings",
+      execute: openSettings,
+    }),
+    define({
+      id: "sdk.redetect",
+      title: "Redetect SDKs",
+      group: "Build",
+      execute: () => void redetectSdks(),
+    }),
+    define({
+      id: "sdk.openGlobalJson",
+      title: "Open global.json",
+      group: "Build",
+      execute: () => {
+        if (projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json") {
+          openGlobalJson();
+        }
+      },
+      disabledReason:
+        projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json"
+          ? null
+          : "global.json is valid or no project SDK is pinned.",
+    }),
+    define({
+      id: "workspace.close",
+      title: "Close Workspace",
+      group: "Workspace",
+      execute: requestCloseWorkspace,
+    }),
+  ];
+  const resolvedActions = resolveActions(
+    actions,
+    settings.keymap,
+    snapshot.app.platform,
+  );
+  const actionById = new Map(resolvedActions.map((action) => [action.id, action]));
+  const testQuickItems = [
+    { id: "tests.runAll", title: "Run all" },
+    { id: "tests.runSelected", title: "Run selected" },
+    { id: "tests.debugSelected", title: "Debug" },
+    { id: "tests.rerunFailed", title: "Rerun failed" },
+    { id: "tests.stop", title: "Stop" },
+  ].map(({ id, title }) => {
+    const action = actionById.get(id);
+    return {
+      id,
+      title,
+      shortcut:
+        [...(action?.shortcutLabels ?? []), ...(action?.chordLabels ?? [])].join(" ") ||
+        "No shortcut",
+      disabledReason: action ? (action.disabledReason ?? null) : "Action unavailable.",
+      execute: () => action?.execute(),
+    };
+  });
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+    document.querySelector<HTMLElement>('[data-testid="editor"]')?.focus();
+  }, []);
+  const activeGitFile = active
+    ? gitStatus?.files.find((entry) => entry.path === active.path) ?? null
+    : null;
+  const gitContextDisabledReason =
+    gitBlockedReason(gitStatus, gitStatusError, trusted) ??
+    (activeGitFile ? null : "This file has no uncommitted changes in Git.");
+  const shortcutOf = (id: string) => actionById.get(id)?.shortcutTexts[0];
+  function contextMenuItems(state: ContextMenuState): ContextMenuItem[] {
+    const action = gutterActionAt(gutterActions, state.line + 1);
+    const test = action?.kind === "test" ? action : null;
+    const position = { line: state.line, character: state.character };
+    return [
+      {
+        id: "context-actions",
+        label: "Context Actions",
+        shortcut: shortcutOf("code.contextActions"),
+        disabledReason: codeActionsDisabledReason,
+        action: () => void requestCodeActions(position),
+      },
+      {
+        id: "find-usages",
+        label: "Find Usages",
+        shortcut: shortcutOf("code.findUsages"),
+        disabledReason: findUsagesDisabledReason,
+        action: () => void requestFindUsages(position),
+      },
+      {
+        id: "go-to-definition",
+        label: "Go To Definition",
+        shortcut: shortcutOf("code.goToDeclaration"),
+        disabledReason: goToDefinitionDisabledReason,
+        action: () => setDefinitionRequest((current) => current + 1),
+      },
+      {
+        id: "rename",
+        label: "Rename",
+        shortcut: shortcutOf("code.rename"),
+        disabledReason: renameDisabledReason,
+        action: () => requestRename(position),
+      },
+      {
+        id: "run-test",
+        label: "Run Test",
+        disabledReason: test
+          ? testRunBlocked
+          : "Place the cursor on a test method with analysis ready.",
+        action: () => {
+          if (test) handleGutterAction(test);
+        },
+        separatorBefore: true,
+      },
+      {
+        id: "debug-test",
+        label: "Debug Test",
+        disabledReason: test
+          ? testDebugUnavailable
+          : "Place the cursor on a test method with analysis ready.",
+        action: () => {
+          if (test) setMessage({ tone: "error", text: `Debug test unavailable: ${testDebugUnavailable}` });
+        },
+      },
+      {
+        id: "git-diff",
+        label: "Git: Show Diff",
+        disabledReason: gitContextDisabledReason,
+        action: () => {
+          if (active) void showGitDiff(active.path);
+        },
+        separatorBefore: true,
+      },
+      {
+        id: "git-commit",
+        label: "Git: Commit File…",
+        disabledReason: gitContextDisabledReason,
+        action: () => openCommitPanel(active?.path ?? null),
+      },
+      {
+        id: "copy-path",
+        label: "Copy Path",
+        disabledReason: null,
+        action: () => {
+          if (active) void copyPath(active.path);
+        },
+        separatorBefore: true,
+      },
+    ];
+  }
+  const actionsRef = useRef<ResolvedAction[]>([]);
+  actionsRef.current = resolvedActions;
+  const lastShift = useRef<number | null>(null);
+  const chordPending = useRef<number | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "F9" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        requestBuildRef.current();
-        return;
-      }
-      const platform = snapshot.app.platform;
-      const toggleBreakpointShortcut =
-        event.key === "F8" && (platform === "windows" ? event.ctrlKey : event.metaKey);
-      if (toggleBreakpointShortcut) {
-        event.preventDefault();
-        toggleBreakpointAtRef.current(cursorRef.current.line + 1);
-        return;
-      }
-      const debugLaunchShortcut =
-        platform === "windows"
-          ? event.shiftKey && event.key === "F9"
-          : event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "d";
-      if (debugLaunchShortcut) {
-        event.preventDefault();
-        requestDebugRef.current();
-        return;
-      }
-      if (event.key === "F8" && !event.metaKey && !event.ctrlKey) {
-        if (dapPausedRef.current) {
-          event.preventDefault();
-          debugStepOverRef.current();
+      if (event.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const inEditor = Boolean(target?.closest(".cm-editor"));
+      const textField =
+        Boolean(target?.closest("input, textarea, select")) ||
+        Boolean(target?.isContentEditable && !inEditor);
+      if (event.key === "Shift" && !event.repeat) {
+        if (textField) {
+          lastShift.current = null;
+          return;
         }
-        return;
-      }
-      if (event.key === "F7" && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        if (dapPausedRef.current) {
+        const now = performance.now();
+        if (lastShift.current !== null && now - lastShift.current <= 400) {
+          lastShift.current = null;
           event.preventDefault();
-          debugStepIntoRef.current();
+          openSearch("last");
+          return;
         }
+        lastShift.current = now;
         return;
       }
-      const runShortcut =
-        platform === "windows"
-          ? event.shiftKey && event.key === "F10"
-          : event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "r";
-      if (!runShortcut) return;
+      if (textField) return;
+      const profile = settings.keymap.profile;
+      const pending = chordPending.current;
+      chordPending.current = null;
+      if (pending !== null && performance.now() - pending <= 1500) {
+        const target = chordTarget(profile, event.key);
+        if (target && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+          event.preventDefault();
+          actionsRef.current.find((candidate) => candidate.id === target)?.execute();
+          return;
+        }
+      }
+      const prefix = chordPrefixFor(profile);
+      if (prefix && matches(event, prefix, snapshot.app.platform)) {
+        event.preventDefault();
+        chordPending.current = performance.now();
+        return;
+      }
+      const action = firstActionFor(actionsRef.current, event, snapshot.app.platform);
+      if (!action) return;
+      if (inEditor && !action.editor) return;
+      // Bubble, CodeMirror first: a consumed key never reaches this handler as an action.
       event.preventDefault();
-      requestRunRef.current();
+      // A disabled action still reports its own reason when reached by a shortcut; the
+      // palette and menus keep it disabled.
+      action.execute();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [snapshot.app.platform]);
+  }, [snapshot.app.platform, settings.keymap.profile]);
 
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
@@ -1971,205 +2937,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
     }
   }
 
-  function renderBottomContent() {
-    switch (bottomTab) {
-      case "build":
-        return (
-          <BuildPanel
-            build={build}
-            run={run}
-            platform={snapshot.app.platform}
-            dirtyCount={dirtyCount}
-            runDisabledReason={runDisabledReason}
-            onRun={requestRun}
-            onCancelRun={() => void cancelRun()}
-            onSaveAndRebuild={() => void saveAllAndRebuild()}
-            evaluation={evaluation}
-            startupPath={startupPath}
-            onStartup={setStartupPath}
-            onEvaluate={(next) => void runEvaluation(next)}
-            onBuild={requestBuild}
-            onCancel={() => void cancelBuild()}
-            disabledReason={buildDisabledReason}
-            restoreRequired={restoreIncomplete}
-            restoreDisabledReason={restoreDisabledReason}
-            onRestore={() => void startRestore("restore.start")}
-            obsolete={buildObsolete}
-          />
-        );
-      case "problems":
-        return (
-          <ProblemsPanel
-            diagnostics={snapshot.diagnostics}
-            build={build}
-            buildObsolete={buildObsolete}
-            editedAt={editedAt}
-            onNavigate={(path, position) => void navigateTo(path, position)}
-            onOpen={(path) => void openFile(path)}
-          />
-        );
-      case "debug":
-        return (
-          <div data-testid="debug-tab">
-            <DebugPanel
-              snapshot={snapshot}
-              disabledReason={debugDisabledReason}
-              onLaunch={() => void startDebug()}
-              onSnapshot={onSnapshot}
-              onError={(text) => setMessage({ tone: "error", text })}
-            />
-          </div>
-        );
-      case "terminal":
-        return (
-          <TerminalPanel
-            snapshot={snapshot}
-            disabledReason={
-              trusted ? null : "Trust the workspace before starting a terminal; no shell is spawned in Restricted mode."
-            }
-            onSnapshot={onSnapshot}
-            onError={(text) => setMessage({ tone: "error", text })}
-          />
-        );
-      case "tests":
-        return (
-          <TestsPanel
-            tests={tests}
-            evaluation={evaluation}
-            editedAt={editedAt}
-            disabledReason={testsDisabledReason}
-            restoreRequired={restoreIncomplete}
-            restoreDisabledReason={restoreDisabledReason}
-            onRestore={() => void startRestore("restore.start")}
-            onEvaluate={(next) => void runEvaluation(next)}
-            onDiscover={(project) => void startTestDiscovery(project)}
-            onCancel={() => void cancelTestDiscovery()}
-            onRun={(project, selection, testIds) =>
-              void startTestRun(project, selection, testIds)
-            }
-            onRunCancel={() => void cancelTestRun()}
-            onNavigate={(path, position) => void navigateTo(path, position)}
-          />
-        );
-    }
-  }
-
-  const sdkSummary = `Host SDK ${
-    snapshot.sdk.host.state === "found" ? snapshot.sdk.host.version : "missing"
-  } · ${
-    projectSdk.state === "resolved"
-      ? `Project SDK ${projectSdk.resolvedVersion}`
-      : projectSdk.state === "sdk_missing"
-        ? `Project SDK missing (${projectSdk.requestedVersion ?? "pinned"})`
-        : projectSdk.state === "not_inspected"
-          ? "Project SDK not inspected"
-          : projectSdk.state === "no_global_json"
-            ? "No pinned project SDK"
-            : projectSdk.state === "not_pinned"
-              ? "Project SDK not pinned"
-              : "Project SDK unresolved"
-  }`;
-
-  return (
-    <main className="workspace-view" style={{ "--sidebar-width": `${sidebarWidth}px`, "--output-height": `${visibleOutputHeight}px` } as CSSProperties}>
-      <div className="toolbar">
-        <span className="workspace-brand" title={workspace.path}><Icon name="project" /><strong>{workspace.name}</strong></span>
-        <details className="toolbar-menu trust-menu" onKeyDown={(event) => {
-          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
-        }}>
-          <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted mode" : "Restricted mode"}</summary>
-          <div className="menu-content" data-testid="trust-banner">
-            <TrustControls snapshot={snapshot} onChange={onSnapshot} />
-          </div>
-        </details>
-        <label className="eval-field toolbar-startup">
-          <span>Startup project</span>
-          <select aria-label="Startup project" value={startupProject?.path ?? ""} disabled={consoleCandidates.length === 0 || buildRunning} onChange={(event) => setStartupPath(event.target.value)}>
-            {consoleCandidates.length === 0 && <option value="">No console project</option>}
-            {consoleCandidates.length > 1 && !startupProject && <option value="">Select a startup project</option>}
-            {consoleCandidates.map((project) => <option key={project.path} value={project.path}>{project.name}</option>)}
-          </select>
-        </label>
-        <div className="toolbar-configuration">
-          <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={evaluationAvailable ? "MSBuild configuration for the evaluated project model." : "Trust the workspace and resolve the project SDK to select a configuration."}>
-            {configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}
-          </select></label>
-          <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value === "" ? null : event.target.value })} title={evaluationAvailable ? "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM." : "Trust the workspace and resolve the project SDK to select a TFM."}>
-            <option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}
-          </select></label>
-        </div>
-        <span className="push" />
-        <button
-          data-testid="toolbar-build"
-          disabled={!trusted}
-          onClick={requestBuild}
-          title={
-            !trusted
-              ? "Trust the workspace before building; nothing runs in Restricted mode."
-              : buildDisabledReason ??
-                `Builds the selected startup project (${snapshot.app.platform === "macos" ? "Cmd+F9" : "Ctrl+F9"}). Unsaved buffers need an explicit decision.`
-          }
-        >
-          <Icon name="build" /> Build <kbd>{snapshot.app.platform === "macos" ? "⌘F9" : "Ctrl+F9"}</kbd>
-        </button>
-        <button
-          data-testid="toolbar-run"
-          disabled={runDisabledReason !== null || runRunning}
-          onClick={requestRun}
-          title={
-            runDisabledReason ??
-            `Runs the saved build (${runShortcut}); unsaved buffers are never included.`
-          }
-        >
-          <Icon name="run" /> {runRunning ? "Running…" : "Run"} <kbd>{runShortcut}</kbd>
-        </button>
-        <button
-          data-testid="toolbar-debug"
-          disabled={debugDisabledReason !== null}
-          onClick={() => void startDebug()}
-          title={
-            debugDisabledReason ??
-            `Starts the evaluated Debug assembly under netcoredbg (${snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}).`
-          }
-        >
-          <Icon name="debug" /> Debug <kbd>{snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}</kbd>
-        </button>
-        {debugActive && (
-          <button
-            data-testid="toolbar-debug-stop"
-            onClick={() => void stopDebug()}
-            title="Stops the adapter group and reports what was observed."
-          >
-            Stop debugging
-          </button>
-        )}
-        <details className="toolbar-menu" onKeyDown={(event) => {
-          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
-        }}>
-          <summary aria-label="Workspace actions">•••</summary>
-          <div className="menu-content">
-        <button
-          data-testid="sdk-redetect"
-          onClick={() => void redetectSdks()}
-          title="Re-runs only the SDK inventory; it never touches project files."
-        >
-          Redetect SDKs
-        </button>
-        {(projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json") && (
-          <button data-testid="sdk-open-global-json" onClick={openGlobalJson}>
-            Open global.json
-          </button>
-        )}
-        <button data-testid="close-workspace" onClick={requestCloseWorkspace}>
-          Close workspace
-        </button>
-          </div>
-        </details>
-      </div>
-
-      <div className="workspace-notices">
-      <details className="workspace-tools">
-        <summary data-testid="workspace-tools-toggle">Workspace tools <span className={restoreIncomplete || restore.state === "failed" ? "warning" : "muted"}>{restoreIncomplete ? "Restore required" : restoreStateLabel(restore)} · Analysis: {lsp.state}</span></summary>
+  function renderToolsContent() {
+    return (
+      <div className="workspace-tools-body">
       <section className="restore-panel" aria-label="Restore" data-testid="restore-panel">
         <div className="restore-head">
           <strong>Restore</strong>
@@ -2192,7 +2962,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               onClick={() => void startRestore("restore.start")}
               title={
                 restoreDisabledReason ??
-                "Runs dotnet restore for this workspace with the project SDK. Nothing restores automatically."
+                "Runs dotnet restore for this workspace with the project SDK. A Trusted workspace restores by itself; this runs it again."
               }
             >
               {restore.state === "ok" ? "Restore again" : "Restore"}
@@ -2325,7 +3095,419 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
       <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
       <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
-      </details>
+
+      {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
+      </div>
+    );
+  }
+
+  function renderBottomContent() {
+    switch (bottomTab) {
+      case "run":
+        return <RunPanel run={run} onCancelRun={() => void cancelRun()} />;
+      case "build":
+        return (
+          <BuildPanel
+            build={build}
+            run={run}
+            platform={snapshot.app.platform}
+            dirtyCount={dirtyCount}
+            runDisabledReason={runDisabledReason}
+            onRun={requestRun}
+            onSaveAndRebuild={() => void saveAllAndRebuild()}
+            evaluation={evaluation}
+            startupPath={startupProject?.path ?? null}
+            onStartup={setStartupProject}
+            onEvaluate={(next) => void runEvaluation(next)}
+            onBuild={requestBuild}
+            onCancel={() => void cancelBuild()}
+            disabledReason={buildDisabledReason}
+            restoreRequired={restoreIncomplete}
+            restoreDisabledReason={restoreDisabledReason}
+            onRestore={() => void startRestore("restore.start")}
+            obsolete={buildObsolete}
+          />
+        );
+      case "problems":
+        return (
+          <ProblemsPanel
+            diagnostics={snapshot.diagnostics}
+            build={build}
+            buildObsolete={buildObsolete}
+            editedAt={editedAt}
+            onNavigate={(path, position) => void navigateTo(path, position)}
+            onOpen={(path) => void openFile(path)}
+          />
+        );
+      case "debug":
+        return (
+          <div data-testid="debug-tab">
+            <DebugPanel
+              snapshot={snapshot}
+              disabledReason={debugDisabledReason}
+              onLaunch={() => void startDebug()}
+              onSnapshot={onSnapshot}
+              onError={(text) => setMessage({ tone: "error", text })}
+              onRestart={() => void restartDebug()}
+              onOpenFrame={(path, line) => void navigateTo(path, { line: line - 1, character: 0 })}
+            />
+          </div>
+        );
+      case "terminal":
+        return (
+          <TerminalPanel
+            snapshot={snapshot}
+            disabledReason={
+              trusted ? null : "Trust the workspace before starting a terminal; no shell is spawned in Restricted mode."
+            }
+            onSnapshot={onSnapshot}
+            onError={(text) => setMessage({ tone: "error", text })}
+          />
+        );
+      case "tests":
+        return (
+          <TestsPanel
+            tests={tests}
+            evaluation={evaluation}
+            editedAt={editedAt}
+            disabledReason={testsDisabledReason}
+            projectPath={testProjectPath}
+            onProjectChange={setTestProjectPath}
+            selected={testSelected}
+            onToggleSelected={toggleTestSelected}
+            restoreRequired={restoreIncomplete}
+            restoreDisabledReason={restoreDisabledReason}
+            onRestore={() => void startRestore("restore.start")}
+            onEvaluate={(next) => void runEvaluation(next)}
+            onDiscover={(project) => void startTestDiscovery(project)}
+            onCancel={() => void cancelTestDiscovery()}
+            onRun={(project, selection, testIds) =>
+              void startTestRun(project, selection, testIds)
+            }
+            onRunCancel={() => void cancelTestRun()}
+            onNavigate={(path, position) => void navigateTo(path, position)}
+          />
+        );
+      case "git":
+        return (
+          <GitLogPanel
+            trusted={trusted}
+            onError={(text) => setMessage({ tone: "error", text })}
+          />
+        );
+      case "nuget":
+        return (
+          <NuGetPanel
+            trusted={trusted}
+            projects={projects}
+            restoreRunning={restoring}
+            onRestore={(project) => void startRestore("restore.start", project)}
+            onMessage={(text) => setMessage({ tone: "info", text })}
+            onError={(text) => setMessage({ tone: "error", text })}
+          />
+        );
+    }
+  }
+
+  const sdkSummary = `Host SDK ${
+    snapshot.sdk.host.state === "found" ? snapshot.sdk.host.version : "missing"
+  } · ${
+    projectSdk.state === "resolved"
+      ? `Project SDK ${projectSdk.resolvedVersion}`
+      : projectSdk.state === "sdk_missing"
+        ? `Project SDK missing (${projectSdk.requestedVersion ?? "pinned"})`
+        : projectSdk.state === "not_inspected"
+          ? "Project SDK not inspected"
+          : projectSdk.state === "no_global_json"
+            ? "No pinned project SDK"
+            : projectSdk.state === "not_pinned"
+              ? "Project SDK not pinned"
+              : "Project SDK unresolved"
+  }`;
+
+  const currentProblems = withLocalEdits(snapshot.diagnostics, editedAt)
+    .filter((diagnostic) => diagnostic.state === "current")
+    .reduce((count, diagnostic) => count + diagnostic.items.length, 0);
+  const activeInspections = active
+    ? snapshot.diagnostics.snapshots
+        .filter((snap) => snap.state === "current" && snap.path && snap.path.replace(/\\/g, "/").endsWith(`/${active.path}`))
+        .flatMap((snap) => snap.items)
+        .reduce((count, item) => {
+          if (item.severityLabel === "error") count.error += 1;
+          else if (item.severityLabel === "warning") count.warning += 1;
+          return count;
+        }, { error: 0, warning: 0 })
+    : null;
+  const bottomTabLabels = bottomTools.map(({ id, title }) => ({
+    id: id as BottomToolId,
+    label: id === "problems" && currentProblems > 0 ? `Problems (${currentProblems})` : title,
+  }));
+  const breadcrumbProject = activeEvaluationProject?.name ?? activeProject?.name ?? null;
+  const statusBreadcrumb = [
+    breadcrumbProject && breadcrumbProject !== workspace.name ? breadcrumbProject : null,
+    active ? baseName(active.path) : null,
+  ].filter((part): part is string => Boolean(part)).join(" > ");
+  const evaluationStatus = showsEvaluatedTree
+    ? {
+        testId: "status-evaluation",
+        title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`,
+        text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`,
+      }
+    : { text: "Text outline · not evaluated" };
+
+  async function openSolution(solution: string) {
+    if (solution === workspace.path) return;
+    if (dirtyCount > 0) {
+      setMessage({ tone: "error", text: "Save or close modified buffers before opening another solution." });
+      return;
+    }
+    try {
+      await onOpenRecent(solution);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Could not open ${solution}: ${messageOf(error)}` });
+    }
+  }
+
+  const buildAction = requireAction(actionById, "build.start");
+  const runAction = requireAction(actionById, "run.start");
+  const debugStartAction = requireAction(actionById, "debug.start");
+  const stopAction = requireAction(actionById, "run.stop");
+  const searchAction = requireAction(actionById, "search.everywhere");
+  const settingsAction = requireAction(actionById, "settings.open");
+  const findActionAction = requireAction(actionById, "view.findAction");
+  const keymapAction = requireAction(actionById, "view.keymap");
+  const redetectAction = requireAction(actionById, "sdk.redetect");
+  const openGlobalJsonAction = requireAction(actionById, "sdk.openGlobalJson");
+  const commitAction = requireAction(actionById, "git.commit");
+  const closeWorkspaceAction = requireAction(actionById, "workspace.close");
+  const renameAction = requireAction(actionById, "code.rename");
+  const contextActionsAction = requireAction(actionById, "code.contextActions");
+  const saveAction = requireAction(actionById, "file.save");
+
+  return (
+    <main
+      className={`workspace-view ${leftOpen ? "" : "left-closed"} ${bottomOpen ? "" : "bottom-closed"} ${toolsOpen ? "tools-open" : ""}`}
+      data-density={settings.appearance.density}
+      style={{
+        "--sidebar-width": `${sidebarWidth}px`,
+        "--output-height": `${visibleOutputHeight}px`,
+        zoom: settings.appearance.zoom / 100,
+      } as CSSProperties}
+    >
+      <div className="toolbar">
+        <button type="button" className="toolbar-icon-button nav-button" disabled aria-label="Back" title="Back"><Icon name="back" /></button>
+        <button type="button" className="toolbar-icon-button nav-button" disabled aria-label="Forward" title="Forward"><Icon name="forward" /></button>
+        <details className="toolbar-menu project-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
+          <summary className="workspace-brand" title={workspace.path} data-testid="toolbar-project" aria-label={`Project: ${workspace.name}. Open recent solutions.`}>
+            <span className="project-badge" aria-hidden="true">{workspace.name.slice(0, 2).toUpperCase()}</span><strong>{workspace.name}</strong><Icon name="chevron" />
+          </summary>
+          <div className="menu-content" data-testid="toolbar-project-menu">
+            <span className="menu-heading">Recent solutions</span>
+                        {recentSolutions.map((solution, index) => (
+              <button
+                key={solution}
+                type="button"
+                data-testid={`recent-solution-${index}`}
+                aria-current={solution === workspace.path ? "true" : undefined}
+                title={solution}
+                onClick={() => void openSolution(solution)}
+              >
+                {baseName(solution)}{solution === workspace.path ? " (current)" : ""}
+              </button>
+            ))}
+            {recentSolutions.length === 0 && <span className="menu-note">No recent solutions.</span>}
+          </div>
+        </details>
+        <details ref={trustMenuRef} className="toolbar-menu trust-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
+          <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted mode" : "Restricted mode"}</summary>
+          <div className="menu-content" data-testid="trust-banner">
+            <TrustControls
+              snapshot={snapshot}
+              onChange={(next) => {
+                onSnapshot(next);
+                // Grant/Revoke finished successfully: close the popover and return focus to its summary.
+                if (trustMenuRef.current) {
+                  trustMenuRef.current.open = false;
+                  trustMenuRef.current.querySelector("summary")?.focus();
+                }
+              }}
+            />
+          </div>
+        </details>
+        <BranchWidget
+          status={gitStatus}
+          statusError={gitStatusError}
+          trusted={trusted}
+          intent={gitIntent}
+          onRefresh={refreshGit}
+          onOpenCommit={() => openCommitPanel()}
+          onMessage={(text) => setMessage({ tone: "info", text })}
+        />
+        <span className="push" />
+        <button
+          data-testid="toolbar-build"
+          disabled={buildAction.disabledReason !== null}
+          onClick={buildAction.execute}
+          title={buildAction.disabledReason ?? `Builds the selected startup project (${buildAction.shortcutTexts.join(" or ")}). Unsaved buffers need an explicit decision.`}
+          className="toolbar-icon-button"
+          aria-label="Build"
+        ><Icon name="build" /></button>
+        <RunConfigWidget
+          configs={runConfigStore?.configs ?? []}
+          defaultConfig={defaultRunConfig}
+          activeId={activeRunConfig?.id ?? DEFAULT_RUN_CONFIG_ID}
+          disabledReason={
+            !trusted
+              ? "Trust the workspace before choosing a run configuration; nothing runs in Restricted mode."
+              : !["ok", "partial"].includes(evaluation.state)
+                ? "Evaluate the project model before choosing a run configuration."
+                : consoleCandidates.length === 0
+                  ? "No evaluated console project is available for a run configuration."
+                  : !startupProject && !activeNamedConfig
+                    ? "More than one console project; choose the startup project explicitly."
+                    : null
+          }
+          onSelect={(id) => void selectRunConfig(id)}
+          onEdit={() => openRunConfigDialog()}
+        />
+        {debugActive && (
+          <button
+            data-testid="toolbar-debug-stop"
+            className="toolbar-icon-button stop-button"
+            aria-label="Stop"
+            onClick={stopAction.execute}
+            title={stopAction.disabledReason ?? "Stops the adapter group and reports what was observed."}
+          >
+            <Icon name="stop" />
+          </button>
+        )}
+        <button
+          data-testid="toolbar-run"
+          className="toolbar-icon-button run-button"
+          aria-label={runRunning ? "Running" : "Run"}
+          aria-disabled={runAction.disabledReason !== null}
+          onClick={() => {
+            // Like Rider: Run on a project without a current build restores, builds and then runs.
+            if (runAction.disabledReason === null) runAction.execute();
+            else void prepareAndRun();
+          }}
+          title={
+            runAction.disabledReason ??
+            `Runs the saved build (${runAction.shortcutTexts.join(" or ")}); unsaved buffers are never included.`
+          }
+        >
+          <Icon name="run" />
+        </button>
+        <button
+          data-testid="toolbar-debug"
+          className="toolbar-icon-button debug-button"
+          aria-label="Debug"
+          aria-disabled={debugStartAction.disabledReason !== null}
+          onClick={() => {
+            // Like Rider: a blocked Debug click explains why in the Debug tab instead of doing nothing.
+            if (debugStartAction.disabledReason === null) debugStartAction.execute();
+            else void prepareAndDebug();
+          }}
+          title={
+            debugStartAction.disabledReason ??
+            `Starts the evaluated Debug assembly under netcoredbg (${debugStartAction.shortcutTexts.join(" or ")}).`
+          }
+        >
+          <Icon name="debug" />
+        </button>
+        <details className="toolbar-menu" data-testid="workspace-actions-menu" onKeyDown={(event) => {
+          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+        }}>
+          <summary aria-label="Workspace actions" title="More actions">⋮</summary>
+          <div className="menu-content">
+            <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a configuration." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a configuration." : evaluationBusy ? "Wait for evaluation to finish before changing configuration." : "MSBuild configuration for evaluation."}>{configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}</select></label>
+            <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value || null })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a TFM." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a TFM." : evaluationBusy ? "Wait for evaluation to finish before changing TFM." : "Target framework for evaluation."}><option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}</select></label>
+            <button data-testid="open-find-action" onClick={(event) => {
+              event.currentTarget.closest("details")?.removeAttribute("open");
+              findActionAction.execute();
+            }} title={findActionAction.shortcutTexts.join(" or ")}>
+              Find Action <kbd>{findActionAction.shortcutLabels[0] ?? ""}</kbd>
+            </button>
+            <button data-testid="open-keymap" onClick={(event) => {
+              event.currentTarget.closest("details")?.removeAttribute("open");
+              keymapAction.execute();
+            }}>
+              {keymapAction.title}
+            </button>
+            <button
+              data-testid="sdk-redetect"
+              onClick={redetectAction.execute}
+              title={redetectAction.disabledReason ?? "Re-runs only the SDK inventory; it never touches project files."}
+            >
+              {redetectAction.title}
+            </button>
+            <button
+              data-testid="sdk-open-global-json"
+              onClick={openGlobalJsonAction.execute}
+              disabled={openGlobalJsonAction.disabledReason !== null}
+              title={openGlobalJsonAction.disabledReason ?? openGlobalJsonAction.title}
+            >
+              {openGlobalJsonAction.title}
+            </button>
+            <button
+              data-testid="git-commit-action"
+              disabled={commitAction.disabledReason !== null}
+              title={commitAction.disabledReason ?? commitAction.title}
+            >
+              {commitAction.title}
+            </button>
+            <button data-testid="close-workspace" onClick={closeWorkspaceAction.execute}>
+              {closeWorkspaceAction.title}
+            </button>
+          </div>
+        </details>
+        <span className="toolbar-disabled" title="Search Everywhere arrives in F3.">
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            data-testid="toolbar-search"
+            disabled={Boolean(searchAction.disabledReason)}
+            aria-label={searchAction.title}
+            title={searchAction.disabledReason ?? searchAction.shortcutTexts.join(" or ")}
+            onClick={searchAction.execute}
+          >
+            <Icon name="search" />
+          </button>
+        </span>
+        <button
+          type="button"
+          className="toolbar-icon-button"
+          data-testid="toolbar-settings"
+          aria-label={settingsAction.title}
+          title={settingsAction.shortcutTexts.join(" or ") || settingsAction.title}
+          onClick={settingsAction.execute}
+        >
+          <Icon name="settings" />
+        </button>
+      </div>
+
+      <div className="workspace-notices">
+      {!trusted && !trustBannerDismissed && (
+        <div className="notice warning trust-banner" role="status" data-testid="trust-prompt">
+          <span><strong>Restricted mode.</strong> Build, Run, Debug and analysis are off until you trust this workspace.</span>
+          <button
+            type="button"
+            className="primary"
+            data-testid="trust-prompt-open"
+            onClick={() => {
+              if (trustMenuRef.current) trustMenuRef.current.open = true;
+              trustMenuRef.current?.querySelector<HTMLInputElement>("input[type=checkbox]")?.focus();
+            }}
+          >
+            Trust workspace…
+          </button>
+          <button type="button" className="notice-dismiss" data-testid="trust-prompt-dismiss" aria-label="Dismiss trust banner" onClick={() => setTrustBannerDismissed(true)}>×</button>
+        </div>
+      )}
 
       {message && (
         <div
@@ -2338,15 +3520,91 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         </div>
       )}
 
-      {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
+      </div>
+
+      <div className="toolrail toolrail-right" data-testid="tool-windows-right" aria-label="Right tool windows">
+        <button
+          type="button"
+          className={`toolband-button ${toolsOpen ? "active" : ""}`}
+          data-testid="workspace-tools-toggle"
+          aria-label="Workspace tools"
+          aria-pressed={toolsOpen}
+          title={`Workspace tools · ${restoreIncomplete ? "Restore required" : restoreStateLabel(restore)} · Analysis: ${lsp.state}`}
+          onClick={() => setToolsOpen((open) => !open)}
+        >
+          <Icon name="shield" />
+        </button>
+        {["Monitoring", "AI Assistant", "Database"].map((title) => (
+          <button
+            key={title}
+            type="button"
+            className="toolband-button"
+            disabled
+            aria-label={title}
+            title={`${title} is not part of OpenRidr`}
+          >
+            {title[0]}
+          </button>
+        ))}
+      </div>
+
+      {toolsOpen && (
+        <aside className="tools-drawer" aria-label="Workspace tools" data-testid="workspace-tools">
+          <div className="tools-drawer-head">
+            <strong>Workspace tools</strong>
+            <button type="button" aria-label="Close workspace tools" data-testid="workspace-tools-close" onClick={() => setToolsOpen(false)}>×</button>
+          </div>
+          {renderToolsContent()}
+        </aside>
+      )}
+
+      <div className="toolrail" data-testid="tool-windows">
+        <ToolWindowBand
+          slot="left"
+          items={toolWindowsIn("left")}
+          actions={resolvedActions}
+          activeId={layout.left.active}
+          open={leftOpen}
+        />
+        <span className="push" />
+        <ToolWindowBand
+          slot="bottom"
+          items={bottomTools}
+          actions={resolvedActions}
+          activeId={bottomTab}
+          open={bottomOpen}
+        />
       </div>
 
       <div className={`workspace-grid ${selectedProject ? "with-details" : ""}`}>
+        {leftOpen && (
+          <>
+        {layout.left.active === "commit" ? (
+          <CommitPanel
+            status={gitStatus}
+            statusError={gitStatusError}
+            trusted={trusted}
+            initialPath={commitFocusPath}
+            onRefresh={refreshGit}
+          />
+        ) : (
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
           <div className="panel-title">
-            Solution Explorer{" "}
-            <span className="tag">
-              {showsEvaluatedTree ? "MSBuild evaluated" : "Text outline · not evaluated"}
+            <span className="explorer-heading">
+              <span>Solution ⌄{" "}
+                <span className="tag">
+                  {showsEvaluatedTree ? "MSBuild evaluated" : "Text outline · not evaluated"}
+                </span>
+              </span>
+              <span className="explorer-tools">
+                <button data-testid="tree-locate" aria-label="Select opened file" title="Select opened file" disabled={!activePath} onClick={() => {
+                  const owner = (showsEvaluatedTree ? evaluatedProjects.find((item) => item.sources.includes(activePath ?? "")) : projects.find((item) => item.files.includes(activePath ?? "")));
+                  if (owner) setExpanded((current) => new Set(current).add(owner.path));
+                  setSelectedProjectPath(owner?.path ?? null);
+                }}>◎</button>
+                <button data-testid="tree-expand-all" aria-label="Expand all" title="Expand all" onClick={() => setExpanded(new Set((showsEvaluatedTree ? evaluatedProjects : projects).map((item) => item.path)))}>⌄</button>
+                <button data-testid="tree-collapse-all" aria-label="Collapse all" title="Collapse all" onClick={() => setExpanded(new Set())}>⌃</button>
+              </span>
             </span>
           </div>
 
@@ -2403,7 +3661,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
           {showsEvaluatedTree ? (
             <div className="tree">
-              <div className="tree-root">{workspace.name}</div>
+              <div className="tree-root"><Icon name="project" /> {workspace.name} <span className="tree-count">· {showsEvaluatedTree ? evaluatedProjects.length : projects.length} projects</span></div>
               {projectGroups.map(([folder, items]) => (
                 <div key={folder || "root"}>
                   {folder && (
@@ -2427,8 +3685,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                           }}
                           title={project.path}
                         >
-                          <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-                          <Icon name="project" /><span className="tree-name">{project.name}</span>
+                          <span className="tree-chevron" aria-hidden="true">{expanded.has(project.path) ? "▾" : "▸"}</span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
                           <span className="tag">{project.kind}</span>
                           {project.state === "failed" && <span className="tag error">error</span>}
                           {project.tfms.map((tfm) => (
@@ -2457,20 +3714,25 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                               </div>
                             )}
                             {project.note && <div className="tree-note">{project.note}</div>}
-                            {project.projectRefs.length > 0 && (
-                              <div className="tree-note">
-                                References: {project.projectRefs.map((ref) => ref.name).join(", ")}
-                              </div>
-                            )}
-                            {project.packageRefs.length > 0 && (
-                              <div className="tree-note">
-                                Packages:{" "}
-                                {project.packageRefs
-                                  .map((pkg) =>
-                                    pkg.version ? `${pkg.name} ${pkg.version}` : `${pkg.name} (version unknown)`,
-                                  )
-                                  .join(", ")}
-                              </div>
+                            {(project.projectRefs.length > 0 || project.packageRefs.length > 0) && (
+                              <details className="tree-dependencies" aria-label={`${project.name} dependencies`}>
+                                <summary>Dependencies</summary>
+                                {project.projectRefs.length > 0 && (
+                                  <div className="tree-note tree-node tree-node-refs">
+                                    References: {project.projectRefs.map((ref) => ref.name).join(", ")}
+                                  </div>
+                                )}
+                                {project.packageRefs.length > 0 && (
+                                  <div className="tree-note tree-node tree-node-packages">
+                                    Packages:{" "}
+                                    {project.packageRefs
+                                      .map((pkg) =>
+                                        pkg.version ? `${pkg.name} ${pkg.version}` : `${pkg.name} (version unknown)`,
+                                      )
+                                      .join(", ")}
+                                  </div>
+                                )}
+                              </details>
                             )}
                             {project.sources.map((file) => (
                               <button
@@ -2481,7 +3743,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                                 onClick={() => void openFile(file)}
                                 title={file}
                               >
-                                <Icon name="file" /><span className="tree-name">{baseName(file)}</span>
+                                <FileIcon path={file} /><span className="tree-name">{baseName(file)}</span>
                               </button>
                             ))}
                             {project.sources.length === 0 && !project.error && (
@@ -2497,7 +3759,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </div>
           ) : (
             <div className="tree">
-              <div className="tree-root">{workspace.name}</div>
+              <div className="tree-root"><Icon name="project" /> {workspace.name} <span className="tree-count">· {showsEvaluatedTree ? evaluatedProjects.length : projects.length} projects</span></div>
               {projects.map((project) => {
                 const open = expanded.has(project.path);
                 return (
@@ -2509,8 +3771,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                       onClick={() => toggleProject(project.path)}
                       title={project.path}
                     >
-                      <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-                      <Icon name="project" /><span className="tree-name">{project.name}</span>
+                      <span className="tree-chevron" aria-hidden="true">{expanded.has(project.path) ? "▾" : "▸"}</span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
                       <span className="tag">{project.kind}</span>
                       {project.tfms.map((tfm) => (
                         <span className="tag" key={tfm}>
@@ -2534,7 +3795,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                             onClick={() => void openFile(file)}
                             title={file}
                           >
-                            <Icon name="file" /><span className="tree-name">{baseName(file)}</span>
+                            <FileIcon path={file} /><span className="tree-name">{baseName(file)}</span>
                           </button>
                         ))}
                         {project.files.length === 0 && (
@@ -2555,7 +3816,10 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </p>
           )}
         </nav>
+        )}
         <Splitter label="Solution explorer width" value={sidebarWidth} min={220} max={420} onChange={setSidebarWidth} />
+          </>
+        )}
 
         <section className="editor-pane" aria-label="Editor">
           <div className="tabbar">
@@ -2586,6 +3850,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                       title={tab.path}
                       aria-label={`${baseName(tab.path)}${dirty ? ", modified" : ""}`}
                     >
+                      <FileIcon path={tab.path} />
                       {baseName(tab.path)}
                       {dirty && (
                         <span
@@ -2611,14 +3876,20 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 );
               })}
             </div>
+            {activeInspections && (activeInspections.error > 0 || activeInspections.warning > 0) && (
+              <span className="inspection-summary" data-testid="editor-inspections" title="Current diagnostics in this file">
+                {activeInspections.error > 0 && <span className="insp-error">✕ {activeInspections.error}</span>}
+                {activeInspections.warning > 0 && <span className="insp-warning">⚠ {activeInspections.warning}</span>}
+              </span>
+            )}
             <button
               className="save"
               data-testid="rename-open"
-              onClick={() => requestRename()}
-              disabled={renameDisabledReason !== null}
+              onClick={renameAction.execute}
+              disabled={renameAction.disabledReason !== null}
               title={
-                renameDisabledReason ??
-                "Rename the symbol at the cursor (Shift+F6); preview before applying."
+                renameAction.disabledReason ??
+                `Rename the symbol at the cursor (${renameAction.shortcutTexts.join(" or ")}); preview before applying.`
               }
             >
               <Icon name="rename" /><span className="editor-action-label"> Rename symbol…</span>
@@ -2626,11 +3897,11 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             <button
               className="save"
               data-testid="code-actions-open"
-              onClick={() => void requestCodeActions()}
-              disabled={codeActionsDisabledReason !== null}
+              onClick={contextActionsAction.execute}
+              disabled={contextActionsAction.disabledReason !== null}
               title={
-                codeActionsDisabledReason ??
-                `Code actions at the cursor (${snapshot.app.platform === "macos" ? "Option+Enter" : "Alt+Enter"}).`
+                contextActionsAction.disabledReason ??
+                `Code actions at the cursor (${contextActionsAction.shortcutTexts.join(" or ")}).`
               }
             >
               <Icon name="code" /><span className="editor-action-label"> Code actions…</span>
@@ -2638,9 +3909,12 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             <button
               className="save"
               data-testid="save-file"
-              onClick={() => void save()}
-              disabled={!active || !isDirty(active)}
-              title={active ? `Save with ${snapshot.app.platform === "macos" ? "Cmd+S" : "Ctrl+S"}` : "No file open"}
+              onClick={saveAction.execute}
+              disabled={saveAction.disabledReason !== null || !active || !isDirty(active)}
+              title={
+                saveAction.disabledReason ??
+                `Save with ${saveAction.shortcutTexts.join(" or ")}`
+              }
             >
               <Icon name="save" /><span className="editor-action-label"> Save</span>
             </button>
@@ -2664,14 +3938,112 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   className={isDirty(active) ? "warning" : "muted"}
                   data-testid="editor-revision"
                 >
-                  {" · "}revision {active.revision} · saved {active.savedRevision} ·{" "}
-                  {isDirty(active) ? "modified" : "saved"}
+                  {isDirty(active) ? " · Modified" : ""}
                 </span>
               </div>
 
+              {active.conflict && (
+                <div className="notice error" data-testid="conflict-banner" role="alert">
+                  <strong>File changed on disk.</strong> {active.path} was modified outside
+                  OpenRidr. Your buffer is preserved; nothing was overwritten.
+                  <div className="actions">
+                    <button data-testid="conflict-reload" onClick={reloadFromDisk}>
+                      Reload from disk (discard my edits)
+                    </button>
+                    <button data-testid="conflict-overwrite" onClick={() => void overwriteDisk()}>
+                      Overwrite disk
+                    </button>
+                  </div>
+                  <details className="conflict-compare" data-testid="conflict-compare">
+                    <summary>Compare buffer and disk</summary>
+                    <div className="conflict-compare-grid">
+                      <section aria-label="Buffer version">
+                        <h3>Buffer · unsaved · revision {active.revision}</h3>
+                        <p className="muted">
+                          Based on <code data-testid="conflict-buffer-hash">{active.hash}</code>
+                        </p>
+                        <pre data-testid="conflict-compare-buffer">{active.content}</pre>
+                      </section>
+                      <section aria-label="Disk version">
+                        <h3>Disk · external change</h3>
+                        <p className="muted">
+                          Disk hash{" "}
+                          <code data-testid="conflict-disk-hash">{active.conflict.hash}</code>
+                        </p>
+                        <pre data-testid="conflict-compare-disk">{active.conflict.content}</pre>
+                      </section>
+                    </div>
+                    <p className="muted" data-testid="conflict-compare-diff">
+                      {activeConflictDiff
+                        ? `${countLabel(activeConflictDiff.removed, "line")} removed · ${countLabel(activeConflictDiff.added, "line")} added`
+                        : "Line diff skipped: one version has more than 1200 lines; compare hashes only."}
+                    </p>
+                  </details>
+                </div>
+              )}
+
+              <div className="editor-body" id="editor-content" role="tabpanel" aria-label={baseName(active.path)}>
+                <CodeEditor
+                  key={active.path}
+                  value={active.content}
+                  path={active.path}
+                  platform={snapshot.app.platform}
+                  revision={active.revision}
+                  editor={settings.editor}
+                  onChange={(value) => updateContent(active.path, value)}
+                  onSave={() => void save()}
+                  onDefinition={(location) =>
+                    void navigateTo(location.path, {
+                      line: location.line,
+                      character: location.character,
+                    })
+                  }
+                  onRename={(position) => requestRename(position)}
+                  onRenameSubmit={submitRenameInline}
+                  onRenameCancel={cancelRenameRequest}
+                  onCodeActions={(position) => void requestCodeActions(position)}
+                  onContextMenu={(position, at) => {
+                    noteCursor(position);
+                    setContextMenu({
+                      x: at.x,
+                      y: at.y,
+                      line: position.line,
+                      character: position.character,
+                    });
+                    if (trusted) void refreshGit();
+                  }}
+                  onGutterAction={handleGutterAction}
+                  gutterActions={gutterActions}
+                  changedLines={changedLines}
+                  renameRequest={renameRequest}
+                  definitionRequest={definitionRequest}
+                  onCursor={noteCursor}
+                  breakpoints={activeBreakpoints}
+                  currentLine={debugCurrentLine}
+                  inlayText={debugInlay}
+                  onToggleBreakpoint={(line) => void toggleBreakpoint(line)}
+                  target={
+                    editorTarget?.path === active.path ? editorTarget : null
+                  }
+                />
+              </div>
+
+              {findUsages && (
+                <FindUsagesPanel
+                  className="rename-preview find-usages editor-popup"
+                  response={findUsages.response}
+                  snippets={findUsages.snippets}
+                  onNavigate={(path, position) => void navigateTo(path, position)}
+                  onClose={() => {
+                    findUsagesSeq.current += 1;
+                    setFindUsages(null);
+                  }}
+                />
+              )}
+
               {editPreview && (
                 <section
-                  className="rename-preview"
+                  className="rename-preview editor-popup"
                   role="dialog"
                   aria-modal="false"
                   aria-labelledby="edit-preview-title"
@@ -2793,7 +4165,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
               {actionList && (
                 <section
-                  className="rename-preview code-actions"
+                  className="rename-preview code-actions editor-popup"
                   role="dialog"
                   aria-modal="false"
                   aria-labelledby="code-actions-title"
@@ -2886,73 +4258,6 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   </div>
                 </section>
               )}
-
-              {active.conflict && (
-                <div className="notice error" data-testid="conflict-banner" role="alert">
-                  <strong>File changed on disk.</strong> {active.path} was modified outside
-                  OpenRidr. Your buffer is preserved; nothing was overwritten.
-                  <div className="actions">
-                    <button data-testid="conflict-reload" onClick={reloadFromDisk}>
-                      Reload from disk (discard my edits)
-                    </button>
-                    <button data-testid="conflict-overwrite" onClick={() => void overwriteDisk()}>
-                      Overwrite disk
-                    </button>
-                  </div>
-                  <details className="conflict-compare" data-testid="conflict-compare">
-                    <summary>Compare buffer and disk</summary>
-                    <div className="conflict-compare-grid">
-                      <section aria-label="Buffer version">
-                        <h3>Buffer · unsaved · revision {active.revision}</h3>
-                        <p className="muted">
-                          Based on <code data-testid="conflict-buffer-hash">{active.hash}</code>
-                        </p>
-                        <pre data-testid="conflict-compare-buffer">{active.content}</pre>
-                      </section>
-                      <section aria-label="Disk version">
-                        <h3>Disk · external change</h3>
-                        <p className="muted">
-                          Disk hash{" "}
-                          <code data-testid="conflict-disk-hash">{active.conflict.hash}</code>
-                        </p>
-                        <pre data-testid="conflict-compare-disk">{active.conflict.content}</pre>
-                      </section>
-                    </div>
-                    <p className="muted" data-testid="conflict-compare-diff">
-                      {activeConflictDiff
-                        ? `${countLabel(activeConflictDiff.removed, "line")} removed · ${countLabel(activeConflictDiff.added, "line")} added`
-                        : "Line diff skipped: one version has more than 1200 lines; compare hashes only."}
-                    </p>
-                  </details>
-                </div>
-              )}
-
-              <div className="editor-body" id="editor-content" role="tabpanel" aria-label={baseName(active.path)}>
-                <CodeEditor
-                  key={active.path}
-                  value={active.content}
-                  path={active.path}
-                  platform={snapshot.app.platform}
-                  revision={active.revision}
-                  onChange={(value) => updateContent(active.path, value)}
-                  onSave={() => void save()}
-                  onDefinition={(location) =>
-                    void navigateTo(location.path, {
-                      line: location.line,
-                      character: location.character,
-                    })
-                  }
-                  onRename={(position) => requestRename(position)}
-                  onCodeActions={(position) => void requestCodeActions(position)}
-                  onCursor={noteCursor}
-                  breakpoints={activeBreakpoints}
-                  currentLine={debugCurrentLine}
-                  onToggleBreakpoint={(line) => void toggleBreakpoint(line)}
-                  target={
-                    editorTarget?.path === active.path ? editorTarget : null
-                  }
-                />
-              </div>
             </>
           ) : (
             <div className="empty-editor">
@@ -2960,6 +4265,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
               <h1>Your code, in focus.</h1>
               <p className="muted">Open a file from the solution explorer to start editing.</p>
               <dl className="shortcut-list">
+                <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd></dd>
                 <dt>Save file</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘S" : "Ctrl+S"}</kbd></dd>
                 <dt>Go to definition</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘B" : "Ctrl+B"}</kbd></dd>
                 <dt>Rename symbol</dt><dd><kbd>Shift+F6</kbd></dd>
@@ -2971,7 +4277,6 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
         </section>
 
         <aside className="eval-details-pane" hidden={!selectedProject || !projectDetailsOpen} aria-label="Project inspector">
-          <button className="inspector-close" onClick={() => setProjectDetailsOpen(false)}>Close project details</button>
             {selectedProject && (
               <section
                 className="eval-details"
@@ -2979,8 +4284,9 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 tabIndex={0}
                 data-testid="eval-details"
               >
-                <div className="panel-title">
-                  {selectedProject.name} <span className="tag">Evaluated project</span>
+                <div className="panel-title inspector-heading">
+                  <span>{selectedProject.name} <span className="tag">Evaluated project</span></span>
+                  <button className="inspector-close" onClick={() => setProjectDetailsOpen(false)}>Close project details</button>
                 </div>
                 <dl>
                   <dt>State</dt>
@@ -2990,7 +4296,7 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   </dd>
                   <dt>Path</dt>
                   <dd>
-                    <code>{selectedProject.path}</code>
+                    <code className="detail-path" title={selectedProject.path}>{selectedProject.path}</code>
                   </dd>
                   <dt>Kind</dt>
                   <dd>{selectedProject.kind}</dd>
@@ -3006,8 +4312,8 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   <dd data-testid="eval-target-path">
                     {selectedProject.targetPath
                       ? evaluation.stale
-                        ? `Previous evaluation (stale): ${selectedProject.targetPath}`
-                        : selectedProject.targetPath
+                        ? <>Previous evaluation (stale): <code className="detail-path" title={selectedProject.targetPath}>{selectedProject.targetPath}</code></>
+                        : <code className="detail-path" title={selectedProject.targetPath}>{selectedProject.targetPath}</code>
                       : "Not available"}
                   </dd>
                   <dt>OutputType</dt>
@@ -3083,149 +4389,82 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
 
       </div>
 
+      {bottomOpen && (
+        <>
       <Splitter label="Output panel height" value={visibleOutputHeight} min={120} max={outputMax} horizontal onChange={setOutputHeight} />
-      <section
-        className={`output ${
-          bottomTab === "problems"
-            ? "problems-output"
-            : bottomTab === "build"
-              ? "build-output"
-              : bottomTab === "terminal"
-                ? "terminal-output-panel"
-                : bottomTab === "tests"
-                  ? "tests-output"
-                  : ""
-        }`}
-        aria-label="Bottom panel"
-      >
-        <div className="tabs bottom-tabs" role="tablist" aria-label="Output panels" onKeyDown={(event) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const index = bottomTabs.findIndex((tab) => tab.id === bottomTab);
-          const next = event.key === "Home" ? 0 : event.key === "End" ? bottomTabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + bottomTabs.length) % bottomTabs.length;
-          setBottomTab(bottomTabs[next].id);
-          event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
-        }}>
-          {bottomTabs.map((tab) => (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={bottomTab === tab.id}
-              tabIndex={bottomTab === tab.id ? 0 : -1}
-              id={`output-tab-${tab.id}`}
-              aria-controls="output-content"
-              className={`tab-label ${bottomTab === tab.id ? "active" : ""}`}
-              data-testid={`bottom-tab-${tab.id}`}
-              onClick={() => setBottomTab(tab.id)}
-            >
-              {tab.id === "problems" && snapshot.diagnostics.currentItems > 0
-                ? `Problems (${snapshot.diagnostics.currentItems})`
-                : tab.label}
-            </button>
-          ))}
-        </div>
-        <div className="panel-body" role="tabpanel" key={bottomTab} ref={panelBodyRef} id="output-content" aria-labelledby={`output-tab-${bottomTab}`}>
-          {renderBottomContent()}
-        </div>
-      </section>
-
-      <footer className="status">
-        <span data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
-        <span className={trusted ? "success" : "warning"} data-testid="status-mode">
-          {trusted ? "Trusted mode" : "Restricted mode"}
-        </span>
-        <span data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
-        {showsEvaluatedTree ? (
-          <span data-testid="status-evaluation" title={`${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`}>
-            {evaluationStateLabel(evaluation.state)} · Configuration{" "}
-            {evaluation.context.configuration} · TFM{" "}
-            {evaluation.context.targetFramework ?? "not selected"} · revision{" "}
-            {evaluation.revision}
-            {evaluation.stale ? " · stale" : ""}
-          </span>
-        ) : (
-          <span>Text outline · not evaluated</span>
-        )}
-        {dirtyCount > 0 && (
-          <span data-testid="status-dirty">
-            {dirtyCount} modified buffer{dirtyCount === 1 ? "" : "s"}
-          </span>
-        )}
-        <span className="push" data-testid="status-keymap">
-          Keymap: IntelliJ / Rider
-        </span>
-        <span data-testid="status-cursor">{active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}</span>
-      </footer>
-
-      {renamePrompt && (
-        <div className="modal-backdrop">
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="rename-title"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") cancelRenamePrompt();
-              if (event.key === "Tab") {
-                const focusable = Array.from(
-                  event.currentTarget.querySelectorAll<HTMLElement>("input, button"),
-                );
-                const first = focusable[0];
-                const last = focusable[focusable.length - 1];
-                if (!first || !last) return;
-                if (event.shiftKey && document.activeElement === first) {
-                  event.preventDefault();
-                  last.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                  event.preventDefault();
-                  first.focus();
-                }
-              }
-            }}
-          >
-            <h2 id="rename-title">Rename symbol</h2>
-            <p className="muted" data-testid="rename-source">
-              {renamePrompt.path} · {renamePrompt.line + 1}:{renamePrompt.character + 1} ·
-              revision {renamePrompt.revision} · session {renamePrompt.session}
-            </p>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitRename();
-              }}
-            >
-              <label className="rename-field">
-                <span>New name</span>
-                <input
-                  data-testid="rename-input"
-                  autoFocus
-                  value={renameName}
-                  onChange={(event) => setRenameName(event.target.value)}
-                  disabled={renamePrompt.busy}
-                  aria-describedby={renamePrompt.error ? "rename-error" : undefined}
-                />
-              </label>
-              {renamePrompt.error && (
-                <p className="error" role="alert" id="rename-error" data-testid="rename-error">
-                  {renamePrompt.error}
-                </p>
-              )}
-              <p className="hint">
-                csharp-ls returns the real edits; nothing changes until the preview is
-                applied.
-              </p>
-              <div className="actions">
-                <button type="submit" data-testid="rename-submit" disabled={renamePrompt.busy}>
-                  {renamePrompt.busy ? "Waiting for csharp-ls…" : "Preview rename"}
-                </button>
-                <button type="button" data-testid="rename-cancel" onClick={cancelRenamePrompt}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      <BottomToolWindow tabs={bottomTabLabels} active={bottomTab} onSelect={setBottomTab} onHide={() => setLayout((current) => ({ ...current, bottom: { ...current.bottom, open: false } }))} panelRef={panelBodyRef}>
+        {renderBottomContent()}
+      </BottomToolWindow>
+        </>
       )}
+
+      {findActionOpen && (
+        <FindAction
+          actions={resolvedActions}
+          platform={snapshot.app.platform}
+          profile={settings.keymap.profile}
+          initialTab={searchTab}
+          onExecute={(action) => {
+            setFindActionOpen(false);
+            focusEditor();
+            if (!action.disabledReason) action.execute();
+          }}
+          onOpenFile={openSearchFile}
+          onNavigate={openSearchLocation}
+          onClose={closeSearch}
+        />
+      )}
+
+      {keymapOpen && (
+        <KeymapDialog
+          actions={resolvedActions}
+          keymap={settings.keymap}
+          platform={snapshot.app.platform}
+          onChange={saveKeymap}
+          onClose={() => setKeymapOpen(false)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsDialog
+          actions={resolvedActions}
+          settings={settings}
+          platform={snapshot.app.platform}
+          snapshot={snapshot}
+          onChange={updateSettings}
+          onSave={saveSettings}
+          onCancel={cancelSettings}
+          onRedetect={async () => {
+            onSnapshot(await call<Snapshot>("sdk.redetect"));
+          }}
+        />
+      )}
+
+      {quickListOpen && (
+        <TestsQuickList items={testQuickItems} onClose={() => setQuickListOpen(false)} />
+      )}
+
+      <StatusBar
+        workspace={workspace}
+        trusted={trusted}
+        sdkSummary={sdkSummary}
+        evaluation={evaluationStatus}
+        restore={{
+          state: restore.state,
+          label: restoreStateLabel(restore),
+          onCancel: () => void cancelRestore(),
+          onRetry: restoreAvailable ? () => void startRestore("restore.retry") : null,
+        }}
+        dirtyCount={dirtyCount}
+        breadcrumb={statusBreadcrumb}
+        cursor={active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}
+        indent={{
+          label: settings.editor.useTabs
+            ? `Tabs (${settings.editor.indentSize})`
+            : `${settings.editor.indentSize} spaces`,
+          title: "Indentation comes from Settings (Editor). No per-file detection is claimed.",
+        }}
+      />
 
       {buildDecision && (
         <div className="modal-backdrop">
@@ -3254,6 +4493,43 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 excluded)
               </button>
               <button data-testid="build-decision-cancel" onClick={() => setBuildDecision(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {debugConsent && (
+        <div className="modal-backdrop">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="debug-consent-title"
+            data-testid="debug-consent-dialog"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setDebugConsent(false);
+            }}
+          >
+            <h2 id="debug-consent-title">Enable the experimental debugger?</h2>
+            <p>
+              The netcoredbg macOS arm64 build is community supported and experimental. Enabling it
+              applies to this session; the approved 3.2.0-1092 release is installed only if missing.
+              Debug then restores, builds and starts.
+            </p>
+            <div className="actions">
+              <button
+                data-testid="debug-consent-accept"
+                autoFocus
+                onClick={() => {
+                  setDebugConsent(false);
+                  void prepareAndDebug(true);
+                }}
+              >
+                Enable and debug
+              </button>
+              <button data-testid="debug-consent-cancel" onClick={() => setDebugConsent(false)}>
                 Cancel
               </button>
             </div>
@@ -3294,6 +4570,20 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
             </div>
           </div>
         </div>
+      )}
+
+      {runConfigOpen && (
+        <RunConfigDialog
+          evaluation={evaluation}
+          configs={runConfigStore?.configs ?? []}
+          defaultConfig={defaultRunConfig}
+          activeId={runConfigStore?.activeId ?? DEFAULT_RUN_CONFIG_ID}
+          issues={runConfigStore?.issues ?? []}
+          initialId={runConfigInitialId}
+          onCommit={commitRunConfigDialog}
+          onRun={(config) => requestRun(config)}
+          onClose={() => setRunConfigOpen(false)}
+        />
       )}
 
       {confirm && (
@@ -3351,7 +4641,6 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                 Keep editing
               </button>
               <button
-                className="danger"
                 data-testid="confirm-discard"
                 onClick={discardConfirmed}
               >
@@ -3360,6 +4649,61 @@ export function WorkspaceView({ snapshot, initialFile, onSnapshot, onClosed }: P
                   : confirm.kind === "workspace"
                     ? "Discard and close workspace"
                     : "Discard and close app"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {contextMenu && (
+        <EditorContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenuItems(contextMenu)}
+          onClose={closeContextMenu}
+        />
+      )}
+
+      {gitDiffView && (
+        <div className="modal-backdrop">
+          <div
+            className="modal git-diff-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="git-diff-title"
+            data-testid="editor-git-diff"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setGitDiffView(null);
+            }}
+          >
+            <h2 id="git-diff-title">Git diff · {gitDiffView.path}</h2>
+            <p className="muted" data-testid="editor-git-diff-state">
+              {gitDiffView.state === "ok"
+                ? `${gitDiffView.staged ? "Staged" : "Working tree"} diff`
+                : gitDiffView.state === "empty"
+                  ? "No diff for this file."
+                  : "Git diff failed."}
+              {gitDiffView.truncated ? " · truncated by the host" : ""}
+            </p>
+            {gitDiffView.message && (
+              <p className="error" role="alert" data-testid="editor-git-diff-message">
+                {gitDiffView.message}
+              </p>
+            )}
+            {gitDiffView.diff ? (
+              <pre className="eval-pre" data-testid="editor-git-diff-content">
+                {gitDiffView.diff}
+              </pre>
+            ) : (
+              <p className="muted">Nothing to show; OpenRidr did not invent a diff.</p>
+            )}
+            <div className="actions">
+              <button
+                autoFocus
+                data-testid="editor-git-diff-close"
+                onClick={() => setGitDiffView(null)}
+              >
+                Close
               </button>
             </div>
           </div>

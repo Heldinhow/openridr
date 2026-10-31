@@ -230,7 +230,7 @@ Atalhos mínimos do MVP (Mac / Windows):
 ### Git
 
 - Executa o `git` do PATH no host; sem libgit2, sem instalar git, sem repositório embutido.
-- Todos os métodos de Git exigem trust. Em Restricted mode, as tool windows dizem "Trust the workspace to use Git"; sem repositório, "Not a git repository". Nenhum comando de escrita roda antes de confirmação.
+- Operações Git que consultam o repositório ou executam comandos exigem trust. Em Restricted mode, as tool windows dizem "Trust the workspace to use Git"; sem repositório, "Not a git repository". Nenhum comando de escrita roda antes de confirmação. Settings pode resolver apenas o caminho do executável no PATH sem trust; consulta de versão/repositório continua gated.
 - Leitura: status (`--porcelain=v1 -z`), diff por arquivo, branches locais/remotas, log da branch atual (`--max-count=200`, com parents).
 - Commit: seleção por checkbox define os caminhos; o commit é `git commit --only -- <caminhos>` com a mensagem, e `--amend` quando marcado. O index do usuário não é alterado; desmarcar não faz `restore --staged`. Hooks do repositório rodam (sem `--no-verify`).
 - Branch: criar a partir da atual; checkout de branch local ou remota. Checkout e pull recusam árvore suja, merge/rebase/cherry-pick em andamento, com mensagem e sem auto-stash.
@@ -257,7 +257,7 @@ Atalhos mínimos do MVP (Mac / Windows):
 ### Código
 
 - Gutter: ícone de Run no ponto de entrada do projeto de startup e ícone por teste, além do gutter de breakpoint existente. Posições vêm de `documentSymbol` do LSP; quando a posição não é determinável sem ambiguidade, o ícone não aparece (nada é inventado). Ícones são SVG próprios.
-- ⌥↩: popup no cursor com quick fixes e intenções retornadas por `codeAction` para a posição/revisão atuais, com prévia de diff e aplicação validada (mesmo fluxo do rename). Sem ação quando o LSP não retorna nada.
+- ⌥↩: popup no cursor (**superseded em 2026-10-31 por `decisions.md` “M7: previews docados”: painel docado abaixo do editor, não flutuante**) com quick fixes e intenções retornadas por `codeAction` para a posição/revisão atuais, com prévia de diff e aplicação validada (mesmo fluxo do rename). Sem ação quando o LSP não retorna nada.
 - Menu de contexto do editor: Context Actions, Find Usages, Go To Definition, Rename, Run/Debug Test, Git (commit/diff do arquivo) e Copy path. Itens indisponíveis ficam desabilitados com motivo; Refactor This não existe no MVP.
 - Rename inline: campo sobre o identificador no cursor (range de palavra), Enter aplica pelo mesmo fluxo de prévia/revalidação do rename existente, Esc cancela. A prévia não modal continua obrigatória; se houver conflito de foco, a prévia vence e o campo fecha.
 - Find Usages (⇧F12): lista somente leitura de ocorrências agrupadas por arquivo, com navegação; sem refatoração em massa.
@@ -282,6 +282,7 @@ Todos seguem o dispatcher existente (`method`, `params`, `result`/erro com `deta
 | `git.commit` | `paths[]`, `message`, `amend` | commit criado (hash, resumo) | trust |
 | `git.pull` | — | resultado observado | trust + árvore limpa |
 | `git.push` | `confirm:true` | remote/branch e resultado observado | trust |
+| `git.path` | — | caminho do executável Git resolvido no PATH, sem iniciar processo | nenhum (metadado local; não abre repositório) |
 | `settings.read` / `settings.write` | objeto de settings | settings efetivas | nenhum / nenhum |
 | `runConfigs.read` / `runConfigs.write` | solução | lista + id ativo | nenhum / nenhum |
 | `nuget.planUpdate` / `nuget.applyUpdate` | projeto, id, versão / `planId` | plano (comando, versão, origem) / resultado + restore pendente | trust |
@@ -304,7 +305,7 @@ Todos seguem o dispatcher existente (`method`, `params`, `result`/erro com `deta
 - Uma spec Playwright nova por fatia, com a suíte inteira verde antes do commit. Specs existentes não são reescritas; os 1.326 cliques continuam valendo.
 - Unit tests de host apenas para lógica pura e parsing novo: `--porcelain=v1 -z`, `git log` com separadores, JSON do NuGet, `.env`, resolução de atalhos e precedência de perfis, caps/truncamento de símbolos e busca.
 - Fixtures: a solução `OrderDesk` continua a base. Git usa um repositório temporário descartável por teste (inicializado no próprio teste, nunca o repo do app). NuGet: parsing e recusa de CPM rodam offline; o teste que consulta o nuget.org é opt-in (`OPENRIDR_ENABLE_NETWORK_TESTS=1`) e registra a lacuna quando não roda.
-- Testes negativos de trust para todo método novo que executa algo (`git.*`, `nuget.*`): chamada direta em Restricted mode devolve `trust_required` e nenhum processo nasce.
+- Testes negativos de trust para todo método novo que executa algo (`git.*`, `nuget.*`), exceto metadado neutro `git.path`: chamada direta em Restricted mode devolve `trust_required` e nenhum processo nasce.
 - Testes de estado honesto: busca sem LSP, Git sem repo, Settings inválidas, NuGet offline, CPM, árvore suja no checkout/pull, descoberta stale no rerun failed.
 - Workers = 1 e `beforeEach`/`afterEach` restaurando arquivos, como no resto da suíte; o ambiente usa `OPENRIDR_HOME` isolado.
 

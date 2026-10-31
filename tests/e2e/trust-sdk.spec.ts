@@ -99,17 +99,28 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await trustWorkspace(page);
   await expect(page.getByTestId("sdk-project")).toContainText("SDK 8.0.408");
   await expect(page.getByTestId("sdk-project")).toContainText("resolved after trust");
-  await expect(page.getByTestId("sdk-project")).toContainText("OpenRidr/sdks/8.0.408");
   await expect(page.getByTestId("sdk-project")).not.toContainText("10.0.100");
-  await expect(page.getByTestId("trust-note")).toContainText("recorded in host memory");
+  // Any detected root may satisfy global.json (~/.dotnet, app home or PATH); only the
+  // resolved version is the contract.
+  const trusted = (
+    await (
+      await request.post(`${host}/call`, {
+        data: { method: "workspace.state", params: {} },
+      })
+    ).json()
+  ).data.sdk.project;
+  expect(trusted.state).toBe("resolved");
+  expect(trusted.resolvedVersion).toBe("8.0.408");
+  expect(trusted.root).toBeTruthy();
+  await expect(page.getByTestId("trust-note")).toContainText("remembered for this project path");
 
   await enterWorkspace(page);
   await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   await expect(page.getByTestId("status-sdk")).toHaveText(
     "Host SDK 10.0.100 · Project SDK 8.0.408",
   );
-  await expect(page.getByTestId("eval-configuration")).toHaveAttribute("title", "MSBuild configuration for the evaluated project model.");
-  await expect(page.getByTestId("eval-tfm")).toHaveAttribute("title", "Select a TFM to evaluate multi-targeted projects. Single-target projects evaluate their declared TFM.");
+  await expect(page.getByTestId("eval-configuration")).toHaveAttribute("title", "MSBuild configuration for evaluation.");
+  await expect(page.getByTestId("eval-tfm")).toHaveAttribute("title", "Target framework for evaluation.");
 
   await page.getByTestId(`tree-file-${programTab}`).click();
   await expect(page.getByTestId("editor")).toBeVisible();
@@ -203,7 +214,7 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   for (const [id, selection] of [["eval-configuration", "a configuration"], ["eval-tfm", "a TFM"]]) {
     await expect(page.getByTestId(id)).toBeDisabled();
-    await expect(page.getByTestId(id)).toHaveAttribute("title", `Trust the workspace and resolve the project SDK to select ${selection}.`);
+    await expect(page.getByTestId(id)).toHaveAttribute("title", `Resolve the project SDK before selecting ${selection}.`);
   }
   expect(hashOf(missingGlobal)).toBe(before);
 
@@ -241,12 +252,20 @@ test("revoked workspace shows the remaining process and terminate observes the e
 
   await enterWorkspace(page);
   const row = page.getByTestId(`processes-row-${processInfo.id}`);
+  const processesToggle = page.getByTestId("processes-toggle");
+  await expect(processesToggle).toHaveAttribute("aria-expanded", "false");
+  expect((await page.getByTestId("processes-panel").boundingBox())!.height).toBeLessThan(44);
+  await expect(row).toHaveCount(0);
+  await processesToggle.click();
   await expect(row).toBeVisible();
   await expect(row).toContainText(`pid ${processInfo.pid}`);
+  await processesToggle.click();
+  await expect(row).toHaveCount(0);
 
   await reveal(page.getByTestId("trust-revoke"));
   await page.getByTestId("trust-revoke").click();
   await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  await expect(processesToggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByTestId(`processes-awaiting-${processInfo.id}`)).toBeVisible();
   await expect(page.getByTestId(`processes-state-${processInfo.id}`)).toContainText(
     "awaiting decision",

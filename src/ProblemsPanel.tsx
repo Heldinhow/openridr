@@ -70,17 +70,12 @@ function countText(snapshots: DiagnosticSnapshot[]) {
   }`;
 }
 
-export function ProblemsPanel({
-  diagnostics,
-  build,
-  buildObsolete = false,
-  editedAt = {},
-  onNavigate,
-  onOpen,
-}: Props) {
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [document, setDocument] = useState("");
-  const snapshots = diagnostics.snapshots.map((snapshot) =>
+/** A local edit newer than the publication makes its items awaiting before the next poll. */
+export function withLocalEdits(
+  diagnostics: Diagnostics,
+  editedAt: Record<string, number>,
+) {
+  return diagnostics.snapshots.map((snapshot) =>
     snapshot.state === "current" &&
     snapshot.path !== null &&
     (editedAt[snapshot.path] ?? 0) > snapshot.receivedAt
@@ -92,6 +87,19 @@ export function ProblemsPanel({
         }
       : snapshot,
   );
+}
+
+export function ProblemsPanel({
+  diagnostics,
+  build,
+  buildObsolete = false,
+  editedAt = {},
+  onNavigate,
+  onOpen,
+}: Props) {
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [document, setDocument] = useState("");
+  const snapshots = withLocalEdits(diagnostics, editedAt);
   const documents = Array.from(
     new Set(
       snapshots
@@ -236,6 +244,7 @@ export function ProblemsPanel({
                 aria-current={selectedKey === row.key ? "true" : undefined}
                 onClick={() => selectRow(row)}
                 title={row.item.message}
+                aria-label={`${row.item.severityLabel} ${codeLabel(row.item)}: ${row.item.message} · ${row.snapshot.origin.label} · ${row.item.category}`}
               >
                 <span className={`problem-severity severity-${row.item.severityLabel}`}>
                   {row.item.severityLabel}

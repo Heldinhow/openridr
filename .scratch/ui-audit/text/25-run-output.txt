@@ -1,0 +1,150 @@
+OrderDesk.sln
+Trusted mode
+Not a git repository
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Run OrderDesk.Cli
+default
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore succeeded · exit 0 · Analysis: ready
+Processes
+
+OpenRidr tracks only processes the host started. Termination is shown after the host observes it; a missing exit code stays "exit unknown".
+
+restore:solution pid 67393 exited · exit 0
+build:OrderDesk.Cli pid 67455 exited · exit 0
+run:OrderDesk.Cli pid 67458 exited · exit 0
+restore:solution pid 67670 exited · exit 0
+build:OrderDesk.Cli pid 67683 exited · exit 0
+run:OrderDesk.Cli pid 67685 exited · exit 0
+restore:solution pid 67768 exited · exit 0
+lsp:csharp-ls pid 67779 running
+Terminate
+Keep running
+build:OrderDesk.Cli pid 67783 exited · exit 0
+run:OrderDesk.Cli pid 67784 exited · exit 0
+Solution Explorer
+MSBuild evaluated
+Re-evaluate
+Evaluated · revision 2
+Project details
+OrderDesk.sln
+src
+▾
+OrderDesk.Cli
+console
+net8.0
+References: OrderDesk.Core
+Program.cs
+▾
+OrderDesk.Core
+library
+net8.0
+Order.cs
+tests
+▾
+OrderDesk.Tests
+test
+net8.0
+References: OrderDesk.Core
+Packages: Microsoft.NET.Test.Sdk 17.11.1, xunit 2.9.2, xunit.runner.visualstudio 2.8.2
+OrderTests.cs
+ Rename symbol…
+ Code actions…
+ Save
+Your code, in focus.
+
+Open a file from the solution explorer to start editing.
+
+Save file
+⌘S
+Go to definition
+⌘B
+Rename symbol
+Shift+F6
+Run saved build
+Ctrl+R
+
+Text editing is always available. Analysis and execution require trust.
+
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+Not selected
+net8.0
+Rebuild (Cmd+F9)
+Run (Ctrl+R)
+Run exited · exit 0
+Build succeeded · exit 0
+build:8:3 · revision 3 · context 11
+Startup project
+OrderDesk.Cli · console · src/OrderDesk.Cli/OrderDesk.Cli.csproj
+TargetPath
+/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+Configuration / TFM
+Debug · single-target project
+Command
+/Users/helder/.dotnet/dotnet build /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/OrderDesk.Cli.csproj -c Debug -nologo -v:minimal --no-restore
+Working directory
+/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk
+Project SDK
+8.0.408 · /Users/helder/.dotnet
+Saved content
+Built saved content; no unsaved buffers were open.
+
+0 build problems · origin Build · dotnet
+
+  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll
+  OrderDesk.Cli -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+Time Elapsed 00:00:00.35
+Run
+run:8:3 · project OrderDesk.Cli · /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+Build identity
+build:8:3 · revision 3 · context 11
+Configuration / TFM
+Debug · single-target project
+Command
+/Users/helder/.dotnet/dotnet /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+Working directory
+/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli
+Exit
+exit 0
+Started / finished
+29/10/2026, 06:42:37 / 29/10/2026, 06:42:37
+Run output
+Order A-104: R$ 42,00
+OrderDesk.sln
+OrderDesk.sln
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 2
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+No file open

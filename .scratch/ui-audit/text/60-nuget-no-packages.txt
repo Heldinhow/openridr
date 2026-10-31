@@ -1,0 +1,96 @@
+OrderDesk.sln
+Trusted mode
+audit-branch
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Run OrderDesk.Cli
+default
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+•••
+Workspace tools
+Restore succeeded · exit 0 · Analysis: unavailable
+Created and checked out audit-branch.
+×
+Processes
+
+OpenRidr tracks only processes the host started. Termination is shown after the host observes it; a missing exit code stays "exit unknown".
+
+restore:solution pid 68359 exited · exit 0
+lsp:csharp-ls pid 68371 exited · exit 0
+restore:solution pid 68570 exited · exit 0
+Commit
+audit-branch
+Refresh
+0 of 0 selected
+
+The working tree is clean.
+
+Commit message
+Amend the last commit
+Commit
+
+Committed 11f3ea4 Audit commit
+
+ Rename symbol…
+ Code actions…
+ Save
+Your code, in focus.
+
+Open a file from the solution explorer to start editing.
+
+Save file
+⌘S
+Go to definition
+⌘B
+Rename symbol
+Shift+F6
+Run saved build
+Ctrl+R
+
+Text editing is always available. Analysis and execution require trust.
+
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+Project
+OrderDesk.Cli
+OrderDesk.Core
+OrderDesk.Tests
+Refresh
+Project SDK 8.0.408 · /Users/helder/.dotnet
+
+dotnet list package --outdated returned invalid data: a project has no frameworks array
+
+Not all package data was read; this is not an all-up-to-date result.
+
+Sources consulted: unknown — dotnet nuget list source failed; the configured source is unknown.
+
+Target framework net8.0
+Package	Current	Latest	Source	Action
+No packages are referenced for this TFM.
+dotnet list package · ok · exit 0
+dotnet list package --outdated · failed · exit 0
+OrderDesk.sln
+OrderDesk.sln
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 2
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+No file open

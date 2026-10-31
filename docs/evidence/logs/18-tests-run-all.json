@@ -2,9 +2,9 @@
   "discovery": {
     "awaitingDecision": false,
     "command": [
-      "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+      "/Users/helder/.dotnet/dotnet",
       "test",
-      "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+      "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
       "-c",
       "Debug",
       "--no-restore",
@@ -14,15 +14,15 @@
       "-f",
       "net8.0"
     ],
-    "contextId": 4,
-    "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance",
-    "discoveryId": "discovery:3:1",
+    "contextId": 67,
+    "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance",
+    "discoveryId": "discovery:47:1",
     "error": null,
     "exit": 0,
-    "finishedAt": 1793199758527,
+    "finishedAt": 1793295965072,
     "items": [
       {
-        "discoveryId": "discovery:3:1",
+        "discoveryId": "discovery:47:1",
         "displayName": "OrderDesk.Tests.OrderTests.Id_is_preserved",
         "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Id_is_preserved",
         "id": "test:b2493325b27f86ba",
@@ -33,7 +33,7 @@
         "tfm": "net8.0"
       },
       {
-        "discoveryId": "discovery:3:1",
+        "discoveryId": "discovery:47:1",
         "displayName": "OrderDesk.Tests.OrderTests.Total_is_preserved",
         "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Total_is_preserved",
         "id": "test:60c033142f203871",
@@ -44,7 +44,7 @@
         "tfm": "net8.0"
       },
       {
-        "discoveryId": "discovery:3:1",
+        "discoveryId": "discovery:47:1",
         "displayName": "OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence",
         "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence",
         "id": "test:b86a5b14b8c8f93a",
@@ -55,7 +55,7 @@
         "tfm": "net8.0"
       },
       {
-        "discoveryId": "discovery:3:1",
+        "discoveryId": "discovery:47:1",
         "displayName": "OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes",
         "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes",
         "id": "test:0a3490f86e8e57b4",
@@ -66,33 +66,33 @@
         "tfm": "net8.0"
       }
     ],
-    "log": "  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll\n  OrderDesk.Tests -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll\nTest run for /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)\nThe following Tests are available:\n    OrderDesk.Tests.OrderTests.Id_is_preserved\n    OrderDesk.Tests.OrderTests.Total_is_preserved\n    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence\n    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes",
+    "log": "  OrderDesk.Core -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll\n  OrderDesk.Tests -> /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll\nTest run for /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)\nThe following Tests are available:\n    OrderDesk.Tests.OrderTests.Id_is_preserved\n    OrderDesk.Tests.OrderTests.Total_is_preserved\n    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence\n    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes",
     "logTruncated": false,
     "mtpMessage": null,
     "partial": false,
-    "processId": 6,
+    "processId": 30,
     "project": {
       "name": "OrderDesk.Tests",
       "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj"
     },
     "revision": 1,
-    "sdkRoot": "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408",
+    "sdkRoot": "/Users/helder/.dotnet",
     "sdkVersion": "8.0.408",
     "sealed": false,
     "stale": false,
     "staleReason": null,
-    "startedAt": 1793199757019,
+    "startedAt": 1793295963589,
     "state": "completed",
     "targetFramework": "net8.0",
     "termination": null,
-    "workspaceId": 3
+    "workspaceId": 47
   },
   "run": {
     "awaitingDecision": false,
     "command": [
-      "/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet",
+      "/Users/helder/.dotnet/dotnet",
       "test",
-      "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+      "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
       "-c",
       "Debug",
       "--no-build",
@@ -104,10 +104,10 @@
       "--logger",
       "trx;LogFileName=openridr.trx",
       "--results-directory",
-      "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/3-2-1793199760254-71579"
+      "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/47-2-1793295966745-42236"
     ],
     "configuration": "Debug",
-    "contextId": 4,
+    "contextId": 67,
     "counts": {
       "failed": 1,
       "matched": 4,
@@ -117,17 +117,17 @@
       "total": 4,
       "unknown": 0
     },
-    "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance",
-    "discoveryId": "discovery:3:1",
+    "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance",
+    "discoveryId": "discovery:47:1",
     "discoveryRevision": 1,
     "error": null,
     "exit": 1,
-    "finishedAt": 1793199761325,
+    "finishedAt": 1793295967874,
     "infrastructureFailure": false,
-    "log": "Test run for /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)\nA total of 1 test files matched the specified pattern.\n[xUnit.net 00:00:00.06]     OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [SKIP]\n[stderr] [xUnit.net 00:00:00.07]     OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [FAIL]\n  Skipped OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [1 ms]\n  Failed OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [4 ms]\n  Error Message:\n   Assert.Equal() Failure: Values differ\nExpected: 43\nActual:   42\n  Stack Trace:\n     at OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence() in /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/OrderTests.cs:line 29\n   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)\n   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)\nResults File: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/3-2-1793199760254-71579/openridr.trx\nFailed!  - Failed:     1, Passed:     2, Skipped:     1, Total:     4, Duration: 13 ms - OrderDesk.Tests.dll (net8.0)",
-    "logPath": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/3-2-1793199760254-71579/run.log",
+    "log": "Test run for /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)\nA total of 1 test files matched the specified pattern.\n[xUnit.net 00:00:00.05]     OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [SKIP]\n[stderr] [xUnit.net 00:00:00.07]     OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [FAIL]\n  Skipped OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [1 ms]\n  Failed OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [4 ms]\n  Error Message:\n   Assert.Equal() Failure: Values differ\nExpected: 43\nActual:   42\n  Stack Trace:\n     at OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence() in /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/OrderTests.cs:line 29\n   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)\n   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)\nResults File: /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/47-2-1793295966745-42236/openridr.trx\nFailed!  - Failed:     1, Passed:     2, Skipped:     1, Total:     4, Duration: 13 ms - OrderDesk.Tests.dll (net8.0)",
+    "logPath": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/47-2-1793295966745-42236/run.log",
     "logTruncated": false,
-    "processId": 8,
+    "processId": 32,
     "project": {
       "name": "OrderDesk.Tests",
       "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj"
@@ -147,20 +147,6 @@
         "stderr": null,
         "stdout": null,
         "testId": "test:0a3490f86e8e57b4"
-      },
-      {
-        "displayName": "OrderDesk.Tests.OrderTests.Total_is_preserved",
-        "durationMs": 0,
-        "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Total_is_preserved",
-        "matched": true,
-        "message": null,
-        "outcome": "passed",
-        "outcomeRaw": "Passed",
-        "position": null,
-        "stackTrace": null,
-        "stderr": null,
-        "stdout": null,
-        "testId": "test:60c033142f203871"
       },
       {
         "displayName": "OrderDesk.Tests.OrderTests.Id_is_preserved",
@@ -189,27 +175,41 @@
           "line": 28,
           "path": "tests/OrderDesk.Tests/OrderTests.cs"
         },
-        "stackTrace": "   at OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence() in /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance/tests/OrderDesk.Tests/OrderTests.cs:line 29\n   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)\n   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)",
+        "stackTrace": "   at OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence() in /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance/tests/OrderDesk.Tests/OrderTests.cs:line 29\n   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)\n   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)",
         "stderr": null,
         "stdout": null,
         "testId": "test:b86a5b14b8c8f93a"
+      },
+      {
+        "displayName": "OrderDesk.Tests.OrderTests.Total_is_preserved",
+        "durationMs": 0,
+        "fullyQualifiedName": "OrderDesk.Tests.OrderTests.Total_is_preserved",
+        "matched": true,
+        "message": null,
+        "outcome": "passed",
+        "outcomeRaw": "Passed",
+        "position": null,
+        "stackTrace": null,
+        "stderr": null,
+        "stdout": null,
+        "testId": "test:60c033142f203871"
       }
     ],
-    "resultsDirectory": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/3-2-1793199760254-71579",
+    "resultsDirectory": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/47-2-1793295966745-42236",
     "resultsTruncated": false,
     "revision": 2,
-    "runId": "testrun:3:2",
+    "runId": "testrun:47:2",
     "sealed": false,
     "selectedTestIds": [],
     "selection": "all",
     "stale": false,
     "staleReason": null,
-    "startedAt": 1793199760254,
+    "startedAt": 1793295966745,
     "state": "completed",
     "targetFramework": "net8.0",
     "termination": null,
-    "trxPath": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/3-2-1793199760254-71579/openridr.trx",
+    "trxPath": "/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/test-results/47-2-1793295966745-42236/openridr.trx",
     "trxState": "ok",
-    "workspaceId": 3
+    "workspaceId": 47
   }
 }

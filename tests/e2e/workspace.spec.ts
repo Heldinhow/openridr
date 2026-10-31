@@ -13,7 +13,7 @@ const coreTab = "src/OrderDesk.Core/Order.cs";
 const originalProgram = fs.readFileSync(program, "utf8");
 const originalCore = fs.readFileSync(core, "utf8");
 import { host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 const executableMethods = [
   "evaluation.run",
@@ -27,7 +27,24 @@ const executableMethods = [
   "tests.discover",
   "tests.run",
   "processes.probe",
+  "git.status",
+  "git.log",
+  "git.commit",
 ];
+
+test("welcome lists recent solutions, persists them and reopens one", async ({ page }) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await reveal(page.getByTestId("close-workspace"));
+  await page.getByTestId("close-workspace").click();
+  await expect(page.getByTestId("welcome-recent-0")).toContainText("OrderDesk.sln");
+  await page.reload();
+  await expect(page.getByTestId("welcome-recent-0")).toHaveAttribute("title", solution);
+  const directory = process.env.OPENRIDR_SCREENSHOT_DIR;
+  if (directory) await page.screenshot({ path: path.join(directory, "welcome-recent.png") });
+  await page.getByTestId("welcome-recent-0").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+});
 
 test.beforeEach(() => {
   fs.writeFileSync(program, originalProgram);
@@ -216,8 +233,11 @@ test("closing a modified buffer or workspace requires an explicit choice", async
   const tab = page.getByTestId(`tab-${programTab}`);
 
   await tab.getByTestId("close-buffer").click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByRole("dialog")).toContainText("unsaved changes");
+  const bufferDialog = page.getByRole("dialog");
+  await expect(bufferDialog).toBeVisible();
+  await expect(bufferDialog).toContainText("unsaved changes");
+  await expect(page.getByTestId("confirm-keep")).toHaveCSS("border-color", "rgb(84, 138, 247)");
+  await expect(page.getByTestId("confirm-discard")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.getByTestId("confirm-keep").click();
   await expect(tab).toBeVisible();
   await expect(tab.getByTestId("dirty-marker")).toBeVisible();
@@ -248,9 +268,7 @@ test("saves a modified buffer from the close dialog", async ({ page }) => {
   await openProgram(page);
 
   await replaceEditorText(page, "// saved from the close dialog\n");
-  await expect(page.getByTestId("editor-revision")).toContainText(
-    "revision 1 · saved 0 · modified",
-  );
+  await expect(page.getByTestId("editor-revision")).toHaveText(" · Modified");
 
   await page.getByTestId(`tab-${programTab}`).getByTestId("close-buffer").click();
   const dialog = page.getByRole("dialog");
@@ -261,7 +279,7 @@ test("saves a modified buffer from the close dialog", async ({ page }) => {
   expect(fs.readFileSync(program, "utf8")).toBe("// saved from the close dialog\n");
 
   await openProgram(page);
-  await expect(page.getByTestId("editor-revision")).toHaveText(/revision 0 · saved 0 · saved/);
+  await expect(page.getByTestId("editor-revision")).toHaveText("");
 });
 
 test("a save failure from the close dialog keeps the buffer and explains the error", async ({
@@ -339,9 +357,7 @@ test("compares buffer and disk and revalidates a second disk change before overw
   await expect(page.getByTestId("conflict-compare-diff")).toHaveText(
     "1 line removed · 1 line added",
   );
-  await expect(page.getByTestId("editor-revision")).toContainText(
-    "revision 1 · saved 0 · modified",
-  );
+  await expect(page.getByTestId("editor-revision")).toHaveText(" · Modified");
   fs.mkdirSync(screenshots, { recursive: true });
   await page.getByTestId("conflict-compare").scrollIntoViewIfNeeded();
   await page.screenshot({
@@ -359,16 +375,12 @@ test("compares buffer and disk and revalidates a second disk change before overw
   );
   expect(fs.readFileSync(program, "utf8")).toBe("// second disk version\n");
   await expect(page.getByTestId("editor")).toContainText("buffer version");
-  await expect(page.getByTestId("editor-revision")).toContainText(
-    "revision 1 · saved 0 · modified",
-  );
+  await expect(page.getByTestId("editor-revision")).toHaveText(" · Modified");
 
   await page.getByTestId("conflict-overwrite").click();
   await expect(banner).toHaveCount(0);
   expect(fs.readFileSync(program, "utf8")).toBe("// buffer version\n");
-  await expect(page.getByTestId("editor-revision")).toContainText(
-    "revision 1 · saved 1 · saved",
-  );
+  await expect(page.getByTestId("editor-revision")).toHaveText("");
 
   // The stored hash now belongs to the overwritten buffer: the next save needs no reload.
   await replaceEditorText(page, "// saved after overwrite\n");
@@ -383,9 +395,7 @@ test("detects external changes on focus and tab activation without replacing the
   await openWorkspace(page, solution);
   await enterTextOnly(page);
   await openProgram(page);
-  await expect(page.getByTestId("editor-revision")).toContainText(
-    "revision 0 · saved 0 · saved",
-  );
+  await expect(page.getByTestId("editor-revision")).toHaveText("");
 
   fs.writeFileSync(program, "// focus disk version\n");
   await dispatchWindowFocus(page);
@@ -393,9 +403,7 @@ test("detects external changes on focus and tab activation without replacing the
   await expect(banner).toBeVisible();
   await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
   await expect(page.getByTestId("editor")).not.toContainText("focus disk version");
-  await expect(page.getByTestId("editor-revision")).toContainText(
-    "revision 0 · saved 0 · modified",
-  );
+  await expect(page.getByTestId("editor-revision")).toHaveText(" · Modified");
   await page.getByTestId("conflict-compare").locator("summary").click();
   await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
     "// focus disk version\n",
@@ -404,9 +412,7 @@ test("detects external changes on focus and tab activation without replacing the
   await page.getByTestId("conflict-reload").click();
   await expect(page.getByTestId("editor")).toContainText("focus disk version");
   await expect(banner).toHaveCount(0);
-  await expect(page.getByTestId("editor-revision")).toContainText(
-    "revision 1 · saved 1 · saved",
-  );
+  await expect(page.getByTestId("editor-revision")).toHaveText("");
   expect(fs.readFileSync(program, "utf8")).toBe("// focus disk version\n");
 
   // The reloaded hash is the disk hash: a new save succeeds without another conflict.
@@ -528,4 +534,21 @@ test("direct host calls fail before trust and reject paths outside the workspace
   expect((await outside.json()).error.code).toBe("outside_workspace");
 
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+});
+
+test("toolbar dropdowns are not clipped by the 44px bar", async ({ page }) => {
+  await openWorkspace(page, solution);
+  await enterTextOnly(page);
+  await page.getByTestId("trust-prompt-open").click();
+  const grant = page.getByTestId("trust-grant");
+  await expect(grant).toBeVisible();
+  // elementFromPoint at the button centre is the button itself only if nothing clips or covers it.
+  const hit = await grant.evaluate((button) => {
+    const box = button.getBoundingClientRect();
+    return button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+  });
+  expect(hit).toBe(true);
+  // An outside click closes the dropdown.
+  await page.getByTestId("tree").click({ position: { x: 5, y: 5 } });
+  await expect(grant).toBeHidden();
 });

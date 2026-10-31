@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "parameters": {
+    "framework": null
+  },
+  "projects": [
+    {
+      "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+      "frameworks": [
+        {
+          "framework": "net8.0",
+          "topLevelPackages": [
+            { "id": "Microsoft.NET.Test.Sdk", "requested": "17.11.1", "resolved": "17.11.1" },
+            { "id": "xunit.runner.visualstudio", "requested": "2.8.2", "resolved": "2.8.2" },
+            { "id": "xunit", "requested": "2.9.2", "resolved": "2.9.2" }
+          ],
+          "transitivePackages": [
+            { "id": "xunit.core", "resolved": "2.9.2" }
+          ]
+        },
+        {
+          "framework": "netstandard2.0",
+          "topLevelPackages": [
+            { "id": "xunit", "requested": "2.9.2", "resolved": "2.9.2" }
+          ]
+        }
+      ]
+    }
+  ]
+}

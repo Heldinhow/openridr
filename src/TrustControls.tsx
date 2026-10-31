@@ -21,7 +21,7 @@ export function TrustControls({ snapshot, onChange, compact = false }: Props) {
     setBusy(true);
     setError(null);
     try {
-      onChange(await call<Snapshot>("trust.grant"));
+      onChange(await call<Snapshot>("trust.grant", { remember: true }));
       setChecked(false);
     } catch (caught) {
       setError(messageOf(caught));
@@ -63,9 +63,8 @@ export function TrustControls({ snapshot, onChange, compact = false }: Props) {
           <p>Executable inspection is authorized for this workspace only.</p>
         )}
         <p className="hint" data-testid="trust-note">
-          Trust decision recorded in host memory for this session (workspace{" "}
-          {snapshot.trust.workspaceId ?? "unknown"}). Revoking clears the executable context
-          immediately; it does not install tools or enable experimental debuggers.
+          Trust is remembered for this project path, also after restarting the app. Revoking forgets it and clears the executable
+          context immediately; it does not install tools or enable experimental debuggers.
         </p>
         <div className="actions">
           <button

@@ -39,6 +39,11 @@ pub struct Launch {
     pub configuration: String,
     pub target_framework: Option<String>,
     pub cwd: PathBuf,
+    /// Program argv from the active run configuration; passed to the adapter as a separate
+    /// list, never through a shell.
+    pub args: Vec<String>,
+    /// Merged `.env` + explicit environment, applied after the adapter defaults.
+    pub env: Vec<(String, String)>,
     pub root: PathBuf,
     pub sdk_root: PathBuf,
     pub adapter_binary: String,
@@ -46,17 +51,45 @@ pub struct Launch {
     pub adapter_platform: String,
     pub workspace_id: u64,
     pub context_id: u64,
-    /// Breakpoints set before the session started, kept by file.
-    pub breakpoints: BTreeMap<String, Vec<i64>>,
+    /// Breakpoints set before the session started, kept by file with their conditions.
+    pub breakpoints: BTreeMap<String, Vec<BreakpointView>>,
+    /// Mute all set before the session started; it survives the next launch.
+    pub breakpoints_muted: bool,
+    /// Exception filters chosen before the launch; they survive it too.
+    pub exception_filters: Vec<String>,
+}
+
+/// The exact `launch` request sent to the adapter: the evaluated assembly, the configured
+/// cwd/argv and the merged environment, with explicit values winning over the defaults.
+fn launch_parameters(launch: &Launch) -> Value {
+    let mut env = json!({
+        "DOTNET_ROOT": launch.sdk_root.to_string_lossy(),
+        "DOTNET_MULTILEVEL_LOOKUP": "0",
+        "DOTNET_CLI_UI_LANGUAGE": "en",
+    });
+    if let Some(values) = env.as_object_mut() {
+        for (key, value) in &launch.env {
+            values.insert(key.clone(), Value::String(value.clone()));
+        }
+    }
+    json!({
+        "program": launch.assembly,
+        "cwd": launch.cwd.to_string_lossy(),
+        "args": launch.args,
+        "env": env,
+        "stopAtEntry": false,
+        "console": "internalConsole",
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BreakpointView {
-    pub path: String,
+pub struct BreakpointView {    pub path: String,
     pub line: i64,
     pub verified: bool,
     pub message: Option<String>,
+    /// Expression the adapter checks on each hit; `None` stops on every hit.
+    pub condition: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -85,6 +118,34 @@ pub struct VariableView {
     #[serde(rename = "type")]
     pub type_name: Option<String>,
     pub variables_reference: i64,
+}
+
+/// The result of one expression evaluated in the current pause (typed or a watch).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvaluationView {
+    pub expression: String,
+    pub value: Option<String>,
+    pub type_name: Option<String>,
+    pub variables_reference: i64,
+    pub error: Option<String>,
+}
+
+/// A watch expression: kept across pauses, evaluated once per pause.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchView {
+    pub expression: String,
+    pub result: Option<EvaluationView>,
+}
+
+/// The children of one expandable variable, fetched for the current stop generation only.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChildrenView {
+    pub variables_reference: i64,
+    pub variables: Vec<VariableView>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -160,9 +221,19 @@ pub struct DapView {
     pub threads: Vec<ThreadView>,
     pub frames: Vec<FrameView>,
     pub selected_frame_id: Option<i64>,
+    pub selected_thread_id: Option<i64>,
     pub locals: Option<LocalsView>,
+    pub children: Vec<ChildrenView>,
+    pub evaluation: Option<EvaluationView>,
+    pub watches: Vec<WatchView>,
+    /// Increments on every stop and resume; the UI keys pause-scoped state by it.
+    pub stop_generation: u64,
     pub stopped: Option<StoppedView>,
     pub breakpoints: Vec<BreakpointView>,
+    /// Mute all: the adapter gets no breakpoints, the lines and conditions stay stored.
+    pub breakpoints_muted: bool,
+    pub exception_filters: Vec<String>,
+    pub adapter_exception_filters: Vec<String>,
     pub terminals: Vec<TerminalView>,
     pub log: String,
     pub log_truncated: bool,
@@ -175,6 +246,8 @@ pub struct DapView {
     pub finished_at: Option<u64>,
     pub sealed: bool,
     pub stale_reason: Option<String>,
+    /// Boolean `supports*` flags from netcoredbg's `initialize` answer, as it sent them.
+    pub adapter_capabilities: BTreeMap<String, bool>,
 }
 
 struct Data {
@@ -212,6 +285,7 @@ struct Data {
     next_id: i64,
     seq: i64,
     initialized_event: bool,
+    adapter_capabilities: BTreeMap<String, bool>,
     configuration_done: bool,
     cleanup_started: bool,
     stop_seq: u64,
@@ -219,8 +293,23 @@ struct Data {
     threads: Vec<ThreadView>,
     frames: Vec<FrameView>,
     selected_frame_id: Option<i64>,
+    selected_thread_id: Option<i64>,
     locals: Option<LocalsView>,
+    /// Expanded children keyed by `variablesReference`, valid only for `children_stop_seq`.
+    children: BTreeMap<i64, ChildrenView>,
+    children_stop_seq: u64,
+    /// Last typed evaluation, valid only for the pause in which it ran.
+    evaluation: Option<(u64, EvaluationView)>,
+    /// Watch expressions survive pauses; their results belong to `watch_stop_seq`.
+    watches: Vec<String>,
+    watch_results: Vec<EvaluationView>,
+    watch_stop_seq: u64,
     breakpoints: BTreeMap<String, Vec<BreakpointView>>,
+    breakpoints_muted: bool,
+    exception_filters: Vec<String>,
+    adapter_exception_filters: Vec<String>,
+    /// Run to Cursor's temporary breakpoint: sent with its source until the next resume.
+    run_to: Option<(String, i64)>,
     terminals: Vec<TerminalView>,
     terminal_ids: Vec<u64>,
 }
@@ -233,6 +322,7 @@ impl Data {
         self.stopped = None;
         self.frames.clear();
         self.threads.clear();
+        self.selected_thread_id = None;
         self.locals = None;
         self.selected_frame_id = None;
         let line = format!("[dap] session {state} · {}", self.phase);
@@ -250,6 +340,45 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+/// Reads the `variables` array of a DAP answer (used for scopes and for expanded children).
+fn variable_views(body: &Value) -> Vec<VariableView> {
+    body.get("variables")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|variable| VariableView {
+            name: variable
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("?")
+                .to_string(),
+            value: variable
+                .get("value")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            type_name: variable
+                .get("type")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            variables_reference: variable
+                .get("variablesReference")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+        })
+        .collect()
+}
+
+/// Keeps only the boolean `supports*` flags: the adapter answer also carries many fields the view does not use.
+fn adapter_flags(body: &Value) -> BTreeMap<String, bool> {
+    body.as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| key.starts_with("supports"))
+        .filter_map(|(key, value)| value.as_bool().map(|flag| (key.clone(), flag)))
+        .collect()
 }
 
 fn adapter_view(binary: &str, version: &str, platform: &str) -> AdapterView {
@@ -309,6 +438,14 @@ impl Dap {
                 next_id: 0,
                 seq: 0,
                 initialized_event: false,
+                adapter_capabilities: BTreeMap::new(),
+                children: BTreeMap::new(),
+                children_stop_seq: 0,
+                evaluation: None,
+                watches: Vec::new(),
+                watch_results: Vec::new(),
+                watch_stop_seq: 0,
+                selected_thread_id: None,
                 configuration_done: false,
                 cleanup_started: false,
                 stop_seq: 0,
@@ -318,6 +455,10 @@ impl Dap {
                 selected_frame_id: None,
                 locals: None,
                 breakpoints: BTreeMap::new(),
+                breakpoints_muted: false,
+                exception_filters: vec!["user-unhandled".to_string()],
+                adapter_exception_filters: Vec::new(),
+                run_to: None,
                 terminals: Vec::new(),
                 terminal_ids: Vec::new(),
             }),
@@ -355,16 +496,15 @@ impl Dap {
         let breakpoints = launch
             .breakpoints
             .iter()
-            .map(|(path, lines)| {
+            .map(|(path, items)| {
                 (
                     path.clone(),
-                    lines
+                    items
                         .iter()
-                        .map(|line| BreakpointView {
-                            path: path.clone(),
-                            line: *line,
+                        .map(|item| BreakpointView {
                             verified: false,
                             message: None,
+                            ..item.clone()
                         })
                         .collect::<Vec<_>>(),
                 )
@@ -431,6 +571,14 @@ impl Dap {
                 next_id: 0,
                 seq: 0,
                 initialized_event: false,
+                adapter_capabilities: BTreeMap::new(),
+                children: BTreeMap::new(),
+                children_stop_seq: 0,
+                evaluation: None,
+                watches: Vec::new(),
+                watch_results: Vec::new(),
+                watch_stop_seq: 0,
+                selected_thread_id: None,
                 configuration_done: false,
                 cleanup_started: false,
                 stop_seq: 1,
@@ -440,6 +588,10 @@ impl Dap {
                 selected_frame_id: None,
                 locals: None,
                 breakpoints,
+                breakpoints_muted: launch.breakpoints_muted,
+                exception_filters: launch.exception_filters.clone(),
+                adapter_exception_filters: Vec::new(),
+                run_to: None,
                 terminals: Vec::new(),
                 terminal_ids: Vec::new(),
             }),
@@ -476,19 +628,12 @@ impl Dap {
         self.data.lock().unwrap().log.push(line.into());
     }
 
-    pub fn breakpoints(&self) -> BTreeMap<String, Vec<i64>> {
-        self.data
-            .lock()
-            .unwrap()
-            .breakpoints
-            .iter()
-            .map(|(path, items)| {
-                (
-                    path.clone(),
-                    items.iter().map(|item| item.line).collect::<Vec<_>>(),
-                )
-            })
-            .collect()
+    pub fn breakpoints_muted(&self) -> bool {
+        self.data.lock().unwrap().breakpoints_muted
+    }
+
+    pub fn breakpoints(&self) -> BTreeMap<String, Vec<BreakpointView>> {
+        self.data.lock().unwrap().breakpoints.clone()
     }
 
     pub fn view(&self) -> DapView {
@@ -521,13 +666,41 @@ impl Dap {
             threads: data.threads.clone(),
             frames: data.frames.clone(),
             selected_frame_id: data.selected_frame_id,
+            selected_thread_id: data.selected_thread_id,
             locals: data.locals.clone(),
+            children: if data.children_stop_seq == data.stop_seq {
+                data.children.values().cloned().collect()
+            } else {
+                Vec::new()
+            },
+            evaluation: data
+                .evaluation
+                .clone()
+                .filter(|(stop, _)| *stop == data.stop_seq)
+                .map(|(_, result)| result),
+            watches: data
+                .watches
+                .iter()
+                .map(|expression| WatchView {
+                    expression: expression.clone(),
+                    result: data
+                        .watch_results
+                        .iter()
+                        .find(|result| result.expression == *expression)
+                        .filter(|_| data.watch_stop_seq == data.stop_seq)
+                        .cloned(),
+                })
+                .collect(),
+            stop_generation: data.stop_seq,
             stopped: data.stopped.clone(),
             breakpoints: data
                 .breakpoints
                 .values()
                 .flat_map(|items| items.iter().cloned())
                 .collect(),
+            breakpoints_muted: data.breakpoints_muted,
+            exception_filters: data.exception_filters.clone(),
+            adapter_exception_filters: data.adapter_exception_filters.clone(),
             terminals: data.terminals.clone(),
             log,
             log_truncated,
@@ -540,6 +713,7 @@ impl Dap {
             finished_at: data.finished_at,
             sealed: data.sealed,
             stale_reason: data.stale_reason.clone(),
+            adapter_capabilities: data.adapter_capabilities.clone(),
         }
     }
 
@@ -556,44 +730,160 @@ impl Dap {
         unique.sort_unstable();
         unique.dedup();
         let mut data = self.data.lock().unwrap();
-        data.breakpoints.insert(
-            path.to_string(),
-            unique
-                .iter()
-                .map(|line| BreakpointView {
-                    path: path.to_string(),
-                    line: *line,
-                    verified: false,
-                    message: None,
-                })
-                .collect(),
-        );
+        let previous = data.breakpoints.get(path).cloned().unwrap_or_default();
+        let entries: Vec<BreakpointView> = unique
+            .iter()
+            .map(|line| BreakpointView {
+                path: path.to_string(),
+                line: *line,
+                verified: false,
+                message: None,
+                condition: previous
+                    .iter()
+                    .find(|item| item.line == *line)
+                    .and_then(|item| item.condition.clone()),
+            })
+            .collect();
+        data.breakpoints.insert(path.to_string(), entries.clone());
         let live = matches!(data.state, "preparing" | "running" | "paused");
         drop(data);
         if live {
-            self.send_breakpoints(path, &unique);
+            self.send_breakpoints(path, &entries);
         }
     }
 
-    fn send_breakpoints(&self, path: &str, lines: &[i64]) {
-        let source = {
+    /// Sets or clears the condition of a breakpoint that already exists on `line`. Live sessions
+    /// get the whole source again, because DAP replaces the breakpoints of a source at once.
+    pub fn set_condition(&self, path: &str, line: i64, condition: Option<String>) -> HostResult<()> {
+        let mut data = self.data.lock().unwrap();
+        if data.adapter_capabilities.get("supportsConditionalBreakpoints") == Some(&false) {
+            return Err(HostError::new(
+                "unsupported",
+                "The debug adapter did not advertise conditional breakpoints.",
+            ));
+        }
+        let entries = data.breakpoints.get_mut(path).ok_or_else(|| {
+            HostError::new("invalid_state", "Set a breakpoint on this line first.")
+        })?;
+        let entry = entries
+            .iter_mut()
+            .find(|item| item.line == line)
+            .ok_or_else(|| HostError::new("invalid_state", "Set a breakpoint on this line first."))?;
+        entry.condition = condition;
+        let entries = entries.clone();
+        let live = matches!(data.state, "preparing" | "running" | "paused");
+        drop(data);
+        if live {
+            self.send_breakpoints(path, &entries);
+        }
+        Ok(())
+    }
+
+    /// Mute all sends an empty breakpoint list for every source; un-muting sends the stored lines.
+    pub fn set_muted(&self, muted: bool) {
+        let mut data = self.data.lock().unwrap();
+        data.breakpoints_muted = muted;
+        let sources = data.breakpoints.clone();
+        let live = matches!(data.state, "preparing" | "running" | "paused");
+        drop(data);
+        if live {
+            for (path, entries) in sources {
+                self.send_breakpoints(&path, &entries);
+            }
+        }
+    }
+
+    pub fn exception_filters(&self) -> Vec<String> {
+        self.data.lock().unwrap().exception_filters.clone()
+    }
+
+    /// Breaks on every thrown exception (`all`) or only on unhandled ones (`user-unhandled`).
+    pub fn set_thrown_exceptions(&self, thrown: bool) -> HostResult<()> {
+        let filter = if thrown { "all" } else { "user-unhandled" };
+        let offered = self.data.lock().unwrap().adapter_exception_filters.clone();
+        if !offered.is_empty() && !offered.iter().any(|item| item == filter) {
+            return Err(HostError::new(
+                "unsupported",
+                format!("The debug adapter does not offer the `{filter}` exception filter."),
+            ));
+        }
+        let mut data = self.data.lock().unwrap();
+        data.exception_filters = vec![filter.to_string()];
+        let live = matches!(data.state, "running" | "paused");
+        let filters = data.exception_filters.clone();
+        drop(data);
+        if live {
+            self.request(
+                "setExceptionBreakpoints",
+                json!({ "filters": filters }),
+                REQUEST_TIMEOUT,
+            )
+            .map_err(|error| HostError::new("operation_failed", format!("The adapter refused exception filters: {error}")))?;
+        }
+        Ok(())
+    }
+
+    /// Run to Cursor: resumes with a temporary breakpoint on `line`. It is never stored, and the
+    /// next resume takes it off the adapter.
+    pub fn run_to(&self, path: &str, line: i64) -> HostResult<()> {
+        self.resume("continue", Some((path.to_string(), line)))
+    }
+
+    /// Sends the stored breakpoints of one source again, with Run to Cursor's line if it applies.
+    fn resend_source(&self, path: &str) {
+        let entries = self
+            .data
+            .lock()
+            .unwrap()
+            .breakpoints
+            .get(path)
+            .cloned()
+            .unwrap_or_default();
+        self.send_breakpoints(path, &entries);
+    }
+
+    fn send_breakpoints(&self, path: &str, entries: &[BreakpointView]) {
+        let (source, muted, run_to) = {
             let data = self.data.lock().unwrap();
             let candidate = PathBuf::from(path);
-            if candidate.is_absolute() {
+            let source = if candidate.is_absolute() {
                 candidate
             } else {
                 data.root.join(candidate)
-            }
+            };
+            let run_to = data
+                .run_to
+                .as_ref()
+                .filter(|(target, _)| target == path)
+                .map(|(_, line)| *line);
+            (source, data.breakpoints_muted, run_to)
         };
+        let mut active: Vec<BreakpointView> = if muted { Vec::new() } else { entries.to_vec() };
+        if let Some(line) = run_to.filter(|line| !active.iter().any(|item| item.line == *line)) {
+            active.push(BreakpointView {
+                path: path.to_string(),
+                line,
+                verified: false,
+                message: None,
+                condition: None,
+            });
+        }
         let params = json!({
             "source": { "path": source.to_string_lossy() },
-            "breakpoints": lines.iter().map(|line| json!({ "line": line })).collect::<Vec<_>>(),
-            "lines": lines,
+            "breakpoints": active.iter().map(|item| match &item.condition {
+                Some(condition) => json!({ "line": item.line, "condition": condition }),
+                None => json!({ "line": item.line }),
+            }).collect::<Vec<_>>(),
+            "lines": active.iter().map(|item| item.line).collect::<Vec<_>>(),
             "sourceModified": false,
         });
         let Ok(response) = self.request("setBreakpoints", params, REQUEST_TIMEOUT) else {
             return;
         };
+        // Muted answers list no stored breakpoint, so they cannot be matched by position.
+        if muted {
+            return;
+        }
         let Some(items) = response.get("breakpoints").and_then(Value::as_array) else {
             return;
         };
@@ -643,23 +933,25 @@ impl Dap {
             }),
             REQUEST_TIMEOUT,
         );
-        if let Err(error) = initialize {
-            self.fail(format!("DAP initialize failed: {error}"));
-            return;
+        match initialize {
+            Ok(body) => {
+                let mut data = self.data.lock().unwrap();
+                data.adapter_capabilities = adapter_flags(&body);
+                data.adapter_exception_filters = body
+                    .get("exceptionBreakpointFilters")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|item| item.get("filter").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect();
+            }
+            Err(error) => {
+                self.fail(format!("DAP initialize failed: {error}"));
+                return;
+            }
         }
-        let launch_params = json!({
-            "program": launch.assembly,
-            "cwd": launch.cwd.to_string_lossy(),
-            "args": [],
-            "env": {
-                "DOTNET_ROOT": launch.sdk_root.to_string_lossy(),
-                "DOTNET_MULTILEVEL_LOOKUP": "0",
-                "DOTNET_CLI_UI_LANGUAGE": "en",
-            },
-            "stopAtEntry": false,
-            "console": "internalConsole",
-        });
-        if let Err(error) = self.request("launch", launch_params, LAUNCH_TIMEOUT) {
+        if let Err(error) = self.request("launch", launch_parameters(&launch), LAUNCH_TIMEOUT) {
             self.fail(format!("DAP launch failed: {error}"));
             return;
         }
@@ -671,10 +963,19 @@ impl Dap {
             return;
         }
         let files = self.breakpoints();
-        for (path, lines) in files {
-            if !lines.is_empty() {
-                self.send_breakpoints(&path, &lines);
+        for (path, entries) in files {
+            if !entries.is_empty() {
+                self.send_breakpoints(&path, &entries);
             }
+        }
+        let filters = self.data.lock().unwrap().exception_filters.clone();
+        if let Err(error) = self.request(
+            "setExceptionBreakpoints",
+            json!({ "filters": filters }),
+            REQUEST_TIMEOUT,
+        ) {
+            self.fail(format!("DAP setExceptionBreakpoints failed: {error}"));
+            return;
         }
         if let Err(error) = self.request("configurationDone", json!({}), REQUEST_TIMEOUT) {
             self.fail(format!("DAP configurationDone failed: {error}"));
@@ -1089,11 +1390,13 @@ impl Dap {
             data.threads = threads;
             data.frames = frames;
             data.selected_frame_id = data.frames.first().map(|frame| frame.id);
+            data.selected_thread_id = Some(thread_id);
         }
         let top_frame = self.data.lock().unwrap().frames.first().cloned();
         if let Some(frame) = top_frame {
             let _ = self.load_locals_for(frame.id, session, stop_seq);
         }
+        self.refresh_watches(session, stop_seq);
         let mut data = self.data.lock().unwrap();
         if data.session == session && data.stop_seq == stop_seq && !data.sealed {
             data.phase = format!(
@@ -1105,6 +1408,135 @@ impl Dap {
                 data.frames.len(),
                 data.threads.len()
             );
+        }
+    }
+
+    /// Focuses another thread of the current pause: its frames replace the list and the top
+    /// frame's locals load. A thread outside the current pause is refused.
+    pub fn select_thread(&self, thread_id: i64) -> HostResult<()> {
+        let (session, stop_seq) = {
+            let data = self.data.lock().unwrap();
+            if data.state != "paused" || data.sealed {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "Threads can be selected only while the debuggee is paused.",
+                ));
+            }
+            if !data.threads.iter().any(|thread| thread.id == thread_id) {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "That thread does not belong to the current pause.",
+                ));
+            }
+            (data.session, data.stop_seq)
+        };
+        self.load_pause(session, stop_seq, Some(thread_id));
+        Ok(())
+    }
+
+    /// Evaluates an expression in the selected frame of the current pause. The result is kept
+    /// only for this pause; a late answer after a stop or resume is refused.
+    pub fn evaluate(&self, expression: &str) -> HostResult<()> {
+        let expression = expression.trim();
+        if expression.is_empty() {
+            return Err(HostError::new("invalid_state", "The expression is empty."));
+        }
+        let (session, stop_seq, frame_id) = self.paused_context("Expressions")?;
+        let result = self.evaluate_in(expression, frame_id, "repl");
+        let mut data = self.data.lock().unwrap();
+        if data.session != session || data.stop_seq != stop_seq || data.sealed {
+            return Err(HostError::new(
+                "stale_context",
+                "An evaluation from an older pause was discarded.",
+            ));
+        }
+        data.evaluation = Some((stop_seq, result));
+        Ok(())
+    }
+
+    /// Adds a watch and, when paused, evaluates it right away.
+    pub fn add_watch(&self, expression: &str) -> HostResult<()> {
+        let expression = expression.trim().to_string();
+        if expression.is_empty() {
+            return Err(HostError::new("invalid_state", "The watch expression is empty."));
+        }
+        {
+            let mut data = self.data.lock().unwrap();
+            if !data.watches.contains(&expression) {
+                data.watches.push(expression);
+            }
+        }
+        let paused = {
+            let data = self.data.lock().unwrap();
+            (data.state == "paused" && !data.sealed).then_some((data.session, data.stop_seq))
+        };
+        if let Some((session, stop_seq)) = paused {
+            self.refresh_watches(session, stop_seq);
+        }
+        Ok(())
+    }
+
+    pub fn remove_watch(&self, expression: &str) {
+        let mut data = self.data.lock().unwrap();
+        data.watches.retain(|watch| watch != expression);
+        data.watch_results.retain(|result| result.expression != expression);
+    }
+
+    /// Evaluates every watch against the top frame of the current pause.
+    fn refresh_watches(&self, session: u64, stop_seq: u64) {
+        let (expressions, frame_id) = {
+            let data = self.data.lock().unwrap();
+            (data.watches.clone(), data.frames.first().map(|frame| frame.id))
+        };
+        let results: Vec<EvaluationView> = expressions
+            .iter()
+            .map(|expression| self.evaluate_in(expression, frame_id, "watch"))
+            .collect();
+        let mut data = self.data.lock().unwrap();
+        if data.session != session || data.stop_seq != stop_seq || data.sealed {
+            data.log
+                .push("[dap] late watches discarded (old stop generation)".to_string());
+            return;
+        }
+        data.watch_results = results;
+        data.watch_stop_seq = stop_seq;
+    }
+
+    /// Session, stop generation and selected frame, only while the debuggee is paused.
+    fn paused_context(&self, what: &str) -> HostResult<(u64, u64, Option<i64>)> {
+        let data = self.data.lock().unwrap();
+        if data.state != "paused" || data.sealed {
+            return Err(HostError::new(
+                "invalid_state",
+                format!("{what} can be evaluated only while the debuggee is paused."),
+            ));
+        }
+        Ok((data.session, data.stop_seq, data.selected_frame_id))
+    }
+
+    fn evaluate_in(&self, expression: &str, frame_id: Option<i64>, context: &str) -> EvaluationView {
+        let mut params = json!({ "expression": expression, "context": context });
+        if let Some(frame) = frame_id {
+            params["frameId"] = json!(frame);
+        }
+        match self.request("evaluate", params, REQUEST_TIMEOUT) {
+            Ok(body) => EvaluationView {
+                expression: expression.to_string(),
+                value: body.get("result").and_then(Value::as_str).map(str::to_string),
+                type_name: body.get("type").and_then(Value::as_str).map(str::to_string),
+                variables_reference: body
+                    .get("variablesReference")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0),
+                error: None,
+            },
+            Err(error) => EvaluationView {
+                expression: expression.to_string(),
+                value: None,
+                type_name: None,
+                variables_reference: 0,
+                error: Some(error.to_string()),
+            },
         }
     }
 
@@ -1181,35 +1613,7 @@ impl Dap {
                     json!({ "variablesReference": reference }),
                     REQUEST_TIMEOUT,
                 ) {
-                    Ok(body) => {
-                        for variable in body
-                            .get("variables")
-                            .and_then(Value::as_array)
-                            .cloned()
-                            .unwrap_or_default()
-                        {
-                            variables.push(VariableView {
-                                name: variable
-                                    .get("name")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("?")
-                                    .to_string(),
-                                value: variable
-                                    .get("value")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string(),
-                                type_name: variable
-                                    .get("type")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string),
-                                variables_reference: variable
-                                    .get("variablesReference")
-                                    .and_then(Value::as_i64)
-                                    .unwrap_or(0),
-                            });
-                        }
-                    }
+                    Ok(body) => variables = variable_views(&body),
                     Err(error) => {
                         self.note(format!("[dap] variables failed for {name}: {error}"));
                     }
@@ -1237,19 +1641,100 @@ impl Dap {
         Ok(())
     }
 
+    /// Fetches the children of one expandable variable of the current pause. Like locals, an
+    /// answer that arrives after the pause changed is refused, so it cannot be shown as current.
+    pub fn load_children(&self, variables_reference: i64) -> HostResult<()> {
+        let (session, stop_seq) = {
+            let data = self.data.lock().unwrap();
+            if data.state != "paused" || data.sealed {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "Variables can be expanded only while the debuggee is paused.",
+                ));
+            }
+            (data.session, data.stop_seq)
+        };
+        let answer = self.request(
+            "variables",
+            json!({ "variablesReference": variables_reference }),
+            REQUEST_TIMEOUT,
+        );
+        let child = match answer {
+            Ok(body) => ChildrenView {
+                variables_reference,
+                variables: variable_views(&body),
+                error: None,
+            },
+            Err(error) => ChildrenView {
+                variables_reference,
+                variables: Vec::new(),
+                error: Some(error.to_string()),
+            },
+        };
+        let mut data = self.data.lock().unwrap();
+        if data.session != session || data.stop_seq != stop_seq || data.sealed {
+            data.log
+                .push("[dap] late children discarded (old stop generation)".to_string());
+            return Err(HostError::new(
+                "stale_context",
+                "A variables response from an older pause was discarded.",
+            ));
+        }
+        if data.children_stop_seq != stop_seq {
+            data.children.clear();
+            data.children_stop_seq = stop_seq;
+        }
+        data.children.insert(variables_reference, child);
+        Ok(())
+    }
+
     pub fn continue_(&self) -> HostResult<()> {
-        self.resume("continue")
+        self.resume("continue", None)
     }
 
     pub fn step_over(&self) -> HostResult<()> {
-        self.resume("next")
+        self.resume("next", None)
     }
 
     pub fn step_into(&self) -> HostResult<()> {
-        self.resume("stepIn")
+        self.resume("stepIn", None)
     }
 
-    fn resume(&self, command: &str) -> HostResult<()> {
+    pub fn step_out(&self) -> HostResult<()> {
+        self.resume("stepOut", None)
+    }
+
+    /// Asks the adapter to stop a running debuggee. Nothing is marked as paused here: the
+    /// `stopped` event that follows is the only thing that starts a pause.
+    pub fn pause(&self) -> HostResult<()> {
+        {
+            let data = self.data.lock().unwrap();
+            if data.state != "running" || data.sealed {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "Pause is available only while the debuggee is running.",
+                ));
+            }
+        }
+        // netcoredbg refuses `pause` for a thread id it has not reported (E_FAIL), and the
+        // host only learns thread ids at a pause. Ask the adapter for the live ones now.
+        let thread_id = self
+            .request("threads", json!({}), REQUEST_TIMEOUT)
+            .ok()
+            .map(|body| parse_threads(&body))
+            .and_then(|threads| threads.first().map(|thread| thread.id))
+            .unwrap_or(1);
+        self.request("pause", json!({ "threadId": thread_id }), REQUEST_TIMEOUT)
+            .map(|_| ())
+            .map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!("The adapter refused pause: {error}"),
+                )
+            })
+    }
+
+    fn resume(&self, command: &str, run_to: Option<(String, i64)>) -> HostResult<()> {
         let thread_id = {
             let data = self.data.lock().unwrap();
             if data.state != "paused" || data.sealed {
@@ -1283,6 +1768,16 @@ impl Dap {
             data.phase = format!("Requested {command}; waiting for the adapter.");
             data.stop_seq
         };
+        // The previous Run to Cursor line leaves the adapter here; the new one, if any, goes on
+        // before the adapter resumes.
+        let stale = self.data.lock().unwrap().run_to.take();
+        if let Some((path, _)) = &stale {
+            self.resend_source(path);
+        }
+        if let Some((path, line)) = &run_to {
+            self.data.lock().unwrap().run_to = Some((path.clone(), *line));
+            self.resend_source(path);
+        }
         let result = self.request(command, json!({ "threadId": thread_id }), REQUEST_TIMEOUT);
         let mut data = self.data.lock().unwrap();
         if data.sealed {
@@ -1774,6 +2269,15 @@ mod tests {
     }
 
     #[test]
+    fn adapter_flags_keep_only_boolean_supports_entries() {
+        let body = json!({"supportsConditionalBreakpoints": true, "supportsGotoTargetsRequest": false, "exceptionBreakpointFilters": [], "supportsFoo": "yes"});
+        let flags = adapter_flags(&body);
+        assert_eq!(flags.get("supportsConditionalBreakpoints"), Some(&true));
+        assert_eq!(flags.get("supportsGotoTargetsRequest"), Some(&false));
+        assert_eq!(flags.len(), 2);
+    }
+
+    #[test]
     fn requests_carry_ids_and_a_response_only_reaches_its_own_request() {
         let (dap, sink) = with_sink();
         for _ in 0..2 {
@@ -2010,6 +2514,8 @@ while True:
             configuration: "Debug".to_string(),
             target_framework: None,
             cwd: dir.clone(),
+            args: Vec::new(),
+            env: Vec::new(),
             root: dir.clone(),
             sdk_root: dir.clone(),
             adapter_binary: script.to_string_lossy().to_string(),
@@ -2018,8 +2524,19 @@ while True:
             workspace_id: 1,
             context_id: 1,
             breakpoints: BTreeMap::new(),
+            breakpoints_muted: false,
+            exception_filters: vec!["user-unhandled".to_string()],
         };
-        launch.breakpoints.insert("Program.cs".to_string(), vec![4]);
+        launch.breakpoints.insert(
+            "Program.cs".to_string(),
+            vec![BreakpointView {
+                path: "Program.cs".to_string(),
+                line: 4,
+                verified: false,
+                message: None,
+                condition: None,
+            }],
+        );
         let mut command = Command::new("python3");
         command.arg(&script);
         let dap = Dap::begin(launch, command, registry.clone()).unwrap();
@@ -2064,5 +2581,41 @@ while True:
         assert!(late.frames.is_empty());
         assert!(late.locals.is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn launch_parameters_keep_argv_and_env_with_explicit_values_winning() {
+        let dir = std::env::temp_dir();
+        let launch = Launch {
+            session: 1,
+            project_name: "App".to_string(),
+            project_path: "App.csproj".to_string(),
+            build_id: "build:1:1".to_string(),
+            assembly: "/work/bin/App.dll".to_string(),
+            configuration: "Debug".to_string(),
+            target_framework: Some("net8.0".to_string()),
+            cwd: dir.join("work"),
+            args: vec!["--first".to_string(), "two words".to_string()],
+            env: vec![
+                ("DOTNET_ROOT".to_string(), "/custom/sdk".to_string()),
+                ("OPENRIDR_F4".to_string(), "explicit".to_string()),
+            ],
+            root: dir.clone(),
+            sdk_root: dir.join("sdk"),
+            adapter_binary: "/tools/netcoredbg".to_string(),
+            adapter_version: "3.2.0".to_string(),
+            adapter_platform: "osx-arm64".to_string(),
+            workspace_id: 1,
+            context_id: 1,
+            breakpoints: BTreeMap::new(),
+            breakpoints_muted: false,
+            exception_filters: vec!["user-unhandled".to_string()],
+        };
+        let params = launch_parameters(&launch);
+        assert_eq!(params["program"], "/work/bin/App.dll");
+        assert_eq!(params["cwd"], dir.join("work").to_string_lossy().as_ref());
+        assert_eq!(params["args"], json!(["--first", "two words"]));
+        assert_eq!(params["env"]["OPENRIDR_F4"], "explicit");
+        assert_eq!(params["env"]["DOTNET_ROOT"], "/custom/sdk");
     }
 }

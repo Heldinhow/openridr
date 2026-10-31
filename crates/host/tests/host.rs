@@ -382,6 +382,9 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             && **method != "debug.retry"
             && **method != "terminal.start"
             && **method != "debug.start"
+            && **method != "nuget.applyUpdate"
+            && **method != "nuget.probe"
+            && !method.starts_with("git.")
     }) {
         let code = error_code(host.dispatch(method, json!({})));
         if openridr_host::RESTORE_GATED_METHODS.contains(method) {
@@ -401,6 +404,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
         ("tools.retry", "invalid_state"),
         ("debug.install", "confirmation_required"),
         ("debug.retry", "invalid_state"),
+        ("nuget.applyUpdate", "confirmation_required"),
         ("lsp.start", "tool_missing"),
         ("lsp.restart", "tool_missing"),
         ("lsp.didOpen", "invalid_state"),
@@ -421,6 +425,19 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
         error_code(host.dispatch("run.start", json!({}))),
         "restore_required",
         "run.start must pass the shared restore gate before evaluation/build checks"
+    );
+    // Git reads return data instead of pretending an unavailable repository is an error; a
+    // write still refuses before running anything.
+    let status = host.dispatch("git.status", json!({})).unwrap();
+    assert_eq!(status["state"], "not_a_repository");
+    assert_eq!(status["message"], "Not a git repository");
+    let info = host.dispatch("git.info", json!({})).unwrap();
+    assert_eq!(info["state"], "found");
+    assert!(info["path"].as_str().unwrap().ends_with("git"));
+    assert!(info["version"].as_str().unwrap().contains("git version"));
+    assert_eq!(
+        error_code(host.dispatch("git.checkout", json!({ "name": "main" }))),
+        "git_not_a_repository"
     );
     let debug_start = host
         .dispatch("debug.start", json!({}))
@@ -449,6 +466,27 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
             "{method} must be denied again after revoke"
         );
     }
+}
+
+#[test]
+fn nuget_update_requires_confirmation_and_a_current_plan_before_any_process() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    host.dispatch("trust.grant", json!({})).unwrap();
+
+    assert_eq!(
+        error_code(host.dispatch("nuget.applyUpdate", json!({}))),
+        "confirmation_required"
+    );
+    let stale = host
+        .dispatch(
+            "nuget.applyUpdate",
+            json!({ "planId": "missing", "confirm": true }),
+        )
+        .expect_err("an unknown plan never runs");
+    assert_eq!(stale.code, "nuget_stale_plan");
+    assert_eq!(snapshot(&host)["processes"], json!([]));
 }
 
 #[test]
@@ -507,15 +545,14 @@ fn a_late_result_from_an_older_workspace_or_context_is_discarded() {
 #[cfg(target_os = "macos")]
 #[test]
 fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks() {
-    // Expected versions were observed on the evidence machine (macOS arm64, 2026-10-27):
-    // 8.0.416/10.0.100 under /usr/local/share/dotnet and 8.0.408 under the user SDK root.
+    // The fixture pins 8.0.408 and the host SDK is 10.x; any detected root may hold them (no machine-specific paths).
     let inventory = sdk::inventory();
     let versions: Vec<&str> = inventory
         .installs
         .iter()
         .map(|install| install.version.as_str())
         .collect();
-    for expected in ["10.0.100", "8.0.408", "8.0.416"] {
+    for expected in ["10.0.100", "8.0.408"] {
         assert!(
             versions.contains(&expected),
             "expected SDK {expected} in the real inventory, found {versions:?}"
@@ -548,8 +585,9 @@ fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks
     assert_eq!(trusted["sdk"]["project"]["requestedVersion"], "8.0.408");
     assert_eq!(trusted["sdk"]["project"]["rollForward"], "disable");
     let project_root = trusted["sdk"]["project"]["root"].as_str().unwrap();
-    assert!(project_root.contains("OpenRidr/sdks/8.0.408"), "{project_root}");
-    assert_ne!(project_root, trusted["sdk"]["host"]["root"].as_str().unwrap());
+    assert!(Path::new(project_root).is_absolute(), "{project_root}");
+    assert!(Path::new(project_root).join("sdk/8.0.408").is_dir(), "{project_root}");
+    // Host and project SDKs may live in one root (e.g. ~/.dotnet); the contract is the separate versions below.
     assert_eq!(trusted["sdk"]["host"]["version"], "10.0.100");
 }
 
@@ -1401,10 +1439,9 @@ fn restore_reports_the_exact_command_and_creates_real_assets() {
         root.to_string_lossy()
     );
     assert_eq!(restore["sdkVersion"], "8.0.408");
-    assert!(restore["sdkRoot"]
-        .as_str()
-        .unwrap()
-        .ends_with("OpenRidr/sdks/8.0.408"));
+    let restore_root = Path::new(restore["sdkRoot"].as_str().unwrap());
+    assert!(restore_root.is_absolute());
+    assert!(restore_root.join("sdk/8.0.408").is_dir(), "{restore_root:?}");
     let command: Vec<String> = restore["command"]
         .as_array()
         .unwrap()
@@ -1845,7 +1882,7 @@ fn wait_publication(host: &Host, timeout: Duration, predicate: impl Fn(&Value) -
 
 #[test]
 fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -1956,7 +1993,7 @@ fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
 
 #[test]
 fn tools_install_is_real_verified_and_reused() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -2048,7 +2085,7 @@ fn tools_install_is_real_verified_and_reused() {
 #[cfg(target_os = "macos")]
 #[test]
 fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -2061,7 +2098,7 @@ fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
     assert!(Path::new(&first.path).starts_with(home.path()));
     assert!(Path::new(&first.path).join("dotnet").is_file());
     assert!(first.check.contains("8.0.408"));
-    assert!(first.check.contains("10.0.0"), "{}", first.check);
+    assert!(first.check.contains("10.0."), "{}", first.check);
     assert!(first.check.contains(&Path::new(&first.path).join("dotnet").to_string_lossy().as_ref()));
 
     let muxer = Path::new(&first.path).join("dotnet");
@@ -2112,7 +2149,7 @@ fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
 
 #[test]
 fn lsp_start_requires_tool_sdk_and_current_restore() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
 
     // No verified tool: the host says tool_missing and points to the plan.
@@ -2162,7 +2199,7 @@ fn lsp_start_requires_tool_sdk_and_current_restore() {
 #[cfg(target_os = "macos")]
 #[test]
 fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk lsp");
@@ -2365,58 +2402,59 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     );
 }
 
-#[cfg(target_os = "macos")]
+/// Stub launcher: answers `--version` like csharp-ls 0.28.0, then rejects `initialize` with an SDK message on stderr and idles.
+#[cfg(unix)]
+const REJECTING_LAUNCHER: &str = r#"#!/bin/sh
+if [ "$1" = "--version" ]; then echo "csharp-ls, version 0.28.0 (stub)"; exit 0; fi
+len=0
+while IFS= read -r line; do
+  line=$(printf %s "$line" | tr -d '\r')
+  [ -z "$line" ] && break
+  case "$line" in Content-Length:*) len=${line#Content-Length: };; esac
+done
+body=$(head -c "$len")
+id=$(printf %s "$body" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+echo "A compatible .NET SDK was not found. Requested SDK version: 8.0.408 global.json file: stub" >&2
+msg='{"jsonrpc":"2.0","id":'$id',"error":{"code":-32603,"message":"initialize failed"}}'
+printf 'Content-Length: %d\r\n\r\n%s' ${#msg} "$msg"
+exec sleep 60
+"#;
+
+#[cfg(unix)]
 #[test]
 fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let temp = tempfile::tempdir().unwrap();
-    let forced = temp.path().join("hostroot10");
-    fs::create_dir_all(forced.join("sdk")).unwrap();
-    fs::create_dir_all(forced.join("shared/Microsoft.NETCore.App")).unwrap();
-    fs::create_dir_all(forced.join("host/fxr")).unwrap();
-    let host = host_install();
-    fs::copy(host.root.join("dotnet"), forced.join("dotnet")).unwrap();
-    let fxr = std::fs::read_dir(host.root.join("host/fxr"))
-        .unwrap()
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("10."))
-        })
-        .expect("host/fxr 10");
-    std::os::unix::fs::symlink(fxr, forced.join("host/fxr/10.0.0")).unwrap();
-    let runtime = std::fs::read_dir(host.root.join("shared/Microsoft.NETCore.App"))
-        .unwrap()
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("10."))
-        })
-        .expect("runtime 10");
-    std::os::unix::fs::symlink(runtime, forced.join("shared/Microsoft.NETCore.App/10.0.0")).unwrap();
-    std::os::unix::fs::symlink(
-        host.sdk_dir(),
-        forced.join(format!("sdk/{}", host.version)),
-    )
-    .unwrap();
-    let _forced = EnvVar::set("OPENRIDR_FORCE_HOSTROOT", &forced);
+    let home = temp.path().join("home");
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    // The stub stands in for csharp-ls, so the contract does not depend on the real server or the machine's SDKs.
+    let destination = home.join("tools/csharp-ls/0.28");
+    fs::create_dir_all(&destination).unwrap();
+    let launcher = destination.join("csharp-ls");
+    fs::write(&launcher, REJECTING_LAUNCHER).unwrap();
+    fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
 
     let copy = fixture_copy(temp.path(), "Order Desk lsp failure");
     let host_api = Host::new();
     open(&host_api, &copy.join("OrderDesk.sln"));
     grant(&host_api);
-    ensure_tool(&host_api);
+    let tool = tool_plan(&host_api);
+    assert_eq!(tool["plan"]["existing"]["state"], "present", "{tool}");
+    let reused = host_api
+        .dispatch(
+            "tools.install",
+            json!({ "planId": tool["plan"]["planId"], "confirm": true }),
+        )
+        .unwrap();
+    assert_eq!(reused["tools"]["csharp-ls"]["state"], "ready");
     host_api.dispatch("restore.start", json!({})).unwrap();
     let restore = wait_for_restore(&host_api, Duration::from_secs(120));
     assert_eq!(restore["state"], "ok", "{}", restore["log"]);
     host_api.dispatch("evaluation.run", json!({})).unwrap();
 
-    let started = host_api.dispatch("lsp.start", json!({})).unwrap();
-    assert_eq!(started["lsp"]["hostRootForced"], true);
+    host_api.dispatch("lsp.start", json!({})).unwrap();
     let failed = wait_lsp(
         &host_api,
         Duration::from_secs(30),
@@ -2451,7 +2489,7 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
 
 #[test]
 fn cancelling_a_running_install_reports_termination_and_never_ready() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -2496,7 +2534,7 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
 #[cfg(target_os = "macos")]
 #[test]
 fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk complete");
@@ -2799,7 +2837,9 @@ fn build_reports_the_exact_command_raw_log_exit_and_real_problems() {
     assert_eq!(build["targetFramework"], Value::Null);
     assert_eq!(build["cwd"].as_str().unwrap(), root.to_string_lossy());
     assert_eq!(build["sdkVersion"], "8.0.408");
-    assert!(build["sdkRoot"].as_str().unwrap().ends_with("OpenRidr/sdks/8.0.408"));
+    let build_root = Path::new(build["sdkRoot"].as_str().unwrap());
+    assert!(build_root.is_absolute());
+    assert!(build_root.join("sdk/8.0.408").is_dir(), "{build_root:?}");
     assert!(build["buildId"].as_str().unwrap().starts_with("build:"));
     assert_eq!(
         build["savedNote"],
@@ -3095,16 +3135,60 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     // The rebuild produces new output, which proves the run below used the new build.
     fs::write(
         &program,
-        "using OrderDesk.Core;\nvar order = new Order(\"A-999\", 7m);\nSystem.Console.WriteLine($\"Order {order.Id}: {order.Total:C}\");\n",
+        "using OrderDesk.Core;\nvar order = new Order(\"A-999\", 7m);\nSystem.Console.WriteLine($\"Order {order.Id}: {order.Total:C}\");\nSystem.Console.WriteLine($\"args=[{string.Join(\"|\", args)}]\");\nSystem.Console.WriteLine($\"env={System.Environment.GetEnvironmentVariable(\"OPENRIDR_F4\")}\");\nSystem.Console.WriteLine($\"override={System.Environment.GetEnvironmentVariable(\"OPENRIDR_OVERRIDE\")}\");\nSystem.Console.WriteLine($\"cwd={System.Environment.CurrentDirectory}\");\n",
+    )
+    .unwrap();
+    fs::write(
+        copy.join("run.env"),
+        "# values for the active configuration\nOPENRIDR_F4=from-file\nOPENRIDR_OVERRIDE=file\n",
     )
     .unwrap();
     host.dispatch("build.start", json!({})).unwrap();
     let rebuilt = wait_for_build(&host, Duration::from_secs(60));
     assert_eq!(rebuilt["state"], "ok", "{}", rebuilt["log"]);
-    host.dispatch("run.start", json!({})).unwrap();
+    let configured = host
+        .dispatch(
+            "run.start",
+            json!({
+                "args": ["--first", "two words"],
+                "workingDirectory": "src",
+                "envFiles": ["run.env"],
+                "env": { "OPENRIDR_F4": "explicit" },
+            }),
+        )
+        .unwrap();
+    let configured_run = &configured["run"];
+    let configured_command: Vec<&str> = configured_run["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        &configured_command[2..],
+        ["--first", "two words"],
+        "{configured_command:?}"
+    );
+    assert!(
+        configured_run["cwd"]
+            .as_str()
+            .unwrap()
+            .ends_with("/src"),
+        "{}",
+        configured_run["cwd"]
+    );
     let rerun = wait_for_run(&host, Duration::from_secs(30));
     assert_eq!(rerun["state"], "exited");
-    assert!(rerun["log"].as_str().unwrap().contains("Order A-999:"));
+    let log = rerun["log"].as_str().unwrap();
+    assert!(log.contains("Order A-999:"), "{log}");
+    assert!(log.contains("args=[--first|two words]"), "{log}");
+    assert!(log.contains("env=explicit"), "explicit env must win over .env: {log}");
+    assert!(log.contains("override=file"), "the .env file must be applied: {log}");
+    assert!(
+        log.lines()
+            .any(|line| line.starts_with("cwd=") && line.ends_with("/src")),
+        "{log}"
+    );
     assert_ne!(rerun["buildId"], build_id);
 
     // A failed build is never runnable, and its log is in the refusal details.
@@ -3365,7 +3449,7 @@ fn write_netcoredbg(path: &Path, version: &str) {
 #[cfg(target_os = "macos")]
 #[test]
 fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     if std::env::consts::ARCH != "aarch64" {
         return;
     }
@@ -3687,6 +3771,51 @@ fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() 
 
 #[cfg(unix)]
 #[test]
+fn terminal_read_returns_raw_pty_bytes_by_offset_and_keeps_them_after_seal() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let host = Host::new();
+    let workspace = temp_workspace(&["Raw.csproj"]);
+    open(&host, &workspace.path().join("Raw.csproj"));
+    grant(&host);
+    let _cleanup = TerminalCleanup(&host);
+    host.dispatch("terminal.start", json!({})).unwrap();
+    host.dispatch(
+        "terminal.write",
+        json!({ "data": "printf '\\033[31mraw-marker\\033[0m\\n'\r" }),
+    )
+    .unwrap();
+
+    let read = |since: u64| {
+        let value = host.dispatch("terminal.read", json!({ "since": since })).unwrap();
+        let chunk = value["chunk"].clone();
+        let bytes: Vec<u8> = chunk["bytes"].as_array().unwrap().iter().map(|byte| byte.as_u64().unwrap() as u8).collect();
+        (value["revision"].as_u64().unwrap(), chunk["from"].as_u64().unwrap(), chunk["end"].as_u64().unwrap(), bytes)
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let (revision, mut from, mut end, mut seen) = read(0);
+    // The typed command echoes "raw-marker" too; wait for the ESC-prefixed output the shell printed.
+    while !seen.windows(b"\x1b[31mraw-marker".len()).any(|window| window == b"\x1b[31mraw-marker") {
+        assert!(std::time::Instant::now() < deadline, "no raw output within 10s");
+        std::thread::sleep(Duration::from_millis(50));
+        (_, from, end, seen) = read(0);
+    }
+    assert!(revision > 0);
+    assert_eq!(from, 0);
+    assert!(seen.contains(&0x1b), "ESC bytes must reach the client unfiltered");
+
+    let (_, next_from, next_end, empty) = read(end);
+    assert_eq!((next_from, next_end), (end, end));
+    assert!(empty.is_empty());
+
+    host.dispatch("trust.revoke", json!({})).unwrap();
+    // Shell output may still arrive while the seal lands; what was read before must be kept as is.
+    let (_, _, sealed_end, kept) = read(0);
+    assert!(sealed_end >= end);
+    assert!(kept.starts_with(&seen));
+}
+
+#[cfg(unix)]
+#[test]
 fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_it() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let host = Host::new();
@@ -3729,4 +3858,251 @@ fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_
         .iter()
         .filter(|process| process["kind"].as_str().unwrap_or_default().starts_with("terminal:"))
         .all(|process| process["state"] == "exited"));
+}
+
+#[test]
+fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
+    let _lock = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let host = Host::new();
+
+    // No workspace and no trust: settings are app-scoped, not workspace-scoped.
+    let empty = host.dispatch("settings.read", json!({})).unwrap();
+    assert_eq!(empty["settings"], json!({}));
+    assert_eq!(empty["path"], home.path().join("settings.json").to_string_lossy().as_ref());
+
+    let settings = json!({
+        "keymap": {
+            "profile": "intellij",
+            "overrides": { "run.start": [{ "key": "f5", "control": true }] }
+        },
+        "appearance": { "zoom": 110, "density": "compact" },
+        "editor": { "fontFamily": "Menlo", "fontSize": 14, "indentSize": 2, "useTabs": true }
+    });
+    let written = host
+        .dispatch("settings.write", json!({ "settings": settings }))
+        .unwrap();
+    assert_eq!(written["settings"], settings);
+    let text = fs::read_to_string(home.path().join("settings.json")).unwrap();
+    assert!(serde_json::from_str::<Value>(&text).is_ok());
+    assert_eq!(
+        host.dispatch("settings.read", json!({})).unwrap()["settings"],
+        settings
+    );
+
+    for invalid in [
+        json!({ "settings": [] }),
+        json!({ "settings": { "keymap": { "profile": "vscode" } } }),
+        json!({ "settings": { "appearance": { "zoom": 300 } } }),
+        json!({ "settings": { "editor": { "indentSize": 0 } } }),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("settings.write", invalid)),
+            "invalid_settings"
+        );
+    }
+    assert_eq!(
+        host.dispatch("settings.read", json!({})).unwrap()["settings"],
+        settings,
+        "an invalid payload replaced the previous settings"
+    );
+}
+
+#[test]
+fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust() {
+    let _lock = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let workspaces = tempfile::tempdir().unwrap();
+    let solution = fs::canonicalize(
+        fixture_copy(workspaces.path(), "Configs").join("OrderDesk.sln"),
+    )
+    .unwrap();
+    let other = fixture_copy(workspaces.path(), "Other");
+    let host = Host::new();
+
+    // No workspace and no trust: the store is app-scoped but keyed by the solution.
+    let empty = host
+        .dispatch("runConfigs.read", json!({ "solution": solution }))
+        .unwrap();
+    assert_eq!(empty["configs"], json!([]));
+    assert_eq!(empty["activeId"], "default");
+    assert!(empty["path"]
+        .as_str()
+        .unwrap()
+        .starts_with(home.path().join("run-configs").to_string_lossy().as_ref()));
+    assert!(!empty["path"].as_str().unwrap().starts_with(fixture().to_string_lossy().as_ref()));
+
+    fs::write(
+        solution.parent().unwrap().join("local.env"),
+        "OPENRIDR_F4=file\n",
+    )
+    .unwrap();
+    let configs = json!([{
+        "id": "cfg-1",
+        "name": "Local run",
+        "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+        "configuration": "Debug",
+        "targetFramework": "net8.0",
+        "args": ["--first"],
+        "workingDirectory": "src",
+        "env": { "OPENRIDR_F4": "explicit" },
+        "envFiles": ["local.env"]
+    }]);
+    let written = host
+        .dispatch(
+            "runConfigs.write",
+            json!({ "solution": solution, "activeId": "cfg-1", "configs": configs }),
+        )
+        .unwrap();
+    assert_eq!(written["activeId"], "cfg-1");
+    assert_eq!(written["configs"], configs);
+    assert_eq!(written["issues"], json!([]));
+    let path = written["path"].as_str().unwrap().to_string();
+    assert!(Path::new(&path).is_file());
+    let stored: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(stored["solution"], solution.to_string_lossy().as_ref());
+
+    // Another solution never sees this store; the file is not written inside the repository.
+    let separate = host
+        .dispatch(
+            "runConfigs.read",
+            json!({ "solution": other.join("OrderDesk.sln") }),
+        )
+        .unwrap();
+    assert_eq!(separate["configs"], json!([]));
+    assert_ne!(separate["path"], written["path"]);
+    assert!(fs::read_dir(fixture()).unwrap().all(|entry| {
+        let name = entry.unwrap().file_name();
+        name != "run-configs" && !name.to_string_lossy().ends_with(".run-config.json")
+    }));
+
+    // An invalid shape is refused with its field and leaves the saved store untouched.
+    let before = fs::read_to_string(&path).unwrap();
+    for (payload, field) in [
+        (
+            json!([{ "id": "cfg-1", "name": "", "project": "a.csproj", "configuration": "Debug" }]),
+            "name",
+        ),
+        (
+            json!([{ "id": "cfg-1", "name": "One", "project": "a.csproj", "configuration": "Debug", "env": { "BAD KEY": "x" } }]),
+            "env",
+        ),
+        (
+            json!([
+                { "id": "cfg-1", "name": "One", "project": "a.csproj", "configuration": "Debug" },
+                { "id": "cfg-1", "name": "Two", "project": "a.csproj", "configuration": "Debug" }
+            ]),
+            "id",
+        ),
+    ] {
+        let error = host
+            .dispatch(
+                "runConfigs.write",
+                json!({ "solution": solution, "activeId": "default", "configs": payload }),
+            )
+            .expect_err("invalid store");
+        assert_eq!(error.code, "invalid_run_configs", "{error:?}");
+        assert_eq!(error.details.unwrap()["field"], field);
+    }
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
+
+    // Missing files are reported as issues on save instead of blocking the edit.
+    let issues = host
+        .dispatch(
+            "runConfigs.write",
+            json!({
+                "solution": solution,
+                "activeId": "cfg-1",
+                "configs": [{
+                    "id": "cfg-1",
+                    "name": "Local run",
+                    "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+                    "configuration": "Debug",
+                    "workingDirectory": "missing",
+                    "envFiles": ["missing.env"]
+                }]
+            }),
+        )
+        .unwrap();
+    let issues = issues["issues"].as_array().unwrap();
+    assert_eq!(issues.len(), 2);
+    assert!(issues.iter().any(|issue| issue["field"] == "workingDirectory"));
+    assert!(issues.iter().any(|issue| issue["field"] == "envFiles"));
+}
+
+#[test]
+fn run_and_debug_validate_launch_options_before_any_process() {
+    let temp = temp_workspace(&["App.csproj"]);
+    fs::write(temp.path().join("bad.env"), "NOT A LINE\n").unwrap();
+    let host = Host::new();
+    open(&host, &temp.path().join("App.csproj"));
+    grant(&host);
+
+    let missing = host
+        .dispatch("run.start", json!({ "workingDirectory": "missing" }))
+        .expect_err("a missing cwd is refused before build/restore");
+    assert_eq!(missing.code, "invalid_state");
+    assert_eq!(missing.details.unwrap()["field"], "workingDirectory");
+
+    let bad_env = host
+        .dispatch("run.start", json!({ "envFiles": ["bad.env"] }))
+        .expect_err("an invalid .env line is refused");
+    assert_eq!(bad_env.code, "invalid_state");
+    let details = bad_env.details.unwrap();
+    assert_eq!(details["field"], "envFiles");
+    assert!(bad_env.message.contains("line 1"), "{}", bad_env.message);
+
+    let debug_missing = host
+        .dispatch("debug.start", json!({ "workingDirectory": "missing" }))
+        .expect_err("debug validates the same options");
+    assert_eq!(debug_missing.code, "invalid_state");
+    assert_eq!(
+        debug_missing.details.unwrap()["field"],
+        "workingDirectory"
+    );
+
+    let state = snapshot(&host);
+    assert_eq!(state["run"]["state"], "idle");
+    assert!(state["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|process| process["state"] == "exited"));
+}
+
+#[test]
+fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _store = EnvVar::remove("OPENRIDR_TRUST_STORE");
+    let workspace = temp_workspace(&["Remember.csproj"]);
+    let project = workspace.path().join("Remember.csproj");
+    let granted = |host: &Host| host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
+
+    // A grant without `remember` is session-only.
+    let first = Host::new();
+    open(&first, &project);
+    first.dispatch("trust.grant", json!({})).unwrap();
+    let second = Host::new();
+    open(&second, &project);
+    assert!(!granted(&second));
+
+    // `remember` persists per path; a new host (app restart) opens it trusted, other paths do not.
+    second.dispatch("trust.grant", json!({ "remember": true })).unwrap();
+    let third = Host::new();
+    open(&third, &project);
+    assert!(granted(&third));
+    let other = temp_workspace(&["Other.csproj"]);
+    open(&third, &other.path().join("Other.csproj"));
+    assert!(!granted(&third));
+
+    // Revoking forgets the decision.
+    open(&third, &project);
+    third.dispatch("trust.revoke", json!({})).unwrap();
+    let fourth = Host::new();
+    open(&fourth, &project);
+    assert!(!granted(&fourth));
 }

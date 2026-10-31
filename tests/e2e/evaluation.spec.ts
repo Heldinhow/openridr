@@ -1,3 +1,4 @@
+import { revisionOf } from "./automatic";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
@@ -7,7 +8,7 @@ const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
 const brokenFixture = path.resolve(process.cwd(), "fixtures/BrokenImport");
 import { host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -66,6 +67,7 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await trustWorkspace(page);
   await enterWorkspace(page);
   await waitForEvaluation(page);
+  await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
 
   await expect(page.getByTestId("tree")).toContainText("MSBuild evaluated");
   await expect(page.getByTestId("tree-folder-src")).toBeVisible();
@@ -74,6 +76,16 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
   await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
   await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
+  const dependencies = page.getByRole("group", { name: "OrderDesk.Cli dependencies" });
+  await expect(dependencies.locator("summary")).toBeVisible();
+  await expect(dependencies.getByText("References: OrderDesk.Core")).toBeHidden();
+  await dependencies.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(dependencies.getByText("References: OrderDesk.Core")).toBeVisible();
+  await page.keyboard.press("Enter");
+  if (process.env.OPENRIDR_EVALUATION_SCREENSHOT) {
+    await page.screenshot({ path: process.env.OPENRIDR_EVALUATION_SCREENSHOT });
+  }
   await expect(page.getByTestId("tree")).toContainText("References: OrderDesk.Core");
   await expect(page.getByTestId("tree")).toContainText("Packages: Microsoft.NET.Test.Sdk 17.11.1");
   await expect(page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs")).toBeVisible();
@@ -89,6 +101,14 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
     expect(source).not.toContain("/obj/");
   }
   await expect(page.getByTestId("eval-restore-banner")).toHaveCount(0);
+  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  const beforeDebug = await revisionOf(page);
+  await page.getByTestId("eval-configuration").selectOption("Debug");
+  await expect(page.getByTestId("eval-state")).toContainText(`revision ${beforeDebug + 1}`, {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("eval-state")).not.toContainText("stale");
+  await page.getByTestId("workspace-actions-menu").locator("summary").click();
   await expect(page.getByTestId("eval-configuration")).toHaveValue("Debug");
 
   await page.getByTestId("tree-project-OrderDesk.Cli").click();
@@ -102,13 +122,17 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("eval-details")).toContainText("Evaluated TFM");
   await expect(page.getByTestId("eval-packages")).toContainText("0 packages");
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored");
-  await expect(page.getByTestId("eval-revision")).toContainText("revision 1");
-
   const configuration = page.getByTestId("eval-configuration");
+  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  await expect(configuration).toBeEnabled({ timeout: 60_000 });
   await configuration.focus();
   await expect(configuration).toBeFocused();
+  const beforeRelease = await revisionOf(page);
   await page.keyboard.press("r");
-  await waitForEvaluation(page, 2);
+  await expect(page.getByTestId("eval-state")).toContainText(`revision ${beforeRelease + 1}`, {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("eval-state")).not.toContainText("stale");
   await expect(page.getByTestId("eval-details-state")).toHaveText("Evaluated");
   await expect(page.getByTestId("eval-target-path")).toContainText(
     "/bin/Release/net8.0/OrderDesk.Cli.dll",
@@ -141,20 +165,16 @@ test("a broken import stays in the tree with cause, log, open and retry", async 
     await expect(page.getByTestId("eval-project-log")).toContainText("Missing.props");
     await expect(page.getByTestId("eval-open-project")).toBeVisible();
     await expect(page.getByTestId("eval-retry")).toBeEnabled();
-    await expect(page.getByTestId("eval-restore")).toContainText("Not restored");
-    await expect(page.getByTestId("eval-restore-banner")).toContainText(
-      "Restore not requested — package dependencies and analysis are incomplete",
-    );
+    await expect(page.getByTestId("eval-restore")).toContainText("Restored");
 
     await page.getByTestId("eval-retry").click();
-    await expect(page.getByTestId("eval-state")).toContainText("revision 2", {
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluation failed", {
       timeout: 20_000,
     });
     await expect(page.getByTestId("eval-error")).toContainText("MSB4019");
 
     await page.getByTestId("eval-open-project").click();
     await expect(page.getByTestId("editor")).toContainText("build/Missing.props");
-    expect(fs.existsSync(path.join(copy, "obj"))).toBe(false);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -170,12 +190,7 @@ test("saving a project file in a temp copy marks the model stale and re-evaluate
     await trustWorkspace(page);
     await enterWorkspace(page);
     await waitForEvaluation(page);
-    await expect(page.getByTestId("eval-restore-banner")).toContainText(
-      "Restore not requested",
-    );
-    expect(
-      fs.existsSync(path.join(copy, "src/OrderDesk.Cli/obj/project.assets.json")),
-    ).toBe(false);
+    await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
 
     await page.getByTestId("tree-project-OrderDesk.Cli").click();
     await page.getByRole("button", { name: "Project details", exact: true }).click();
@@ -190,15 +205,15 @@ test("saving a project file in a temp copy marks the model stale and re-evaluate
     await page.keyboard.press("Meta+s");
     await expect(page.getByTestId("app-log")).toContainText(`Saved ${projectFile}`);
 
-    await expect(page.getByTestId("eval-restore")).toContainText("Not restored");
     await expect(page.getByTestId("eval-stale")).toBeVisible();
     await expect(page.getByTestId("eval-state")).toContainText("stale");
     await expect(page.getByTestId("eval-target-path")).toContainText(
       "Previous evaluation (stale)",
     );
 
+    const beforeStale = await revisionOf(page);
     await page.getByTestId("eval-stale-run").click();
-    await expect(page.getByTestId("eval-state")).toContainText("revision 2", {
+    await expect(page.getByTestId("eval-state")).toContainText(`revision ${beforeStale + 1}`, {
       timeout: 20_000,
     });
     await expect(page.getByTestId("eval-stale")).toHaveCount(0);
@@ -206,9 +221,6 @@ test("saving a project file in a temp copy marks the model stale and re-evaluate
     await expect(page.getByTestId("eval-target-path")).toContainText(
       "src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
     );
-    expect(
-      fs.existsSync(path.join(copy, "src/OrderDesk.Cli/obj/project.assets.json")),
-    ).toBe(false);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

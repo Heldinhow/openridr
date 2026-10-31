@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { Terminal as XtermTerminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 import { call, HostCallError, type Snapshot, type Terminal } from "./host/client";
 
 type Props = {
@@ -7,6 +10,8 @@ type Props = {
   onSnapshot: (snapshot: Snapshot) => void;
   onError: (message: string) => void;
 };
+
+type RawRead = { revision: number; chunk: { from: number; end: number; truncated: boolean; bytes: number[] } };
 
 const stateLabels: Record<Terminal["state"], string> = {
   idle: "Not started",
@@ -21,27 +26,23 @@ function messageOf(error: unknown): string {
   return String(error);
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function charWidth(style: CSSStyleDeclaration) {
-  const context = document.createElement("canvas").getContext("2d");
-  if (!context) return 8;
-  context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-  const width = context.measureText("MMMMMMMMMM").width / 10;
-  return width > 0 ? width : 8;
-}
-
-/** One real PTY shell: state, identity, scrollable output, a line input and Ctrl+C. */
+/** One real PTY shell rendered by xterm: typing goes straight to the PTY; the line form is a mirror. */
 export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }: Props) {
   const terminal = snapshot.terminal;
   const running = terminal.state === "running";
   const [line, setLine] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
-  const outputRef = useRef<HTMLPreElement>(null);
+  const screenRef = useRef<HTMLDivElement>(null);
+  const xterm = useRef<XtermTerminal | null>(null);
+  const fit = useRef<FitAddon | null>(null);
+  // Byte offset of the next read and the session it belongs to; a new revision starts from zero.
+  const readPosition = useRef({ revision: -1, since: 0 });
   const sentSize = useRef("");
+  // Keystrokes reach the PTY in order, one call at a time.
+  const inputQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const latest = useRef({ running, onSnapshot, onError });
+  latest.current = { running, onSnapshot, onError };
 
   async function invoke(label: string, method: string, params: Record<string, unknown> = {}) {
     setBusy(label);
@@ -54,49 +55,105 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
     }
   }
 
+  // The emulator lives as long as the panel; its size follows the panel, and the shell learns it.
   useEffect(() => {
-    const output = outputRef.current;
-    if (output) output.scrollTop = output.scrollHeight;
-  }, [terminal.log]);
-
-  // Report the real panel size so the shell wraps like the visible terminal, not a guess.
-  useEffect(() => {
-    if (!running) return;
-    const output = outputRef.current;
-    if (!output) return;
-    let timer = 0;
-    const fit = () => {
-      const rect = output.getBoundingClientRect();
-      const style = window.getComputedStyle(output);
-      const cols = clamp(Math.floor((rect.width - 24) / charWidth(style)), 20, 400);
-      const lineHeight = Number.parseFloat(style.lineHeight) || 16;
-      const rows = clamp(Math.floor((rect.height - 12) / lineHeight), 5, 200);
-      const key = `${cols}x${rows}`;
-      if (sentSize.current === key) return;
+    const screen = screenRef.current;
+    if (!screen) return;
+    const term = new XtermTerminal({
+      convertEol: false,
+      cursorBlink: true,
+      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      fontSize: 12,
+      scrollback: 10_000,
+      theme: { background: "#1e1f22", foreground: "#bcbec4" },
+    });
+    const addon = new FitAddon();
+    term.loadAddon(addon);
+    term.open(screen);
+    xterm.current = term;
+    fit.current = addon;
+    const sendSize = () => {
+      addon.fit();
+      const key = `${term.cols}x${term.rows}`;
+      if (sentSize.current === key || !latest.current.running) return;
       sentSize.current = key;
-      call<Snapshot>("terminal.resize", { cols, rows })
-        .then(onSnapshot)
+      call<Snapshot>("terminal.resize", { cols: term.cols, rows: term.rows })
+        .then((next) => latest.current.onSnapshot(next))
         .catch(() => {
           sentSize.current = "";
         });
     };
-    const observer = new ResizeObserver(() => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(fit, 250);
+    const observer = new ResizeObserver(() => sendSize());
+    observer.observe(screen);
+    const input = term.onData((data) => {
+      if (!latest.current.running) return;
+      inputQueue.current = inputQueue.current.then(() =>
+        call<Snapshot>("terminal.write", { data })
+          .then((next) => latest.current.onSnapshot(next))
+          .catch((error) => latest.current.onError(`Terminal input failed: ${messageOf(error)}`)),
+      );
     });
-    observer.observe(output);
-    timer = window.setTimeout(fit, 50);
     return () => {
+      input.dispose();
       observer.disconnect();
+      term.dispose();
+      xterm.current = null;
+      fit.current = null;
+      readPosition.current = { revision: -1, since: 0 };
+      sentSize.current = "";
+    };
+  }, []);
+
+  // Raw PTY bytes arrive in order; the poll is quick while running and slow once the shell has ended.
+  useEffect(() => {
+    let stopped = false;
+    let timer = 0;
+    const pump = async () => {
+      const term = xterm.current;
+      if (!stopped && term && terminal.revision > 0) {
+        try {
+          const read = await call<RawRead>("terminal.read", { since: readPosition.current.since });
+          if (read.revision !== readPosition.current.revision) {
+            term.reset();
+            readPosition.current = { revision: read.revision, since: 0 };
+            sentSize.current = "";
+            fit.current?.fit();
+            // Reading again from zero is the only way to get the output of this session.
+            const again = await call<RawRead>("terminal.read", { since: 0 });
+            if (again.chunk.bytes.length > 0) term.write(Uint8Array.from(again.chunk.bytes));
+            readPosition.current.since = again.chunk.end;
+          } else if (read.chunk.bytes.length > 0) {
+            term.write(Uint8Array.from(read.chunk.bytes));
+            readPosition.current.since = read.chunk.end;
+          }
+        } catch {
+          // A failed poll is retried on the next tick; the shell state itself is reported by the host.
+        }
+      }
+      if (!stopped) timer = window.setTimeout(pump, latest.current.running ? 30 : 250);
+    };
+    timer = window.setTimeout(pump, 0);
+    return () => {
+      stopped = true;
       window.clearTimeout(timer);
     };
-  }, [running]);
+  }, [terminal.revision]);
+
+  // Trusted workspaces open a shell with a prompt by themselves; Restricted never starts one.
+  const autoStarted = useRef<number | null>(null);
+  useEffect(() => {
+    if (disabledReason !== null || terminal.state !== "idle" || autoStarted.current === snapshot.contextId) return;
+    autoStarted.current = snapshot.contextId;
+    void invoke("Start terminal", "terminal.start");
+    // invoke is recreated each render; the guard above keeps this to once per context.
+  }, [disabledReason, terminal.state, snapshot.contextId]);
 
   async function send(data: string) {
     if (!running) return;
     await invoke("Terminal input", "terminal.write", { data });
   }
 
+  // The line form mirrors what the screen takes: one line plus Enter, for screen readers and IME.
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!running) return;
@@ -122,54 +179,56 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
           {disabledReason}
         </p>
       )}
-      <div className="terminal-meta">
-        <span>
-          Shell: <strong data-testid="terminal-shell">{terminal.shell || "not started"}</strong>
-        </span>
-        <span>
-          Cwd: <span data-testid="terminal-cwd">{terminal.cwd || "not started"}</span>
-        </span>
-        <span data-testid="terminal-size">
-          {terminal.cols}×{terminal.rows}
-        </span>
-        <span className={`tag ${terminal.state === "failed" ? "error" : ""}`} data-testid="terminal-state" role="status">
-          {stateLabels[terminal.state]}
-        </span>
-        <span className="muted" data-testid="terminal-process">
-          {terminal.processId === null ? "No shell process" : `Process ${terminal.processId}`}
-        </span>
-      </div>
+      <div className="terminal-toolbar">
+        <div className="terminal-meta" role="region" tabIndex={0} aria-label="Terminal details">
+          <span>
+            Shell: <strong data-testid="terminal-shell">{terminal.shell || "not started"}</strong>
+          </span>
+          <span>
+            Cwd: <span data-testid="terminal-cwd">{terminal.cwd || "not started"}</span>
+          </span>
+          <span data-testid="terminal-size">
+            {terminal.cols}×{terminal.rows}
+          </span>
+          <span className={`tag ${terminal.state === "failed" ? "error" : ""}`} data-testid="terminal-state" role="status">
+            {stateLabels[terminal.state]}
+          </span>
+          <span className="muted" data-testid="terminal-process">
+            {terminal.processId === null ? "No shell process" : `Process ${terminal.processId}`}
+          </span>
+        </div>
 
-      <div className="terminal-controls">
-        <button
-          data-testid="terminal-start"
-          disabled={disabledReason !== null || running || busy !== null}
-          onClick={() => void invoke("Start terminal", "terminal.start")}
-          title={
-            disabledReason ??
-            "Starts the discovered shell in the workspace root; the shell and cwd are shown above."
-          }
-        >
-          Start shell
-        </button>
-        {running && (
+        <div className="terminal-controls">
           <button
-            data-testid="terminal-close"
-            disabled={busy !== null}
-            onClick={() => setConfirmClose(true)}
-            title="Closing a running shell needs a decision: keep the terminal or terminate the shell."
+            data-testid="terminal-start"
+            disabled={disabledReason !== null || running || busy !== null}
+            onClick={() => void invoke("Start terminal", "terminal.start")}
+            title={
+              disabledReason ??
+              "Starts the discovered shell in the workspace root; the shell and cwd are shown above."
+            }
           >
-            Close…
+            Start shell
           </button>
-        )}
-        <button
-          data-testid="terminal-interrupt"
-          disabled={!running || busy !== null}
-          onClick={() => void send("\u0003")}
-          title="Sends Ctrl+C (byte 0x03) to the PTY so the foreground child receives SIGINT."
-        >
-          Ctrl+C
-        </button>
+          {running && (
+            <button
+              data-testid="terminal-close"
+              disabled={busy !== null}
+              onClick={() => setConfirmClose(true)}
+              title="Closing a running shell needs a decision: keep the terminal or terminate the shell."
+            >
+              Close…
+            </button>
+          )}
+          <button
+            data-testid="terminal-interrupt"
+            disabled={!running || busy !== null}
+            onClick={() => void send("\u0003")}
+            title="Sends Ctrl+C (byte 0x03) to the PTY so the foreground child receives SIGINT."
+          >
+            Ctrl+C
+          </button>
+        </div>
       </div>
 
       {confirmClose && (
@@ -213,20 +272,16 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
       )}
       {running && (
         <p className="muted" data-testid="terminal-hint">
-          Type a line and press Enter. Ctrl+C while this input is focused interrupts the foreground
-          child; it never copies text.
+          Type in the terminal as in any shell. The line input below mirrors it for assistive tech.
         </p>
       )}
 
-      <pre
-        className="terminal-output"
+      <div
+        className="terminal-output terminal-screen"
         data-testid="terminal-output"
         aria-label="Terminal output"
-        tabIndex={0}
-        ref={outputRef}
-      >
-        {terminal.log || "No output yet."}
-      </pre>
+        ref={screenRef}
+      />
 
       {terminal.revision > 0 && !running && (
         <div className="terminal-result">

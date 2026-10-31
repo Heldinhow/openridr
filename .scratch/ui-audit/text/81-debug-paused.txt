@@ -1,0 +1,136 @@
+OrderDesk.sln
+Trusted mode
+Not a git repository
+Startup project
+OrderDesk.Cli
+Configuration
+Debug
+Release
+TFM
+TFM: unset
+net8.0
+Audit run
+Build
+⌘F9
+Run
+⌃F5
+Debug
+⌥F5
+Stop
+•••
+Workspace tools
+Restore succeeded · exit 0 · Analysis: ready
+Processes
+
+OpenRidr tracks only processes the host started. Termination is shown after the host observes it; a missing exit code stays "exit unknown".
+
+restore:solution pid 68359 exited · exit 0
+lsp:csharp-ls pid 68371 exited · exit 0
+restore:solution pid 68570 exited · exit 0
+tests:OrderDesk.Tests pid 69643 exited · exit 0
+tests:run:OrderDesk.Tests pid 69646 exited · exit 1
+tests:run:OrderDesk.Tests pid 69649 exited · exit 1
+restore:solution pid 69754 exited · exit 0
+lsp:csharp-ls pid 69760 running
+Terminate
+Keep running
+build:OrderDesk.Cli pid 69824 exited · exit 0
+debug:OrderDesk.Cli pid 69829 running
+Terminate
+Keep running
+Solution Explorer
+MSBuild evaluated
+Re-evaluate
+Evaluated · revision 2
+Project details
+OrderDesk.sln
+src
+▾
+OrderDesk.Cli
+console
+net8.0
+References: OrderDesk.Core
+Program.cs
+▾
+OrderDesk.Core
+library
+net8.0
+Order.cs
+tests
+▾
+OrderDesk.Tests
+test
+net8.0
+References: OrderDesk.Core
+Packages: Microsoft.NET.Test.Sdk 17.11.1, xunit 2.9.2, xunit.runner.visualstudio 2.8.2
+OrderTests.cs
+Program.cs
+×
+ Rename symbol…
+ Code actions…
+ Save
+OrderDesk.Cli / Program.cs / net8.0 · revision 0 · saved 0 · saved
+1
+2
+3
+4
+5
+●▶
+using OrderDesk.Core;
+
+
+var order = new Order("A-104", 42m);
+Console.WriteLine($"Order {order.Id}: {order.Total:C}");
+
+
+Rename Order at 3:17; Enter previews, Esc cancels.
+Build
+Problems
+Debug
+Terminal
+Tests
+Git
+NuGet
+DebugPausedPaused · breakpoint · 1 frame(s) · 1 thread(s)StopContinueStep overStep into
+Session
+1
+Project
+OrderDesk.Cli · src/OrderDesk.Cli/OrderDesk.Cli.csproj
+Build
+build:5:1 · Debug
+Assembly
+/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+Adapter
+3.2.0 · osx-arm64 · /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/home/tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg --interpreter=vscode
+Working directory
+/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli
+Process
+registry 10 · adapter pid 69829 · debuggee pid 69830
+Exit
+exit unknown
+
+Threads: Main Thread (2445890)
+
+Call frames
+Program.<Main>$() /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-ui-audit/orderdesk/src/OrderDesk.Cli/Program.cs:3
+Locals
+
+Frame 0
+
+Locals
+args · string[] = {string[1]} (nested; not expanded)
+order · OrderDesk.Core.Order = null
+Breakpoints
+src/OrderDesk.Cli/Program.cs:3 verified by the adapter
+DAP, adapter and host log
+Debuggee output
+No debuggee output yet.
+OrderDesk.sln
+OrderDesk.sln > OrderDesk.Cli > Program.cs
+Trusted mode
+Host SDK 10.0.100 · Project SDK 8.0.408
+Evaluated · Configuration Debug · TFM not selected · revision 2
+Keymap: IntelliJ / Rider
+UTF-8
+4 spaces
+Ln 3, Col 1

@@ -39,3 +39,33 @@ test("empty editor scrolls locally in a constrained workspace (isolated DOM)", a
   expect((await empty.locator("h1").boundingBox())!.y).toBeGreaterThanOrEqual(bounds.y);
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(700);
 });
+
+test("editor action popups stay inside the editor and keep preview actions reachable", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 700 });
+  await page.setContent(`
+    <section class="editor-pane" aria-label="Editor" style="width:700px;height:500px">
+      <div class="editor-body" style="min-height:100px">Editor</div>
+      <div class="rename-preview editor-popup">
+        <h2>Rename preview</h2><div style="height:700px">Preview details</div>
+        <div class="actions"><button>Apply</button><button>Cancel</button></div>
+      </div>
+    </section>`);
+  await page.addStyleTag({ content: fs.readFileSync(path.resolve("src/styles.css"), "utf8") });
+  const pane = page.getByRole("region", { name: "Editor" });
+  const popup = page.locator(".editor-popup");
+  const paneBox = (await pane.boundingBox())!;
+  const popupBox = (await popup.boundingBox())!;
+  expect(popupBox.x).toBeGreaterThanOrEqual(paneBox.x);
+  expect(popupBox.y).toBeGreaterThanOrEqual(paneBox.y);
+  expect(popupBox.x + popupBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
+  expect(popupBox.y + popupBox.height).toBeLessThanOrEqual(paneBox.y + paneBox.height);
+  const apply = popup.getByRole("button", { name: "Apply" });
+  await expect(apply).toBeVisible();
+  await apply.scrollIntoViewIfNeeded();
+  const applyBox = (await apply.boundingBox())!;
+  expect(applyBox.y + applyBox.height).toBeLessThanOrEqual(popupBox.y + popupBox.height);
+  // Docked: the editor body sits above the popup and keeps its height.
+  const bodyBox = (await page.locator(".editor-body").boundingBox())!;
+  expect(bodyBox.y + bodyBox.height).toBeLessThanOrEqual(popupBox.y + 0.5);
+  expect(bodyBox.height).toBeGreaterThanOrEqual(100);
+});

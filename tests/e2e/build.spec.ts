@@ -5,7 +5,7 @@ import path from "node:path";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 import { host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.setTimeout(180_000);
@@ -41,15 +41,12 @@ async function openTrustedEvaluated(page: Page, copy: string) {
   });
 }
 
+// Trust restores and evaluates by itself (docs/decisions.md); wait for that to settle.
 async function restoreAndReload(page: Page) {
-  await page.getByTestId("restore-action").click();
   await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
     timeout: 60_000,
   });
-  await page.getByTestId("restore-reload").click();
-  await expect(page.getByTestId("eval-state")).toContainText("revision 2", {
-    timeout: 30_000,
-  });
+  await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
 }
 
 async function replaceProgram(page: Page, text: string) {
@@ -89,6 +86,8 @@ test("a real build reports its raw log, fails on a compile error and navigates t
     await expect(page.getByTestId("build-command")).toContainText("dotnet build");
     await expect(page.getByTestId("build-command")).toContainText("--no-restore");
     await expect(page.getByTestId("build-command")).toContainText("-c Debug");
+    await expect(page.getByTestId("build-command")).toHaveCSS("white-space", "pre");
+    await expect(page.getByTestId("build-command")).toHaveCSS("user-select", "text");
     await expect(page.getByTestId("build-cwd")).toContainText("Order Desk build");
     await expect(page.getByTestId("build-sdk")).toContainText("8.0.408");
     await expect(page.getByTestId("build-project")).toContainText("OrderDesk.Cli");
@@ -150,27 +149,13 @@ test("a real build reports its raw log, fails on a compile error and navigates t
   }
 });
 
-test("build waits for the explicit restore and asks before using unsaved buffers", async ({
+test("build waits for the automatic restore and asks before using unsaved buffers", async ({
   page,
 }) => {
   const { base, copy } = tempCopy("Order Desk build pending");
   try {
     await openTrustedEvaluated(page, copy);
-
-    // Restore pending: the Build button is blocked with the explicit restore action.
-    await expect(page.getByTestId("build-disabled-reason")).toContainText(
-      "Dependencies are not restored",
-    );
-    await expect(page.getByTestId("build-action")).toBeDisabled();
-    await expect(page.getByTestId("build-restore-required")).toBeVisible();
-    await page.getByTestId("build-restore-action").click();
-    await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
-      timeout: 60_000,
-    });
-    await page.getByTestId("restore-reload").click();
-    await expect(page.getByTestId("eval-state")).toContainText("revision 2", {
-      timeout: 30_000,
-    });
+    await restoreAndReload(page);
     await expect(page.getByTestId("build-action")).toBeEnabled();
 
     // An unsaved buffer: the decision is explicit, and the build uses saved content only.

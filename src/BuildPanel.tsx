@@ -7,7 +7,6 @@ type Props = {
   dirtyCount: number;
   runDisabledReason: string | null;
   onRun: () => void;
-  onCancelRun: () => void;
   onSaveAndRebuild: () => void;
   evaluation: Evaluation;
   startupPath: string | null;
@@ -64,7 +63,7 @@ export function runShortcutLabel(platform: string) {
   return platform === "windows" ? "Shift+F10" : "Ctrl+R";
 }
 
-function timeLabel(value: number | null) {
+export function timeLabel(value: number | null) {
   return value === null ? "unknown" : new Date(value).toLocaleString();
 }
 
@@ -75,7 +74,6 @@ export function BuildPanel({
   dirtyCount,
   runDisabledReason,
   onRun,
-  onCancelRun,
   onSaveAndRebuild,
   evaluation,
   startupPath,
@@ -127,9 +125,10 @@ export function BuildPanel({
                   : "Console executable project evaluated for this context."
             }
           >
-            {candidates.length === 0 && <option value="">No console project</option>}
-            {candidates.length > 1 && !startup && (
-              <option value="">Select a startup project</option>
+            {!startup && (
+              <option value="">
+                {candidates.length === 0 ? "No console project" : "Select a startup project"}
+              </option>
             )}
             {candidates.map((project) => (
               <option key={project.path} value={project.path}>
@@ -206,7 +205,7 @@ export function BuildPanel({
         <button
           data-testid="run-action"
           disabled={runDisabledReason !== null || runRunning}
-          onClick={onRun}
+          onClick={() => onRun()}
           title={
             runDisabledReason ??
             `Runs the saved build's TargetPath, not the current buffers (${shortcut}). Run never builds or restores.`
@@ -214,25 +213,8 @@ export function BuildPanel({
         >
           {runRunning ? "Running…" : `Run (${shortcut})`}
         </button>
-        {runRunning && (
-          <button
-            data-testid="run-stop"
-            onClick={onCancelRun}
-            title="Requests termination of the program's process group, children included, and reports what was observed."
-          >
-            Stop
-          </button>
-        )}
         <span
-          className={`tag ${run.state === "failed" ? "error" : ""}`}
-          data-testid="run-state"
-          role="status"
-        >
-          {runStateLabel(run)}
-          {run.stale ? " · stale" : ""}
-        </span>
-        <span
-          className={`tag ${build.state === "failed" ? "error" : ""}`}
+          className={build.revision === 0 ? "muted" : `tag ${build.state === "failed" ? "error" : ""}`}
           data-testid="build-state"
           role="status"
         >
@@ -288,7 +270,9 @@ export function BuildPanel({
 
       {build.revision > 0 && (
         <>
-          <dl className="restore-meta build-meta">
+          <details className="build-context-details">
+            <summary>Build details</summary>
+            <dl className="restore-meta build-meta">
             <dt>Startup project</dt>
             <dd data-testid="build-project">
               {build.project?.name ?? "unknown"} · {build.project?.kind ?? "unknown"} ·{" "}
@@ -304,7 +288,7 @@ export function BuildPanel({
             </dd>
             <dt>Command</dt>
             <dd>
-              <code data-testid="build-command">{build.command.join(" ")}</code>
+              <code className="detail-command" data-testid="build-command">{build.command.join(" ")}</code>
             </dd>
             <dt>Working directory</dt>
             <dd>
@@ -316,7 +300,8 @@ export function BuildPanel({
             </dd>
             <dt>Saved content</dt>
             <dd data-testid="build-saved-note">{build.savedNote ?? "not recorded"}</dd>
-          </dl>
+            </dl>
+          </details>
           {obsolete && (
             <p className="warning" data-testid="build-obsolete" role="status">
               This build predates the current buffer edits. Its result is obsolete, not fixed;
@@ -367,74 +352,6 @@ export function BuildPanel({
         </>
       )}
 
-      {run.revision > 0 && (
-        <section className="run-output" aria-label="Run output" data-testid="run-panel">
-          <dl className="restore-meta build-meta">
-            <dt>Run</dt>
-            <dd data-testid="run-identity">
-              {run.runId ?? "unknown"} · project {run.project?.name ?? "unknown"} ·{" "}
-              <code>{run.targetPath ?? "unknown"}</code>
-            </dd>
-            <dt>Build identity</dt>
-            <dd data-testid="run-build-id">
-              {run.buildId ?? "unknown"} · revision {run.revision} · context{" "}
-              {run.contextId ?? "unknown"}
-            </dd>
-            <dt>Configuration / TFM</dt>
-            <dd>
-              {run.configuration} · {run.targetFramework ?? "single-target project"}
-            </dd>
-            <dt>Command</dt>
-            <dd>
-              <code data-testid="run-command">{run.command.join(" ")}</code>
-            </dd>
-            <dt>Working directory</dt>
-            <dd>
-              <code data-testid="run-cwd">{run.cwd}</code>
-            </dd>
-            <dt>Exit</dt>
-            <dd data-testid="run-exit">
-              {run.exit === null ? "exit unknown" : `exit ${run.exit}`}
-            </dd>
-            <dt>Started / finished</dt>
-            <dd>
-              {timeLabel(run.startedAt)} / {timeLabel(run.finishedAt)}
-            </dd>
-          </dl>
-          {run.sealed && (
-            <p className="warning" data-testid="run-sealed">
-              Previous run, not current: {run.staleReason}
-            </p>
-          )}
-          {!run.sealed && run.stale && (
-            <p className="warning" data-testid="run-stale" role="status">
-              Run result is stale: {run.staleReason}
-            </p>
-          )}
-          {run.termination && (
-            <p className="muted" data-testid="run-termination">
-              Termination requested: {run.termination.requested}. Observed:{" "}
-              {run.termination.observed}
-              {run.termination.killedAfterGrace ? " after the grace period" : ""}.
-            </p>
-          )}
-          {run.awaitingDecision && (
-            <p className="warning" data-testid="run-awaiting">
-              Still running; the host has not confirmed termination. Decide in the process panel.
-            </p>
-          )}
-          <h3>Run output</h3>
-          <pre className="eval-pre build-log run-log" data-testid="run-log">
-            {run.log || "No output yet."}
-          </pre>
-          {run.logTruncated && (
-            <p className="muted" data-testid="run-log-truncated">
-              The run log is bounded and the earliest lines were dropped; the note at the top of
-              the log says how many.
-            </p>
-          )}
-        </section>
-      )}
     </div>
   );
 }

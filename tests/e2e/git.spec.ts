@@ -1,0 +1,340 @@
+/**
+ * F6 — real Git through the `git` on PATH. Every repository here is disposable and created
+ * by the test; nothing runs git inside the app checkout.
+ */
+import { expect, test, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { host } from "./environment";
+
+const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+const program = "src/OrderDesk.Cli/Program.cs";
+const order = "src/OrderDesk.Core/Order.cs";
+const brandNew = "src/OrderDesk.Core/E2eNewFile.cs";
+let base = "";
+let repo = "";
+
+function git(args: string[], cwd = repo) {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: base,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_TERMINAL_PROMPT: "0",
+    },
+  }).trim();
+}
+
+function setupRepo() {
+  base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-git-"));
+  repo = path.join(base, "orderdesk");
+  fs.cpSync(fixture, repo, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  git(["init", "-q", "-b", "main"]);
+  git(["config", "user.name", "OpenRidr E2E"]);
+  git(["config", "user.email", "e2e@openridr.invalid"]);
+  git(["add", "."]);
+  git(["commit", "-qm", "Initial commit"]);
+}
+
+async function openWorkspace(page: Page, target: string) {
+  await page.goto("/");
+  await page.getByTestId("workspace-path-input").fill(target);
+  await page.getByTestId("workspace-open").click();
+}
+
+async function openTrusted(page: Page, target: string) {
+  await openWorkspace(page, target);
+  await page.getByTestId("trust-checkbox").check();
+  await expect(page.getByTestId("trust-grant")).toBeEnabled();
+  await page.getByTestId("trust-grant").click();
+  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("open-text-only").click();
+  await expect(page.getByTestId("tree")).toBeVisible();
+}
+
+async function hostCall(page: Page, method: string, params: unknown = {}) {
+  return page.request.post(`${host}/call`, { data: { method, params } });
+}
+
+test.beforeEach(async ({ request }) => {
+  await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+  setupRepo();
+});
+
+test.afterEach(async ({ request }) => {
+  await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("long current branch stays compact while its full name remains accessible", async ({ page }) => {
+  const longBranch = `feature/${"long-branch-segment-".repeat(8)}end`;
+  git(["switch", "-q", "-c", longBranch]);
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+
+  const branch = page.getByTestId("toolbar-branch");
+  const label = page.getByTestId("branch-current");
+  await expect(label).toHaveText(longBranch);
+  await expect(label).toHaveCSS("text-overflow", "ellipsis");
+  expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  await expect(branch).toHaveAttribute("title", /Current branch:/);
+  await expect(branch).toHaveAccessibleName(/Current branch:/);
+  expect(await branch.getAttribute("title")).toContain(longBranch);
+  expect(await branch.getAttribute("aria-label")).toContain(longBranch);
+});
+
+test("commit tool commits only the checked files, preserves the index and amends on demand", async ({ page }) => {
+  // A pre-existing staged change must survive a commit of different paths untouched.
+  fs.appendFileSync(path.join(repo, program), "// staged by the user\n");
+  git(["add", program]);
+  fs.appendFileSync(path.join(repo, order), "// e2e worktree change\n");
+  fs.writeFileSync(path.join(repo, brandNew), "namespace OrderDesk.Core;\n\npublic static class E2eNewFile { }\n");
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await expect(page.getByTestId("toolbar-branch")).toHaveText(/main/);
+
+  await page.getByTestId("toolband-commit").click();
+  await expect(page.getByTestId("commit-tool")).toBeVisible();
+  await expect(page.getByTestId("tree")).toHaveCount(0);
+  await expect(page.getByTestId("toolband-commit")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId(`commit-file-${program}`)).toContainText("Staged");
+  await expect(page.getByTestId(`commit-file-${order}`)).toContainText("Modified");
+  await expect(page.getByTestId(`commit-file-${brandNew}`)).toContainText("Untracked");
+
+  // The diff is the real git diff of the selected file.
+  await page.getByTestId(`commit-file-${order}`).click();
+  await expect(page.getByTestId("commit-diff")).toContainText("// e2e worktree change");
+  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
+
+  await page.getByTestId(`commit-file-${program}`).click();
+  await expect(page.getByTestId("commit-diff-left-label")).toHaveText("HEAD");
+  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Index");
+  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
+
+  await page.getByTestId(`commit-file-${brandNew}`).click();
+  await expect(page.getByTestId("commit-diff-left-label")).toHaveText("No previous file");
+  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Working tree");
+  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
+
+  // Commit Order.cs and the new file, explicitly not the staged Program.cs.
+  await page.getByTestId(`commit-check-${program}`).uncheck();
+  await expect(page.getByTestId(`commit-check-${program}`)).not.toBeChecked();
+  await page.getByTestId(`commit-check-${order}`).check();
+  await page.getByTestId(`commit-check-${brandNew}`).check();
+  await page.getByTestId("commit-message").fill("Selective commit from E2E");
+  await page.getByTestId("commit-submit").click();
+  await expect(page.getByTestId("commit-state")).toContainText("Committed");
+
+  const message = git(["log", "-1", "--format=%s"]);
+  expect(message).toBe("Selective commit from E2E");
+  const committed = git(["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean).sort();
+  expect(committed).toEqual([brandNew, order].sort());
+  expect(git(["diff", "--cached", "--name-only"])).toBe(program);
+  expect(git(["status", "--porcelain", "--", program])).toBe("M  " + program);
+  expect(git(["ls-files", "--error-unmatch", brandNew])).toBe(brandNew);
+
+  // Amend keeps the explicit selection and replaces the message.
+  fs.appendFileSync(path.join(repo, order), "// amended worktree change\n");
+  await page.getByTestId("commit-refresh").click();
+  await expect(page.getByTestId(`commit-file-${order}`)).toBeVisible();
+  await page.getByTestId(`commit-check-${program}`).uncheck();
+  await page.getByTestId(`commit-check-${order}`).check();
+  await page.getByTestId("commit-amend").check();
+  await page.getByTestId("commit-message").fill("Amended subject from E2E");
+  await page.getByTestId("commit-submit").click();
+  await expect(page.getByTestId("commit-state")).toContainText("Committed");
+
+  expect(git(["log", "-1", "--format=%s"])).toBe("Amended subject from E2E");
+  expect(git(["rev-list", "--count", "HEAD"])).toBe("2");
+  expect(git(["show", "--name-only", "--format=", "HEAD"])).toContain(order);
+  expect(git(["diff", "--cached", "--name-only"])).toBe(program);
+  expect(git(["status", "--porcelain", "--", order])).toBe("");
+});
+
+test("Git review keeps long diffs, paths, log metadata and commit feedback readable", async ({ page }) => {
+  const longPath = `${"src/OrderDesk.Core/"}${"deeply-nested-review-folder/".repeat(3)}ReadablePath.cs`;
+  const absolutePath = path.join(repo, longPath);
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, `namespace OrderDesk.Core;\n\npublic static class ReadablePath { public static string Value => "${"before ".repeat(30)}"; }\n`);
+  git(["add", longPath]);
+  git(["commit", "-qm", "A deliberately descriptive history entry for the Git log layout"]);
+  fs.writeFileSync(absolutePath, `namespace OrderDesk.Core;\n\npublic static class ReadablePath { public static string Value => "${"after ".repeat(30)}"; }\n`);
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("toolband-commit").click();
+  const file = page.getByTestId(`commit-file-${longPath}`);
+  await expect(file).toBeVisible();
+  await file.click();
+
+  const diff = page.getByTestId("commit-diff");
+  await expect(diff).toBeVisible();
+  await expect(diff).toHaveAttribute("aria-label", `Git diff for ${longPath}`);
+  const diffText = diff.locator("pre");
+  await expect(diff.getByTestId("commit-diff-left-label")).toHaveText("Index");
+  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("Working tree");
+  await expect(diffText).toContainText("after after after");
+  if (process.env.OPENRIDR_CAPTURE_GIT_UI === "1") {
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({ path: path.join(screenshots, "git-diff.png") });
+  }
+  expect(await diffText.evaluate((element) => element.scrollWidth)).toBeGreaterThan(
+    await diffText.evaluate((element) => element.clientWidth),
+  );
+  // Each side keeps its whole line: a cell never overflows its own column under the other one.
+  for (const cell of [diffText.locator(".split-del").first(), diffText.locator(".split-add").first()]) {
+    expect(await cell.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  await diff.getByRole("button", { name: "Close diff" }).click();
+
+  await page.getByTestId("commit-message").fill("Readable commit result");
+  await page.getByTestId("commit-submit").click();
+  await expect(page.getByTestId("commit-state")).toContainText("Committed");
+  await expect(page.getByTestId("commit-state")).toContainText("Readable commit result");
+  await expect(page.getByTestId("app-log")).toHaveCount(0);
+
+  await page.getByTestId("bottom-tab-git").click();
+  const commits = page.getByTestId(/^git-log-item-/);
+  await expect(commits.first()).toContainText("Readable commit result");
+  await expect(commits.first()).toContainText("OpenRidr E2E");
+  await commits.nth(1).click();
+  await expect(page.getByTestId("git-log-files")).toContainText(longPath);
+  await expect(page.getByTestId("git-log-files").locator("code").first()).toHaveText(longPath);
+  if (process.env.OPENRIDR_CAPTURE_GIT_UI === "1") {
+    fs.mkdirSync(screenshots, { recursive: true });
+    await page.screenshot({ path: path.join(screenshots, "git-log.png") });
+  }
+});
+
+test("log lists commits and files; checkout and pull explain refusals; push needs a remote and confirmation", async ({
+  page,
+}) => {
+  fs.appendFileSync(path.join(repo, order), "// second commit\n");
+  git(["add", "."]);
+  git(["commit", "-qm", "Second commit for log"]);
+  git(["branch", "feature"]);
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("bottom-tab-git").click();
+  await expect(page.getByTestId("git-log")).toBeVisible();
+  const commits = page.getByTestId(/^git-log-item-/);
+  await expect(commits).toHaveCount(2);
+  await expect(commits.first()).toContainText("Second commit for log");
+  await expect(commits.first()).toContainText("1 parent");
+  await expect(commits.nth(1)).toContainText("root");
+  await commits.first().click();
+  await expect(page.getByTestId("git-log-files")).toContainText(order);
+
+  // Branch popup: create a branch, then show the dirty-tree refusal.
+  await page.getByTestId("toolbar-branch").click();
+  await expect(page.getByTestId("branch-menu")).toHaveAttribute("open", "");
+  await expect(page.getByTestId("branch-item-main")).toBeVisible();
+  await expect(page.getByTestId("branch-item-feature")).toBeVisible();
+  await page.getByTestId("branch-create-open").click();
+  await page.getByTestId("branch-name").fill("e2e/branch");
+  await page.getByTestId("branch-create-submit").click();
+  await expect(page.getByTestId("toolbar-branch")).toContainText("e2e/branch");
+
+  fs.appendFileSync(path.join(repo, order), "// dirty while checking out\n");
+  await page.getByTestId("branch-refresh").click();
+  await expect(page.getByTestId("branch-checkout-reason")).toContainText("uncommitted changes");
+  await expect(page.getByTestId("branch-item-main")).toBeDisabled();
+  const denied = await hostCall(page, "git.checkout", { name: "main" });
+  const deniedBody = await denied.json();
+  expect(deniedBody.ok).toBe(false);
+  expect(deniedBody.error.code).toBe("git_dirty_tree");
+  expect(deniedBody.error.message).toContain("does not auto-stash");
+  expect(git(["rev-parse", "--abbrev-ref", "HEAD"])).toBe("e2e/branch");
+
+  // Update needs an upstream; Push needs a remote; neither runs a command.
+  await expect(page.getByTestId("branch-update")).toBeDisabled();
+  await expect(page.getByTestId("branch-update")).toHaveAttribute("title", /No upstream/);
+  await expect(page.getByTestId("branch-push")).toBeDisabled();
+  await expect(page.getByTestId("branch-push-reason")).toContainText("No remote is configured");
+  const unconfirmed = await (await hostCall(page, "git.push")).json();
+  expect(unconfirmed.error.code).toBe("confirmation_required");
+  const noRemote = await (await hostCall(page, "git.push", { confirm: true })).json();
+  expect(noRemote.error.code).toBe("git_no_remote");
+
+  // A remote with credentials still never exposes them, and Push shows the confirmation
+  // dialog with remote, branch, upstream and commits ahead.
+  git(["remote", "add", "origin", "https://user:secret-token@example.invalid/repo.git"]);
+  await page.keyboard.press("Escape");
+  await page.getByTestId("toolbar-branch").click();
+  await page.getByTestId("branch-refresh").click();
+  await page.getByTestId("branch-push").click();
+  await expect(page.getByTestId("push-dialog")).toBeVisible();
+  await expect(page.getByTestId("push-remote")).toHaveText("origin");
+  await expect(page.getByTestId("push-branch")).toHaveText("e2e/branch");
+  await expect(page.getByTestId("push-upstream")).toContainText("Not set");
+  await expect(page.getByTestId("push-ahead")).toHaveText("0");
+  await page.getByTestId("push-cancel").click();
+
+  const status = await (await hostCall(page, "git.status")).json();
+  expect(JSON.stringify(status)).not.toContain("secret-token");
+  const branches = await (await hostCall(page, "git.branches")).json();
+  expect(JSON.stringify(branches)).not.toContain("secret-token");
+});
+
+test("restricted mode and a non-repository explain themselves and every git method needs trust", async ({
+  page,
+}) => {
+  await openWorkspace(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("open-text-only").click();
+  await expect(page.getByTestId("tree")).toBeVisible();
+  const restrictedGit = page.getByTestId("toolbar-branch");
+  await expect(restrictedGit).toBeDisabled();
+  await expect(restrictedGit).toHaveAccessibleName("Trust the workspace to use Git");
+  await expect(restrictedGit).toHaveAttribute("title", "Trust the workspace to use Git");
+
+  await page.getByTestId("toolband-commit").click();
+  await expect(page.getByTestId("commit-disabled-reason")).toHaveText("Trust the workspace to use Git");
+  await page.getByTestId("bottom-tab-git").click();
+  await expect(page.getByTestId("git-log-disabled-reason")).toHaveText("Trust the workspace to use Git");
+
+  for (const [method, params] of [
+    ["git.status", {}],
+    ["git.diff", { path: program }],
+    ["git.branches", {}],
+    ["git.branchCreate", { name: "x" }],
+    ["git.checkout", { name: "main" }],
+    ["git.log", {}],
+    ["git.commit", { paths: [program], message: "x" }],
+    ["git.pull", {}],
+    ["git.push", { confirm: true }],
+  ] as const) {
+    const body = await (await hostCall(page, method, params)).json();
+    expect(body.ok, method).toBe(false);
+    expect(body.error.code, method).toBe("trust_required");
+  }
+
+  // A trusted workspace outside any repository is data, not an error.
+  const plain = path.join(base, "plain");
+  fs.mkdirSync(plain);
+  fs.writeFileSync(
+    path.join(plain, "Plain.csproj"),
+    '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n',
+  );
+  fs.writeFileSync(path.join(plain, "Class.cs"), "class C {}\n");
+  // The shell layout persisted the Commit/Git tool windows from the repository workspace.
+  await page.evaluate(() => localStorage.setItem("openridr.layout.v1", JSON.stringify({ bottom: { active: "build", size: 220, open: true } })));
+  await openTrusted(page, path.join(plain, "Plain.csproj"));
+  const noRepoGit = page.getByTestId("toolbar-branch");
+  await expect(noRepoGit).toBeDisabled();
+  await expect(noRepoGit).toHaveAccessibleName("Not a git repository");
+  await expect(noRepoGit).toHaveAttribute("title", "Not a git repository");
+  await page.getByTestId("toolband-commit").click();
+  await expect(page.getByTestId("commit-disabled-reason")).toHaveText("Not a git repository");
+  await page.getByTestId("bottom-tab-git").click();
+  await expect(page.getByTestId("git-log-disabled-reason")).toHaveText("Not a git repository");
+  const status = await (await hostCall(page, "git.status")).json();
+  expect(status.ok).toBe(true);
+  expect(status.data.state).toBe("not_a_repository");
+});

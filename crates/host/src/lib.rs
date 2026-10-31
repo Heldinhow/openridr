@@ -4,20 +4,28 @@ mod debugger;
 mod diagnostics;
 mod error;
 mod evaluation;
+mod fsutil;
+mod git;
 pub mod hostroot;
 mod logbuf;
 mod lsp;
+mod nuget;
 mod outline;
 pub mod process;
+mod recent;
 mod restore;
 pub mod sdk;
 mod run;
+mod run_configs;
+mod search;
+mod settings;
 mod terminal;
 #[path = "test_discovery.rs"]
 mod test_discovery;
 #[path = "test_run.rs"]
 mod test_run;
 mod tools;
+mod trusted;
 
 pub use error::{HostError, HostResult};
 pub use evaluation::{Evaluation, EvaluationContext};
@@ -50,6 +58,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "lsp.definition",
     "lsp.rename",
     "lsp.codeActions",
+    "lsp.references",
+    "lsp.documentSymbol",
     "tools.install",
     "tools.retry",
     "debug.install",
@@ -63,12 +73,37 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.continue",
     "debug.stepOver",
     "debug.stepInto",
+    "debug.stepOut",
     "debug.setBreakpoints",
+    "debug.setBreakpointCondition",
+    "debug.setBreakpointsMuted",
+    "debug.setExceptionBreakpoints",
+    "debug.runToCursor",
     "debug.variables",
+    "debug.children",
+    "debug.selectThread",
+    "debug.evaluate",
+    "debug.addWatch",
+    "debug.removeWatch",
+    "debug.pause",
     "tests.discover",
     "tests.run",
     "processes.probe",
     "diagnostics.probe",
+    "git.status",
+    "git.diff",
+    "git.branches",
+    "git.branchCreate",
+    "git.checkout",
+    "git.log",
+    "git.commit",
+    "git.pull",
+    "git.push",
+    "git.info",
+    "nuget.list",
+    "nuget.planUpdate",
+    "nuget.applyUpdate",
+    "nuget.probe",
 ];
 
 pub struct Host {
@@ -116,6 +151,8 @@ struct Inner {
     lsp_verbose: bool,
     rename_seq: u64,
     action_seq: u64,
+    nuget_seq: u64,
+    nuget_plan: Option<nuget::Plan>,
     diagnostics: diagnostics::Store,
 }
 
@@ -195,6 +232,14 @@ impl AnalysisBase {
             "rejectedActions": 0,
             "unsupportedActions": 0,
             "diagnosticsUsed": 0,
+            "references": [],
+            "referenceCount": 0,
+            "totalReferences": 0,
+            "rejectedReferences": 0,
+            "symbols": [],
+            "symbolCount": 0,
+            "totalSymbols": 0,
+            "rejectedSymbols": 0,
         })
     }
 }
@@ -319,6 +364,8 @@ impl Host {
                 lsp_verbose: false,
                 rename_seq: 0,
                 action_seq: 0,
+                nuget_seq: 0,
+                nuget_plan: None,
                 diagnostics: diagnostics::Store::new(),
             }),
         }
@@ -366,6 +413,9 @@ impl Host {
         }
         if method == "tests.run_cancel" {
             return self.cancel_test_run();
+        }
+        if method == "terminal.read" {
+            return self.read_terminal(params);
         }
         if method == "terminal.start" {
             return self.start_terminal(params);
@@ -421,11 +471,44 @@ impl Host {
         if method == "debug.stepInto" {
             return self.control_debug("stepInto");
         }
+        if method == "debug.stepOut" {
+            return self.control_debug("stepOut");
+        }
         if method == "debug.setBreakpoints" {
             return self.set_debug_breakpoints(params);
         }
+        if method == "debug.setBreakpointCondition" {
+            return self.set_debug_breakpoint_condition(params);
+        }
+        if method == "debug.setBreakpointsMuted" {
+            return self.set_debug_breakpoints_muted(params);
+        }
+        if method == "debug.setExceptionBreakpoints" {
+            return self.set_debug_exception_breakpoints(params);
+        }
+        if method == "debug.runToCursor" {
+            return self.debug_run_to_cursor(params);
+        }
         if method == "debug.variables" {
             return self.debug_variables(params);
+        }
+        if method == "debug.children" {
+            return self.debug_children(params);
+        }
+        if method == "debug.selectThread" {
+            return self.debug_select_thread(params);
+        }
+        if method == "debug.pause" {
+            return self.control_debug("pause");
+        }
+        if method == "debug.evaluate" {
+            return self.debug_evaluate(params);
+        }
+        if method == "debug.addWatch" {
+            return self.debug_watch(params, true);
+        }
+        if method == "debug.removeWatch" {
+            return self.debug_watch(params, false);
         }
         if method == "lsp.start" {
             return self.start_lsp(params);
@@ -454,6 +537,72 @@ impl Host {
         if method == "lsp.codeActions" {
             return self.lsp_code_actions(params);
         }
+        if method == "lsp.references" {
+            return self.lsp_references(params);
+        }
+        if method == "lsp.documentSymbol" {
+            return self.lsp_document_symbol(params);
+        }
+        if method == "lsp.workspaceSymbol" {
+            return self.lsp_workspace_symbol(params);
+        }
+        if method == "workspace.files" {
+            return self.workspace_files();
+        }
+        if method == "search.text" {
+            return self.search_text(params);
+        }
+        if method == "git.status" {
+            return self.git_status();
+        }
+        if method == "git.diff" {
+            return self.git_diff(params);
+        }
+        if method == "git.branches" {
+            return self.git_branches();
+        }
+        if method == "git.branchCreate" {
+            return self.git_branch_create(params);
+        }
+        if method == "git.checkout" {
+            return self.git_checkout(params);
+        }
+        if method == "git.log" {
+            return self.git_log();
+        }
+        if method == "git.commit" {
+            return self.git_commit(params);
+        }
+        if method == "git.pull" {
+            return self.git_pull();
+        }
+        if method == "git.push" {
+            return self.git_push(params);
+        }
+        if method == "git.info" {
+            return self.git_info();
+        }
+        if method == "recent.list" {
+            return Ok(recent::list());
+        }
+        if method == "workspace.pick" {
+            return pick_workspace();
+        }
+        if method == "git.path" {
+            return Ok(json!({ "path": git::path() }));
+        }
+        if method == "nuget.list" {
+            return self.nuget_list(params);
+        }
+        if method == "nuget.planUpdate" {
+            return self.nuget_plan_update(params);
+        }
+        if method == "nuget.applyUpdate" {
+            return self.nuget_apply_update(params);
+        }
+        if method == "nuget.probe" {
+            return self.nuget_probe(params);
+        }
         if EXECUTABLE_METHODS.contains(&method) {
             return self.gate_unhandled_executable(method);
         }
@@ -464,15 +613,25 @@ impl Host {
                 let mut inner = self.inner.lock().unwrap();
                 Ok(self.snapshot_value(&mut inner))
             }
-            "workspace.open" => self.open_workspace(params),
+            "workspace.open" => {
+                let opened = self.open_workspace(params)?;
+                if let Some(path) = opened["workspace"]["path"].as_str() {
+                    recent::record(path);
+                }
+                Ok(opened)
+            }
             "workspace.close" => self.close_workspace(),
-            "trust.grant" => self.grant_trust(),
+            "trust.grant" => self.grant_trust(&params),
             "trust.revoke" => self.revoke_trust(),
             "sdk.redetect" => self.redetect_sdks(),
             "processes.terminate" => self.terminate_process(params),
             "processes.keep" => self.keep_process(params),
             "file.read" => self.read_file(params),
             "file.write" => self.write_file(params),
+            "settings.read" => settings::read(),
+            "settings.write" => settings::write(&params),
+            "runConfigs.read" => run_configs::read(&params),
+            "runConfigs.write" => run_configs::write(&params),
             _ => Err(HostError::new(
                 "not_found",
                 format!("Unknown host method: {method}"),
@@ -736,6 +895,7 @@ impl Host {
         inner.processes.lock().unwrap().mark_awaiting();
         inner.workspace_seq += 1;
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         workspace.id = inner.workspace_seq;
         let request = global_json_request(&workspace.outline);
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
@@ -751,6 +911,15 @@ impl Host {
         inner.tests = Arc::new(test_discovery::Tests::idle());
         inner.test_run = Arc::new(test_run::TestRun::idle());
         inner.dap = Arc::new(dap::Dap::idle());
+        // A path the user already trusted opens trusted; nothing else is carried over.
+        let remembered = inner
+            .workspace
+            .as_ref()
+            .filter(|workspace| trusted::is_trusted(&workspace.path.to_string_lossy()))
+            .map(|workspace| workspace.id);
+        if let Some(workspace_id) = remembered {
+            apply_trust(&mut inner, workspace_id);
+        }
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -793,6 +962,7 @@ impl Host {
         inner.trust_decision = None;
         inner.workspace_seq += 1;
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         inner.project_sdk = ProjectSdk::no_workspace();
         inner.evaluation = Evaluation::idle();
         inner.build = Arc::new(build::Build::idle());
@@ -804,7 +974,8 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
-    fn grant_trust(&self) -> HostResult<Value> {
+    /// `remember: true` (sent by the UI) also persists the decision for this workspace path.
+    fn grant_trust(&self, params: &Value) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
         let Some(workspace_id) = inner.workspace.as_ref().map(|workspace| workspace.id) else {
             return Err(HostError::new(
@@ -812,19 +983,15 @@ impl Host {
                 "Open a workspace before trusting it.",
             ));
         };
+        if params["remember"].as_bool() == Some(true) {
+            if let Some(workspace) = inner.workspace.as_ref() {
+                trusted::remember(&workspace.path.to_string_lossy());
+            }
+        }
         if inner.trusted {
             return Ok(self.snapshot_value(&mut inner));
         }
-        inner.ensure_inventory();
-        inner.trusted = true;
-        inner.context_seq += 1;
-        inner.trust_decision = Some(TrustDecision {
-            granted_at: now_ms(),
-            workspace_id,
-            revoked_at: None,
-        });
-        let project = inspect_project_sdk(&inner);
-        inner.project_sdk = project;
+        apply_trust(&mut inner, workspace_id);
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -837,8 +1004,12 @@ impl Host {
         else {
             return Err(HostError::new("invalid_state", "No workspace is open."));
         };
+        if let Some(workspace) = inner.workspace.as_ref() {
+            trusted::forget(&workspace.path.to_string_lossy());
+        }
         inner.trusted = false;
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         if let Some(decision) = inner.trust_decision.as_mut() {
             decision.revoked_at = Some(now_ms());
         }
@@ -888,6 +1059,7 @@ impl Host {
         );
         inner.inventory = Some(sdk::inventory());
         inner.context_seq += 1;
+        inner.nuget_plan = None;
         if inner.workspace.is_some() {
             if inner.trusted {
                 let project = inspect_project_sdk(&inner);
@@ -2081,6 +2253,10 @@ impl Host {
         let workspace_file = workspace.path.clone();
         let root = workspace.root.clone();
 
+        // The active configuration's argv, cwd and environment are validated before any
+        // restore/build gate so an invalid launch explains its own field first.
+        let options = run_configs::launch_options(&params, &root)?;
+
         // Same policy as build/tests/debug: Run never restores implicitly, and a build whose
         // restore assets were invalidated afterwards is not a licence to launch.
         restore::require_restored(&workspace_file, &root, is_solution, "run.start")?;
@@ -2361,7 +2537,6 @@ impl Host {
             ));
         };
         let muxer = sdk_root.join(dotnet_exe());
-        let command = run::launch_command(Path::new(&built_target), &muxer)?;
         let Some(project_directory) = root.join(&selected.path).parent().map(Path::to_path_buf)
         else {
             return Err(HostError::new(
@@ -2369,6 +2544,12 @@ impl Host {
                 "Run was not started: the startup project has no directory.",
             ));
         };
+        let project_directory = options
+            .working_directory
+            .clone()
+            .unwrap_or(project_directory);
+        let mut command = run::launch_command(Path::new(&built_target), &muxer)?;
+        command.extend(options.args.iter().cloned());
 
         inner.run_seq += 1;
         let run_id = format!("run:{}:{}", token.workspace_id, inner.run_seq);
@@ -2388,7 +2569,10 @@ impl Host {
         }));
 
         // Separate arguments and cwd via the shared dotnet environment helper.
-        let process = dotnet_command(&command, &project_directory, &sdk_root);
+        let mut process = dotnet_command(&command, &project_directory, &sdk_root);
+        for (key, value) in &options.env {
+            process.env(key, value);
+        }
         let spawned = inner.processes.lock().unwrap().spawn_piped(
             &format!("run:{}", selected.name),
             token.workspace_id,
@@ -2524,6 +2708,15 @@ impl Host {
         accept_locked(&inner, token)?;
         inner.terminal.write(&data)?;
         Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Read-only, like `terminal.state`: raw PTY bytes after `since`, so the UI can emulate the
+    /// screen without the filtered log. Offsets belong to one `revision`; a new shell restarts at 0.
+    fn read_terminal(&self, params: Value) -> HostResult<Value> {
+        let since = params.get("since").and_then(Value::as_u64).unwrap_or(0);
+        let inner = self.inner.lock().unwrap();
+        let (revision, chunk) = inner.terminal.read(since);
+        Ok(json!({ "revision": revision, "chunk": chunk }))
     }
 
     fn resize_terminal(&self, params: Value) -> HostResult<Value> {
@@ -2749,6 +2942,9 @@ impl Host {
             return Err(HostError::new("invalid_state", "No workspace is open."));
         };
         let root = workspace.root.clone();
+        // The active configuration is validated before the adapter/build gates so a bad cwd,
+        // argument or .env line is reported as that field instead of an unrelated failure.
+        let options = run_configs::launch_options(&params, &root)?;
         // Same restore policy as every executable consumer: Debug never restores implicitly.
         restore::require_restored(
             &workspace.path,
@@ -3018,6 +3214,9 @@ impl Host {
                 "Debug was not started: the startup project has no directory.",
             ));
         };
+        let project_directory = options
+            .working_directory
+            .unwrap_or(project_directory);
 
         inner.dap_seq += 1;
         let session = inner.dap_seq;
@@ -3030,6 +3229,8 @@ impl Host {
             configuration: configuration.clone(),
             target_framework: target_framework.clone(),
             cwd: project_directory,
+            args: options.args,
+            env: options.env,
             root: root.clone(),
             sdk_root: sdk_root.clone(),
             adapter_binary: adapter.binary.to_string_lossy().to_string(),
@@ -3038,6 +3239,8 @@ impl Host {
             workspace_id: token.workspace_id,
             context_id: token.context_id,
             breakpoints: inner.dap.breakpoints(),
+            breakpoints_muted: inner.dap.breakpoints_muted(),
+            exception_filters: inner.dap.exception_filters(),
         };
         let mut command = Command::new(&adapter.binary);
         command.arg("--interpreter=vscode");
@@ -3070,6 +3273,8 @@ impl Host {
             "continue" => dap.continue_()?,
             "stepOver" => dap.step_over()?,
             "stepInto" => dap.step_into()?,
+            "stepOut" => dap.step_out()?,
+            "pause" => dap.pause()?,
             _ => {
                 return Err(HostError::new("invalid_state", "Unknown debug action."));
             }
@@ -3110,6 +3315,66 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
+    fn set_debug_breakpoint_condition(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.setBreakpointCondition")?;
+        let raw = required_str(&params, "path")?;
+        let line = params
+            .get("line")
+            .and_then(Value::as_i64)
+            .filter(|line| *line >= 1)
+            .ok_or_else(|| {
+                HostError::new("invalid_state", "Breakpoint lines must be positive integers.")
+            })?;
+        let condition = params
+            .get("condition")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let mut inner = self.inner.lock().unwrap();
+        let (_, relative) = resolve_in_workspace(&inner, &raw)?;
+        inner.dap.set_condition(&relative, line, condition)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn set_debug_breakpoints_muted(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.setBreakpointsMuted")?;
+        let muted = params
+            .get("muted")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| HostError::new("invalid_state", "muted must be a boolean."))?;
+        let mut inner = self.inner.lock().unwrap();
+        inner.dap.set_muted(muted);
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn set_debug_exception_breakpoints(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.setExceptionBreakpoints")?;
+        let thrown = params
+            .get("thrown")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| HostError::new("invalid_state", "thrown must be a boolean."))?;
+        let mut inner = self.inner.lock().unwrap();
+        inner.dap.set_thrown_exceptions(thrown)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_run_to_cursor(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.runToCursor")?;
+        let raw = required_str(&params, "path")?;
+        let line = params
+            .get("line")
+            .and_then(Value::as_i64)
+            .filter(|line| *line >= 1)
+            .ok_or_else(|| {
+                HostError::new("invalid_state", "Breakpoint lines must be positive integers.")
+            })?;
+        let mut inner = self.inner.lock().unwrap();
+        let (_, relative) = resolve_in_workspace(&inner, &raw)?;
+        inner.dap.run_to(&relative, line)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
     fn debug_variables(&self, params: Value) -> HostResult<Value> {
         let _token = self.require_trust("debug.variables")?;
         let frame_id = params
@@ -3119,6 +3384,59 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let dap = inner.dap.clone();
         dap.load_locals(frame_id)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_evaluate(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.evaluate")?;
+        let expression = required_str(&params, "expression")?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        dap.evaluate(&expression)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_watch(&self, params: Value, add: bool) -> HostResult<Value> {
+        let method = if add { "debug.addWatch" } else { "debug.removeWatch" };
+        let _token = self.require_trust(method)?;
+        let expression = required_str(&params, "expression")?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        if add {
+            dap.add_watch(&expression)?;
+        } else {
+            dap.remove_watch(&expression);
+        }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_select_thread(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.selectThread")?;
+        let thread_id = params
+            .get("threadId")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| HostError::new("invalid_state", "debug.selectThread needs threadId."))?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        dap.select_thread(thread_id)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn debug_children(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.children")?;
+        let variables_reference = params
+            .get("variablesReference")
+            .and_then(Value::as_i64)
+            .filter(|reference| *reference > 0)
+            .ok_or_else(|| {
+                HostError::new(
+                    "invalid_state",
+                    "debug.children needs a positive variablesReference.",
+                )
+            })?;
+        let mut inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        dap.load_children(variables_reference)?;
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -4011,6 +4329,219 @@ impl Host {
         Ok(answer)
     }
 
+    fn lsp_references(&self, params: Value) -> HostResult<Value> {
+        let request = match self.prepare_analysis_request(
+            "lsp.references",
+            "textDocument/references",
+            &params,
+        )? {
+            Ok(request) => request,
+            Err(answer) => return Ok(answer),
+        };
+        let response = request.lsp.request(
+            "textDocument/references",
+            json!({
+                "textDocument": { "uri": request.uri },
+                "position": { "line": request.base.line, "character": request.base.character },
+                "context": { "includeDeclaration": false },
+            }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        if let Some(answer) = self.analysis_invalidated(&request) {
+            return Ok(answer);
+        }
+        let value = match response {
+            Ok(value) => value,
+            Err(lsp::RequestError::Timeout(timeout)) => {
+                return Ok(request.base.answer(
+                    "timeout",
+                    Some(format!(
+                        "csharp-ls did not answer the references request within {} seconds; nothing was changed.",
+                        timeout.as_secs()
+                    )),
+                ));
+            }
+            Err(lsp::RequestError::Unavailable(message)) => {
+                return Ok(request.base.answer("unavailable", Some(message)));
+            }
+            Err(lsp::RequestError::Server(message)) => {
+                return Ok(request.base.answer(
+                    "failed",
+                    Some(format!(
+                        "csharp-ls rejected the references request: {message}"
+                    )),
+                ));
+            }
+        };
+        let Some(parsed) = lsp::parse_references(&value, lsp::REFERENCE_LIMIT) else {
+            request
+                .lsp
+                .log_line("[client] references rejected: the result is not an array");
+            return Ok(request.base.answer(
+                "failed",
+                Some(
+                    "csharp-ls returned a references payload this client does not understand."
+                        .to_string(),
+                ),
+            ));
+        };
+        let root = {
+            let inner = self.inner.lock().unwrap();
+            let Some(workspace) = inner.workspace.as_ref() else {
+                return Ok(request.base.answer(
+                    "stale",
+                    Some(
+                        "The workspace closed while csharp-ls was answering; no references were shown."
+                            .to_string(),
+                    ),
+                ));
+            };
+            workspace.root.clone()
+        };
+        let mut locations = Vec::new();
+        let mut rejected = parsed.rejected;
+        for target in &parsed.targets {
+            match definition_location(&root, target) {
+                Some(location) => locations.push(location),
+                None => rejected += 1,
+            }
+        }
+        let truncated = parsed.total > parsed.targets.len();
+        let mut notes = Vec::new();
+        if truncated {
+            notes.push(format!(
+                "Showing {} of {} references returned by csharp-ls.",
+                locations.len(),
+                parsed.total
+            ));
+        }
+        if rejected > 0 {
+            notes.push(format!(
+                "{rejected} reference(s) outside the workspace or not on disk were rejected."
+            ));
+        }
+        let state = if locations.is_empty() && rejected > 0 {
+            "unavailable"
+        } else {
+            "ok"
+        };
+        let message = if locations.is_empty() && notes.is_empty() {
+            Some("csharp-ls returned no references for this position.".to_string())
+        } else if notes.is_empty() {
+            None
+        } else {
+            Some(notes.join(" "))
+        };
+        let mut answer = request.base.answer(state, message);
+        answer["references"] = json!(locations);
+        answer["referenceCount"] = json!(locations.len());
+        answer["totalReferences"] = json!(parsed.total);
+        answer["rejectedReferences"] = json!(rejected);
+        answer["truncated"] = json!(truncated);
+        request.lsp.log_line(format!(
+            "[client] references at {}:{} · session {} · {} shown, {} total, {} rejected",
+            request.base.line,
+            request.base.character,
+            request.base.session,
+            locations.len(),
+            parsed.total,
+            rejected
+        ));
+        Ok(answer)
+    }
+
+    fn lsp_document_symbol(&self, params: Value) -> HostResult<Value> {
+        // The contract takes only a path; line/character are inert fields of the shared
+        // analysis answer and never part of the document symbol request.
+        let mut gated = params.clone();
+        if gated.get("line").is_none() {
+            gated["line"] = json!(0);
+        }
+        if gated.get("character").is_none() {
+            gated["character"] = json!(0);
+        }
+        let request = match self.prepare_analysis_request(
+            "lsp.documentSymbol",
+            "textDocument/documentSymbol",
+            &gated,
+        )? {
+            Ok(request) => request,
+            Err(answer) => return Ok(answer),
+        };
+        let response = request.lsp.request(
+            "textDocument/documentSymbol",
+            json!({ "textDocument": { "uri": request.uri } }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        if let Some(answer) = self.analysis_invalidated(&request) {
+            return Ok(answer);
+        }
+        let value = match response {
+            Ok(value) => value,
+            Err(lsp::RequestError::Timeout(timeout)) => {
+                return Ok(request.base.answer(
+                    "timeout",
+                    Some(format!(
+                        "csharp-ls did not answer the document symbol request within {} seconds.",
+                        timeout.as_secs()
+                    )),
+                ));
+            }
+            Err(lsp::RequestError::Unavailable(message)) => {
+                return Ok(request.base.answer("unavailable", Some(message)));
+            }
+            Err(lsp::RequestError::Server(message)) => {
+                return Ok(request.base.answer(
+                    "failed",
+                    Some(format!(
+                        "csharp-ls rejected the document symbol request: {message}"
+                    )),
+                ));
+            }
+        };
+        let Some(parsed) = lsp::parse_document_symbols(&value, lsp::DOCUMENT_SYMBOL_LIMIT) else {
+            request
+                .lsp
+                .log_line("[client] document symbols rejected: the result is not an array");
+            return Ok(request.base.answer(
+                "failed",
+                Some(
+                    "csharp-ls returned a document symbol payload this client does not understand."
+                        .to_string(),
+                ),
+            ));
+        };
+        let count = count_document_symbols(&parsed.symbols);
+        let truncated = parsed.total > count;
+        let mut notes = Vec::new();
+        if truncated {
+            notes.push(format!(
+                "Showing {count} of {} document symbols returned by csharp-ls.",
+                parsed.total
+            ));
+        }
+        if parsed.rejected > 0 {
+            notes.push(format!(
+                "{} malformed document symbol(s) were ignored.",
+                parsed.rejected
+            ));
+        }
+        let message = if count == 0 && parsed.rejected == 0 {
+            Some("csharp-ls returned no document symbols for this file.".to_string())
+        } else if notes.is_empty() {
+            None
+        } else {
+            Some(notes.join(" "))
+        };
+        let mut answer = request.base.answer("ok", message);
+        answer["symbols"] = json!(parsed.symbols);
+        answer["symbolCount"] = json!(count);
+        answer["totalSymbols"] = json!(parsed.total);
+        answer["rejectedSymbols"] = json!(parsed.rejected);
+        answer["truncated"] = json!(truncated);
+        Ok(answer)
+    }
+
     /// Only current LSP publications for this document are sent as context; an item from a
     /// previous session, an awaiting publication or another origin is never forwarded.
     fn code_action_diagnostics(&self, request: &AnalysisRequest) -> Vec<Value> {
@@ -4182,6 +4713,518 @@ impl Host {
         None
     }
 
+    fn workspace_root(&self) -> HostResult<PathBuf> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root.clone())
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))
+    }
+
+    fn workspace_files(&self) -> HostResult<Value> {
+        let root = self.workspace_root()?;
+        let list = search::list_files(&root, search::FILE_LIMIT);
+        Ok(json!({
+            "files": list.files,
+            "returned": list.files.len(),
+            "total": list.total,
+            "truncated": list.truncated,
+        }))
+    }
+
+    fn search_text(&self, params: Value) -> HostResult<Value> {
+        let query = required_str(&params, "query")?;
+        if query.is_empty() {
+            return Err(HostError::new(
+                "invalid_state",
+                "search.text requires a non-empty query.",
+            ));
+        }
+        let case_sensitive = params
+            .get("caseSensitive")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let root = self.workspace_root()?;
+        let found = search::search_text(
+            &root,
+            &query,
+            case_sensitive,
+            search::TEXT_FILE_LIMIT,
+            search::TEXT_MATCH_LIMIT,
+        );
+        Ok(json!({
+            "query": query,
+            "caseSensitive": case_sensitive,
+            "files": found.files,
+            "fileCount": found.file_count,
+            "matchCount": found.match_count,
+            "truncated": found.truncated,
+        }))
+    }
+
+    /// Every git method passes the same trust gate before spawning anything. Unavailability
+    /// (no repository, no git on PATH) is data for the surfaces; refusals and failed commands
+    /// stay observable.
+    fn git_status(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.status")?;
+        let root = self.workspace_root()?;
+        Ok(serde_json::to_value(git::status(&root)).expect("git status serializes"))
+    }
+
+    fn git_diff(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.diff")?;
+        let root = self.workspace_root()?;
+        let path = required_str(&params, "path")?;
+        let staged = params
+            .get("staged")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let answer = git::diff(&root, &path, staged)?;
+        Ok(serde_json::to_value(answer).expect("git diff serializes"))
+    }
+
+    fn git_branches(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.branches")?;
+        let root = self.workspace_root()?;
+        Ok(serde_json::to_value(git::branches(&root)).expect("git branches serialize"))
+    }
+
+    fn git_branch_create(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.branchCreate")?;
+        let root = self.workspace_root()?;
+        let name = required_str(&params, "name")?;
+        let checkout = params
+            .get("checkout")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let answer = git::branch_create(&root, &name, checkout)?;
+        Ok(serde_json::to_value(answer).expect("git branchCreate serializes"))
+    }
+
+    fn git_checkout(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.checkout")?;
+        let root = self.workspace_root()?;
+        let name = required_str(&params, "name")?;
+        let answer = git::checkout(&root, &name)?;
+        Ok(serde_json::to_value(answer).expect("git checkout serializes"))
+    }
+
+    fn git_log(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.log")?;
+        let root = self.workspace_root()?;
+        Ok(serde_json::to_value(git::log(&root)).expect("git log serializes"))
+    }
+
+    fn git_commit(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.commit")?;
+        let root = self.workspace_root()?;
+        let paths_param = params
+            .get("paths")
+            .and_then(Value::as_array)
+            .ok_or_else(|| HostError::new("invalid_state", "Missing `paths` array."))?;
+        let mut paths = Vec::with_capacity(paths_param.len());
+        for value in paths_param {
+            let path = value.as_str().ok_or_else(|| {
+                HostError::new("invalid_state", "Every commit path must be a string.")
+            })?;
+            paths.push(path.to_string());
+        }
+        let message = required_str(&params, "message")?;
+        let amend = params
+            .get("amend")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let answer = git::commit(&root, &paths, &message, amend)?;
+        Ok(serde_json::to_value(answer).expect("git commit serializes"))
+    }
+
+    fn git_pull(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.pull")?;
+        let root = self.workspace_root()?;
+        let answer = git::pull(&root)?;
+        Ok(serde_json::to_value(answer).expect("git pull serializes"))
+    }
+
+    fn git_push(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.push")?;
+        let root = self.workspace_root()?;
+        let answer = git::push(&root, &params)?;
+        Ok(serde_json::to_value(answer).expect("git push serializes"))
+    }
+
+    /// Reports the `git` PATH would run; no repository is opened and nothing is changed.
+    fn git_info(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.info")?;
+        Ok(serde_json::to_value(git::info()).expect("git info serializes"))
+    }
+
+    /// Installed and outdated packages for one project, read through the project SDK.
+    fn nuget_list(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.list")?;
+        let raw = required_str(&params, "project")?;
+        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        if let Some(tfm) = target_framework.as_deref() {
+            nuget::validate_tfm(tfm)?;
+        }
+        let (root, project, display, sdk) = {
+            let inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+            let (project, display) = nuget::resolve_project(&workspace.root, &raw)?;
+            (
+                workspace.root.clone(),
+                project,
+                display,
+                inner.project_sdk.clone(),
+            )
+        };
+        let (muxer, sdk_root, sdk_version) = project_muxer(&sdk)?;
+        let listing = nuget::list(
+            &root,
+            &project,
+            &display,
+            target_framework.as_deref(),
+            &muxer,
+            &sdk_root,
+            &sdk_version,
+        );
+        Ok(serde_json::to_value(listing).expect("nuget listing serializes"))
+    }
+
+    /// A plan is data: it names the exact command and a planId, and starts nothing.
+    fn nuget_plan_update(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.planUpdate")?;
+        let raw = required_str(&params, "project")?;
+        let package = required_str(&params, "id")?;
+        let version = required_str(&params, "version")?;
+        let from_version = optional_str(&params, "fromVersion");
+        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        let (root, project, display, sdk, seq) = {
+            let mut inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+            let root = workspace.root.clone();
+            let (project, display) = nuget::resolve_project(&root, &raw)?;
+            let sdk = inner.project_sdk.clone();
+            inner.nuget_seq += 1;
+            (
+                root,
+                project,
+                display,
+                sdk,
+                inner.nuget_seq,
+            )
+        };
+        let (muxer, sdk_root, _) = project_muxer(&sdk)?;
+        let id = nuget::plan_id(seq, token.context_id, &display, &package, &version);
+        let plan = nuget::make_plan(nuget::PlanRequest {
+            id,
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+            root,
+            project,
+            project_display: display,
+            package,
+            from_version,
+            version,
+            target_framework,
+            muxer,
+            sdk_root,
+        })?;
+        let mut inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        let view = nuget::plan_view(&plan);
+        inner.nuget_plan = Some(plan);
+        Ok(view)
+    }
+
+    /// Confirmed single-package update. The plan is revalidated against the current project
+    /// before `dotnet add`; any refusal leaves the project untouched and no restore follows.
+    fn nuget_apply_update(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.applyUpdate")?;
+        if params.get("confirm").and_then(Value::as_bool) != Some(true) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "nuget.applyUpdate requires confirm:true; no command was run.",
+            ));
+        }
+        let plan_id = required_str(&params, "planId")?;
+        let plan = {
+            let mut inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            let plan = inner
+                .nuget_plan
+                .as_ref()
+                .filter(|plan| plan.id == plan_id)
+                .cloned()
+                .ok_or_else(|| {
+                    HostError::new(
+                        "nuget_stale_plan",
+                        "The update plan is not current; create a new plan. No command was run.",
+                    )
+                })?;
+            if plan.workspace_id != token.workspace_id || plan.context_id != token.context_id {
+                inner.nuget_plan = None;
+                return Err(HostError::new(
+                    "nuget_stale_plan",
+                    "The workspace or context changed after the plan; no command was run.",
+                ));
+            }
+            inner.nuget_plan = None;
+            plan
+        };
+        let result = nuget::apply(&plan)?;
+        Ok(serde_json::to_value(result).expect("nuget update result serializes"))
+    }
+
+    /// Development-only deterministic listing so the NuGet surface is debuggable where no
+    /// .NET SDK exists. It never runs dotnet and is gated by OPENRIDR_ENABLE_PROBE=1.
+    fn nuget_probe(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.probe")?;
+        if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
+            return Err(HostError::new(
+                "invalid_state",
+                "nuget.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.",
+            ));
+        }
+        let inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        let workspace = inner
+            .workspace
+            .as_ref()
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+        let requested = optional_str(&params, "project")
+            .or_else(|| workspace.outline.projects.first().map(|project| project.path.clone()))
+            .unwrap_or_else(|| workspace.name.clone());
+        let (project, display) = nuget::resolve_project(&workspace.root, &requested)
+            .unwrap_or_else(|_| (workspace.root.join("Probe.csproj"), requested.clone()));
+        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        if let Some(tfm) = target_framework.as_deref() {
+            nuget::validate_tfm(tfm)?;
+        }
+        let cpm = params.get("cpm").and_then(Value::as_bool).unwrap_or(false);
+        let empty = params.get("empty").and_then(Value::as_bool).unwrap_or(false);
+        let sources_failed = params
+            .get("sourcesFailed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let listing = nuget::probe(
+            &display,
+            &nuget::project_name(&project),
+            target_framework.as_deref(),
+            cpm,
+            empty,
+            sources_failed,
+        );
+        Ok(serde_json::to_value(listing).expect("nuget probe serializes"))
+    }
+
+    /// Workspace symbols come from the live analysis session only. Unavailability and trust
+    /// are data (`state`), so the palette can say what is missing instead of showing zero.
+    fn lsp_workspace_symbol(&self, params: Value) -> HostResult<Value> {
+        let query = required_str(&params, "query")?;
+        let (root, workspace_id, context_id, trusted, lsp) = {
+            let inner = self.inner.lock().unwrap();
+            let workspace = inner.workspace.as_ref().ok_or_else(|| {
+                HostError::new("invalid_state", "No workspace is open.")
+            })?;
+            (
+                workspace.root.clone(),
+                workspace.id,
+                inner.context_seq,
+                inner.trusted,
+                inner.lsp.clone(),
+            )
+        };
+        let answer = |state: &'static str,
+                      message: Option<String>,
+                      missing: Option<&'static str>,
+                      session: u64,
+                      items: Vec<Value>,
+                      total: usize,
+                      truncated: bool| {
+            json!({
+                "method": "lsp.workspaceSymbol",
+                "state": state,
+                "message": message,
+                "missingAction": missing,
+                "session": session,
+                "workspaceId": workspace_id,
+                "contextId": context_id,
+                "query": query,
+                "items": items,
+                "total": total,
+                "truncated": truncated,
+            })
+        };
+        if !trusted {
+            return Ok(answer(
+                "analysis_not_ready",
+                Some("Trust the workspace to search workspace symbols.".to_string()),
+                Some("Trust the workspace"),
+                lsp.as_ref().map(|lsp| lsp.session()).unwrap_or(0),
+                Vec::new(),
+                0,
+                false,
+            ));
+        }
+        let Some(lsp) = lsp else {
+            return Ok(answer(
+                "analysis_not_ready",
+                Some("Analysis is not running. Start analysis to search workspace symbols.".to_string()),
+                Some("Start analysis"),
+                0,
+                Vec::new(),
+                0,
+                false,
+            ));
+        };
+        if !lsp.accepts_documents() {
+            return Ok(answer(
+                "analysis_not_ready",
+                Some("Analysis is initializing; workspace symbols are not available yet.".to_string()),
+                Some("Wait for analysis to initialize"),
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            ));
+        }
+        let view = lsp.view();
+        let Some(capabilities) = view.capabilities.as_ref() else {
+            return Ok(answer(
+                "analysis_not_ready",
+                Some("Analysis has not reported its capabilities yet.".to_string()),
+                Some("Wait for analysis to initialize"),
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            ));
+        };
+        if !capabilities.supports("workspace/symbol") {
+            return Ok(answer(
+                "unsupported",
+                Some(
+                    "The analysis session did not advertise workspace/symbol; no request was sent."
+                        .to_string(),
+                ),
+                None,
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            ));
+        }
+        let response = lsp.request(
+            "workspace/symbol",
+            json!({ "query": query }),
+            lsp::REQUEST_TIMEOUT,
+        );
+        let current = {
+            let inner = self.inner.lock().unwrap();
+            accept_locked(
+                &inner,
+                ContextToken {
+                    workspace_id,
+                    context_id,
+                },
+            )
+            .is_ok()
+                && inner
+                    .lsp
+                    .as_ref()
+                    .is_some_and(|live| Arc::ptr_eq(live, &lsp))
+        };
+        if !current {
+            return Ok(answer(
+                "stale",
+                Some(
+                    "The workspace or analysis session changed while csharp-ls was answering; the result was discarded."
+                        .to_string(),
+                ),
+                None,
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            ));
+        }
+        match response {
+            Ok(value) => {
+                let Some(list) = lsp::parse_workspace_symbols(&value, lsp::WORKSPACE_SYMBOL_LIMIT)
+                else {
+                    return Ok(answer(
+                        "failed",
+                        Some(
+                            "csharp-ls returned a workspace symbol result this client does not understand."
+                                .to_string(),
+                        ),
+                        None,
+                        lsp.session(),
+                        Vec::new(),
+                        0,
+                        false,
+                    ));
+                };
+                let (items, truncated) = workspace_symbol_items(&list, &root);
+                let message = truncated.then(|| {
+                    format!(
+                        "csharp-ls returned {} symbols; only the first {} inside the workspace are shown.",
+                        list.total,
+                        items.len()
+                    )
+                });
+                Ok(answer(
+                    "ok",
+                    message,
+                    None,
+                    lsp.session(),
+                    items,
+                    list.total,
+                    truncated,
+                ))
+            }
+            Err(lsp::RequestError::Timeout(timeout)) => Ok(answer(
+                "failed",
+                Some(format!(
+                    "csharp-ls did not answer within {} seconds; no symbols were returned.",
+                    timeout.as_secs()
+                )),
+                None,
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            )),
+            Err(lsp::RequestError::Unavailable(message)) => Ok(answer(
+                "analysis_not_ready",
+                Some(message),
+                Some("Start analysis"),
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            )),
+            Err(lsp::RequestError::Server(message)) => Ok(answer(
+                "failed",
+                Some(format!("csharp-ls rejected the workspace symbol request: {message}")),
+                None,
+                lsp.session(),
+                Vec::new(),
+                0,
+                false,
+            )),
+        }
+    }
+
     fn read_file(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
         let inner = self.inner.lock().unwrap();
@@ -4245,6 +5288,7 @@ impl Host {
                 .mark_stale(format!("{rel} was saved; the evaluated project model is stale."))
         {
             inner.context_seq += 1;
+            inner.nuget_plan = None;
             stop_lsp_inner(
                 &mut inner,
                 "A project input changed; analysis stopped so it cannot report the previous context.",
@@ -4784,6 +5828,21 @@ fn validate_test_tfm(
     Ok(())
 }
 
+/// Shared by an explicit grant and by opening an already-trusted path.
+fn apply_trust(inner: &mut Inner, workspace_id: u64) {
+    inner.ensure_inventory();
+    inner.trusted = true;
+    inner.context_seq += 1;
+    inner.nuget_plan = None;
+    inner.trust_decision = Some(TrustDecision {
+        granted_at: now_ms(),
+        workspace_id,
+        revoked_at: None,
+    });
+    let project = inspect_project_sdk(inner);
+    inner.project_sdk = project;
+}
+
 fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
     let Some(workspace) = inner.workspace.as_ref() else {
         return ProjectSdk::no_workspace();
@@ -4919,6 +5978,53 @@ fn dotnet_exe() -> &'static str {
     } else {
         "dotnet"
     }
+}
+
+/// The muxer of the project's already-resolved SDK, never PATH's dotnet.
+fn project_muxer(sdk: &ProjectSdk) -> HostResult<(PathBuf, PathBuf, String)> {
+    if sdk.state != "resolved" {
+        return Err(HostError::new(
+            if sdk.state == "sdk_missing" {
+                "sdk_missing"
+            } else {
+                "invalid_state"
+            },
+            format!(
+                "NuGet was not run: the project SDK is not resolved ({}). {}",
+                sdk.state,
+                sdk.message
+                    .clone()
+                    .unwrap_or_else(|| "Resolve the project SDK first.".to_string())
+            ),
+        ));
+    }
+    let root = sdk
+        .root
+        .clone()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            HostError::new(
+                "invalid_state",
+                "NuGet was not run: the resolved project SDK has no root path.",
+            )
+        })?;
+    let muxer = root.join(dotnet_exe());
+    if !muxer.is_file() {
+        return Err(HostError::new(
+            "sdk_missing",
+            format!(
+                "NuGet was not run: {} does not contain a .NET muxer.",
+                root.to_string_lossy()
+            ),
+        ));
+    }
+    Ok((
+        muxer,
+        root,
+        sdk.resolved_version
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+    ))
 }
 
 /// The one environment every `dotnet` child gets: explicit SDK root, no multi-level lookup,
@@ -5155,6 +6261,13 @@ fn code_action_document_preview(
     }
 }
 
+fn count_document_symbols(symbols: &[lsp::DocumentSymbolView]) -> usize {
+    symbols
+        .iter()
+        .map(|symbol| 1 + count_document_symbols(&symbol.children))
+        .sum()
+}
+
 /// Builds one document of a rename/code-action preview without writing anything: the base
 /// text comes from the analysis session for open documents and from disk for unopened ones,
 /// and all UTF-16 positions are resolved here so the UI never does offset math.
@@ -5320,9 +6433,97 @@ fn log_tail(log: &str, lines: usize) -> String {
     all[start..].join("\n")
 }
 
+/// Native file chooser for the welcome screen (macOS only, like the verified target).
+/// Returns `{ "path": null }` when the user cancels. No lock is held while it is open.
+fn pick_workspace() -> HostResult<Value> {
+    if !cfg!(target_os = "macos") {
+        return Err(HostError::new(
+            "unsupported",
+            "The file chooser is only implemented on macOS; type the path instead.",
+        ));
+    }
+    let output = Command::new("osascript")
+        .args([
+            "-e",
+            r#"POSIX path of (choose file with prompt "Open solution or project" default location (path to home folder) of type {"sln","slnx","csproj"})"#,
+        ])
+        .output()
+        .map_err(|error| HostError::new("pick_failed", format!("Cannot start the file chooser: {error}")))?;
+    if !output.status.success() {
+        // osascript exits 1 with "User canceled." when the dialog is dismissed.
+        return Ok(json!({ "path": null }));
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(json!({ "path": if path.is_empty() { None } else { Some(path) } }))
+}
+
+/// Keeps only symbols whose file is inside the workspace. Dropping an outside symbol is
+/// filtering, not truncation: `truncated` mirrors the cap applied while parsing the LSP answer.
+fn workspace_symbol_items(list: &lsp::WorkspaceSymbolList, root: &Path) -> (Vec<Value>, bool) {
+    let items = list
+        .items
+        .iter()
+        .filter_map(|item| {
+            let path = lsp::uri_to_path(&item.uri)?;
+            let canonical = fs::canonicalize(&path).ok()?;
+            let rel = canonical
+                .strip_prefix(root)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            Some(json!({
+                "name": item.name,
+                "kind": item.kind,
+                "containerName": item.container_name,
+                "uri": item.uri,
+                "path": rel,
+                "range": item.range,
+            }))
+        })
+        .collect();
+    (items, list.truncated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symbols_outside_the_workspace_are_filtered_not_truncated() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let inside_file = root.join("Program.cs");
+        let outside_file = fs::canonicalize(outside.path()).unwrap().join("Program.cs");
+        fs::write(&inside_file, "").unwrap();
+        fs::write(&outside_file, "").unwrap();
+        let item = |path: &Path| lsp::WorkspaceSymbolItem {
+            name: "Program".into(),
+            kind: 5,
+            container_name: String::new(),
+            uri: format!("file://{}", path.display()),
+            range: json!({}),
+        };
+        let list = lsp::WorkspaceSymbolList {
+            items: vec![item(&inside_file), item(&outside_file)],
+            total: 2,
+            truncated: false,
+        };
+        let (items, truncated) = workspace_symbol_items(&list, &root);
+        assert_eq!(items.len(), 1);
+        assert!(
+            !truncated,
+            "a filtered outside symbol is not a host truncation"
+        );
+        let capped = lsp::WorkspaceSymbolList {
+            truncated: true,
+            ..list
+        };
+        assert!(
+            workspace_symbol_items(&capped, &root).1,
+            "real truncation is kept"
+        );
+    }
 
     fn target(path: &Path) -> lsp::DefinitionTarget {
         lsp::DefinitionTarget {
@@ -5336,6 +6537,187 @@ mod tests {
                 "end": { "line": 2, "character": 25 }
             })),
         }
+    }
+
+    #[test]
+    fn workspace_files_and_text_search_need_no_trust() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Program.cs"), "class Program\n{\n    string s = \"needle\";\n}\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+
+        let files = host.dispatch("workspace.files", json!({})).unwrap();
+        let names: Vec<&str> = files["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(names.contains(&"Program.cs"), "{names:?}");
+        assert!(names.contains(&"App.csproj"), "{names:?}");
+        assert_eq!(files["truncated"], false);
+
+        let found = host
+            .dispatch("search.text", json!({ "query": "needle" }))
+            .unwrap();
+        assert_eq!(found["fileCount"], 1);
+        assert_eq!(found["matchCount"], 1);
+        assert_eq!(found["files"][0]["path"], "Program.cs");
+        assert_eq!(found["files"][0]["matches"][0]["line"], 2);
+        assert_eq!(found["files"][0]["matches"][0]["character"], 16);
+        assert_eq!(found["truncated"], false);
+    }
+
+    #[test]
+    fn workspace_symbol_reports_the_missing_gate_without_trust_or_analysis() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+
+        let untrusted = host
+            .dispatch("lsp.workspaceSymbol", json!({ "query": "Order" }))
+            .unwrap();
+        assert_eq!(untrusted["state"], "analysis_not_ready");
+        assert_eq!(untrusted["missingAction"], "Trust the workspace");
+        assert_eq!(untrusted["items"].as_array().unwrap().len(), 0);
+
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let no_analysis = host
+            .dispatch("lsp.workspaceSymbol", json!({ "query": "Order" }))
+            .unwrap();
+        assert_eq!(no_analysis["state"], "analysis_not_ready");
+        assert_eq!(no_analysis["missingAction"], "Start analysis");
+        assert_eq!(no_analysis["truncated"], false);
+        assert_eq!(no_analysis["items"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn references_and_document_symbols_report_the_missing_gate_without_trust_or_analysis() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Program.cs"), "class Program { static void Main() {} }\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+
+        let references = json!({ "path": "Program.cs", "line": 0, "character": 16 });
+        let symbols = json!({ "path": "Program.cs" });
+        assert_eq!(
+            host.dispatch("lsp.references", references.clone())
+                .unwrap_err()
+                .code,
+            "trust_required"
+        );
+        assert_eq!(
+            host.dispatch("lsp.documentSymbol", symbols.clone())
+                .unwrap_err()
+                .code,
+            "trust_required"
+        );
+
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let no_analysis = host.dispatch("lsp.references", references).unwrap();
+        assert_eq!(no_analysis["state"], "unavailable");
+        assert!(no_analysis["message"]
+            .as_str()
+            .unwrap()
+            .contains("Analysis is not running"));
+        assert_eq!(no_analysis["references"].as_array().unwrap().len(), 0);
+        assert_eq!(no_analysis["truncated"], false);
+
+        let no_analysis = host.dispatch("lsp.documentSymbol", symbols).unwrap();
+        assert_eq!(no_analysis["state"], "unavailable");
+        assert!(no_analysis["message"]
+            .as_str()
+            .unwrap()
+            .contains("Analysis is not running"));
+        assert_eq!(no_analysis["symbols"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn references_answer_is_discarded_when_the_analysis_session_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Program.cs"), "class Program {}\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+
+        let analysis = lsp::Lsp::begin(
+            1,
+            1,
+            1,
+            "",
+            false,
+            false,
+            "",
+            None,
+            Vec::new(),
+            "/tmp".to_string(),
+            false,
+            "full",
+            None,
+        );
+        let (workspace_id, context_id) = {
+            let mut inner = host.inner.lock().unwrap();
+            inner.lsp = Some(analysis.clone());
+            let workspace = inner.workspace.as_ref().unwrap();
+            (workspace.id, inner.context_seq)
+        };
+        let request = AnalysisRequest {
+            base: AnalysisBase {
+                method: "lsp.references",
+                token: ContextToken {
+                    workspace_id,
+                    context_id,
+                },
+                session: 1,
+                path: "Program.cs".to_string(),
+                line: 0,
+                character: 0,
+                revision: None,
+                version: None,
+                coverage: "full",
+                coverage_note: None,
+            },
+            lsp: analysis,
+            uri: lsp::file_uri(&root.join("Program.cs")),
+        };
+        host.inner.lock().unwrap().lsp = Some(lsp::Lsp::begin(
+            2,
+            1,
+            1,
+            "",
+            false,
+            false,
+            "",
+            None,
+            Vec::new(),
+            "/tmp".to_string(),
+            false,
+            "full",
+            None,
+        ));
+        let answer = host
+            .analysis_invalidated(&request)
+            .expect("a replaced session must discard the answer");
+        assert_eq!(answer["state"], "stale");
+        assert!(answer["message"]
+            .as_str()
+            .unwrap()
+            .contains("discarded"));
     }
 
     #[test]

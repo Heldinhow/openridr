@@ -31,6 +31,12 @@ pub const CODE_ACTION_LIMIT: usize = 50;
 pub const RENAME_DOCUMENT_LIMIT: usize = 50;
 pub const RENAME_EDIT_LIMIT: usize = 2_000;
 pub const RENAME_CONTENT_LIMIT: usize = 1_048_576;
+/// More workspace symbols than this are not listed; the response says it was truncated.
+pub const WORKSPACE_SYMBOL_LIMIT: usize = 500;
+/// More references than this are not listed; the response says it was truncated.
+pub const REFERENCE_LIMIT: usize = 200;
+/// Document symbols beyond this are not sent to the gutter/context menu.
+pub const DOCUMENT_SYMBOL_LIMIT: usize = 2_000;
 /// A single displayed line block is shortened; counts and applied text stay complete.
 const RENAME_DISPLAY_CHARS: usize = 2_000;
 
@@ -108,6 +114,9 @@ pub struct Capabilities {
     pub rename: bool,
     pub prepare_rename: bool,
     pub code_actions: bool,
+    pub workspace_symbol: bool,
+    pub references: bool,
+    pub document_symbol: bool,
     pub push_diagnostics: bool,
     pub pull_diagnostics: bool,
     pub semantic_tokens: bool,
@@ -140,6 +149,15 @@ fn capabilities_of(capabilities: &Value) -> Capabilities {
     if has("codeActionProvider") {
         summary.push("code actions".to_string());
     }
+    if has("workspaceSymbolProvider") {
+        summary.push("workspace symbols".to_string());
+    }
+    if has("referencesProvider") {
+        summary.push("references".to_string());
+    }
+    if has("documentSymbolProvider") {
+        summary.push("document symbols".to_string());
+    }
     if has("diagnosticProvider") {
         summary.push("diagnostics (pull advertised)".to_string());
     }
@@ -152,6 +170,9 @@ fn capabilities_of(capabilities: &Value) -> Capabilities {
         rename: has("renameProvider"),
         prepare_rename,
         code_actions: has("codeActionProvider"),
+        workspace_symbol: has("workspaceSymbolProvider"),
+        references: has("referencesProvider"),
+        document_symbol: has("documentSymbolProvider"),
         push_diagnostics: true,
         pull_diagnostics: has("diagnosticProvider"),
         semantic_tokens: has("semanticTokensProvider"),
@@ -168,6 +189,9 @@ impl Capabilities {
             "textDocument/definition" => self.definition,
             "textDocument/rename" => self.rename,
             "textDocument/codeAction" => self.code_actions,
+            "workspace/symbol" => self.workspace_symbol,
+            "textDocument/references" => self.references,
+            "textDocument/documentSymbol" => self.document_symbol,
             _ => false,
         }
     }
@@ -463,6 +487,281 @@ fn definition_target(value: &Value) -> Option<DefinitionTarget> {
 pub struct Position {
     pub line: u64,
     pub character: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbolItem {
+    pub name: String,
+    pub kind: u64,
+    pub container_name: String,
+    pub uri: String,
+    pub range: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceSymbolList {
+    pub items: Vec<WorkspaceSymbolItem>,
+    pub total: usize,
+    pub truncated: bool,
+}
+
+/// Accepts both shapes LSP allows for `workspace/symbol`: `WorkspaceSymbol` with a
+/// `location` of uri/range (or target uri/range) and `SymbolInformation`. Entries without a
+/// usable name, kind or start position are skipped, never invented.
+pub fn parse_workspace_symbols(result: &Value, limit: usize) -> Option<WorkspaceSymbolList> {
+    let entries = match result {
+        Value::Null => return Some(WorkspaceSymbolList {
+            items: Vec::new(),
+            total: 0,
+            truncated: false,
+        }),
+        Value::Array(entries) => entries,
+        _ => return None,
+    };
+    let mut items = Vec::new();
+    let mut total = 0;
+    for entry in entries {
+        let Some(name) = entry.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(kind) = entry.get("kind").and_then(Value::as_u64) else {
+            continue;
+        };
+        let Some(location) = entry.get("location") else {
+            continue;
+        };
+        let Some(uri) = location
+            .get("uri")
+            .or_else(|| location.get("targetUri"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let Some(range) = location
+            .get("range")
+            .or_else(|| location.get("targetSelectionRange"))
+            .or_else(|| location.get("targetRange"))
+        else {
+            continue;
+        };
+        let Some(start) = range.get("start") else {
+            continue;
+        };
+        if start.get("line").and_then(Value::as_u64).is_none()
+            || start.get("character").and_then(Value::as_u64).is_none()
+        {
+            continue;
+        }
+        total += 1;
+        if items.len() >= limit {
+            continue;
+        }
+        items.push(WorkspaceSymbolItem {
+            name: name.to_string(),
+            kind,
+            container_name: entry
+                .get("containerName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            uri: uri.to_string(),
+            range: range.clone(),
+        });
+    }
+    Some(WorkspaceSymbolList {
+        total,
+        truncated: total > items.len(),
+        items,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct ReferenceList {
+    pub targets: Vec<DefinitionTarget>,
+    pub total: usize,
+    pub rejected: usize,
+}
+
+/// `textDocument/references` answers with `Location[]` or `null`. Malformed entries are
+/// counted as rejected; anything that is not an array is not understood.
+pub fn parse_references(result: &Value, limit: usize) -> Option<ReferenceList> {
+    let values: &[Value] = match result {
+        Value::Null => &[],
+        Value::Array(values) => values,
+        _ => return None,
+    };
+    let mut targets = Vec::new();
+    let mut total = 0;
+    let mut rejected = 0;
+    for value in values {
+        match definition_target(value) {
+            Some(target) => {
+                total += 1;
+                if targets.len() < limit {
+                    targets.push(target);
+                }
+            }
+            None => rejected += 1,
+        }
+    }
+    Some(ReferenceList {
+        targets,
+        total,
+        rejected,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSymbolView {
+    pub name: String,
+    pub kind: u64,
+    /// Immediate parent name (`""` for top-level symbols or server `containerName`).
+    pub container_name: String,
+    pub range: Value,
+    pub selection_range: Value,
+    pub children: Vec<DocumentSymbolView>,
+}
+
+pub struct DocumentSymbolList {
+    pub symbols: Vec<DocumentSymbolView>,
+    pub total: usize,
+    pub rejected: usize,
+}
+
+/// Accepts both shapes LSP allows for `textDocument/documentSymbol`: hierarchical
+/// `DocumentSymbol` and flat `SymbolInformation`. An entry without a usable name, kind or
+/// range is skipped, never invented; entries beyond the limit are counted but not kept.
+pub fn parse_document_symbols(result: &Value, limit: usize) -> Option<DocumentSymbolList> {
+    let entries = match result {
+        Value::Null => {
+            return Some(DocumentSymbolList {
+                symbols: Vec::new(),
+                total: 0,
+                rejected: 0,
+            })
+        }
+        Value::Array(entries) => entries,
+        _ => return None,
+    };
+    let mut total = 0;
+    let mut rejected = 0;
+    let mut symbols = Vec::new();
+    for entry in entries {
+        if let Some(symbol) = document_symbol(entry, "", &mut total, &mut rejected) {
+            symbols.push(symbol);
+        }
+    }
+    let mut kept = Vec::new();
+    let mut remaining = limit;
+    trim_document_symbols(symbols, &mut remaining, &mut kept);
+    Some(DocumentSymbolList {
+        symbols: kept,
+        total,
+        rejected,
+    })
+}
+
+fn document_symbol(
+    value: &Value,
+    container: &str,
+    total: &mut usize,
+    rejected: &mut usize,
+) -> Option<DocumentSymbolView> {
+    match document_symbol_inner(value, container, total, rejected) {
+        Some(symbol) => Some(symbol),
+        None => {
+            *rejected += 1;
+            None
+        }
+    }
+}
+
+fn document_symbol_inner(
+    value: &Value,
+    container: &str,
+    total: &mut usize,
+    rejected: &mut usize,
+) -> Option<DocumentSymbolView> {
+    let name = value.get("name")?.as_str()?.to_string();
+    let kind = value.get("kind")?.as_u64()?;
+    let (range, selection_range, container_name, children) =
+        if let Some(location) = value.get("location") {
+            let range = normalized_range(
+                location
+                    .get("range")
+                    .or_else(|| location.get("targetRange"))?,
+            )?;
+            let selection = location
+                .get("targetSelectionRange")
+                .or_else(|| location.get("range"))
+                .and_then(normalized_range)
+                .unwrap_or_else(|| range.clone());
+            (
+                range,
+                selection,
+                value
+                    .get("containerName")
+                    .and_then(Value::as_str)
+                    .unwrap_or(container)
+                    .to_string(),
+                Vec::new(),
+            )
+        } else {
+            let range = normalized_range(value.get("range")?)?;
+            let selection = value
+                .get("selectionRange")
+                .and_then(normalized_range)
+                .unwrap_or_else(|| range.clone());
+            let children = value
+                .get("children")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            (range, selection, container.to_string(), children)
+        };
+    *total += 1;
+    let mut views = Vec::new();
+    for child in &children {
+        if let Some(view) = document_symbol(child, &name, total, rejected) {
+            views.push(view);
+        }
+    }
+    Some(DocumentSymbolView {
+        name,
+        kind,
+        container_name,
+        range,
+        selection_range,
+        children: views,
+    })
+}
+
+fn normalized_range(value: &Value) -> Option<Value> {
+    Some(json!({
+        "start": position(value.get("start")?)?,
+        "end": position(value.get("end")?)?,
+    }))
+}
+
+fn trim_document_symbols(
+    symbols: Vec<DocumentSymbolView>,
+    remaining: &mut usize,
+    out: &mut Vec<DocumentSymbolView>,
+) {
+    for symbol in symbols {
+        if *remaining == 0 {
+            break;
+        }
+        *remaining -= 1;
+        let mut children = Vec::new();
+        trim_document_symbols(symbol.children, remaining, &mut children);
+        out.push(DocumentSymbolView {
+            children,
+            ..symbol
+        });
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2207,6 +2506,169 @@ mod tests {
         let absent = capabilities_of(&json!({}));
         assert!(!absent.rename);
         assert!(!absent.supports("textDocument/rename"));
+    }
+
+    #[test]
+    fn workspace_symbols_parse_both_location_shapes_and_are_capped() {
+        let symbols = json!([
+            {
+                "name": "Order",
+                "kind": 5,
+                "containerName": "OrderDesk.Domain",
+                "location": {
+                    "uri": "file:///tmp/Order.cs",
+                    "range": { "start": { "line": 4, "character": 6 }, "end": { "line": 4, "character": 11 } }
+                }
+            },
+            {
+                "name": "Save",
+                "kind": 6,
+                "location": {
+                    "targetUri": "file:///tmp/Order.cs",
+                    "targetSelectionRange": { "start": { "line": 9, "character": 11 }, "end": { "line": 9, "character": 15 } },
+                    "targetRange": { "start": { "line": 9, "character": 4 }, "end": { "line": 9, "character": 15 } }
+                }
+            },
+            { "name": "Broken" }
+        ]);
+        let parsed = parse_workspace_symbols(&symbols, 500).expect("array");
+        assert_eq!(parsed.total, 2);
+        assert!(!parsed.truncated);
+        assert_eq!(parsed.items[0].name, "Order");
+        assert_eq!(parsed.items[0].kind, 5);
+        assert_eq!(parsed.items[0].container_name, "OrderDesk.Domain");
+        assert_eq!(parsed.items[1].container_name, "");
+        assert_eq!(parsed.items[1].range["start"]["line"], 9);
+
+        let capped = parse_workspace_symbols(&symbols, 1).expect("array");
+        assert_eq!(capped.items.len(), 1);
+        assert_eq!(capped.total, 2);
+        assert!(capped.truncated);
+
+        assert_eq!(
+            parse_workspace_symbols(&Value::Null, 500)
+                .expect("null")
+                .items
+                .len(),
+            0
+        );
+        assert!(parse_workspace_symbols(&json!({ "not": "an array" }), 500).is_none());
+    }
+
+    #[test]
+    fn references_parse_locations_reject_malformed_and_are_capped() {
+        let locations = json!([
+            {
+                "uri": "file:///tmp/Order.cs",
+                "range": { "start": { "line": 4, "character": 6 }, "end": { "line": 4, "character": 11 } }
+            },
+            {
+                "targetUri": "file:///tmp/Order.cs",
+                "targetSelectionRange": { "start": { "line": 9, "character": 11 }, "end": { "line": 9, "character": 15 } },
+                "targetRange": { "start": { "line": 9, "character": 4 }, "end": { "line": 9, "character": 15 } }
+            },
+            { "uri": "file:///tmp/Broken.cs" },
+            { "not": "a location" }
+        ]);
+        let parsed = parse_references(&locations, 200).expect("array");
+        assert_eq!(parsed.total, 2);
+        assert_eq!(parsed.rejected, 2);
+        assert_eq!(parsed.targets.len(), 2);
+        assert_eq!(parsed.targets[0].uri, "file:///tmp/Order.cs");
+        assert_eq!(parsed.targets[1].uri, "file:///tmp/Order.cs");
+
+        let capped = parse_references(&locations, 1).expect("array");
+        assert_eq!(capped.targets.len(), 1);
+        assert_eq!(capped.total, 2);
+        assert!(capped.total > capped.targets.len());
+
+        assert_eq!(
+            parse_references(&Value::Null, 200).expect("null").total,
+            0
+        );
+        assert!(parse_references(&json!({ "not": "an array" }), 200).is_none());
+    }
+
+    #[test]
+    fn document_symbols_parse_nested_and_flat_shapes_and_are_capped() {
+        let symbols = json!([
+            {
+                "name": "OrderTests",
+                "kind": 5,
+                "range": { "start": { "line": 2, "character": 0 }, "end": { "line": 8, "character": 1 } },
+                "selectionRange": { "start": { "line": 2, "character": 6 }, "end": { "line": 2, "character": 16 } },
+                "children": [
+                    {
+                        "name": "Saves",
+                        "kind": 6,
+                        "range": { "start": { "line": 4, "character": 4 }, "end": { "line": 6, "character": 5 } },
+                        "selectionRange": { "start": { "line": 4, "character": 11 }, "end": { "line": 4, "character": 16 } }
+                    }
+                ]
+            },
+            {
+                "name": "Program",
+                "kind": 5,
+                "containerName": "OrderDesk.Cli",
+                "location": {
+                    "uri": "file:///tmp/Program.cs",
+                    "range": { "start": { "line": 1, "character": 0 }, "end": { "line": 3, "character": 1 } }
+                }
+            },
+            { "name": "Broken" }
+        ]);
+        let parsed = parse_document_symbols(&symbols, 2_000).expect("array");
+        assert_eq!(parsed.total, 3);
+        assert_eq!(parsed.rejected, 1);
+        assert_eq!(parsed.symbols[0].name, "OrderTests");
+        assert_eq!(parsed.symbols[0].container_name, "");
+        assert_eq!(parsed.symbols[0].children[0].name, "Saves");
+        assert_eq!(parsed.symbols[0].children[0].container_name, "OrderTests");
+        assert_eq!(
+            parsed.symbols[0].children[0].selection_range["start"]["line"],
+            4
+        );
+        assert_eq!(parsed.symbols[1].container_name, "OrderDesk.Cli");
+        assert_eq!(
+            parsed.symbols[1].selection_range["start"]["character"],
+            0
+        );
+
+        let capped = parse_document_symbols(&symbols, 2).expect("array");
+        assert_eq!(capped.total, 3);
+        assert_eq!(capped.symbols.len(), 1);
+        assert_eq!(capped.symbols[0].children.len(), 1);
+
+        assert_eq!(
+            parse_document_symbols(&Value::Null, 2_000)
+                .expect("null")
+                .symbols
+                .len(),
+            0
+        );
+        assert!(parse_document_symbols(&json!({ "not": "an array" }), 2_000).is_none());
+    }
+
+    #[test]
+    fn workspace_symbol_capability_is_read_from_the_server() {
+        let advertised = capabilities_of(&json!({
+            "workspaceSymbolProvider": true,
+            "referencesProvider": true,
+            "documentSymbolProvider": true
+        }));
+        assert!(advertised.workspace_symbol);
+        assert!(advertised.supports("workspace/symbol"));
+        assert!(advertised.summary.contains(&"workspace symbols".to_string()));
+        assert!(advertised.references);
+        assert!(advertised.supports("textDocument/references"));
+        assert!(advertised.document_symbol);
+        assert!(advertised.supports("textDocument/documentSymbol"));
+
+        let absent = capabilities_of(&json!({}));
+        assert!(!absent.workspace_symbol);
+        assert!(!absent.supports("workspace/symbol"));
+        assert!(!absent.references);
+        assert!(!absent.document_symbol);
     }
 
     #[test]

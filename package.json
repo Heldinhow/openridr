@@ -1,14 +1,17 @@
 {
   "name": "openridr",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit && cargo check --workspace --all-targets",
+    "hooks": "git config core.hooksPath .githooks",
     "test:e2e": "playwright test",
     "tauri": "tauri",
-    "host:http": "cargo run -p openridr-host-http -- --port 4317"
+    "host:http": "cargo run -p openridr-host-http -- --port 4317",
+    "app:install": "sh scripts/install-app.sh"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.1",
@@ -17,6 +20,8 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.5",
     "@tauri-apps/api": "^2.5.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "codemirror": "^6.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

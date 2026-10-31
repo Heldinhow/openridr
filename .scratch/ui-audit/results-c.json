@@ -1,0 +1,1466 @@
+{
+  "results": [
+    {
+      "name": "50-git-commit",
+      "label": "Commit tool window with modified files",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "commit-path",
+            "text": "src/OrderDesk.Cli/Program.cs",
+            "w": 156,
+            "sw": 179
+          },
+          {
+            "cls": "commit-path",
+            "text": "src/OrderDesk.Core/Order.cs",
+            "w": 156,
+            "sw": 175
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "51-git-diff",
+      "label": "Inline diff inside the Commit tool window",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "commit-path",
+            "text": "src/OrderDesk.Cli/Program.cs",
+            "w": 156,
+            "sw": 179
+          },
+          {
+            "cls": "commit-path",
+            "text": "src/OrderDesk.Core/Order.cs",
+            "w": 156,
+            "sw": 175
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "52-git-committed",
+      "label": "Commit result with observed hash",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "button",
+            "text": "Dismiss notification",
+            "w": 20,
+            "h": 20
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "53-git-log",
+      "label": "Git log tool window",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "button",
+            "text": "Dismiss notification",
+            "w": 20,
+            "h": 20
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "54-git-log-files",
+      "label": "Selected commit with changed files",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "button",
+            "text": "Dismiss notification",
+            "w": 20,
+            "h": 20
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "55-branch-menu",
+      "label": "Branch popup with create/update/push",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "button",
+            "text": "Dismiss notification",
+            "w": 20,
+            "h": 20
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "56-branch-created",
+      "label": "Branch created from the current one",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "button",
+            "text": "Dismiss notification",
+            "w": 20,
+            "h": 20
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "58-git-update",
+      "label": "Update project disabled with reason",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "button",
+            "text": "Dismiss notification",
+            "w": 20,
+            "h": 20
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "59-nuget-packages",
+      "label": "NuGet installed and outdated for the test project",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "button",
+            "text": "Dismiss notification",
+            "w": 20,
+            "h": 20
+          },
+          {
+            "tag": "summary",
+            "text": "dotnet list package · ok · exit 0",
+            "w": 1254,
+            "h": 19
+          },
+          {
+            "tag": "summary",
+            "text": "dotnet list package --outdated · ok · ex",
+            "w": 1254,
+            "h": 19
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "60-nuget-no-packages",
+      "label": "NuGet for a project without package references",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "button",
+            "text": "Dismiss notification",
+            "w": 20,
+            "h": 20
+          },
+          {
+            "tag": "summary",
+            "text": "dotnet list package · ok · exit 0",
+            "w": 1254,
+            "h": 19
+          },
+          {
+            "tag": "summary",
+            "text": "dotnet list package --outdated · failed ",
+            "w": 1254,
+            "h": 19
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "61-tests-discovered",
+      "label": "Discovered tests grouped by name",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "62-tests-results",
+      "label": "Test run results with failure details",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "summary",
+            "text": "Details",
+            "w": 1228,
+            "h": 19
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "63-tests-failed",
+      "label": "Failed test details, stack and output",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "summary",
+            "text": "Details",
+            "w": 1228,
+            "h": 19
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "64-tests-rerun",
+      "label": "Rerun failed tests",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "summary",
+            "text": "Details",
+            "w": 1228,
+            "h": 19
+          }
+        ],
+        "unlabeled": []
+      }
+    },
+    {
+      "name": "65-tests-quick-list",
+      "label": "Test quick list",
+      "metrics": {
+        "viewport": {
+          "vw": 1600,
+          "vh": 1000
+        },
+        "docScrollWidth": 1600,
+        "toolbar": {
+          "w": 1600,
+          "h": 44,
+          "x": 0,
+          "y": 0
+        },
+        "rail": {
+          "w": 34,
+          "h": 932,
+          "x": 0,
+          "y": 44
+        },
+        "side": {
+          "w": 280,
+          "h": 932,
+          "x": 34,
+          "y": 44
+        },
+        "output": {
+          "w": 1282,
+          "h": 220,
+          "x": 318,
+          "y": 756
+        },
+        "status": {
+          "w": 1600,
+          "h": 24,
+          "x": 0,
+          "y": 976
+        },
+        "fonts": {
+          "body": "13px/19.5px system-ui",
+          "toolbarButton": "13px/19.5px system-ui",
+          "status": "11px/16.5px system-ui",
+          "panelTitle": "12px/18px system-ui",
+          "tab": null
+        },
+        "clipped": [
+          {
+            "cls": "",
+            "text": "Startup project",
+            "w": 1,
+            "sw": 41
+          },
+          {
+            "cls": "",
+            "text": "Configuration",
+            "w": 1,
+            "sw": 74
+          },
+          {
+            "cls": "",
+            "text": "TFM",
+            "w": 1,
+            "sw": 24
+          },
+          {
+            "cls": "",
+            "text": "Run OrderDesk.Cli",
+            "w": 92,
+            "sw": 111
+          },
+          {
+            "cls": "",
+            "text": "Evaluated · Configuration Debug · TFM not selected · revisio",
+            "w": 240,
+            "sw": 331
+          }
+        ],
+        "small": [
+          {
+            "tag": "a",
+            "text": "Samsung/netcoredbg (official GitHub rele",
+            "w": 268,
+            "h": 15
+          },
+          {
+            "tag": "summary",
+            "text": "Details",
+            "w": 1228,
+            "h": 19
+          }
+        ],
+        "unlabeled": []
+      }
+    }
+  ],
+  "failures": [
+    {
+      "label": "57 push dialog",
+      "error": "TimeoutError: click: Timeout 25000ms exceeded."
+    }
+  ],
+  "ms": 63133
+}

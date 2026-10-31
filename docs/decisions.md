@@ -210,6 +210,14 @@ A auditoria de aceitação encontrou divergências pequenas entre a SPEC/rótulo
 
 `run.start` passou a validar `restore::require_restored` antes da avaliação/build: um build bem-sucedido não autoriza lançar com assets invalidados, e Run continua sem restaurar implicitamente. O parser TRX só atribui identidade via `TestDefinitions`; resultado sem `testId`/definição fica `unattributed` (`test_id:null`, `matched:false`, FQN vazio) e nunca casa por display name. No Windows, `Registry::terminate` passou a pedir `taskkill /T` e, após a carência, `/T /F`, com fallback rotulado ao killer do child; Unix mantém TERM→SIGKILL no grupo. O caminho Windows não foi executado e permanece não verificado. Evidência: `docs/evidence/18-review-fixes.md`.
 
+## 2026-10-29 — Ticket 24: NuGet sem PackageReference e fonte independente
+
+No JSON válido do `dotnet list package`, projeto com `projects[]` presente e sem a propriedade `frameworks` representa lista vazia; `frameworks` presente com tipo inválido ou array vazio continua erro. Assim, a consulta `--outdated` não transforma a ausência em falha nem em prova falsa de pacotes atualizados. A consulta de fontes permanece independente: seu erro é apresentado como fonte desconhecida/consulta parcial em texto neutro, sem converter sucesso dos dados de pacotes em erro. A tabela usa overflow horizontal próprio, largura mínima e menos espaço vertical antes dos dados. Evidência de parser/UI é determinística; NuGet real/rede não foi executado.
+
+## 2026-10-29 — Ticket 25: metadados neutros do executável Git
+
+Settings precisa mostrar o caminho read-only resolvido pelo PATH mesmo em Restricted mode, mas a consulta de versão continua trust-gated (`git.info`). O novo `git.path` apenas procura o executável no PATH sem abrir repositório nem iniciar processo; `git.info` permanece a consulta completa protegida por trust. Settings oculta o caminho interno de settings.json e o keymap usa tabela sem rótulos redundantes.
+
 ## 2026-10-28 — MVP Rider: escopo, ordem e casca (grill F1–F9)
 
 O grill do MVP fixou a ordem **F1 casca → F2 ações/keymap → F3 busca → F4 run configs → F5 tests → F6 git → F8 settings → F9 nuget → F7 código**. F1/F2 são fundação, F3 consome o registro de ações, F4/F5/F6 dependem da barra e F7 (gutter, ⌥↩, menu de contexto, rename inline, Find Usages) é a fatia mais cara em UI, coerente com o handoff ("depois NuGet e gutter icons/Alt+Enter"). Consequência: F4/F5 entregam Run/Debug/Test pela tool window e pelo widget; os ícones de gutter de run/teste ficam todos na F7, junto do gutter de breakpoint existente. Registro completo em `~/.opencode/plan/openridr-ui/GRILL-MVP.md`; spec em [SPEC-MVP-RIDER](SPEC-MVP-RIDER.md).
@@ -245,3 +253,131 @@ NuGet (F9): instalados + desatualizados + update unitário com plano e confirma�
 Código (F7): gutter Run/Test, popup ⌥↩ com prévia (reusa o preview do ticket 10), menu de contexto do editor, rename inline no CodeMirror (range da palavra, Enter aplica com revalidação, Esc cancela) e `lsp.references` (⇧F12) somente leitura. **Refactor This fica fora do MVP** (S1); o menu aponta para Rename.
 
 Plataforma e ritual: Windows não executado nesta fase (release continua bloqueado, `docs/release-decision.md`); 1 commit por fatia, spec Playwright da fatia + suíte inteira verde, `/code-review` no fim. Nenhuma dependência nova (sem Zustand, cmdk, simple-git, lucide).
+
+## 2026-10-28 — F1: recentes só de sessão, faixas no rail e slot esquerdo
+
+O popup do projeto lista as soluções abertas nesta sessão; nenhum caminho recente é gravado, porque a F1 persiste apenas layout e a decisão anterior proíbe estado de domínio no webview. Abrir outra solução pelo popup exige zero buffers sujos e a WorkspaceView remonta por `workspace.id`, então abas do workspace anterior não sobrevivem. O slot esquerdo é o Solution Explorer; o inferior, Build/Problems/Debug/Terminal/Tests. As duas faixas dividem um rail fixo de 34 px à esquerda para continuarem clicáveis com a tool window oculta; clicar no ícone ativo alterna a visibilidade e ⇧Esc oculta a última ativa (exceto em input/textarea/contenteditable).
+
+## 2026-10-28 — F2: registro único de ações, keymap e settings
+
+A F2 passou barra, faixas, menu ••• e Find Action (⇧⌘A) a ler o mesmo registro (`src/actions/registry.ts`); ações de fatias futuras já estão registradas, mas desabilitadas com motivo (F3/F4/F5/F6/F7/F8). Atalhos são tecla+modificadores (`primary` = ⌘ no macOS, Ctrl fora dele), com perfis Rider (padrão) e IntelliJ; o remap do usuário em `settings.json` vence o perfil e o padrão e pode ser resetado pelo modal Keymap, que a F8 embute em Settings. Colisão é aviso no registro (paleta e Keymap), nunca erro: as duas ações continuam listáveis/remapeáveis e a primeira registrada vence no teclado. Ações indisponíveis continuam desabilitadas na paleta/menus com o motivo textual; quando alcançadas por um atalho existente, reportam o mesmo motivo em vez de sumir. Para não perder a memória muscular já testada, ⌃R e Ctrl+D permanecem como atalhos secundários de Run/Debug no macOS, ao lado de ⌃F5/⌥F5.
+
+O CodeMirror continua primeiro: o handler global roda em bubble e ignora `defaultPrevented`, `input`/`textarea`/`select` e contenteditable fora do editor; só ações com `editor:true` podem rodar com foco no editor, e Tab passa a indentar via `indentWithTab` para cumprir o recorte. `settings.read`/`settings.write` gravam `settings.json` no app home (respeita `OPENRIDR_HOME`) com tmp+rename, validam objeto e o bloco `keymap` antes de substituir o arquivo e não exigem trust: nenhum processo ou arquivo do repositório é tocado. Evidência: `tests/e2e/actions.spec.ts` e `crates/host/src/settings.rs`.
+
+## 2026-10-28 — MVP Rider: debug de teste desabilitado com motivo
+
+`dotnet test` não expõe um fluxo de debug reutilizável pelos métodos atuais: `debug.start` lança o assembly do projeto, não um teste, e debugging de teste é P1 em `docs/README.md`. A tool window Tests e a quick list mostram "Debug selected" desabilitado com o motivo, em vez de mapear para `debug.start` e prometer algo que não é. Run, rerun failed e stop continuam reais. Consequência: a F5 não entrega debug de teste e o AC correspondente foi corrigido no ticket.
+
+## 2026-10-29 — Ticket 21: indisponibilidade visual e confirmação após o plano
+
+Controles `:disabled` de ação mantêm semântica nativa, mas recebem cores neutras e cursor de bloqueio; inputs/selects desabilitados usam o mesmo tratamento. Nos planos de csharp-ls e netcoredbg, o disclosure abre ao gerar o plano e o botão de confirmação fica depois dos campos materiais dentro dele, então não existe confirmação isolada antes da revisão. A faixa Workspace tools sobe de 24 para 30 vh conforme a decisão do ticket 05 e mantém rolagem própria/scrollbar identificável. Nenhum gate de host foi alterado.
+
+## 2026-10-29 — Aproximação visual ao Rider escuro
+
+A paleta passa a seguir o Rider (fundo `#191a1c`, chrome `#26282c`, seleção `#30426e`, acento `#548af7`; medidos em `docs/evidence/rider-reference`). Header: Back/Forward inertes, projeto com badge, branch, Build/Run/Debug/Stop só com ícone (nomes acessíveis via `aria-label`), run config, ⋮, Search e Settings. O painel inferior continua aberto por padrão e a geometria fixa de `ui-layout.spec.ts` (árvore 280, header 44, status 24, bottom 220) não mudou. Não imitamos o que não tem funcionalidade (rail direito, Monitoring, AI, Database). Comparações lado a lado em `docs/evidence/rider-compare/`.
+
+## 2026-10-29 — Tela inicial no formato do Welcome do Rider
+
+A tela sem workspace vira sidebar (logo, Projects, Toolchain) + painel com campo de caminho, botão Open e lista de recentes; Toolchain continua na mesma página rolável para manter os `data-testid` e specs. Só entra o que existe: sem New Solution, Clone, Attach to Process nem Remote Development; sem seletor nativo (exigiria plugin de dialog do Tauri, dependência nova). Os recentes (até 6) passam a persistir em `localStorage` (`openridr.recent`), o que substitui o "só nesta sessão" anterior; no app Tauri e no navegador de dev o storage é separado. Evidência: `ui-layout.spec.ts` e `workspace.spec.ts` (20 passam), screenshot do welcome.
+
+## 2026-10-29 — Open abre o seletor nativo (macOS)
+
+O botão Open da tela inicial chama o método do host `workspace.pick`, que roda `osascript` (`choose file`, tipos sln/slnx/csproj) e devolve `{ path }` ou `{ path: null }` ao cancelar; o caminho segue o fluxo normal de `workspace.open` (Restricted). Escolhido no lugar de `tauri-plugin-dialog` para não adicionar dependência; só macOS (outros SO devolvem `unsupported`) e não escolhe pasta. O campo de caminho continua, com o botão "Open path" (e2e e Enter). Não verificado: cancelamento e escolha reais no seletor.
+
+## 2026-10-29 — Histórico de projetos no host (substitui o localStorage)
+
+O host grava cada `workspace.open` bem-sucedido em `recent.json` no app home (respeita `OPENRIDR_HOME`), mais recente primeiro, sem duplicatas, até 30 caminhos; `recent.list` devolve só os que ainda existem e não exige trust. A UI busca a lista ao montar e a cada troca de workspace. Isso substitui a chave `openridr.recent` do `localStorage` (histórico anterior nela não é migrado) e passa a ser compartilhado entre o app Tauri e a ponte de dev. Projetos abertos antes desta mudança não estão no histórico.
+
+## 2026-10-29 — Welcome só com Open no app
+
+No app Tauri a tela inicial tem apenas o botão Open (seletor nativo) e os recentes; o campo de caminho e "Open path" só aparecem fora do Tauri (navegador de dev/E2E), porque os specs Playwright não conseguem dirigir o seletor nativo e dependem de `workspace-path-input`/`workspace-open`.
+
+## 2026-10-29 — Open e recentes entram direto no workspace
+
+Escolher no seletor ou clicar num recente abre o workspace e entra no IDE em Restricted mode, sem a etapa "Review workspace trust" da tela inicial (que ficava abaixo da lista e parecia que nada abriu). O trust continua no menu da toolbar. O formulário de caminho (navegador/E2E) mantém a revisão.
+
+## Debug em um clique (2026-10-29)
+
+- **Substitui** "Debug never builds or restores implicitly" (ticket 14) apenas para o clique na toolbar: o atalho/ação `debug.start` segue estrito e bloqueado pelos gates. O confirm da flag é por sessão (não persiste) e deve listar flag, restore e build.
+
+- Clicar em Debug bloqueado executa `prepareAndDebug` (WorkspaceView): confirm da flag experimental Apple Silicon → `debug.flag` → plan/install (reusa o executável verificado) → restore → evaluation → build Debug → `debug.start`. Cada gate do host continua valendo; nada é feito sem o confirm. O botão usa `aria-disabled` (clicável) em vez de `disabled`.
+- Solution Explorer/abas: badge `C#` (`FileIcon`), chevrons, contagem de projetos. Também: barra de ícones no cabeçalho (locate/expand/collapse), nó Dependencies e resumo de inspeções (✕/⚠ do arquivo ativo). Controles de avaliação continuam visíveis e compactos (testes clicam `eval-run`/"Project details"; o menu ⋮ foi adiado por isso). O run no gutter já existia. Faltam inlay hints, usages e Scratches; sem comparação lado a lado com o Rider.
+
+## 2026-10-29 — Aproximação visual: largura inferior e processos
+
+A área inferior aberta passa a ocupar a largura sob Solution e editor; a árvore mantém sua largura e o painel conserva os controles de tamanho. Isso substitui a geometria da decisão de aproximação visual anterior, preservando os slots, `role="tab"` e o layout salvo. Um layout sem preferência salva continua com o painel inferior fechado, conforme a implementação já existente nesta continuação; abrir ou fechar é persistido.
+
+As referências e pacotes de projetos avaliados ficam dentro de um disclosure “Dependencies”, inicialmente recolhido e operável pelo teclado. A lista de processos é recolhível para não deslocar o editor permanentemente; decisões pendentes a abrem, continuam identificadas no resumo e permanecem acessíveis. O host e as garantias de trust, restore e término não mudam.
+
+## 2026-10-29 — Fontes NuGet no SDK 8
+
+`dotnet nuget list source` aceita `short` e `detailed`, não JSON. O host usa `--format short`, interpreta apenas linhas `E <localização>` e `D <localização>`, omite fontes desabilitadas e falha de forma explícita em saída desconhecida. O formato curto não inclui nome amigável: a localização é exibida como identificação, sem inventar um nome. A interface descreve essas fontes como configuradas e habilitadas, e informa que a origem específica de cada pacote não é reportada; não apresenta a lista como prova da fonte de um pacote. SDK 8.0.408 observado com saída em inglês e português; `global.json` permanece inalterado.
+
+## 2026-10-29 — Run em um clique e consentimento do debugger dentro do app
+
+- **Substitui** "Run never builds or restores implicitly" apenas para o clique na toolbar (como já era para Debug): com Run bloqueado e o workspace em Trusted, `prepareAndRun` restaura (se preciso), avalia, builda e roda. O atalho/ação `run.start` segue estrito. `prepareBuild` é compartilhado com `prepareAndDebug`, que agora também usa a run config ativa (config, TFM, args, env).
+- O consentimento da flag experimental do netcoredbg deixou de usar `window.confirm`: o WKWebView do Tauri não o exibe e devolve `false`, então o clique em Debug no app desktop não fazia nada. Agora é o diálogo `debug-consent-dialog` ("Enable and debug"). Provado no navegador; o fluxo no app desktop precisa ser reconferido após rebuild do `.app`.
+
+## 2026-10-30 — Breakpoints guardam condição; hit count e log message ficam fora
+
+- O breakpoint por fonte passa a guardar `condition` além de linha, verified e message (`BreakpointView.condition`). `Launch.breakpoints` carrega as views, então a condição sobrevive ao restart. Mute all é um flag do host (`breakpointsMuted`): ligado, cada fonte é enviada com lista vazia; desligado, a lista volta. Mute também sobrevive ao próximo launch.
+- Condição é gravada sem sessão e reenviada no `setBreakpoints` quando a sessão está viva. Se o adaptador anunciou `supportsConditionalBreakpoints: false`, o host recusa com `unsupported` e a UI desabilita o editor com o motivo. Antes de qualquer sessão a capability é desconhecida e o editor fica habilitado.
+- **Hit count e log message não entram.** O netcoredbg 3.2.0-1092 não anuncia `supportsHitConditionalBreakpoints` nem `supportsLogPoints` (capabilities medidas no `initialize`, ticket 01). A UI mostra essa limitação em texto, em vez de um campo que falharia. Reabrir quando um adaptador que anuncie os dois for verificado.
+- Remover pela lista reenvia a fonte sem a linha. Editar condição e mute all não mudam o formato de `debug.setBreakpoints`, que continua recebendo linhas.
+
+## 2026-10-30 — Exceções: só não tratadas por padrão; Run to Cursor é breakpoint temporário
+
+- Exception filter é `user-unhandled` por padrão. A caixa "Break on thrown exceptions" troca para `all` (filtro que o netcoredbg anuncia em `exceptionBreakpointFilters`). A escolha vive no estado do host como os breakpoints e sobrevive ao próximo launch. Se o adaptador anunciar filtros sem `all`, a caixa fica desabilitada com o motivo.
+- Run to Cursor não cria breakpoint persistente: `debug.runToCursor` guarda uma linha temporária no estado, enviada com a fonte e retirada na próxima retomada (`continue`/step). A linha nunca entra em `Data.breakpoints`, então não aparece na lista.
+- Não usa `goto`, porque netcoredbg 3.2.0-1092 não anuncia `supportsGotoTargetsRequest`.
+
+## 2026-10-30 — Restore e avaliação rodam sozinhos depois do Trust (Fase 1)
+
+- **Substitui** "nada roda sem pedido explícito" para restore e avaliação. Um workspace Trusted com SDK do projeto resolvido restaura uma vez por contexto ao abrir; ao terminar com sucesso, avalia de novo. Mudança de arquivo de projeto em disco (detectada pelo poll de estado) reavalia; não restaura. Em Restricted nada executa.
+- Cancelamento e nova tentativa ficam na status bar (`status-restore-cancel`, `status-restore-retry`). Revogar o Trust interrompe restore e avaliação (host, já existente).
+- Run e Debug por atalho/ação continuam estritos; o clique na toolbar continua preparando o que faltar.
+- Falha de restore não repete sozinha: vira estado `failed` com "Retry restore".
+
+## 2026-10-30 — Terminal: host expõe bytes crus por offset (`terminal.read`)
+
+- `terminal.read {since}` devolve `{revision, chunk: {from, end, truncated, bytes}}` com os bytes do PTY exatamente como escritos (sem `strip_ansi`, sem corte de 4.000 linhas). Buffer de 1 MiB; o que cai antes do offset vem com `truncated: true`. Offsets valem por `revision`. Leitura é somente-leitura, como `terminal.state`.
+- `bytes` vai como array JSON de inteiros (sem dependência nova). Upgrade para base64 se a vazão incomodar.
+
+## 2026-10-30 — Terminal interativo com xterm.js (dependência aprovada)
+
+- **Dependência nova aprovada pelo mantenedor:** `@xterm/xterm` e `@xterm/addon-fit` (emulador de terminal no navegador/WKWebView, sem canvas addon). Candidata registrada em `research/03`; nenhuma outra biblioteca de terminal entra.
+- O terminal abre sozinho com prompt quando o workspace está Trusted e o shell ainda não existe (uma vez por contexto). Restricted não inicia shell.
+- A tela renderiza os bytes crus de `terminal.read` (fatia 06). Digitação vai direto ao PTY (`terminal.write`, em fila, ordem preservada). Resize do painel vai para `terminal.resize`.
+- **Testids:** `terminal-output` passa a ser o elemento do xterm (mesmo id, mesmo papel de saída). `terminal-input`/`terminal-send` ficam como **espelho de acessibilidade**: uma linha digitada e enviada com Enter, como antes. Nenhum testid foi renomeado ou removido.
+- **Não verificado:** latência de eco abaixo de 100 ms (o teste E2E não mede tempo); comportamento de IME e clipboard no WKWebView do app empacotado.
+
+## 2026-10-30 — App local instalável (uso pessoal)
+
+- O bundle `.app` é gerado por `bun run app:install` (`scripts/install-app.sh`) e copiado para `/Applications/OpenRidr.app`. `bundle.active` passa a `true`, com target `app`.
+- Assinatura ad-hoc, sem notarização. Ícone provisório: o PNG já existente no repositório. Procedimento e aviso do Gatekeeper em `docs/install-app.md`.
+- Atualizar = rodar o comando de novo após subir a versão. Nada é instalado em `~/Library` ou fora de `/Applications`.
+
+## 2026-10-31 — M7: previews de rename/code actions/Find Usages docados abaixo do editor
+
+- **Substitui** o overlay flutuante ancorado no cursor (`.editor-popup`, `position:absolute`). Rename preview, lista/preview de code actions e Find Usages agora são um painel docado no fluxo flex do `.editor-pane`, abaixo do editor (inicialmente `order:2`, `min-height: 100px`, `max-height: min(40%, 300px)`; **superseded**: `order` saiu no ticket 34 e o teto passou a 50% no ticket 32; rolagem interna; Apply/Cancel sticky). O texto do editor encolhe, não é coberto.
+- Removidos `editorPopupStyle()` e os `data-anchor-x/y` do `CodeEditor` (só serviam o overlay). `data-testid`, `role="dialog"`, foco no heading, Esc, guards de Apply e D12/D13 não mudaram.
+- O teste D-12 passou a afirmar a geometria nova: popup não sobrepõe `.cm-scroller` e o editor mantém ≥100 px a 1100×700. Histórico de tetos medidos a 1100×700: 45% deixou o editor com 71 px, 32% passou; o valor final é 50% desde o ticket 32 (ver abaixo).
+- **Superseded (ticket 34):** a regra de janelas baixas que ocultava o resumo `p.muted` e a linha de dicas do LSP foi removida: texto de segurança/truncamento e o `role="status"` não se escondem. Ver "ticket 34".
+- **Escopo M7 dividido.** **M7a (overlap/docking): resolvido** por esta decisão. **M7b (rename inline sobre o identificador, com range destacado e Enter aplicando; UI-AUDIT linha M7, SPEC F7 #61): continua aberto/pendente** — não implementado: exigiria reposicionar o `inline-rename` do `CodeEditor` sobre a palavra com decoração de range, mudança de fluxo (Enter hoje abre prévia, não aplica) que reabre decisões F7/D12. M7 **não** está fechado.
+- **Supersede** "popup no cursor"/"popups próximos à posição do editor" de `SPEC-MVP-RIDER.md` (⌥↩) e do ticket 22 para code actions, rename preview e Find Usages; o rename inline continua regido por F7/M7b.
+
+## 2026-10-31 — M7a residual (ticket 32): o painel inferior cede ao preview docado
+
+- Achado no `.app` real a 1100×700: com a tool window inferior (Problems) aberta, a 1ª ação/3ª linha do preview ficava cortada e o editor com ~4 linhas. O e2e do ticket 31 não pegava: o corte era por rolagem dentro do painel e o teste comparava só caixas.
+- Decisão: enquanto existe um `.editor-popup`, a linha do grid do painel inferior encolhe para `min(--output-height, 96px)` (abas continuam visíveis e clicáveis; volta ao tamanho do usuário ao fechar o preview). O preview ganha `max-height: min(50%, 300px)`. Sem overlay, sem mudança de testid/foco/Esc/guards.
+- Teste: a 1100×700 com Problems aberto, as 2 primeiras ações + Close (code actions) e a 3ª linha + Apply/Cancel (rename) ficam dentro do painel, o painel termina acima da dock e o editor fica ≥100 px. Red antes do CSS (preview terminava 17 px abaixo da dock), green depois.
+- M7b continua aberto.
+
+- **1440×900 também muda (ticket 32):** a regra `:has(.editor-popup)` vale para qualquer altura, não só 1100×700 — com qualquer preview (rename, code actions, Find Usages) aberto, a linha do painel inferior cai para ≤96 px e volta ao tamanho do usuário ao fechar.
+
+## 2026-10-31 — Ticket 34: revisão final do M7a
+
+- (A) O resumo/aviso dos popups **não é mais ocultado**; só espaçamento e tamanho cedem (`.editor-popup p` 0,72rem, margens 1 px). (B) A linha `role="status"` do editor fica visível durante o preview, em uma linha com reticências e texto completo no `title`; comentário corrigido. (C) Os popups docados vêm **depois** de `.editor-body` no DOM e perdem `order`: a ordem de Tab é a visual; nada depende de combinador `~`.
+- Testes (vermelhos sem a correção, log em `docs/evidence/logs/m7-ticket34-red.md`): resumo "Nothing has been applied" e status visíveis, popup depois do editor no DOM, a 1100×700 com Problems aberto.
+
+- **Follow-up do ticket 34:** (i) o bloco `conflict-banner` continua entre o breadcrumb e `.editor-body`; só mudou a posição *relativa aos popups*: antes os popups ficavam acima dele, agora todos os popups vêm depois do editor e o banner fica logo acima do editor (nenhuma mudança de testid/foco; o spec `workspace.spec.ts` de conflito de disco passa). (ii) Texto de `.editor-popup p` subiu para 0,75rem (12 px) com line-height 1,25 — cabe sem quebrar os asserts de 1100×700, então não há motivo para menos. (iii) `rustfmt`: o crate tem dívida de formatação anterior; só os hunks deste ticket foram formatados (linha dupla e asserts do teste).

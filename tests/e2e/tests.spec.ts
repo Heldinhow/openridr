@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,7 +8,7 @@ import { reveal } from "./disclosures";
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
 import { host } from "./environment";
-const screenshots = path.resolve(process.cwd(), "docs/evidence/screenshots");
+const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -67,15 +68,11 @@ async function waitForEvaluation(page: Page, revision = 1) {
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", {
     timeout: 20_000,
   });
-  await expect(page.getByTestId("eval-state")).toContainText(`revision ${revision}`);
+  await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(revision);
 }
 
 async function restoreAndReload(page: Page, revision = 2) {
-  await page.getByTestId("restore-action").click();
-  await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
-    timeout: 90_000,
-  });
-  await page.getByTestId("restore-reload").click();
+  await settleRestore(page);
   await waitForEvaluation(page, revision);
 }
 
@@ -128,7 +125,7 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
     await expect(page.getByTestId("tests-cwd")).toContainText(path.basename(copy));
     await expect(page.getByTestId("tests-sdk")).toContainText("8.0.408");
     await expect(page.getByTestId("tests-exit")).toHaveText("exit 0");
-    await expect(page.getByTestId("tests-discovery-id")).toContainText(/discovery:\d+:1/);
+    await expect(page.getByTestId("tests-discovery-id")).toContainText(/discovery:\d+:\d+/);
     await expect(page.getByTestId("tests-counts")).toContainText("4 tests · 0 selected");
     await expect(page.getByTestId("tests-counts")).toContainText(/discovery:\d+:1 · revision 1/);
     await expect(page.getByTestId("tests-log")).toContainText(
@@ -285,7 +282,8 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });
-    const discoveryIdText = await page.getByTestId("tests-discovery-id").innerText();
+    // The discovery identity lives in the folded details, so read its text rather than its rendered text.
+    const discoveryIdText = (await page.getByTestId("tests-discovery-id").textContent()) ?? "";
     const discoveryId = discoveryIdText.split(" ")[0];
     const discoveryRevision = discoveryIdText.match(/revision (\d+)/)?.[1];
 
@@ -315,6 +313,13 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
 
     const results = page.getByTestId("tests-run-results-list").locator("li");
     await expect(results).toHaveCount(4);
+    await expect.poll(() => results.first().evaluate((element) => {
+      const panel = element.closest(".panel-body");
+      if (!panel) return false;
+      const content = element.getBoundingClientRect();
+      const viewport = panel.getBoundingClientRect();
+      return content.top < viewport.bottom && content.bottom > viewport.top;
+    })).toBe(true);
     const failedRow = results.filter({ hasText: "Deliberate_failure_for_runner_evidence" });
     await expect(
       failedRow.locator('[data-testid^="test-result-outcome-"]'),

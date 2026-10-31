@@ -1,24 +1,24 @@
 {
   "awaitingDecision": false,
-  "cols": 184,
+  "cols": 142,
   "command": [
     "/bin/zsh"
   ],
-  "contextId": 4,
-  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance",
+  "contextId": 67,
+  "cwd": "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance",
   "exit": null,
-  "finishedAt": 1793199766827,
+  "finishedAt": 1793295979485,
   "kept": false,
-  "log": "%                                                                                helder@MacBook-Air-de-Helder-2 Order Desk acceptance % ppwd\n/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-lX3Yr9/Order Desk acceptance\n%                                                                                helder@MacBook-Air-de-Helder-2 Order Desk acceptance % eecho acceptance-$((6*7))\nacceptance-42\n%                                                                                helder@MacBook-Air-de-Helder-2 Order Desk acceptance % ssleep 30 && echo never-$((6*7))\n^C\n%                                                                                                                                                                                        helder@MacBook-Air-de-Helder-2 Order Desk acceptance % eecho prompt-back\nprompt-back\n%                                                                                                                                                                                        helder@MacBook-Air-de-Helder-2 Order Desk acceptance % SSDK=\"$HOME/Library/Application Support/OpenRidr/sdks/8.0.408\"; \"$SDK/dotnet\" --version\n8.0.408\n%                                                                                                                                                                                        helder@MacBook-Air-de-Helder-2 Order Desk acceptance %",
+  "log": "%                                                                                                                                             \r \r\rhelder@MacBook-Air-de-Helder-2 Order Desk acceptance % ppwd\r\n/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-acceptance-7WZRQq/Order Desk acceptance\n%                                                                                                                                             \r \r\rhelder@MacBook-Air-de-Helder-2 Order Desk acceptance % eecho acceptance-$((6*7))\r\nacceptance-42\n%                                                                                                                                             \r \r\rhelder@MacBook-Air-de-Helder-2 Order Desk acceptance % ssleep 30 && echo never-$((6*7))\r\n^C\n%                                                                                                                                             \r \r\rhelder@MacBook-Air-de-Helder-2 Order Desk acceptance % eecho prompt-back\r\nprompt-back\n%                                                                                                                                             \r \r\rhelder@MacBook-Air-de-Helder-2 Order Desk acceptance % SSDK=\"$HOME/Library/Application Support/OpenRidr/sdks/8.0.408\"; \"$SDK/dotnet\" --version\r\n8.0.408\n%                                                                                                                                             \r \r\rhelder@MacBook-Air-de-Helder-2 Order Desk acceptance %",
   "logTruncated": false,
-  "outputSeq": 140,
-  "processId": 11,
-  "revision": 1,
+  "outputSeq": 106,
+  "processId": 35,
+  "revision": 2,
   "rows": 5,
   "sealed": false,
   "shell": "/bin/zsh",
   "staleReason": null,
-  "startedAt": 1793199763308,
+  "startedAt": 1793295971913,
   "state": "stopped",
   "termination": {
     "exit": null,
@@ -26,5 +26,5 @@
     "observed": "exited",
     "requested": "SIGTERM then SIGKILL"
   },
-  "workspaceId": 3
+  "workspaceId": 47
 }

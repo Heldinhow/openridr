@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "parameters": {
+    "outdated": true,
+    "framework": null
+  },
+  "projects": [
+    {
+      "path": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+      "frameworks": [
+        {
+          "framework": "net8.0",
+          "topLevelPackages": [
+            { "id": "xunit", "requested": "2.9.2", "resolved": "2.9.2", "latestVersion": "2.9.4" }
+          ]
+        },
+        {
+          "framework": "netstandard2.0",
+          "topLevelPackages": [
+            { "id": "xunit", "requested": "2.9.2", "resolved": "2.9.2", "latestVersion": "2.9.4" },
+            { "id": "OnlyOutdated", "requested": "1.0.0", "resolved": "1.0.0", "latestVersion": "2.0.0" }
+          ]
+        }
+      ]
+    }
+  ]
+}

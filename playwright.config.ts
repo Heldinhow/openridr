@@ -10,7 +10,22 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: frontend,
-    channel: "chrome",
+    // The app opens with the bottom tool window closed (Rider); the specs were written against it open.
+    storageState: {
+      cookies: [],
+      origins: [{
+        origin: new URL(frontend).origin,
+        localStorage: [{
+          name: "openridr.layout.v1",
+          value: JSON.stringify({ bottom: { active: "build", size: 220, open: true } }),
+        }],
+      }],
+    },
+    // Chrome by default; set PLAYWRIGHT_CHANNEL=chromium where Chrome is not installed.
+    channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
+    launchOptions: {
+      slowMo: Number(process.env.OPENRIDR_E2E_SLOW_MO ?? 0),
+    },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -21,7 +36,8 @@ export default defineConfig({
       timeout: 300_000,
       reuseExistingServer: false,
       // Dev/test-only probe used by the process-boundary E2E. Never set in the desktop app.
-      env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome },
+      // OPENRIDR_TRUST_STORE=off: specs reopen the same fixture and expect Restricted mode each time.
+      env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome, OPENRIDR_TRUST_STORE: "off" },
     },
     {
       command: "bun run dev --config vite.e2e.config.ts",

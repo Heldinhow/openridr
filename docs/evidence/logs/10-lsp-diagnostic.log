@@ -1,30 +1,30 @@
-LSP session 10 · log level info · /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/csharp-ls/0.28/csharp-ls --solution /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order Desk actions diagnostic/OrderDesk.sln --loglevel info
-cwd /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order Desk actions diagnostic
+LSP session 10 · log level info · /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/tools/csharp-ls/0.28/csharp-ls --solution /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order Desk actions diagnostic/OrderDesk.sln --loglevel info
+cwd /private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order Desk actions diagnostic
 DOTNET_ROOT /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot
 $ /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/dotnet --list-sdks
 8.0.408 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/sdk]
 $ /var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/dotnet --list-runtimes
 Microsoft.NETCore.App 8.0.15 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/shared/Microsoft.NETCore.App]
-Microsoft.NETCore.App 10.0.0 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/shared/Microsoft.NETCore.App]
+Microsoft.NETCore.App 10.0.14 [/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/shared/Microsoft.NETCore.App]
 Composite host root reused; inputs are unchanged.
 [client] initialize id 1
-[stderr] 4:40:21.790 info: LifeCycle[0]
+[stderr] 18:50:04.557 info: LifeCycle[0]
 [stderr]       initializing, csharp-ls version 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
 [server] csharp-ls: initializing, version 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
-[stderr] 4:40:21.834 info: LifeCycle[0]
+[stderr] 18:50:04.574 info: LifeCycle[0]
 [stderr]       csharp-ls is released under MIT license and is not affiliated with Microsoft Corp.; see https://github.com/razzmatazz/csharp-language-server
 [server] csharp-ls: csharp-ls is released under MIT license and is not affiliated with Microsoft Corp.; see https://github.com/razzmatazz/csharp-language-server
-[stderr] 4:40:21.847 info: Roslyn.Solution[0]
+[stderr] 18:50:04.585 info: Roslyn.Solution[0]
 [stderr]       SDK instances found, as reported by MSBuild:
 [stderr]       - SDK=".NET Core SDK", Version=8.0.408, MSBuildPath="/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-e2e-home/hostroot/sdk/8.0.408", DiscoveryType=DotNetSdk
-[stderr] 4:40:21.847 info: Roslyn.Solution[0]
+[stderr] 18:50:04.586 info: Roslyn.Solution[0]
 [stderr]       MSBuildLocator: will register ".NET Core SDK", Version=8.0.408 as default instance
-[stderr] 4:40:21.851 info: LifeCycle[0]
-[stderr]       handleInitialize: using workspaceFolders: [{"uri":"file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order%20Desk%20actions%20diagnostic","name":"OrderDesk.sln"}]
-[client] initialize accepted · completion · definition · rename (prepare) · code actions · diagnostics (pull advertised) · semantic tokens · push diagnostics
+[stderr] 18:50:04.590 info: LifeCycle[0]
+[stderr]       handleInitialize: using workspaceFolders: [{"uri":"file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order%20Desk%20actions%20diagnostic","name":"OrderDesk.sln"}]
+[client] initialize accepted · completion · definition · rename (prepare) · code actions · workspace symbols · references · document symbols · diagnostics (pull advertised) · semantic tokens · push diagnostics
 [client] server csharp-ls 0.28.0.0
 [server] request workspace/configuration · answered [{}]
-[stderr] 4:40:21.916 info: LifeCycle[0]
+[stderr] 18:50:04.656 info: LifeCycle[0]
 [stderr]       initialize: initial csharp config: { logLevel = Some "info"
 [stderr]         applyFormattingOptions = None
 [stderr]         analyzersEnabled = None
@@ -35,8 +35,8 @@ Composite host root reused; inputs are unchanged.
 [stderr]                        debugMode = Some false }
 [stderr]         solutionPathOverride =
 [stderr]          Some
-[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order Desk actions diagnostic/OrderDesk.sln" }
-[stderr] 4:40:21.929 info: Workspace[0]
+[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order Desk actions diagnostic/OrderDesk.sln" }
+[stderr] 18:50:04.668 info: Workspace[0]
 [stderr]       didChangeConfiguration: csharp config updated: { logLevel = Some "info"
 [stderr]         applyFormattingOptions = None
 [stderr]         analyzersEnabled = None
@@ -47,22 +47,24 @@ Composite host root reused; inputs are unchanged.
 [stderr]                        debugMode = Some false }
 [stderr]         solutionPathOverride =
 [stderr]          Some
-[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order Desk actions diagnostic/OrderDesk.sln" }
-[server] csharp-ls: Loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order Desk actions diagnostic/OrderDesk.sln"...
-[stderr] 4:40:21.977 info: Roslyn.Solution[0]
+[stderr]            "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order Desk actions diagnostic/OrderDesk.sln" }
+[server] csharp-ls: Loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order Desk actions diagnostic/OrderDesk.sln"...
+[stderr] 18:50:04.714 info: Roslyn.Solution[0]
 [stderr]       Will use MSBuild props: map [(TargetFramework, net8.0)]
 [client] didOpen src/OrderDesk.Core/Order.cs version 1
-[server] csharp-ls: Finished loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order Desk actions diagnostic/OrderDesk.sln"
+[server] csharp-ls: Finished loading solution "/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order Desk actions diagnostic/OrderDesk.sln"
 [client] solution loaded; waiting for diagnostics
-[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Core/Order.cs · server version null · client revision 1
-[client] textDocument/completion id 2 answered
+[client] textDocument/documentSymbol id 2 answered
+[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Core/Order.cs · server version null · client revision 1
+[client] textDocument/completion id 3 answered
 [client] didOpen src/OrderDesk.Cli/Program.cs version 1
-[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Cli/Program.cs · server version null · client revision 1
-[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Core/Order.cs · server version null · client revision 1
+[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Cli/Program.cs · server version null · client revision 1
+[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Core/Order.cs · server version null · client revision 1
 [client] didChange src/OrderDesk.Cli/Program.cs version 2 (full text)
-[server] publishDiagnostics 1 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Cli/Program.cs · server version null · client revision 2
-[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-DDJ5WP/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Core/Order.cs · server version null · client revision 1
-[stderr] 4:40:26.566 warn: CodeAction[0]
+[client] textDocument/documentSymbol id 4 answered
+[server] publishDiagnostics 1 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Cli/Program.cs · server version null · client revision 2
+[server] publishDiagnostics 0 item(s) · file:///private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/openridr-lsp-rwotW2/Order%20Desk%20actions%20diagnostic/src/OrderDesk.Core/Order.cs · server version null · client revision 1
+[stderr] 18:50:09.472 warn: CodeAction[0]
 [stderr]       Error in asyncMaybeOnException
 [stderr]       System.AggregateException: One or more errors occurred. (Service of type 'Microsoft.CodeAnalysis.GenerateType.IGenerateTypeOptionsService' is required to accomplish the task but is not available from 'MSBuildWorkspace' workspace.)
 [stderr]        ---> System.InvalidOperationException: Service of type 'Microsoft.CodeAnalysis.GenerateType.IGenerateTypeOptionsService' is required to accomplish the task but is not available from 'MSBuildWorkspace' workspace.
@@ -71,5 +73,5 @@ Composite host root reused; inputs are unchanged.
 [stderr]          at Microsoft.CodeAnalysis.GenerateType.AbstractGenerateTypeService`6.GenerateTypeCodeActionWithOption.GetOptions(CancellationToken cancellationToken)
 [stderr]          at Microsoft.CodeAnalysis.CodeActions.CodeActionWithOptions.GetOperationsCoreAsync(Solution originalSolution, IProgress`1 progress, CancellationToken cancellationToken)
 [stderr]          --- End of inner exception stack trace ---
-[client] textDocument/codeAction id 3 answered
-[client] code actions at 4:28 · session 10 · 4 returned, 3 supported, 1 unsupported, 1 diagnostic(s) · actions-10-9-1364f480c33cbd39
+[client] textDocument/codeAction id 5 answered
+[client] code actions at 4:28 · session 10 · 4 returned, 3 supported, 1 unsupported, 1 diagnostic(s) · actions-10-9-a7d9a92600c92741
