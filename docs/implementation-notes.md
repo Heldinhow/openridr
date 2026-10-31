@@ -502,3 +502,8 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 ## D-07 — gates de Build/Run/Debug com texto afirmado (2026-10-31)
 
 `tests/e2e/execution-gates.spec.ts` importa `src/executionGates.ts` direto (sem host nem browser) e afirma a mensagem de cada gate — antes só alguns tinham assert E2E. Inclui os que não eram alcançáveis pelos seams (sealed, "another startup project", "not a Debug build", Apple Silicon, "not restored", "More than one console project", "program already running", "debug session already active"). Prova as funções puras; a fiação até a UI continua coberta pelos specs E2E existentes. Resultado: 4 passed.
+
+## D-08 e o processo de atraso do restore (2026-10-31)
+
+- D-08: `executionGates.ts` remove o ponto final da razão do host (`staleReason` é uma frase completa) antes de pôr o seu; `execution-gates.spec.ts` afirma o texto com ponto único (red: `…build again..`).
+- `zy-restore-interrupt.spec.ts` passou a afirmar, com `pgrep -f "sleep 4040"`, que o processo de atraso existe durante o restore e some após Cancel restore e após Revoke trust (o grupo de processos é encerrado): 6/6 em 3 repetições.
