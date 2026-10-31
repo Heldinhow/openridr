@@ -365,3 +365,10 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 - Janelas baixas (`max-height: 760px`): o `<p class="muted">` de resumo do painel some (repete a notice de status acima) e a linha de dicas do LSP fica oculta enquanto há painel docado, para a primeira ação/Apply/Cancel caberem a 1100×700 com editor ≥100 px (40% foi o limite que cumpriu as duas coisas; 45–50% deixaram o editor com 65–85 px).
 - **Escopo M7 dividido.** **M7a (overlap/docking): resolvido** por esta decisão. **M7b (rename inline sobre o identificador, com range destacado e Enter aplicando; UI-AUDIT linha M7, SPEC F7 #61): continua aberto/pendente** — não implementado: exigiria reposicionar o `inline-rename` do `CodeEditor` sobre a palavra com decoração de range, mudança de fluxo (Enter hoje abre prévia, não aplica) que reabre decisões F7/D12. M7 **não** está fechado.
 - **Supersede** "popup no cursor"/"popups próximos à posição do editor" de `SPEC-MVP-RIDER.md` (⌥↩) e do ticket 22 para code actions, rename preview e Find Usages; o rename inline continua regido por F7/M7b.
+
+## 2026-10-31 — M7a residual (ticket 32): o painel inferior cede ao preview docado
+
+- Achado no `.app` real a 1100×700: com a tool window inferior (Problems) aberta, a 1ª ação/3ª linha do preview ficava cortada e o editor com ~4 linhas. O e2e do ticket 31 não pegava: o corte era por rolagem dentro do painel e o teste comparava só caixas.
+- Decisão: enquanto existe um `.editor-popup`, a linha do grid do painel inferior encolhe para `min(--output-height, 96px)` (abas continuam visíveis e clicáveis; volta ao tamanho do usuário ao fechar o preview). O preview ganha `max-height: min(50%, 300px)`. Sem overlay, sem mudança de testid/foco/Esc/guards.
+- Teste: a 1100×700 com Problems aberto, as 2 primeiras ações + Close (code actions) e a 3ª linha + Apply/Cancel (rename) ficam dentro do painel, o painel termina acima da dock e o editor fica ≥100 px. Red antes do CSS (preview terminava 17 px abaixo da dock), green depois.
+- M7b continua aberto.

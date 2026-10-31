@@ -1233,9 +1233,16 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
     // M7: docked preview leaves editor text usable at the narrow supported size too.
     await page.setViewportSize({ width: 1100, height: 700 });
     // Apply/Cancel stay inside the docked panel and the editor keeps usable height.
+    await page.getByTestId("bottom-tab-problems").click();
     const narrowPreview = (await page.getByTestId("rename-preview").boundingBox())!;
-    for (const id of ["rename-apply", "rename-cancel-preview"]) {
-      const b = (await page.getByTestId(id).boundingBox())!;
+    const dock = (await page.getByTestId("bottom-tab-problems").boundingBox())!;
+    expect(narrowPreview.y + narrowPreview.height).toBeLessThanOrEqual(dock.y + 0.5);
+    for (const locator of [
+      page.getByTestId("rename-file-index").locator("li").nth(2),
+      page.getByTestId("rename-apply"),
+      page.getByTestId("rename-cancel-preview"),
+    ]) {
+      const b = (await locator.boundingBox())!;
       expect(b.y).toBeGreaterThanOrEqual(narrowPreview.y);
       expect(b.y + b.height).toBeLessThanOrEqual(narrowPreview.y + narrowPreview.height);
     }
@@ -1508,9 +1515,12 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await page.setViewportSize({ width: 1100, height: 700 });
     await expect(panel).toBeVisible();
     // The first action and Close are visible inside the docked panel; the editor keeps height.
+    // Ticket 32: with the Problems tool window open the bottom dock yields, so two actions fit.
+    await page.getByTestId("bottom-tab-problems").click();
     const narrowPanel = (await panel.boundingBox())!;
     for (const locator of [
-      panel.getByTestId("code-actions-list").getByRole("button").first(),
+      panel.getByTestId("code-actions-list").getByRole("button").nth(0),
+      panel.getByTestId("code-actions-list").getByRole("button").nth(1),
       page.getByTestId("code-actions-close"),
     ]) {
       const b = (await locator.boundingBox())!;

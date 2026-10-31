@@ -489,6 +489,8 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 @media (min-width: 1300px) {
   .workspace-view.tools-open:has(.analysis-plan[open]) { --tools-width: 640px; }
 }
+/* Ticket 32: a docked preview takes height from the bottom tool window (tabs stay visible) instead of being clipped. */
+.workspace-view:not(.bottom-closed):has(.editor-popup) { grid-template-rows: 44px auto minmax(0, 1fr) 4px minmax(0, min(var(--output-height, 220px), 96px)) 24px; }
 .workspace-view.bottom-closed { grid-template-rows: 44px auto minmax(0, 1fr) 0 0 24px; }
 .workspace-view > .toolbar { grid-column: 1 / -1; grid-row: 1; position: relative; z-index: 30; }
 .workspace-view > .workspace-notices { grid-column: 4; grid-row: 2; max-height: 30vh; }
@@ -1188,7 +1190,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   flex: 0 0 auto;
   box-sizing: border-box;
   min-height: 100px;
-  max-height: min(40%, 300px);
+  max-height: min(50%, 300px);
   overflow: auto;
   padding: 6px 12px;
   border-top: 1px solid var(--accent);
