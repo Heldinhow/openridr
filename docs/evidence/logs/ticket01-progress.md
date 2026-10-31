@@ -22,3 +22,11 @@ Estado acumulado do ticket (fatias `9a558c8` + esta): estado de restore/avaliaç
 - Depois (HEAD + este corte): `bunx playwright test restore evaluation build run run-configs workspace debugger gates trust-sdk zz-acceptance` (TERM=xterm-256color, portas livres, processo único) → **exit 0, 54 passed, 0 failed, 0 skipped** (os 51 testes da base + `trust-sdk` 3).
 - `bun run check` → exit 0. `bunx tsc --noEmit` limpo.
 - Contagem do componente: `WorkspaceView.tsx` 4740 linhas (base 5126); ocorrências de hooks no componente 113 (base) → 98; `useEvaluationFlow.ts` 10, `useExecutionFlow.ts` 7.
+
+## Marco 2b — fatia 3: store de run configs e fluxos "avaliação segue a run config" (2026-10-31)
+
+- Novo `src/useRunConfigs.ts` (47 linhas): `runConfigStore`, `runConfigsLoaded`, efeito de leitura por workspace e `commitRunConfigs`. `selectRunConfig` e `commitRunConfigDialog` (a avaliação seguindo a run config ativa) foram para `useEvaluationFlow.ts` (175 linhas), que já continha `evaluateContext`/`runEvaluation`/restore; `useEvaluationFlow` recebe `commitRunConfigs` do outro hook (sem ciclo).
+- Diff (`git diff --stat`): `WorkspaceView.tsx` 2 inserções / 71 deleções líquidas nesta fatia (arquivo `useRunConfigs.ts` novo; `useEvaluationFlow.ts` +38).
+- Comparação com a base `b8bd154`: mesmo comando do marco 3 → **exit 0, 54 passed, 0 failed, 0 skipped**; `bun run check` exit 0; `bunx tsc --noEmit` limpo.
+- Componente agora:     4672 linhas; 95 ocorrências de hooks (base 5126 / 113).
+- O que ainda mora no `WorkspaceView` relacionado ao critério: só derivações de render a partir de `snapshot.evaluation`/`snapshot.restore` (listas de projetos/TFM/configurações, gates `restoreIncomplete`, `consoleCandidates`), o estado do diálogo de run config (`runConfigOpen`/`runConfigInitialId`), `setStartupProject`/`invalidRunConfigReason`/`openConfigOnFieldError` (dependem de `activeRunConfig`, derivado) e o JSX. Fluxo de testes (`startTestDiscovery`/`startTestRun`) permanece fora do critério e não foi tocado.
