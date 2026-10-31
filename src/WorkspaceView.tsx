@@ -1774,6 +1774,37 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     });
   }
 
+  // D-12: an open rename preview or code-action list must not trap the editor. A click on the editor text, or Esc
+  // while the editor really has focus, cancels it with the same "nothing applied" path as its own Cancel/Esc.
+  // Clicks inside the popup and an Apply already revalidating are left alone.
+  useEffect(() => {
+    if (!editPreview && !actionList) return;
+    const close = () => {
+      if (editPreview) {
+        if (editPreview.applying) return;
+        cancelEditPreview();
+      } else {
+        cancelActionList();
+      }
+    };
+    const inEditorText = (target: EventTarget | null) =>
+      target instanceof Element &&
+      target.closest(".cm-editor") !== null &&
+      target.closest('[data-testid="editor-shell"]') !== null;
+    const onPointerDown = (event: PointerEvent) => {
+      if (inEditorText(event.target)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && inEditorText(document.activeElement)) close();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [editPreview, actionList]);
+
   function revalidateEditPreview(preview: EditPreview): string | null {
     const live = lspViewRef.current;
     const what = preview.kind === "rename" ? "rename" : "code action";

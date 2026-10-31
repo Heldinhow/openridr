@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { revisionOf } from "./automatic";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -959,6 +959,71 @@ async function placeCursorAtColumnZero(page: Page, line: number) {
   );
 }
 
+async function openRenamePreview(page: Page, trigger: "shortcut" | "button" = "button") {
+  await placeCursor(page, 2, 20);
+  if (trigger === "shortcut") await page.keyboard.press("Shift+F6");
+  else await page.getByTestId("rename-open").click();
+  await page.getByTestId("rename-input").fill("Purchase");
+  await page.getByTestId("rename-submit").click();
+  await expect(page.getByTestId("rename-preview")).toBeVisible({ timeout: 30_000 });
+}
+
+async function openActionList(page: Page) {
+  await placeCursor(page, 2, 20);
+  await page.keyboard.press("Alt+Enter");
+  await expect(page.getByTestId("code-actions")).toBeVisible({ timeout: 30_000 });
+}
+
+async function expectInViewport(page: Page, locator: Locator) {
+  const viewport = page.viewportSize();
+  const box = await locator.boundingBox();
+  if (!viewport || !box) throw new Error("The element has no measurable box.");
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+}
+
+/** A real point in the editor text that hit-tests to the editor, not to the open popup. */
+async function uncoveredEditorPoint(page: Page, popupTestId: string) {
+  const editorBox = await page.locator(".cm-content").boundingBox();
+  const popupBox = await page.getByTestId(popupTestId).boundingBox();
+  if (!editorBox || !popupBox) throw new Error("The editor or popup has no measurable box.");
+  // D-12 is about the popup covering the editor; this proves the geometry is real.
+  expect(
+    popupBox.x < editorBox.x + editorBox.width &&
+      popupBox.x + popupBox.width > editorBox.x &&
+      popupBox.y < editorBox.y + editorBox.height &&
+      popupBox.y + popupBox.height > editorBox.y,
+  ).toBe(true);
+  for (const xFraction of [0.92, 0.75, 0.6, 0.4, 0.2, 0.08]) {
+    for (const yFraction of [0.92, 0.75, 0.6, 0.4, 0.2, 0.08]) {
+      const point = {
+        x: editorBox.x + editorBox.width * xFraction,
+        y: editorBox.y + editorBox.height * yFraction,
+      };
+      const hit = await page.evaluate(({ x, y }) => {
+        const element = document.elementFromPoint(x, y);
+        return {
+          editor: Boolean(element?.closest('[data-testid="editor-shell"] .cm-editor')),
+          popup: Boolean(element?.closest(".editor-popup")),
+        };
+      }, point);
+      if (hit.editor && !hit.popup) return point;
+    }
+  }
+  throw new Error(`No uncovered editor text is clickable under ${popupTestId}.`);
+}
+
+async function expectEditorUnchanged(page: Page) {
+  await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+  await expect(page.getByTestId("editor")).not.toContainText("Purchase");
+  await expect(page.getByTestId("editor-revision")).toHaveText("");
+  await expect(
+    page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
+  ).toHaveCount(0);
+}
+
 async function startRenameSession(
   page: Page,
   request: APIRequestContext,
@@ -1612,6 +1677,118 @@ test("code actions forward the current diagnostic and list the real quick fix", 
     });
     await page.getByTestId("code-actions-close").click();
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+// D-12: an open rename preview / code-action list must not trap the editor. A click on uncovered editor text or Esc
+// with real editor focus dismisses it without applying; clicks inside the popup keep it usable.
+test("D-12: editor text click or Esc with editor focus dismisses rename and code-action popups", async ({
+  page,
+  request,
+}) => {
+  const { base, copy } = tempCopy("Order Desk popover close");
+  const before = sourceHashes(copy);
+  try {
+    await startRenameSession(page, request, copy);
+
+    // Rename preview: the popup overlaps the editor, but an uncovered text point remains clickable.
+    await openRenamePreview(page, "shortcut");
+    await expectInViewport(page, page.getByTestId("rename-apply"));
+    await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
+    const renamePoint = await uncoveredEditorPoint(page, "rename-preview");
+    await page.mouse.click(renamePoint.x, renamePoint.y);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expectEditorUnchanged(page);
+
+    // Rename preview: Esc with actual editor focus closes it.
+    await openRenamePreview(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    expect(
+      await page.evaluate(
+        () => document.activeElement?.closest('[data-testid="editor-shell"] .cm-editor') !== null,
+      ),
+    ).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await expectEditorUnchanged(page);
+
+    // Code actions: same two ways out.
+    await openActionList(page);
+    await expectInViewport(page, page.getByTestId("code-actions-close"));
+    const actionPoint = await uncoveredEditorPoint(page, "code-actions");
+    await page.mouse.click(actionPoint.x, actionPoint.y);
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await openActionList(page);
+    await page.getByTestId("editor").focus();
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+
+    // A click inside the popup does not close it.
+    await openActionList(page);
+    await page.getByTestId("code-actions-summary").click();
+    await expect(page.getByTestId("code-actions")).toBeVisible();
+    await page.getByTestId("code-actions-close").click();
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+
+    // The same point remains available at the supported narrow size.
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await openActionList(page);
+    await expectInViewport(page, page.getByTestId("code-actions-close"));
+    const narrowPoint = await uncoveredEditorPoint(page, "code-actions");
+    await page.mouse.click(narrowPoint.x, narrowPoint.y);
+    await expect(page.getByTestId("code-actions")).toHaveCount(0);
+    await openRenamePreview(page);
+    await expectInViewport(page, page.getByTestId("rename-apply"));
+    await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
+    const narrowRenamePoint = await uncoveredEditorPoint(page, "rename-preview");
+    await page.mouse.click(narrowRenamePoint.x, narrowRenamePoint.y);
+    await expect(page.getByTestId("rename-preview")).toHaveCount(0);
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // Every dismissal above left both the buffer and the disk untouched.
+    await expectEditorUnchanged(page);
+    expect(sourceHashes(copy)).toEqual(before);
+
+    // While Apply is revalidating, an editor click must not cancel or turn it into a no-op.
+    await openRenamePreview(page);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let delayed = false;
+    const routePattern = "**/__host/call";
+    await page.route(routePattern, async (route) => {
+      const body = route.request().postDataJSON() as { method?: string } | null;
+      if (!delayed && body?.method === "file.read") {
+        delayed = true;
+        await blocked;
+      }
+      await route.continue();
+    });
+    try {
+      await page.getByTestId("rename-apply").click();
+      await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
+      const applyingPoint = await uncoveredEditorPoint(page, "rename-preview");
+      await page.mouse.click(applyingPoint.x, applyingPoint.y);
+      await expect(page.getByTestId("rename-preview")).toBeVisible();
+      release();
+      await expect(page.getByTestId("rename-preview")).toHaveCount(0, {
+        timeout: 20_000,
+      });
+    } finally {
+      release();
+      await page.unroute(routePattern);
+    }
+    await expect(page.getByTestId("editor")).toContainText("public sealed class Purchase");
+    await expect(
+      page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
+    ).toBeVisible();
+    // Apply changed buffers only; nothing reached disk.
+    expect(sourceHashes(copy)).toEqual(before);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

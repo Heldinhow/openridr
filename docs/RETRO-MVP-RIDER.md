@@ -49,3 +49,9 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 - Revisão encontrou que Run no diálogo com buffers sujos podia executar o build após Save all, mas não iniciar a configuração selecionada. Corrigido: a configuração selecionada só é iniciada após rebuild bem-sucedido.
 - O spec focado `run-configs` passou 4/4 em Chrome headed com `slowMo=300`; `bun run check` passou. Revisão de correção: nenhum finding.
 - A suíte completa 93/93 registrada acima ocorreu antes desta mudança; não foi repetida depois dela. Portanto, a cobertura após este commit limita-se ao spec focado e ao `check`.
+
+## Continuação D-12 — prévia que não prende o editor (2026-10-31)
+
+- O diff herdado (efeito de `pointerdown`/Esc + spec) foi validado, não tratado como prova: o spec foi reforçado para hit-testing real (`elementFromPoint`), foco real (`toBeFocused`), sobreposição geométrica do popup, 1440×900 e 1100×700, buffer+disco intactos e Apply em revalidação.
+- Red sem o listener (exit 1, popup permaneceu) → green 1/1; `csharp-ls.spec.ts` focado 10/10 (teste de instalação real excluído); `bun run check` e `bun run build` exit 0. A suíte completa não foi repetida.
+- Limites: o popup continua sobrepondo o centro do editor (M7 não redimensionado); a saída é pelo texto alcançável do editor ou Esc com foco nele, não por qualquer clique fora; nativo Tauri não verificado e D-13 não alterado.
