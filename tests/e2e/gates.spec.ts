@@ -63,3 +63,23 @@ test("Build and Run name Restricted mode as the reason", async ({ page }) => {
     "Trust the workspace before running; nothing runs in Restricted mode.",
   );
 });
+
+// D-10: the Trust popover closes once Revoke completes, so it never covers the tab strip.
+test("Revoke closes the Trust popover and leaves the tabs clickable", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("workspace-path-input").fill(path.join(fixture, "OrderDesk.sln"));
+  await page.getByTestId("workspace-open").click();
+  await page.getByTestId("trust-checkbox").check();
+  await page.getByTestId("trust-grant").click();
+  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs").click();
+  await expect(page.getByTestId("editor")).toBeVisible();
+  await page.getByTestId("mode-badge").click();
+  await page.getByTestId("trust-revoke").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  await expect(page.getByTestId("trust-banner")).toBeHidden();
+  // The tab close button is reachable by a real click (nothing overlays the tab strip).
+  await page.locator(".tab.active").getByTestId("close-buffer").click({ timeout: 5_000 });
+  await expect(page.getByTestId("tab-src/OrderDesk.Core/Order.cs")).toHaveCount(0);
+});

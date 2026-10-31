@@ -780,7 +780,7 @@ public sealed class LongTests
     await expect(page.getByTestId("dirty-marker")).toBeVisible();
     const beforeRevoke = await hostState(request);
     await clickTestId(page, "trust-revoke");
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await expect(page.getByTestId("editor")).toContainText("unsaved across revoke");
     await expect(page.getByTestId("toolbar-build")).toBeDisabled();
     await expect(page.getByTestId("toolbar-run")).toBeDisabled();
@@ -801,10 +801,6 @@ public sealed class LongTests
           item.workspaceId === beforeRevoke.workspace.id && item.state === "running",
       ),
     ).toEqual([]);
-    // D-10 (docs/acceptance-matrix.md): the Trust popover stays open after Revoke and covers the tab strip.
-    // This click on the editor works around that product defect; remove it once D-10 is fixed.
-    await page.getByTestId("editor").click();
-    await expect(page.getByTestId("trust-grant-reason")).toBeHidden();
     await page.locator(".tab.active").getByTestId("close-buffer").click({ timeout: 15_000 });
     await page.getByTestId("confirm-discard").click();
     await expect(page.getByTestId(`tab-${libraryRel}`)).toHaveCount(0);

@@ -527,7 +527,7 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     // Revoke: analysis is unavailable, items keep their session as stale, editing works.
     await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await expect(page.getByTestId("problem-stale")).toContainText("Trust was revoked");
     await expect(
       page.locator('[data-testid^="problem-row-"]').first(),
@@ -649,7 +649,7 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
     await expect(page.getByTestId("lsp-state")).toContainText("Stopped", {
       timeout: 30_000,
     });
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     const stopped = await hostState(request);
     const lspProcess = stopped.processes.find(
       (process: { id: number }) => process.id === stopped.lsp.processId,
@@ -901,7 +901,7 @@ test("completion and definition use the real session and discard stale answers",
     // After revoke, the same shortcuts explain the missing trust instead of failing silently.
     await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await page.getByTestId("editor").click();
     await page.keyboard.press("Control+Space");
     await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
@@ -1246,7 +1246,7 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     });
     await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await page.getByTestId("rename-apply").click();
     await expect(page.getByTestId("rename-stale")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("rename-stale")).toContainText(
@@ -1521,7 +1521,7 @@ test("code action lists and previews are invalidated before any write", async ({
     await expect(page.getByTestId("rename-preview")).toBeVisible();
     await reveal(page.getByTestId("trust-revoke"));
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expect(page.getByTestId("editor")).not.toContainText(
       "record Order(string Id, decimal Total);",

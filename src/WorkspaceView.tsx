@@ -3737,7 +3737,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         }}>
           <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted mode" : "Restricted mode"}</summary>
           <div className="menu-content" data-testid="trust-banner">
-            <TrustControls snapshot={snapshot} onChange={onSnapshot} />
+            <TrustControls
+              snapshot={snapshot}
+              onChange={(next) => {
+                onSnapshot(next);
+                // Revoke finished: close the popover so it does not cover the tab strip.
+                if (!next.trust.granted && trustMenuRef.current) trustMenuRef.current.open = false;
+              }}
+            />
           </div>
         </details>
         <BranchWidget
