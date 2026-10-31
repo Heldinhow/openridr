@@ -5,6 +5,9 @@ import path from "node:path";
 import { revisionOf, settleRestore } from "./automatic";
 import { host } from "./environment";
 
+// Order coupling: the host is shared and its discovery/run counters are global, and tests.spec.ts asserts the first
+// ones (`discovery:N:1`, `testrun:N:1`). This spec runs a discovery and a run, so it is named `zy-` to sort after
+// tests/testsuite and before zz-acceptance (which must stay last). Do not rename it earlier in the alphabet.
 // Gutter Run/Test (D-09): a real click on the test gutter runs that one test and shows its result.
 // Needs a csharp-ls already installed in the E2E home (document symbols match the discovered tests); it never installs.
 // The Run gutter is not covered: OrderDesk.Cli uses top-level statements, so there is no `Main` symbol to mark.
