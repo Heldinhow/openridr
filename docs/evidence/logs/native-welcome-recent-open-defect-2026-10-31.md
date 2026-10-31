@@ -1,24 +1,19 @@
-# Defeito aberto: item recente do Welcome não abre o workspace no .app nativo (2026-10-31)
+# Falso positivo: item recente do Welcome "não abre" no .app nativo (2026-10-31)
 
-Status: **aberto**, não corrigido. Severidade: **a confirmar** (bloqueia a prova nativa dos itens que dependem de abrir workspace; o fluxo NSOpenPanel já foi provado em c7439ad).
+Status: **fechado como falso positivo** (não é defeito do produto). Causa: um `NSOpenPanel` modal, aberto por um clique anterior em **Open**, ficou na frente da janela e bloqueou a webview.
 
 ## Ambiente
-- Bundle testado: HEAD `7063510` (produto igual a `a6e16a6`), `OpenRidr.app` 0.2.0, copiado para `/tmp` e executado de lá. Binário SHA-256 `34a87b3811ef47df2d781e5584fd2748cc06dd748e2c5b6b98954f826d684904`.
-- Home isolado com `OPENRIDR_HOME` (confirmado em `ps eww`), contendo `recent.json` com um único item: a solução `OrderDesk.sln` em uma cópia da fixture em `/tmp`. Sem `trusted.json`.
-- Janela de 1440×900 pt, lançada via `open -n --env OPENRIDR_HOME=...`.
+- Bundle testado: HEAD `7063510` (produto igual a `a6e16a6`), `OpenRidr.app` 0.2.0, cópia em `/tmp`. Binário SHA-256 `34a87b3811ef47df2d781e5584fd2748cc06dd748e2c5b6b98954f826d684904`.
+- Home isolado com `OPENRIDR_HOME` (confirmado em `ps eww`), `recent.json` com uma única solução: a cópia `OrderDesk.sln` em `/tmp`. Sem `trusted.json`.
 
-## Repro
-1. Abrir o app com o home acima. O Welcome mostra o item `OrderDesk` com o caminho da cópia e o texto "Opens in Restricted mode".
-2. Clicar no item (CGEvent, janela frontmost). Resultado: a linha fica selecionada (azul) e o workspace não abre.
-3. Pressionar Return com a linha selecionada. Mesmo resultado.
-4. AXPress no `AXDisclosureTriangle` e no `AXButton` de nome "OrderDesk". Mesmo resultado.
+## Sintoma inicial (observado, não reproduzia o defeito)
+- Clique no item, Return e AXPress não abriam o workspace; a linha ficava selecionada.
+- `screencapture -l <winid>` mostrava o Welcome: ele captura só a janela do app e **não mostra** o painel, que pertence ao `openAndSavePanelService`.
 
-## Observações
-- Nenhuma mensagem de erro visível no Welcome após os cliques; o log do processo (`/tmp/ponto/run2.log`) só registra `sandbox_extension_issue_file_to_process ... Operation not permitted`.
-- A árvore AX, em uma leitura, passou a conter elementos de workspace (`OrderDesk.sln (current)`, editor, "Trusted mode"), enquanto os pixels da janela mostravam o Welcome. Não ficou claro se é uma camada oculta ou um estado stale.
-- Os semáforos da janela alternam entre coloridos (key) e cinza após o clique, mesmo com o processo como frontmost.
-- Não foi possível separar se o clique não chega à webview (foco) ou se `workspace.open` falha silenciosamente.
+## Causa e resolução
+- Diagnóstico com captura da **tela inteira** (só para diagnóstico, não publicada) mostrou o painel de abrir arquivo na frente. Cancel nele liberou a webview; um clique no item OrderDesk abriu o workspace (Restricted, 3 projetos).
 
-## Próximo passo para fechar
-- Reproduzir com o log do host capturado (stderr do processo) e com captura da janela logo após o clique, no mesmo estado de foco.
-- Verificar se `workspace.open` retorna erro ou fica em busy (ver `src/SetupScreen.tsx` e o handler `open(solution, true)`).
+## Lição de método (para os próximos smokes)
+- Antes de concluir "clique não funciona", capture a **tela inteira** (com crop de privacidade antes de publicar) ou liste `AXSheet`/janelas do `openAndSavePanelService`.
+- Não dispare **Open** sem necessidade: ele deixa um modal órfão que intercepta o foco.
+- Revalide frontmost e a ausência de painel modal antes de cada tecla/clique.
