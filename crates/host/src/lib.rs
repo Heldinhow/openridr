@@ -5174,28 +5174,7 @@ impl Host {
                         false,
                     ));
                 };
-                let items: Vec<Value> = list
-                    .items
-                    .iter()
-                    .filter_map(|item| {
-                        let path = lsp::uri_to_path(&item.uri)?;
-                        let canonical = fs::canonicalize(&path).ok()?;
-                        let rel = canonical
-                            .strip_prefix(&root)
-                            .ok()?
-                            .to_string_lossy()
-                            .replace('\\', "/");
-                        Some(json!({
-                            "name": item.name,
-                            "kind": item.kind,
-                            "containerName": item.container_name,
-                            "uri": item.uri,
-                            "path": rel,
-                            "range": item.range,
-                        }))
-                    })
-                    .collect();
-                let truncated = list.truncated || items.len() < list.items.len();
+                let (items, truncated) = workspace_symbol_items(&list, &root);
                 let message = truncated.then(|| {
                     format!(
                         "csharp-ls returned {} symbols; only the first {} inside the workspace are shown.",
@@ -6478,8 +6457,63 @@ fn pick_workspace() -> HostResult<Value> {
     Ok(json!({ "path": if path.is_empty() { None } else { Some(path) } }))
 }
 
+/// Keeps only symbols whose file is inside the workspace. Dropping an outside symbol is
+/// filtering, not truncation: `truncated` mirrors the cap applied while parsing the LSP answer.
+fn workspace_symbol_items(list: &lsp::WorkspaceSymbolList, root: &Path) -> (Vec<Value>, bool) {
+    let items = list
+        .items
+        .iter()
+        .filter_map(|item| {
+            let path = lsp::uri_to_path(&item.uri)?;
+            let canonical = fs::canonicalize(&path).ok()?;
+            let rel = canonical
+                .strip_prefix(root)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            Some(json!({
+                "name": item.name,
+                "kind": item.kind,
+                "containerName": item.container_name,
+                "uri": item.uri,
+                "path": rel,
+                "range": item.range,
+            }))
+        })
+        .collect();
+    (items, list.truncated)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn symbols_outside_the_workspace_are_filtered_not_truncated() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let inside_file = root.join("Program.cs");
+        let outside_file = fs::canonicalize(outside.path()).unwrap().join("Program.cs");
+        fs::write(&inside_file, "").unwrap();
+        fs::write(&outside_file, "").unwrap();
+        let item = |path: &Path| lsp::WorkspaceSymbolItem {
+            name: "Program".into(),
+            kind: 5,
+            container_name: String::new(),
+            uri: format!("file://{}", path.display()),
+            range: json!({}),
+        };
+        let list = lsp::WorkspaceSymbolList {
+            items: vec![item(&inside_file), item(&outside_file)],
+            total: 2,
+            truncated: false,
+        };
+        let (items, truncated) = workspace_symbol_items(&list, &root);
+        assert_eq!(items.len(), 1);
+        assert!(!truncated, "a filtered outside symbol is not a host truncation");
+        let capped = lsp::WorkspaceSymbolList { truncated: true, ..list };
+        assert!(workspace_symbol_items(&capped, &root).1, "real truncation is kept");
+    }
+
     use super::*;
 
     fn target(path: &Path) -> lsp::DefinitionTarget {
