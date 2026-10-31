@@ -110,16 +110,17 @@ Bundle `src-tauri/target/release/bundle/macos/OpenRidr.app` do HEAD `c7439ad` (S
 | 14 Debug | Diálogo de consentimento experimental do produto → "Enable and debug" → `Paused` no breakpoint da linha 3 com Threads, Call frames (`Program.<Main>$()  …/Program.cs:3`) e Locals (`args`, `order = null`); Resume → `Terminated` com a saída do debuggee. Adaptador existente reutilizado, nada instalado | native-13, 14, 15, 16 |
 | 5 Editor (parcial) | Abrir `Program.cs` pela árvore; breakpoint por **Cmd+F8** (ponto vermelho na linha 3). Salvar/conflito/fechar com buffer sujo: não verificado | native-12, 13 |
 | 15 / 24d Terminal | Shell `/bin/zsh` já rodando após o Trust, cwd da cópia, prompt; `echo ok` → `ok` (canvas xterm fora do AX; prova por captura) | native-17, 18 |
+| 17 Git (parcial) | Branch `fase-1-fluxo-…`, log com `0056d7f`, painel Commit com `src/OrderDesk.Core/Order.cs` Modified (checkbox marcado). Faltam: diff, commit pela UI, changed files do commit, checkout/pull/push | native-21, 22 |
 | 18 NuGet (parcial) | Aba NuGet: "No packages are referenced by this project.", fonte nuget.org | native-07 |
 | 25 App local | Todos os fluxos acima rodaram no `.app` gerado, como processo próprio | todas |
 
-Não verificado nativamente: Git, Settings/Keymap, Search Everywhere, Run configurations (diálogo), Problems, rename/code actions/find usages, testes, layout em 1100×700, fechamento com buffers sujos, Revoke de Trust. **D-13 (B/M, aprovado no fluxo web; não reverificado nativamente):** o popover de Trust permanecia aberto após **conceder** Trust e cobria parte da árvore/abas até um clique fora (mesma família do D-10, que só tratou o Revoke); a correção web está em `gates.spec.ts` e não foi reexecutada na janela Tauri.
+Não verificado nativamente: Settings/Keymap, Search Everywhere, Run configurations (diálogo), Problems, rename/code actions/find usages, testes, layout em 1100×700, fechamento com buffers sujos, Revoke de Trust. **D-13 (B/M, aprovado no fluxo web; não reverificado nativamente):** o popover de Trust permanecia aberto após **conceder** Trust e cobria parte da árvore/abas até um clique fora (mesma família do D-10, que só tratou o Revoke); a correção web está em `gates.spec.ts` e não foi reexecutada na janela Tauri.
 
 **Atualização 2026-10-31 (ponto/Trust).** A suspeita de defeito do Welcome "recent" foi **falso positivo**: um `NSOpenPanel` órfão, aberto por um Open anterior, bloqueava a webview (`docs/evidence/logs/native-welcome-recent-open-defect-2026-10-31.md`). A linha 2 (Trust) ganha sub-itens nativos (grant, D-13 pós-grant, Revoke) no .app de `7063510` (SHA-256 `34a87b38…684904`), mas segue **parcial**: o item também cobre processos remanescentes, não verificados. Continua não verificado nativamente: Git, Settings/Keymap, Search Everywhere, run configurations, Problems, rename/code actions/find usages (1440×900 e 1100×700, M7a), testes, buffers sujos/conflitos.
 
 ### Denominador explícito (33 itens da seção 3)
 
-**Contagem: 1 provado / 13 parciais / 19 não verificados (total 33).** Critério: provado só quando o escopo do item inteiro foi observado no .app; sub-itens observados contam como parcial. O número antigo "14/33" somava parciais e provados (14 rótulos distintos da 3b), por isso não era prova.
+**Contagem: 1 provado / 14 parciais / 18 não verificados (total 33).** Critério: provado só quando o escopo do item inteiro foi observado no .app; sub-itens observados contam como parcial. O número antigo "14/33" somava parciais e provados (14 rótulos distintos da 3b), por isso não era prova.
 
 | # | Item (seção 3) | Status nativo | Evidência / lacuna |
 |---|---|---|---|
@@ -139,7 +140,7 @@ Não verificado nativamente: Git, Settings/Keymap, Search Everywhere, Run config
 | 14 | Debug (breakpoint, step, frames, locals, condicionais, exceções) | parcial | breakpoint, Paused, Resume (native-13–16); step, condicionais e exceções não |
 | 15 | Terminal xterm (prompt, Ctrl+C/D, tela cheia, resize) | parcial | prompt e `echo ok` (native-17/18); Ctrl+C/D, tela cheia e resize não |
 | 16 | Testes (descoberta VSTest, run, TRX, cancelar, MTP) | não verificado | — |
-| 17 | Git (commit, diff, log, branch, checkout/pull/push) | não verificado | — |
+| 17 | Git (commit, diff, log, branch, checkout/pull/push) | parcial | Trusted no home isolado; branch `fase-1-fluxo-…` e log (`0056d7f`) visíveis após reabrir pelo Welcome; `Order.cs` Modified no painel Commit. Faltam: diff, commit pela UI, changed files do commit, checkout/pull/push | native-21, native-22 |
 | 18 | NuGet (instalados/desatualizados, sem pacotes, CPM) | parcial | aba NuGet com sem pacotes e fonte (native-07); desatualizados e CPM não |
 | 19 | Settings, Keymap, Find Action | não verificado | — |
 | 20 | Search Everywhere | não verificado | — |
