@@ -31,3 +31,4 @@
 - **O2 (limite de automação):** NSOpenPanel fora do AX e sem entrega de `keystroke` do System Events; usado CGEvent (HID). Canvas do xterm fora do AX.
 - **O3 (escopo):** o smoke rodou no bundle gerado em `src-tauri/target/…` (não na cópia instalada em `/Applications`); build e instalação foram verificados antes (notas do ticket 14). Windows/Intel não verificados.
 - NuGet (bônus): a aba mostrou "Project SDK 8.0.408 · /Users/helder/.dotnet", "No packages are referenced by this project." e fontes configuradas (`native-07-trusted.png`).
+- 06:22:55 PID 55568 encerrado por mim (SIGTERM) ao fim do smoke, com tudo registrado; 32349 e 32444 permaneceram vivos.
