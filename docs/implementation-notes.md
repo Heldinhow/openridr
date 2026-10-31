@@ -507,3 +507,5 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 
 - D-08: `executionGates.ts` remove o ponto final da razão do host (`staleReason` é uma frase completa) antes de pôr o seu; `execution-gates.spec.ts` afirma o texto com ponto único (red: `…build again..`).
 - `zy-restore-interrupt.spec.ts` passou a afirmar, com `pgrep -f "sleep 4040"`, que o processo de atraso existe durante o restore e some após Cancel restore e após Revoke trust (o grupo de processos é encerrado): 6/6 em 3 repetições.
+
+- D-07 (revisão): contagem real de ramos no código — Build 11, Run 17, Debug 20 — todos afirmados em `execution-gates.spec.ts`; borda do D-08: `staleReason` vazio agora cai em "no current build" (`||`). `zy-restore-interrupt.spec.ts`: o `pgrep -f` casa pela linha de comando (qualquer processo com `sleep 4040`), por isso o spec falha se já houver um alheio e só mata o seu (`afterEach`).
