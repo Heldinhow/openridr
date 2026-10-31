@@ -101,7 +101,7 @@ Bundle `src-tauri/target/release/bundle/macos/OpenRidr.app` do HEAD `c7439ad` (S
 | Linha | Observado na janela nativa | Capturas |
 |---|---|---|
 | 1 Welcome/abrir | Welcome com recentes e Toolchain; botão Open → NSOpenPanel nativo → pasta da cópia → workspace aberto em Restricted | native-00, 02, 03, 04 |
-| 2 Trust | Banner Restricted → popover → checkbox → "Trust and inspect project" → `Trusted mode` (só da cópia). **Revoke não exercido** | native-05, 06, 07 |
+| 2 Trust | Welcome → workspace aberto em Restricted (PID 50964, `OPENRIDR_HOME` isolado, cópia `/tmp/ponto`) → toolbar `Restricted mode` → popover → checkbox → "Trust and inspect project" → `Trusted mode`, popover **fecha sozinho** (D-13 pós-grant, native-19) e árvore vira `Evaluated · revision 2` → toolbar `Trusted mode` → popover → **Revoke trust** → `Restricted mode`, árvore volta a `Text outline · not evaluated`, shell parado com mensagem e `trusted.json` isolado `[]` (native-20). Capturas recortadas (sem prompt). | native-19, native-20 |
 | 3 / 24e SDK | Barra de status `Host SDK 10.0.100 · Project SDK 8.0.408`; aba NuGet `Project SDK 8.0.408 · /Users/helder/.dotnet` | native-07 |
 | 4 Solution Explorer | Árvore avaliada (`src/`, `tests/`, projetos console/library/test net8.0, Dependencies), `Evaluated · revision 2` | native-07 |
 | 11 Restore automático | `Restore succeeded · exit 0` sem clique em restore (drawer Workspace tools) | native-08 |
@@ -114,6 +114,8 @@ Bundle `src-tauri/target/release/bundle/macos/OpenRidr.app` do HEAD `c7439ad` (S
 | 25 App local | Todos os fluxos acima rodaram no `.app` gerado, como processo próprio | todas |
 
 Não verificado nativamente: Git, Settings/Keymap, Search Everywhere, Run configurations (diálogo), Problems, rename/code actions/find usages, testes, layout em 1100×700, fechamento com buffers sujos, Revoke de Trust. **D-13 (B/M, aprovado no fluxo web; não reverificado nativamente):** o popover de Trust permanecia aberto após **conceder** Trust e cobria parte da árvore/abas até um clique fora (mesma família do D-10, que só tratou o Revoke); a correção web está em `gates.spec.ts` e não foi reexecutada na janela Tauri.
+
+**Atualização 2026-10-31 (ponto/Trust).** A suspeita de defeito do Welcome "recent" foi **falso positivo**: um `NSOpenPanel` órfão, aberto por um Open anterior, bloqueava a webview (`docs/evidence/logs/native-welcome-recent-open-defect-2026-10-31.md`). A linha 2 (Trust, incluindo D-13 pós-grant e Revoke) passa a **provada nativamente** no .app de `7063510` (SHA-256 `34a87b38…684904`). Continua não verificado nativamente: Git, Settings/Keymap, Search Everywhere, run configurations, Problems, rename/code actions/find usages (1440×900 e 1100×700, M7a), testes, buffers sujos/conflitos.
 
 ## 4. Defeitos e limites novos desta rodada (D-01, D-02, D-03, D-04, D-05, D-09, D-10, D-11, D-12 e D-13 corrigidos; batch D12/D13 aprovado pela auditoria independente terminal — não é aceite global)
 
