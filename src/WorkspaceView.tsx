@@ -3339,8 +3339,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               snapshot={snapshot}
               onChange={(next) => {
                 onSnapshot(next);
-                // Revoke finished: close the popover so it does not cover the tab strip.
-                if (!next.trust.granted && trustMenuRef.current) trustMenuRef.current.open = false;
+                // Grant/Revoke finished successfully: close the popover and return focus to its summary.
+                if (trustMenuRef.current) {
+                  trustMenuRef.current.open = false;
+                  trustMenuRef.current.querySelector("summary")?.focus();
+                }
               }}
             />
           </div>

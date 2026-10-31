@@ -60,4 +60,10 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 
 - O guard de `applying` ficou central em `cancelEditPreview`; o Apply verifica sequência + identidade antes de qualquer mutação de sucesso/falha após os `file.read`, então uma leitura antiga não marca a prévia nova como stale nem sobrescreve o status novo.
 - Evidência red/green: stale-error red antes da correção (a leitura antiga abortada trocou `Rename preview:` por erro), guard central red no Esc durante Apply → green D12 7/7 e spec focado 16/16. Provas por saída incluem hash imediato, 1440×900 e 1100×700, e 6 cenários independentes de foco+digitação/undo; o foco é assertado antes de qualquer refocus e os 6 cenários passaram 6/6 após esse endurecimento.
-- Limite mantido: overlay/M7 não resolvido; só texto alcançável/Esc, sem acesso ao texto coberto; nativo Tauri não verificado e D-13 intocado.
+- Limite mantido: overlay/M7 não resolvido; só texto alcançável/Esc, sem acesso ao texto coberto; nativo Tauri não verificado. Auditoria independente terminal aprovou D12 no intervalo `2a054ca..7d5b62e` por leitura+logs, sem nova execução.
+
+## D13 — Trust popover fecha no sucesso (2026-10-31)
+
+- O fechamento usa o boundary de sucesso já existente no `TrustControls.onChange` do toolbar; pending e erro não chamam `onChange` e continuam visíveis. O foco volta ao summary ao fechar.
+- Red 3/3 (grant/retry deixavam o popover visível) → green 3/3; geometria/hit-testing em 1440×900 e 1100×700; D10 1/1, trust-sdk 3/3, restore-interrupt 5/5; check/build exit 0.
+- Limites: erro injetado é boundary de UI, não falha real de host/rede; nativo/Windows/Intel/full suite não verificados. Candidato a auditoria independente.
