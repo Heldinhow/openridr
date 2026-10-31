@@ -4,7 +4,7 @@ Data: 2026-10-30. Branch `fase-1-fluxo-sem-atrito`, as execuções da seção 2 
 Alvo verificado: macOS ARM64 (M2), Chrome real + host real (`bun run test:e2e`), SDK do projeto 8.0.408 em `~/.dotnet`, host 10.0.100, netcoredbg e csharp-ls reais instalados no home do E2E.
 **Windows e macOS Intel estão fora do escopo desta matriz: não verificado, sem promessa.** O histórico P0 de 28/10 (AC-01…AC-34, E01…E17, A18, L18) está preservado no **Apêndice A**, sem alteração de conteúdo.
 
-**Decisão: release NÃO aprovado.** Esta matriz não transforma ausência de prova em aprovação. Smoke nativo do app empacotado, G-LEGAL e G-PKG seguem abertos (seção 5).
+**Decisão: release NÃO aprovado.** Esta matriz não transforma ausência de prova em aprovação. O smoke nativo do app empacotado foi executado em 2026-10-31 (seção 3b); G-LEGAL e G-PKG seguem abertos (seção 5).
 
 ## 1. Como ler
 
@@ -12,7 +12,7 @@ Alvo verificado: macOS ARM64 (M2), Chrome real + host real (`bun run test:e2e`),
 |---|---|
 | Esperado | Cláusula da SPEC/MVP/ticket da Fase 1 que define o comportamento. |
 | Prova automatizada | `arquivo.spec.ts:linha` (teste nomeado) ou teste Rust. Só conta o que rodou nesta data (seção 2). |
-| Prova NATIVA | Janela Tauri real do bundle. Hoje só existe o screenshot da tela Welcome (`docs/evidence/screenshots/14-bundle-welcome.png`); todo o resto é **não verificado** até o smoke do ticket 14. |
+| Prova NATIVA | Janela Tauri real do bundle. Observada só onde a seção 3b registra (smoke nativo de 2026-10-31, PID 55568, bundle `c7439ad`, numa cópia da fixture em `/tmp`); todo o resto é **não verificado**. |
 | Defeitos/limites | Severidade A/M/B (alta/média/baixa). IDs `A1…`, `M1…`, `L1…` = `docs/UI-AUDIT.md` (28/10, **não reauditados** depois da Fase 1, salvo os fechados pelos tickets 03–13). IDs `D-xx` = achados novos desta matriz (seção 4). |
 | Status | **verificado** = prova automatizada real passou nesta data, no ambiente web (Chrome + host real); a prova nativa continua em coluna própria. **parcial** = parte da prova falhou/timeout/falta ou há defeito aberto relevante. **não verificado** = sem prova executada. **bloqueado** = depende de gate/decisão aberta. |
 
@@ -87,12 +87,33 @@ Legenda de tickets: `F1…F9` = `docs/tickets-mvp/`; `Fase1 NN` = `.scratch/fase
 | 24c | Debug de teste (Debug selected) desabilitado por decisão | `docs/decisions.md` (2026-10-28: debug de teste é P1; `debug.start` lança o assembly, não um teste) | `testsuite.spec.ts:188` the quick list dims unavailable actions with their reason | Limite de produto, não defeito | — | verificado |
 | 24d | Terminal automático com prompt (decisão xterm.js; Fase1 07 separado do 06) | `docs/decisions.md` 2026-10-30 (xterm.js aprovado); Fase1 06 = host em bytes, Fase1 07 = terminal interativo | `terminal.spec.ts:74`, `:223`, `:245` (prompt sem Start, teclas, histórico, cores, tela cheia); host: testes Rust do `terminal.rs` (lib 173 passed) | Dependência `@xterm/xterm` + `@xterm/addon-fit` aprovada e registrada. `TERM`: ver D-02 (corrigido) | — | verificado* |
 | 24e | Project details e Trust→SDK no drawer de tools | AC-02, AC-08; Fase1 10 | `ui-layout.spec.ts:110` evaluated project details keep paths intact and Close with the heading; `trust-sdk.spec.ts:71` trust resolves the project SDK…; `:175` missing project SDK is distinct… | M10 coberto pelo spec de layout; M1 (drawer mistura restore, debug adapter, installer e LSP) não reauditado | M1 sem dono | verificado* |
-| 25 | App local `.app` (gerar, instalar, atualizar) | Fase1 14; `docs/install-app.md` | Build do bundle: `bun run tauri build --bundles app` exit 0 (2026-10-30, 15 MiB, ad-hoc). Abriu como processo próprio (screenshot 14) | **Nativo: Run, Debug e terminal no app empacotado NÃO verificados** (D-06). Sem assinatura/notarização por desenho. `app:install` não foi rodado nesta rodada | Fase1 14; Mapa 13 | parcial |
+| 25 | App local `.app` (gerar, instalar, atualizar) | Fase1 14; `docs/install-app.md` | Build do bundle: `bun run tauri build --bundles app` exit 0 (2026-10-30, 15 MiB, ad-hoc). Abriu como processo próprio; **smoke nativo 2026-10-31** (seção 3b): abrir → Trust → restore/avaliação automáticos → Run exit 0 → Debug até o breakpoint → terminal `echo ok` | Prova nativa em `docs/evidence/logs/native-smoke-2026-10-31.md` e `native-*.png`; instalação em `/Applications` verificada na rodada anterior, não repetida; o smoke rodou no bundle de `src-tauri/target`. Sem assinatura/notarização por desenho. `app:install` não foi rodado nesta rodada | Fase1 14; Mapa 13 | verificado* |
 | 26 | Jornada P0 de aceitação (restricted→trust→SDKs→restore→LSP→build→run→testes→PTY→DAP) | Apêndice A, AC-01…AC-34 | `zz-acceptance.spec.ts` UI audit passed; jornada P0 passou após `702761b` (2/2, 2026-10-30, `TERM=xterm-256color`): restricted→trust→SDKs→restore→LSP→build→run→testes→PTY→DAP real. A jornada precisou de 3 ajustes ao layout da Fase 1 (drawer de tools fechado, terminal abre sozinho, popover de Trust cobre a aba após Revoke) | D-10 corrigido em `3bbc30e` (workaround removido; jornada 2/2). `dotnet --version` no terminal só prova que o pin 8.0.408 é satisfeito por alguma raiz detectada, não que o host usou o SDK resolvido | — | verificado* |
 | 27 | Fronteiras do host (Rust) | decisions.md; testes de fronteira | `cargo test --workspace --no-fail-fast` (28/10→30/10): lib 173 (+1 do D-02), debugger 9, test_discovery 9, test_run 5 passed; `host.rs` 60 passed / 0 failed após `e9d3804` | — | — | verificado |
 | 28 | Gates de release (G-LEGAL, G-PKG, G-NATIVE) | `docs/release-decision.md` | Nenhuma prova possível por spec | Sem ticket de código; decisão do Helder (Mapa 10) | Mapa 10 | bloqueado |
 
-Contagem (33 linhas, 1–28 mais 24a–24e): **verificado/verificado\* 31**, **parcial 1** (25 app local), **não verificado 0**, **bloqueado 1** (28). Prova NATIVA: 0 de 33 verificadas (só o screenshot do Welcome). Gutter Run (Main): não verificado.
+Contagem (33 linhas, 1–28 mais 24a–24e): **verificado/verificado\* 32**, **parcial 0**, **não verificado 0**, **bloqueado 1** (28). Prova NATIVA observada em 2026-10-31: 14 das 33 linhas, parcial ou totalmente (seção 3b); as demais, não verificado. Gutter Run (Main): não verificado.
+
+## 3b. Prova NATIVA observada (smoke de 2026-10-31)
+
+Bundle `src-tauri/target/release/bundle/macos/OpenRidr.app` do HEAD `c7439ad` (SHA-256 do binário `ecf0c103…dc1de`), PID 55568, janela do próprio processo capturada com `screencapture -l`; ações por System Events (AX) e, onde o AX não alcança (NSOpenPanel, canvas do xterm), eventos HID. **Numa cópia da fixture em `/tmp/openridr-smoke-20261031/OrderDesk`** (o netcoredbg do usuário usava a fixture do repositório). Log com ações/AX/horários: `docs/evidence/logs/native-smoke-2026-10-31.md`; capturas: `docs/evidence/screenshots/native-*.png`. Windows/Intel não verificados.
+
+| Linha | Observado na janela nativa | Capturas |
+|---|---|---|
+| 1 Welcome/abrir | Welcome com recentes e Toolchain; botão Open → NSOpenPanel nativo → pasta da cópia → workspace aberto em Restricted | native-00, 01, 02, 03, 04 |
+| 2 Trust | Banner Restricted → popover → checkbox → "Trust and inspect project" → `Trusted mode` (só da cópia). **Revoke não exercido** | native-05, 06, 07 |
+| 3 / 24e SDK | Barra de status `Host SDK 10.0.100 · Project SDK 8.0.408`; aba NuGet `Project SDK 8.0.408 · /Users/helder/.dotnet` | native-07 |
+| 4 Solution Explorer | Árvore avaliada (`src/`, `tests/`, projetos console/library/test net8.0, Dependencies), `Evaluated · revision 2` | native-07 |
+| 11 Restore automático | `Restore succeeded · exit 0` sem clique em restore (drawer Workspace tools) | native-08 |
+| 12 Build | Build acionado pelo clique em Run: `Build succeeded · exit 0`, saída em `/private/tmp/openridr-smoke-…/bin/Debug/net8.0` | native-10 |
+| 13 Run | Janela Run: `Run exited · exit 0`, `Order A-104: R$ 42,00`, `Process finished with exit code 0.` | native-09, 10, 11 |
+| 14 Debug | Diálogo de consentimento experimental do produto → "Enable and debug" → `Paused` no breakpoint da linha 3 com Threads, Call frames (`Program.<Main>$()  …/Program.cs:3`) e Locals (`args`, `order = null`); Resume → `Terminated` com a saída do debuggee. Adaptador existente reutilizado, nada instalado | native-13, 14, 15, 16 |
+| 5 Editor (parcial) | Abrir `Program.cs` pela árvore; breakpoint por **Cmd+F8** (ponto vermelho na linha 3). Salvar/conflito/fechar com buffer sujo: não verificado | native-12, 13 |
+| 15 / 24d Terminal | Shell `/bin/zsh` já rodando após o Trust, cwd da cópia, prompt; `echo ok` → `ok` (canvas xterm fora do AX; prova por captura) | native-17, 18 |
+| 18 NuGet (parcial) | Aba NuGet: "No packages are referenced by this project.", fonte nuget.org | native-07 |
+| 25 App local | Todos os fluxos acima rodaram no `.app` gerado, como processo próprio | todas |
+
+Não verificado nativamente: Git, Settings/Keymap, Search Everywhere, Run configurations (diálogo), Problems, rename/code actions/find usages, testes, layout em 1100×700, fechamento com buffers sujos, Revoke de Trust. **O1 (baixa):** o popover de Trust permanece aberto após **conceder** Trust e cobre parte da árvore/abas até um clique fora (mesma família do D-10, que só tratou o Revoke).
 
 ## 4. Defeitos e limites novos desta rodada (D-01, D-02, D-03, D-04, D-05, D-09, D-10 e D-11 corrigidos depois; D-06, D-07, D-08 e D-12 seguem abertos)
 
@@ -104,7 +125,7 @@ Contagem (33 linhas, 1–28 mais 24a–24e): **verificado/verificado\* 31**, **p
 | D-04 | M | **Specs corrigidos** em `7eb1cb2` (foco por teclado sob o popover; csharp-ls 10/10, exit 0). A causa não foi só drift de spec: o popover de rename/code actions **cobre o centro do editor**, então um usuário real também não consegue clicar no editor com a prévia aberta (ligado a M7 do UI-AUDIT). | `docs/evidence/logs/matrix-2026-10-30-summary.md` (resumo versionado; logs completos em `/tmp/t01/m`, não versionados). Issues 12 e 14 do roadmap: `/Users/helder/Projetos/openridr/.scratch/roadmap/issues/` (não rastreados) | Ver D-12 |
 | D-12 | B/M | **Aberto (UX):** com a prévia de rename ou a lista de code actions aberta, o popover cobre o centro do editor e o clique no editor não chega ao texto. Hoje só Esc/botões fecham. Sem correção de produto nesta rodada. | `csharp-ls.spec.ts:1145`, `:1427` (diagnóstico do issue 12) | Ticket proposto: a prévia não cobrir o editor (painel lateral/inferior) ou fechar ao clicar fora; escolher severidade B ou M conforme decisão de UX |
 | D-05 | M | **Corrigido** em `1bc3d02`. Find Usages real não tem prova automatizada; só o gate "sem análise" (`code.spec.ts:81`). | grep de `tests/e2e` | Spec real de `lsp.references` com navegação |
-| D-06 | A | Nenhuma prova NATIVA de Run/Debug/terminal no app empacotado; a automação da janela Tauri exige permissão de Automação do macOS (e o WKWebView não expõe os controles na árvore de acessibilidade). | Fase1 14; screenshot 14 só do Welcome | Mapa 13 (smoke manual do Helder; checklist em `docs/implementation-notes.md`, "Ticket 14") |
+| D-06 | A | **Fechado** em 2026-10-31: smoke nativo executado (seção 3b; log e capturas em `docs/evidence/`). A automação precisou de Acessibilidade para o System Events (concedida pelo Helder) e de eventos HID (`CGEventPost`) para o NSOpenPanel, que não aparece no AX. | `docs/evidence/logs/native-smoke-2026-10-31.md` | — |
 | D-07 | M | Cobertura de texto ausente em gates de Build/Run/Debug: sealed, another startup project, not a Debug build, Apple Silicon dentro do gate de Debug, "Dependencies are not restored", "More than one console project", program already running, debug session already active. | `docs/implementation-notes.md`, seção "Correções da revisão independente (2026-10-30)" | Fase1 01 / Mapa 07 |
 | D-09 | M | **Fechado** em `0f00ae7`: `zy-gutter.spec.ts` prova o gutter de teste; gutter Run segue não verificado (fixture sem `Main`). | `zy-gutter.spec.ts:16` | — |
 | D-11 | M | **Corrigido** em `0f00ae7` (`codeNavigation.ts`: nome sem a lista de parâmetros e, sem `containerName`, a classe é achada pela faixa de linhas). Host, gates, Trust e testids intocados. | `zy-gutter.spec.ts`, `code.spec.ts` 3/3, `csharp-ls.spec.ts` 10/10 | — |
@@ -121,13 +142,13 @@ Contagem (33 linhas, 1–28 mais 24a–24e): **verificado/verificado\* 31**, **p
 | Dívida | M | `WorkspaceView.tsx` 5119 linhas / 113 hooks e `git.rs` | Fase1 01 (partial), Mapa 07 |
 | G-LEGAL | A | Sem `LICENSE`/`NOTICE`/`THIRD_PARTY_NOTICES`, ícone provisório (`docs/release-decision.md`) | **sem ticket de código** |
 | G-PKG | A | Sem assinatura/notarização, sem instalador público | **sem ticket de código** |
-| G-NATIVE | A | = D-06 | Mapa 13 |
+| G-NATIVE | A | Smoke macOS ARM64 feito em 2026-10-31 (seção 3b), numa cópia da fixture; fora dele: atalhos, fechamento com buffers sujos e diálogos de conflito/rename na janela nativa não verificados; Windows não verificado | Mapa 13 (parcialmente fechado) |
 | csharp-ls | B | Verificação de assinatura NuGet pulada pelo `dotnet tool install`; netcoredbg sem assinatura/notarização (Apêndice A, G3) | aceito/documentado |
 | Plataformas | — | Windows, macOS Intel, Linux: **não verificado**, sem promessa | fora de escopo |
 
 ## 6. Decisões que dependem do Helder
 
-1. Executar (ou autorizar a automação do) smoke nativo do bundle: abrir OrderDesk → Run com saída → Debug até breakpoint → terminal com prompt, com screenshots (Mapa 13 / Fase1 14).
+1. ~~Smoke nativo~~ — **feito** em 2026-10-31 (seção 3b); falta decidir se o bundle instalado em `/Applications` também precisa do smoke e se a cobertura nativa adicional (atalhos, buffers sujos, rename, Git) entra no MVP.
 2. G-LEGAL e G-PKG entram no MVP aberto ou ficam para depois? (Mapa 10; sem ticket de código hoje.)
 3. Os 22 desvios M/L do UI-AUDIT entram na estabilização do MVP ou ficam em backlog? (Mapa 10 d.)
 4. csharp-ls rename/code actions: aceitar o timeout como limite do ambiente ou investigar a causa agora (Mapa 12)?
