@@ -86,7 +86,9 @@ test("trusted but unanalyzed editor explains Find Usages and Go To Definition ga
   await page.getByTestId("trust-checkbox").check();
   await expect(page.getByTestId("trust-grant")).toBeEnabled();
   await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  // D13: a successful grant closes the trust popover, so the badge carries the trusted state.
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("mode-trusted")).not.toBeVisible();
 
   await openContextMenu(page);
   await expect(page.getByTestId("context-menu-find-usages")).toBeDisabled();
