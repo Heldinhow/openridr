@@ -257,7 +257,7 @@ Atalhos mínimos do MVP (Mac / Windows):
 ### Código
 
 - Gutter: ícone de Run no ponto de entrada do projeto de startup e ícone por teste, além do gutter de breakpoint existente. Posições vêm de `documentSymbol` do LSP; quando a posição não é determinável sem ambiguidade, o ícone não aparece (nada é inventado). Ícones são SVG próprios.
-- ⌥↩: popup no cursor com quick fixes e intenções retornadas por `codeAction` para a posição/revisão atuais, com prévia de diff e aplicação validada (mesmo fluxo do rename). Sem ação quando o LSP não retorna nada.
+- ⌥↩: popup no cursor (**superseded em 2026-10-31 por `decisions.md` “M7: previews docados”: painel docado abaixo do editor, não flutuante**) com quick fixes e intenções retornadas por `codeAction` para a posição/revisão atuais, com prévia de diff e aplicação validada (mesmo fluxo do rename). Sem ação quando o LSP não retorna nada.
 - Menu de contexto do editor: Context Actions, Find Usages, Go To Definition, Rename, Run/Debug Test, Git (commit/diff do arquivo) e Copy path. Itens indisponíveis ficam desabilitados com motivo; Refactor This não existe no MVP.
 - Rename inline: campo sobre o identificador no cursor (range de palavra), Enter aplica pelo mesmo fluxo de prévia/revalidação do rename existente, Esc cancela. A prévia não modal continua obrigatória; se houver conflito de foco, a prévia vence e o campo fecha.
 - Find Usages (⇧F12): lista somente leitura de ocorrências agrupadas por arquivo, com navegação; sem refatoração em massa.

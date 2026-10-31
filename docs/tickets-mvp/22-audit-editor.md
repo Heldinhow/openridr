@@ -8,7 +8,7 @@
 
 **Status:** completed
 
-- [x] Code actions e Find Usages abrem como popups próximos à posição do editor, com ajuste para não sair dos limites da viewport.
+- [x] Code actions e Find Usages abrem como popups próximos à posição do editor (**superseded: painel docado abaixo do editor, ver `decisions.md` “M7: previews docados” e ticket 31**), com ajuste para não sair dos limites da viewport.
 - [x] Preview de rename mantém `Apply`/`Cancel` visíveis sem rolar faixa oculta; campo inline destaca o identificador e Enter/Esc mantêm o contrato existente.
 - [x] Cancelar rename limpa a mensagem de status; mensagens não reaparecem em Debug/Find Usages sem relação.
 - [x] Em 1100×700, Rename, Code Actions e Save continuam nomeados e acessíveis (visível ou tooltip/aria-label coerente), sem encostar/cortar a borda.

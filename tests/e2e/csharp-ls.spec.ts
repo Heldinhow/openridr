@@ -1052,15 +1052,15 @@ async function expectInViewport(page: Page, locator: Locator) {
   expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
 }
 
-/** A real point in the editor text that hit-tests to the editor, not to the open popup. */
-async function uncoveredEditorPoint(page: Page, popupTestId: string) {
+/** A real point in the visible editor that hit-tests to the editor, not to the docked popup. */
+async function editorPointOutsidePopup(page: Page, popupTestId: string) {
   const editorBox = await page.locator(".cm-scroller").boundingBox();
   const popupBox = await page.getByTestId(popupTestId).boundingBox();
   if (!editorBox || !popupBox) throw new Error("The editor or popup has no measurable box.");
-  // M7: the popup is docked below the editor and must not cover its text.
+  // M7: the popup is docked below the editor and must not cover its text (sub-pixel layout only).
   expect(
-    popupBox.y >= editorBox.y + editorBox.height - 1 ||
-      popupBox.y + popupBox.height <= editorBox.y + 1,
+    popupBox.y >= editorBox.y + editorBox.height - 0.5 ||
+      popupBox.y + popupBox.height <= editorBox.y + 0.5,
   ).toBe(true);
   expect(editorBox.height).toBeGreaterThanOrEqual(100);
   for (const xFraction of [0.92, 0.75, 0.6, 0.4, 0.2, 0.08]) {
@@ -1112,7 +1112,7 @@ async function expectEditorAcceptsTyping(page: Page, focus = true) {
 }
 
 async function dismissWithEditorClick(page: Page, popupTestId: string) {
-  const point = await uncoveredEditorPoint(page, popupTestId);
+  const point = await editorPointOutsidePopup(page, popupTestId);
   await page.mouse.click(point.x, point.y);
   await expect(page.getByTestId(popupTestId)).toHaveCount(0);
 }
@@ -1191,9 +1191,8 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
       `${renameFiles.library} · 3:21`,
     );
     fs.mkdirSync(screenshots, { recursive: true });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-prompt.png"),
-      fullPage: false,
     });
     await page.getByTestId("rename-input").fill("Purchase");
     await page.getByTestId("rename-submit").click();
@@ -1228,23 +1227,28 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
         previewBox.y + previewBox.height,
       );
     }
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-preview.png"),
-      fullPage: false,
     });
     // M7: docked preview leaves editor text usable at the narrow supported size too.
     await page.setViewportSize({ width: 1100, height: 700 });
-    await page.screenshot({
+    // Apply/Cancel stay inside the docked panel and the editor keeps usable height.
+    const narrowPreview = (await page.getByTestId("rename-preview").boundingBox())!;
+    for (const id of ["rename-apply", "rename-cancel-preview"]) {
+      const b = (await page.getByTestId(id).boundingBox())!;
+      expect(b.y).toBeGreaterThanOrEqual(narrowPreview.y);
+      expect(b.y + b.height).toBeLessThanOrEqual(narrowPreview.y + narrowPreview.height);
+    }
+    expect((await page.locator(".cm-scroller").boundingBox())!.height).toBeGreaterThanOrEqual(100);
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "m7-rename-preview-1100x700.png"),
-      fullPage: false,
     });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByTestId("rename-preview").evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-preview-files.png"),
-      fullPage: false,
     });
 
     // Cancel changes no buffer and no disk byte.
@@ -1292,9 +1296,8 @@ test("rename previews real cross-project edits, cancels inert and applies to buf
         `${file} was written by Apply`,
       ).toBe(true);
     });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-applied.png"),
-      fullPage: false,
     });
 
     await page.getByTestId(`tab-${renameFiles.program}`).click();
@@ -1356,9 +1359,8 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     expect(fs.readFileSync(library).equals(before[0])).toBe(true);
     expect(fs.readFileSync(program).equals(before[1])).toBe(true);
     expect(fs.readFileSync(tests, "utf8")).toBe(external);
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "09-rename-stale.png"),
-      fullPage: false,
     });
     await page.getByTestId("rename-cancel-preview").click();
     fs.writeFileSync(tests, before[2]);
@@ -1499,16 +1501,25 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
       JSON.stringify(discovered),
     ).toBe(true);
     fs.mkdirSync(screenshots, { recursive: true });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-list.png"),
-      fullPage: false,
     });
 
     await page.setViewportSize({ width: 1100, height: 700 });
     await expect(panel).toBeVisible();
-    await page.screenshot({
+    // The first action and Close are visible inside the docked panel; the editor keeps height.
+    const narrowPanel = (await panel.boundingBox())!;
+    for (const locator of [
+      panel.getByTestId("code-actions-list").getByRole("button").first(),
+      page.getByTestId("code-actions-close"),
+    ]) {
+      const b = (await locator.boundingBox())!;
+      expect(b.y).toBeGreaterThanOrEqual(narrowPanel.y);
+      expect(b.y + b.height).toBeLessThanOrEqual(narrowPanel.y + narrowPanel.height);
+    }
+    expect((await page.locator(".cm-scroller").boundingBox())!.height).toBeGreaterThanOrEqual(100);
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "m7-code-actions-1100x700.png"),
-      fullPage: false,
     });
     await expect(page.getByTestId("rename-open")).toHaveAccessibleName(/Rename symbol/);
     await expect(page.getByTestId("code-actions-open")).toHaveAccessibleName(/Code actions/);
@@ -1540,9 +1551,8 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await expect(
       page.getByTestId(`rename-diff-${renameFiles.library}`),
     ).toContainText("record Order(string Id, decimal Total);");
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-preview.png"),
-      fullPage: false,
     });
     await page.getByTestId("rename-cancel-preview").click();
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
@@ -1560,9 +1570,8 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     await expect(page.getByTestId("code-actions-empty")).toContainText(
       "No code actions",
     );
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-empty.png"),
-      fullPage: false,
     });
     await page.getByTestId("code-actions-close").click();
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
@@ -1591,9 +1600,8 @@ test("code actions are listed from csharp-ls and preview/apply without writing d
     );
     expect(sourceHashes(copy)).toEqual(beforeDisk);
     expect(fs.readFileSync(library, "utf8")).toContain("public sealed class Order");
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-applied.png"),
-      fullPage: false,
     });
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
@@ -1666,9 +1674,8 @@ test("code action lists and previews are invalidated before any write", async ({
     await expect(page.getByTestId("editor")).not.toContainText(
       "record Order(string Id, decimal Total);",
     );
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-stale.png"),
-      fullPage: false,
     });
     await page.getByTestId("rename-cancel-preview").click();
     fs.writeFileSync(library, originalDisk);
@@ -1782,9 +1789,8 @@ test("code actions forward the current diagnostic and list the real quick fix", 
       ),
     );
     fs.mkdirSync(screenshots, { recursive: true });
-    await page.screenshot({
+    await page.locator(".editor-pane").screenshot({
       path: path.join(screenshots, "10-code-actions-diagnostic.png"),
-      fullPage: false,
     });
     await page.getByTestId("code-actions-close").click();
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
@@ -1808,7 +1814,7 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     await openRenamePreview(page, "shortcut");
     await expectInViewport(page, page.getByTestId("rename-apply"));
     await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
-    const renamePoint = await uncoveredEditorPoint(page, "rename-preview");
+    const renamePoint = await editorPointOutsidePopup(page, "rename-preview");
     await page.mouse.click(renamePoint.x, renamePoint.y);
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expect(page.getByTestId("app-log")).toContainText(
@@ -1846,7 +1852,7 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     // Code-action list: same two ways out, plus an internal click that keeps it open.
     await openActionList(page);
     await expectInViewport(page, page.getByTestId("code-actions-close"));
-    const actionPoint = await uncoveredEditorPoint(page, "code-actions");
+    const actionPoint = await editorPointOutsidePopup(page, "code-actions");
     await page.mouse.click(actionPoint.x, actionPoint.y);
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
     await expect(page.getByTestId("app-log")).toContainText("Code actions closed; nothing was applied.");
@@ -1869,7 +1875,7 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     await openCodeActionPreview(page);
     await expectInViewport(page, page.getByTestId("rename-apply"));
     await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
-    const previewPoint = await uncoveredEditorPoint(page, "rename-preview");
+    const previewPoint = await editorPointOutsidePopup(page, "rename-preview");
     await page.mouse.click(previewPoint.x, previewPoint.y);
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expect(page.getByTestId("app-log")).toContainText(
@@ -1890,7 +1896,7 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     await page.setViewportSize({ width: 1100, height: 700 });
     await openActionList(page);
     await expectInViewport(page, page.getByTestId("code-actions-close"));
-    const narrowPoint = await uncoveredEditorPoint(page, "code-actions");
+    const narrowPoint = await editorPointOutsidePopup(page, "code-actions");
     await page.mouse.click(narrowPoint.x, narrowPoint.y);
     await expect(page.getByTestId("code-actions")).toHaveCount(0);
     await expectDismissedWithoutEdits(page, copy, before);
@@ -1903,7 +1909,7 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     await openRenamePreview(page);
     await expectInViewport(page, page.getByTestId("rename-apply"));
     await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
-    const narrowRenamePoint = await uncoveredEditorPoint(page, "rename-preview");
+    const narrowRenamePoint = await editorPointOutsidePopup(page, "rename-preview");
     await page.mouse.click(narrowRenamePoint.x, narrowRenamePoint.y);
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expectDismissedWithoutEdits(page, copy, before);
@@ -1916,7 +1922,7 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     await openCodeActionPreview(page);
     await expectInViewport(page, page.getByTestId("rename-apply"));
     await expectInViewport(page, page.getByTestId("rename-cancel-preview"));
-    const narrowPreviewPoint = await uncoveredEditorPoint(page, "rename-preview");
+    const narrowPreviewPoint = await editorPointOutsidePopup(page, "rename-preview");
     await page.mouse.click(narrowPreviewPoint.x, narrowPreviewPoint.y);
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expectDismissedWithoutEdits(page, copy, before);
@@ -1993,7 +1999,7 @@ test("D-12: editor text click or Esc with editor focus dismisses rename and code
     try {
       await page.getByTestId("rename-apply").click();
       await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");
-      const applyingPoint = await uncoveredEditorPoint(page, "rename-preview");
+      const applyingPoint = await editorPointOutsidePopup(page, "rename-preview");
       await page.mouse.click(applyingPoint.x, applyingPoint.y);
       await expect(page.getByTestId("rename-preview")).toBeVisible();
       await expect(page.getByTestId("rename-apply")).toHaveText("Revalidating…");

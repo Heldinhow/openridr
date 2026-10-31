@@ -1187,9 +1187,24 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   order: 2;
   flex: 0 0 auto;
   box-sizing: border-box;
-  max-height: min(32%, 300px);
+  min-height: 100px;
+  max-height: min(40%, 300px);
   overflow: auto;
+  padding: 6px 12px;
   border-top: 1px solid var(--accent);
+}
+
+.editor-popup h2 { margin: 0 0 2px; font-size: 0.85rem; }
+.editor-popup p { margin: 2px 0; font-size: 0.75rem; }
+
+/* Short windows: the summary repeats the status notice above, so the list and Apply/Cancel get the room. */
+@media (max-height: 760px) {
+  .editor-popup > p.muted { display: none; }
+}
+
+/* The keyboard-hint line is redundant while a preview is docked; its height goes to the editor. */
+.editor-popup ~ .editor-body .editor-lsp-status {
+  display: none;
 }
 
 /* Apply and Cancel stay inside the preview box at every size; -10px pushed them past its bottom edge. */

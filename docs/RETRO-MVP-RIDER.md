@@ -54,13 +54,13 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 
 - O diff herdado (efeito de `pointerdown`/Esc + spec) foi validado, não tratado como prova: o spec foi reforçado para hit-testing real (`elementFromPoint`), foco real (`toBeFocused`), sobreposição geométrica do popup, 1440×900 e 1100×700, buffer+disco intactos e Apply em revalidação.
 - Red sem o listener (exit 1, popup permaneceu) → green 1/1; `csharp-ls.spec.ts` focado 10/10 (teste de instalação real excluído); `bun run check` e `bun run build` exit 0. A suíte completa não foi repetida.
-- Limites: o popup continua sobrepondo o centro do editor (M7 não redimensionado); a saída é pelo texto alcançável do editor ou Esc com foco nele, não por qualquer clique fora; nativo Tauri não verificado e D-13 não alterado.
+- Limites (superseded em parte pelo ticket 31: o popup agora é painel docado e não sobrepõe o editor; M7b rename inline segue aberto): na época o popup sobrepunha o centro do editor; a saída é pelo texto alcançável do editor ou Esc com foco nele, não por qualquer clique fora; nativo Tauri não verificado e D-13 não alterado.
 
 ## Auditoria final D12 — cancelamento central, stale-error e provas por saída (2026-10-31)
 
 - O guard de `applying` ficou central em `cancelEditPreview`; o Apply verifica sequência + identidade antes de qualquer mutação de sucesso/falha após os `file.read`, então uma leitura antiga não marca a prévia nova como stale nem sobrescreve o status novo.
 - Evidência red/green: stale-error red antes da correção (a leitura antiga abortada trocou `Rename preview:` por erro), guard central red no Esc durante Apply → green D12 7/7 e spec focado 16/16. Provas por saída incluem hash imediato, 1440×900 e 1100×700, e 6 cenários independentes de foco+digitação/undo; o foco é assertado antes de qualquer refocus e os 6 cenários passaram 6/6 após esse endurecimento.
-- Limite mantido: overlay/M7 não resolvido; só texto alcançável/Esc, sem acesso ao texto coberto; nativo Tauri não verificado. Auditoria independente terminal aprovou D12 no intervalo `2a054ca..7d5b62e` por leitura+logs, sem nova execução.
+- Limite mantido na época (overlay resolvido depois no ticket 31/M7a; M7b aberto): só texto alcançável/Esc, sem acesso ao texto coberto; nativo Tauri não verificado. Auditoria independente terminal aprovou D12 no intervalo `2a054ca..7d5b62e` por leitura+logs, sem nova execução.
 
 ## D13 — Trust popover fecha no sucesso (2026-10-31)
 
