@@ -655,7 +655,8 @@ public sealed class LongTests
     await expect(terminalOutput).toContainText("prompt-back");
     await expect(terminalOutput).not.toContainText("never-42");
     await waitForPrompt(request);
-    // global.json in the copy pins 8.0.408; any detected SDK root satisfies it (no managed-path assumption).
+    // global.json in the copy pins 8.0.408. This only proves the pin is satisfied by some detected SDK root,
+    // not that the host used the resolved SDK (that is covered by the host tests).
     await terminalInput.fill("dotnet --version");
     await terminalInput.press("Enter");
     await expect(terminalOutput).toContainText("8.0.408", { timeout: 60_000 });
@@ -800,7 +801,8 @@ public sealed class LongTests
           item.workspaceId === beforeRevoke.workspace.id && item.state === "running",
       ),
     ).toEqual([]);
-    // The trust popover stays open after Revoke and covers the tab strip; close it first.
+    // D-10 (docs/acceptance-matrix.md): the Trust popover stays open after Revoke and covers the tab strip.
+    // This click on the editor works around that product defect; remove it once D-10 is fixed.
     await page.getByTestId("editor").click();
     await expect(page.getByTestId("trust-grant-reason")).toBeHidden();
     await page.locator(".tab.active").getByTestId("close-buffer").click({ timeout: 15_000 });
