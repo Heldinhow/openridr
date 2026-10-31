@@ -2399,58 +2399,59 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     );
 }
 
-#[cfg(target_os = "macos")]
+/// Stub launcher: answers `--version` like csharp-ls 0.28.0, then rejects `initialize` with an SDK message on stderr and idles.
+#[cfg(unix)]
+const REJECTING_LAUNCHER: &str = r#"#!/bin/sh
+if [ "$1" = "--version" ]; then echo "csharp-ls, version 0.28.0 (stub)"; exit 0; fi
+len=0
+while IFS= read -r line; do
+  line=$(printf %s "$line" | tr -d '\r')
+  [ -z "$line" ] && break
+  case "$line" in Content-Length:*) len=${line#Content-Length: };; esac
+done
+body=$(head -c "$len")
+id=$(printf %s "$body" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+echo "A compatible .NET SDK was not found. Requested SDK version: 8.0.408 global.json file: stub" >&2
+msg='{"jsonrpc":"2.0","id":'$id',"error":{"code":-32603,"message":"initialize failed"}}'
+printf 'Content-Length: %d\r\n\r\n%s' ${#msg} "$msg"
+exec sleep 60
+"#;
+
+#[cfg(unix)]
 #[test]
 fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
+    use std::os::unix::fs::PermissionsExt;
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let temp = tempfile::tempdir().unwrap();
-    let forced = temp.path().join("hostroot10");
-    fs::create_dir_all(forced.join("sdk")).unwrap();
-    fs::create_dir_all(forced.join("shared/Microsoft.NETCore.App")).unwrap();
-    fs::create_dir_all(forced.join("host/fxr")).unwrap();
-    let host = host_install();
-    fs::copy(host.root.join("dotnet"), forced.join("dotnet")).unwrap();
-    let fxr = std::fs::read_dir(host.root.join("host/fxr"))
-        .unwrap()
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("10."))
-        })
-        .expect("host/fxr 10");
-    std::os::unix::fs::symlink(fxr, forced.join("host/fxr/10.0.0")).unwrap();
-    let runtime = std::fs::read_dir(host.root.join("shared/Microsoft.NETCore.App"))
-        .unwrap()
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("10."))
-        })
-        .expect("runtime 10");
-    std::os::unix::fs::symlink(runtime, forced.join("shared/Microsoft.NETCore.App/10.0.0")).unwrap();
-    std::os::unix::fs::symlink(
-        host.sdk_dir(),
-        forced.join(format!("sdk/{}", host.version)),
-    )
-    .unwrap();
-    let _forced = EnvVar::set("OPENRIDR_FORCE_HOSTROOT", &forced);
+    let home = temp.path().join("home");
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    // The stub stands in for csharp-ls, so the contract does not depend on the real server or the machine's SDKs.
+    let destination = home.join("tools/csharp-ls/0.28");
+    fs::create_dir_all(&destination).unwrap();
+    let launcher = destination.join("csharp-ls");
+    fs::write(&launcher, REJECTING_LAUNCHER).unwrap();
+    fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
 
     let copy = fixture_copy(temp.path(), "Order Desk lsp failure");
     let host_api = Host::new();
     open(&host_api, &copy.join("OrderDesk.sln"));
     grant(&host_api);
-    ensure_tool(&host_api);
+    let tool = tool_plan(&host_api);
+    assert_eq!(tool["plan"]["existing"]["state"], "present", "{tool}");
+    let reused = host_api
+        .dispatch(
+            "tools.install",
+            json!({ "planId": tool["plan"]["planId"], "confirm": true }),
+        )
+        .unwrap();
+    assert_eq!(reused["tools"]["csharp-ls"]["state"], "ready");
     host_api.dispatch("restore.start", json!({})).unwrap();
     let restore = wait_for_restore(&host_api, Duration::from_secs(120));
     assert_eq!(restore["state"], "ok", "{}", restore["log"]);
     host_api.dispatch("evaluation.run", json!({})).unwrap();
 
-    let started = host_api.dispatch("lsp.start", json!({})).unwrap();
-    assert_eq!(started["lsp"]["hostRootForced"], true);
+    host_api.dispatch("lsp.start", json!({})).unwrap();
     let failed = wait_lsp(
         &host_api,
         Duration::from_secs(30),
