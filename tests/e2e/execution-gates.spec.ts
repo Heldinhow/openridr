@@ -68,7 +68,14 @@ test("Build gates name their reason", () => {
 
 test("Run gates name their reason", () => {
   expect(run(context({ trusted: false }))).toBe("Trust the workspace before running; nothing runs in Restricted mode.");
+  expect(run(context({ sdk: "missing" }))).toBe("Resolve the project SDK before running; the host SDK is never substituted.");
+  expect(run(context({ evaluation: { state: "running" } }))).toBe("Wait for the evaluation to finish before running.");
   expect(run(context({ evaluation: { stale: true } }))).toBe("The evaluated project model is stale; re-evaluate before running.");
+  expect(run(context({ evaluation: { state: "idle" } }))).toBe("Evaluate the project model before running; Run uses the saved build's TargetPath.");
+  expect(run(context({ ctx: { activeConfigEvaluated: false } }))).toBe("The run configuration has not been evaluated yet; re-evaluate the project model.");
+  expect(run(context({ ctx: { consoleCandidates: [], startupProject: null } }))).toBe(
+    "No console executable project is available in the current evaluation; libraries and test projects cannot be run.",
+  );
   expect(run(context({ ctx: { activeConfigProjectInvalid: true } }))).toBe(
     "The run configuration selects a project that is not an evaluated console project; edit the configuration.",
   );
@@ -97,6 +104,19 @@ test("Debug gates name their reason", () => {
     "Enable the Apple Silicon experimental flag before debugging; nothing was launched.",
   );
   expect(debugDisabledReason(context({ debug: { appleSiliconExperimental: false }, app: { arch: "x64" } }))).toBeNull();
+  expect(debugDisabledReason(context({ sdk: "missing" }))).toBe("Resolve the project SDK before debugging; the host SDK is never substituted.");
+  expect(debugDisabledReason(context({ evaluation: { state: "running" } }))).toBe("Wait for the evaluation to finish before debugging.");
+  expect(debugDisabledReason(context({ evaluation: { stale: true } }))).toBe("The evaluated project model is stale; re-evaluate before debugging.");
+  expect(debugDisabledReason(context({ evaluation: { state: "idle" } }))).toBe("Evaluate the project model before debugging; Debug uses its managed assembly.");
+  expect(debugDisabledReason(context({ ctx: { activeConfigEvaluated: false } }))).toBe("The run configuration has not been evaluated yet; re-evaluate the project model.");
+  expect(debugDisabledReason(context({ ctx: { consoleCandidates: [], startupProject: null } }))).toBe(
+    "No console executable project is available in the current evaluation.",
+  );
+  expect(debugDisabledReason(context({ ctx: { activeConfigProjectInvalid: true } }))).toBe(
+    "The active run configuration selects a project that is not an evaluated console project; edit the configuration.",
+  );
+  expect(debugDisabledReason(context({ build: { stale: true, staleReason: "sources changed" } }))).toBe("The saved build is stale: sources changed.");
+  expect(debugDisabledReason(context({ build: { state: "failed", exit: 2 } }))).toBe("The last build did not succeed (exit 2); fix it and rebuild.");
   expect(debugDisabledReason(context({ build: { state: "running" } }))).toBe("A build is running; wait for it to finish before debugging.");
   expect(debugDisabledReason(context({ build: { revision: 0 } }))).toBe("Build the startup project in Debug first; Debug never builds or restores implicitly.");
   expect(debugDisabledReason(context({ build: { configuration: "Release" } }))).toBe("The saved build is not a Debug build; build with Debug before debugging.");
