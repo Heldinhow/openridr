@@ -20,7 +20,7 @@ Os blobs originais (sem redação) estão no histórico local nos commits abaixo
 | native-09-before-run.png | 6a862b0 | `/Users/helder/.dotnet` |
 | native-17-terminal-prompt.png | 6a862b0 (alterado em b8bd154) | zsh prompt com host |
 | native-18-terminal-echo.png | 6a862b0 (alterado em b8bd154) | zsh prompt com host |
-| native-47-run-config-copy-arguments-1440.png | c37c701 | sem achado no OCR final (redigido aqui por precaução) |
+| native-47-run-config-copy-arguments-1440.png | c37c701 | OCR atual sem achado; incluído na redação de f78e6af por precaução (motivo não confirmado por OCR do blob original) |
 | 09-rename-*.png e 10-code-actions-*.png (originais) | 5a75082 / 54ceddc (e anteriores) | nenhum achado no OCR atual |
 | 10-install-*.png | 6c323ed / 9bf0bec | caminho `/Users/helder/.dotnet` (ver lista 3) |
 
