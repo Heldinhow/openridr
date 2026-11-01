@@ -8,6 +8,7 @@ import {
   type RunConfigIssue,
 } from "./host/client";
 import { Icon } from "./Icon";
+import { MidText } from "./shell/MidText";
 
 export const DEFAULT_RUN_CONFIG_ID = "default";
 
@@ -96,7 +97,7 @@ export function RunConfigWidget({
     <details className="toolbar-menu run-config-menu" data-testid="run-config-menu">
       <summary data-testid="toolbar-run-config" title={title} aria-label={title}>
         <Icon name="runconfig" />
-        <span data-testid="run-config-active">{active?.name ?? "Run config"}</span>
+        <span data-testid="run-config-active"><MidText text={active?.name ?? "Run config"} /></span>
         {active?.readOnly && <span className="run-config-tag">default</span>}
         <Icon name="chevron" />
       </summary>

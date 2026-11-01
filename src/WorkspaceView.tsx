@@ -42,6 +42,7 @@ import { FileIcon } from "./FileIcon";
 import { Icon } from "./Icon";
 import { Splitter } from "./Splitter";
 import { BottomToolWindow } from "./shell/BottomToolWindow";
+import { MidText } from "./shell/MidText";
 import { StatusBar } from "./shell/StatusBar";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
 import { FindAction, type SearchTab } from "./actions/FindAction";
@@ -3301,7 +3302,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
           <summary className="workspace-brand" title={workspace.path} data-testid="toolbar-project" aria-label={`Project: ${workspace.name}. Open recent solutions.`}>
-            <span className="project-badge" aria-hidden="true">{workspace.name.slice(0, 2).toUpperCase()}</span><strong>{workspace.name}</strong><Icon name="chevron" />
+            <span className="project-badge" aria-hidden="true">{workspace.name.slice(0, 2).toUpperCase()}</span><strong><MidText text={workspace.name} /></strong><Icon name="chevron" />
           </summary>
           <div className="menu-content" data-testid="toolbar-project-menu">
             <span className="menu-heading">Recent solutions</span>
@@ -3922,6 +3923,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
           {active ? (
             <>
+              <div className="breadcrumb-row">
               <div className="breadcrumb" data-testid="breadcrumb">
                 {activeEvaluationProject
                   ? `${activeEvaluationProject.name} / `
@@ -3934,12 +3936,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   : activeProject
                     ? ` / ${activeProject.tfms.join(", ") || "TFM not declared"}`
                     : ""}
-                <span
-                  className={isDirty(active) ? "warning" : "muted"}
-                  data-testid="editor-revision"
-                >
-                  {isDirty(active) ? " · Modified" : ""}
-                </span>
+              </div>
+              <span
+                className={isDirty(active) ? "tag warning" : "muted"}
+                data-testid="editor-revision"
+              >
+                {isDirty(active) ? "Modified" : ""}
+              </span>
               </div>
 
               {active.conflict && (

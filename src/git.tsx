@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call, messageOf } from "./host/client";
 import { Icon } from "./Icon";
+import { MidText } from "./shell/MidText";
 
 export type GitFile = {
   path: string;
@@ -396,7 +397,7 @@ export function BranchWidget({
       >
         <summary data-testid="toolbar-branch" title={title} aria-label={title}>
           <Icon name="git" />
-          <span data-testid="branch-current">{branchName(status)}</span>
+          <span data-testid="branch-current"><MidText text={branchName(status)} /></span>
           {ahead && <span className="branch-counters">{ahead}</span>}
         </summary>
         <div className="menu-content branch-menu-content">

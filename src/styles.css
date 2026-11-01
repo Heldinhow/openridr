@@ -2775,3 +2775,29 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .checkbox-label { font-weight: 500; }
 .analysis-plan dd, .trust-card code, .tool-row code { font-family: var(--mono); font-size: 12px; }
 .trust-card > p:first-of-type { color: var(--muted); }
+
+/* ui-shape 02: middle truncation keeps the distinctive suffix; only secondary status text ellipsizes. */
+.mid { display: inline-flex; min-width: 0; max-width: 100%; }
+.mid-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mid-tail { flex: none; white-space: pre; }
+.workspace-brand { min-width: 140px; max-width: 280px; }
+.workspace-brand strong { display: flex; min-width: 0; }
+.toolbar-menu > summary { min-width: 0; }
+[data-testid="branch-current"], [data-testid="run-config-active"] { display: inline-flex; min-width: 0; }
+.toolbar-menu[data-testid] > summary, .toolbar-menu > summary[data-testid="toolbar-branch"] { max-width: 220px; }
+.status { font-size: 12px; gap: 12px; overflow: hidden; }
+.status > span { min-width: 0; }
+.status > [data-testid="status-workspace"], .status > [data-testid="status-mode"], .status > [data-testid="status-keymap"], .status > [data-testid="status-cursor"], .status > [data-testid="status-encoding"], .status > [data-testid="status-indent"], .status > [data-testid="status-dirty"], .status > [data-testid="status-restore"] { flex: 0 0 auto; }
+.status > [data-testid="status-breadcrumb"], .status > [data-testid="status-sdk"], .status > [data-testid="status-evaluation"], .status > span:not([data-testid]) { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.status > [data-testid="status-keymap"] { margin-left: auto; }
+.breadcrumb-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 12px; border-bottom: 1px solid var(--line-internal); flex: 0 0 auto; }
+.breadcrumb-row .breadcrumb { border-bottom: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.breadcrumb { font-size: 12px; }
+.tag.warning { background: rgba(245, 158, 11, 0.08); color: var(--warning); }
+.tag.error { background: rgba(239, 68, 68, 0.08); color: var(--error); }
+.tag.success { background: rgba(16, 185, 129, 0.08); color: var(--success); }
+.tag.info { background: rgba(59, 130, 246, 0.08); color: var(--info); }
+.toolbar .project-menu { flex: 0 0 auto; max-width: 200px; }
+.toolbar .project-menu > summary { max-width: 200px; }
+.toolbar .trust-menu { flex: 0 0 auto; }
+.toolbar .run-config-menu, .toolbar .toolbar-menu:has([data-testid="toolbar-branch"]) { flex: 0 1 auto; min-width: 0; }
