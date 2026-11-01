@@ -221,11 +221,6 @@ export function BuildPanel({
           {buildStateLabel(build)}
           {build.stale ? " · stale" : ""}
         </span>
-        {build.buildId && (
-          <span className="muted" data-testid="build-id">
-            {build.buildId} · revision {build.revision} · context {build.contextId ?? "unknown"}
-          </span>
-        )}
       </div>
 
       {disabledReason && <p className="muted" data-testid="build-disabled-reason">{disabledReason}</p>}
@@ -273,6 +268,14 @@ export function BuildPanel({
           <details className="build-context-details">
             <summary>Build details</summary>
             <dl className="restore-meta build-meta">
+            {build.buildId && (
+              <>
+                <dt>Build identity</dt>
+                <dd data-testid="build-id">
+                  {build.buildId} · revision {build.revision} · context {build.contextId ?? "unknown"}
+                </dd>
+              </>
+            )}
             <dt>Startup project</dt>
             <dd data-testid="build-project">
               {build.project?.name ?? "unknown"} · {build.project?.kind ?? "unknown"} ·{" "}

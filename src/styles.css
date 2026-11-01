@@ -2864,3 +2864,21 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .build-problems-list { max-height: none; }
 .problem-row.problem-head, .build-problem-row.build-problem-head { display: none; }
 .problem-row > :nth-child(3), .build-problem-row > :nth-child(3) { flex: 1 0 calc(100% - 172px); }
+
+/* ui-shape 05: Build/Run — one 32px control row, plain-text idle state, output before metadata. */
+.build-controls { align-items: center; gap: 8px 10px; }
+.build-controls .eval-field { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; }
+.build-controls .eval-field > span { color: var(--muted); font-size: 12px; position: static; width: auto; height: auto; clip-path: none; overflow: visible; }
+.build-controls [data-testid="build-state"], .run-window-head [data-testid="run-state"] { font-size: 12px; }
+.build-controls [data-testid="build-state"].muted, .run-window-head [data-testid="run-state"].muted { background: transparent; padding: 0; }
+.build-panel > p { background: transparent; padding: 0 2px; color: var(--muted); font-size: 12px; }
+.build-panel .notice { border: 0; border-radius: var(--r-lg); background: var(--panel); }
+.build-log { max-height: none; flex: 1 1 auto; min-height: 96px; font: 13px/1.5 var(--mono); border: 0; background: transparent; padding: 4px 2px; }
+.build-context-details > summary { min-height: 28px; display: flex; align-items: center; font-size: 12px; }
+.run-window .run-output { gap: 4px; }
+.process-finished { font-size: 12px; }
+.build-context-details > summary, .debug-context-details > summary { list-style: none; gap: 6px; }
+.build-context-details > summary::-webkit-details-marker, .debug-context-details > summary::-webkit-details-marker { display: none; }
+.build-context-details > summary::before, .debug-context-details > summary::before { content: ""; display: inline-block; width: 12px; height: 12px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat; transform: rotate(-90deg); transition: transform 120ms ease-out; }
+.build-context-details[open] > summary::before, .debug-context-details[open] > summary::before { transform: none; }
+.debug-context-details > summary { display: flex; align-items: center; }
