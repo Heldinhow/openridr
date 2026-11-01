@@ -3133,3 +3133,9 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .find-action .action-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .find-action .action-group { flex: 0 0 auto; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .find-action .search-kind { flex: none; min-width: 48px; text-align: center; }
+
+/* ui-shape polish — Debug: the start/stop actions sit at the right of the head (32px targets), step icons stay neutral. */
+.debug-panel > .panel-title { display: flex; align-items: center; gap: 8px; }
+.debug-panel > .panel-title .push { flex: 1 1 auto; }
+.debug-panel > .panel-title .toolbar-icon-button { width: 32px; height: 32px; }
+.debug-panel [data-testid="debug-step-over"] .icon, .debug-panel [data-testid="debug-step-into"] .icon, .debug-panel [data-testid="debug-step-out"] .icon { color: var(--fg); }

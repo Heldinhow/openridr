@@ -27,7 +27,7 @@ export function RunPanel({ run, onCancelRun }: { run: Run; onCancelRun: () => vo
       </div>
       {run.revision === 0 && (
         <p className="muted" data-testid="run-empty">
-          No program has run. Run starts the saved build here; its output stays in this window.
+          Run starts the saved build here; its output stays in this window.
         </p>
       )}
       {run.revision > 0 && (
