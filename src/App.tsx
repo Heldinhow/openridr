@@ -3,6 +3,7 @@ import { SetupScreen } from "./SetupScreen";
 import { WorkspaceView } from "./WorkspaceView";
 import { TrustPrompt } from "./TrustPrompt";
 import { call, type Snapshot } from "./host/client";
+import { fetchRecent, type RecentProject } from "./welcome/recent";
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -11,7 +12,8 @@ export default function App() {
   // A workspace the host opened that still waits for its first Trust decision.
   const [prompt, setPrompt] = useState<Snapshot | null>(null);
   const [pendingFile, setPendingFile] = useState<string | null>(null);
-  const [recentSolutions, setRecentSolutions] = useState<string[]>([]);
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
+  const recentSolutions = recentProjects.map((project) => project.path);
 
   useEffect(() => {
     let active = true;
@@ -31,8 +33,8 @@ export default function App() {
 
   useEffect(() => {
     // The host records every successful open; refetch whenever the workspace changes.
-    call<{ projects: { path: string }[] }>("recent.list")
-      .then((result) => setRecentSolutions(result.projects.map((project) => project.path)))
+    fetchRecent()
+      .then(setRecentProjects)
       .catch(() => {});
   }, [snapshot?.workspace?.path]);
 
@@ -110,7 +112,8 @@ export default function App() {
       key={lastPath}
       snapshot={snapshot}
       initialPath={lastPath}
-      recent={recentSolutions}
+      recent={recentProjects}
+      onRecent={setRecentProjects}
       onOpened={handleOpened}
       onSnapshot={handleSnapshot}
       onOpenGlobalJson={openGlobalJson}

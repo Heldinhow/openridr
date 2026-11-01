@@ -3,7 +3,7 @@ import { revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { reveal } from "./disclosures";
+import { openToolchain, reveal } from "./disclosures";
 
 /**
  * Ticket 13: the approved netcoredbg release has no verified compatible adapter on this
@@ -33,6 +33,7 @@ async function hostCall(request: APIRequestContext, method: string, params = {})
 async function openWorkspace(page: Page) {
   await page.request.post(`${host}/call`, { data: { method: "workspace.open", params: { path: fixture } } });
   await page.goto("/");
+  await openToolchain(page);
   await reveal(page.getByTestId("sdk-debug-adapter"));
   await expect(page.getByTestId("sdk-debug-adapter")).toBeVisible();
 }
@@ -134,6 +135,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   // Flag off is a hard gate even with trust and a valid plan.
   expect((await hostCall(request, "trust.grant", { remember: false })).ok).toBe(true);
   await page.reload();
+  await openToolchain(page);
   const beforeFlag = await hostCall(request, "debug.install", {
     planId: debug.plan.planId,
     confirm: true,
@@ -179,6 +181,7 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
 
   // Analysis, Run and the editor stay available: the debugger limit does not block them.
   // Opening the workspace again resets trust and the session flag, so trust and the flag are set once more.
+  await page.getByTestId("welcome-nav-projects").click();
   await page.getByTestId("workspace-path-input").fill(fixture);
   await page.getByTestId("workspace-open").click();
   await page.getByTestId("trust-prompt-trust").click();

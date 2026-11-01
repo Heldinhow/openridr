@@ -17,3 +17,9 @@ export async function openTrustPopover(page: Page) {
   if (!(await popover.isVisible())) await page.getByTestId("status-mode").click();
   await expect(popover).toBeVisible();
 }
+
+// Toolchain and processes live in the welcome's second view; switch to it when the welcome is showing.
+export async function openToolchain(page: Page) {
+  await page.getByTestId("welcome-nav-toolchain").click();
+  await expect(page.getByTestId("toolchain")).toBeVisible();
+}

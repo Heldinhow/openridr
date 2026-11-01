@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { openTrustPopover, reveal } from "./disclosures";
+import { openToolchain, openTrustPopover, reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
@@ -195,11 +195,13 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   await openViaHost(page, missingProject);
   await expect(page.getByTestId("sdk-host")).toContainText("SDK 10.0.100");
 
+  await openToolchain(page);
   await reveal(page.getByTestId("sdk-redetect"));
   await page.getByTestId("sdk-redetect").click();
   await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
 
   await trustViaHost(page);
+  await openToolchain(page);
   await expect(page.getByTestId("sdk-project")).toContainText("Project SDK missing");
   await expect(page.getByTestId("sdk-project")).toContainText("8.0.999");
   await expect(page.getByTestId("sdk-project")).toContainText("rollForward disable");
@@ -294,6 +296,8 @@ test("revoked workspace shows the remaining process and terminate observes the e
   await expect(page.getByRole("dialog")).toContainText("Close workspace with unsaved changes?");
   await page.getByTestId("confirm-discard").click();
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
+  await expect(page.getByTestId("welcome-process-warning")).toBeVisible();
+  await openToolchain(page);
   await expect(page.getByTestId("processes-panel")).toBeVisible();
   await expect(page.getByTestId(`processes-awaiting-${processInfo.id}`)).toBeVisible();
 
