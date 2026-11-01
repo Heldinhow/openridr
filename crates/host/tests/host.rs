@@ -4161,3 +4161,26 @@ fn trust_decision_persists_per_project_and_gates_workspace_open() {
     );
     std::env::remove_var("OPENRIDR_HOME");
 }
+
+#[test]
+fn recent_list_carries_decision_and_remove_keeps_it() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("OPENRIDR_HOME", home.path());
+    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let workspace = temp_workspace(&["App.csproj"]);
+    let path = fs::canonicalize(workspace.path()).unwrap();
+    let host = Host::new();
+    let key = open(&host, &path)["workspace"]["path"].as_str().unwrap().to_string();
+    host.dispatch("trust.set", json!({ "path": key, "decision": "trusted" })).unwrap();
+
+    let listed = host.dispatch("recent.list", json!({})).unwrap();
+    assert_eq!(listed["projects"][0]["path"], key.as_str());
+    assert_eq!(listed["projects"][0]["decision"], "trusted");
+    assert!(listed["projects"][0]["openedAt"].as_u64().is_some());
+
+    let after = host.dispatch("recent.remove", json!({ "path": key })).unwrap();
+    assert_eq!(after["projects"].as_array().unwrap().len(), 0);
+    assert_eq!(host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"], "trusted");
+    std::env::remove_var("OPENRIDR_HOME");
+}

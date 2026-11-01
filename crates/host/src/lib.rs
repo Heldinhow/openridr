@@ -587,6 +587,10 @@ impl Host {
         if method == "recent.list" {
             return Ok(recent::list());
         }
+        if method == "recent.remove" {
+            recent::remove(&trust_key(&params)?);
+            return Ok(recent::list());
+        }
         if method == "workspace.pick" {
             return pick_workspace();
         }

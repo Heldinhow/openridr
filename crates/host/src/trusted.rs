@@ -64,12 +64,12 @@ pub fn set(workspace_path: &str, decision: &str) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::Mutex;
 
     // The store reads process-wide env vars, so the tests take turns.
-    static ENV: Mutex<()> = Mutex::new(());
+    pub(crate) static ENV: Mutex<()> = Mutex::new(());
 
     fn with_home(run: impl FnOnce(&std::path::Path)) {
         let _guard = ENV.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

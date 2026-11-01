@@ -28,8 +28,8 @@ export default function App() {
 
   useEffect(() => {
     // The host records every successful open; refetch whenever the workspace changes.
-    call<{ projects: string[] }>("recent.list")
-      .then((result) => setRecentSolutions(result.projects))
+    call<{ projects: { path: string }[] }>("recent.list")
+      .then((result) => setRecentSolutions(result.projects.map((project) => project.path)))
       .catch(() => {});
   }, [snapshot?.workspace?.path]);
 

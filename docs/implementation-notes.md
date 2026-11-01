@@ -566,3 +566,11 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **Verificado:** `cargo test` do crate: 4 testes unitários novos (`trusted.rs`: set/get, migração, ilegível, store off) e 1 de integração (`trust_decision_persists_per_project_and_gates_workspace_open`, com `OPENRIDR_HOME` temporário); `bun run check` verde.
 - **Falhas fora deste ticket (ambiente):** `file_access_is_confined_to_the_workspace` (6× `../` não chega a `/etc/hosts` na profundidade deste worktree) e `evaluation_returns_the_real_msbuild_model_for_every_project` (fixture `not_restored` neste worktree). Não rodei baseline para provar que são pré-existentes.
 - **Não verificado:** UI e E2E (specs ainda esperam o fluxo antigo; tickets seguintes).
+
+## Welcome + Trust — 02 recent store (2026-11-01)
+
+- `recent.json` guarda `{path, openedAt}` (epoch ms); o formato antigo (lista de strings) lê sem data e é regravado no próximo `record`. Mais recente primeiro, sem duplicatas, teto de 30.
+- `recent.list` devolve `{projects:[{path, openedAt?, decision}]}` (decision = `trusted|restricted|null`, de `trusted.json`), omitindo caminhos inexistentes. Novo `recent.remove {path}` tira só a entrada (a decisão fica) e devolve a lista.
+- UI: `App.tsx` mapeia `projects` para a lista de caminhos; toolbar e welcome inalterados.
+- **Verificado:** 3 testes unitários (`recent.rs`: migração, dedupe/teto, remoção mantém decisão), 1 de integração (`recent_list_carries_decision_and_remove_keeps_it`); `cargo test -p openridr-host`: tudo passa exceto `file_access_is_confined_to_the_workspace` e `evaluation_returns_the_real_msbuild_model_for_every_project`, **confirmadas como baseline** (falham também sem as mudanças deste ticket). `bun run check` verde. `workspace.spec.ts` 15/15 (inclui recentes), com `OPENRIDR_HOME` temporário.
+- Os testes de `recent` e `trusted` agora compartilham o lock de env de `trusted::tests::ENV`.
