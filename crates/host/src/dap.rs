@@ -466,6 +466,52 @@ impl Dap {
         }
     }
 
+    /// A session waiting for the host's implicit build. No adapter exists yet, so there is no
+    /// process and no DAP message; breakpoints, mute and exception filters survive.
+    pub fn building(&self, launch: Launch) -> Arc<Self> {
+        let building = Self::idle();
+        {
+            let current = self.data.lock().unwrap();
+            let mut data = building.data.lock().unwrap();
+            data.breakpoints = current.breakpoints.clone();
+            data.breakpoints_muted = current.breakpoints_muted;
+            data.exception_filters = current.exception_filters.clone();
+            data.adapter_exception_filters = current.adapter_exception_filters.clone();
+            data.adapter_capabilities = current.adapter_capabilities.clone();
+            data.watches = current.watches.clone();
+            data.session = launch.session;
+            data.state = "building";
+            data.phase = "Waiting for the build to finish before starting netcoredbg.".to_string();
+            data.project = Some(ProjectView {
+                name: launch.project_name.clone(),
+                path: launch.project_path.clone(),
+            });
+            data.build_id = launch.build_id.clone();
+            data.assembly = launch.assembly.clone();
+            data.configuration = launch.configuration.clone();
+            data.target_framework = launch.target_framework.clone();
+            data.adapter_binary = launch.adapter_binary.clone();
+            data.adapter_version = launch.adapter_version.clone();
+            data.adapter_platform = launch.adapter_platform.clone();
+            data.command = adapter_view(
+                &launch.adapter_binary,
+                &launch.adapter_version,
+                &launch.adapter_platform,
+            )
+            .argv;
+            data.cwd = launch.cwd.to_string_lossy().to_string();
+            data.root = launch.root.clone();
+            data.workspace_id = launch.workspace_id;
+            data.context_id = launch.context_id;
+            data.started_at = Some(now_ms());
+            data.log.push(format!(
+                "[host] build {} started before the debug session",
+                launch.build_id
+            ));
+        }
+        Arc::new(building)
+    }
+
     /// Starts the adapter and the launch negotiation. The session is visible as `preparing`
     /// immediately; `running`/`paused`/`failed` come from the adapter's real messages.
     pub fn begin(
@@ -612,8 +658,27 @@ impl Dap {
     pub fn is_active(&self) -> bool {
         matches!(
             self.data.lock().unwrap().state,
-            "preparing" | "running" | "paused"
+            "building" | "preparing" | "running" | "paused"
         )
+    }
+
+    /// The implicit build did not succeed: the session fails with the reason, and no adapter
+    /// or debuggee was ever spawned.
+    pub fn fail_pending(&self, message: impl Into<String>) {
+        let mut data = self.data.lock().unwrap();
+        if data.sealed || data.state != "building" {
+            return;
+        }
+        data.finish("failed", &message.into());
+    }
+
+    /// The implicit build was cancelled or replaced: no adapter ran.
+    pub fn cancel_pending(&self) {
+        let mut data = self.data.lock().unwrap();
+        if data.sealed || data.state != "building" {
+            return;
+        }
+        data.finish("cancelled", "Stopped before the build finished.");
     }
 
     pub fn process_id(&self) -> Option<u64> {
@@ -2011,6 +2076,20 @@ impl Dap {
             )
         };
         if state == "idle" {
+            return Ok(());
+        }
+        if state == "building" {
+            // No adapter exists yet: there is nothing to ask and no exit to invent.
+            let mut data = self.data.lock().unwrap();
+            data.cancel_requested = true;
+            data.finish("cancelled", &format!("Stopped before it started: {reason}"));
+            if seal {
+                data.sealed = true;
+                data.stale_reason = Some(reason.to_string());
+                data.stop_seq += 1;
+                data.log
+                    .push(format!("[host] session sealed at a workspace boundary: {reason}"));
+            }
             return Ok(());
         }
         if already_done && !seal {
