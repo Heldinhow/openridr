@@ -588,7 +588,7 @@ impl Host {
             return Ok(recent::list());
         }
         if method == "recent.remove" {
-            recent::remove(&trust_key(&params)?);
+            recent::remove(&trust_key(&params, false)?);
             return Ok(recent::list());
         }
         if method == "workspace.pick" {
@@ -1020,14 +1020,14 @@ impl Host {
 
     /// The stored decision for any path (canonical when it exists), or null.
     fn get_trust(&self, params: &Value) -> HostResult<Value> {
-        let path = trust_key(params)?;
+        let path = trust_key(params, false)?;
         Ok(json!({ "path": path, "decision": trusted::get(&path) }))
     }
 
     /// Persists the decision for any path; for the open workspace it also applies or revokes
     /// trust through the same paths as `trust.grant` / `trust.revoke`.
     fn set_trust(&self, params: &Value) -> HostResult<Value> {
-        let path = trust_key(params)?;
+        let path = trust_key(params, true)?;
         let decision = match required_str(params, "decision")?.as_str() {
             trusted::TRUSTED => trusted::TRUSTED,
             trusted::RESTRICTED => trusted::RESTRICTED,
@@ -5892,15 +5892,18 @@ fn validate_test_tfm(
     Ok(())
 }
 
-/// Store key for `trust.get`/`trust.set`: the canonical path of an existing absolute path.
-fn trust_key(params: &Value) -> HostResult<String> {
+/// Store key for the trust/recent methods: the canonical path when it exists. `must_exist` (trust.set,
+/// which writes) rejects a missing path; reads and `recent.remove` accept it as given.
+fn trust_key(params: &Value, must_exist: bool) -> HostResult<String> {
     let raw = required_str(params, "path")?;
     if !Path::new(&raw).is_absolute() {
         return Err(HostError::new("path_not_allowed", "Path must be absolute."));
     }
-    fs::canonicalize(&raw)
-        .map(|path| path.to_string_lossy().to_string())
-        .map_err(|_| HostError::new("not_found", format!("Path not found: {raw}")))
+    match fs::canonicalize(&raw) {
+        Ok(path) => Ok(path.to_string_lossy().to_string()),
+        Err(_) if must_exist => Err(HostError::new("not_found", format!("Path not found: {raw}"))),
+        Err(_) => Ok(raw),
+    }
 }
 
 /// Shared by an explicit grant and by opening an already-trusted path.

@@ -4222,6 +4222,8 @@ fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions() {
         error_code(host.dispatch("trust.set", json!({ "path": missing, "decision": "trusted" }))),
         "not_found"
     );
+    // A vanished project can still be forgotten from Recents.
+    host.dispatch("recent.remove", json!({ "path": missing })).unwrap();
 
     // An unreadable trusted.json is never overwritten and the failure reaches the caller.
     fs::write(home.path().join("trusted.json"), "{ not json").unwrap();
