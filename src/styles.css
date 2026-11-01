@@ -3065,3 +3065,25 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .run-config-form .actions [data-testid="run-config-save"] { background: var(--accent); }
 .run-config-dialog input:disabled, .run-config-dialog select:disabled, .run-config-dialog textarea:disabled { opacity: 1; background: transparent; border-color: transparent; color: var(--fg); padding-left: 0; cursor: not-allowed; }
 .run-config-dialog button:disabled { opacity: 1; }
+
+/* ui-shape 14: editor overlays — menus and popovers on the raised surface (12px), 28px items with 6px radius, docked previews with the close action in the header. */
+.editor-context-menu { width: 280px; padding: 4px; }
+.editor-context-menu button { min-height: 28px; padding: 3px 8px; border-radius: var(--r-md); box-shadow: none; font-weight: 400; font-size: 13px; transition: none; }
+.editor-context-menu button:active:not(:disabled) { transform: none; }
+.editor-context-menu button:not(:disabled):hover, .editor-context-menu button:not(:disabled):focus-visible { background: var(--accent-surface-strong); }
+.editor-context-menu button:disabled { opacity: 1; color: var(--disabled); }
+.context-menu-shortcut { font-family: var(--mono); font-size: 12px; }
+.context-menu-reason { color: var(--muted); font-size: 12px; }
+.context-menu-separator { border-top-color: var(--line-internal); }
+.editor-popup { border-top: 1px solid var(--line); background: var(--panel); }
+.popup-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.popup-close { width: 28px; min-height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border-color: transparent; box-shadow: none; color: var(--muted); }
+.popup-close:hover:not(:disabled) { color: var(--fg); }
+.popup-close .icon { width: 14px; height: 14px; }
+.find-usages-file li button { min-height: 28px; border-radius: var(--r-md); box-shadow: none; font-weight: 400; }
+.find-usages-file li button:hover, .find-usages-file li button:focus-visible { background: var(--accent-surface-strong); }
+.rename-preview .actions { background: var(--panel); }
+[data-testid="confirm-discard"] .icon { color: var(--warning); }
+[data-testid="confirm-discard"] { display: inline-flex; align-items: center; gap: 6px; }
+[data-testid="confirm-keep"], [data-testid="confirm-save"] { border-color: var(--line); }
+[data-testid="confirm-save"] { border-color: transparent; }

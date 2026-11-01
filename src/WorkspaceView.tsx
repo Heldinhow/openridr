@@ -4642,7 +4642,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               </p>
             )}
             <div className="actions">
-              <button data-testid="confirm-save" onClick={() => void confirmSave()}>
+              <button className="primary" data-testid="confirm-save" onClick={() => void confirmSave()}>
                 {confirm.kind === "tab" ? "Save" : "Save all"}
               </button>
               <button autoFocus data-testid="confirm-keep" onClick={keepEditing}>
@@ -4652,7 +4652,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 data-testid="confirm-discard"
                 onClick={discardConfirmed}
               >
-                {confirm.kind === "tab"
+                <Icon name="problems" /> {confirm.kind === "tab"
                   ? "Discard and close"
                   : confirm.kind === "workspace"
                     ? "Discard and close workspace"

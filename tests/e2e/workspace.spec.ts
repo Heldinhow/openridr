@@ -236,7 +236,7 @@ test("closing a modified buffer or workspace requires an explicit choice", async
   const bufferDialog = page.getByRole("dialog");
   await expect(bufferDialog).toBeVisible();
   await expect(bufferDialog).toContainText("unsaved changes");
-  await expect(page.getByTestId("confirm-keep")).toHaveCSS("border-color", "rgb(84, 138, 247)");
+  await expect(page.getByTestId("confirm-save")).toHaveCSS("background-color", "rgb(84, 138, 247)");
   await expect(page.getByTestId("confirm-discard")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.getByTestId("confirm-keep").click();
   await expect(tab).toBeVisible();

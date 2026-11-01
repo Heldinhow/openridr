@@ -20,6 +20,7 @@ export type IconName =
   | "forward"
   | "chevron"
   | "plus"
+  | "close"
   | "locate"
   | "expandAll"
   | "collapseAll"
@@ -53,6 +54,7 @@ export function Icon({ name }: { name: IconName }) {
     forward: "m9 18 6-6-6-6",
     chevron: "m6 9 6 6 6-6",
     plus: "M12 5v14M5 12h14",
+    close: "M6 6l12 12M18 6 6 18",
     locate: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-6v4m0 12v4M2 12h4m12 0h4",
     expandAll: "m7 13 5 5 5-5M7 6l5 5 5-5",
     collapseAll: "m7 18 5-5 5 5M7 11l5-5 5 5",

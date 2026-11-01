@@ -25,7 +25,8 @@ test("empty editor scrolls locally in a constrained workspace (isolated DOM)", a
     </div>`);
   await page.addStyleTag({ content: fs.readFileSync(path.resolve("src/styles.css"), "utf8") });
   const pane = page.getByRole("region", { name: "Editor" });
-  expect((await pane.boundingBox())!.height).toBe(166);
+  // 700 - 52px bar - 168px notices - 294px output - 4px splitter - 28px status (ui-shape tokens).
+  expect((await pane.boundingBox())!.height).toBe(154);
   const empty = page.locator(".empty-editor");
   await expect(empty).toHaveCSS("overflow-y", "auto");
   expect(await empty.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
