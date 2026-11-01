@@ -3050,3 +3050,18 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .nuget-panel .menu-note { color: var(--muted); font-size: 12px; }
 .nuget-update { background: var(--panel); border-radius: var(--r-lg); }
 .nuget-logs summary { min-height: 28px; display: flex; align-items: center; }
+
+/* ui-shape 13: Run configurations — list with its own actions, footer is Run · Cancel · Apply · OK, the derived default reads as text. */
+.run-config-dialog { background: var(--raised); border-radius: var(--r-xl); }
+.run-config-list { display: flex; flex-direction: column; gap: 2px; }
+.run-config-list button { min-height: var(--control-h); justify-content: flex-start; text-align: left; border-radius: var(--r-md); box-shadow: none; font-weight: 500; color: var(--muted); }
+.run-config-list button:hover:not(:disabled) { background: var(--accent-surface); }
+.run-config-list button[aria-current="true"] { background: var(--accent-surface-strong); color: var(--fg); }
+.run-config-list .run-config-add { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); margin-top: 6px; }
+.run-config-list .run-config-add .icon { width: 14px; height: 14px; }
+.run-config-list-actions { display: flex; gap: 2px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-internal); }
+.run-config-list-actions button { flex: 1 1 0; min-height: 28px; font-size: 12px; font-weight: 500; }
+.run-config-form .actions { border-top: 1px solid var(--line-internal); padding-top: 12px; margin-top: 12px; }
+.run-config-form .actions [data-testid="run-config-save"] { background: var(--accent); }
+.run-config-dialog input:disabled, .run-config-dialog select:disabled, .run-config-dialog textarea:disabled { opacity: 1; background: transparent; border-color: transparent; color: var(--fg); padding-left: 0; cursor: not-allowed; }
+.run-config-dialog button:disabled { opacity: 1; }

@@ -519,9 +519,28 @@ export function RunConfigDialog({
                 {config.readOnly && <span className="run-config-tag">default</span>}
               </button>
             ))}
-            <button type="button" data-testid="run-config-new" onClick={create}>
-              New configuration
+            <button type="button" className="run-config-add" data-testid="run-config-new" onClick={create}>
+              <Icon name="plus" /> New configuration
             </button>
+            <div className="run-config-list-actions">
+              <button
+                type="button"
+                data-testid="run-config-duplicate"
+                disabled={busy}
+                onClick={duplicate}
+              >
+                Duplicate
+              </button>
+              <button
+                type="button"
+                className="danger"
+                data-testid="run-config-remove"
+                disabled={derived || busy || (!isNew && configs.length === 0)}
+                onClick={() => void remove()}
+              >
+                Remove
+              </button>
+            </div>
           </nav>
           <form
             className="run-config-form"
@@ -782,23 +801,6 @@ export function RunConfigDialog({
               </button>
               <button type="button" data-testid="run-config-run" disabled={derived || busy} onClick={() => void save(true, true)}>Run</button>
               <button type="button" data-testid="run-config-apply" disabled={derived || busy} onClick={() => void save(false)}>Apply</button>
-              <button
-                type="button"
-                data-testid="run-config-duplicate"
-                disabled={busy}
-                onClick={duplicate}
-              >
-                Duplicate
-              </button>
-              <button
-                type="button"
-                className="danger"
-                data-testid="run-config-remove"
-                disabled={derived || busy || (!isNew && configs.length === 0)}
-                onClick={() => void remove()}
-              >
-                Remove
-              </button>
               <button
                 type="button"
                 data-testid="run-config-cancel"
