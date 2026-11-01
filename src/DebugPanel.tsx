@@ -29,6 +29,7 @@ function messageOf(error: unknown): string {
 
 const stateLabels: Record<Dap["state"], string> = {
   idle: "Not started",
+  building: "Building",
   preparing: "Preparing",
   running: "Running",
   paused: "Paused",
@@ -51,7 +52,8 @@ export function DebugPanel({
   const dap = snapshot.dap;
   const [busy, setBusy] = useState<string | null>(null);
   const [logTab, setLogTab] = useState<"console" | "output">("console");
-  const active = dap.state === "preparing" || dap.state === "running" || dap.state === "paused";
+  const active = dap.state === "building" || dap.state === "preparing" || dap.state === "running" || dap.state === "paused";
+  const building = dap.state === "building";
   const paused = dap.state === "paused";
   const terminal = ["terminated", "cancelled", "failed"].includes(dap.state);
   const exceptionDisabledReason =
@@ -122,7 +124,7 @@ export function DebugPanel({
             <Icon name="stop" />
           </button>
         )}
-        {active && (
+        {active && !building && (
           <button
             data-testid="debug-restart"
             className="toolbar-icon-button"

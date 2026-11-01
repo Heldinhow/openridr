@@ -46,6 +46,8 @@ export function isBuildObsolete(build: Build, editedAt: Record<string, number>) 
 export function runStateLabel(run: Run) {
   const exit = run.exit === null ? "exit unknown" : `exit ${run.exit}`;
   switch (run.state) {
+    case "building":
+      return "Building…";
     case "running":
       return "Running…";
     case "exited":
@@ -204,14 +206,14 @@ export function BuildPanel({
         )}
         <button
           data-testid="run-action"
-          disabled={runDisabledReason !== null || runRunning}
+          disabled={runDisabledReason !== null || run.state === "running" || run.state === "building"}
           onClick={() => onRun()}
           title={
             runDisabledReason ??
-            `Runs the saved build's TargetPath, not the current buffers (${shortcut}). Run never builds or restores.`
+            `Runs the saved build's TargetPath, building the startup project first when the saved build is missing or cannot be used (${shortcut}). Restore stays explicit.`
           }
         >
-          {runRunning ? "Running…" : `Run (${shortcut})`}
+          {run.state === "building" ? "Building…" : run.state === "running" ? "Running…" : `Run (${shortcut})`}
         </button>
         <span
           className={build.revision === 0 ? "muted" : `tag ${build.state === "failed" ? "error" : ""}`}

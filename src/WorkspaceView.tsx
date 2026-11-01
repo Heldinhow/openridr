@@ -696,13 +696,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   });
   const run = snapshot.run;
   const runRunning = run.state === "running";
+  const runBuilding = run.state === "building";
   const runShortcut = runShortcutLabel(snapshot.app.platform);
-  const buildReference = build.finishedAt ?? build.startedAt ?? 0;
-  const savedSourceAfterBuild = Object.entries(savedAt).some(
-    ([path, saved]) => path.endsWith(".cs") && saved > buildReference,
-  );
   const dap = snapshot.dap;
-  const debugActive = ["preparing", "running", "paused"].includes(dap.state);
+  const debugBuilding = dap.state === "building";
+  const debugActive = ["building", "preparing", "running", "paused"].includes(dap.state);
   const gates: GateContext = {
     trusted,
     snapshot,
@@ -714,8 +712,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       activeNamedConfig && !consoleCandidates.some((project) => project.path === activeNamedConfig.project),
     ),
     runRunning,
-    savedSourceAfterBuild,
+    runBuilding,
     debugActive,
+    debugBuilding,
   };
   const buildDisabledReason = buildGate(gates);
   const runAvailabilityReason = (
@@ -2103,7 +2102,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     buildDecision, setBuildDecision, runDecision, setRunDecision, debugConsent, setDebugConsent,
     startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
     startRun, requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
-    prepareAndRun, prepareAndDebug, startDebug, requestDebugStart, stopDebug,
+    prepareAndDebug, startDebug, requestDebugStart, stopDebug,
   } = useExecutionFlow({
     snapshot, trusted, evaluation, build, buildRunning, runRunning, dirtyCount, consoleCandidates, startupProject,
     activeRunConfig, activeConfigEvaluated, buildDisabledReason, debugDisabledReason, runAvailabilityReason,
@@ -2251,7 +2250,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   function stopExecution() {
     if (debugActive) {
       void stopDebug();
-    } else if (runRunning) {
+    } else if (runRunning || runBuilding) {
       void cancelRun();
     }
   }
@@ -2407,7 +2406,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       group: "Run",
       execute: stopExecution,
       disabledReason:
-        debugActive || runRunning ? null : "Nothing is running; there is no session to stop.",
+        debugActive || runRunning || runBuilding ? null : "Nothing is running; there is no session to stop.",
     }),
     define({
       id: "debug.stepOver",
@@ -3369,16 +3368,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         <button
           data-testid="toolbar-run"
           className="toolbar-icon-button run-button"
-          aria-label={runRunning ? "Running" : "Run"}
+          aria-label={runRunning || runBuilding ? "Running" : "Run"}
           aria-disabled={runAction.disabledReason !== null}
-          onClick={() => {
-            // Like Rider: Run on a project without a current build restores, builds and then runs.
-            if (runAction.disabledReason === null) runAction.execute();
-            else void prepareAndRun();
-          }}
+          onClick={() => runAction.execute()}
           title={
             runAction.disabledReason ??
-            `Runs the saved build (${runAction.shortcutTexts.join(" or ")}); unsaved buffers are never included.`
+            `Runs the saved build, or builds the startup project first when there is no current build (${runAction.shortcutTexts.join(" or ")}); unsaved buffers are never included.`
           }
         >
           <Icon name="run" />
@@ -3389,13 +3384,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           aria-label="Debug"
           aria-disabled={debugStartAction.disabledReason !== null}
           onClick={() => {
-            // Like Rider: a blocked Debug click explains why in the Debug tab instead of doing nothing.
+            // The experimental opt-in and the adapter install are UI work; the launch is the host's.
             if (debugStartAction.disabledReason === null) debugStartAction.execute();
             else void prepareAndDebug();
           }}
           title={
             debugStartAction.disabledReason ??
-            `Starts the evaluated Debug assembly under netcoredbg (${debugStartAction.shortcutTexts.join(" or ")}).`
+            `Starts the evaluated Debug assembly under netcoredbg, building first when there is no current build (${debugStartAction.shortcutTexts.join(" or ")}).`
           }
         >
           <Icon name="debug" />
@@ -4487,7 +4482,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             <p>
               The netcoredbg macOS arm64 build is community supported and experimental. Enabling it
               applies to this session; the approved 3.2.0-1092 release is installed only if missing.
-              Debug then restores, builds and starts.
+              Debug then builds when no current build can launch and starts; Restore stays explicit.
             </p>
             <div className="actions">
               <button
