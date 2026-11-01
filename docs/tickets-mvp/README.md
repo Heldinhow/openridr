@@ -39,6 +39,16 @@ Fonte: [UI-AUDIT.md](../UI-AUDIT.md), auditoria visual Chrome 155 em 29/10/2026.
 
 Ordem de implementação: **01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09** (F1, F2, F3, F4, F5, F6, F8, F9, F7).
 
+## Alfa 3 — Debug, confiança e dados de teste (2026-11-01)
+
+Fonte: [SPEC-ALPHA3-DEBUG-TRUST](../SPEC-ALPHA3-DEBUG-TRUST.md). Três fatias independentes, entregues nesta ordem; cada uma com commit local próprio.
+
+| Ticket | Escopo | Bloqueado por |
+|---|---|---|
+| [35 — Debug sem modal de consentimento](35-debug-sem-modal.md) | Clique em Debug liga a flag, reusa/instala o adaptador e inicia; sem diálogo | Nenhum |
+| [36 — Confiar no próprio aviso de bloqueio](36-confiar-no-aviso.md) | Avisos de Build/Run/Debug em Restricted oferecem "Trust this project" | Nenhum |
+| [37 — Dados de teste isolados e higiene](37-dados-de-teste-isolados.md) | Host E2E em home temporário, `host:http` fora do app home, `.gitignore` | Nenhum |
+
 ## Gates válidos em todos os tickets
 
 - **Testids são contrato:** nenhum `data-testid` existente é renomeado ou removido; a suíte E2E inteira roda ao fim de cada fatia.

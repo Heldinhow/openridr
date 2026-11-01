@@ -1,0 +1,148 @@
+# Evidência — alfa 3: Debug sem pergunta, confiança no aviso e dados de teste isolados
+
+Máquina: macOS arm64, Google Chrome (Playwright `channel: "chrome"`), .NET SDK 8.0.408 em
+`~/.dotnet`, netcoredbg 3.2.0-1092 em `~/Library/Application Support/OpenRidr/tools/netcoredbg`.
+Host E2E com `OPENRIDR_HOME` temporário (`/var/folders/.../T/openridr-e2e-home`) e
+`OPENRIDR_TRUST_STORE=off`. Branch `fix/debug-no-prompt-trust-ux`.
+
+## Ticket 35 — Debug sem modal
+
+O spec one-click copia `fixtures/OrderDesk` para um diretório temporário, abre a cópia, confia no
+projeto, espera o restore automático, marca o breakpoint da linha 3 e clica `toolbar-debug` uma
+vez. O teste afirma `debug-consent-dialog` ausente, `dap-experimental-note` visível e a sessão real
+em `Paused` com frame em `Program.cs:3`.
+
+```sh
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/debugger.spec.ts -g "one click"
+# ✓ 1 tests/e2e/debugger.spec.ts:514:1 › one click on Debug enables the flag, builds implicitly
+#   and stops at a breakpoint (8.8s)
+# 1 passed (25.5s)
+
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/debugger.spec.ts
+# ✓ 12 tests (inclui "macOS arm64 requires the experimental flag and shows the real asset")
+# 12 passed (1.3m)
+
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/ui-fold.spec.ts
+# ✓ 4 tests/e2e/ui-fold.spec.ts (inclui "debug frames and locals are in the first fold while paused",
+#   com o netcoredbg real copiado para o app home temporário)
+# 4 passed (22.7s)
+
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/execution-gates.spec.ts
+# ✓ 4 tests/e2e/execution-gates.spec.ts
+# 4 passed (1.6s)
+
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/zz-acceptance.spec.ts -g "real P0 journey"
+# ✓ 1 zz-acceptance.spec.ts:171 › real P0 journey: restricted, trust, SDKs, evaluation, restore,
+#   LSP, build, run, tests, PTY and DAP (36.7s)
+# 1 passed (41.3s)
+```
+
+O que essas execuções observaram:
+
+- A flag experimental estava desligada (o host a reseta ao abrir outro workspace) e nenhum
+  `debug-consent-*` apareceu; o clique em Debug ligou a flag, reusou o netcoredbg presente e
+  chegou a `Paused` sem clique intermediário.
+- `dap-experimental-note` aparece no painel Debug enquanto a flag está ativa.
+- `executionGates.debugDisabledReason` não bloqueia mais por adaptador ausente nem por flag
+  desligada; os demais motivos (trust, SDK, avaliação, configuração, startup, build em andamento e
+  sessão ativa) continuam.
+- Dois specs que assumiam o gate antigo foram alinhados: `debugger.spec.ts` (toolbar Debug agora
+  fica habilitada sem adaptador; o teste espera a avaliação) e `zz-acceptance.spec.ts` (Debug
+  habilitado após build falho; e a espera do rebuild passa a exigir que a revisão do build avance,
+  em vez de aceitar o "Build succeeded" do build anterior).
+
+## Ticket 36 — Confiar no próprio aviso
+
+O spec abre uma cópia temporária em Restricted, confere os três avisos (`build-disabled-reason`,
+`run-disabled-reason`, `dap-disabled-reason`) com seus botões e clica `build-trust`. Sem checkbox
+no aviso.
+
+```sh
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/gates.spec.ts
+# ✓ 10 tests/e2e/gates.spec.ts (inclui "Restricted warnings grant trust from the reason itself")
+# 10 passed (21.8s)
+```
+
+O que a execução observou: em Restricted, `build-trust`, `run-trust` e `dap-trust` aparecem com o
+rótulo "Trust this project"; nenhum `trust-checkbox` dentro dos avisos; após `build-trust`,
+`status-mode` fica "Trusted mode", os motivos de Restricted somem e os botões de trust
+desaparecem. O grant é feito por `trust.grant {remember: true}` (a persistência é a mesma coberta
+pelos specs de trust). `ui-layout.spec.ts` 7/7 confirma que a barra superior continua sem
+indicador de confiança e que o layout não mudou.
+
+## Ticket 37 — Dados de teste isolados
+
+O host E2E já subia com `OPENRIDR_HOME: e2eHome` e `OPENRIDR_TRUST_STORE=off` em
+`playwright.config.ts`; o spec agora prova o contrato pela ponte real:
+
+```sh
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/environment.spec.ts
+# ✓ 1 environment.spec.ts:4 E2E ports are validated and the loopback proxy rejects foreign origins
+# ✓ 2 environment.spec.ts:23 the E2E host uses the isolated app home
+# 2 passed (1.7s)
+```
+
+`bun run host:http` (sem `OPENRIDR_HOME`) respondeu `app.state` com
+`appHome = <repo>/.scratch/host-home`, não o app home real:
+
+```sh
+bun run host:http &
+curl -s -X POST http://127.0.0.1:4317/call -H 'content-type: application/json' \
+  -d '{"method":"app.state","params":{}}'
+# ok: True appHome: .../alpha3/.scratch/host-home
+```
+
+Os arquivos reais não são tocados pelos specs. A captura (`stat -f '%N %m %z'` + `shasum -a 256`)
+foi feita antes e depois das rodadas; o diff ficou vazio em todas:
+
+- antes de qualquer execução → depois de `debugger` (one-click), `ui-fold`, `execution-gates`,
+  `gates` e `environment`: **UNCHANGED**. Estado capturado: `trusted.json` mtime `1793568932`,
+  15306 bytes, SHA-256 `c0a9918b…dacdd9`; `recent.json` mtime `1793568993`, 4205 bytes, SHA-256
+  `dba03a04…3eee7`.
+- `debugger -g "one click"` + `environment.spec.ts`, depois `trust-prompt.spec.ts`, depois
+  `welcome.spec.ts`: cada uma comparada antes/depois, **UNCHANGED**.
+
+`.gitignore` cobre os caminhos de higiene (D4) mais `.scratch/host-home/`, o diretório criado pelo
+`host:http` isolado. `git check-ignore` confirmou a regra para `.scratch/host-home/trusted.json`.
+
+**Corrigido na revisão** (`fix(test): keep cargo tests out of the real app home`): o
+`cargo test -p openridr-host` não escreve mais nos arquivos reais. Ver a última seção.
+
+## Correção da revisão — isolamento do `cargo test`
+
+`crates/host/src/tools.rs::app_home()` resolve nesta ordem: `OPENRIDR_HOME` (override explícito);
+binário de teste (`cfg!(test)` ou executável em `target/*/deps`, a convenção do Cargo para
+unit/integration test binaries) → `std::env::temp_dir()/openridr-test-home-<pid>` criado com
+`fs::create_dir_all`; senão o app home da plataforma. `app_home` e o módulo `tools` são públicos
+para o teste `app_home_never_points_at_the_real_application_support_directory` (`crates/host/tests/host.rs`),
+que falha se o caminho apontar para `$HOME/Library/Application Support/OpenRidr` ou (sem
+`OPENRIDR_HOME`) sair de `std::env::temp_dir()`.
+
+Rodada real, `cargo test -p openridr-host --no-fail-fast` (SDK 8.0.408 em `~/.dotnet`):
+
+- `host` 70 passed / 1 failed; `test_discovery` 9/9; `test_run` 5/5; doc-tests 0. O único vermelho
+  é a falha de baseline `file_access_is_confined_to_the_workspace` (`host.rs:156`:
+  `../../../../../../etc/hosts` devolveu `not_found` em vez de `outside_workspace`; é profundidade
+  de path em `/var/folders/.../T/.tmp*`, não app home, e é anterior a esta correção).
+- App home real antes da rodada: `trusted.json` mtime `1793569994`, 17324 bytes, SHA-256
+  `1d921185d2e8f159…`; `recent.json` mtime `1793569994`, 4287 bytes, SHA-256 `1cd68d5fe3414205…`.
+  Depois da rodada e depois de `gates.spec.ts`: **idênticos** (mtime, tamanho e SHA-256 completos
+  iguais).
+- Onde os testes passaram a escrever: `…/T/openridr-test-home-98704/` (`trusted.json` 544 B,
+  `recent.json` 2933 B, `tools/`, `toolhome/`) e `…/T/openridr-test-home-95737/` (`recent.json`
+  269 B), um por processo de teste.
+- `bun run check` ok; `gates.spec.ts` 10/10 (o `trust-error` do popover de `TrustControls` continua
+  o mesmo; o erro do grant feito pelo aviso virou `trust-grant-error`, sem colisão de testid).
+
+## Não verificado
+
+- App Tauri/WKWebView empacotado: a prova é pela UI no Chrome sobre a ponte HTTP de dev; o bundle
+  `.app` não foi reexecutado nesta rodada.
+- Windows x64 e macOS Intel: não executados; o `host:http` isolado usa expansão POSIX de shell.

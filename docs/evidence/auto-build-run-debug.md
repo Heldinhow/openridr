@@ -29,6 +29,9 @@ O que essas execuções observaram:
 - Debug: clique na toolbar com a flag experimental desligada → diálogo `debug-consent-dialog` →
   `Enable and debug` → `dap-state` passa por `Building` → sessão real pausa em `Program.cs:3`.
   O adaptador é o netcoredbg real copiado para o app home temporário da execução.
+  **Nota histórica (alfa 3, 2026-11-01):** esse diálogo foi removido; o clique em Debug liga a flag
+  e reusa/instala o adaptador sozinho. Ver `docs/evidence/alpha3-debug-trust.md`. A execução acima
+  é registro do estado daquele commit, não do comportamento atual.
 
 Espécimes completos também rodaram nesta rodada e passaram: `execution-gates.spec.ts` 4,
 `gates.spec.ts` 9, `run.spec.ts` 4, `debugger.spec.ts` 12, `zz-acceptance.spec.ts` 2.

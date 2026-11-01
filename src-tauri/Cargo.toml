@@ -1,6 +1,6 @@
 [package]
 name = "openridr"
-version = "0.3.0-alpha.2"
+version = "0.3.0-alpha.3"
 description = "OpenRidr desktop shell"
 edition = "2021"
 license = "Apache-2.0"

@@ -78,34 +78,32 @@ export function runAvailabilityReason(
 }
 
 export function debugDisabledReason(c: GateContext) {
-  const { evaluation, build, debug } = c.snapshot;
+  const { evaluation, build } = c.snapshot;
+  // The automatic Debug flow enables the experimental flag and installs the adapter itself,
+  // so neither is a UI gate; the host still validates both before launching.
   return !c.trusted
     ? "Trust the workspace before debugging; nothing runs in Restricted mode."
-    : debug.adapterState !== "ready"
-      ? `The debug adapter is not ready: ${debug.gateReason ?? debug.adapterMessage}`
-      : debug.os === "macos" && debug.arch === "aarch64" && !debug.appleSiliconExperimental
-        ? "Enable the Apple Silicon experimental flag before debugging; nothing was launched."
-        : c.snapshot.sdk.project.state !== "resolved"
-          ? "Resolve the project SDK before debugging; the host SDK is never substituted."
-          : evaluation.state === "running"
-            ? "Wait for the evaluation to finish before debugging."
-            : evaluation.stale
-              ? "The evaluated project model is stale; re-evaluate before debugging."
-              : !["ok", "partial"].includes(evaluation.state)
-                ? "Evaluate the project model before debugging; Debug needs its managed assembly."
-                : !c.activeConfigEvaluated
-                  ? "The run configuration has not been evaluated yet; re-evaluate the project model."
-                  : c.consoleCandidates.length === 0
-                    ? "No console executable project is available in the current evaluation."
-                    : c.activeConfigProjectInvalid
-                      ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
-                      : !c.startupProject
-                        ? "More than one console project; choose the startup project explicitly."
-                        : c.debugBuilding
-                          ? "Debug is already building; wait for it to finish or press Stop."
-                          : build.state === "running"
-                            ? "A build is running; wait for it to finish before debugging."
-                            : c.debugActive
-                              ? "A debug session is already active."
-                              : null;
+    : c.snapshot.sdk.project.state !== "resolved"
+      ? "Resolve the project SDK before debugging; the host SDK is never substituted."
+      : evaluation.state === "running"
+        ? "Wait for the evaluation to finish before debugging."
+        : evaluation.stale
+          ? "The evaluated project model is stale; re-evaluate before debugging."
+          : !["ok", "partial"].includes(evaluation.state)
+            ? "Evaluate the project model before debugging; Debug needs its managed assembly."
+            : !c.activeConfigEvaluated
+              ? "The run configuration has not been evaluated yet; re-evaluate the project model."
+              : c.consoleCandidates.length === 0
+                ? "No console executable project is available in the current evaluation."
+                : c.activeConfigProjectInvalid
+                  ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
+                  : !c.startupProject
+                    ? "More than one console project; choose the startup project explicitly."
+                    : c.debugBuilding
+                      ? "Debug is already building; wait for it to finish or press Stop."
+                      : build.state === "running"
+                        ? "A build is running; wait for it to finish before debugging."
+                        : c.debugActive
+                          ? "A debug session is already active."
+                          : null;
 }

@@ -1,15 +1,17 @@
-# OpenRidr 0.3.0-alpha.2 (pré-release)
+# OpenRidr 0.3.0-alpha.3 (pré-release)
 
-Segunda alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/TS), tema escuro.
+Terceira alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/TS), tema escuro.
 
 ## Novidades
 
-- **Run e Debug agora constroem sozinhos quando não há build.** Clicar em Run (ou no atalho) usa o build atual quando ele existe e, quando não existe, inicia o build normal — com saída em streaming no painel Build e estado **Building** no Run/Debug. Build falho não executa e mantém os diagnósticos no Build. Parar cancela o build e o lançamento pendente; um segundo clique não inicia outro build.
-- **Restore continua explícito.** Run e Debug nunca restauram implicitamente: com dependências pendentes, continuam mostrando `restore_required` e a ação de Restore.
+- **Debug em um clique, sem pergunta.** Clicar em Debug (ou usar o atalho) ativa sozinho a flag experimental do netcoredbg no macOS Apple Silicon, reusa a versão aprovada **3.2.0-1092** quando ela já existe e só instala se faltar. Em seguida o host builda quando não há build utilizável e inicia a sessão. O antigo diálogo "Enable the experimental debugger?" deixou de existir.
+- **O status experimental continua visível, sem bloquear.** O painel Debug mostra uma nota discreta (`dap-experimental-note`) lembrando que o build arm64 do netcoredbg é experimental e com suporte da comunidade; nenhum modal interrompe o fluxo.
+- **Confiar direto do aviso de bloqueio.** Com Build, Run ou Debug bloqueados por Restricted mode, o próprio motivo mostra **Trust this project**: um clique concede e memoriza a confiança para o projeto, sem passar pela caixa de seleção do popover da barra de status. O indicador de confiança continua apenas na barra de status e no menu "⋯" dos recentes.
+- **Restore automático ao confiar.** O workspace Trusted restaura sozinho uma vez ao abrir/confiar; depois disso o restore do host continua explícito e o Debug builda implicitamente quando não há build atual.
 
 ## Instalar
 
-1. Baixe `OpenRidr_0.3.0-alpha.2_aarch64.dmg`, abra e arraste **OpenRidr** para **Applications**.
+1. Baixe `OpenRidr_0.3.0-alpha.3_aarch64.dmg`, abra e arraste **OpenRidr** para **Applications**.
 2. O app tem assinatura **ad-hoc** (sem Apple Developer ID, sem notarização). O Gatekeeper vai bloquear a primeira abertura:
    - botão direito em OpenRidr.app > **Abrir** > **Abrir**; ou
    - `xattr -dr com.apple.quarantine /Applications/OpenRidr.app`
@@ -33,7 +35,7 @@ Funcionalidade ausente: **New** e **Clone** ainda não existem; abra projetos ex
 ## Verificação
 
 ```
-be4b8633dd83f003071a7f600bd204ed64e49f6a5c60871170dc76f8d4bf2da4  OpenRidr_0.3.0-alpha.2_aarch64.dmg
+PENDENTE  OpenRidr_0.3.0-alpha.3_aarch64.dmg
 ```
 
-Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: 4,86 MiB.
+Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: PENDENTE.

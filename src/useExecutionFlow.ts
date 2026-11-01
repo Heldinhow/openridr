@@ -11,7 +11,6 @@ import type { BottomToolId } from "./shell/toolWindows";
 // What the workspace hands over: read-only render values plus the few callbacks that start flows.
 export interface ExecutionFlowInput {
   snapshot: Snapshot;
-  trusted: boolean;
   evaluation: Snapshot["evaluation"];
   build: Snapshot["build"];
   buildRunning: boolean;
@@ -39,13 +38,12 @@ export interface ExecutionFlowInput {
 
 // Build, Run and Debug start flows plus the decision dialogs' state. Moved out of WorkspaceView unchanged.
 export function useExecutionFlow(c: ExecutionFlowInput) {
-  const { snapshot, trusted, evaluation, dirtyCount, consoleCandidates, startupProject,
+  const { snapshot, evaluation, dirtyCount, consoleCandidates, startupProject,
     activeRunConfig, activeConfigEvaluated, buildDisabledReason, debugDisabledReason, runAvailabilityReason,
     onSnapshot, setMessage, setBottomTab, saveAll, invalidRunConfigReason, openRunConfigDialog, openConfigOnFieldError,
   } = c;
   const [buildDecision, setBuildDecision] = useState(false);
   const [runDecision, setRunDecision] = useState(false);
-  const [debugConsent, setDebugConsent] = useState(false);
   const [pendingRunConfig, setPendingRunConfig] = useState<RunConfig | null>(null);
 
   async function startBuild(savedNote: string, requestedConfig?: RunConfig | null): Promise<boolean> {
@@ -236,16 +234,13 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
 
   const waitForHost = (done: (s: Snapshot) => boolean) => waitHost({ onSnapshot, setMessage }, done);
 
-  // One-click Debug: the explicit experimental opt-in (an in-app dialog, since the Tauri webview
-  // does not show window.confirm) and the adapter install come first; then the host starts the
-  // session and builds implicitly when no current build can launch it.
-  async function prepareAndDebug(consented = false) {
-    setBottomTab("debug");
-    if (!trusted) {
-      setMessage({
-        tone: "error",
-        text: `Debug unavailable: ${debugDisabledReason ?? "trust the workspace before debugging."}`,
-      });
+  // One-click Debug: there is no consent question. Clicking Debug enables the experimental
+  // macOS arm64 flag for the session, reuses or installs the approved adapter only when it is
+  // missing, then lets the host start the session and build implicitly when no current build
+  // can launch it. Restore stays explicit.
+  async function prepareAndDebug() {
+    if (debugDisabledReason) {
+      setMessage({ tone: "error", text: `Debug unavailable: ${debugDisabledReason}` });
       return;
     }
     const invalid = invalidRunConfigReason();
@@ -261,13 +256,10 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
       });
       return;
     }
+    setBottomTab("debug");
     try {
       let snap = snapshot;
       if (snap.debug.os === "macos" && snap.debug.arch === "aarch64" && !snap.debug.appleSiliconExperimental) {
-        if (!consented) {
-          setDebugConsent(true);
-          return;
-        }
         snap = await call<Snapshot>("debug.flag", { enabled: true, confirm: true });
         onSnapshot(snap);
       }
@@ -289,21 +281,7 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
     }
   }
 
-  async function startDebug() {
-    if (debugDisabledReason) {
-      setMessage({ tone: "error", text: `Debug unavailable: ${debugDisabledReason}` });
-      return;
-    }
-    const invalid = invalidRunConfigReason();
-    if (invalid) {
-      setMessage({ tone: "error", text: invalid });
-      openRunConfigDialog(activeRunConfig?.id);
-      return;
-    }
-    await requestDebugStart();
-  }
-
-  // Restart calls this directly: the guards in startDebug read the render that still shows the stopped-by-restart session.
+  // Restart calls this directly: the guards in prepareAndDebug read the render that still shows the stopped-by-restart session.
   async function requestDebugStart() {
     setBottomTab("debug");
     try {
@@ -329,9 +307,9 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
   }
 
   return {
-    buildDecision, setBuildDecision, runDecision, setRunDecision, debugConsent, setDebugConsent,
+    buildDecision, setBuildDecision, runDecision, setRunDecision,
     startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
     startRun, requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
-    prepareAndDebug, startDebug, requestDebugStart, stopDebug,
+    prepareAndDebug, requestDebugStart, stopDebug,
   };
 }

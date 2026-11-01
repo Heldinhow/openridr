@@ -330,6 +330,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  const [trustError, setTrustError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
@@ -2098,13 +2099,25 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     void openFile(projectSdk.globalJsonPath ?? "global.json");
   }
 
+  // One grant path for every "Trust this project" control: the decision is remembered, so the
+  // same workspace never asks again. The status popover keeps its own checkbox workflow.
+  async function grantTrust() {
+    setTrustError(null);
+    try {
+      onSnapshot(await call<Snapshot>("trust.grant", { remember: true }));
+      setMessage(null);
+    } catch (error) {
+      setTrustError(messageOf(error));
+    }
+  }
+
   const {
-    buildDecision, setBuildDecision, runDecision, setRunDecision, debugConsent, setDebugConsent,
+    buildDecision, setBuildDecision, runDecision, setRunDecision,
     startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
     startRun, requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
-    prepareAndDebug, startDebug, requestDebugStart, stopDebug,
+    prepareAndDebug, requestDebugStart, stopDebug,
   } = useExecutionFlow({
-    snapshot, trusted, evaluation, build, buildRunning, runRunning, dirtyCount, consoleCandidates, startupProject,
+    snapshot, evaluation, build, buildRunning, runRunning, dirtyCount, consoleCandidates, startupProject,
     activeRunConfig, activeConfigEvaluated, buildDisabledReason, debugDisabledReason, runAvailabilityReason,
     onSnapshot, setMessage, setBottomTab, saveAll, invalidRunConfigReason, openRunConfigDialog, openConfigOnFieldError,
   });
@@ -2397,7 +2410,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "debug.start",
       title: "Debug",
       group: "Debug",
-      execute: () => void startDebug(),
+      execute: () => void prepareAndDebug(),
       disabledReason: debugDisabledReason,
     }),
     define({
@@ -3119,6 +3132,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             onBuild={requestBuild}
             onCancel={() => void cancelBuild()}
             disabledReason={buildDisabledReason}
+            trusted={trusted}
+            onTrust={() => void grantTrust()}
             restoreRequired={restoreIncomplete}
             restoreDisabledReason={restoreDisabledReason}
             onRestore={() => void startRestore("restore.start")}
@@ -3142,7 +3157,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             <DebugPanel
               snapshot={snapshot}
               disabledReason={debugDisabledReason}
-              onLaunch={() => void startDebug()}
+              trusted={trusted}
+              onTrust={() => void grantTrust()}
+              onLaunch={() => void prepareAndDebug()}
               onSnapshot={onSnapshot}
               onError={(text) => setMessage({ tone: "error", text })}
               onRestart={() => void restartDebug()}
@@ -3383,14 +3400,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           className="toolbar-icon-button debug-button"
           aria-label="Debug"
           aria-disabled={debugStartAction.disabledReason !== null}
-          onClick={() => {
-            // The experimental opt-in and the adapter install are UI work; the launch is the host's.
-            if (debugStartAction.disabledReason === null) debugStartAction.execute();
-            else void prepareAndDebug();
-          }}
+          onClick={() => debugStartAction.execute()}
           title={
             debugStartAction.disabledReason ??
-            `Starts the evaluated Debug assembly under netcoredbg, building first when there is no current build (${debugStartAction.shortcutTexts.join(" or ")}).`
+            `Starts the evaluated Debug assembly under netcoredbg, enabling the experimental flag and reusing or installing the approved adapter when needed, and building first when there is no current build (${debugStartAction.shortcutTexts.join(" or ")}).`
           }
         >
           <Icon name="debug" />
@@ -3475,6 +3488,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         >
           {message.text}
           <button className="notice-dismiss" aria-label="Dismiss notification" onClick={() => setMessage(null)}>×</button>
+        </div>
+      )}
+      {trustError && (
+        <div className="notice error" role="alert" data-testid="trust-grant-error">
+          Trust could not be granted: {trustError}
+          <button className="notice-dismiss" aria-label="Dismiss trust error" onClick={() => setTrustError(null)}>×</button>
         </div>
       )}
 
@@ -4459,43 +4478,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 excluded)
               </button>
               <button data-testid="build-decision-cancel" onClick={() => setBuildDecision(false)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {debugConsent && (
-        <div className="modal-backdrop">
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="debug-consent-title"
-            data-testid="debug-consent-dialog"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setDebugConsent(false);
-            }}
-          >
-            <h2 id="debug-consent-title">Enable the experimental debugger?</h2>
-            <p>
-              The netcoredbg macOS arm64 build is community supported and experimental. Enabling it
-              applies to this session; the approved 3.2.0-1092 release is installed only if missing.
-              Debug then builds when no current build can launch and starts; Restore stays explicit.
-            </p>
-            <div className="actions">
-              <button
-                data-testid="debug-consent-accept"
-                autoFocus
-                onClick={() => {
-                  setDebugConsent(false);
-                  void prepareAndDebug(true);
-                }}
-              >
-                Enable and debug
-              </button>
-              <button data-testid="debug-consent-cancel" onClick={() => setDebugConsent(false)}>
                 Cancel
               </button>
             </div>

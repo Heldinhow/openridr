@@ -24,7 +24,7 @@ mod terminal;
 mod test_discovery;
 #[path = "test_run.rs"]
 mod test_run;
-mod tools;
+pub mod tools;
 mod trusted;
 
 pub use error::{HostError, HostResult};

@@ -188,10 +188,12 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   expect((await hostCall(request, "debug.flag", { enabled: true, confirm: true })).ok).toBe(true);
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
-  await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
+  await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+  // The adapter is still absent, but that no longer blocks Debug: clicking installs it.
+  await expect(page.getByTestId("toolbar-debug")).toBeEnabled();
   await expect(page.getByTestId("toolbar-debug")).toHaveAttribute(
     "title",
-    /osx-arm64 asset is available with explicit consent/,
+    /enabling the experimental flag and reusing or installing the approved adapter/,
   );
   await expect(page.getByTestId("toolbar-run")).toBeVisible();
   await expect(page.getByTestId("lsp-panel")).toBeVisible();
@@ -549,12 +551,13 @@ test("one click on Debug enables the flag, builds implicitly and stops at a brea
 
     // aria-disabled (blocked but clickable) fails Playwright's enabled check, so force it.
     await page.getByTestId("toolbar-debug").click({ force: true });
-    // The Tauri webview has no window.confirm, so consent is an in-app dialog.
-    await page.getByTestId("debug-consent-accept").click();
+    // No consent dialog: the click itself enables the flag and installs the adapter when missing.
+    await expect(page.getByTestId("debug-consent-dialog")).toHaveCount(0);
     await expect(page.getByTestId("dap-state")).toContainText(/Building|Preparing|Paused/, {
       timeout: 30_000,
     });
     await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 120_000 });
+    await expect(page.getByTestId("dap-experimental-note")).toBeVisible();
     await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:3");
     await page.getByTestId("debug-stop").click();
   } finally {

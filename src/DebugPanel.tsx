@@ -13,6 +13,8 @@ import {
 type Props = {
   snapshot: Snapshot;
   disabledReason: string | null;
+  trusted: boolean;
+  onTrust: () => void;
   onLaunch: () => void;
   onSnapshot: (snapshot: Snapshot) => void;
   onError: (message: string) => void;
@@ -41,6 +43,8 @@ const stateLabels: Record<Dap["state"], string> = {
 export function DebugPanel({
   snapshot,
   disabledReason,
+  trusted,
+  onTrust,
   onLaunch,
   onSnapshot,
   onError,
@@ -197,8 +201,29 @@ export function DebugPanel({
       {disabledReason && !active && (
         <p className="muted" data-testid="dap-disabled-reason" title={disabledReason}>
           {disabledReason}
+          {!trusted && (
+            <>
+              {" "}
+              <button
+                type="button"
+                data-testid="dap-trust"
+                onClick={onTrust}
+                title="Grants trust for this project path and remembers it; the Debug gate is re-evaluated."
+              >
+                Trust this project
+              </button>
+            </>
+          )}
         </p>
       )}
+      {snapshot.debug.os === "macos" &&
+        snapshot.debug.arch === "aarch64" &&
+        snapshot.debug.appleSiliconExperimental && (
+          <p className="muted" data-testid="dap-experimental-note">
+            macOS arm64 debugging is experimental and community supported; it runs the approved
+            netcoredbg 3.2.0-1092 build.
+          </p>
+        )}
       {terminal && (
         <p className="muted" data-testid="dap-terminal-note">
           {dap.phase.replace(/[.]+$/, "")}. Logs and debuggee output below are preserved from this session.

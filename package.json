@@ -1,7 +1,7 @@
 {
   "name": "openridr",
   "private": true,
-  "version": "0.3.0-alpha.2",
+  "version": "0.3.0-alpha.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,7 @@
     "hooks": "git config core.hooksPath .githooks",
     "test:e2e": "playwright test",
     "tauri": "tauri",
-    "host:http": "cargo run -p openridr-host-http -- --port 4317",
+    "host:http": "OPENRIDR_HOME=${OPENRIDR_HOME:-$PWD/.scratch/host-home} cargo run -p openridr-host-http -- --port 4317",
     "app:install": "sh scripts/install-app.sh"
   },
   "dependencies": {

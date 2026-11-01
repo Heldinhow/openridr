@@ -97,11 +97,10 @@ test("Run gates name their reason and do not require a saved build", () => {
 
 test("Debug gates name their reason and do not require a saved build", () => {
   expect(debugDisabledReason(context({ trusted: false }))).toBe("Trust the workspace before debugging; nothing runs in Restricted mode.");
-  expect(debugDisabledReason(context({ debug: { adapterState: "absent", gateReason: "no adapter" } }))).toBe("The debug adapter is not ready: no adapter");
-  expect(debugDisabledReason(context({ debug: { adapterState: "absent", adapterMessage: "missing launcher" } }))).toBe("The debug adapter is not ready: missing launcher");
-  expect(debugDisabledReason(context({ debug: { appleSiliconExperimental: false } }))).toBe(
-    "Enable the Apple Silicon experimental flag before debugging; nothing was launched.",
-  );
+  // The automatic Debug flow enables the experimental flag and installs the adapter itself.
+  expect(debugDisabledReason(context({ debug: { adapterState: "absent", gateReason: "no adapter" } }))).toBeNull();
+  expect(debugDisabledReason(context({ debug: { adapterState: "absent", adapterMessage: "missing launcher" } }))).toBeNull();
+  expect(debugDisabledReason(context({ debug: { appleSiliconExperimental: false } }))).toBeNull();
   expect(debugDisabledReason(context({ debug: { appleSiliconExperimental: false, arch: "x64" } }))).toBeNull();
   expect(debugDisabledReason(context({ sdk: "missing" }))).toBe("Resolve the project SDK before debugging; the host SDK is never substituted.");
   expect(debugDisabledReason(context({ evaluation: { state: "running" } }))).toBe("Wait for the evaluation to finish before debugging.");

@@ -15,6 +15,8 @@ type Props = {
   onBuild: () => void;
   onCancel: () => void;
   disabledReason: string | null;
+  trusted: boolean;
+  onTrust: () => void;
   restoreRequired: boolean;
   restoreDisabledReason: string | null;
   onRestore: () => void;
@@ -84,6 +86,8 @@ export function BuildPanel({
   onBuild,
   onCancel,
   disabledReason,
+  trusted,
+  onTrust,
   restoreRequired,
   restoreDisabledReason,
   onRestore,
@@ -225,10 +229,41 @@ export function BuildPanel({
         </span>
       </div>
 
-      {disabledReason && <p className="muted" data-testid="build-disabled-reason">{disabledReason}</p>}
+      {/* Restricted mode is the only gate where trusting from the reason itself makes sense. */}
+      {disabledReason && (
+        <p className="muted" data-testid="build-disabled-reason">
+          {disabledReason}
+          {!trusted && (
+            <>
+              {" "}
+              <button
+                type="button"
+                data-testid="build-trust"
+                onClick={onTrust}
+                title="Grants trust for this project path and remembers it; the Build gate is re-evaluated."
+              >
+                Trust this project
+              </button>
+            </>
+          )}
+        </p>
+      )}
       {runDisabledReason && (
         <p className="muted" data-testid="run-disabled-reason">
           Run unavailable: {runDisabledReason}
+          {!trusted && (
+            <>
+              {" "}
+              <button
+                type="button"
+                data-testid="run-trust"
+                onClick={onTrust}
+                title="Grants trust for this project path and remembers it; the Run gate is re-evaluated."
+              >
+                Trust this project
+              </button>
+            </>
+          )}
         </p>
       )}
 
