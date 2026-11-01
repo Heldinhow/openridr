@@ -27,4 +27,8 @@ Funcionalidade ausente: **New** e **Clone** ainda não existem; abra projetos ex
 
 ## Verificação
 
-SHA-256 do DMG: veja abaixo, nas notas da release.
+```
+bc8a62472bb40cb10902f8862b7ff96384c73457852f84ae75545a9a0b6b828c  OpenRidr_0.3.0-alpha.1_aarch64.dmg
+```
+
+Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: 4,86 MiB.
