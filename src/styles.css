@@ -3104,3 +3104,23 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .side .eval-controls .tag { order: -1; flex: 1 0 100%; padding: 0 8px; font-size: 12px; }
 .side .eval-controls button { min-height: 28px; padding: 0 8px; font-size: 12px; border-radius: var(--r-md); }
 .tree-folder { color: var(--muted); font-size: 12px; font-weight: 500; padding-top: 8px; padding-bottom: 2px; }
+
+/* ui-shape polish — toolbar menus: raised surface, 28px items with 6px radius, a note sits under its label instead of running into it. */
+.menu-content { gap: 2px; padding: 4px; background: var(--raised); border-radius: var(--r-xl); box-shadow: var(--shadow-popover); }
+.menu-content > button { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; width: 100%; min-width: 0; min-height: 28px; padding: 4px 8px; border-color: transparent; border-radius: var(--r-md); background: transparent; box-shadow: none; font-size: 13px; font-weight: 400; white-space: normal; overflow-wrap: anywhere; }
+.menu-content > button:hover:not(:disabled) { background: var(--accent-surface-strong); }
+.menu-content > button[aria-current="true"] { font-weight: 600; }
+.menu-content > button:disabled { color: var(--disabled); }
+.menu-heading { padding: 4px 8px 2px; font-size: 12px; color: var(--muted); }
+.menu-note { font-size: 12px; font-weight: 400; }
+/* ui-shape polish — branch popup: list and actions read as menu items, a divider separates branches from actions. */
+.branch-menu .branch-menu-content { gap: 4px; padding: 4px; }
+.branch-menu .branch-menu-content > .menu-note { padding: 0 8px 4px; }
+.branch-search { min-height: var(--control-h); }
+.branch-list { border: 0; padding: 0; gap: 0; }
+.branch-list button, .branch-actions > button { min-height: 28px; padding: 3px 8px; border-color: transparent; border-radius: var(--r-md); background: transparent; box-shadow: none; font-size: 13px; font-weight: 400; text-align: left; }
+.branch-list button:hover:not(:disabled), .branch-actions > button:hover:not(:disabled) { background: var(--accent-surface-strong); }
+.branch-list button:disabled, .branch-actions > button:disabled { color: var(--disabled); }
+.branch-list button[aria-current="true"] { color: var(--fg); font-weight: 600; }
+.branch-actions { gap: 0; padding-top: 4px; border-top: 1px solid var(--line-internal); }
+.branch-actions > .menu-note { padding: 4px 8px 0; }
