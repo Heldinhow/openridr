@@ -1,10 +1,15 @@
-# OpenRidr 0.3.0-alpha.1 (pré-release)
+# OpenRidr 0.3.0-alpha.2 (pré-release)
 
-Primeira alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/TS), tema escuro, ícone novo.
+Segunda alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/TS), tema escuro.
+
+## Novidades
+
+- **Run e Debug agora constroem sozinhos quando não há build.** Clicar em Run (ou no atalho) usa o build atual quando ele existe e, quando não existe, inicia o build normal — com saída em streaming no painel Build e estado **Building** no Run/Debug. Build falho não executa e mantém os diagnósticos no Build. Parar cancela o build e o lançamento pendente; um segundo clique não inicia outro build.
+- **Restore continua explícito.** Run e Debug nunca restauram implicitamente: com dependências pendentes, continuam mostrando `restore_required` e a ação de Restore.
 
 ## Instalar
 
-1. Baixe `OpenRidr_0.3.0-alpha.1_aarch64.dmg`, abra e arraste **OpenRidr** para **Applications**.
+1. Baixe `OpenRidr_0.3.0-alpha.2_aarch64.dmg`, abra e arraste **OpenRidr** para **Applications**.
 2. O app tem assinatura **ad-hoc** (sem Apple Developer ID, sem notarização). O Gatekeeper vai bloquear a primeira abertura:
    - botão direito em OpenRidr.app > **Abrir** > **Abrir**; ou
    - `xattr -dr com.apple.quarantine /Applications/OpenRidr.app`
@@ -27,8 +32,10 @@ Funcionalidade ausente: **New** e **Clone** ainda não existem; abra projetos ex
 
 ## Verificação
 
+O SHA-256 do DMG final é publicado abaixo e no anexo desta release.
+
 ```
-bc8a62472bb40cb10902f8862b7ff96384c73457852f84ae75545a9a0b6b828c  OpenRidr_0.3.0-alpha.1_aarch64.dmg
+<sha256>  OpenRidr_0.3.0-alpha.2_aarch64.dmg
 ```
 
-Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: 4,86 MiB.
+Confira com `shasum -a 256 <arquivo>.dmg`.

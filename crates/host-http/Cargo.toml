@@ -1,6 +1,6 @@
 [package]
 name = "openridr-host-http"
-version = "0.3.0-alpha.1"
+version = "0.3.0-alpha.2"
 edition = "2021"
 license = "Apache-2.0"
 description = "Development-only HTTP bridge for the OpenRidr host (never shipped)"
