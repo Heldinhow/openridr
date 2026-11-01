@@ -459,3 +459,10 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - Falha do grant aparece como `trust-error` (nota da workspace) e não finge sucesso; sucesso limpa a mensagem e atualiza o snapshot, então o motivo de Restricted some e o restore automático de workspace Trusted segue como já era.
 - Nenhum indicador de confiança novo na barra superior: `status-mode` e o menu "⋯" dos recentes continuam sendo os únicos lugares.
 - Evidência: `docs/evidence/alpha3-debug-trust.md` e `tests/e2e/gates.spec.ts`.
+
+## 2026-11-01 — Alfa 3: dados de teste isolados e higiene do repositório (ticket 37)
+
+- O host E2E sempre roda com `OPENRIDR_HOME` temporário (`e2eHome` = `OPENRIDR_E2E_HOME` ou `os.tmpdir()/openridr-e2e-home`) e `OPENRIDR_TRUST_STORE=off`. `environment.spec.ts` prova que `app.appHome` é exatamente `e2eHome`; nenhum teste escreve `trusted.json`/`recent.json` no app home real (mtime, tamanho e SHA-256 iguais antes/depois das execuções).
+- `bun run host:http` passa a rodar com `OPENRIDR_HOME=${OPENRIDR_HOME:-$PWD/.scratch/host-home}`: o smoke manual não escreve no app home real. Para usar o home real de propósito, exporte `OPENRIDR_HOME` explicitamente.
+- `.gitignore` cobre `.openchamber/`, `.playwright-mcp/`, `.scratch/design-ref/`, `.scratch/ui-shape/`, `.scratch/host-home/` (novo diretório do `host:http`) e `docs/evidence/logs/*`. Logs já versionados continuam versionados; a regra vale para arquivos novos.
+- Evidência: `docs/evidence/alpha3-debug-trust.md`.

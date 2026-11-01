@@ -34,7 +34,7 @@ bun run build          # tsc --noEmit + vite build
 bun run check          # tsc --noEmit + cargo check --workspace --all-targets
 bun run hooks          # uma vez por clone: aponta core.hooksPath para .githooks
 bun run test:e2e       # Playwright; não rode junto com dev (portas 1420/4317)
-bun run host:http      # ponte HTTP de dev na 4317
+bun run host:http      # ponte HTTP de dev na 4317, com OPENRIDR_HOME em .scratch/host-home
 ```
 
 `check` não inclui `cargo fmt --check` nem `clippy -D warnings`: o código atual não passa em nenhum dos dois. Não reformate o repo inteiro dentro de um ticket; formate apenas o que tocar até essa dívida ser paga.

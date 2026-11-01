@@ -60,8 +60,49 @@ rótulo "Trust this project"; nenhum `trust-checkbox` dentro dos avisos; após `
 desaparecem. O grant é feito por `trust.grant {remember: true}` (a persistência é a mesma coberta
 pelos specs de trust).
 
+## Ticket 37 — Dados de teste isolados
+
+O host E2E já subia com `OPENRIDR_HOME: e2eHome` e `OPENRIDR_TRUST_STORE=off` em
+`playwright.config.ts`; o spec agora prova o contrato pela ponte real:
+
+```sh
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/environment.spec.ts
+# ✓ 1 environment.spec.ts:4 E2E ports are validated and the loopback proxy rejects foreign origins
+# ✓ 2 environment.spec.ts:23 the E2E host uses the isolated app home
+# 2 passed (1.7s)
+```
+
+`bun run host:http` (sem `OPENRIDR_HOME`) respondeu `app.state` com
+`appHome = <repo>/.scratch/host-home`, não o app home real:
+
+```sh
+bun run host:http &
+curl -s -X POST http://127.0.0.1:4317/call -H 'content-type: application/json' \
+  -d '{"method":"app.state","params":{}}'
+# ok: True appHome: .../alpha3/.scratch/host-home
+```
+
+Os arquivos reais não são tocados pelos specs. A captura (`stat -f '%N %m %z'` + `shasum -a 256`)
+foi feita antes e depois das rodadas; o diff ficou vazio em todas:
+
+- antes de qualquer execução → depois de `debugger` (one-click), `ui-fold`, `execution-gates`,
+  `gates` e `environment`: **UNCHANGED**. Estado capturado: `trusted.json` mtime `1793568932`,
+  15306 bytes, SHA-256 `c0a9918b…dacdd9`; `recent.json` mtime `1793568993`, 4205 bytes, SHA-256
+  `dba03a04…3eee7`.
+- `debugger -g "one click"` + `environment.spec.ts`, depois `trust-prompt.spec.ts`, depois
+  `welcome.spec.ts`: cada uma comparada antes/depois, **UNCHANGED**.
+
+Achado fora do escopo do ticket (pendência): `cargo test -p openridr-host` escreve nos mesmos
+arquivos reais — o mtime passou a `1793569828` e entraram projetos temporários de `host.rs`
+(`.tmp*/Many.sln`, `Honest.csproj`, …). É o comportamento anterior à mudança (testes de host que
+não fixam `OPENRIDR_HOME` pelo processo inteiro); nada de Rust foi alterado neste ticket.
+
+`.gitignore` cobre os caminhos de higiene (D4) mais `.scratch/host-home/`, o diretório criado pelo
+`host:http` isolado. `git check-ignore` confirmou a regra para `.scratch/host-home/trusted.json`.
+
 ## Não verificado
 
 - App Tauri/WKWebView empacotado: a prova é pela UI no Chrome sobre a ponte HTTP de dev; o bundle
   `.app` não foi reexecutado nesta rodada.
-- Windows x64 e macOS Intel: não executados.
+- Windows x64 e macOS Intel: não executados; o `host:http` isolado usa expansão POSIX de shell.

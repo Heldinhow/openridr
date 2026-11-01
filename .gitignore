@@ -7,3 +7,9 @@ test-results/
 playwright-report/
 .DS_Store
 *.local
+.openchamber/
+.playwright-mcp/
+.scratch/design-ref/
+.scratch/ui-shape/
+.scratch/host-home/
+docs/evidence/logs/*

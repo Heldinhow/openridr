@@ -646,3 +646,13 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - `tests/e2e/gates.spec.ts`: novo teste em Restricted com os três avisos e seus botões; clicar `build-trust` deixa `status-mode` em "Trusted mode" e os motivos de Restricted somem. Usa cópia temporária da fixture e o cleanup D-13 existente.
 - **Verificado:** `bun run check`; `gates.spec.ts` 10/10. Evidência em `docs/evidence/alpha3-debug-trust.md`.
 - **Não verificado:** captura no app Tauri (a prova é a UI no Chrome sobre a ponte HTTP de dev).
+
+## Alfa 3 — 37 Dados de teste isolados (2026-11-01)
+
+- `tests/e2e/environment.spec.ts`: novo teste consulta `app.state` pela ponte real e afirma `app.appHome === e2eHome`. O `playwright.config.ts` já subia o host com `OPENRIDR_HOME: e2eHome` e `OPENRIDR_TRUST_STORE: "off"`; o spec agora prova o contrato.
+- `package.json`: `host:http` = `OPENRIDR_HOME=${OPENRIDR_HOME:-$PWD/.scratch/host-home} cargo run -p openridr-host-http -- --port 4317`. Smoke real: `app.state` devolveu `appHome` em `<repo>/.scratch/host-home`.
+- `.gitignore`: `.openchamber/`, `.playwright-mcp/`, `.scratch/design-ref/`, `.scratch/ui-shape/`, `.scratch/host-home/` e `docs/evidence/logs/*`.
+- `AGENTS.md` (comando `host:http` isolado) e `docs/tickets-mvp/README.md` (índice 35–37) atualizados.
+- **Verificado:** `bun run check`; `environment.spec.ts` 2/2; `debugger` (one-click) 1/1, `ui-fold` 4/4, `execution-gates` 4/4, `gates` 10/10, `trust-prompt` 6/6 e `welcome` 6/6. `trusted.json`/`recent.json` reais com mtime, tamanho e SHA-256 idênticos antes/depois de cada rodada E2E. Evidência em `docs/evidence/alpha3-debug-trust.md`.
+- **Pendência encontrada:** `cargo test -p openridr-host` ainda escreve `trusted.json`/`recent.json` no app home real (testes de host que não fixam `OPENRIDR_HOME` no processo inteiro). É anterior a este ticket e não foi alterado; `cargo test -p openridr-host` segue só com a falha de baseline `file_access_is_confined_to_the_workspace`.
+- **Não verificado:** Windows e macOS Intel (o comando usa expansão POSIX de shell; o alvo verificado é macOS).
