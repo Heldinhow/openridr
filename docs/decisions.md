@@ -452,3 +452,10 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - `executionGates.debugDisabledReason` deixa de bloquear por adaptador ausente e flag desligada, porque o fluxo resolve os dois. O painel Debug mostra `dap-experimental-note` (macOS arm64 experimental, suporte da comunidade, release aprovada 3.2.0-1092) enquanto a flag está ativa; é aviso não bloqueante e não promete suporte oficial.
 - Saem do código `debug-consent-dialog`, `debug-consent-accept`, `debug-consent-cancel` e o estado `debugConsent`. `debugger.spec.ts` e `ui-fold.spec.ts` não clicam consentimento e afirmam o diálogo ausente.
 - Evidência: `docs/evidence/alpha3-debug-trust.md`.
+
+## 2026-11-01 — Alfa 3: confiar no próprio aviso de bloqueio (ticket 36)
+
+- Quando Build, Run ou Debug está bloqueado por Restricted mode, o próprio parágrafo do motivo mostra o botão **Trust this project** (`build-trust`, `run-trust`, `dap-trust`). Ele chama `trust.grant {remember: true}` pelo `grantTrust()` único do `WorkspaceView`, então a escolha é persistida. Sem checkbox no aviso; o popover de `status-mode` e o menu "⋯" dos recentes mantêm o fluxo com checkbox.
+- Falha do grant aparece como `trust-error` (nota da workspace) e não finge sucesso; sucesso limpa a mensagem e atualiza o snapshot, então o motivo de Restricted some e o restore automático de workspace Trusted segue como já era.
+- Nenhum indicador de confiança novo na barra superior: `status-mode` e o menu "⋯" dos recentes continuam sendo os únicos lugares.
+- Evidência: `docs/evidence/alpha3-debug-trust.md` e `tests/e2e/gates.spec.ts`.

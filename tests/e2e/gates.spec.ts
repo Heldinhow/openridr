@@ -284,6 +284,43 @@ test("Build and Run name Restricted mode as the reason", async ({ page }) => {
   );
 });
 
+// Ticket 36: the Restricted reason itself grants trust, with no checkbox in the warning.
+test("Restricted warnings grant trust from the reason itself", async ({ page, request }) => {
+  const { base, solution } = createRestrictedWorkspace();
+  let bodyFailed = false;
+  try {
+    await enterRestrictedWorkspace(page, solution);
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-disabled-reason")).toContainText("Restricted mode");
+    await expect(page.getByTestId("build-trust")).toHaveText("Trust this project");
+    await expect(page.getByTestId("run-trust")).toHaveText("Trust this project");
+    expect(await page.getByTestId("build-disabled-reason").getByTestId("trust-checkbox").count()).toBe(0);
+
+    await page.getByTestId("bottom-tab-debug").click();
+    await expect(page.getByTestId("dap-disabled-reason")).toContainText("Restricted mode");
+    await expect(page.getByTestId("dap-trust")).toHaveText("Trust this project");
+
+    await page.getByTestId("bottom-tab-build").click();
+    await page.getByTestId("build-trust").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+    await expect(page.getByTestId("build-trust")).toHaveCount(0);
+    await expect(page.getByTestId("run-trust")).toHaveCount(0);
+    await expect(page.getByTestId("build-disabled-reason")).not.toContainText("Restricted mode");
+    await expect(page.getByTestId("run-disabled-reason")).not.toContainText("Restricted mode");
+
+    await page.getByTestId("bottom-tab-debug").click();
+    await expect(page.getByTestId("dap-trust")).toHaveCount(0);
+    await expect(page.getByTestId("dap-disabled-reason")).not.toContainText("Restricted mode");
+    await expect(page.getByTestId("trust-checkbox")).toHaveCount(0);
+  } catch (error) {
+    bodyFailed = true;
+    throw error;
+  } finally {
+    const cleanup = await cleanupD13Workspace(base, request, solution);
+    if (cleanup.retained) reportRetention(`${base}: ${cleanup.reason}`, bodyFailed);
+  }
+});
+
 // D-10: the Trust popover closes once Revoke completes, so it never covers the tab strip.
 test("Revoke closes the Trust popover and leaves the tabs clickable", async ({ page }) => {
   await page.goto("/");

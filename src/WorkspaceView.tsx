@@ -330,6 +330,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  const [trustError, setTrustError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
@@ -2098,6 +2099,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     void openFile(projectSdk.globalJsonPath ?? "global.json");
   }
 
+  // One grant path for every "Trust this project" control: the decision is remembered, so the
+  // same workspace never asks again. The status popover keeps its own checkbox workflow.
+  async function grantTrust() {
+    setTrustError(null);
+    try {
+      onSnapshot(await call<Snapshot>("trust.grant", { remember: true }));
+      setMessage(null);
+    } catch (error) {
+      setTrustError(messageOf(error));
+    }
+  }
+
   const {
     buildDecision, setBuildDecision, runDecision, setRunDecision,
     startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
@@ -3119,6 +3132,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             onBuild={requestBuild}
             onCancel={() => void cancelBuild()}
             disabledReason={buildDisabledReason}
+            trusted={trusted}
+            onTrust={() => void grantTrust()}
             restoreRequired={restoreIncomplete}
             restoreDisabledReason={restoreDisabledReason}
             onRestore={() => void startRestore("restore.start")}
@@ -3142,6 +3157,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             <DebugPanel
               snapshot={snapshot}
               disabledReason={debugDisabledReason}
+              trusted={trusted}
+              onTrust={() => void grantTrust()}
               onLaunch={() => void prepareAndDebug()}
               onSnapshot={onSnapshot}
               onError={(text) => setMessage({ tone: "error", text })}
@@ -3471,6 +3488,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         >
           {message.text}
           <button className="notice-dismiss" aria-label="Dismiss notification" onClick={() => setMessage(null)}>×</button>
+        </div>
+      )}
+      {trustError && (
+        <div className="notice error" role="alert" data-testid="trust-error">
+          Trust could not be granted: {trustError}
+          <button className="notice-dismiss" aria-label="Dismiss trust error" onClick={() => setTrustError(null)}>×</button>
         </div>
       )}
 

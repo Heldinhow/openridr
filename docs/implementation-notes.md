@@ -638,3 +638,11 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - Specs: `debugger.spec.ts` (one-click) e `ui-fold.spec.ts` não clicam consentimento, afirmam `debug-consent-dialog` ausente e o one-click afirma `dap-experimental-note`; `execution-gates.spec.ts` passou a esperar `null` para adaptador/flag.
 - **Verificado:** `bun run check`; `debugger.spec.ts -g "one click"` 1/1 (netcoredbg real, `Paused` em `Program.cs:3`), `ui-fold.spec.ts` 4/4, `execution-gates.spec.ts` 4/4. Evidência em `docs/evidence/alpha3-debug-trust.md`.
 - **Não verificado:** Tauri/WKWebView empacotado, Windows x64 e macOS Intel.
+
+## Alfa 3 — 36 Confiar no aviso (2026-11-01)
+
+- `src/BuildPanel.tsx`: recebe `trusted`/`onTrust`; `build-disabled-reason` e `run-disabled-reason` ganham `build-trust`/`run-trust` ("Trust this project") quando `!trusted`. `src/DebugPanel.tsx`: mesmos props e `dap-trust` dentro de `dap-disabled-reason`. Sem checkbox nesses avisos.
+- `src/WorkspaceView.tsx`: `grantTrust()` único (`trust.grant {remember:true}` + `onSnapshot` + `setMessage(null)`); falha vira nota `trust-error` (`role="alert"`) nas notices da workspace. `status-mode`/popover e o menu "⋯" dos recentes não mudaram.
+- `tests/e2e/gates.spec.ts`: novo teste em Restricted com os três avisos e seus botões; clicar `build-trust` deixa `status-mode` em "Trusted mode" e os motivos de Restricted somem. Usa cópia temporária da fixture e o cleanup D-13 existente.
+- **Verificado:** `bun run check`; `gates.spec.ts` 10/10. Evidência em `docs/evidence/alpha3-debug-trust.md`.
+- **Não verificado:** captura no app Tauri (a prova é a UI no Chrome sobre a ponte HTTP de dev).

@@ -41,6 +41,25 @@ O que essas execuções observaram:
   desligada; os demais motivos (trust, SDK, avaliação, configuração, startup, build em andamento e
   sessão ativa) continuam.
 
+## Ticket 36 — Confiar no próprio aviso
+
+O spec abre uma cópia temporária em Restricted, confere os três avisos (`build-disabled-reason`,
+`run-disabled-reason`, `dap-disabled-reason`) com seus botões e clica `build-trust`. Sem checkbox
+no aviso.
+
+```sh
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/gates.spec.ts
+# ✓ 10 tests/e2e/gates.spec.ts (inclui "Restricted warnings grant trust from the reason itself")
+# 10 passed (21.8s)
+```
+
+O que a execução observou: em Restricted, `build-trust`, `run-trust` e `dap-trust` aparecem com o
+rótulo "Trust this project"; nenhum `trust-checkbox` dentro dos avisos; após `build-trust`,
+`status-mode` fica "Trusted mode", os motivos de Restricted somem e os botões de trust
+desaparecem. O grant é feito por `trust.grant {remember: true}` (a persistência é a mesma coberta
+pelos specs de trust).
+
 ## Não verificado
 
 - App Tauri/WKWebView empacotado: a prova é pela UI no Chrome sobre a ponte HTTP de dev; o bundle
