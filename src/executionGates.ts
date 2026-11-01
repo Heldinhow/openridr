@@ -68,10 +68,10 @@ export function runAvailabilityReason(
                   ? "The run configuration selects a project that is not an evaluated console project; edit the configuration."
                   : !project
                     ? "More than one console project; choose the startup project explicitly."
-                    : build.state === "running"
-                      ? "A build is running; wait for it to finish before running."
-                      : c.runBuilding
-                        ? "Run is already building; wait for it to finish or press Stop."
+                    : c.runBuilding
+                      ? "Run is already building; wait for it to finish or press Stop."
+                      : build.state === "running"
+                        ? "A build is running; wait for it to finish before running."
                         : c.runRunning
                           ? "A program is already running."
                           : null;
@@ -101,10 +101,10 @@ export function debugDisabledReason(c: GateContext) {
                       ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
                       : !c.startupProject
                         ? "More than one console project; choose the startup project explicitly."
-                        : build.state === "running"
-                          ? "A build is running; wait for it to finish before debugging."
-                          : c.debugBuilding
-                            ? "Debug is already building; wait for it to finish or press Stop."
+                        : c.debugBuilding
+                          ? "Debug is already building; wait for it to finish or press Stop."
+                          : build.state === "running"
+                            ? "A build is running; wait for it to finish before debugging."
                             : c.debugActive
                               ? "A debug session is already active."
                               : null;

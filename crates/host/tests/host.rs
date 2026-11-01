@@ -3841,6 +3841,15 @@ fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
                 .is_some_and(|kind| kind.starts_with("debug:"))),
         "no adapter is spawned for a cancelled implicit build"
     );
+
+    // Cancel and restart during the build: the new pending session must not repeat the
+    // session number the cancelled `building` record already showed.
+    let cancelled_session = stopped["dap"]["session"].as_u64().unwrap();
+    let restarted = host.dispatch("debug.start", json!({})).unwrap();
+    assert_eq!(restarted["dap"]["state"], "building");
+    assert_ne!(restarted["dap"]["session"].as_u64().unwrap(), cancelled_session);
+    let stopped_again = host.dispatch("debug.stop", json!({})).unwrap();
+    assert_eq!(stopped_again["dap"]["state"], "cancelled");
 }
 
 #[cfg(target_os = "macos")]

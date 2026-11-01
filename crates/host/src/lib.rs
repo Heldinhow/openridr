@@ -189,6 +189,8 @@ struct PendingDebug {
     build_id: String,
     token: ContextToken,
     params: Value,
+    /// The session shown in the `building` record; the real launch reuses it.
+    session: u64,
 }
 
 /// What the snapshot must do with a launch whose implicit build has been observed.
@@ -777,9 +779,14 @@ impl Host {
             match pending_outcome(&inner.build.view(), &pending.build_id) {
                 PendingOutcome::Wait => inner.pending_debug = Some(pending),
                 PendingOutcome::Launch => {
-                    if let Err(error) =
-                        self.start_debug_locked(inner, pending.token, pending.params, false)
-                    {
+                    // start_debug_locked takes `dap_seq + 1`; moving the counter back makes the
+                    // real launch reuse the session the building record already showed.
+                    inner.dap_seq = pending.session.saturating_sub(1);
+                    let result =
+                        self.start_debug_locked(inner, pending.token, pending.params, false);
+                    // Burned even on failure: a retry must never repeat the session number.
+                    inner.dap_seq = pending.session;
+                    if let Err(error) = result {
                         inner.dap.fail_pending(format!(
                             "The build finished, but the debug session was not started: {}",
                             error.message
@@ -802,6 +809,12 @@ impl Host {
         inner.processes.lock().unwrap().refresh();
         inner.sync_restore();
         inner.sync_build();
+        // External .csproj/import edits are checked before a pending launch is completed, so
+        // the launch gates see `evaluation_stale` instead of running the previous build.
+        let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
+        if let Some(root) = root {
+            inner.evaluation.check_external_changes(&root);
+        }
         self.finish_pending_launches(inner);
         inner.sync_run();
         inner.sync_terminal();
@@ -810,10 +823,6 @@ impl Host {
         inner.sync_dap();
         inner.sync_tools();
         inner.sync_lsp();
-        let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
-        if let Some(root) = root {
-            inner.evaluation.check_external_changes(&root);
-        }
         if inner.evaluation.stale {
             inner.build.mark_stale(
                 "The evaluated project model is stale; the previous build is not current.",
@@ -3604,12 +3613,15 @@ impl Host {
             "targetFramework": target_framework,
         });
         let build_id = self.start_build_locked(inner, token, build_params)?;
-        let launch = make_launch(build_id.clone(), inner.dap_seq + 1);
+        inner.dap_seq += 1;
+        let session = inner.dap_seq;
+        let launch = make_launch(build_id.clone(), session);
         inner.dap = inner.dap.building(launch);
         inner.pending_debug = Some(PendingDebug {
             build_id,
             token,
             params,
+            session,
         });
         Ok(())
     }

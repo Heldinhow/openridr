@@ -84,6 +84,9 @@ test("Run gates name their reason and do not require a saved build", () => {
   expect(run(context({ build: { state: "running" } }))).toBe("A build is running; wait for it to finish before running.");
   expect(run(context({ ctx: { runRunning: true } }))).toBe("A program is already running.");
   expect(run(context({ ctx: { runBuilding: true } }))).toBe("Run is already building; wait for it to finish or press Stop.");
+  // A run waiting on its own implicit build keeps its message while that build is running;
+  // only a build nobody in Run asked for is the generic one.
+  expect(run(context({ build: { state: "running" }, ctx: { runBuilding: true } }))).toBe("Run is already building; wait for it to finish or press Stop.");
   // The host builds implicitly: missing, stale or failed builds are not a UI gate.
   expect(run(context({ build: { revision: 0, state: "idle", exit: null } }))).toBeNull();
   expect(run(context({ build: { sealed: true } }))).toBeNull();
@@ -113,6 +116,8 @@ test("Debug gates name their reason and do not require a saved build", () => {
   );
   expect(debugDisabledReason(context({ build: { state: "running" } }))).toBe("A build is running; wait for it to finish before debugging.");
   expect(debugDisabledReason(context({ ctx: { debugBuilding: true } }))).toBe("Debug is already building; wait for it to finish or press Stop.");
+  // Same order as Run: the session's own implicit build keeps the specific message.
+  expect(debugDisabledReason(context({ build: { state: "running" }, ctx: { debugBuilding: true } }))).toBe("Debug is already building; wait for it to finish or press Stop.");
   expect(debugDisabledReason(context({ ctx: { debugActive: true } }))).toBe("A debug session is already active.");
   expect(debugDisabledReason(context({ ctx: { startupProject: null } }))).toBe("More than one console project; choose the startup project explicitly.");
   // The host builds implicitly: missing, stale or failed builds are not a UI gate.
