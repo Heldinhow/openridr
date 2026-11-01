@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Original OpenRidr mark: "OR" monogram on the app's dark panel tokens (src/styles.css). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141414"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6d9bf9"/>
+      <stop offset="1" stop-color="#548af7"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="104" y="104" width="816" height="816" rx="181" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="8"/>
+  <g transform="translate(26 0)" fill="none" stroke-width="72">
+    <circle cx="345" cy="512" r="144" stroke="url(#ring)"/>
+    <g stroke="#f5f5f5">
+      <path d="M600 332V692"/>
+      <path d="M600 368H700A72 72 0 0 1 700 512H600" stroke-linejoin="round"/>
+      <path d="M676 512L772 692"/>
+    </g>
+  </g>
+</svg>
