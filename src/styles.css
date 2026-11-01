@@ -704,7 +704,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -920,7 +920,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   flex: 0 0 auto;
   border-top: 1px solid var(--line);
   padding: 4px 14px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--muted);
   background: var(--panel);
 }
@@ -1413,7 +1413,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   grid-template-columns: 118px minmax(0, 1fr);
   gap: 2px 8px;
   margin: 6px 0 4px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 .restore-meta dt {
@@ -1514,7 +1514,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   gap: 4px 16px;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 .plain-list {
@@ -1796,7 +1796,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   align-items: flex-start;
   gap: 8px;
   padding: 5px 8px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -1864,7 +1864,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   background: transparent;
   border: 0;
   border-radius: 0;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   text-align: left;
 }
 
@@ -1915,18 +1915,18 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 3px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 .quick-list-keys {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
 .quick-list-reason {
   margin: 2px 0 6px 30px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 .find-action {
@@ -2092,7 +2092,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   border: 1px solid var(--line);
   border-radius: 3px;
   color: var(--muted);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 }
 
 .run-config-dialog {
@@ -2325,7 +2325,7 @@ mark.search-hit {
 }
 
 .action-group {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 }
 
 .action-keys {
@@ -2337,18 +2337,18 @@ mark.search-hit {
 
 .action-reason {
   flex-basis: 100%;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 }
 
 .keymap-table-scroll { flex: 1 1 auto; min-height: 0; max-width: 100%; overflow: auto; }
 .keymap-list { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
 .keymap-list th, .keymap-list td { padding: 4px 7px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
-.keymap-list thead th { position: sticky; top: 0; color: var(--muted); font-size: 0.68rem; font-weight: 600; background: var(--panel); }
+.keymap-list thead th { position: sticky; top: 0; color: var(--muted); font-size: 0.75rem; font-weight: 600; background: var(--panel); }
 .keymap-list tbody th { min-width: 150px; font-weight: 500; }
 .keymap-list td:nth-child(2) { min-width: 190px; }
-.keymap-group { display: block; color: var(--muted); font-size: 0.68rem; }
-.keymap-list .action-keys { display: block; margin: 1px 0 0; font: 0.72rem var(--mono); color: var(--fg); white-space: normal; }
-.keymap-conflict { display: block; font-size: 0.68rem; }
+.keymap-group { display: block; color: var(--muted); font-size: 0.75rem; }
+.keymap-list .action-keys { display: block; margin: 1px 0 0; font: 0.75rem var(--mono); color: var(--fg); white-space: normal; }
+.keymap-conflict { display: block; font-size: 0.75rem; }
 .keymap-actions { white-space: nowrap; }
 .keymap-actions button { padding: 2px 6px; margin-right: 4px; }
 
@@ -2368,7 +2368,7 @@ mark.search-hit {
   white-space: nowrap;
 }
 
-.branch-counters { color: var(--muted); font-size: 0.72rem; }
+.branch-counters { color: var(--muted); font-size: 0.75rem; }
 .branch-menu .branch-menu-content { left: 0; right: auto; width: 340px; display: grid; gap: 6px; }
 .branch-search { width: 100%; }
 .branch-list { display: grid; gap: 2px; max-height: 220px; overflow: auto; border: 1px solid var(--line); padding: 4px; }
@@ -2463,7 +2463,7 @@ mark.search-hit {
 .inline-rename-row { display: flex; gap: 4px; align-items: center; }
 .inline-rename-row input { flex: 1 1 auto; min-width: 0; padding: 3px 6px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); }
 .inline-rename-row button { white-space: nowrap; }
-.inline-rename .error { margin: 0; font-size: 0.72rem; }
+.inline-rename .error { margin: 0; font-size: 0.75rem; }
 
 .editor-context-menu {
   position: fixed;
@@ -2493,8 +2493,8 @@ mark.search-hit {
 .editor-context-menu button:not(:disabled):focus-visible { background: var(--select); outline: none; }
 .editor-context-menu button:disabled { color: var(--muted); opacity: 0.68; cursor: default; }
 .context-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.context-menu-shortcut { color: var(--muted); font-size: 0.72rem; }
-.context-menu-reason { grid-column: 1 / -1; color: var(--warning); font-size: 0.68rem; white-space: normal; }
+.context-menu-shortcut { color: var(--muted); font-size: 0.75rem; }
+.context-menu-reason { grid-column: 1 / -1; color: var(--warning); font-size: 0.75rem; white-space: normal; }
 .context-menu-separator { margin: 4px 0; border-top: 1px solid var(--line); }
 
 .find-usages-groups { display: grid; gap: 8px; margin: 6px 0; }
@@ -2514,8 +2514,8 @@ mark.search-hit {
 }
 .find-usages-file li button:hover,
 .find-usages-file li button:focus-visible { background: var(--select); outline: none; }
-.find-usage-line { color: var(--muted); font-family: var(--mono); font-size: 0.72rem; text-align: right; }
-.find-usage-snippet { font-family: var(--mono); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.find-usage-line { color: var(--muted); font-family: var(--mono); font-size: 0.75rem; text-align: right; }
+.find-usage-snippet { font-family: var(--mono); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .git-diff-modal { width: min(900px, 92vw); max-height: 82vh; }
 .git-diff-modal .eval-pre { max-height: 55vh; overflow: auto; white-space: pre; }
 
@@ -3139,3 +3139,10 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .debug-panel > .panel-title .push { flex: 1 1 auto; }
 .debug-panel > .panel-title .toolbar-icon-button { width: 32px; height: 32px; }
 .debug-panel [data-testid="debug-step-over"] .icon, .debug-panel [data-testid="debug-step-into"] .icon, .debug-panel [data-testid="debug-step-out"] .icon { color: var(--fg); }
+
+/* ui-shape polish — one disclosure marker everywhere (the 12px chevron the tree and detail panes already use), no 8px text glyphs. */
+.tool-row > summary::before, .workspace-tools > summary::before, .tool-row[open] > summary::before, .workspace-tools[open] > summary::before { content: ""; flex: none; width: 12px; height: 12px; background: currentColor; color: var(--muted); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat; transform: rotate(-90deg); transition: transform 120ms ease-out; }
+.tool-row[open] > summary::before, .workspace-tools[open] > summary::before { transform: none; }
+
+/* ui-shape polish — keyboard focus is a ring, never fill alone: dense rows and menu items take it inset so scrollers do not clip it. */
+.editor-context-menu button:not(:disabled):focus-visible, .find-usages-file li button:focus-visible, .tree-row:focus-visible, .branch-list button:focus-visible, .branch-actions > button:focus-visible, .menu-content > button:focus-visible, .bottom-hide:focus-visible, .settings-tree button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
