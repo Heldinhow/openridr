@@ -3383,11 +3383,45 @@ fn cancelling_a_run_waiting_for_its_build_stops_the_build_and_never_launches() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_second_run_start_while_waiting_for_the_build_does_not_start_another() {
+    let temp = hanging_build_workspace();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let host = Host::new();
+    ready_for_build(&host, &root);
+
+    let first = host.dispatch("run.start", json!({})).unwrap();
+    assert_eq!(first["run"]["state"], "building");
+    let second = host
+        .dispatch("run.start", json!({}))
+        .expect_err("a second run must not start another build");
+    assert_eq!(second.code, "invalid_state");
+    assert!(
+        second.message.contains("already waiting"),
+        "{}",
+        second.message
+    );
+    let builds = snapshot(&host)["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|process| {
+            process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("build:"))
+        })
+        .count();
+    assert_eq!(builds, 1, "a double start must not start two builds");
+    let _ = host.dispatch("run.cancel", json!({}));
+}
+
 /// A successful build proves compilation, not that the restore inputs it depended on still
 /// exist. Removing them after the build must stop Run at the same explicit gate as Build.
 #[cfg(target_os = "macos")]
 #[test]
-fn run_start_reports_restore_required_when_assets_are_invalidated_after_a_build() {    let temp = tempfile::tempdir().unwrap();
+fn run_start_reports_restore_required_when_assets_are_invalidated_after_a_build() {
+    let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk run restore");
     let assets = copy.join("src/OrderDesk.Cli/obj/project.assets.json");
     let host = Host::new();
