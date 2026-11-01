@@ -422,3 +422,7 @@ Substitui "Trust só em memória". Decisões do grill (welcome-trust), todas ace
 ## 2026-11-01 — Cancel não deixa rastro
 
 Cancel e Esc no *Trust prompt* não deixam rastro em Recentes nem em `trusted.json`. `workspace.open` só chama `recent::record` quando já existe uma Trust decision gravada para o caminho; sem decisão, o registro acontece quando a decisão é tomada para o workspace aberto (`trust.set`/`trust.grant`/`trust.revoke`). Cancel dentro do IDE (Open recent para um projeto indeciso) reabre o workspace anterior em vez de fechar o host; Cancel/Esc são ignorados enquanto a decisão está em voo. `trust.set` decide e aplica sob um único lock, aceita só caminho absoluto existente (`not_found` senão) e devolve erro (`trusted_unreadable`/`trusted_failed`) se a decisão não pôde ser gravada.
+
+## 2026-11-01 — Release alfa 0.3.0-alpha.1: DMG ad-hoc, só arm64
+
+`bundle.targets` passa a `["app", "dmg"]`, com `signingIdentity: "-"` (ad-hoc, sem Developer ID, sem notarização) e `bundle.icon` explícito (sem ele o `.app` saía sem ícone). Versão sincronizada em `package.json`, `tauri.conf.json`, `src-tauri/Cargo.toml` e nos dois crates; locks atualizados pelo cargo. O DMG é gerado em Apple Silicon e é arm64 apenas. O ícone é original (monograma OR nos tokens do app); fonte em `src-tauri/icons/source.svg`, derivados via `bun run tauri icon`. Build do DMG: `CI=true bun run tauri build --bundles dmg` — o `CI=true` pula o AppleScript do Finder (layout da janela), que estoura timeout sem permissão de automação.
