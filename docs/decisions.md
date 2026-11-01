@@ -395,3 +395,13 @@ Redesenho visual das 14 telas sobre os tokens de `DESIGN.md` (preto verdadeiro, 
 Consequências para contratos de teste: barra superior 44→52px, status 24→28px, painel inferior padrão 220→280px (o e2e fixa 220 via `storageState`), "Modified" saiu do texto do breadcrumb para um selo (`editor-revision`), nomes de projeto/branch/Run configuration truncam no meio (`MidText`), `1 parent` não repete em cada linha do log, o prefixo de namespace igual ao projeto não vira um nível extra na árvore de testes, o preview do Search Everywhere fica ao lado da lista. Specs atualizados em conjunto.
 
 Não verificado visualmente nesta rodada (ver `docs/implementation-notes.md`): rename inline, code actions e Find Usages com resultados e "Order em Classes e em Symbols" — os specs com csharp-ls real passam, mas não foram capturados porque instalar a ferramenta no home do app fora dos specs não foi autorizado —, estado de restore incompleto na árvore, `Changes +n −n` (o host não expõe estatística de linhas), colunas Requested/Resolved do NuGet (o host só expõe Current/Latest).
+
+## 2026-11-01 — UI shape polish: ajustes sem redesenho
+
+Passe de polish sobre as telas das issues 01–14, só CSS (mais 1 variável inline e 1 frase de texto). Sem dependência nova; `data-testid`, `role="tab"` e comportamento preservados.
+
+- **Árvore do Solution Explorer:** a regra das linhas de 32px (`.workspace-view .side .tree-row`, especificidade 0,3,0) anulava o recuo `.tree .l1/.l2/.l3` e deixava arquivo e projeto no mesmo nível; o recuo agora é 10/28/46px com seletor mais específico. Linha de projeto virou **duas camadas** (nome em cima; `kind · TFM · restore` embaixo, alinhados ao nome) porque os 280px fixos não comportam nome + tags na mesma linha. Cabeçalho e faixa de avaliação ficam fixos; só a árvore rola.
+- **Fonte Inter:** continua só na pilha de fontes (sem arquivo embutido). Embutir exigiria dependência/asset novo, fora do escopo do polish; segue pendente.
+- **Piso de 12px:** todo `font-size` em rem abaixo de 0,75rem passou a 0,75rem; 11px ficam só em selo/badge (regra do `DESIGN.md`).
+- **`Settings`:** altura fixa `min(720px, (100vh − 48px) / --ui-zoom)`; o `vh` não é escalado pelo `zoom` do workspace, então sem dividir por `--ui-zoom` o botão Save sai da janela a 120% (pego por `settings.spec.ts:181`).
+- **Cor:** os ícones de step do Debug deixaram de ser azuis (azul só para ação, foco e seleção); run/debug verdes e stop vermelho ficam (estado/ação primária).
