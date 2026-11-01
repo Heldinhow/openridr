@@ -138,6 +138,8 @@ Política de salvamento: o build lê o disco; o host não salva buffer, e a UI d
 
 ## 2026-10-28 — Ticket 12: Run consome o build identificado e recusa fonte salva alterada
 
+> **Substituída em 2026-11-01** por "Run/Debug constroem implicitamente quando não há build; Restore segue explícito": os gates de build ausente/stale/falho/fonte salva deixaram de recusar o lançamento; `source_changed` e afins iniciam um novo build. Restore continua explícito e o run continua um por vez.
+
 `run.start {project?, configuration?, targetFramework?}` exige trust e um build atual, bem-sucedido e não stale do mesmo workspace/contexto, projeto, configuração e TFM. Ele não compila, não restaura e não substitui path: o comando é exatamente `[<sdk-root>/dotnet, <TargetPath>]` quando o TargetPath é um `.dll` gerenciado (ou o próprio arquivo quando é um executável real), com cwd no diretório do projeto, env explícito e grupo de processos. TargetPath ausente/não-executável, build falho/stale, startup `library`/`test`/`unknown`, configuração/TFM não avaliados e ausência de build devolvem motivo + `action`/`buildLog` em `details`; `build_stale` é o código específico para resultado antigo. Sempre há um run por vez.
 
 O build captura no início o hash FNV-1a dos arquivos-fonte salvos do projeto de startup e dos projetos referenciados (fechamento transitivo); `run.start` relê esses arquivos e recusa com `build_stale`/`reason:"source_changed"` quando qualquer hash mudou. A verificação não vê arquivos novos/removidos que só apareceriam numa nova avaliação; esses exigem `evaluation.run`/rebuild. Edição em buffer não salva não bloqueia o run: a UI avisa que o build salvo está rodando e oferece “Save all and rebuild” ou “Run saved build”, sem salvar sozinha. Fonte salva depois do build bloqueia a UI por tempo de salvamento e o host pelo hash.
@@ -155,6 +157,8 @@ Download: cliente HTTP bloqueante (`ureq` + rustls) com redirects desligados no 
 Dependências novas: `ureq 2.12` (rustls) e `zip 2` (deflate). Motivo: o host não tinha cliente HTTPS nem leitor de zip, e o ticket exige download/extração com validação própria em vez de delegar a um instalador global.
 
 ## 2026-10-28 — Ticket 14: cliente DAP stdio, gates de launch e prova real (flag mantida)
+
+> **Substituída em 2026-11-01** por "Run/Debug constroem implicitamente quando não há build; Restore segue explícito" apenas no gate de build: a ausência de build Debug passou a iniciar um build implícito, e fonte salva alterada também. Os demais gates (trust, restore, adaptador/flag, avaliação, configuração Debug, assembly) e a proibição de restore implícito continuam.
 
 O host fala DAP com o netcoredbg instalado em `crates/host/src/dap.rs`, usando o mesmo framing `Content-Length` em bytes do LSP (reuso de `lsp::read_frame`/`write_message`). O adaptador é iniciado exatamente como `[netcoredbg, "--interpreter=vscode"]`, com stdio piped, cwd no diretório do projeto e o `Registry` compartilhado (`kind:"debug:<Project>"`; `Arc<Mutex<Registry>>` passou a ser o dono único). Cada mensagem leva `seq` monotônico; requests têm ids com `pending` por id, timeout de 10 s (launch 20 s) e a resposta tardia é descartada. Eventos usam `body` (não `params`): `initialized`, `stopped`, `continued`, `output`, `exited`, `terminated`, `breakpoint`, `thread`, `process`, `module`. Reverse requests: `runInTerminal` spawna o argv exato em `Registry`, com cwd/env enviados, sem shell e recusando `argsCanBeInterpretedByShell`; retorna os pids observados. Outros reverse requests respondem `null`. Uma sessão por vez.
 
@@ -300,6 +304,8 @@ Escolher no seletor ou clicar num recente abre o workspace e entra no IDE em Res
 
 ## Debug em um clique (2026-10-29)
 
+> **Substituída em 2026-11-01**: o host agora constrói implicitamente e o clique em Debug só faz flag experimental e instalação/plano do netcoredbg antes de `debug.start`; restore continua explícito. O confirm por sessão continua.
+
 - **Substitui** "Debug never builds or restores implicitly" (ticket 14) apenas para o clique na toolbar: o atalho/ação `debug.start` segue estrito e bloqueado pelos gates. O confirm da flag é por sessão (não persiste) e deve listar flag, restore e build.
 
 - Clicar em Debug bloqueado executa `prepareAndDebug` (WorkspaceView): confirm da flag experimental Apple Silicon → `debug.flag` → plan/install (reusa o executável verificado) → restore → evaluation → build Debug → `debug.start`. Cada gate do host continua valendo; nada é feito sem o confirm. O botão usa `aria-disabled` (clicável) em vez de `disabled`.
@@ -316,6 +322,8 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 `dotnet nuget list source` aceita `short` e `detailed`, não JSON. O host usa `--format short`, interpreta apenas linhas `E <localização>` e `D <localização>`, omite fontes desabilitadas e falha de forma explícita em saída desconhecida. O formato curto não inclui nome amigável: a localização é exibida como identificação, sem inventar um nome. A interface descreve essas fontes como configuradas e habilitadas, e informa que a origem específica de cada pacote não é reportada; não apresenta a lista como prova da fonte de um pacote. SDK 8.0.408 observado com saída em inglês e português; `global.json` permanece inalterado.
 
 ## 2026-10-29 — Run em um clique e consentimento do debugger dentro do app
+
+> **Substituída em 2026-11-01**: não há mais `prepareAndRun`/`prepareBuild`; o host constrói implicitamente quando o build não serve e a UI chama `run.start`/`debug.start` direto. O diálogo de consentimento (`debug-consent-dialog`) continua.
 
 - **Substitui** "Run never builds or restores implicitly" apenas para o clique na toolbar (como já era para Debug): com Run bloqueado e o workspace em Trusted, `prepareAndRun` restaura (se preciso), avalia, builda e roda. O atalho/ação `run.start` segue estrito. `prepareBuild` é compartilhado com `prepareAndDebug`, que agora também usa a run config ativa (config, TFM, args, env).
 - O consentimento da flag experimental do netcoredbg deixou de usar `window.confirm`: o WKWebView do Tauri não o exibe e devolve `false`, então o clique em Debug no app desktop não fazia nada. Agora é o diálogo `debug-consent-dialog` ("Enable and debug"). Provado no navegador; o fluxo no app desktop precisa ser reconferido após rebuild do `.app`.
@@ -337,7 +345,7 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 
 - **Substitui** "nada roda sem pedido explícito" para restore e avaliação. Um workspace Trusted com SDK do projeto resolvido restaura uma vez por contexto ao abrir; ao terminar com sucesso, avalia de novo. Mudança de arquivo de projeto em disco (detectada pelo poll de estado) reavalia; não restaura. Em Restricted nada executa.
 - Cancelamento e nova tentativa ficam na status bar (`status-restore-cancel`, `status-restore-retry`). Revogar o Trust interrompe restore e avaliação (host, já existente).
-- Run e Debug por atalho/ação continuam estritos; o clique na toolbar continua preparando o que faltar.
+- Run e Debug por atalho/ação continuam estritos; o clique na toolbar continua preparando o que faltar. **Substituído em 2026-11-01**: atalho e toolbar usam o mesmo host, que constrói implicitamente quando não há build; o clique em Debug só prepara flag/instalação do adaptador.
 - Falha de restore não repete sozinha: vira estado `failed` com "Retry restore".
 
 ## 2026-10-30 — Terminal: host expõe bytes crus por offset (`terminal.read`)
@@ -426,3 +434,11 @@ Cancel e Esc no *Trust prompt* não deixam rastro em Recentes nem em `trusted.js
 ## 2026-11-01 — Release alfa 0.3.0-alpha.1: DMG ad-hoc, só arm64
 
 `bundle.targets` passa a `["app", "dmg"]`, com `signingIdentity: "-"` (ad-hoc, sem Developer ID, sem notarização) e `bundle.icon` explícito (sem ele o `.app` saía sem ícone). Versão sincronizada em `package.json`, `tauri.conf.json`, `src-tauri/Cargo.toml` e nos dois crates; locks atualizados pelo cargo. O DMG é gerado em Apple Silicon e é arm64 apenas. O ícone é original (monograma OR nos tokens do app); fonte em `src-tauri/icons/source.svg`, derivados via `bun run tauri icon`. Build do DMG: `CI=true bun run tauri build --bundles dmg` — o `CI=true` pula o AppleScript do Finder (layout da janela), que estoura timeout sem permissão de automação.
+
+## 2026-11-01 — Run/Debug constroem implicitamente quando não há build; Restore segue explícito
+
+Run e Debug deixam de recusar `no_build`/`build_failed`/`build_stale`: quando não existe build atual e utilizável para o workspace/contexto/projeto/configuração/TFM, o host inicia o mesmo pipeline de `build.start`, mostra `run.state`/`dap.state = building` e só lança quando o build observado termina com exit 0. Build falho ou cancelado não lança: a aba Run/Debug fica `failed`/`cancelled` com o motivo e os diagnósticos continuam na aba Build (`build.problems` + log). Build atual executa direto, sem rebuild; `source_changed`, `target_missing` e `assembly_missing` contam como build não utilizável e são reconstruídos. Restore **não** muda: `restore_required` e a ação explícita continuam, e o build implícito nunca restaura. Um segundo `run.start`/`debug.start` enquanto o anterior espera o build devolve `invalid_state`; `run.cancel`, `debug.stop` e `build.cancel` cancelam o build pendente e o lançamento (sem inventar exit ou termination). Fronteiras (revogar/fechar/trocar) cancelam pendentes e selam os registros como antes.
+
+Motivo: o Rider constrói ao executar; exigir um Build manual antes de Run/Debug era a diferença funcional restante apontada em `docs/RIDR-VS-RIDER.md` e transformava `Ctrl+R`/`Ctrl+D` numa mensagem de erro.
+
+Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAndRun`/`prepareBuild` removidos) e o clique em Debug só faz a flag experimental e o plano/instalação do netcoredbg antes de `debug.start`. Os gates de UI continuam bloqueando trust/SDK/avaliação/configuração/startup, build manual em andamento e run/debug já ativo (incluindo `building`); os gates de build ausente/stale/falho/fonte salva saíram, porque o host resolve com o build implícito. As entradas de 2026-10-28 (tickets 12/14) e as de 2026-10-29/10-30 que dizem "Run/Debug nunca constroem" ficam **substituídas** por esta; restore implícito continua proibido em todas elas. Evidência: `docs/evidence/auto-build-run-debug.md`.

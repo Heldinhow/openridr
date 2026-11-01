@@ -4,7 +4,8 @@
 - **Tool window**: painel acoplado a uma faixa lateral ou inferior (Build, Problems, Debug, Terminal, Tests…). Cada slot mostra uma por vez.
 - **Run configuration**: configuração nomeada de execução (projeto, argumentos, ambiente) escolhida na barra superior; serve para Run e Debug.
 - **Startup project**: projeto console que Run e Debug executam; implícito quando há um só.
-- **Debug preparation**: o que o clique em Debug na barra faz antes de lançar quando algo falta — confirmar a flag experimental, preparar o adaptador, restore, avaliação e build Debug.
+- **Build implícito**: o `build.start` que o host inicia sozinho quando Run ou Debug não têm um build atual utilizável (ausente, stale, falho, TargetPath/assembly sumido, fonte salva alterada). A aba do lançamento mostra `building`; só o exit 0 observado libera o processo. Não restaura: `restore_required` continua sendo uma ação explícita do usuário.
+- **Debug preparation**: o que o clique em Debug na barra faz antes de lançar quando falta o adaptador — confirmar a flag experimental e planejar/instalar o netcoredbg. Não faz mais restore, avaliação nem build: o host constrói implicitamente quando o build não serve.
 - **Recent project**: solução ou projeto aberto antes e listado na tela inicial, com nome, caminho e último acesso. Remover da lista não altera sua Trust decision.
 - **Trust decision**: escolha do usuário, uma vez por projeto, entre confiar (*trusted*) e abrir em modo restrito (*restricted*). Persiste entre sessões e pode ser mudada depois.
 - **Trust prompt**: a pergunta única que oferece a Trust decision na primeira abertura de um projeto. Não reaparece depois de decidida.

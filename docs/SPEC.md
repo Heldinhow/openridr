@@ -63,7 +63,7 @@ Depois de editar, diagnóstico anterior fica obsoleto/`Awaiting diagnostics`, n�
 
 ### P0.4 — Startup, build/run e output
 
-Selecionar explicitamente projeto executável de startup, configuração e TFM. Build e Run expõem contexto, comando, logs stdout/stderr, estado, cancelamento e exit code quando conhecido. Não executar biblioteca como startup nem escolher contexto ambíguo silenciosamente. Run exige build válido do contexto selecionado; build falho bloqueia launch e oferece navegação ao erro.
+Selecionar explicitamente projeto executável de startup, configuração e TFM. Build e Run expõem contexto, comando, logs stdout/stderr, estado, cancelamento e exit code quando conhecido. Não executar biblioteca como startup nem escolher contexto ambíguo silenciosamente. Run e Debug constroem implicitamente quando não há build atual e utilizável do contexto selecionado (estado `building` visível); build falho não lança e mantém os diagnósticos no Build; build atual executa direto, sem rebuild. Restore continua explícito: executar nunca restaura.
 
 Saída é transmitida e preservada. Diagnósticos clicáveis exigem posição conhecida; linhas não reconhecidas continuam no log bruto. Parser conservador de texto é a proposta inicial, sem pressupor JSON universal de dotnet build. Conteúdo alterado desde o build recebe aviso; salvar/reconstruir deve ser decisão explícita antes de afirmar execução do fonte atual.
 
