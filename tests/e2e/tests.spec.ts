@@ -3,7 +3,7 @@ import { revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { reveal } from "./disclosures";
+import { openTrustPopover } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
@@ -52,14 +52,15 @@ async function openWorkspace(page: Page, target: string) {
 }
 
 async function trustWorkspace(page: Page) {
-  await page.getByTestId("trust-checkbox").check();
-  await expect(page.getByTestId("trust-grant")).toBeEnabled();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 }
 
 async function enterWorkspace(page: Page) {
-  await page.getByTestId("open-text-only").click();
+  // After trustWorkspace the modal is gone and the IDE is open; otherwise choose Restricted mode.
+  const prompt = page.getByTestId("trust-prompt-dialog");
+  await prompt.or(page.getByTestId("tree")).first().waitFor();
+  if (await prompt.isVisible()) await page.getByTestId("trust-prompt-restricted").click();
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
@@ -483,7 +484,7 @@ public sealed class LongTests
     await expect(page.getByTestId("tests-run-state")).toContainText("Running tests", {
       timeout: 60_000,
     });
-    await reveal(page.getByTestId("trust-revoke"));
+    await openTrustPopover(page);
     await page.getByTestId("trust-revoke").click();
     await expect(page.getByTestId("tests-run-sealed")).toContainText("not current", {
       timeout: 60_000,

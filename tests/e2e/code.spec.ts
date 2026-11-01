@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
-import { reveal } from "./disclosures";
+import { openTrustPopover } from "./disclosures";
 import { host } from "./environment";
 
 const solution = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
@@ -10,7 +10,7 @@ async function openProgram(page: Page) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-restricted").click();
   await page.getByTestId(`tree-file-${programTab}`).click();
   await expect(page.getByTestId("editor")).toBeVisible();
 }
@@ -82,12 +82,12 @@ test("trusted but unanalyzed editor explains Find Usages and Go To Definition ga
   page,
 }) => {
   await openProgram(page);
-  await reveal(page.getByTestId("trust-checkbox"));
+  await openTrustPopover(page);
   await page.getByTestId("trust-checkbox").check();
   await expect(page.getByTestId("trust-grant")).toBeEnabled();
   await page.getByTestId("trust-grant").click();
   // D13: a successful grant closes the trust popover, so the badge carries the trusted state.
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await expect(page.getByTestId("mode-trusted")).not.toBeVisible();
 
   await openContextMenu(page);

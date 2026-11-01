@@ -11,7 +11,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700
     await page.goto("/");
     await page.getByTestId("workspace-path-input").fill(solution);
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-restricted").click();
     await page.getByTestId("workspace-tools-toggle").click();
     await page.getByTestId("install-plan-open").click();
     const plan = page.getByTestId("install-plan");
@@ -58,10 +58,8 @@ test("trusted first-install plan shows an active Confirm and install at 1440x900
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   const state = await (await request.post(`${host}/call`, { data: { method: "workspace.state", params: {} } })).json();
   test.skip(state.data.tools["csharp-ls"].state === "ready", "csharp-ls already installed in this E2E home; run with a fresh OPENRIDR_E2E_HOME");

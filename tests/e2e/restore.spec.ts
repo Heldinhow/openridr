@@ -28,14 +28,15 @@ async function openWorkspace(page: Page, target: string) {
 }
 
 async function trustWorkspace(page: Page) {
-  await page.getByTestId("trust-checkbox").check();
-  await expect(page.getByTestId("trust-grant")).toBeEnabled();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 }
 
 async function enterWorkspace(page: Page) {
-  await page.getByTestId("open-text-only").click();
+  // After trustWorkspace the modal is gone and the IDE is open; otherwise choose Restricted mode.
+  const prompt = page.getByTestId("trust-prompt-dialog");
+  await prompt.or(page.getByTestId("tree")).first().waitFor();
+  if (await prompt.isVisible()) await page.getByTestId("trust-prompt-restricted").click();
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
@@ -108,7 +109,7 @@ test("restricted mode never restores by itself", async ({ page }) => {
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
     await enterWorkspace(page);
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     // Negative check: give a restore that would have started time to appear.
     await page.waitForTimeout(2_000);
     await expect(page.getByTestId("restore-state")).toContainText("Restore not requested");

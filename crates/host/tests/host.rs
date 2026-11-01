@@ -4106,3 +4106,134 @@ fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
     open(&fourth, &project);
     assert!(!granted(&fourth));
 }
+
+#[test]
+fn trust_decision_persists_per_project_and_gates_workspace_open() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("OPENRIDR_HOME", home.path());
+    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let workspace = temp_workspace(&["App.csproj"]);
+    let path = fs::canonicalize(workspace.path()).unwrap();
+    let host = Host::new();
+
+    // Never decided: opens restricted with a null decision.
+    let opened = open(&host, &path);
+    assert_eq!(opened["trust"]["decision"], Value::Null);
+    assert_eq!(opened["trust"]["granted"], false);
+    let key = opened["workspace"]["path"].as_str().unwrap().to_string();
+    assert_eq!(
+        host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"],
+        Value::Null
+    );
+
+    // set(trusted) on the open workspace applies trust and survives a reopen.
+    let granted = host
+        .dispatch("trust.set", json!({ "path": key, "decision": "trusted" }))
+        .unwrap();
+    assert_eq!(granted["trust"]["granted"], true);
+    assert_eq!(granted["trust"]["decision"], "trusted");
+    let reopened = open(&host, &path);
+    assert_eq!(reopened["trust"]["granted"], true);
+
+    // revoke records `restricted`, which is remembered but does not trust on open.
+    let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
+    assert_eq!(revoked["trust"]["granted"], false);
+    assert_eq!(revoked["trust"]["decision"], "restricted");
+    let reopened = open(&host, &path);
+    assert_eq!(reopened["trust"]["granted"], false);
+    assert_eq!(reopened["trust"]["decision"], "restricted");
+
+    // set for a path that is not open only persists.
+    let other = temp_workspace(&["Other.csproj"]);
+    let other_path = fs::canonicalize(other.path()).unwrap();
+    let stored = host
+        .dispatch(
+            "trust.set",
+            json!({ "path": other_path, "decision": "trusted" }),
+        )
+        .unwrap();
+    assert_eq!(stored["decision"], "trusted");
+    assert_eq!(reopened["trust"]["granted"], false);
+    assert_eq!(
+        error_code(host.dispatch("trust.set", json!({ "path": other_path, "decision": "maybe" }))),
+        "invalid_params"
+    );
+    std::env::remove_var("OPENRIDR_HOME");
+}
+
+#[test]
+fn recent_list_carries_decision_and_remove_keeps_it() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("OPENRIDR_HOME", home.path());
+    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let workspace = temp_workspace(&["App.csproj"]);
+    let path = fs::canonicalize(workspace.path()).unwrap();
+    let host = Host::new();
+    let key = open(&host, &path)["workspace"]["path"].as_str().unwrap().to_string();
+    host.dispatch("trust.set", json!({ "path": key, "decision": "trusted" })).unwrap();
+
+    let listed = host.dispatch("recent.list", json!({})).unwrap();
+    assert_eq!(listed["projects"][0]["path"], key.as_str());
+    assert_eq!(listed["projects"][0]["decision"], "trusted");
+    assert!(listed["projects"][0]["openedAt"].as_u64().is_some());
+
+    let after = host.dispatch("recent.remove", json!({ "path": key })).unwrap();
+    assert_eq!(after["projects"].as_array().unwrap().len(), 0);
+    assert_eq!(host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"], "trusted");
+    std::env::remove_var("OPENRIDR_HOME");
+}
+
+#[test]
+fn undecided_open_leaves_no_trace_until_decided() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("OPENRIDR_HOME", home.path());
+    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let workspace = temp_workspace(&["App.csproj"]);
+    let host = Host::new();
+    let key = open(&host, &fs::canonicalize(workspace.path()).unwrap())["workspace"]["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Open + close (Cancel) is not in Recents and has no stored decision.
+    host.dispatch("workspace.close", json!({})).unwrap();
+    assert_eq!(host.dispatch("recent.list", json!({})).unwrap()["projects"].as_array().unwrap().len(), 0);
+    assert_eq!(host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"], Value::Null);
+
+    // Deciding for the open workspace records it.
+    open(&host, &fs::canonicalize(workspace.path()).unwrap());
+    host.dispatch("trust.revoke", json!({})).unwrap();
+    assert_eq!(host.dispatch("recent.list", json!({})).unwrap()["projects"][0]["path"], key.as_str());
+    std::env::remove_var("OPENRIDR_HOME");
+}
+
+#[test]
+fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("OPENRIDR_HOME", home.path());
+    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let host = Host::new();
+    let missing = home.path().join("does-not-exist");
+    assert_eq!(
+        error_code(host.dispatch("trust.set", json!({ "path": missing, "decision": "trusted" }))),
+        "not_found"
+    );
+    // A vanished project can still be forgotten from Recents.
+    host.dispatch("recent.remove", json!({ "path": missing })).unwrap();
+
+    // An unreadable trusted.json is never overwritten and the failure reaches the caller.
+    fs::write(home.path().join("trusted.json"), "{ not json").unwrap();
+    let workspace = temp_workspace(&["App.csproj"]);
+    let path = fs::canonicalize(workspace.path()).unwrap();
+    open(&host, &path);
+    assert_eq!(
+        error_code(host.dispatch("trust.set", json!({ "path": path, "decision": "trusted" }))),
+        "trusted_unreadable"
+    );
+    assert_eq!(fs::read_to_string(home.path().join("trusted.json")).unwrap(), "{ not json");
+    std::env::remove_var("OPENRIDR_HOME");
+}

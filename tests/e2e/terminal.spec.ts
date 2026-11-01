@@ -35,7 +35,7 @@ test("a restricted workspace explains the terminal and starts no shell", async (
   const { base, copy } = tempCopy("Order Desk restricted terminal");
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-restricted").click();
     await page.getByTestId("workspace-tools-toggle").click();
     await expect(page.getByTestId("tree")).toBeVisible();
     await page.getByTestId("bottom-tab-terminal").click();
@@ -77,11 +77,8 @@ test("a real shell runs in the workspace, interrupts a child with Ctrl+C and clo
   const { base, copy, root } = tempCopy("Order Desk terminal");
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
-    await page.getByTestId("trust-checkbox").check();
-    await expect(page.getByTestId("trust-grant")).toBeEnabled();
-    await page.getByTestId("trust-grant").click();
-    await expect(page.getByTestId("mode-trusted")).toBeVisible();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
     await page.getByTestId("workspace-tools-toggle").click();
     await expect(page.getByTestId("tree")).toBeVisible();
     fs.mkdirSync(screenshots, { recursive: true });
@@ -224,9 +221,7 @@ test("Ctrl+D at an empty prompt ends the shell and the screen keeps its output",
   const { base, copy } = tempCopy("Order Desk terminal eof");
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
-    await page.getByTestId("trust-checkbox").check();
-    await page.getByTestId("trust-grant").click();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
     await page.getByTestId("workspace-tools-toggle").click();
     await page.getByTestId("bottom-tab-terminal").click();
     await expect(page.getByTestId("terminal-state")).toHaveText("Running", { timeout: 30_000 });
@@ -246,9 +241,7 @@ test("a full-screen program runs in the terminal and q returns to the prompt", a
   const { base, copy } = tempCopy("Order Desk terminal less");
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
-    await page.getByTestId("trust-checkbox").check();
-    await page.getByTestId("trust-grant").click();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
     await page.getByTestId("workspace-tools-toggle").click();
     await page.getByTestId("bottom-tab-terminal").click();
     await expect(page.getByTestId("terminal-state")).toHaveText("Running", { timeout: 30_000 });

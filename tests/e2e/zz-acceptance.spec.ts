@@ -10,7 +10,7 @@ import fs from "node:fs";
 import { revisionOf } from "./automatic";
 import os from "node:os";
 import path from "node:path";
-import { reveal } from "./disclosures";
+import { openTrustPopover, reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const host = "http://127.0.0.1:4317";
@@ -91,14 +91,15 @@ async function clickTestId(page: Page, testid: string) {
 }
 
 async function grantTrust(page: Page) {
-  await page.getByTestId("trust-checkbox").check();
-  await expect(page.getByTestId("trust-grant")).toBeEnabled();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 }
 
 async function enterWorkspace(page: Page) {
-  await page.getByTestId("open-text-only").click();
+  // After trustWorkspace the modal is gone and the IDE is open; otherwise choose Restricted mode.
+  const prompt = page.getByTestId("trust-prompt-dialog");
+  await prompt.or(page.getByTestId("tree")).first().waitFor();
+  if (await prompt.isVisible()) await page.getByTestId("trust-prompt-restricted").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
@@ -179,9 +180,8 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     // ---- Restricted mode: no execution, full path, text editing only.
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
     step("open solution in Restricted mode");
-    await expect(page.getByTestId("workspace-path")).toContainText(copy);
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
-    await expect(page.getByTestId("trust-checkbox")).not.toBeChecked();
+    await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible();
+    await expect(page.getByTestId("trust-prompt-path")).toContainText(copy);
     await expect(page.getByTestId("sdk-host")).toContainText("10.0.100");
     await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
     await screenshot(page, "18-screen-01-trust.png");
@@ -266,9 +266,10 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     step("restricted negatives and text-only editing verified; no bin/obj created");
 
     // ---- Reopen (trust is session/workspace scoped) and inspect trust + separate SDKs.
-    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
-    await expect(page.getByTestId("mode-restricted")).toBeVisible();
-    await grantTrust(page);
+    // The Toolchain cards are only readable without the Trust prompt: open and trust through the host, reload.
+    await page.request.post(`${host}/call`, { data: { method: "workspace.open", params: { path: path.join(copy, "OrderDesk.sln") } } });
+    await page.request.post(`${host}/call`, { data: { method: "trust.grant", params: { remember: false } } });
+    await page.goto("/");
     await expect(page.getByTestId("sdk-host")).toContainText("SDK 10.0.100");
     await expect(page.getByTestId("sdk-project")).toContainText("SDK 8.0.408", {
       timeout: 30_000,
@@ -278,6 +279,8 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     );
     await expect(page.getByTestId("sdk-tfms")).toContainText("net8.0");
     await screenshot(page, "18-toolchain-trusted.png");
+    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    await grantTrust(page);
     await enterWorkspace(page);
     await waitEvaluation(page, 1);
     await expect(page.getByTestId("status-sdk")).toContainText("Host SDK 10.0.100");
@@ -779,8 +782,9 @@ public sealed class LongTests
     await replaceEditor(page, `${originalLibrary}\n// unsaved across revoke\n`, false);
     await expect(page.getByTestId("dirty-marker")).toBeVisible();
     const beforeRevoke = await hostState(request);
-    await clickTestId(page, "trust-revoke");
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await openTrustPopover(page);
+    await page.getByTestId("trust-revoke").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     await expect(page.getByTestId("editor")).toContainText("unsaved across revoke");
     await expect(page.getByTestId("toolbar-build")).toBeDisabled();
     await expect(page.getByTestId("toolbar-run")).toBeDisabled();

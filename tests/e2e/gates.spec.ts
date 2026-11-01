@@ -24,10 +24,8 @@ async function openTrustedRestored(page: Page) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", { timeout: 60_000 });
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
@@ -46,13 +44,13 @@ async function openWorkspaceCandidate(page: Page, solution: string) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
-  await expect(page.getByTestId("open-text-only")).toBeVisible();
+  await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible();
 }
 
 async function enterRestrictedWorkspace(page: Page, solution: string) {
   await openWorkspaceCandidate(page, solution);
-  await page.getByTestId("open-text-only").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  await page.getByTestId("trust-prompt-restricted").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
@@ -220,7 +218,7 @@ async function rejectNextTrustGrant(page: Page) {
 
 /** A point inside the target that is currently covered by the Trust popover. */
 async function coveredTrustPoint(page: Page, target: Locator) {
-  const popup = page.getByTestId("trust-banner");
+  const popup = page.getByTestId("status-mode-popover");
   const popupBox = await popup.boundingBox();
   const targetBox = await target.boundingBox();
   if (!popupBox || !targetBox) throw new Error("The popup or target has no measurable box.");
@@ -239,7 +237,7 @@ async function coveredTrustPoint(page: Page, target: Locator) {
       const hit = await target.evaluate((element, { x, y }) => {
         const current = document.elementFromPoint(x, y);
         return {
-          popup: Boolean(current?.closest('[data-testid="trust-banner"]')),
+          popup: Boolean(current?.closest('[data-testid="status-mode-popover"]')),
           target: Boolean(current && (current === element || element.contains(current))),
         };
       }, point);
@@ -276,7 +274,7 @@ test("Build and Run name Restricted mode as the reason", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(fixture, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-restricted").click();
   await page.getByTestId("bottom-tab-build").click();
   await expect(page.getByTestId("build-disabled-reason")).toContainText(
     "Trust the workspace before building; nothing runs in Restricted mode.",
@@ -291,17 +289,15 @@ test("Revoke closes the Trust popover and leaves the tabs clickable", async ({ p
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(fixture, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs").click();
   await expect(page.getByTestId("editor")).toBeVisible();
-  await page.getByTestId("mode-badge").click();
+  await page.getByTestId("status-mode").click();
   await page.getByTestId("trust-revoke").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
-  await expect(page.getByTestId("trust-banner")).toBeHidden();
-  await expect(page.getByTestId("mode-badge")).toBeFocused();
+  await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
+  await expect(page.getByTestId("status-mode-popover")).toBeHidden();
+  await expect(page.getByTestId("status-mode")).toBeFocused();
   // The tab close button is reachable by a real click (nothing overlays the tab strip).
   await page.locator(".tab.active").getByTestId("close-buffer").click({ timeout: 5_000 });
   await expect(page.getByTestId("tab-src/OrderDesk.Core/Order.cs")).toHaveCount(0);
@@ -320,18 +316,20 @@ for (const viewport of trustViewports) {
     const { base, solution } = createRestrictedWorkspace();
     const tab = page.getByTestId("tab-src/OrderDesk.Core/Order.cs");
     const target = tab.getByTestId("close-buffer");
+    // The popover opens upward from the status bar and covers the bottom of the left tool window.
+    const covered = page.getByRole("region", { name: "Bottom panel" });
     let bodyFailed = false;
     try {
       await enterRestrictedWorkspace(page, solution);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs").click();
       await expect(page.getByTestId("editor")).toBeVisible();
-      await page.getByTestId("mode-badge").click();
-      await expect(page.getByTestId("trust-banner")).toBeVisible();
+      await page.getByTestId("status-mode").click();
+      await expect(page.getByTestId("status-mode-popover")).toBeVisible();
       await page.getByTestId("trust-checkbox").check();
       // Checking the box is not a successful grant: the popover must stay open.
-      await expect(page.getByTestId("trust-banner")).toBeVisible();
-      const point = await coveredTrustPoint(page, target);
+      await expect(page.getByTestId("status-mode-popover")).toBeVisible();
+      const point = await coveredTrustPoint(page, covered);
 
       const release = await delayNextTrustGrant(page);
       try {
@@ -339,21 +337,21 @@ for (const viewport of trustViewports) {
         await expect(page.getByTestId("trust-grant")).toHaveText("Trusting…");
         await expect(page.getByTestId("trust-grant")).toBeDisabled();
         await expect(page.getByTestId("trust-checkbox")).toBeDisabled();
-        await expect(page.getByTestId("trust-banner")).toBeVisible();
-        await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+        await expect(page.getByTestId("status-mode-popover")).toBeVisible();
+        await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
         await expect(page.getByTestId("mode-trusted")).toHaveCount(0);
-        const stillCovered = await target.evaluate((element, { x, y }) => {
+        const stillCovered = await covered.evaluate((element, { x, y }) => {
           const current = document.elementFromPoint(x, y);
           return {
-            popup: Boolean(current?.closest('[data-testid="trust-banner"]')),
+            popup: Boolean(current?.closest('[data-testid="status-mode-popover"]')),
             target: Boolean(current && (current === element || element.contains(current))),
           };
         }, point);
         expect(stillCovered).toEqual({ popup: true, target: false });
         await release();
-        await expect(page.getByTestId("trust-banner")).toBeHidden();
-        await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
-        await expect(page.getByTestId("mode-badge")).toBeFocused();
+        await expect(page.getByTestId("status-mode-popover")).toBeHidden();
+        await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+        await expect(page.getByTestId("status-mode")).toBeFocused();
       } finally {
         await release();
       }
@@ -365,7 +363,7 @@ for (const viewport of trustViewports) {
           box.top + box.height / 2,
         );
         return {
-          popup: Boolean(current?.closest('[data-testid="trust-banner"]')),
+          popup: Boolean(current?.closest('[data-testid="status-mode-popover"]')),
           target: Boolean(current && (current === element || element.contains(current))),
         };
       });
@@ -373,11 +371,11 @@ for (const viewport of trustViewports) {
 
       // The focused summary must behave like real keyboard UI: Enter reopens, Escape closes and returns focus.
       await page.keyboard.press("Enter");
-      await expect(page.getByTestId("trust-banner")).toBeVisible();
+      await expect(page.getByTestId("status-mode-popover")).toBeVisible();
       await expect(page.getByTestId("mode-trusted")).toBeVisible();
       await page.keyboard.press("Escape");
-      await expect(page.getByTestId("trust-banner")).toBeHidden();
-      await expect(page.getByTestId("mode-badge")).toBeFocused();
+      await expect(page.getByTestId("status-mode-popover")).toBeHidden();
+      await expect(page.getByTestId("status-mode")).toBeFocused();
 
       await target.click();
       await expect(tab).toHaveCount(0);
@@ -400,7 +398,7 @@ test("D-13 rejected grant keeps the popover open with an error and retry succeed
   let bodyFailed = false;
   try {
     await enterRestrictedWorkspace(page, solution);
-    await page.getByTestId("mode-badge").click();
+    await page.getByTestId("status-mode").click();
     await page.getByTestId("trust-checkbox").check();
     const stopRejecting = await rejectNextTrustGrant(page);
     try {
@@ -408,8 +406,8 @@ test("D-13 rejected grant keeps the popover open with an error and retry succeed
       await expect(page.getByTestId("trust-error")).toContainText(
         "Injected trust failure (UI boundary).",
       );
-      await expect(page.getByTestId("trust-banner")).toBeVisible();
-      await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+      await expect(page.getByTestId("status-mode-popover")).toBeVisible();
+      await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
       await expect(page.getByTestId("trust-grant")).toHaveText("Trust and inspect project");
       await expect(page.getByTestId("trust-grant")).toBeEnabled();
       await expect(page.getByTestId("trust-checkbox")).toBeEnabled();
@@ -419,9 +417,9 @@ test("D-13 rejected grant keeps the popover open with an error and retry succeed
     }
 
     await page.getByTestId("trust-grant").click();
-    await expect(page.getByTestId("trust-banner")).toBeHidden();
-    await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
-    await expect(page.getByTestId("mode-badge")).toBeFocused();
+    await expect(page.getByTestId("status-mode-popover")).toBeHidden();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+    await expect(page.getByTestId("status-mode")).toBeFocused();
     await expect(page.getByTestId("trust-error")).toHaveCount(0);
   } catch (error) {
     bodyFailed = true;

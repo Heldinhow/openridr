@@ -30,8 +30,8 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     await capture("welcome");
     await page.getByTestId("workspace-path-input").fill(path.resolve("fixtures/OrderDesk/OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("open-text-only").click();
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await page.getByTestId("trust-prompt-restricted").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     const tree = page.getByTestId("tree");
     const editor = page.getByRole("region", { name: "Editor", exact: true });
     const output = page.getByRole("region", { name: "Bottom panel" });
@@ -45,11 +45,16 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     expect(outputBox.height).toBe(220);
     expect(outputBox.x).toBe(treeBox.x);
     expect(outputBox.x + outputBox.width).toBe(editorBox.x + editorBox.width);
-    for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug", "toolbar-settings", "toolbar-run-config", "mode-badge"]) {
+    for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug", "toolbar-settings", "toolbar-run-config", "status-mode"]) {
       const box = (await page.getByTestId(id).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
     }
+    // The trust state lives in the status bar only: nothing in the top bar announces it.
+    for (const id of ["mode-badge", "trust-banner", "trust-prompt", "trust-prompt-open", "trust-prompt-dismiss"]) {
+      await expect(page.getByTestId(id)).toHaveCount(0);
+    }
+    await expect(page.locator(".toolbar").getByText(/Restricted mode|Trusted mode/)).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
     await capture("workspace-empty");
     if (viewport.height === 700) {
@@ -120,10 +125,8 @@ test("evaluated project details keep paths intact and Close with the heading", a
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   await page.getByTestId("eval-run").click();
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
@@ -183,10 +186,8 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     await page.goto("/");
     await page.getByTestId("workspace-path-input").fill(solution);
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("trust-checkbox").check();
-    await page.getByTestId("trust-grant").click();
-    await expect(page.getByTestId("mode-trusted")).toBeVisible();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
     await page.getByTestId("workspace-tools-toggle").click();
     await page.getByTestId("eval-run").click();
     await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });

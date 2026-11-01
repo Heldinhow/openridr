@@ -1,3 +1,6 @@
+import type { Snapshot } from "../host/client";
+import { StatusMode } from "./StatusMode";
+
 type EvaluationStatus = { text: string; title?: string; testId?: string };
 
 type RestoreStatus = {
@@ -7,9 +10,10 @@ type RestoreStatus = {
   onRetry: (() => void) | null;
 };
 
-export function StatusBar({ workspace, trusted, sdkSummary, evaluation, restore, dirtyCount, breadcrumb, cursor, indent }: {
+export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, restore, dirtyCount, breadcrumb, cursor, indent }: {
   workspace: { name: string; path: string };
-  trusted: boolean;
+  snapshot: Snapshot;
+  onSnapshot: (snapshot: Snapshot) => void;
   sdkSummary: string;
   evaluation: EvaluationStatus;
   restore: RestoreStatus;
@@ -22,9 +26,7 @@ export function StatusBar({ workspace, trusted, sdkSummary, evaluation, restore,
     <footer className="status">
       <span data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
       <span data-testid="status-breadcrumb" title={breadcrumb}>{breadcrumb}</span>
-      <span className={trusted ? "success" : "warning"} data-testid="status-mode">
-        {trusted ? "Trusted mode" : "Restricted mode"}
-      </span>
+      <StatusMode snapshot={snapshot} onSnapshot={onSnapshot} />
       <span data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
       {restore.state === "running" && (
         <span data-testid="status-restore">

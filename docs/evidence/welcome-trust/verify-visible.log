@@ -1,0 +1,7 @@
+ok      1 welcome empty (first run)
+ok      2 new project asks once (modal)
+ok      3 Trust project: IDE opens, no Trusted/Restricted in top bar, status-mode + popover
+ok      4 reopen same project: no modal
+ok      5 second project Restricted; reopen does not ask
+ok      6 Cancel and Esc open nothing
+ok      7 welcome with recents: badges, last opened, ⋯ menu (change trust without opening, remove)
