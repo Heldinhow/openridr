@@ -4,7 +4,7 @@ Data: 2026-11-01. Commit verificado: 9dbbb89 (tickets 01–05).
 
 ## Como foi rodado
 
-- Chrome instalado, **visível** (`channel: "chrome"`, `headless: false`, `slowMo: 150`), script `.scratch/welcome-trust/verify-visible.mjs` (Playwright standalone, sem `playwright test`).
+- Chrome instalado, **visível** (`channel: "chrome"`, `headless: false`, `slowMo: 150`), script Playwright standalone (sem `playwright test`; o `.mjs` ad-hoc não é versionado, o log está em `verify-visible.log`).
 - Host: `bun run host:http` (4317) com `OPENRIDR_HOME` temporário novo e `OPENRIDR_TRUST_STORE=on`; UI: `bun run dev` (1420). O app home real não foi tocado.
 - Projetos: três cópias temporárias de `fixtures/OrderDesk` (Alpha, Bravo, Charlie). Saída do script: `verify-visible.log`.
 
@@ -22,7 +22,7 @@ Data: 2026-11-01. Commit verificado: 9dbbb89 (tickets 01–05).
 
 ### Observação (não é falha do roteiro)
 
-Cancel no modal deixa o projeto em **Recent projects** com o selo "Not decided" (visível já atrás do modal em `v02` e em `v07a`). Nada é aberto nem gravado como decisão, e o próximo open pergunta de novo; mas o item entra na lista. Não foi alterado (a spec não diz que Cancel não registra recente); fica para decisão do dono.
+Observado na rodada visível (antes da correção): Cancel deixava o projeto em **Recent projects** como "Not decided". Corrigido depois (decisions.md, "Cancel não deixa rastro"): Cancel/Esc não gravam nada e `workspace.open` só registra recentes de projetos já decididos; coberto por `trust-prompt.spec.ts` e `undecided_open_leaves_no_trace_until_decided`. As capturas `v02`/`v07a` são da rodada anterior à correção.
 
 ## Checks automáticos (HEAD 9dbbb89)
 

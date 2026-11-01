@@ -607,8 +607,17 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 
 ## Welcome + Trust — 06 verificação real (2026-11-01)
 
-- Roteiro no Chrome visível (`channel: "chrome"`, `headless: false`) com `.scratch/welcome-trust/verify-visible.mjs`, host `host:http` com `OPENRIDR_HOME` temporário e `OPENRIDR_TRUST_STORE=on`, UI via `bun run dev`. 7 passos (welcome vazia; prompt uma vez; Trust → barra de cima sem indicador + status + popover; reabrir sem prompt; Restricted lembrado; Cancel/Esc; recentes com selos e ⋯ trust/remover) todos ok; capturas `v01…v07d` e `VERIFICATION.md` em `docs/evidence/welcome-trust/`.
+- Roteiro no Chrome visível (`channel: "chrome"`, `headless: false`) com um script Playwright ad-hoc (não versionado; saída em `docs/evidence/welcome-trust/verify-visible.log`), host `host:http` com `OPENRIDR_HOME` temporário e `OPENRIDR_TRUST_STORE=on`, UI via `bun run dev`. 7 passos (welcome vazia; prompt uma vez; Trust → barra de cima sem indicador + status + popover; reabrir sem prompt; Restricted lembrado; Cancel/Esc; recentes com selos e ⋯ trust/remover) todos ok; capturas `v01…v07d` e `VERIFICATION.md` em `docs/evidence/welcome-trust/`.
 - **Verificado:** `bun run check`; `cargo test -p openridr-host` (182 + 9 + 61 ok, 1 falha); E2E um a um todos verdes: trust-prompt 4, status-mode 3, welcome 6, gates 9, ui-layout 7, workspace 15, trust-sdk 3.
-- Observação: Cancel no modal deixa o projeto em Recent como "Not decided" (nada aberto nem gravado).
+- Observação (superada pela correção do review): Cancel deixava o projeto em Recent como "Not decided".
 - `file_access_is_confined_to_the_workspace` depende da profundidade do caminho do checkout (falha no worktree profundo, passa em `/tmp` no mesmo HEAD; teste não alterado). `evaluation_returns_the_real_msbuild_model...` passou sempre no HEAD; falha no baseline limpo não investigada. Baseline no mesmo caminho profundo: não provado.
 - **Não verificado:** Tauri real e ⌘O nativo; Rider.app; leitor de tela; Windows e macOS Intel.
+
+### Correções do review (welcome-trust)
+
+- `trust.set`/`grant`/`revoke` decidem e aplicam sob um único lock (`grant_locked`/`revoke_locked`); `trusted::set` devolve erro (`trusted_unreadable`, `trusted_failed`) em vez de falhar calado; `trust.set` exige caminho existente (`not_found`). `trust.get` e `recent.remove` seguem aceitando caminho inexistente (para esquecer projeto apagado).
+- Cancel não deixa rastro: `workspace.open` só registra em Recentes se já há decisão; sem decisão, o registro ocorre em `trust.set/grant/revoke` do workspace aberto. A UI refaz o fetch de Recentes ao mudar `stage`. Cancel dentro do IDE reabre o workspace anterior; Esc/Cancel são ignorados com decisão em voo; erro do Cancel fica visível no modal.
+- `recent.json` ilegível não é sobrescrito (`recent::read_all` devolve `Option`). Modal: fundo `inert` e clique no backdrop sem mover o foco. Popover de status foca o primeiro controle; `/` e ⌘O só na vista Projects. `messageOf` único (`host/client`).
+- Dívida aceita: `trusted::get` por linha/snapshot (nit 12); corrida entre processos no read-modify-write de `trusted.json`/`recent.json` (nit 14, limitação conhecida: a escrita atômica evita corrupção, não perda de atualização).
+- `trust-prompt.spec.ts`/`welcome.spec.ts` sobem um host em `hostPort+1/+2` via `cargo run`; `server.kill()` não mata o filho `openridr-host-http`, que pode ficar na porta 4318/4319 e servir um `OPENRIDR_HOME` antigo na próxima rodada (matar à mão com `lsof -ti tcp:4318 | xargs kill`). Não corrigido.
+- Verificado: `bun run check`; `cargo test -p openridr-host` (183 + 9 + 63 ok, 1 falha conhecida de profundidade de caminho + 9 + 5); E2E um a um verdes: trust-prompt 6, status-mode 3, welcome 6, workspace 15, gates 9, ui-layout 7, trust-sdk 3, shell 4, actions 6, settings 5. Não verificado: leitor de tela real, Tauri.
