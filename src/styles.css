@@ -2968,3 +2968,22 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .test-list[data-testid="tests-run-results-list"] li > details[open] { flex: 1 1 100%; }
 .test-list[data-testid="tests-run-results-list"] li > details > summary { list-style: none; cursor: pointer; }
 .test-list[data-testid="tests-run-results-list"] li > details > summary::-webkit-details-marker { display: none; }
+
+/* ui-shape 09: Settings and Keymap — 12px dialog on the raised surface, fill selection, plain-text theme, row actions only when meaningful. */
+.settings-dialog { border-radius: var(--r-xl); }
+.settings-tree button { min-height: var(--control-h); border-radius: var(--r-md); box-shadow: none; font-weight: 500; color: var(--muted); }
+.settings-tree button:hover:not(:disabled) { background: var(--accent-surface); }
+.settings-tree button[aria-current="page"], .settings-dialog .settings-tree button[aria-current="page"] { background: var(--accent-surface-strong); border-color: transparent; color: var(--fg); }
+.settings-layout { border-top: 1px solid var(--line-internal); }
+.settings-dialog .settings-page { border-left-color: var(--line-internal); }
+.settings-theme-value { border: 0; background: transparent; padding: 0; min-height: 0; font-weight: 500; }
+.settings-search { margin: 4px 0 8px; }
+.keymap-list tbody tr { height: 40px; }
+.keymap-list thead th { background: transparent; color: var(--muted); font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--line-internal); }
+.keymap-list .action-keys { font-family: var(--mono); font-size: 12px; }
+.keymap-actions { white-space: nowrap; }
+.keymap-actions button { min-height: 28px; padding: 0 10px; box-shadow: none; }
+.keymap-actions button:first-child { background: transparent; border-color: var(--line); }
+.keymap-actions button[data-testid^="keymap-reset-"] { background: transparent; border-color: transparent; color: var(--muted); }
+.keymap-actions button[data-testid^="keymap-reset-"]:disabled { opacity: 0; pointer-events: none; }
+.settings-dialog > .actions, .settings-dialog .actions { border-top: 0; }
