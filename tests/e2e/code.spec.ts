@@ -10,7 +10,7 @@ async function openProgram(page: Page) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-restricted").click();
   await page.getByTestId(`tree-file-${programTab}`).click();
   await expect(page.getByTestId("editor")).toBeVisible();
 }

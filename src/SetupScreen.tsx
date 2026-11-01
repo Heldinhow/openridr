@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { call, HostCallError, type Candidate, type ProjectSdk, type Snapshot } from "./host/client";
-import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel } from "./ToolchainPanels";
 import { Icon } from "./Icon";
@@ -11,7 +10,6 @@ type Props = {
   recent: string[];
   onOpened: (snapshot: Snapshot) => void;
   onSnapshot: (snapshot: Snapshot) => void;
-  onEnter: () => void;
   onOpenGlobalJson: () => void;
 };
 
@@ -118,7 +116,6 @@ export function SetupScreen({
   recent,
   onOpened,
   onSnapshot,
-  onEnter,
   onOpenGlobalJson,
 }: Props) {
   const [path, setPath] = useState(initialPath);
@@ -132,9 +129,8 @@ export function SetupScreen({
   const outline = workspace ? snapshot?.outline : null;
   const tfms = [...new Set(outline?.projects.flatMap((project) => project.tfms) ?? [])];
   const sdk = snapshot?.sdk;
-  const trusted = snapshot?.trust.granted ?? false;
 
-  async function open(target: string, enter = false) {
+  async function open(target: string) {
     if (!target.trim()) {
       setError("Enter an absolute path to a .sln, .csproj or a directory.");
       return;
@@ -145,8 +141,6 @@ export function SetupScreen({
     try {
       const opened = await call<Snapshot>("workspace.open", { path: target.trim() });
       onOpened(opened);
-      // Welcome clicks go straight in (Restricted mode); the typed-path form keeps the trust review step.
-      if (enter) onEnter();
     } catch (caught) {
       if (caught instanceof HostCallError) {
         setError(caught.message);
@@ -165,7 +159,7 @@ export function SetupScreen({
   async function pick() {
     try {
       const { path: picked } = await call<{ path: string | null }>("workspace.pick");
-      if (picked) await open(picked, true);
+      if (picked) await open(picked);
     } catch (caught) {
       setError(messageOf(caught));
     }
@@ -216,7 +210,7 @@ export function SetupScreen({
               {busy ? "Opening…" : "Open"}
             </button>
           </div>
-          <p className="hint" id="workspace-path-help">Opens in Restricted mode — no project code runs until you trust it.</p>
+          <p className="hint" id="workspace-path-help">Asks once per project whether to trust it; until then no project code runs.</p>
           {!window.__TAURI_INTERNALS__ && (
             // Browser/E2E bridge only: Playwright cannot drive the native chooser, so it types the path.
             <form
@@ -250,7 +244,7 @@ export function SetupScreen({
               const name = (solution.split(/[\\/]/).pop() ?? solution).replace(/\.(sln|csproj)$/i, "");
               return (
                 <li key={solution}>
-                  <button type="button" data-testid={`welcome-recent-${index}`} title={solution} onClick={() => void open(solution, true)} disabled={busy}>
+                  <button type="button" data-testid={`welcome-recent-${index}`} title={solution} onClick={() => void open(solution)} disabled={busy}>
                     <span className="project-badge" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>
                     <span className="recent-text"><strong>{name}</strong><span className="muted">{solution}</span></span>
                   </button>
@@ -286,29 +280,6 @@ export function SetupScreen({
               ))}
             </div>
           </div>
-        )}
-
-        {workspace && snapshot && (
-          <section className="trust-card" aria-labelledby="trust-title">
-            <h2 id="trust-title">Review workspace trust</h2>
-            <p data-testid="workspace-path">
-              Workspace path: <code>{workspace.path}</code>
-            </p>
-            <p className="muted">
-              {workspace.kind === "solution" ? "Solution" : "Project"} · {workspace.name}
-            </p>
-            <TrustControls snapshot={snapshot} onChange={onSnapshot} />
-            <div className="actions">
-              <button
-                type="button"
-                className="primary"
-                data-testid="open-text-only"
-                onClick={onEnter}
-              >
-                {trusted ? "Open workspace" : "Open text only"}
-              </button>
-            </div>
-          </section>
         )}
 
         <section className="toolchain" aria-labelledby="toolchain-title" data-testid="toolchain">

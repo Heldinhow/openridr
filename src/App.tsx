@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { SetupScreen } from "./SetupScreen";
 import { WorkspaceView } from "./WorkspaceView";
+import { TrustPrompt } from "./TrustPrompt";
 import { call, type Snapshot } from "./host/client";
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [stage, setStage] = useState<"setup" | "workspace">("setup");
   const [lastPath, setLastPath] = useState("");
+  // A workspace the host opened that still waits for its first Trust decision.
+  const [prompt, setPrompt] = useState<Snapshot | null>(null);
   const [pendingFile, setPendingFile] = useState<string | null>(null);
   const [recentSolutions, setRecentSolutions] = useState<string[]>([]);
 
@@ -48,6 +51,24 @@ export default function App() {
       setLastPath(opened.workspace.path);
     }
     setPendingFile(null);
+    // Undecided projects ask before entering the IDE; decided ones open straight in the stored mode.
+    if (opened.trust.decision === null) {
+      setPrompt(opened);
+      setStage("setup");
+    } else {
+      setStage("workspace");
+    }
+  }
+
+  async function cancelPrompt() {
+    setPrompt(null);
+    handleClosed(await call<Snapshot>("workspace.close"));
+  }
+
+  function decided(next: Snapshot) {
+    handleSnapshot(next);
+    setPrompt(null);
+    setStage("workspace");
   }
 
   function handleClosed(closed: Snapshot) {
@@ -68,7 +89,7 @@ export default function App() {
     setStage("workspace");
   }
 
-  if (stage === "workspace" && snapshot?.workspace) {
+  if (stage === "workspace" && snapshot?.workspace && !prompt) {
     return (
       <WorkspaceView
         key={snapshot.workspace.id}
@@ -83,6 +104,8 @@ export default function App() {
   }
 
   return (
+    <>
+    {prompt && <TrustPrompt snapshot={prompt} onDecided={decided} onCancel={() => void cancelPrompt()} />}
     <SetupScreen
       key={lastPath}
       snapshot={snapshot}
@@ -90,8 +113,8 @@ export default function App() {
       recent={recentSolutions}
       onOpened={handleOpened}
       onSnapshot={handleSnapshot}
-      onEnter={() => setStage("workspace")}
       onOpenGlobalJson={openGlobalJson}
     />
+    </>
   );
 }

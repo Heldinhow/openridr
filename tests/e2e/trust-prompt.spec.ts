@@ -1,0 +1,131 @@
+import { expect, test, type Page } from "@playwright/test";
+import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { hostPort } from "./environment";
+
+// The shared E2E host runs with OPENRIDR_TRUST_STORE=off (every open asks). This spec needs the real
+// per-project store, so it starts its own host on an isolated OPENRIDR_HOME and points the UI at it.
+const port = hostPort + 1;
+const fixture = path.resolve("fixtures/OrderDesk");
+let home: string;
+let server: ChildProcess;
+
+test.describe.configure({ mode: "serial" });
+
+test.beforeAll(async () => {
+  home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-trust-home-"));
+  server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
+    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on" },
+    stdio: "ignore",
+  });
+  await expect.poll(async () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false), {
+    timeout: 300_000,
+  }).toBe(true);
+});
+
+test.afterAll(() => {
+  server?.kill();
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+async function useIsolatedHost(page: Page) {
+  await page.route(/\/__host\/(call|health)$/, async (route) => {
+    const target = `http://127.0.0.1:${port}/${route.request().url().split("/").pop()}`;
+    // A poll still in flight when the test ends fails with "Test ended"; that is not a failure.
+    await route.fetch({ url: target }).then((response) => route.fulfill({ response }), () => {});
+  });
+}
+
+function projectCopy() {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-trust-prompt-"));
+  fs.cpSync(fixture, base, { recursive: true, filter: (s) => !/[\\/](bin|obj)([\\/]|$)/.test(s) });
+  return path.join(base, "OrderDesk.sln");
+}
+
+async function openPath(page: Page, solution: string) {
+  await page.goto("/");
+  await page.getByTestId("workspace-path-input").fill(solution);
+  await page.getByTestId("workspace-open").click();
+}
+
+async function openedWorkspace(page: Page) {
+  const state = await page.evaluate(async () => {
+    const response = await fetch("/__host/call", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ method: "app.state", params: {} }) });
+    return response.json();
+  });
+  return state.data.workspace as { path: string } | null;
+}
+
+test("asks once for a new project, then reopening goes straight in", async ({ page }) => {
+  await useIsolatedHost(page);
+  const solution = projectCopy();
+  await openPath(page, solution);
+  const dialog = page.getByTestId("trust-prompt-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("role", "dialog");
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(page.getByTestId("trust-prompt-trust")).toBeFocused();
+  // Nothing is entered before the decision.
+  await expect(page.getByTestId("tree")).toHaveCount(0);
+
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("tree")).toBeVisible();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+
+  await openPath(page, solution);
+  await expect(page.getByTestId("tree")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+});
+
+test("a Restricted decision is remembered and not asked again", async ({ page }) => {
+  await useIsolatedHost(page);
+  const solution = projectCopy();
+  await openPath(page, solution);
+  await page.getByTestId("trust-prompt-restricted").click();
+  await expect(page.getByTestId("tree")).toBeVisible();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+
+  await openPath(page, solution);
+  await expect(page.getByTestId("tree")).toBeVisible();
+  await expect(page.getByTestId("trust-prompt-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+});
+
+test("Cancel and Esc return to the welcome screen without opening the project", async ({ page }) => {
+  await useIsolatedHost(page);
+  const solution = projectCopy();
+  await openPath(page, solution);
+  await page.getByTestId("trust-prompt-cancel").click();
+  await expect(page.getByTestId("trust-prompt-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("workspace-path-input")).toBeVisible();
+  await expect(page.getByTestId("tree")).toHaveCount(0);
+  expect(await openedWorkspace(page)).toBeNull();
+
+  // Cancel stores nothing, so the next open asks again; this time dismiss with Esc.
+  await page.getByTestId("workspace-open").click();
+  await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("trust-prompt-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("tree")).toHaveCount(0);
+  expect(await openedWorkspace(page)).toBeNull();
+});
+
+test("focus is trapped: Tab cycles Trust, Restricted, Cancel and Enter activates the focused button", async ({ page }) => {
+  await useIsolatedHost(page);
+  await openPath(page, projectCopy());
+  await expect(page.getByTestId("trust-prompt-trust")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("trust-prompt-restricted")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("trust-prompt-cancel")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("trust-prompt-trust")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByTestId("trust-prompt-cancel")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("trust-prompt-dialog")).toHaveCount(0);
+  expect(await openedWorkspace(page)).toBeNull();
+});

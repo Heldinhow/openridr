@@ -389,10 +389,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   overflow-wrap: anywhere;
 }
 
-.trust-card {
-  margin-top: 22px;
-}
-
 .trust {
   background: var(--raised);
   border: 1px solid var(--line);
@@ -2772,8 +2768,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tool-row > summary > span:first-child { font-weight: 500; }
 .candidate-list button { border-radius: var(--r-lg); }
 .checkbox-label { font-weight: 500; }
-.analysis-plan dd, .trust-card code, .tool-row code { font-family: var(--mono); font-size: 12px; }
-.trust-card > p:first-of-type { color: var(--muted); }
+.analysis-plan dd, .tool-row code { font-family: var(--mono); font-size: 12px; }
 
 /* ui-shape 02: middle truncation keeps the distinctive suffix; only secondary status text ellipsizes. */
 .mid { display: inline-flex; min-width: 0; max-width: 100%; }

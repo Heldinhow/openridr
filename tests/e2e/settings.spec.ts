@@ -16,18 +16,16 @@ const settingsFile = path.join(e2eHome, "settings.json");
 async function openTextOnly(page: Page) {
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-restricted").click();
+  await expect(page.getByTestId("tree")).toBeVisible();
 }
 
 async function openTrusted(page: Page) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await expect(page.getByTestId("trust-grant")).toBeEnabled();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 

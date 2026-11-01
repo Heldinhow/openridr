@@ -48,15 +48,27 @@ async function openWorkspace(page: Page, target: string) {
   await page.getByTestId("workspace-open").click();
 }
 
+// The Toolchain cards are only readable without the Trust prompt: open (and optionally trust) through the host, then load.
+async function openViaHost(page: Page, target: string) {
+  await page.request.post(`${host}/call`, { data: { method: "workspace.open", params: { path: target } } });
+  await page.goto("/");
+}
+
+async function trustViaHost(page: Page) {
+  await page.request.post(`${host}/call`, { data: { method: "trust.grant", params: { remember: false } } });
+  await page.reload();
+}
+
 async function trustWorkspace(page: Page) {
-  await page.getByTestId("trust-checkbox").check();
-  await expect(page.getByTestId("trust-grant")).toBeEnabled();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
 }
 
 async function enterWorkspace(page: Page) {
-  await page.getByTestId("open-text-only").click();
+  // After trustWorkspace the modal is gone and the IDE is open; otherwise choose Restricted mode.
+  const prompt = page.getByTestId("trust-prompt-dialog");
+  await prompt.or(page.getByTestId("tree")).first().waitFor();
+  if (await prompt.isVisible()) await page.getByTestId("trust-prompt-restricted").click();
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 }
@@ -72,7 +84,7 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   page,
   request,
 }) => {
-  await openWorkspace(page, solution);
+  await openViaHost(page, solution);
 
   await expect(page.getByTestId("sdk-host")).toContainText("SDK 10.0.100");
   await expect(page.getByTestId("sdk-host")).toContainText("host analysis");
@@ -96,7 +108,7 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
     );
   }
 
-  await trustWorkspace(page);
+  await trustViaHost(page);
   await expect(page.getByTestId("sdk-project")).toContainText("SDK 8.0.408");
   await expect(page.getByTestId("sdk-project")).toContainText("resolved after trust");
   await expect(page.getByTestId("sdk-project")).not.toContainText("10.0.100");
@@ -112,8 +124,9 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   expect(trusted.state).toBe("resolved");
   expect(trusted.resolvedVersion).toBe("8.0.408");
   expect(trusted.root).toBeTruthy();
-  await expect(page.getByTestId("trust-note")).toContainText("remembered for this project path");
 
+  await openWorkspace(page, solution);
+  await trustWorkspace(page);
   await enterWorkspace(page);
   await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   await expect(page.getByTestId("status-sdk")).toHaveText(
@@ -178,14 +191,14 @@ test("missing project SDK is distinct and global.json is never rewritten", async
 }) => {
   const before = hashOf(missingGlobal);
 
-  await openWorkspace(page, missingProject);
+  await openViaHost(page, missingProject);
   await expect(page.getByTestId("sdk-host")).toContainText("SDK 10.0.100");
 
   await reveal(page.getByTestId("sdk-redetect"));
   await page.getByTestId("sdk-redetect").click();
   await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
 
-  await trustWorkspace(page);
+  await trustViaHost(page);
   await expect(page.getByTestId("sdk-project")).toContainText("Project SDK missing");
   await expect(page.getByTestId("sdk-project")).toContainText("8.0.999");
   await expect(page.getByTestId("sdk-project")).toContainText("rollForward disable");

@@ -28,10 +28,11 @@ async function hostCall(request: APIRequestContext, method: string, params = {})
   return response.json();
 }
 
+// The workspace is opened through the host and the page loaded afterwards, so the Toolchain cards can be
+// inspected without the Trust prompt (which the form would raise) covering them.
 async function openWorkspace(page: Page) {
+  await page.request.post(`${host}/call`, { data: { method: "workspace.open", params: { path: fixture } } });
   await page.goto("/");
-  await page.getByTestId("workspace-path-input").fill(fixture);
-  await page.getByTestId("workspace-open").click();
   await reveal(page.getByTestId("sdk-debug-adapter"));
   await expect(page.getByTestId("sdk-debug-adapter")).toBeVisible();
 }
@@ -131,9 +132,8 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   expect(fs.existsSync(debugToolDir)).toBe(false);
 
   // Flag off is a hard gate even with trust and a valid plan.
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
+  expect((await hostCall(request, "trust.grant", { remember: false })).ok).toBe(true);
+  await page.reload();
   const beforeFlag = await hostCall(request, "debug.install", {
     planId: debug.plan.planId,
     confirm: true,
@@ -178,7 +178,11 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   await page.screenshot({ path: path.join(screenshots, "13-debugger-flag.png"), fullPage: true });
 
   // Analysis, Run and the editor stay available: the debugger limit does not block them.
-  await page.getByTestId("open-text-only").click();
+  // Opening the workspace again resets trust and the session flag, so trust and the flag are set once more.
+  await page.getByTestId("workspace-path-input").fill(fixture);
+  await page.getByTestId("workspace-open").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  expect((await hostCall(request, "debug.flag", { enabled: true, confirm: true })).ok).toBe(true);
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
@@ -283,10 +287,8 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await page.goto("/");
     await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("trust-checkbox").check();
-    await page.getByTestId("trust-grant").click();
-    await expect(page.getByTestId("mode-trusted")).toBeVisible();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
     await page.getByTestId("workspace-tools-toggle").click();
     await expect(page.getByTestId("tree")).toBeVisible();
     await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
@@ -308,11 +310,12 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await page.reload();
     const afterReload = await hostCall(request, "workspace.state");
     expect(afterReload.data.debug.appleSiliconExperimental).toBe(true);
-    await expect(page.getByTestId("mode-trusted")).toBeVisible({ timeout: 20_000 });
-    if (!(await page.getByTestId("tree").isVisible())) {
-      await page.getByTestId("open-text-only").click();
-      await page.getByTestId("workspace-tools-toggle").click();
-    }
+    // Opening again asks for trust (and resets the session flag), so trust and set the flag once more.
+    await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    expect((await hostCall(request, "debug.flag", { enabled: true, confirm: true })).ok).toBe(true);
+    await page.getByTestId("workspace-tools-toggle").click();
     await expect(page.getByTestId("tree")).toBeVisible();
     await settleRestore(page);
     await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(2);
@@ -533,9 +536,7 @@ test("one click on Debug enables the flag, restores, builds and stops at a break
     await page.goto("/");
     await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("trust-checkbox").check();
-    await page.getByTestId("trust-grant").click();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
     await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
     await hostCall(request, "debug.setBreakpoints", {
       path: path.join(copy, "src/OrderDesk.Cli/Program.cs"),
@@ -584,10 +585,8 @@ async function prepareDebugCopy(
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
 

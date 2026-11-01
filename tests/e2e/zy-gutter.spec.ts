@@ -24,10 +24,8 @@ test("the test gutter runs one test from the editor and reports its result", asy
     await page.goto("/");
     await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("trust-checkbox").check();
-    await page.getByTestId("trust-grant").click();
-    await expect(page.getByTestId("mode-trusted")).toBeVisible();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
     await page.getByTestId("workspace-tools-toggle").click();
     // tools.plan is inert; only an already present launcher is reused (nothing is downloaded here).
     const planned = await (await page.request.post(`${host}/call`, { data: { method: "tools.plan", params: { tool: "csharp-ls" } } })).json();

@@ -19,10 +19,8 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 1440, height: 900
       await page.goto("/");
       await page.getByTestId("workspace-path-input").fill(path.join(fixture, "OrderDesk.sln"));
       await page.getByTestId("workspace-open").click();
-      await page.getByTestId("trust-checkbox").check();
-      await page.getByTestId("trust-grant").click();
-      await expect(page.getByTestId("mode-trusted")).toBeVisible();
-      await page.getByTestId("open-text-only").click();
+      await page.getByTestId("trust-prompt-trust").click();
+      await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
       await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 120_000 });
     }
 
@@ -58,9 +56,7 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 1440, height: 900
         await page.goto("/");
         await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
         await page.getByTestId("workspace-open").click();
-        await page.getByTestId("trust-checkbox").check();
-        await page.getByTestId("trust-grant").click();
-        await page.getByTestId("open-text-only").click();
+        await page.getByTestId("trust-prompt-trust").click();
         await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 60_000 });
         await setBreakpoint(request, path.join(copy, "src/OrderDesk.Cli/Program.cs"));
         await page.getByTestId("toolbar-debug").click({ force: true });

@@ -6,10 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] Modal acessível: foco inicial em Trust project, Esc=Cancel, Enter no botão focado, Tab circula, foco preso e devolvido
-- [ ] Cancel volta à welcome sem abrir; as outras duas gravam a decisão e entram
-- [ ] Reabrir o mesmo projeto não mostra o prompt (E2E com OPENRIDR_HOME isolado)
-- [ ] Specs que passavam pelo card/etapa de trust migrados; testids de TrustControls preservados
-- [ ] `bun run check` e specs afetados verdes; commit `feat(trust): ...`
+- [x] Modal acessível: foco inicial em Trust project, Esc=Cancel, Enter no botão focado, Tab circula, foco preso e devolvido
+- [x] Cancel volta à welcome sem abrir; as outras duas gravam a decisão e entram
+- [x] Reabrir o mesmo projeto não mostra o prompt (E2E com OPENRIDR_HOME isolado)
+- [x] Specs que passavam pelo card/etapa de trust migrados; testids de TrustControls preservados
+- [x] `bun run check` e specs afetados verdes; commit `feat(trust): ...`
 
 ## Comments
+- 2026-11-01: implementado (`feat(trust)`). Modal em `TrustPrompt.tsx`, fluxo em `App.tsx`; specs migrados + `trust-prompt.spec.ts` com host isolado. Toolbar (`trust-prompt*`) fica para o 04.

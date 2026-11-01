@@ -52,11 +52,8 @@ async function openWorkspace(page: Page, target: string) {
 
 async function openTrusted(page: Page, target: string) {
   await openWorkspace(page, target);
-  await page.getByTestId("trust-checkbox").check();
-  await expect(page.getByTestId("trust-grant")).toBeEnabled();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
@@ -290,7 +287,7 @@ test("restricted mode and a non-repository explain themselves and every git meth
   page,
 }) => {
   await openWorkspace(page, path.join(repo, "OrderDesk.sln"));
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-restricted").click();
   await expect(page.getByTestId("tree")).toBeVisible();
   const restrictedGit = page.getByTestId("toolbar-branch");
   await expect(restrictedGit).toBeDisabled();

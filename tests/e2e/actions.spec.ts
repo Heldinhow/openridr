@@ -10,7 +10,8 @@ const settingsFile = path.join(e2eHome, "settings.json");
 async function openTextOnly(page: Page) {
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-restricted").click();
+  await expect(page.getByTestId("tree")).toBeVisible();
 }
 
 function resetSettings() {

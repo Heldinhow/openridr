@@ -24,10 +24,8 @@ async function openTrustedRestored(page: Page) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", { timeout: 60_000 });
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
@@ -46,12 +44,12 @@ async function openWorkspaceCandidate(page: Page, solution: string) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
-  await expect(page.getByTestId("open-text-only")).toBeVisible();
+  await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible();
 }
 
 async function enterRestrictedWorkspace(page: Page, solution: string) {
   await openWorkspaceCandidate(page, solution);
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-restricted").click();
   await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
   await expect(page.getByTestId("tree")).toBeVisible();
 }
@@ -276,7 +274,7 @@ test("Build and Run name Restricted mode as the reason", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(fixture, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-restricted").click();
   await page.getByTestId("bottom-tab-build").click();
   await expect(page.getByTestId("build-disabled-reason")).toContainText(
     "Trust the workspace before building; nothing runs in Restricted mode.",
@@ -291,10 +289,8 @@ test("Revoke closes the Trust popover and leaves the tabs clickable", async ({ p
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(fixture, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   await page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs").click();
   await expect(page.getByTestId("editor")).toBeVisible();
   await page.getByTestId("mode-badge").click();

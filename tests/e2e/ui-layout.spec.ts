@@ -30,7 +30,7 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     await capture("welcome");
     await page.getByTestId("workspace-path-input").fill(path.resolve("fixtures/OrderDesk/OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-restricted").click();
     await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
     const tree = page.getByTestId("tree");
     const editor = page.getByRole("region", { name: "Editor", exact: true });
@@ -120,10 +120,8 @@ test("evaluated project details keep paths intact and Close with the heading", a
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-checkbox").check();
-  await page.getByTestId("trust-grant").click();
-  await expect(page.getByTestId("mode-trusted")).toBeVisible();
-  await page.getByTestId("open-text-only").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   await page.getByTestId("eval-run").click();
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
@@ -183,10 +181,8 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     await page.goto("/");
     await page.getByTestId("workspace-path-input").fill(solution);
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("trust-checkbox").check();
-    await page.getByTestId("trust-grant").click();
-    await expect(page.getByTestId("mode-trusted")).toBeVisible();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
     await page.getByTestId("workspace-tools-toggle").click();
     await page.getByTestId("eval-run").click();
     await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });

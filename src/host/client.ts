@@ -1046,6 +1046,8 @@ export type Snapshot = {
     workspaceId: number | null;
     decidedAt: number | null;
     revokedAt: number | null;
+    /** Stored Trust decision of the open workspace; null when the user was never asked. */
+    decision: "trusted" | "restricted" | null;
   };
   sdk: {
     host: HostSdk;

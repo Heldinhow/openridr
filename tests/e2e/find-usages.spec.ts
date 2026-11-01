@@ -23,10 +23,8 @@ test("Find Usages lists the real references of Order and opens one", async ({ pa
     await page.goto("/");
     await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
-    await page.getByTestId("trust-checkbox").check();
-    await page.getByTestId("trust-grant").click();
-    await expect(page.getByTestId("mode-trusted")).toBeVisible();
-    await page.getByTestId("open-text-only").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
     await page.getByTestId("workspace-tools-toggle").click();
     // tools.plan is inert. Only an already present launcher is reused (a valid one is never replaced); nothing is downloaded here.
     const planned = await (await page.request.post(`${host}/call`, { data: { method: "tools.plan", params: { tool: "csharp-ls" } } })).json();
