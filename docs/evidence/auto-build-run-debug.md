@@ -48,7 +48,7 @@ Todos passaram, incluindo os casos de falha (diagnósticos permanecem no Build e
 `run:`/`debug:` nasce) e de cancelamento (build e lançamento ficam `cancelled`, sem exit
 inventado). `bun run check` (tsc + `cargo check --workspace --all-targets`) passou.
 
-Suíte completa `cargo test -p openridr-host --no-fail-fast`: 184 unit, 9 `debugger`, 68 `host`,
+Suíte completa `cargo test -p openridr-host --no-fail-fast`: 184 unit, 9 `debugger`, 69 `host`,
 9 `test_discovery` e 5 `test_run` passaram; a única falha é a de baseline já registrada
 `file_access_is_confined_to_the_workspace` (depende da profundidade do worktree e é anterior a
 esta mudança).
