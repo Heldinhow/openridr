@@ -621,8 +621,11 @@ impl Host {
             }
             "workspace.open" => {
                 let opened = self.open_workspace(params)?;
+                // Cancel leaves no trace: an undecided project enters Recents only once decided.
                 if let Some(path) = opened["workspace"]["path"].as_str() {
-                    recent::record(path);
+                    if trusted::get(path).is_some() {
+                        recent::record(path);
+                    }
                 }
                 Ok(opened)
             }
@@ -991,22 +994,28 @@ impl Host {
     /// `remember: true` (sent by the UI) also persists the decision for this workspace path.
     fn grant_trust(&self, params: &Value) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
-        let Some(workspace_id) = inner.workspace.as_ref().map(|workspace| workspace.id) else {
+        self.grant_locked(&mut inner, params["remember"].as_bool() == Some(true))
+    }
+
+    fn grant_locked(&self, inner: &mut Inner, remember: bool) -> HostResult<Value> {
+        let Some((workspace_id, path)) = inner
+            .workspace
+            .as_ref()
+            .map(|workspace| (workspace.id, workspace.path.to_string_lossy().to_string()))
+        else {
             return Err(HostError::new(
                 "invalid_state",
                 "Open a workspace before trusting it.",
             ));
         };
-        if params["remember"].as_bool() == Some(true) {
-            if let Some(workspace) = inner.workspace.as_ref() {
-                trusted::set(&workspace.path.to_string_lossy(), trusted::TRUSTED);
-            }
+        if remember {
+            trusted::set(&path, trusted::TRUSTED)?;
         }
-        if inner.trusted {
-            return Ok(self.snapshot_value(&mut inner));
+        recent::record(&path);
+        if !inner.trusted {
+            apply_trust(inner, workspace_id);
         }
-        apply_trust(&mut inner, workspace_id);
-        Ok(self.snapshot_value(&mut inner))
+        Ok(self.snapshot_value(inner))
     }
 
     /// The stored decision for any path (canonical when it exists), or null.
@@ -1029,36 +1038,39 @@ impl Host {
                 ))
             }
         };
-        trusted::set(&path, decision);
-        let is_open = self
-            .inner
-            .lock()
-            .unwrap()
+        // Decide and apply under one lock so a concurrent workspace.open cannot be trusted by mistake.
+        let mut inner = self.inner.lock().unwrap();
+        let is_open = inner
             .workspace
             .as_ref()
             .is_some_and(|workspace| workspace.path.to_string_lossy() == path.as_str());
-        if !is_open {
-            return Ok(json!({ "path": path, "decision": trusted::get(&path) }));
+        if is_open {
+            return if decision == trusted::TRUSTED {
+                self.grant_locked(&mut inner, true)
+            } else {
+                self.revoke_locked(&mut inner)
+            };
         }
-        if decision == trusted::TRUSTED {
-            self.grant_trust(&json!({ "remember": true }))
-        } else {
-            self.revoke_trust()
-        }
+        trusted::set(&path, decision)?;
+        Ok(json!({ "path": path, "decision": trusted::get(&path) }))
     }
 
     fn revoke_trust(&self) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
-        let Some(request) = inner
-            .workspace
-            .as_ref()
-            .map(|workspace| global_json_request(&workspace.outline))
-        else {
+        self.revoke_locked(&mut inner)
+    }
+
+    fn revoke_locked(&self, inner: &mut Inner) -> HostResult<Value> {
+        let Some((request, path)) = inner.workspace.as_ref().map(|workspace| {
+            (
+                global_json_request(&workspace.outline),
+                workspace.path.to_string_lossy().to_string(),
+            )
+        }) else {
             return Err(HostError::new("invalid_state", "No workspace is open."));
         };
-        if let Some(workspace) = inner.workspace.as_ref() {
-            trusted::set(&workspace.path.to_string_lossy(), trusted::RESTRICTED);
-        }
+        trusted::set(&path, trusted::RESTRICTED)?;
+        recent::record(&path);
         inner.trusted = false;
         inner.context_seq += 1;
         inner.nuget_plan = None;
@@ -1066,31 +1078,31 @@ impl Host {
             decision.revoked_at = Some(now_ms());
         }
         stop_services(
-            &mut inner,
+            inner,
             "Trust was revoked while analysis or an installation was running; it was stopped and its result is not current.",
         );
         stop_restore(
-            &mut inner,
+            inner,
             "Trust was revoked while this restore was running; it was stopped and its result is not current.",
         );
         stop_build(
-            &mut inner,
+            inner,
             "Trust was revoked while this build was running; it was stopped and its result is not current.",
         );
         stop_run(
-            &mut inner,
+            inner,
             "Trust was revoked while this program was running; it was stopped and its result is not current.",
         );
         stop_terminal(
-            &mut inner,
+            inner,
             "Trust was revoked while the shell was running; it was stopped and its output is not current.",
         );
         stop_tests(
-            &mut inner,
+            inner,
             "Trust was revoked while tests were being discovered; the discovery was stopped and its result is not current.",
         );
         stop_test_run(
-            &mut inner,
+            inner,
             "Trust was revoked while tests were running; the run was stopped and its results are not current.",
         );
         inner.diagnostics.mark_unavailable(
@@ -1100,7 +1112,7 @@ impl Host {
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
         inner.evaluation = Evaluation::idle();
         inner.processes.lock().unwrap().mark_awaiting();
-        Ok(self.snapshot_value(&mut inner))
+        Ok(self.snapshot_value(inner))
     }
 
     fn redetect_sdks(&self) -> HostResult<Value> {
@@ -5880,15 +5892,15 @@ fn validate_test_tfm(
     Ok(())
 }
 
-/// Store key for `trust.get`/`trust.set`: the canonical path when it exists, else as given.
+/// Store key for `trust.get`/`trust.set`: the canonical path of an existing absolute path.
 fn trust_key(params: &Value) -> HostResult<String> {
     let raw = required_str(params, "path")?;
     if !Path::new(&raw).is_absolute() {
         return Err(HostError::new("path_not_allowed", "Path must be absolute."));
     }
-    Ok(fs::canonicalize(&raw)
+    fs::canonicalize(&raw)
         .map(|path| path.to_string_lossy().to_string())
-        .unwrap_or(raw))
+        .map_err(|_| HostError::new("not_found", format!("Path not found: {raw}")))
 }
 
 /// Shared by an explicit grant and by opening an already-trusted path.

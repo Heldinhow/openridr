@@ -5,6 +5,7 @@
 //! `OPENRIDR_TRUST_STORE=off` disables reads and writes (isolated E2E runs).
 
 use crate::tools::app_home;
+use crate::{HostError, HostResult};
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 
@@ -50,17 +51,23 @@ pub fn get(workspace_path: &str) -> Option<&'static str> {
     }
 }
 
-/// Best effort: a failed write only means the question is asked again next time.
-pub fn set(workspace_path: &str, decision: &str) {
+/// Persists the decision. A store that is off is a no-op; an unreadable file or a failed write is
+/// an error so the caller can tell the user the decision was not saved.
+pub fn set(workspace_path: &str, decision: &str) -> HostResult<()> {
     if !enabled() {
-        return;
+        return Ok(());
     }
-    let Some(mut map) = read_all() else { return };
+    let Some(mut map) = read_all() else {
+        return Err(HostError::new(
+            "trusted_unreadable",
+            "trusted.json could not be read, so the decision was not saved. Fix or remove the file.",
+        ));
+    };
     if map.get(workspace_path).and_then(Value::as_str) == Some(decision) {
-        return;
+        return Ok(());
     }
     map.insert(workspace_path.to_string(), json!(decision));
-    let _ = crate::fsutil::write_json_atomic(&path(), &Value::Object(map), "trusted_failed");
+    crate::fsutil::write_json_atomic(&path(), &Value::Object(map), "trusted_failed")
 }
 
 #[cfg(test)]
@@ -85,11 +92,11 @@ pub(crate) mod tests {
     fn set_then_get_and_never_decided_is_none() {
         with_home(|_| {
             assert_eq!(get("/a"), None);
-            set("/a", TRUSTED);
-            set("/b", RESTRICTED);
+            set("/a", TRUSTED).unwrap();
+            set("/b", RESTRICTED).unwrap();
             assert_eq!(get("/a"), Some(TRUSTED));
             assert_eq!(get("/b"), Some(RESTRICTED));
-            set("/a", RESTRICTED);
+            set("/a", RESTRICTED).unwrap();
             assert_eq!(get("/a"), Some(RESTRICTED));
             assert_eq!(get("/c"), None);
         });
@@ -101,7 +108,7 @@ pub(crate) mod tests {
             std::fs::write(file, r#"["/old","/older"]"#).unwrap();
             assert_eq!(get("/old"), Some(TRUSTED));
             assert_eq!(get("/older"), Some(TRUSTED));
-            set("/new", RESTRICTED);
+            set("/new", RESTRICTED).unwrap();
             let stored: Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
             assert_eq!(
                 stored,
@@ -115,7 +122,7 @@ pub(crate) mod tests {
         with_home(|file| {
             std::fs::write(file, "{ not json").unwrap();
             assert_eq!(get("/a"), None);
-            set("/a", TRUSTED);
+            assert_eq!(set("/a", TRUSTED).unwrap_err().code, "trusted_unreadable");
             assert_eq!(std::fs::read_to_string(file).unwrap(), "{ not json");
         });
     }
@@ -123,10 +130,10 @@ pub(crate) mod tests {
     #[test]
     fn store_off_reads_nothing_and_writes_nothing() {
         with_home(|file| {
-            set("/a", TRUSTED);
+            set("/a", TRUSTED).unwrap();
             std::env::set_var("OPENRIDR_TRUST_STORE", "off");
             assert_eq!(get("/a"), None);
-            set("/b", TRUSTED);
+            set("/b", TRUSTED).unwrap();
             std::env::remove_var("OPENRIDR_TRUST_STORE");
             assert_eq!(get("/b"), None);
             assert_eq!(get("/a"), Some(TRUSTED));

@@ -21,27 +21,31 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
-/// `(path, openedAt)`, most recent first.
-fn read_all() -> Vec<(String, Option<u64>)> {
-    let text = std::fs::read_to_string(path()).unwrap_or_default();
-    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(&text) else { return Vec::new() };
-    items
-        .iter()
-        .filter_map(|item| match item {
-            Value::String(path) => Some((path.clone(), None)),
-            Value::Object(_) => Some((item["path"].as_str()?.to_string(), item["openedAt"].as_u64())),
-            _ => None,
-        })
-        .collect()
+/// `(path, openedAt)`, most recent first. `None` means the file exists but is unreadable or
+/// unrecognised: writers must not overwrite it.
+fn read_all() -> Option<Vec<(String, Option<u64>)>> {
+    let text = match std::fs::read_to_string(path()) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let Value::Array(items) = serde_json::from_str::<Value>(&text).ok()? else { return None };
+    Some(
+        items
+            .iter()
+            .filter_map(|item| match item {
+                Value::String(path) => Some((path.clone(), None)),
+                Value::Object(_) => Some((item["path"].as_str()?.to_string(), item["openedAt"].as_u64())),
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
 fn write_all(projects: &[(String, Option<u64>)]) {
     let items: Vec<Value> = projects
         .iter()
-        .map(|(path, opened_at)| match opened_at {
-            Some(at) => json!({ "path": path, "openedAt": at }),
-            None => json!({ "path": path }),
-        })
+        .map(|(path, opened_at)| json!({ "path": path, "openedAt": opened_at }))
         .collect();
     let _ = crate::fsutil::write_json_atomic(&path(), &json!(items), "recent_failed");
 }
@@ -50,6 +54,7 @@ fn write_all(projects: &[(String, Option<u64>)]) {
 /// Trust decision (`null` when never decided).
 pub fn list() -> Value {
     let projects: Vec<Value> = read_all()
+        .unwrap_or_default()
         .into_iter()
         .filter(|(item, _)| Path::new(item).exists())
         .map(|(item, opened_at)| {
@@ -65,7 +70,7 @@ pub fn list() -> Value {
 
 /// Best effort: a failed write never blocks opening a workspace.
 pub fn record(workspace_path: &str) {
-    let mut projects = read_all();
+    let Some(mut projects) = read_all() else { return };
     projects.retain(|(item, _)| item != workspace_path);
     projects.insert(0, (workspace_path.to_string(), Some(now_ms())));
     projects.truncate(LIMIT);
@@ -74,7 +79,7 @@ pub fn record(workspace_path: &str) {
 
 /// Forgets the entry only; the Trust decision stays.
 pub fn remove(workspace_path: &str) {
-    let mut projects = read_all();
+    let Some(mut projects) = read_all() else { return };
     projects.retain(|(item, _)| item != workspace_path);
     write_all(&projects);
 }
@@ -123,7 +128,7 @@ mod tests {
                 record(&format!("{base}/p{index}"));
             }
             record(&format!("{base}/p10"));
-            let all = read_all();
+            let all = read_all().unwrap();
             assert_eq!(all.len(), LIMIT);
             assert_eq!(all[0].0, format!("{base}/p10"));
             assert_eq!(all.iter().filter(|(path, _)| path.ends_with("/p10")).count(), 1);
@@ -136,7 +141,7 @@ mod tests {
             let a = tempfile::tempdir().unwrap();
             let b = tempfile::tempdir().unwrap();
             let (a, b) = (a.path().to_str().unwrap(), b.path().to_str().unwrap());
-            crate::trusted::set(a, crate::trusted::TRUSTED);
+            crate::trusted::set(a, crate::trusted::TRUSTED).unwrap();
             record(a);
             record(b);
             let listed = list();
@@ -145,6 +150,17 @@ mod tests {
             remove(a);
             assert_eq!(paths(&list()), vec![b]);
             assert_eq!(crate::trusted::get(a), Some("trusted"));
+        });
+    }
+
+    #[test]
+    fn unreadable_file_is_not_overwritten() {
+        with_home(|home| {
+            std::fs::write(home.join("recent.json"), "{ not json").unwrap();
+            assert!(list()["projects"].as_array().unwrap().is_empty());
+            record("/a");
+            remove("/a");
+            assert_eq!(std::fs::read_to_string(home.join("recent.json")).unwrap(), "{ not json");
         });
     }
 }
