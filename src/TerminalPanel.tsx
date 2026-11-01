@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useEffect, useRef, useState } from "react";
 import { Terminal as XtermTerminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -39,6 +40,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
   // Byte offset of the next read and the session it belongs to; a new revision starts from zero.
   const readPosition = useRef({ revision: -1, since: 0 });
   const sentSize = useRef("");
+  const resize = useRef<() => void>(() => {});
   // Keystrokes reach the PTY in order, one call at a time.
   const inputQueue = useRef<Promise<unknown>>(Promise.resolve());
   const latest = useRef({ running, onSnapshot, onError });
@@ -65,7 +67,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
       fontFamily: "Menlo, Monaco, 'Courier New', monospace",
       fontSize: 12,
       scrollback: 10_000,
-      theme: { background: "#1e1f22", foreground: "#bcbec4" },
+      theme: { background: "#000000", foreground: "#f5f5f5", selectionBackground: "#1e3358" },
     });
     const addon = new FitAddon();
     term.loadAddon(addon);
@@ -83,6 +85,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
           sentSize.current = "";
         });
     };
+    resize.current = sendSize;
     const observer = new ResizeObserver(() => sendSize());
     observer.observe(screen);
     const input = term.onData((data) => {
@@ -103,6 +106,11 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
       sentSize.current = "";
     };
   }, []);
+
+  // The shell learns the screen size as soon as it runs, even when the panel did not resize in between.
+  useEffect(() => {
+    if (running) resize.current();
+  }, [running]);
 
   // Raw PTY bytes arrive in order; the poll is quick while running and slow once the shell has ended.
   useEffect(() => {
@@ -193,7 +201,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
           <span className={`tag ${terminal.state === "failed" ? "error" : ""}`} data-testid="terminal-state" role="status">
             {stateLabels[terminal.state]}
           </span>
-          <span className="muted" data-testid="terminal-process">
+          <span className="sr-only" data-testid="terminal-process">
             {terminal.processId === null ? "No shell process" : `Process ${terminal.processId}`}
           </span>
         </div>
@@ -208,7 +216,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
               "Starts the discovered shell in the workspace root; the shell and cwd are shown above."
             }
           >
-            Start shell
+            <Icon name="run" /><span className="sr-only">Start shell</span>
           </button>
           {running && (
             <button
@@ -217,7 +225,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
               onClick={() => setConfirmClose(true)}
               title="Closing a running shell needs a decision: keep the terminal or terminate the shell."
             >
-              Close…
+              <Icon name="stop" /><span className="sr-only">Close…</span>
             </button>
           )}
           <button
@@ -226,7 +234,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
             onClick={() => void send("\u0003")}
             title="Sends Ctrl+C (byte 0x03) to the PTY so the foreground child receives SIGINT."
           >
-            Ctrl+C
+            <kbd>^C</kbd><span className="sr-only">Ctrl+C</span>
           </button>
         </div>
       </div>
@@ -245,7 +253,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
             The shell is still running. Keep the terminal, or terminate the shell and close it? The
             log stays visible either way.
           </p>
-          <button data-testid="terminal-confirm-keep" autoFocus onClick={() => setConfirmClose(false)}>
+          <button className="primary" data-testid="terminal-confirm-keep" autoFocus onClick={() => setConfirmClose(false)}>
             Keep terminal
           </button>
           <button
@@ -255,7 +263,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
               void invoke("Close terminal", "terminal.stop", { confirm: true });
             }}
           >
-            Terminate shell and close
+            <Icon name="problems" /> Terminate shell and close
           </button>
         </div>
       )}
@@ -271,7 +279,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
         </p>
       )}
       {running && (
-        <p className="muted" data-testid="terminal-hint">
+        <p className="sr-only" data-testid="terminal-hint">
           Type in the terminal as in any shell. The line input below mirrors it for assistive tech.
         </p>
       )}
@@ -308,7 +316,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
           spellCheck={false}
           autoComplete="off"
         />
-        <button type="submit" data-testid="terminal-send" disabled={!running || busy !== null}>
+        <button type="submit" className="primary" data-testid="terminal-send" disabled={!running || busy !== null}>
           Send line
         </button>
       </form>

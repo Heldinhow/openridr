@@ -73,7 +73,8 @@ test("⌘T opens Search Everywhere, Files opens a file, and the last tab and tex
   await expect(page.getByTestId("search-preview-code")).toContainText("class OrderTests");
   const resultBox = (await page.getByTestId("find-action-list").boundingBox())!;
   const previewBox = (await page.getByTestId("search-preview").boundingBox())!;
-  expect(previewBox.y).toBeGreaterThanOrEqual(resultBox.y + resultBox.height);
+  // ui-shape 10: the preview docks beside the list, so neither covers the other.
+  expect(previewBox.x).toBeGreaterThanOrEqual(resultBox.x + resultBox.width - 1);
   if (process.env.OPENRIDR_SEARCH_SCREENSHOT) {
     await page.screenshot({ path: process.env.OPENRIDR_SEARCH_SCREENSHOT });
   }

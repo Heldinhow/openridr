@@ -321,7 +321,7 @@ export function NuGetPanel({
 
       {listing && (
         <>
-          <p className="hint" data-testid="nuget-summary">
+          <p className={listing.state === "ok" && listing.totalPackages === 0 ? "sr-only" : "hint"} data-testid="nuget-summary">
             {listing.state === "ok"
               ? listing.totalPackages === 0
                 ? "No packages are referenced by this project."

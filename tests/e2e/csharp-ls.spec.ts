@@ -383,8 +383,10 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     await expect(page.getByTestId("problems-counts")).toContainText("1 error");
     await row.click();
     await expect(row).toHaveAttribute("aria-current", "true");
-    expect(await row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
-    expect(await problemsList.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    // Rows ease their background (120ms); poll instead of reading mid-transition.
+    await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    // ui-shape 04: the two-layer rows fit the list, so there is no horizontal scroll.
+    expect(await problemsList.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(false);
     expect(
       await row.evaluate((element) => {
         const box = element.getBoundingClientRect();

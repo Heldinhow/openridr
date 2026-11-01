@@ -46,8 +46,8 @@ test("disabled trust grant looks disabled and becomes enabled after the checkbox
 
   await page.getByTestId("trust-checkbox").check();
   await expect(page.getByTestId("trust-grant")).toBeEnabled();
-  const enabled = await page.getByTestId("trust-grant").evaluate((button) => getComputedStyle(button).backgroundColor);
-  expect(enabled).not.toBe("rgba(0, 0, 0, 0)");
+  // Buttons ease their background (120ms), so wait for the filled primary instead of reading mid-transition.
+  await expect.poll(() => page.getByTestId("trust-grant").evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
 });
 
 test("disabled install confirmation looks disabled before trust", async ({ page }) => {

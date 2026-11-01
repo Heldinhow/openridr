@@ -81,11 +81,12 @@ test("a grouped tree filters without losing selection and rerun failed uses the 
     await expect(
       page.getByTitle(/^Project: tests\/OrderDesk\.Tests\/OrderDesk\.Tests\.csproj$/),
     ).toHaveCount(1);
+    // The prefix level equals the project name here, so the tree skips it instead of repeating "OrderDesk.Tests" (ui-shape 08).
     await expect(
       page.getByTitle(
         /^Namespace prefix derived from the fully qualified test name: OrderDesk\.Tests\.OrderTests\./,
       ),
-    ).toHaveCount(1);
+    ).toHaveCount(0);
     await expect(
       page.getByTitle(/^Class derived from the fully qualified test name: OrderDesk\.Tests\./),
     ).toHaveCount(1);
@@ -104,11 +105,12 @@ test("a grouped tree filters without losing selection and rerun failed uses the 
     await expect(
       page.getByTitle(/^Project: tests\/OrderDesk\.Tests\/OrderDesk\.Tests\.csproj$/),
     ).toHaveCount(1);
+    // The prefix level equals the project name here, so the tree skips it instead of repeating "OrderDesk.Tests" (ui-shape 08).
     await expect(
       page.getByTitle(
         /^Namespace prefix derived from the fully qualified test name: OrderDesk\.Tests\.OrderTests\./,
       ),
-    ).toHaveCount(1);
+    ).toHaveCount(0);
     await expect(page.getByTestId("tests-counts")).toContainText("1 selected");
     await page.getByTestId("tests-filter").fill("");
     await expect(page.getByTestId("test-item-0")).toBeVisible();

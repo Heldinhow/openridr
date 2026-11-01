@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useState } from "react";
 import type { Evaluation, TestItem, TestResult, TestRun, Tests, TestsDiscovery } from "./host/client";
 import {
@@ -343,7 +344,13 @@ export function TestsPanel({
     );
   }
 
-  function renderGroup(group: TestGroup, depth: number) {
+  function renderGroup(group: TestGroup, depth: number, parentTitle?: string): React.ReactNode {
+    // A namespace prefix that repeats its project name adds a level and no information.
+    if (group.level === "prefix" && group.title === parentTitle) {
+      return group.children.map((node) =>
+        node.kind === "group" ? renderGroup(node, depth, parentTitle) : renderLeaf(node),
+      );
+    }
     const folding = filter.trim() === "";
     const isCollapsed = folding && collapsed.has(group.key);
     return (
@@ -355,8 +362,8 @@ export function TestsPanel({
           title={group.tooltip}
           onClick={() => toggleGroup(group.key)}
         >
-          <span aria-hidden="true" className="test-group-chevron">
-            {isCollapsed ? "▸" : "▾"}
+          <span aria-hidden="true" className={`test-group-chevron ${isCollapsed ? "" : "open"}`}>
+            <Icon name="chevron" />
           </span>
           <span className="test-group-name">{group.title}</span>
           <span className="muted">{testCount(group)}</span>
@@ -364,7 +371,7 @@ export function TestsPanel({
         {!isCollapsed && (
           <div className="test-group-body">
             {group.children.map((node) =>
-              node.kind === "group" ? renderGroup(node, depth + 1) : renderLeaf(node),
+              node.kind === "group" ? renderGroup(node, depth + 1, group.title) : renderLeaf(node),
             )}
           </div>
         )}
@@ -665,7 +672,7 @@ export function TestsPanel({
 
           <p className="muted" data-testid="tests-counts">
             {items.length} test{items.length === 1 ? "" : "s"} · {selected.size} selected ·{" "}
-            {discovery.discoveryId ?? "no discovery"} · revision {discovery.revision}
+            <span className="sr-only">{discovery.discoveryId ?? "no discovery"} · revision {discovery.revision}</span>
             {discovery.partial ? " · partial" : ""}
           </p>
           {items.length > 0 && (
@@ -723,7 +730,7 @@ export function TestsPanel({
             >
               {runStateLabel(run)}
             </span>
-            <span className="muted" data-testid="tests-run-id">
+            <span className="sr-only" data-testid="tests-run-id">
               {run.runId ?? "no run"} · {run.discoveryId ?? "no discovery"} · discovery revision{" "}
               {run.discoveryRevision} · run revision {run.revision} · context{" "}
               {run.contextId ?? "unknown"}

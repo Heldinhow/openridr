@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { ReferencesResponse } from "./host/client";
 
@@ -40,9 +41,14 @@ export function FindUsagesPanel({ response, snippets, onNavigate, onClose, class
         if (event.key === "Escape") onClose();
       }}
     >
-      <h2 id="find-usages-title" ref={heading} tabIndex={-1}>
-        Find Usages
-      </h2>
+      <div className="popup-head">
+        <h2 id="find-usages-title" ref={heading} tabIndex={-1}>
+          Find Usages
+        </h2>
+        <button type="button" className="popup-close" data-testid="find-usages-close" aria-label="Close Find Usages" title="Close (Esc)" onClick={onClose}>
+          <Icon name="close" />
+        </button>
+      </div>
       <p className="muted" data-testid="find-usages-summary">
         {response.state === "ok"
           ? `${response.referenceCount} reference${response.referenceCount === 1 ? "" : "s"} · session ${response.session} · ${response.path}:${response.line + 1}:${response.character + 1}`
@@ -103,11 +109,6 @@ export function FindUsagesPanel({ response, snippets, onNavigate, onClose, class
           ))}
         </div>
       )}
-      <div className="actions">
-        <button type="button" data-testid="find-usages-close" onClick={onClose}>
-          Close
-        </button>
-      </div>
     </section>
   );
 }

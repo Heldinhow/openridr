@@ -879,9 +879,9 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
       };
     });
     expect(theme).toMatchObject({
-      bg: "#191a1c",
-      panel: "#1e1f22",
-      fg: "#dfe1e5",
+      bg: "#000000",
+      panel: "#0b0b0b",
+      fg: "#f5f5f5",
       accent: "#548af7",
     });
 

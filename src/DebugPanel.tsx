@@ -193,7 +193,7 @@ export function DebugPanel({
       </div>
 
       {disabledReason && !active && (
-        <p className="muted" data-testid="dap-disabled-reason">
+        <p className="muted" data-testid="dap-disabled-reason" title={disabledReason}>
           {disabledReason}
         </p>
       )}
@@ -266,7 +266,7 @@ export function DebugPanel({
                     {frame.name}
                   </button>{" "}
                   <span className="muted" title={frame.path ?? frame.sourceName ?? "no source"}>
-                    {frame.path ?? frame.sourceName ?? "no source"}:{frame.line}
+                    {(frame.path ?? frame.sourceName ?? "no source").split(/[\\/]/).pop()}:{frame.line}
                   </span>
                 </li>
               ))}

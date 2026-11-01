@@ -539,3 +539,21 @@ Welcome — recentes verificados (2026-10-29): spec `welcome lists recent soluti
 - Capturas passaram a recortar `.editor-pane` (privacidade: a versão full-page de `09-rename-preview.png` mostrava um caminho `~/.dotnet/...` com o nome de usuário; ela permanece no histórico local não publicado). Alteradas pelos specs: `09-rename-{applied,preview,preview-files,prompt,stale}.png`, `10-code-actions-{applied,diagnostic,empty,list,preview,stale}.png`, `m7-*.png`. Logs `10-csharp-ls-actions.json` e `10-lsp.log` regenerados pelos specs e revertidos com `git checkout` (sem diff).
 - Flake "code actions are listed" (`restore-reload` desabilitado): 1 falha em ~10 execuções, 0 nas posteriores com a mesma UI; a espera é do restore automático, independente do layout. Classificação: não causado por M7 (a falha ocorre antes de qualquer interação com o painel); não provado pré-existente por rodada em baseline.
 - `code.spec.ts:81` falhava em `mode-trusted` oculto após grant (efeito do D-13, não de M7); o teste foi atualizado depois (`7063510`) e a nota anterior ficou obsoleta.
+
+## UI shape — 14 telas (2026-10-31)
+
+Um commit por issue de `.scratch/ui-shape/issues/` (mensagens `feat(...): ui-shape NN — ...`), capturas em `docs/evidence/ui-shape/NN-*.png` (1440×900 e 1100×700 quando a tela muda de forma). Fundação de tokens e controles globais entrou no commit da issue 01.
+
+- **Bug real achado no caminho (07):** o shell nunca recebia o tamanho do terminal se o painel não mudasse de tamanho depois de iniciar; era mascarado pela linha de dica que aparecia e deslocava o layout. Agora `resize` é enviado quando `running` vira verdadeiro.
+- **Verificado com host/ferramentas reais:** build/run (`Order A-104: R$ 42,00`), testes VSTest (1 falha, 2 passam, 1 pulado), debug pausado com netcoredbg 3.2.0 em macOS arm64 (flag experimental ligada), terminal com zsh real, git em repositório descartável (specs), NuGet com dados de probe.
+- **Suíte completa (13,3 min, portas 1521/4418):** 153 passam, 1 pulado, 4 falhas iniciais — 2 eram contratos antigos (tokens do tema, rolagem horizontal da lista de Problems) e 1 leitura de fundo no meio da transição de 120ms (specs atualizados); `zz-acceptance` e `run.spec:318` falharam só por porta alternativa/estado compartilhado e passam isolados com as portas padrão (1420/4317). `bun run check` (tsc + cargo check) verde.
+- **Não verificado:** captura visual de rename inline, code actions e Find Usages com resultados (os specs com csharp-ls real passam; instalar a ferramenta no home do app para capturar não foi autorizado), estado de restore incompleto na árvore, Windows/macOS Intel, tema claro e o instalador `.app`.
+- `DESIGN.md`/`PRODUCT.md` não entraram no commit (arquivos sem versionamento no checkout principal); o spec manda regenerar o `DESIGN.md` na entrega do build.
+
+## UI shape polish (2026-11-01)
+
+Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×900 e 1100×700; `before` foi gerado antes de existir o passo de menus, por isso tem menos arquivos). Um commit por área (`fix(...): ui-shape polish — ...`).
+
+- **Defeitos reais corrigidos:** árvore sem recuo (regressão da issue 03), botão de ocultar o painel inferior com 0px de ícone (padding global do `button` espremia o SVG), cabeçalho do Debug em `display: block` (botão de start colado no texto), menu Run configuration com item e nota emendados e estourando o popover, Settings mudando de tamanho entre páginas, linhas TEXT do Search Everywhere cortadas sem reticências, texto "No program has run" repetido no Run.
+- **Verificado:** `bun run check` e `bun run build` verdes; detector do impeccable sem achados; suíte e2e completa nas portas padrão: 156 passam, 1 pulado (`install-plan.spec.ts:56`, ferramenta já instalada no ambiente), 1 falha inicial em `settings.spec.ts:181` causada por esta rodada (altura do Settings a 120% de zoom), corrigida e reexecutada: `settings.spec.ts` 5/5.
+- **Não verificado:** rename inline, code actions e Find Usages com resultados, restore incompleto na árvore (a linha de projeto com tag `restore incomplete` não foi capturada; o CSS deixa a tag de aviso na segunda camada), Problems com diagnóstico real, tema claro, Windows/macOS Intel.

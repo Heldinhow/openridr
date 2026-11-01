@@ -39,7 +39,7 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     const editorBox = (await editor.boundingBox())!;
     const outputBox = (await output.boundingBox())!;
     expect(treeBox.width).toBe(280);
-    expect(treeBox.y).toBe(44);
+    expect(treeBox.y).toBe(52);
     expect(treeBox.y + treeBox.height).toBe(outputBox.y - 4);
     expect(editorBox.height).toBeGreaterThan(200);
     expect(outputBox.height).toBe(220);
@@ -193,7 +193,8 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
 
     const activeConfig = page.getByTestId("run-config-active");
     await expect(activeConfig).toHaveText("Run configuration with a deliberately long visible name");
-    expect(await activeConfig.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    // Middle truncation: the head shrinks and the distinctive tail stays whole.
+    expect(await activeConfig.locator(".mid-head").evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
     for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug"]) {
       const box = (await page.getByTestId(id).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
@@ -204,6 +205,7 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     );
     const evaluationLabel = page.getByTestId("status-evaluation");
     await expect(evaluationLabel).toHaveAttribute("title", /^Evaluated · Debug · TFM .* · revision \d+$/);
-    expect(await evaluationLabel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    // Secondary status text ellipsizes only when the bar runs out of room (ui-shape 02).
+    expect(await evaluationLabel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(viewport.width <= 1100);
   });
 }

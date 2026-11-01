@@ -106,7 +106,7 @@ test("the single bar keeps placeholders disabled and the status bar reports the 
   await page.getByTestId(`tree-file-${programTab}`).click();
 
   const toolbar = page.locator(".toolbar");
-  expect((await toolbar.boundingBox())!.height).toBe(44);
+  expect((await toolbar.boundingBox())!.height).toBe(52);
   await expect(page.getByTestId("toolbar-project")).toContainText("OrderDesk.sln");
   await expect(page.getByTestId("toolbar-branch")).toContainText("Git");
   await expect(page.getByTestId("toolbar-branch")).toBeDisabled();

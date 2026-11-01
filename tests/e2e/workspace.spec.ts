@@ -236,7 +236,7 @@ test("closing a modified buffer or workspace requires an explicit choice", async
   const bufferDialog = page.getByRole("dialog");
   await expect(bufferDialog).toBeVisible();
   await expect(bufferDialog).toContainText("unsaved changes");
-  await expect(page.getByTestId("confirm-keep")).toHaveCSS("border-color", "rgb(84, 138, 247)");
+  await expect(page.getByTestId("confirm-save")).toHaveCSS("background-color", "rgb(84, 138, 247)");
   await expect(page.getByTestId("confirm-discard")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.getByTestId("confirm-keep").click();
   await expect(tab).toBeVisible();
@@ -268,7 +268,7 @@ test("saves a modified buffer from the close dialog", async ({ page }) => {
   await openProgram(page);
 
   await replaceEditorText(page, "// saved from the close dialog\n");
-  await expect(page.getByTestId("editor-revision")).toHaveText(" · Modified");
+  await expect(page.getByTestId("editor-revision")).toHaveText("Modified");
 
   await page.getByTestId(`tab-${programTab}`).getByTestId("close-buffer").click();
   const dialog = page.getByRole("dialog");
@@ -357,7 +357,7 @@ test("compares buffer and disk and revalidates a second disk change before overw
   await expect(page.getByTestId("conflict-compare-diff")).toHaveText(
     "1 line removed · 1 line added",
   );
-  await expect(page.getByTestId("editor-revision")).toHaveText(" · Modified");
+  await expect(page.getByTestId("editor-revision")).toHaveText("Modified");
   fs.mkdirSync(screenshots, { recursive: true });
   await page.getByTestId("conflict-compare").scrollIntoViewIfNeeded();
   await page.screenshot({
@@ -375,7 +375,7 @@ test("compares buffer and disk and revalidates a second disk change before overw
   );
   expect(fs.readFileSync(program, "utf8")).toBe("// second disk version\n");
   await expect(page.getByTestId("editor")).toContainText("buffer version");
-  await expect(page.getByTestId("editor-revision")).toHaveText(" · Modified");
+  await expect(page.getByTestId("editor-revision")).toHaveText("Modified");
 
   await page.getByTestId("conflict-overwrite").click();
   await expect(banner).toHaveCount(0);
@@ -403,7 +403,7 @@ test("detects external changes on focus and tab activation without replacing the
   await expect(banner).toBeVisible();
   await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
   await expect(page.getByTestId("editor")).not.toContainText("focus disk version");
-  await expect(page.getByTestId("editor-revision")).toHaveText(" · Modified");
+  await expect(page.getByTestId("editor-revision")).toHaveText("Modified");
   await page.getByTestId("conflict-compare").locator("summary").click();
   await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
     "// focus disk version\n",
