@@ -72,12 +72,12 @@ test("asks once for a new project, then reopening goes straight in", async ({ pa
 
   await page.getByTestId("trust-prompt-trust").click();
   await expect(page.getByTestId("tree")).toBeVisible();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 
   await openPath(page, solution);
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 });
 
 test("a Restricted decision is remembered and not asked again", async ({ page }) => {
@@ -86,12 +86,12 @@ test("a Restricted decision is remembered and not asked again", async ({ page })
   await openPath(page, solution);
   await page.getByTestId("trust-prompt-restricted").click();
   await expect(page.getByTestId("tree")).toBeVisible();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
 
   await openPath(page, solution);
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(page.getByTestId("trust-prompt-dialog")).toHaveCount(0);
-  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
 });
 
 test("Cancel and Esc return to the welcome screen without opening the project", async ({ page }) => {

@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { reveal } from "./disclosures";
+import { openTrustPopover } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 import { e2eHome, host } from "./environment";
@@ -68,7 +68,7 @@ async function openWorkspace(page: Page, target: string) {
 
 async function trustWorkspace(page: Page) {
   await page.getByTestId("trust-prompt-trust").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 }
 
 async function enterWorkspace(page: Page) {
@@ -520,9 +520,9 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     );
 
     // Revoke: analysis is unavailable, items keep their session as stale, editing works.
-    await reveal(page.getByTestId("trust-revoke"));
+    await openTrustPopover(page);
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     await expect(page.getByTestId("problem-stale")).toContainText("Trust was revoked");
     await expect(
       page.locator('[data-testid^="problem-row-"]').first(),
@@ -639,12 +639,12 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
       timeout: 30_000,
     });
 
-    await reveal(page.getByTestId("trust-revoke"));
+    await openTrustPopover(page);
     await page.getByTestId("trust-revoke").click();
     await expect(page.getByTestId("lsp-state")).toContainText("Stopped", {
       timeout: 30_000,
     });
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     const stopped = await hostState(request);
     const lspProcess = stopped.processes.find(
       (process: { id: number }) => process.id === stopped.lsp.processId,
@@ -894,9 +894,9 @@ test("completion and definition use the real session and discard stale answers",
     resume();
 
     // After revoke, the same shortcuts explain the missing trust instead of failing silently.
-    await reveal(page.getByTestId("trust-revoke"));
+    await openTrustPopover(page);
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     await page.getByTestId("editor").click();
     await page.keyboard.press("Control+Space");
     await expect(page.getByTestId("editor-lsp-status")).toHaveAttribute(
@@ -1423,9 +1423,9 @@ test("a stale rename preview is rejected as a whole and late answers are discard
     await expect(page.getByTestId("rename-preview")).toBeVisible({
       timeout: 30_000,
     });
-    await reveal(page.getByTestId("trust-revoke"));
+    await openTrustPopover(page);
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     await page.getByTestId("rename-apply").click();
     await expect(page.getByTestId("rename-stale")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("rename-stale")).toContainText(
@@ -1721,9 +1721,9 @@ test("code action lists and previews are invalidated before any write", async ({
       .getByRole("button", { name: "Convert to positional record", exact: true })
       .click();
     await expect(page.getByTestId("rename-preview")).toBeVisible();
-    await reveal(page.getByTestId("trust-revoke"));
+    await openTrustPopover(page);
     await page.getByTestId("trust-revoke").click();
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     await expect(page.getByTestId("rename-preview")).toHaveCount(0);
     await expect(page.getByTestId("editor")).not.toContainText(
       "record Order(string Id, decimal Total);",

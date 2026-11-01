@@ -20,7 +20,7 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 1440, height: 900
       await page.getByTestId("workspace-path-input").fill(path.join(fixture, "OrderDesk.sln"));
       await page.getByTestId("workspace-open").click();
       await page.getByTestId("trust-prompt-trust").click();
-      await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+      await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
       await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 120_000 });
     }
 

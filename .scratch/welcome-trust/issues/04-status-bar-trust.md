@@ -4,11 +4,12 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `mode-badge`, `trust-banner`, `trust-prompt*` removidos da toolbar; nada reaparece ao reabrir
-- [ ] `status-mode` é botão com popover (Trust/Restrict via `trust.set`), Esc e retorno de foco
-- [ ] Todos os specs que usavam `mode-badge`/`trust-banner` migrados para `status-mode`/prompt (gates, trust-sdk, workspace, ui-layout, zy-restore-interrupt, restore, code, csharp-ls, zz-acceptance)
-- [ ] Exceção de testids já registrada em decisions.md; `bun run check` e specs afetados verdes; commit `refactor(trust): ...`
+- [x] `mode-badge`, `trust-banner`, `trust-prompt*` removidos da toolbar; nada reaparece ao reabrir
+- [x] `status-mode` é botão com popover (Trust/Restrict via `trust.set`), Esc e retorno de foco
+- [x] Todos os specs que usavam `mode-badge`/`trust-banner` migrados para `status-mode`/prompt (gates, trust-sdk, workspace, ui-layout, zy-restore-interrupt, restore, code, csharp-ls, zz-acceptance)
+- [x] Exceção de testids já registrada em decisions.md; `bun run check` e specs afetados verdes; commit `refactor(trust): ...`
 
 ## Comments
+- 2026-11-01: implementado (`refactor(trust)`). `StatusMode.tsx` + specs migrados + `status-mode.spec.ts`; ver implementation-notes.

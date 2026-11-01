@@ -33,7 +33,6 @@ import {
   testRunBlockedReason,
 } from "./TestsPanel";
 import { TestsQuickList } from "./TestsQuickList";
-import { TrustControls } from "./TrustControls";
 import { ProcessPanel } from "./ProcessPanel";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
@@ -374,7 +373,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const sidebarWidth = layout.left.size;
   const outputHeight = layout.bottom.size;
   const panelBodyRef = useRef<HTMLDivElement>(null);
-  const trustMenuRef = useRef<HTMLDetailsElement>(null);
   // Toolbar dropdowns are <details>: close them on an outside click.
   useEffect(() => {
     const close = (event: PointerEvent) => {
@@ -458,7 +456,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const { runConfigStore, runConfigsLoaded, commitRunConfigs } = useRunConfigs({ workspacePath: workspace.path, setMessage });
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
-  const [trustBannerDismissed, setTrustBannerDismissed] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(projects.map((project) => project.path)),
@@ -3322,24 +3319,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             {recentSolutions.length === 0 && <span className="menu-note">No recent solutions.</span>}
           </div>
         </details>
-        <details ref={trustMenuRef} className="toolbar-menu trust-menu" onKeyDown={(event) => {
-          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
-        }}>
-          <summary className={trusted ? "success" : "warning"} data-testid="mode-badge">{trusted ? "Trusted mode" : "Restricted mode"}</summary>
-          <div className="menu-content" data-testid="trust-banner">
-            <TrustControls
-              snapshot={snapshot}
-              onChange={(next) => {
-                onSnapshot(next);
-                // Grant/Revoke finished successfully: close the popover and return focus to its summary.
-                if (trustMenuRef.current) {
-                  trustMenuRef.current.open = false;
-                  trustMenuRef.current.querySelector("summary")?.focus();
-                }
-              }}
-            />
-          </div>
-        </details>
         <BranchWidget
           status={gitStatus}
           statusError={gitStatusError}
@@ -3493,24 +3472,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       </div>
 
       <div className="workspace-notices">
-      {!trusted && !trustBannerDismissed && (
-        <div className="notice warning trust-banner" role="status" data-testid="trust-prompt">
-          <span><strong>Restricted mode.</strong> Build, Run, Debug and analysis are off until you trust this workspace.</span>
-          <button
-            type="button"
-            className="primary"
-            data-testid="trust-prompt-open"
-            onClick={() => {
-              if (trustMenuRef.current) trustMenuRef.current.open = true;
-              trustMenuRef.current?.querySelector<HTMLInputElement>("input[type=checkbox]")?.focus();
-            }}
-          >
-            Trust workspace…
-          </button>
-          <button type="button" className="notice-dismiss" data-testid="trust-prompt-dismiss" aria-label="Dismiss trust banner" onClick={() => setTrustBannerDismissed(true)}>×</button>
-        </div>
-      )}
-
       {message && (
         <div
           className={`notice ${message.tone === "error" ? "error" : ""}`}
@@ -4455,7 +4416,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
       <StatusBar
         workspace={workspace}
-        trusted={trusted}
+        snapshot={snapshot}
+        onSnapshot={onSnapshot}
         sdkSummary={sdkSummary}
         evaluation={evaluationStatus}
         restore={{

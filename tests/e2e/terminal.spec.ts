@@ -78,7 +78,7 @@ test("a real shell runs in the workspace, interrupts a child with Ctrl+C and clo
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
     await page.getByTestId("trust-prompt-trust").click();
-    await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
     await page.getByTestId("workspace-tools-toggle").click();
     await expect(page.getByTestId("tree")).toBeVisible();
     fs.mkdirSync(screenshots, { recursive: true });

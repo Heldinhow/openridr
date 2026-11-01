@@ -30,7 +30,7 @@ async function openTrustedEvaluated(page: Page, copy: string) {
   await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
   await page.getByTestId("trust-prompt-trust").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", {

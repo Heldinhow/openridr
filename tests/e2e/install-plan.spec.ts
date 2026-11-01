@@ -59,7 +59,7 @@ test("trusted first-install plan shows an active Confirm and install at 1440x900
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
   await page.getByTestId("trust-prompt-trust").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   const state = await (await request.post(`${host}/call`, { data: { method: "workspace.state", params: {} } })).json();
   test.skip(state.data.tools["csharp-ls"].state === "ready", "csharp-ls already installed in this E2E home; run with a fresh OPENRIDR_E2E_HOME");

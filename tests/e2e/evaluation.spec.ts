@@ -34,7 +34,7 @@ async function openWorkspace(page: Page, target: string) {
 
 async function trustWorkspace(page: Page) {
   await page.getByTestId("trust-prompt-trust").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 }
 
 async function enterWorkspace(page: Page) {

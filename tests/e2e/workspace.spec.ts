@@ -44,7 +44,7 @@ test("welcome lists recent solutions, persists them and reopens one", async ({ p
   if (directory) await page.screenshot({ path: path.join(directory, "welcome-recent.png") });
   await page.getByTestId("welcome-recent-0").click();
   await page.getByTestId("trust-prompt-restricted").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
 });
 
 test.beforeEach(() => {
@@ -108,7 +108,7 @@ test("opens the fixture asking for a Trust decision, with Restricted mode availa
   );
 
   await enterTextOnly(page);
-  await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
   await expect(page.getByTestId("tree")).toContainText("Text outline · not evaluated");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
@@ -528,10 +528,10 @@ test("direct host calls fail before trust and reject paths outside the workspace
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
 
-test("toolbar dropdowns are not clipped by the 44px bar", async ({ page }) => {
+test("status-bar trust popover is not clipped by the status bar", async ({ page }) => {
   await openWorkspace(page, solution);
   await enterTextOnly(page);
-  await page.getByTestId("trust-prompt-open").click();
+  await page.getByTestId("status-mode").click();
   const grant = page.getByTestId("trust-grant");
   await expect(grant).toBeVisible();
   // elementFromPoint at the button centre is the button itself only if nothing clips or covers it.

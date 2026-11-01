@@ -53,7 +53,7 @@ async function openWorkspace(page: Page, target: string) {
 async function openTrusted(page: Page, target: string) {
   await openWorkspace(page, target);
   await page.getByTestId("trust-prompt-trust").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 

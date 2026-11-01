@@ -10,7 +10,7 @@ import fs from "node:fs";
 import { revisionOf } from "./automatic";
 import os from "node:os";
 import path from "node:path";
-import { reveal } from "./disclosures";
+import { openTrustPopover, reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const host = "http://127.0.0.1:4317";
@@ -92,7 +92,7 @@ async function clickTestId(page: Page, testid: string) {
 
 async function grantTrust(page: Page) {
   await page.getByTestId("trust-prompt-trust").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 }
 
 async function enterWorkspace(page: Page) {
@@ -782,8 +782,9 @@ public sealed class LongTests
     await replaceEditor(page, `${originalLibrary}\n// unsaved across revoke\n`, false);
     await expect(page.getByTestId("dirty-marker")).toBeVisible();
     const beforeRevoke = await hostState(request);
-    await clickTestId(page, "trust-revoke");
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await openTrustPopover(page);
+    await page.getByTestId("trust-revoke").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     await expect(page.getByTestId("editor")).toContainText("unsaved across revoke");
     await expect(page.getByTestId("toolbar-build")).toBeDisabled();
     await expect(page.getByTestId("toolbar-run")).toBeDisabled();

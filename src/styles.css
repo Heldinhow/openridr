@@ -954,8 +954,11 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .workspace-tools[open] > summary::before { content: "▾"; }
 .workspace-tools > summary span { margin-left: auto; }
 .workspace-tools > summary::-webkit-details-marker { display: none; }
-.trust-menu .menu-content { left: 0; right: auto; width: 380px; padding: 12px; }
-.trust-menu .trust { margin: 0; padding: 0; background: transparent; border: 0; }
+.status-mode { height: 100%; padding: 0 6px; border: 0; border-radius: 0; background: transparent; font: inherit; cursor: pointer; }
+.status-mode:hover, .status-mode[aria-expanded="true"] { background: var(--accent-surface-strong); }
+.status-mode:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.status-mode-popover { position: fixed; z-index: 30; width: 380px; max-width: calc(100vw - 16px); padding: 12px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-xl); box-shadow: var(--shadow-popover); color: var(--fg); font-size: 12px; }
+.status-mode-popover .trust { margin: 0; padding: 0; background: transparent; border: 0; }
 .notice-dismiss { float: right; margin-left: 8px; border: 0; background: transparent; padding: 0 6px; }
 @media (max-width: 1250px) {
   .editor-action-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
@@ -2559,7 +2562,6 @@ mark.search-hit {
 .workspace-brand .icon { color: var(--muted); }
 .workspace-brand strong { font-weight: 500; }
 .toolbar-menu[open] > summary { background: var(--accent-surface-strong); }
-.toolbar-menu > summary[data-testid="mode-badge"] { font-size: 12px; padding: 3px 8px; }
 .run-config-tag { display: none; }
 .run-config-menu > summary { max-width: 240px; }
 .toolrail { background: var(--chrome); border-right: 0; }
@@ -2719,7 +2721,6 @@ label.run-config-field > :not(span:first-child):not(input):not(select):not(texta
 .search-box { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 10px; background: transparent; border-radius: 6px; color: var(--muted); }
 .search-box input { flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; outline: 0; color: var(--fg); font: inherit; }
 .search-box:focus-within { background: var(--panel); outline: 1px solid var(--accent); }
-.trust-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .cs-badge, .json-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; font-size: 8px; font-weight: 700; line-height: 1; }
 .cs-badge { min-width: 17px; height: 13px; padding: 0 2px; border: 1px solid #5fa86a; border-radius: 3px; color: #7cc58a; background: #2f4a35; }
@@ -2745,8 +2746,6 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 
 /* Tools window (restore, adapter, installer, LSP, processes) lives in the bottom panel, not over the editor. */
 .workspace-tools-body { display: grid; gap: 8px; padding: 8px 12px; align-content: start; }
-.trust-banner { padding: 4px 12px; }
-.trust-banner .notice-dismiss { float: none; margin-left: 0; }
 
 /* Run tool window: output first, the run head stays on one line. */
 .run-window { display: grid; gap: 6px; padding: 8px; align-content: start; min-height: 0; }
@@ -2793,7 +2792,6 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tag.info { background: rgba(59, 130, 246, 0.08); color: var(--info); }
 .toolbar .project-menu { flex: 0 0 auto; max-width: 200px; }
 .toolbar .project-menu > summary { max-width: 200px; }
-.toolbar .trust-menu { flex: 0 0 auto; }
 .toolbar .run-config-menu, .toolbar .toolbar-menu:has([data-testid="toolbar-branch"]) { flex: 0 1 auto; min-width: 0; }
 
 /* ui-shape 03: Solution Explorer — 32px rows, fill + weight selection (never both rows solid), icon chevrons. */

@@ -163,7 +163,7 @@ async function openAndTrust(page: Page, copy: string) {
   await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();
   await page.getByTestId("trust-prompt-trust").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("restore-state")).toContainText("Restoring…", { timeout: 30_000 });
 }
@@ -207,10 +207,10 @@ test("Revoke trust during the automatic restore stops it and nothing evaluates a
   try {
     await openAndTrust(page, copy);
     await waitForOwnedDelay(pidDir);
-    await page.getByTestId("mode-badge").click();
+    await page.getByTestId("status-mode").click();
     await page.getByTestId("trust-revoke").click();
     await waitForOwnedDelayGone(pidDir);
-    await expect(page.getByTestId("mode-badge")).toHaveText("Restricted mode");
+    await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
     await expect(page.getByTestId("restore-cancel")).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId("restore-state")).not.toContainText("Restoring…");
     await expect(page.getByTestId("restore-state")).not.toContainText("Restore succeeded");

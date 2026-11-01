@@ -43,7 +43,7 @@ async function openWorkspace(page: Page) {
 test("disabled trust grant looks disabled and becomes enabled after the checkbox", async ({ page }) => {
   await openWorkspace(page);
   await page.getByTestId("trust-prompt-restricted").click();
-  await page.getByTestId("mode-badge").click();
+  await page.getByTestId("status-mode").click();
   await expectLooksDisabled(page.getByTestId("trust-grant"));
 
   await page.getByTestId("trust-checkbox").check();
@@ -64,7 +64,7 @@ test("disabled install confirmation looks disabled before trust", async ({ page 
 test("disabled run configuration controls look disabled on the default configuration", async ({ page }) => {
   await openWorkspace(page);
   await page.getByTestId("trust-prompt-trust").click();
-  await expect(page.getByTestId("mode-badge")).toHaveText("Trusted mode");
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
 
