@@ -1726,7 +1726,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 
 .terminal-confirm {
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
   background: var(--panel);
   padding: 8px 10px;
   display: flex;

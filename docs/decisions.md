@@ -381,3 +381,17 @@ As referências e pacotes de projetos avaliados ficam dentro de um disclosure �
 - Testes (vermelhos sem a correção, log em `docs/evidence/logs/m7-ticket34-red.md`): resumo "Nothing has been applied" e status visíveis, popup depois do editor no DOM, a 1100×700 com Problems aberto.
 
 - **Follow-up do ticket 34:** (i) o bloco `conflict-banner` continua entre o breadcrumb e `.editor-body`; só mudou a posição *relativa aos popups*: antes os popups ficavam acima dele, agora todos os popups vêm depois do editor e o banner fica logo acima do editor (nenhuma mudança de testid/foco; o spec `workspace.spec.ts` de conflito de disco passa). (ii) Texto de `.editor-popup p` subiu para 0,75rem (12 px) com line-height 1,25 — cabe sem quebrar os asserts de 1100×700, então não há motivo para menos. (iii) `rustfmt`: o crate tem dívida de formatação anterior; só os hunks deste ticket foram formatados (linha dupla e asserts do teste).
+
+## 2026-10-31 — UI shape (T3 Code): decisões abertas do `.scratch/ui-shape/spec.md`
+
+Redesenho visual das 14 telas sobre os tokens de `DESIGN.md` (preto verdadeiro, superfícies por alfa, linhas de 1px, raios 6/8/12, controles de 32px, barra de 52px). Sem dependência nova, sem mudança de contrato do host, `data-testid` e `role="tab"` preservados. As cinco decisões em aberto foram resolvidas assim (não houve resposta do mantenedor; reabrir se discordar):
+
+1. **Largura do slot esquerdo:** fica em **280px** (código e wireframe); o `320px` do `DESIGN.md` não foi aplicado para não deslocar os specs de layout.
+2. **Menu bar `File/Edit/View…`:** continua **fora** (barra única, decisão F1).
+3. **Cluster projeto/branch/Git:** **controles inline** na barra; o card flutuante do T3 não foi implementado.
+4. **Raio de diálogo e Search Everywhere:** **12px**.
+5. **Tema claro:** **não** implementado; tokens claros seguem só documentados.
+
+Consequências para contratos de teste: barra superior 44→52px, status 24→28px, painel inferior padrão 220→280px (o e2e fixa 220 via `storageState`), "Modified" saiu do texto do breadcrumb para um selo (`editor-revision`), nomes de projeto/branch/Run configuration truncam no meio (`MidText`), `1 parent` não repete em cada linha do log, o prefixo de namespace igual ao projeto não vira um nível extra na árvore de testes, o preview do Search Everywhere fica ao lado da lista. Specs atualizados em conjunto.
+
+Não verificado visualmente nesta rodada (ver `docs/implementation-notes.md`): rename inline, code actions e Find Usages com resultados e "Order em Classes e em Symbols" — os specs com csharp-ls real passam, mas não foram capturados porque instalar a ferramenta no home do app fora dos specs não foi autorizado —, estado de restore incompleto na árvore, `Changes +n −n` (o host não expõe estatística de linhas), colunas Requested/Resolved do NuGet (o host só expõe Current/Latest).
