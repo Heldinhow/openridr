@@ -787,7 +787,10 @@ export function CommitPanel({
                   title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.path}
                   onClick={() => void showDiff(file)}
                 >
-                  <span className="commit-path">{file.path}</span>
+                  <span className="commit-path" title={file.path}>
+                    <span className="commit-dir">{file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : ""}</span>
+                    <span className="commit-name">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
+                  </span>
                   <span className={`tag ${file.conflicted ? "error" : ""}`}>{file.label}</span>
                   {file.untracked && <span className="menu-note">new file</span>}
                 </button>
@@ -971,7 +974,7 @@ export function GitLogPanel({
                   <code>{commit.shortHash}</code>
                   <span className="git-subject">{commit.subject}</span>
                   <span className="menu-note">{commit.author} · {shortDate(commit.date)}</span>
-                  <span className="tag">{commit.parents.length === 0 ? "root" : `${commit.parents.length} parent`}</span>
+                  {commit.parents.length !== 1 && <span className="tag">{commit.parents.length === 0 ? "root" : `${commit.parents.length} parents`}</span>}
                 </button>
               </li>
             ))}

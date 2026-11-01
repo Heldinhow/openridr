@@ -3013,3 +3013,23 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .find-action .action-group { font-size: 12px; }
 .find-action > input[data-testid="find-action-input"]:not([type="checkbox"]):not([type="radio"]):focus-visible { box-shadow: none; border-color: var(--line-internal); }
 .find-action > input[data-testid="find-action-input"]:not([type="checkbox"]):not([type="radio"]) { border-width: 0 0 1px; border-radius: 0; background: transparent; }
+
+/* ui-shape 11: Git — file rows are name over directory (truncated in the middle), log rows are subject over author · date. */
+.commit-files { gap: 0; padding: 4px; }
+.commit-file { flex-wrap: nowrap; align-items: center; min-height: var(--control-h); padding: 2px 8px; border-radius: var(--r-md); box-shadow: none; font-weight: 400; }
+.commit-file:hover { background: var(--accent-surface); }
+.commit-path { display: flex; flex-direction: column-reverse; min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; }
+.commit-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.commit-dir { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.commit-file .tag { flex: 0 0 auto; }
+.commit-row.selected { background: var(--accent-surface-strong); }
+.git-commit-list { border: 0; max-height: none; }
+.git-commit { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "hash subject tag" ". meta meta"; gap: 0 10px; padding: 6px 10px; border: 0; border-radius: var(--r-md); box-shadow: none; font-weight: 400; min-height: 48px; }
+.git-commit:hover { background: var(--accent-surface); }
+.git-commit > code { grid-area: hash; font: 12px var(--mono); color: var(--muted); }
+.git-commit > .git-subject { grid-area: subject; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.git-commit > .menu-note { grid-area: meta; }
+.git-commit > .tag { grid-area: tag; }
+.git-commit.selected { background: var(--accent-surface-strong); }
+.git-log-body { gap: 0; }
+.git-log-body > .git-commit-details { border-left: 1px solid var(--line-internal); padding-left: 12px; }

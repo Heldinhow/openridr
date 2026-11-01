@@ -83,8 +83,10 @@ test("long current branch stays compact while its full name remains accessible",
   const branch = page.getByTestId("toolbar-branch");
   const label = page.getByTestId("branch-current");
   await expect(label).toHaveText(longBranch);
-  await expect(label).toHaveCSS("text-overflow", "ellipsis");
-  expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  // Middle truncation (ui-shape 02): the head ellipsizes and the branch tail stays whole.
+  const head = label.locator(".mid-head");
+  await expect(head).toHaveCSS("text-overflow", "ellipsis");
+  expect(await head.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
   await expect(branch).toHaveAttribute("title", /Current branch:/);
   await expect(branch).toHaveAccessibleName(/Current branch:/);
   expect(await branch.getAttribute("title")).toContain(longBranch);
@@ -227,7 +229,8 @@ test("log lists commits and files; checkout and pull explain refusals; push need
   const commits = page.getByTestId(/^git-log-item-/);
   await expect(commits).toHaveCount(2);
   await expect(commits.first()).toContainText("Second commit for log");
-  await expect(commits.first()).toContainText("1 parent");
+  // A single parent is the normal case and is not repeated on every row (ui-shape 11); root and merges still say so.
+  await expect(commits.first()).not.toContainText("1 parent");
   await expect(commits.nth(1)).toContainText("root");
   await commits.first().click();
   await expect(page.getByTestId("git-log-files")).toContainText(order);
