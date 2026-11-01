@@ -2932,3 +2932,39 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .terminal-panel { position: relative; }
 .terminal-meta { overflow-x: auto; scrollbar-width: none; }
 .terminal-meta > span:has([data-testid="terminal-cwd"]) { overflow: visible; text-overflow: clip; }
+
+/* ui-shape 08: Tests — tree first, rows are status + name, metadata stays in the DOM for assistive tech and tooltips. */
+.test-tree, .test-list { border: 0; border-radius: 0; }
+.test-tree { margin: 4px 8px; max-height: none; }
+.test-group { border-bottom: 0; }
+.test-group-title { min-height: var(--control-h); border-radius: var(--r-md); padding: 2px 10px; font-size: 13px; font-weight: 500; }
+.test-group-title:hover { background: var(--accent-surface); }
+.test-group-chevron { display: inline-flex; width: 14px; justify-content: center; }
+.test-group-chevron .icon { width: 12px; height: 12px; transform: rotate(-90deg); transition: transform 120ms ease-out; }
+.test-group-chevron.open .icon { transform: none; }
+.test-group-body { padding-left: 16px; }
+.test-list li { border-bottom: 0; }
+.test-list label { align-items: center; min-height: var(--control-h); padding: 2px 10px; border-radius: var(--r-md); font-size: 13px; }
+.test-list label:hover { background: var(--accent-surface); }
+.test-list label > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.test-list label code { font: 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.test-tree-leaf label > span > .muted { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.test-list[data-testid="tests-run-results-list"] { margin: 4px 8px; max-height: none; }
+.test-list[data-testid="tests-run-results-list"] li { padding: 4px 10px; border-radius: var(--r-md); }
+.test-list[data-testid="tests-run-results-list"] li:hover { background: var(--accent-surface); }
+.test-list[data-testid="tests-run-results-list"] li > .muted { font-size: 12px; margin-left: 8px; }
+.tag.passed, .tag.success { background: rgba(16, 185, 129, 0.08); color: var(--success); }
+.tag.failed, .tag.error { background: rgba(239, 68, 68, 0.08); color: var(--error); }
+.tag.skipped, .tag.warning { background: rgba(245, 158, 11, 0.08); color: var(--warning); }
+.tests-filter-row input { border-radius: var(--r-lg); font-size: 14px; }
+.build-panel[data-testid="tests-panel"] > .build-controls .tag { font-size: 12px; }
+.build-panel[data-testid="tests-panel"] { flex-direction: row; flex-wrap: wrap; align-items: center; align-content: flex-start; gap: 4px 12px; }
+.build-panel[data-testid="tests-panel"] > * { flex: 1 1 100%; }
+.build-panel[data-testid="tests-panel"] > [data-testid="tests-counts"] { flex: 0 0 auto; margin: 0 0 0 10px; padding: 0; }
+.build-panel[data-testid="tests-panel"] > .tests-filter-row { flex: 1 1 240px; margin: 0; }
+.build-panel[data-testid="tests-panel"] > .tests-filter-row > span:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.test-list[data-testid="tests-run-results-list"] li { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; min-height: var(--control-h); }
+.test-list[data-testid="tests-run-results-list"] li > details { margin-left: auto; font-size: 12px; color: var(--muted); }
+.test-list[data-testid="tests-run-results-list"] li > details[open] { flex: 1 1 100%; }
+.test-list[data-testid="tests-run-results-list"] li > details > summary { list-style: none; cursor: pointer; }
+.test-list[data-testid="tests-run-results-list"] li > details > summary::-webkit-details-marker { display: none; }
