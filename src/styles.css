@@ -2830,3 +2830,37 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tree-name { flex: 0 1 auto; min-width: 10ch; }
 .tree-row .tag { flex: 0 8 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .explorer-title { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; } .explorer-title .icon { width: 12px; height: 12px; color: var(--muted); }
+
+/* ui-shape 04: Problems — two-layer rows (severity · code · message / location · document · origin · state), no horizontal scroll. */
+.problems { gap: 4px; font-size: 12px; }
+.problems-head { padding: 2px 4px; color: var(--muted); }
+.problems-head > [data-testid="problems-coverage"] { flex: 1 1 280px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problems .notice { padding: 2px 4px; font-size: 12px; border: 0; background: transparent; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problems-body { grid-template-columns: minmax(0, 1fr) minmax(240px, 30%); }
+.problems-body:has(.problem-details[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.problem-details[hidden] { display: none; }
+.problems-list { max-height: none; }
+.problems-list-wrap, .build-problems-list { overflow: auto; }
+.problem-head, .build-problem-head { display: none; }
+.problem-row, .build-problem-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; min-width: 0; padding: 6px 10px; border-radius: var(--r-md); border: 0; white-space: normal; box-shadow: none; min-height: 44px; font-size: 12px; font-weight: 400; }
+.problem-row > *, .build-problem-row > * { min-width: 0; }
+.problem-row > :nth-child(1), .build-problem-row > :nth-child(1) { flex: 0 0 76px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+.problem-row > :nth-child(2), .build-problem-row > :nth-child(2) { flex: 0 0 76px; font-family: var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem-row > :nth-child(3), .build-problem-row > :nth-child(3) { flex: 1 1 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem-row > :nth-child(n+4), .build-problem-row > :nth-child(n+4) { color: var(--muted); }
+.problem-row > :nth-child(4), .build-problem-row > :nth-child(4) { margin-left: 162px; flex: 0 0 auto; }
+.problem-row > :nth-child(5), .build-problem-row > :nth-child(5) { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem-row:hover, .build-problem-row:hover { background: var(--accent-surface); border-color: transparent; }
+.problem-row[aria-current="true"] { background: var(--select); border-color: transparent; }
+.problem-details { border-left: 1px solid var(--line-internal); }
+.problem-details dd { overflow-wrap: anywhere; }
+.problems { display: flex; flex-direction: column; }
+.problems > .problems-head { order: 0; }
+.problems > .problems-body { order: 1; }
+.problems > .build-problems { order: 2; }
+.problems > .notice { order: 3; }
+.problems > .build-problems { margin-top: 0; }
+.build-problems-head > .muted:last-child { display: none; }
+.build-problems-list { max-height: none; }
+.problem-row.problem-head, .build-problem-row.build-problem-head { display: none; }
+.problem-row > :nth-child(3), .build-problem-row > :nth-child(3) { flex: 1 0 calc(100% - 172px); }

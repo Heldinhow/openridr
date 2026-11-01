@@ -203,7 +203,7 @@ export function ProblemsPanel({
       </div>
 
       {notCurrent && (
-        <div className="notice warning" data-testid="problem-stale" role="status">
+        <div className="notice warning" data-testid="problem-stale" role="status" title={`Some diagnostics are not current. ${diagnostics.analysisUnavailable ?? ""}`.trim()}>
           <strong>Some diagnostics are not current.</strong> Previous items are kept and
           labelled stale or awaiting; editing does not resolve them by anticipation.
           {diagnostics.analysisUnavailable && <> {diagnostics.analysisUnavailable}</>}
@@ -211,7 +211,7 @@ export function ProblemsPanel({
       )}
 
       {diagnostics.coverage === "partial" && (
-        <div className="notice warning" data-testid="problems-partial" role="status">
+        <div className="notice warning" data-testid="problems-partial" role="status" title={diagnostics.coverageNote ?? "Analysis coverage is partial."}>
           <strong>Analysis coverage is partial.</strong>{" "}
           {diagnostics.coverageNote ??
             "The project model or restore is incomplete; diagnostics may cover only part of the solution."}
@@ -292,7 +292,7 @@ export function ProblemsPanel({
           </div>
         </div>
 
-        <aside className="problem-details" data-testid="problems-details" aria-label="Problem details">
+        <aside className={`problem-details ${selected ? "" : "empty"}`} data-testid="problems-details" aria-label="Problem details" hidden={!selected}>
           <div className="panel-title">Problem details</div>
           {selected ? (
             <>
