@@ -63,11 +63,12 @@ function project(name: string) {
   return { base, solution };
 }
 
-// Registers a project in the recent list through the host (oldest first), with an optional stored decision.
-async function seed(solution: string, decision?: "trusted" | "restricted") {
+// Registers a decided project in the recent list through the host (oldest first). Only decided
+// projects are recorded: an undecided open leaves no trace.
+async function seed(solution: string, decision: "trusted" | "restricted") {
+  await hostCall("trust.set", { path: solution, decision });
   await hostCall("workspace.open", { path: solution });
   await hostCall("workspace.close");
-  if (decision) await hostCall("trust.set", { path: solution, decision });
 }
 
 async function storedDecision(solution: string) {

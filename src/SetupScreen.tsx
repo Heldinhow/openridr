@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { call, HostCallError, type Candidate, type Snapshot } from "./host/client";
+import { call, HostCallError, messageOf, type Candidate, type Snapshot } from "./host/client";
 import { Icon } from "./Icon";
 import { PathForm } from "./welcome/PathForm";
 import { ProjectsView } from "./welcome/ProjectsView";
@@ -16,10 +16,6 @@ type Props = {
   onSnapshot: (snapshot: Snapshot) => void;
   onOpenGlobalJson: () => void;
 };
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
-}
 
 export function SetupScreen({
   snapshot,
@@ -84,6 +80,7 @@ export function SetupScreen({
         <WelcomeNav view={view} onView={setView} />
         <div className="setup" hidden={view !== "projects"} data-testid="welcome-projects">
           <ProjectsView
+            active={view === "projects"}
             recent={recent}
             busy={busy}
             rowErrors={rowErrors}

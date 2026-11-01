@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { call, HostCallError } from "../host/client";
+import { call, messageOf } from "../host/client";
 import { Icon } from "../Icon";
 import { fetchRecent, type RecentProject } from "./recent";
 import { RecentList } from "./RecentList";
 
 type Props = {
+  // Shortcuts (`/`, ⌘O) only work while the Projects view is the visible one.
+  active: boolean;
   recent: RecentProject[];
   busy: boolean;
   // Errors of opening a project, keyed by path; shown on that row.
@@ -20,11 +22,7 @@ type Props = {
   children?: ReactNode;
 };
 
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
-}
-
-export function ProjectsView({ recent, busy, rowErrors, hostSdkMissing, awaitingProcesses, onOpen, onPick, onRecent, onShowToolchain, children }: Props) {
+export function ProjectsView({ active, recent, busy, rowErrors, hostSdkMissing, awaitingProcesses, onOpen, onPick, onRecent, onShowToolchain, children }: Props) {
   const [filter, setFilter] = useState("");
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const search = useRef<HTMLInputElement>(null);
@@ -32,6 +30,7 @@ export function ProjectsView({ recent, busy, rowErrors, hostSdkMissing, awaiting
   const shown = recent.filter((project) => project.path.toLowerCase().includes(needle));
 
   useEffect(() => {
+    if (!active) return;
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
       if (target.closest("[aria-modal]")) return;
@@ -45,7 +44,7 @@ export function ProjectsView({ recent, busy, rowErrors, hostSdkMissing, awaiting
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onPick]);
+  }, [active, onPick]);
 
   function failRow(path: string, caught: unknown) {
     setActionErrors((current) => ({ ...current, [path]: messageOf(caught) }));

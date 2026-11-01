@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { call, HostCallError, type Snapshot } from "../host/client";
+import { call, messageOf, type Snapshot } from "../host/client";
 import { ProcessPanel } from "../ProcessPanel";
 import { DebugAdapterPanel } from "../ToolchainPanels";
 import { ProjectSdkBody } from "./ProjectSdkBody";
@@ -9,10 +9,6 @@ type Props = {
   onSnapshot: (snapshot: Snapshot) => void;
   onOpenGlobalJson: () => void;
 };
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
-}
 
 export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props) {
   const [redetecting, setRedetecting] = useState(false);

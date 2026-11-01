@@ -32,6 +32,8 @@ export function StatusMode({ snapshot, onSnapshot }: { snapshot: Snapshot; onSna
 
   useEffect(() => {
     if (!open) return;
+    // Move focus into the popover so the keyboard (and Esc) work without an extra Tab.
+    popover.current?.querySelector<HTMLElement>("input, button")?.focus();
     function onPointerDown(event: MouseEvent) {
       const target = event.target as Node;
       if (!popover.current?.contains(target) && !button.current?.contains(target)) setOpen(false);

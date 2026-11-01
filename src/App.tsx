@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SetupScreen } from "./SetupScreen";
 import { WorkspaceView } from "./WorkspaceView";
 import { TrustPrompt } from "./TrustPrompt";
-import { call, type Snapshot } from "./host/client";
+import { call, messageOf, type Snapshot } from "./host/client";
 import { fetchRecent, type RecentProject } from "./welcome/recent";
 
 export default function App() {
@@ -11,6 +11,10 @@ export default function App() {
   const [lastPath, setLastPath] = useState("");
   // A workspace the host opened that still waits for its first Trust decision.
   const [prompt, setPrompt] = useState<Snapshot | null>(null);
+  // Workspace that was open when the prompt appeared (Open recent inside the IDE); Cancel restores it.
+  const previousPath = useRef<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const background = useRef<HTMLDivElement>(null);
   const [pendingFile, setPendingFile] = useState<string | null>(null);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const recentSolutions = recentProjects.map((project) => project.path);
@@ -32,11 +36,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // The host records every successful open; refetch whenever the workspace changes.
+    // The host records a project once it is decided; refetch when the workspace or stage changes.
     fetchRecent()
       .then(setRecentProjects)
       .catch(() => {});
-  }, [snapshot?.workspace?.path]);
+  }, [snapshot?.workspace?.path, stage]);
 
   function handleSnapshot(next: Snapshot) {
     // Ignore a response produced by an older host context (including the initial
@@ -55,6 +59,7 @@ export default function App() {
     setPendingFile(null);
     // Undecided projects ask before entering the IDE; decided ones open straight in the stored mode.
     if (opened.trust.decision === null) {
+      setCancelError(null);
       setPrompt(opened);
       setStage("setup");
     } else {
@@ -62,14 +67,35 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    // The page behind the modal is unreachable by keyboard and screen readers.
+    background.current?.toggleAttribute("inert", prompt !== null);
+  }, [prompt]);
+
   async function cancelPrompt() {
-    setPrompt(null);
-    handleClosed(await call<Snapshot>("workspace.close"));
+    setCancelError(null);
+    try {
+      // The host already switched workspaces on open: put the previous one back, or close.
+      const previous = previousPath.current;
+      const restored = previous
+        ? await call<Snapshot>("workspace.open", { path: previous })
+        : await call<Snapshot>("workspace.close");
+      setPrompt(null);
+      previousPath.current = null;
+      if (previous) {
+        handleOpened(restored);
+      } else {
+        handleClosed(restored);
+      }
+    } catch (caught) {
+      setCancelError(messageOf(caught));
+    }
   }
 
   function decided(next: Snapshot) {
     handleSnapshot(next);
     setPrompt(null);
+    previousPath.current = null;
     setStage("workspace");
   }
 
@@ -83,6 +109,7 @@ export default function App() {
 
   async function openRecent(path: string) {
     // Opening another workspace resets trust in the host; the view remounts on the new id.
+    previousPath.current = snapshot?.workspace?.path ?? null;
     handleOpened(await call<Snapshot>("workspace.open", { path }));
   }
 
@@ -107,7 +134,8 @@ export default function App() {
 
   return (
     <>
-    {prompt && <TrustPrompt snapshot={prompt} onDecided={decided} onCancel={() => void cancelPrompt()} />}
+    {prompt && <TrustPrompt snapshot={prompt} onDecided={decided} onCancel={() => void cancelPrompt()} cancelError={cancelError} />}
+    <div ref={background} style={{ display: "contents" }}>
     <SetupScreen
       key={lastPath}
       snapshot={snapshot}
@@ -118,6 +146,7 @@ export default function App() {
       onSnapshot={handleSnapshot}
       onOpenGlobalJson={openGlobalJson}
     />
+    </div>
     </>
   );
 }

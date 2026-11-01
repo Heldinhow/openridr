@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { call, HostCallError, type Snapshot } from "./host/client";
+import { call, messageOf, type Snapshot } from "./host/client";
 
 type Props = {
   snapshot: Snapshot;
@@ -10,10 +10,6 @@ type Props = {
 // Shared with the Trust prompt so the explanation of what trust allows lives in one place.
 export const RESTRICTED_EXPLAIN = "Files can be read as text. Project code will not run.";
 export const TRUST_EXPLAIN = "Trust authorizes executable inspection of this workspace.";
-
-function messageOf(error: unknown) {
-  return error instanceof HostCallError ? error.message : String(error);
-}
 
 export function TrustControls({ snapshot, onChange, compact = false }: Props) {
   const [checked, setChecked] = useState(false);

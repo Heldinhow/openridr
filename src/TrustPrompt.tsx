@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { call, HostCallError, type Snapshot } from "./host/client";
+import { call, messageOf, type Snapshot } from "./host/client";
 import { RESTRICTED_EXPLAIN, TRUST_EXPLAIN } from "./TrustControls";
 
 type Props = {
   snapshot: Snapshot;
   onDecided: (snapshot: Snapshot) => void;
   onCancel: () => void;
+  cancelError?: string | null;
 };
 
-export function TrustPrompt({ snapshot, onDecided, onCancel }: Props) {
+export function TrustPrompt({ snapshot, onDecided, onCancel, cancelError }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
@@ -28,7 +29,7 @@ export function TrustPrompt({ snapshot, onDecided, onCancel }: Props) {
     try {
       onDecided(await call<Snapshot>("trust.set", { path: workspace.path, decision }));
     } catch (caught) {
-      setError(caught instanceof HostCallError ? caught.message : String(caught));
+      setError(messageOf(caught));
       setBusy(false);
     }
   }
@@ -36,7 +37,7 @@ export function TrustPrompt({ snapshot, onDecided, onCancel }: Props) {
   function onKeyDown(event: React.KeyboardEvent) {
     if (event.key === "Escape") {
       event.preventDefault();
-      onCancel();
+      if (!busy) onCancel();
     } else if (event.key === "Tab") {
       // Focus is trapped: Tab cycles through the three buttons only.
       const buttons = [...(dialog.current?.querySelectorAll("button:not(:disabled)") ?? [])] as HTMLElement[];
@@ -49,7 +50,11 @@ export function TrustPrompt({ snapshot, onDecided, onCancel }: Props) {
   }
 
   return (
-    <div className="modal-backdrop">
+    <div
+      className="modal-backdrop"
+      // A click on the backdrop must not move focus out of the dialog.
+      onMouseDown={(event) => event.target === event.currentTarget && event.preventDefault()}
+    >
       <div
         ref={dialog}
         className="modal trust-prompt-dialog"
@@ -67,7 +72,9 @@ export function TrustPrompt({ snapshot, onDecided, onCancel }: Props) {
           <p className="muted">Restricted mode: {RESTRICTED_EXPLAIN}</p>
           <p className="hint">You can change this later; the choice is remembered for this project.</p>
         </div>
-        {error && <p className="error" role="alert" data-testid="trust-prompt-error">{error}</p>}
+        {(error || cancelError) && (
+          <p className="error" role="alert" data-testid="trust-prompt-error">{error ?? cancelError}</p>
+        )}
         <div className="actions">
           <button type="button" className="primary" ref={trustButton} onClick={() => void decide("trusted")} disabled={busy} data-testid="trust-prompt-trust">
             Trust project

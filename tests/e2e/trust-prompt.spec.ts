@@ -34,7 +34,7 @@ async function useIsolatedHost(page: Page) {
   await page.route(/\/__host\/(call|health)$/, async (route) => {
     const target = `http://127.0.0.1:${port}/${route.request().url().split("/").pop()}`;
     // A poll still in flight when the test ends fails with "Test ended"; that is not a failure.
-    await route.fetch({ url: target }).then((response) => route.fulfill({ response }), () => {});
+    await route.fetch({ url: target }).then((response) => route.fulfill({ response })).catch(() => {});
   });
 }
 
@@ -48,6 +48,14 @@ async function openPath(page: Page, solution: string) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(solution);
   await page.getByTestId("workspace-open").click();
+}
+
+async function hostCall(page: Page, method: string, params: object = {}) {
+  const body = JSON.stringify({ method, params });
+  return page.evaluate(async (payload) => {
+    const response = await fetch("/__host/call", { method: "POST", headers: { "content-type": "application/json" }, body: payload });
+    return (await response.json()).data;
+  }, body);
 }
 
 async function openedWorkspace(page: Page) {
@@ -103,6 +111,11 @@ test("Cancel and Esc return to the welcome screen without opening the project", 
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
   await expect(page.getByTestId("tree")).toHaveCount(0);
   expect(await openedWorkspace(page)).toBeNull();
+  // Cancel leaves no trace: not in Recents, no stored decision.
+  const key = fs.realpathSync(solution);
+  const listed = (await hostCall(page, "recent.list")).projects as { path: string }[];
+  expect(listed.map((project) => project.path)).not.toContain(key);
+  expect((await hostCall(page, "trust.get", { path: key })).decision).toBeNull();
 
   // Cancel stores nothing, so the next open asks again; this time dismiss with Esc.
   await page.getByTestId("workspace-open").click();
@@ -111,6 +124,36 @@ test("Cancel and Esc return to the welcome screen without opening the project", 
   await expect(page.getByTestId("trust-prompt-dialog")).toHaveCount(0);
   await expect(page.getByTestId("tree")).toHaveCount(0);
   expect(await openedWorkspace(page)).toBeNull();
+});
+
+test("Cancel on a prompt raised from inside the IDE restores the previous workspace", async ({ page }) => {
+  await useIsolatedHost(page);
+  const current = projectCopy();
+  const other = projectCopy();
+  // A legacy Recents entry with no decision: opening it from the IDE raises the prompt.
+  fs.writeFileSync(path.join(home, "recent.json"), JSON.stringify([other]));
+  await openPath(page, current);
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("tree")).toBeVisible();
+  await page.getByTestId("toolbar-project").click();
+  await page.getByTestId("recent-solution-1").click();
+  await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible();
+  await page.getByTestId("trust-prompt-cancel").click();
+  await expect(page.getByTestId("trust-prompt-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("tree")).toBeVisible();
+  expect((await openedWorkspace(page))?.path).toBe(fs.realpathSync(current));
+});
+
+test("the page behind the prompt is inert and a backdrop click keeps focus in the dialog", async ({ page }) => {
+  await useIsolatedHost(page);
+  await openPath(page, projectCopy());
+  await expect(page.getByTestId("trust-prompt-trust")).toBeFocused();
+  await expect(page.locator("[inert]")).toHaveCount(1);
+  await page.locator(".modal-backdrop").click({ position: { x: 4, y: 4 } });
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("trust-prompt-dialog").locator(":focus")).toHaveCount(1);
+  await page.getByTestId("trust-prompt-cancel").click();
+  await expect(page.locator("[inert]")).toHaveCount(0);
 });
 
 test("focus is trapped: Tab cycles Trust, Restricted, Cancel and Enter activates the focused button", async ({ page }) => {
