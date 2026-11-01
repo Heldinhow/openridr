@@ -109,15 +109,37 @@ foi feita antes e depois das rodadas; o diff ficou vazio em todas:
 - `debugger -g "one click"` + `environment.spec.ts`, depois `trust-prompt.spec.ts`, depois
   `welcome.spec.ts`: cada uma comparada antes/depois, **UNCHANGED**.
 
-Achado fora do escopo do ticket (pendência): `cargo test -p openridr-host` escreve nos mesmos
-arquivos reais. As duas rodadas de fechamento (uma normal e uma `--no-fail-fast`) gravaram
-projetos temporários de `host.rs` (`.tmp*/Many.sln`, `Sleeper.csproj`, `Policy.csproj`, …); o
-mtime final ficou `1793569994` (18:53:14 local), sem nenhuma escrita posterior das execuções E2E.
-É o comportamento anterior à mudança (testes de host que não fixam `OPENRIDR_HOME` pelo processo
-inteiro); nada de Rust foi alterado neste ticket.
-
 `.gitignore` cobre os caminhos de higiene (D4) mais `.scratch/host-home/`, o diretório criado pelo
 `host:http` isolado. `git check-ignore` confirmou a regra para `.scratch/host-home/trusted.json`.
+
+**Corrigido na revisão** (`fix(test): keep cargo tests out of the real app home`): o
+`cargo test -p openridr-host` não escreve mais nos arquivos reais. Ver a última seção.
+
+## Correção da revisão — isolamento do `cargo test`
+
+`crates/host/src/tools.rs::app_home()` resolve nesta ordem: `OPENRIDR_HOME` (override explícito);
+binário de teste (`cfg!(test)` ou executável em `target/*/deps`, a convenção do Cargo para
+unit/integration test binaries) → `std::env::temp_dir()/openridr-test-home-<pid>` criado com
+`fs::create_dir_all`; senão o app home da plataforma. `app_home` e o módulo `tools` são públicos
+para o teste `app_home_never_points_at_the_real_application_support_directory` (`crates/host/tests/host.rs`),
+que falha se o caminho apontar para `$HOME/Library/Application Support/OpenRidr` ou (sem
+`OPENRIDR_HOME`) sair de `std::env::temp_dir()`.
+
+Rodada real, `cargo test -p openridr-host --no-fail-fast` (SDK 8.0.408 em `~/.dotnet`):
+
+- `host` 70 passed / 1 failed; `test_discovery` 9/9; `test_run` 5/5; doc-tests 0. O único vermelho
+  é a falha de baseline `file_access_is_confined_to_the_workspace` (`host.rs:156`:
+  `../../../../../../etc/hosts` devolveu `not_found` em vez de `outside_workspace`; é profundidade
+  de path em `/var/folders/.../T/.tmp*`, não app home, e é anterior a esta correção).
+- App home real antes da rodada: `trusted.json` mtime `1793569994`, 17324 bytes, SHA-256
+  `1d921185d2e8f159…`; `recent.json` mtime `1793569994`, 4287 bytes, SHA-256 `1cd68d5fe3414205…`.
+  Depois da rodada e depois de `gates.spec.ts`: **idênticos** (mtime, tamanho e SHA-256 completos
+  iguais).
+- Onde os testes passaram a escrever: `…/T/openridr-test-home-98704/` (`trusted.json` 544 B,
+  `recent.json` 2933 B, `tools/`, `toolhome/`) e `…/T/openridr-test-home-95737/` (`recent.json`
+  269 B), um por processo de teste.
+- `bun run check` ok; `gates.spec.ts` 10/10 (o `trust-error` do popover de `TrustControls` continua
+  o mesmo; o erro do grant feito pelo aviso virou `trust-grant-error`, sem colisão de testid).
 
 ## Não verificado
 

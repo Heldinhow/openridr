@@ -10,3 +10,5 @@ Fonte: [SPEC-ALPHA3-DEBUG-TRUST](../SPEC-ALPHA3-DEBUG-TRUST.md), D1. Branch: `fi
 - [x] Docs: nova entrada em `decisions.md` (substitui a decisão de 2026-10-31 sobre o diálogo), `RIDR-VS-RIDER.md`, `acceptance-matrix.md`, nota histórica em `docs/evidence/auto-build-run-debug.md` + evidência nova, `implementation-notes.md`.
 
 Aceite: `bun run check`; `cargo test -p openridr-host` (se tocar host; esperado: não tocar); E2E real de Debug com netcoredbg presente chega a `Paused` sem nenhum clique intermediário.
+
+Revisão: `cargo test -p openridr-host` passou a rodar com app home temporário por processo (não toca `~/Library/Application Support/OpenRidr`); a nota de evidência traz mtime/SHA-256 idênticos antes/depois. Detalhes em `docs/evidence/alpha3-debug-trust.md`.

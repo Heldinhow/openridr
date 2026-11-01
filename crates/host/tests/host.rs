@@ -64,6 +64,26 @@ fn fixture_copy(parent: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+fn app_home_never_points_at_the_real_application_support_directory() {
+    let home = openridr_host::tools::app_home();
+    let real = std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join("Library/Application Support/OpenRidr"));
+    assert_ne!(
+        Some(&home),
+        real.as_ref(),
+        "cargo tests must not touch the real app home"
+    );
+    // OPENRIDR_HOME is an explicit override; without it a test binary gets a per-process temp home.
+    if std::env::var_os("OPENRIDR_HOME").is_none() {
+        assert!(
+            home.starts_with(std::env::temp_dir()),
+            "test app home is not temporary: {}",
+            home.display()
+        );
+    }
+}
+
+#[test]
 fn text_outline_reads_solution_projects_without_evaluation() {
     let host = Host::new();
     let snapshot = open(&host, &fixture());

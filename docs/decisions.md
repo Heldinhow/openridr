@@ -456,7 +456,7 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 ## 2026-11-01 — Alfa 3: confiar no próprio aviso de bloqueio (ticket 36)
 
 - Quando Build, Run ou Debug está bloqueado por Restricted mode, o próprio parágrafo do motivo mostra o botão **Trust this project** (`build-trust`, `run-trust`, `dap-trust`). Ele chama `trust.grant {remember: true}` pelo `grantTrust()` único do `WorkspaceView`, então a escolha é persistida. Sem checkbox no aviso; o popover de `status-mode` e o menu "⋯" dos recentes mantêm o fluxo com checkbox.
-- Falha do grant aparece como `trust-error` (nota da workspace) e não finge sucesso; sucesso limpa a mensagem e atualiza o snapshot, então o motivo de Restricted some e o restore automático de workspace Trusted segue como já era.
+- Falha do grant aparece como `trust-grant-error` (nota da workspace; distinto do `trust-error` do popover de `TrustControls`) e não finge sucesso; sucesso limpa a mensagem e atualiza o snapshot, então o motivo de Restricted some e o restore automático de workspace Trusted segue como já era.
 - Nenhum indicador de confiança novo na barra superior: `status-mode` e o menu "⋯" dos recentes continuam sendo os únicos lugares.
 - Evidência: `docs/evidence/alpha3-debug-trust.md` e `tests/e2e/gates.spec.ts`.
 

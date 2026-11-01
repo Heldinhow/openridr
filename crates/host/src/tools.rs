@@ -29,6 +29,10 @@ pub fn app_home() -> PathBuf {
     if let Some(value) = std::env::var_os("OPENRIDR_HOME") {
         return PathBuf::from(value);
     }
+    // A test binary must never read or write the real app home of whoever ran cargo test.
+    if cfg!(test) || cargo_test_binary() {
+        return test_app_home();
+    }
     #[cfg(target_os = "macos")]
     {
         home_dir()
@@ -57,6 +61,25 @@ fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
+}
+
+/// Integration tests link the library without `cfg(test)`, so the Cargo layout is the signal.
+fn cargo_test_binary() -> bool {
+    std::env::current_exe().is_ok_and(|exe| {
+        exe.parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            == Some("deps")
+            && exe
+                .components()
+                .any(|part| part.as_os_str().to_str() == Some("target"))
+    })
+}
+
+fn test_app_home() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("openridr-test-home-{}", std::process::id()));
+    fs::create_dir_all(&dir).expect("create the per-process test app home");
+    dir
 }
 
 pub fn tool_root() -> PathBuf {

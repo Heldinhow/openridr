@@ -3491,7 +3491,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         </div>
       )}
       {trustError && (
-        <div className="notice error" role="alert" data-testid="trust-error">
+        <div className="notice error" role="alert" data-testid="trust-grant-error">
           Trust could not be granted: {trustError}
           <button className="notice-dismiss" aria-label="Dismiss trust error" onClick={() => setTrustError(null)}>×</button>
         </div>
