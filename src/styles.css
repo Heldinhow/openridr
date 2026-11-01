@@ -2801,3 +2801,32 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .toolbar .project-menu > summary { max-width: 200px; }
 .toolbar .trust-menu { flex: 0 0 auto; }
 .toolbar .run-config-menu, .toolbar .toolbar-menu:has([data-testid="toolbar-branch"]) { flex: 0 1 auto; min-width: 0; }
+
+/* ui-shape 03: Solution Explorer — 32px rows, fill + weight selection (never both rows solid), icon chevrons. */
+.workspace-view .side .tree-row, .tree-row { min-height: var(--control-h); padding: 2px 10px; gap: 6px; }
+.tree .l1 { min-height: var(--control-h); padding-top: 2px; padding-bottom: 2px; }
+.tree { min-width: 0; padding: 0 4px; }
+.tree-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tree-row.selected, .tree-row[aria-current="page"] { background: var(--accent-surface-strong); box-shadow: none; }
+.tree-row.selected { font-weight: 600; }
+.side:focus-within .tree-row[aria-current="page"] { background: var(--select); }
+.tree-chevron { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; }
+.tree-chevron .icon { width: 12px; height: 12px; transform: rotate(-90deg); transition: transform 120ms ease-out; }
+.tree-chevron.open .icon { transform: none; }
+.tree-dependencies > summary { list-style: none; display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border-radius: var(--r-md); color: var(--muted); font-size: 12px; font-weight: 500; }
+.tree-dependencies > summary:hover { background: var(--accent-surface); }
+.tree-dependencies > summary::-webkit-details-marker { display: none; }
+.tree-dependencies > summary::before { content: ""; width: 12px; height: 12px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat; transform: rotate(-90deg); transition: transform 120ms ease-out; }
+.tree-dependencies[open] > summary::before { transform: none; }
+.tree-node::before, .tree-node-refs::before, .tree-node-packages::before { content: none; }
+.tree-node { padding-left: 28px; }
+.tree-row .tag.warning { text-transform: uppercase; letter-spacing: 0.02em; font-size: 11px; }
+.tree-note.error { color: var(--error); }
+.explorer-tools button { width: 28px; height: 28px; min-height: 28px; display: inline-flex; align-items: center; justify-content: center; box-shadow: none; }
+.explorer-tools .icon { width: 14px; height: 14px; }
+.tree-footnote { border-top: 1px solid var(--line-internal); font-size: 12px; }
+.side { display: flex; flex-direction: column; }
+.side .tree-footnote { margin-top: auto; }
+.tree-name { flex: 0 1 auto; min-width: 10ch; }
+.tree-row .tag { flex: 0 8 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.explorer-title { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; } .explorer-title .icon { width: 12px; height: 12px; color: var(--muted); }

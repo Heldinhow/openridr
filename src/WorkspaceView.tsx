@@ -3592,7 +3592,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
           <div className="panel-title">
             <span className="explorer-heading">
-              <span>Solution ⌄{" "}
+              <span className="explorer-title">Solution<Icon name="chevron" />{" "}
                 <span className="tag">
                   {showsEvaluatedTree ? "MSBuild evaluated" : "Text outline · not evaluated"}
                 </span>
@@ -3602,9 +3602,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   const owner = (showsEvaluatedTree ? evaluatedProjects.find((item) => item.sources.includes(activePath ?? "")) : projects.find((item) => item.files.includes(activePath ?? "")));
                   if (owner) setExpanded((current) => new Set(current).add(owner.path));
                   setSelectedProjectPath(owner?.path ?? null);
-                }}>◎</button>
-                <button data-testid="tree-expand-all" aria-label="Expand all" title="Expand all" onClick={() => setExpanded(new Set((showsEvaluatedTree ? evaluatedProjects : projects).map((item) => item.path)))}>⌄</button>
-                <button data-testid="tree-collapse-all" aria-label="Collapse all" title="Collapse all" onClick={() => setExpanded(new Set())}>⌃</button>
+                }}><Icon name="locate" /></button>
+                <button data-testid="tree-expand-all" aria-label="Expand all" title="Expand all" onClick={() => setExpanded(new Set((showsEvaluatedTree ? evaluatedProjects : projects).map((item) => item.path)))}><Icon name="expandAll" /></button>
+                <button data-testid="tree-collapse-all" aria-label="Collapse all" title="Collapse all" onClick={() => setExpanded(new Set())}><Icon name="collapseAll" /></button>
               </span>
             </span>
           </div>
@@ -3686,7 +3686,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                           }}
                           title={project.path}
                         >
-                          <span className="tree-chevron" aria-hidden="true">{expanded.has(project.path) ? "▾" : "▸"}</span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
+                          <span className={`tree-chevron ${expanded.has(project.path) ? "open" : ""}`} aria-hidden="true"><Icon name="chevron" /></span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
                           <span className="tag">{project.kind}</span>
                           {project.state === "failed" && <span className="tag error">error</span>}
                           {project.tfms.map((tfm) => (
@@ -3772,7 +3772,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                       onClick={() => toggleProject(project.path)}
                       title={project.path}
                     >
-                      <span className="tree-chevron" aria-hidden="true">{expanded.has(project.path) ? "▾" : "▸"}</span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
+                      <span className={`tree-chevron ${expanded.has(project.path) ? "open" : ""}`} aria-hidden="true"><Icon name="chevron" /></span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
                       <span className="tag">{project.kind}</span>
                       {project.tfms.map((tfm) => (
                         <span className="tag" key={tfm}>
@@ -3811,6 +3811,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           )}
 
 
+          {showsEvaluatedTree && evaluatedProjects.some((project) => project.state === "failed" || project.restored !== "restored") && (
+            <p className="tree-footnote" data-testid="tree-partial">
+              Partial workspace · {evaluatedProjects.filter((project) => project.state === "failed" || project.restored !== "restored").length} of {evaluatedProjects.length} projects have incomplete context. This is not a clean solution.
+            </p>
+          )}
           {!showsEvaluatedTree && (
             <p className="tree-footnote">
               Read from project text only. MSBuild has not run and nothing is evaluated.
