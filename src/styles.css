@@ -3126,7 +3126,8 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .branch-actions > .menu-note { padding: 4px 8px 0; }
 
 /* ui-shape polish — Settings keeps one size across pages (the page scrolls inside), Search Everywhere rows stay on one line and ellipsize. */
-.settings-dialog { height: min(720px, calc(100vh - 48px)); }
+/* vh is not scaled by the workspace zoom, so divide it back out or the Save row lands below the window at 120%+. */
+.settings-dialog { height: min(720px, calc((100vh - 48px) / var(--ui-zoom, 1))); }
 .settings-dialog .settings-page { min-height: 0; overflow: auto; }
 .settings-dialog .settings-tree { min-height: 0; overflow: auto; }
 .find-action .action-row > button { flex-wrap: nowrap; gap: 10px; }

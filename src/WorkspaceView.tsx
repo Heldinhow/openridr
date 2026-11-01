@@ -3292,6 +3292,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       style={{
         "--sidebar-width": `${sidebarWidth}px`,
         "--output-height": `${visibleOutputHeight}px`,
+        "--ui-zoom": settings.appearance.zoom / 100,
         zoom: settings.appearance.zoom / 100,
       } as CSSProperties}
     >
