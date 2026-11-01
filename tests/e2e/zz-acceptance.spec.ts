@@ -512,11 +512,12 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     });
     await expect(page.getByTestId("build-state")).toContainText("exit 1");
     await expect(page.getByTestId("build-log")).toContainText("error CS");
-    await expect(page.getByTestId("toolbar-run")).toBeDisabled();
-    await expect(page.getByTestId("toolbar-run")).toHaveAttribute(
+    await expect(page.getByTestId("toolbar-run")).toBeEnabled();
+    await expect(page.getByTestId("toolbar-run")).not.toHaveAttribute(
       "title",
       /last build did not succeed/,
     );
+    // Debug still needs the experimental flag/adapter here; the build itself is not the gate.
     await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
     let failed = await hostState(request);
     snapshot("18-build-failed.json", failed.build);

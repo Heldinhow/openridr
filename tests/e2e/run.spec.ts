@@ -72,11 +72,11 @@ async function run(page: Page) {
   await page.getByTestId("run-action").click();
   await page.getByTestId("bottom-tab-run").click();
   await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
-    timeout: 15_000,
-  }).toMatch(/Running|Run exited/);
+    timeout: 30_000,
+  }).toMatch(/Building|Running|Run exited/);
   await page.getByTestId("bottom-tab-run").click();
   await expect(page.getByTestId("run-state")).toContainText("Run exited", {
-    timeout: 30_000,
+    timeout: 60_000,
   });
 }
 
@@ -189,27 +189,28 @@ test("a real run shows the saved build output and refuses a source saved after t
     await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).not.toContainText("Order B-777");
 
-    // Saved after the build: Run is blocked until a rebuild, with the reason visible.
+    // Saved after the build: Run builds implicitly (same build pipeline) and then runs the
+    // new saved output, without a manual Build click.
     await page.getByTestId("editor").click();
     await page.keyboard.press("Meta+s");
     await expect(page.getByTestId("app-log")).toContainText("Saved src/OrderDesk.Cli/Program.cs");
     await page.getByTestId("bottom-tab-build").click();
-    await expect(page.getByTestId("run-disabled-reason")).toContainText(
-      "Sources were saved after this build",
-    );
-    await expect(page.getByTestId("run-action")).toBeDisabled();
-    await page.keyboard.press("Control+R");
-    await expect(page.getByTestId("app-log")).toContainText(
-      "Run unavailable: Sources were saved after this build",
-    );
-    await page.screenshot({ path: path.join(screenshots, "12-run-saved-stale.png") });
-
-    // The rebuild produces the new output; the run proves it used the new build.
-    await build(page);
     await expect(page.getByTestId("run-action")).toBeEnabled();
-    await run(page);
+    await expect(page.getByTestId("run-disabled-reason")).toHaveCount(0);
+    await page.keyboard.press("Control+R");
     await page.getByTestId("bottom-tab-run").click();
-    await expect(page.getByTestId("run-log")).toContainText("Order B-777:");
+    await expect.poll(async () => (await page.getByTestId("run-state").textContent()) ?? "", {
+      timeout: 30_000,
+    }).toMatch(/Building|Running|Run exited/);
+    await page.screenshot({ path: path.join(screenshots, "12-run-implicit-build.png") });
+    await page.getByTestId("bottom-tab-run").click();
+    await expect(page.getByTestId("run-state")).toContainText("Run exited", {
+      timeout: 60_000,
+    });
+    await page.getByTestId("bottom-tab-run").click();
+    await expect(page.getByTestId("run-log")).toContainText("Order B-777:", {
+      timeout: 60_000,
+    });
     await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).not.toContainText("Order A-104:");
 
@@ -294,14 +295,14 @@ test("stopping a real long-running program reports requested and observed termin
   }
 });
 
-test("one click on Run on a prepared workspace neither restores nor re-evaluates", async ({ page }) => {
+test("one click on Run on a prepared workspace does not restore or re-evaluate", async ({ page }) => {
   const { base, copy } = tempCopy("Order Desk prepared");
   try {
     await openTrustedEvaluated(page, path.join(copy, "OrderDesk.sln"));
     await settleRestore(page);
     const revision = await revisionOf(page);
     const restoreCommand = await page.getByTestId("restore-command").textContent();
-    await page.getByTestId("toolbar-run").click({ force: true });
+    await page.getByTestId("toolbar-run").click();
     await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("Order A-104", { timeout: 120_000 });
     expect(await revisionOf(page)).toBe(revision);
@@ -312,14 +313,24 @@ test("one click on Run on a prepared workspace neither restores nor re-evaluates
   }
 });
 
-test("one click on Run restores, builds and shows the program output", async ({ page }) => {
+test("one click on Run builds the startup project when there is no build", async ({ page }) => {
   const { base, copy } = tempCopy("Order Desk one click");
   try {
     await openTrustedEvaluated(page, path.join(copy, "OrderDesk.sln"));
-    // aria-disabled (blocked but clickable) fails Playwright's enabled check, so force it.
-    await page.getByTestId("toolbar-run").click({ force: true });
+    await settleRestore(page);
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-state")).toContainText("No build has run");
+    await page.getByTestId("toolbar-run").click();
     await page.getByTestId("bottom-tab-run").click();
+    await expect(page.getByTestId("run-state")).toContainText(/Building|Running|Run exited/, {
+      timeout: 30_000,
+    });
     await expect(page.getByTestId("run-log")).toContainText("Order A-104", { timeout: 120_000 });
+    await page.getByTestId("bottom-tab-run").click();
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
+      timeout: 60_000,
+    });
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
