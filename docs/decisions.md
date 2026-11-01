@@ -16,6 +16,8 @@ O diálogo nativo de arquivos fica para depois. A tela inicial aceita caminho ab
 
 ## 2026-10-27 — Trust só em memória
 
+> **Substituída em 2026-11-01** por "Trust decision persistida por projeto" (abaixo). O código já divergia desta entrada: `trusted.json` guarda os caminhos confiados desde antes.
+
 Confiança vale para a sessão do app e é zerada ao abrir/trocar/fechar workspace. Não há persistência de trust, para não transformar uma decisão antiga em autorização silenciosa.
 
 ## 2026-10-27 — Raízes de SDK detectadas, nenhum SDK instalado pelo app
@@ -405,3 +407,14 @@ Passe de polish sobre as telas das issues 01–14, só CSS (mais 1 variável inl
 - **Piso de 12px:** todo `font-size` em rem abaixo de 0,75rem passou a 0,75rem; 11px ficam só em selo/badge (regra do `DESIGN.md`).
 - **`Settings`:** altura fixa `min(720px, (100vh − 48px) / --ui-zoom)`; o `vh` não é escalado pelo `zoom` do workspace, então sem dividir por `--ui-zoom` o botão Save sai da janela a 120% (pego por `settings.spec.ts:181`).
 - **Cor:** os ícones de step do Debug deixaram de ser azuis (azul só para ação, foco e seleção); run/debug verdes e stop vermelho ficam (estado/ação primária).
+
+## 2026-11-01 — Trust decision persistida por projeto; welcome redesenhada
+
+Substitui "Trust só em memória". Decisões do grill (welcome-trust), todas aceitas pelo Helder:
+
+- **Uma pergunta por projeto.** A *Trust decision* (`trusted` ou `restricted`) é gravada por caminho canônico em `trusted.json` no app home, que passa de lista de caminhos para mapa `caminho → "trusted"|"restricted"`. Leitura tolerante: o formato antigo (lista) é lido como tudo `trusted` e reescrito como mapa só na próxima gravação; arquivo ilegível nunca é sobrescrito por uma leitura. `OPENRIDR_TRUST_STORE=off` continua desligando leitura e escrita. Quem nunca decidiu (inclusive projetos já no histórico) recebe a pergunta uma vez; a decisão antiga "restrito" nunca existiu em disco, então nada é presumido.
+- **Onde se pergunta.** Um *Trust prompt* modal antes de entrar no IDE, estilo Rider: **Trust project** (foco inicial), **Open in Restricted mode**, **Cancel**. Esc = Cancel, Enter aciona o botão focado, Tab circula entre os três; Cancel volta à welcome sem abrir. Vale para o seletor, para os recentes e para o formulário de caminho (navegador/E2E), que deixa de ter o card "Review workspace trust". Projeto com decisão gravada abre direto, no modo decidido.
+- **Onde a informação fica depois.** Fora da barra de cima: o `status-mode` da barra de status vira botão com popover (estado + Trust/Restrict) e a lista de recentes da welcome mostra um selo por projeto e um menu "⋯" para mudar a decisão ou remover da lista sem abrir o projeto (métodos de host por caminho: `trust.get`, `trust.set`). Mudar a decisão do projeto aberto segue as garantias de `trust.grant`/`trust.revoke` (para processos, sela registros, incrementa contexto).
+- **Exceção ao contrato de `data-testid`** (AGENTS.md): `mode-badge`, `trust-banner`, `trust-prompt`, `trust-prompt-open` e `trust-prompt-dismiss` saem da toolbar a pedido explícito e os specs que os usavam migram para o modal e para `status-mode`. `trust-checkbox`, `trust-grant`, `trust-revoke` e demais ids de `TrustControls` permanecem.
+- **Recentes com data.** `recent.json` passa a `[{path, openedAt}]` (ms); lê o formato antigo (entradas sem data aparecem sem "último acesso"). "Remover da lista" apaga só a entrada do histórico, nunca a decisão de trust nem arquivos.
+- **Welcome.** Só **Open** tem suporte real; New (`dotnet new`) e Clone (`git clone`) ficam fora do escopo, sem botões falsos. Projects é a vista principal (busca, estados vazio/erro, atalhos ↑/↓/Enter, ⌘O, `/`); Toolchain vira segunda vista na navegação lateral. Só tema escuro (decisão de tokens única mantida).
