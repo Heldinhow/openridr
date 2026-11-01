@@ -3033,3 +3033,20 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .git-commit.selected { background: var(--accent-surface-strong); }
 .git-log-body { gap: 0; }
 .git-log-body > .git-commit-details { border-left: 1px solid var(--line-internal); padding-left: 12px; }
+
+/* ui-shape 12: NuGet — table first, 32px rows, sources and dotnet logs after it, the empty state said once. */
+.nuget-panel { font-size: 13px; gap: 6px; padding: 0 4px; }
+.nuget-panel > [data-testid="nuget-sources"] { order: 8; }
+.nuget-panel > .nuget-logs { order: 9; }
+.nuget-panel > .nuget-update { order: 7; }
+.nuget-table-wrap { border: 0; border-radius: 0; }
+.nuget-table-wrap table { min-width: 0; table-layout: auto; }
+.nuget-table-wrap th, .nuget-table-wrap td { height: var(--control-h); padding: 2px 10px; border-bottom: 1px solid var(--line-internal); }
+.nuget-table-wrap thead th { font-size: 12px; }
+.nuget-table-wrap tbody tr:hover { background: var(--accent-surface); }
+.nuget-table-wrap tbody tr[aria-current="true"] th { color: var(--fg); }
+.nuget-framework h3 { font-size: 12px; padding: 4px 10px 0; }
+.nuget-panel [data-testid="nuget-no-packages"] { color: var(--muted); padding: 8px 10px; margin: 0; }
+.nuget-panel .menu-note { color: var(--muted); font-size: 12px; }
+.nuget-update { background: var(--panel); border-radius: var(--r-lg); }
+.nuget-logs summary { min-height: 28px; display: flex; align-items: center; }
