@@ -17,8 +17,8 @@
 .workspace-view .side,
 .workspace-view .editor-pane,
 .workspace-view > .output {
-  border: 0;
-  border-radius: 8px;
+  border: 1px solid var(--line);
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -27,7 +27,7 @@
 }
 
 .workspace-view .splitter {
-  background: var(--chrome);
+  background: transparent;
 }
 
 .workspace-view .splitter:hover,
@@ -37,7 +37,7 @@
 
 .side .panel-title {
   background: var(--bg);
-  border-bottom: 0;
+  border-bottom: 1px solid var(--line-internal);
 }
 
 .side .tree-row {
