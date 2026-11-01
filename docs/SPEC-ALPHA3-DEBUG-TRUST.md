@@ -24,9 +24,9 @@ Data: 2026-11-01. Branch: `fix/debug-no-prompt-trust-ux`. Fonte das decisões: H
 
 ## Aceite
 
-- [ ] Nenhuma referência ao modal `debug-consent-dialog`/botão "Enable and debug" no código; atalho, toolbar e painel Debug usam o fluxo automático.
-- [ ] Painel Debug mostra `dap-experimental-note` quando a flag Apple Silicon está ativa (texto não bloqueante, sem promessa de suporte oficial).
-- [ ] Avisos `build-disabled-reason`, `run-disabled-reason` e `dap-disabled-reason` exibem `build-trust`, `run-trust` e `dap-trust` respectivamente quando o motivo é Restricted mode; clicar concede confiança persistida e o gate cai.
-- [ ] `environment.spec.ts` prova `app.appHome === e2eHome`; `bun run host:http` não usa o app home real.
-- [ ] `.gitignore` cobre os caminhos de D4; `git status` limpo deles.
+- [x] Nenhuma referência ao modal `debug-consent-dialog`/botão "Enable and debug" no código; atalho, toolbar e painel Debug usam o fluxo automático.
+- [x] Painel Debug mostra `dap-experimental-note` quando a flag Apple Silicon está ativa (texto não bloqueante, sem promessa de suporte oficial).
+- [x] Avisos `build-disabled-reason`, `run-disabled-reason` e `dap-disabled-reason` exibem `build-trust`, `run-trust` e `dap-trust` respectivamente quando o motivo é Restricted mode; clicar concede confiança persistida e o gate cai.
+- [x] `environment.spec.ts` prova `app.appHome === e2eHome`; `bun run host:http` não usa o app home real. `cargo test` também é isolado (home temporário por processo de teste).
+- [x] `.gitignore` cobre os caminhos de D4; `git status` limpo deles.
 - [ ] `bun run check`, `cargo test -p openridr-host`, specs tocados e docs atualizados (`decisions.md`, `RIDR-VS-RIDER.md`, `acceptance-matrix.md`, evidência, `implementation-notes.md`, retro).
