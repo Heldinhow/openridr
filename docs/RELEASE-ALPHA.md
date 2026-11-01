@@ -35,7 +35,8 @@ Funcionalidade ausente: **New** e **Clone** ainda não existem; abra projetos ex
 ## Verificação
 
 ```
-PENDENTE  OpenRidr_0.3.0-alpha.3_aarch64.dmg
+7cc8bd3d6a9bc22ef99d0fee74f1954c380cc99192383910b64ff64256ac61c2  OpenRidr_0.3.0-alpha.3_aarch64.dmg
 ```
 
-Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: PENDENTE.
+Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: 4,86 MiB (5.096.080 bytes). Verificado do DMG
+montado: `CFBundleShortVersionString` 0.3.0-alpha.3, binário Mach-O arm64 e assinatura ad-hoc.

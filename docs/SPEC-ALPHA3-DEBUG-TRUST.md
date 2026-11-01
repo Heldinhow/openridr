@@ -29,4 +29,4 @@ Data: 2026-11-01. Branch: `fix/debug-no-prompt-trust-ux`. Fonte das decisões: H
 - [x] Avisos `build-disabled-reason`, `run-disabled-reason` e `dap-disabled-reason` exibem `build-trust`, `run-trust` e `dap-trust` respectivamente quando o motivo é Restricted mode; clicar concede confiança persistida e o gate cai.
 - [x] `environment.spec.ts` prova `app.appHome === e2eHome`; `bun run host:http` não usa o app home real. `cargo test` também é isolado (home temporário por processo de teste).
 - [x] `.gitignore` cobre os caminhos de D4; `git status` limpo deles.
-- [ ] `bun run check`, `cargo test -p openridr-host`, specs tocados e docs atualizados (`decisions.md`, `RIDR-VS-RIDER.md`, `acceptance-matrix.md`, evidência, `implementation-notes.md`, retro).
+- [x] `bun run check`, `cargo test -p openridr-host`, specs tocados e docs atualizados (`decisions.md`, `RIDR-VS-RIDER.md`, `acceptance-matrix.md`, evidência, `implementation-notes.md`, retro).
