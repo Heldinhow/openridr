@@ -4106,3 +4106,58 @@ fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
     open(&fourth, &project);
     assert!(!granted(&fourth));
 }
+
+#[test]
+fn trust_decision_persists_per_project_and_gates_workspace_open() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("OPENRIDR_HOME", home.path());
+    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let workspace = temp_workspace(&["App.csproj"]);
+    let path = fs::canonicalize(workspace.path()).unwrap();
+    let host = Host::new();
+
+    // Never decided: opens restricted with a null decision.
+    let opened = open(&host, &path);
+    assert_eq!(opened["trust"]["decision"], Value::Null);
+    assert_eq!(opened["trust"]["granted"], false);
+    let key = opened["workspace"]["path"].as_str().unwrap().to_string();
+    assert_eq!(
+        host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"],
+        Value::Null
+    );
+
+    // set(trusted) on the open workspace applies trust and survives a reopen.
+    let granted = host
+        .dispatch("trust.set", json!({ "path": key, "decision": "trusted" }))
+        .unwrap();
+    assert_eq!(granted["trust"]["granted"], true);
+    assert_eq!(granted["trust"]["decision"], "trusted");
+    let reopened = open(&host, &path);
+    assert_eq!(reopened["trust"]["granted"], true);
+
+    // revoke records `restricted`, which is remembered but does not trust on open.
+    let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
+    assert_eq!(revoked["trust"]["granted"], false);
+    assert_eq!(revoked["trust"]["decision"], "restricted");
+    let reopened = open(&host, &path);
+    assert_eq!(reopened["trust"]["granted"], false);
+    assert_eq!(reopened["trust"]["decision"], "restricted");
+
+    // set for a path that is not open only persists.
+    let other = temp_workspace(&["Other.csproj"]);
+    let other_path = fs::canonicalize(other.path()).unwrap();
+    let stored = host
+        .dispatch(
+            "trust.set",
+            json!({ "path": other_path, "decision": "trusted" }),
+        )
+        .unwrap();
+    assert_eq!(stored["decision"], "trusted");
+    assert_eq!(reopened["trust"]["granted"], false);
+    assert_eq!(
+        error_code(host.dispatch("trust.set", json!({ "path": other_path, "decision": "maybe" }))),
+        "invalid_params"
+    );
+    std::env::remove_var("OPENRIDR_HOME");
+}

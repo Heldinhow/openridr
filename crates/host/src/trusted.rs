@@ -1,10 +1,15 @@
-//! Workspaces the user chose to trust, kept in the app home so the decision survives restarts
-//! (like Rider's trusted paths). Keyed by the canonical workspace path; revoking forgets it.
+//! One Trust decision per project, kept in the app home so it survives restarts (like Rider's
+//! trusted paths). `trusted.json` maps the canonical workspace path to `trusted` or `restricted`;
+//! a missing entry means the user was never asked. The old format (a list of paths) reads as
+//! `trusted`. A file that cannot be read is never overwritten.
 //! `OPENRIDR_TRUST_STORE=off` disables reads and writes (isolated E2E runs).
 
 use crate::tools::app_home;
-use serde_json::json;
+use serde_json::{json, Map, Value};
 use std::path::PathBuf;
+
+pub const TRUSTED: &str = "trusted";
+pub const RESTRICTED: &str = "restricted";
 
 fn path() -> PathBuf {
     app_home().join("trusted.json")
@@ -14,33 +19,118 @@ fn enabled() -> bool {
     std::env::var("OPENRIDR_TRUST_STORE").map_or(true, |value| value != "off")
 }
 
-fn read_all() -> Vec<String> {
-    let text = std::fs::read_to_string(path()).unwrap_or_default();
-    serde_json::from_str::<Vec<String>>(&text).unwrap_or_default()
+/// `None` means the file exists but is unreadable or unrecognised: callers must not write over it.
+fn read_all() -> Option<Map<String, Value>> {
+    let text = match std::fs::read_to_string(path()) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(Map::new()),
+        Err(_) => return None,
+    };
+    match serde_json::from_str::<Value>(&text).ok()? {
+        Value::Object(map) => Some(map),
+        Value::Array(items) => Some(
+            items
+                .into_iter()
+                .filter_map(|item| Some((item.as_str()?.to_string(), json!(TRUSTED))))
+                .collect(),
+        ),
+        _ => None,
+    }
 }
 
-pub fn is_trusted(workspace_path: &str) -> bool {
-    enabled() && read_all().iter().any(|item| item == workspace_path)
+/// The stored decision (`trusted` | `restricted`) or `None` when never decided.
+pub fn get(workspace_path: &str) -> Option<&'static str> {
+    if !enabled() {
+        return None;
+    }
+    match read_all()?.get(workspace_path)?.as_str()? {
+        TRUSTED => Some(TRUSTED),
+        RESTRICTED => Some(RESTRICTED),
+        _ => None,
+    }
 }
 
 /// Best effort: a failed write only means the question is asked again next time.
-pub fn remember(workspace_path: &str) {
-    if !enabled() || is_trusted(workspace_path) {
-        return;
-    }
-    let mut paths = read_all();
-    paths.push(workspace_path.to_string());
-    let _ = crate::fsutil::write_json_atomic(&path(), &json!(paths), "trusted_failed");
-}
-
-pub fn forget(workspace_path: &str) {
+pub fn set(workspace_path: &str, decision: &str) {
     if !enabled() {
         return;
     }
-    let mut paths = read_all();
-    let before = paths.len();
-    paths.retain(|item| item != workspace_path);
-    if paths.len() != before {
-        let _ = crate::fsutil::write_json_atomic(&path(), &json!(paths), "trusted_failed");
+    let Some(mut map) = read_all() else { return };
+    if map.get(workspace_path).and_then(Value::as_str) == Some(decision) {
+        return;
+    }
+    map.insert(workspace_path.to_string(), json!(decision));
+    let _ = crate::fsutil::write_json_atomic(&path(), &Value::Object(map), "trusted_failed");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    // The store reads process-wide env vars, so the tests take turns.
+    static ENV: Mutex<()> = Mutex::new(());
+
+    fn with_home(run: impl FnOnce(&std::path::Path)) {
+        let _guard = ENV.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("OPENRIDR_HOME", home.path());
+        std::env::remove_var("OPENRIDR_TRUST_STORE");
+        run(&home.path().join("trusted.json"));
+        std::env::remove_var("OPENRIDR_HOME");
+        std::env::remove_var("OPENRIDR_TRUST_STORE");
+    }
+
+    #[test]
+    fn set_then_get_and_never_decided_is_none() {
+        with_home(|_| {
+            assert_eq!(get("/a"), None);
+            set("/a", TRUSTED);
+            set("/b", RESTRICTED);
+            assert_eq!(get("/a"), Some(TRUSTED));
+            assert_eq!(get("/b"), Some(RESTRICTED));
+            set("/a", RESTRICTED);
+            assert_eq!(get("/a"), Some(RESTRICTED));
+            assert_eq!(get("/c"), None);
+        });
+    }
+
+    #[test]
+    fn old_list_format_reads_as_trusted_and_migrates_on_write() {
+        with_home(|file| {
+            std::fs::write(file, r#"["/old","/older"]"#).unwrap();
+            assert_eq!(get("/old"), Some(TRUSTED));
+            assert_eq!(get("/older"), Some(TRUSTED));
+            set("/new", RESTRICTED);
+            let stored: Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+            assert_eq!(
+                stored,
+                json!({ "/old": "trusted", "/older": "trusted", "/new": "restricted" })
+            );
+        });
+    }
+
+    #[test]
+    fn unreadable_file_is_not_overwritten() {
+        with_home(|file| {
+            std::fs::write(file, "{ not json").unwrap();
+            assert_eq!(get("/a"), None);
+            set("/a", TRUSTED);
+            assert_eq!(std::fs::read_to_string(file).unwrap(), "{ not json");
+        });
+    }
+
+    #[test]
+    fn store_off_reads_nothing_and_writes_nothing() {
+        with_home(|file| {
+            set("/a", TRUSTED);
+            std::env::set_var("OPENRIDR_TRUST_STORE", "off");
+            assert_eq!(get("/a"), None);
+            set("/b", TRUSTED);
+            std::env::remove_var("OPENRIDR_TRUST_STORE");
+            assert_eq!(get("/b"), None);
+            assert_eq!(get("/a"), Some(TRUSTED));
+            assert!(file.exists());
+        });
     }
 }
