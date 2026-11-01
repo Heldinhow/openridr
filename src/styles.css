@@ -2906,3 +2906,29 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .debug-columns li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
 .debug-columns li > .muted { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .debug-columns button[aria-pressed="true"] { background: var(--accent-surface-strong); font-weight: 600; }
+
+/* ui-shape 07: Terminal — a continuous screen with a thin header; actions are icons on the right, line mirror is for assistive tech. */
+.terminal-panel { gap: 0; font-size: 12px; }
+.terminal-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line-internal); }
+.terminal-meta { flex-wrap: nowrap; min-width: 0; gap: 0 12px; color: var(--muted); }
+.terminal-meta > span { white-space: nowrap; }
+.terminal-meta > span:has([data-testid="terminal-cwd"]) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.terminal-meta strong { color: var(--fg); font-weight: 500; }
+.terminal-controls { flex: 0 0 auto; flex-wrap: nowrap; gap: 2px; }
+.terminal-controls button { width: 32px; padding: 0; background: transparent; border-color: transparent; box-shadow: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.terminal-controls button:hover:not(:disabled) { background: var(--accent-surface-strong); color: var(--fg); }
+.terminal-controls kbd { font: 12px var(--mono); color: inherit; }
+.terminal-controls [data-testid="terminal-start"] .icon { color: var(--success); }
+.terminal-panel > p { margin: 0; padding: 4px 12px; background: transparent; }
+.terminal-output { background: transparent; border: 0; padding: 4px 8px; min-height: 120px; }
+.terminal-screen { padding: 4px 8px; }
+.terminal-result { padding: 4px 12px; color: var(--muted); }
+.terminal-confirm { border: 1px solid var(--line); border-radius: var(--r-xl); margin: 8px; background: var(--raised); box-shadow: var(--shadow-popover); }
+.terminal-confirm [data-testid="terminal-confirm-keep"] { border-color: transparent; }
+.terminal-confirm [data-testid="terminal-confirm-stop"] { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
+.terminal-confirm [data-testid="terminal-confirm-stop"] .icon { color: var(--warning); }
+.terminal-input-row { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.terminal-input-row:focus-within { position: static; width: auto; height: auto; overflow: visible; clip-path: none; padding: 6px 8px; border-top: 1px solid var(--line-internal); }
+.terminal-panel { position: relative; }
+.terminal-meta { overflow-x: auto; scrollbar-width: none; }
+.terminal-meta > span:has([data-testid="terminal-cwd"]) { overflow: visible; text-overflow: clip; }
