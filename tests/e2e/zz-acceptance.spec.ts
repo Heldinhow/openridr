@@ -517,8 +517,8 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
       "title",
       /last build did not succeed/,
     );
-    // Debug still needs the experimental flag/adapter here; the build itself is not the gate.
-    await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
+    // The failed build does not gate Debug; clicking enables the flag and installs the adapter.
+    await expect(page.getByTestId("toolbar-debug")).toBeEnabled();
     let failed = await hostState(request);
     snapshot("18-build-failed.json", failed.build);
     await screenshot(page, "18-build-failed.png");
@@ -696,9 +696,15 @@ public sealed class LongTests
       expect(installed.data.debug.appleSiliconExperimental).toBe(true);
       snapshot("18-debug-install.json", installed.data.debug);
 
-      // The test-run evaluation is current; rebuild Debug before launching.
+      // The test-run evaluation is current; rebuild Debug before launching. The previous build
+      // already reads "Build succeeded", so wait for the revision to move or the click's own
+      // build would not be observed.
+      const buildBefore = (await hostState(request)).build.revision;
       await page.getByTestId("bottom-tab-build").click();
       await page.getByTestId("build-action").click();
+      await expect
+        .poll(async () => (await hostState(request)).build.revision, { timeout: 60_000 })
+        .toBeGreaterThan(buildBefore);
       await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
         timeout: 120_000,
       });

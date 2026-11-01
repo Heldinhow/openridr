@@ -635,8 +635,8 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - `src/executionGates.ts`: `debugDisabledReason` deixou de bloquear por adaptador ausente e por flag desligada (o fluxo resolve os dois). Continuam: trust, SDK, avaliação running/stale/not-ok, configuração avaliada, startup, build manual em andamento e sessão ativa.
 - `src/DebugPanel.tsx`: `dap-experimental-note` quando macOS arm64 e `appleSiliconExperimental`, texto não bloqueante (experimental, suporte da comunidade, release aprovada 3.2.0-1092).
 - `src/WorkspaceView.tsx`: `debug-consent-dialog`, `debug-consent-accept`, `debug-consent-cancel` e o modal removidos; nenhuma referência a "Enable and debug".
-- Specs: `debugger.spec.ts` (one-click) e `ui-fold.spec.ts` não clicam consentimento, afirmam `debug-consent-dialog` ausente e o one-click afirma `dap-experimental-note`; `execution-gates.spec.ts` passou a esperar `null` para adaptador/flag.
-- **Verificado:** `bun run check`; `debugger.spec.ts -g "one click"` 1/1 (netcoredbg real, `Paused` em `Program.cs:3`), `ui-fold.spec.ts` 4/4, `execution-gates.spec.ts` 4/4. Evidência em `docs/evidence/alpha3-debug-trust.md`.
+- Specs: `debugger.spec.ts` (one-click) e `ui-fold.spec.ts` não clicam consentimento, afirmam `debug-consent-dialog` ausente e o one-click afirma `dap-experimental-note`; `execution-gates.spec.ts` passou a esperar `null` para adaptador/flag. O teste "macOS arm64 requires..." passou a esperar a avaliação e a toolbar habilitada sem adaptador. `zz-acceptance.spec.ts`: Debug habilitado depois de um build falho e o rebuild do DAP espera a revisão do build avançar (o "Build succeeded" anterior não conta).
+- **Verificado:** `bun run check`; `debugger.spec.ts` 12/12 (netcoredbg real, `Paused` em `Program.cs:3`), `ui-fold.spec.ts` 4/4, `execution-gates.spec.ts` 4/4, `zz-acceptance.spec.ts -g "real P0 journey"` 1/1. Evidência em `docs/evidence/alpha3-debug-trust.md`.
 - **Não verificado:** Tauri/WKWebView empacotado, Windows x64 e macOS Intel.
 
 ## Alfa 3 — 36 Confiar no aviso (2026-11-01)

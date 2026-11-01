@@ -20,6 +20,11 @@ DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/debugger.spec.ts -g "on
 # 1 passed (25.5s)
 
 PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/debugger.spec.ts
+# ✓ 12 tests (inclui "macOS arm64 requires the experimental flag and shows the real asset")
+# 12 passed (1.3m)
+
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
 DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/ui-fold.spec.ts
 # ✓ 4 tests/e2e/ui-fold.spec.ts (inclui "debug frames and locals are in the first fold while paused",
 #   com o netcoredbg real copiado para o app home temporário)
@@ -29,6 +34,12 @@ PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
 DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/execution-gates.spec.ts
 # ✓ 4 tests/e2e/execution-gates.spec.ts
 # 4 passed (1.6s)
+
+PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en bunx playwright test tests/e2e/zz-acceptance.spec.ts -g "real P0 journey"
+# ✓ 1 zz-acceptance.spec.ts:171 › real P0 journey: restricted, trust, SDKs, evaluation, restore,
+#   LSP, build, run, tests, PTY and DAP (36.7s)
+# 1 passed (41.3s)
 ```
 
 O que essas execuções observaram:
@@ -40,6 +51,10 @@ O que essas execuções observaram:
 - `executionGates.debugDisabledReason` não bloqueia mais por adaptador ausente nem por flag
   desligada; os demais motivos (trust, SDK, avaliação, configuração, startup, build em andamento e
   sessão ativa) continuam.
+- Dois specs que assumiam o gate antigo foram alinhados: `debugger.spec.ts` (toolbar Debug agora
+  fica habilitada sem adaptador; o teste espera a avaliação) e `zz-acceptance.spec.ts` (Debug
+  habilitado após build falho; e a espera do rebuild passa a exigir que a revisão do build avance,
+  em vez de aceitar o "Build succeeded" do build anterior).
 
 ## Ticket 36 — Confiar no próprio aviso
 
@@ -58,7 +73,8 @@ O que a execução observou: em Restricted, `build-trust`, `run-trust` e `dap-tr
 rótulo "Trust this project"; nenhum `trust-checkbox` dentro dos avisos; após `build-trust`,
 `status-mode` fica "Trusted mode", os motivos de Restricted somem e os botões de trust
 desaparecem. O grant é feito por `trust.grant {remember: true}` (a persistência é a mesma coberta
-pelos specs de trust).
+pelos specs de trust). `ui-layout.spec.ts` 7/7 confirma que a barra superior continua sem
+indicador de confiança e que o layout não mudou.
 
 ## Ticket 37 — Dados de teste isolados
 
@@ -94,9 +110,11 @@ foi feita antes e depois das rodadas; o diff ficou vazio em todas:
   `welcome.spec.ts`: cada uma comparada antes/depois, **UNCHANGED**.
 
 Achado fora do escopo do ticket (pendência): `cargo test -p openridr-host` escreve nos mesmos
-arquivos reais — o mtime passou a `1793569828` e entraram projetos temporários de `host.rs`
-(`.tmp*/Many.sln`, `Honest.csproj`, …). É o comportamento anterior à mudança (testes de host que
-não fixam `OPENRIDR_HOME` pelo processo inteiro); nada de Rust foi alterado neste ticket.
+arquivos reais. As duas rodadas de fechamento (uma normal e uma `--no-fail-fast`) gravaram
+projetos temporários de `host.rs` (`.tmp*/Many.sln`, `Sleeper.csproj`, `Policy.csproj`, …); o
+mtime final ficou `1793569994` (18:53:14 local), sem nenhuma escrita posterior das execuções E2E.
+É o comportamento anterior à mudança (testes de host que não fixam `OPENRIDR_HOME` pelo processo
+inteiro); nada de Rust foi alterado neste ticket.
 
 `.gitignore` cobre os caminhos de higiene (D4) mais `.scratch/host-home/`, o diretório criado pelo
 `host:http` isolado. `git check-ignore` confirmou a regra para `.scratch/host-home/trusted.json`.
