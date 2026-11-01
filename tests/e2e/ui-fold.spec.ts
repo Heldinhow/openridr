@@ -60,7 +60,7 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 1440, height: 900
         await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 60_000 });
         await setBreakpoint(request, path.join(copy, "src/OrderDesk.Cli/Program.cs"));
         await page.getByTestId("toolbar-debug").click({ force: true });
-        await page.getByTestId("debug-consent-accept").click();
+        await expect(page.getByTestId("debug-consent-dialog")).toHaveCount(0);
         await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 120_000 });
         await page.getByTestId("bottom-tab-debug").click();
         await inFirstFold(page, "debug-frames");

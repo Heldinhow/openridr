@@ -199,6 +199,14 @@ export function DebugPanel({
           {disabledReason}
         </p>
       )}
+      {snapshot.debug.os === "macos" &&
+        snapshot.debug.arch === "aarch64" &&
+        snapshot.debug.appleSiliconExperimental && (
+          <p className="muted" data-testid="dap-experimental-note">
+            macOS arm64 debugging is experimental and community supported; it runs the approved
+            netcoredbg 3.2.0-1092 build.
+          </p>
+        )}
       {terminal && (
         <p className="muted" data-testid="dap-terminal-note">
           {dap.phase.replace(/[.]+$/, "")}. Logs and debuggee output below are preserved from this session.

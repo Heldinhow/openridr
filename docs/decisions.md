@@ -442,3 +442,13 @@ Run e Debug deixam de recusar `no_build`/`build_failed`/`build_stale`: quando n�
 Motivo: o Rider constrói ao executar; exigir um Build manual antes de Run/Debug era a diferença funcional restante apontada em `docs/RIDR-VS-RIDER.md` e transformava `Ctrl+R`/`Ctrl+D` numa mensagem de erro.
 
 Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAndRun`/`prepareBuild` removidos) e o clique em Debug só faz a flag experimental e o plano/instalação do netcoredbg antes de `debug.start`. Os gates de UI continuam bloqueando trust/SDK/avaliação/configuração/startup, build manual em andamento e run/debug já ativo (incluindo `building`); os gates de build ausente/stale/falho/fonte salva saíram, porque o host resolve com o build implícito. As entradas de 2026-10-28 (tickets 12/14) e as de 2026-10-29/10-30 que dizem "Run/Debug nunca constroem" ficam **substituídas** por esta; restore implícito continua proibido em todas elas. Evidência: `docs/evidence/auto-build-run-debug.md`.
+
+## 2026-11-01 — Alfa 3: Debug sem pergunta (ticket 35)
+
+**Substitui** a decisão de 2026-10-31 que criou o diálogo `debug-consent-dialog` ("Enable and debug") e o gate de UI que exigia adaptador `ready` e flag experimental ligada antes de clicar Debug.
+
+- Clicar Debug (atalho/ação `debug.start`, botão da toolbar e `debug-launch` do painel) executa o fluxo automático: ativa `debug.flag {enabled:true, confirm:true}` quando macOS arm64 e a flag está desligada, faz `debug.plan`/`debug.install` somente quando o adaptador não está `ready` (reusa o 3.2.0-1092 já verificado), espera o adaptador e chama `debug.start`. Sem modal e sem checkbox; o `confirm` do host continua exigido para ligar a flag e para instalar.
+- O host continua a autoridade: build implícito quando não há build utilizável, restore explícito, gates de trust/SDK/avaliação/configuração/startup e build/sessão em andamento continuam valendo. A UI não builda nem restaura por conta própria.
+- `executionGates.debugDisabledReason` deixa de bloquear por adaptador ausente e flag desligada, porque o fluxo resolve os dois. O painel Debug mostra `dap-experimental-note` (macOS arm64 experimental, suporte da comunidade, release aprovada 3.2.0-1092) enquanto a flag está ativa; é aviso não bloqueante e não promete suporte oficial.
+- Saem do código `debug-consent-dialog`, `debug-consent-accept`, `debug-consent-cancel` e o estado `debugConsent`. `debugger.spec.ts` e `ui-fold.spec.ts` não clicam consentimento e afirmam o diálogo ausente.
+- Evidência: `docs/evidence/alpha3-debug-trust.md`.
