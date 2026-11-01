@@ -1,10 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { call, HostCallError, messageOf, type EvaluationProject, type RunConfig, type Snapshot } from "./host/client";
 import {
   cancelBuild as buildCancel,
   cancelRun as runCancel,
-  launchParams as launchParamsFor,
-  prepareBuild as prepare,
   waitForHost as waitHost,
 } from "./executionCommands";
 import type { RunConfigView } from "./runConfigs";
@@ -41,8 +39,7 @@ export interface ExecutionFlowInput {
 
 // Build, Run and Debug start flows plus the decision dialogs' state. Moved out of WorkspaceView unchanged.
 export function useExecutionFlow(c: ExecutionFlowInput) {
-  const {
-    snapshot, trusted, evaluation, build, buildRunning, runRunning, dirtyCount, consoleCandidates, startupProject,
+  const { snapshot, trusted, evaluation, dirtyCount, consoleCandidates, startupProject,
     activeRunConfig, activeConfigEvaluated, buildDisabledReason, debugDisabledReason, runAvailabilityReason,
     onSnapshot, setMessage, setBottomTab, saveAll, invalidRunConfigReason, openRunConfigDialog, openConfigOnFieldError,
   } = c;
@@ -50,7 +47,6 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
   const [runDecision, setRunDecision] = useState(false);
   const [debugConsent, setDebugConsent] = useState(false);
   const [pendingRunConfig, setPendingRunConfig] = useState<RunConfig | null>(null);
-  const [pendingRunAfterBuild, setPendingRunAfterBuild] = useState<RunConfig | null>(null);
 
   async function startBuild(savedNote: string, requestedConfig?: RunConfig | null): Promise<boolean> {
     const project = requestedConfig
@@ -203,8 +199,19 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
     setRunDecision(false);
     const requestedConfig = pendingRunConfig;
     setPendingRunConfig(null);
-    const started = await saveAllAndBuild(requestedConfig);
-    if (requestedConfig && started) setPendingRunAfterBuild(requestedConfig);
+    const dirty = dirtyCount;
+    const failures = await saveAll();
+    if (failures.length > 0) {
+      setMessage({ tone: "error", text: failures.join(" ") });
+      return;
+    }
+    if (dirty > 0) {
+      setMessage({
+        tone: "info",
+        text: `Saved all ${dirty} modified buffer${dirty === 1 ? "" : "s"}; the host rebuilds only when the saved build cannot run.`,
+      });
+    }
+    void startRun(requestedConfig);
   }
 
   function runSavedBuild() {
@@ -229,30 +236,31 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
 
   const waitForHost = (done: (s: Snapshot) => boolean) => waitHost({ onSnapshot, setMessage }, done);
 
-  const prepareBuild = (verb: "Run" | "Debug") =>
-    prepare({ onSnapshot, setMessage }, snapshot, activeRunConfig, verb);
-
-  const launchParams = (project: string, configuration: string, targetFramework: string | null) =>
-    launchParamsFor(activeRunConfig, project, configuration, targetFramework);
-
-  // One-click Run like Rider: a blocked Run click restores, builds and then runs.
-  async function prepareAndRun() {
-    setBottomTab("build");
-    if (!trusted || runRunning || buildRunning) return;
-    try {
-      const { snap, project, configuration } = await prepareBuild("Run");
-      onSnapshot(await call<Snapshot>("run.start", launchParams(project.path, configuration, snap.evaluation.context.targetFramework)));
-      setMessage(null);
-    } catch (error) {
-      setMessage({ tone: "error", text: `Run could not start: ${messageOf(error)}` });
-    }
-  }
-
-  // One-click Debug: after the explicit experimental opt-in (an in-app dialog, since the Tauri
-  // webview does not show window.confirm), install the adapter if missing, prepare and launch.
+  // One-click Debug: the explicit experimental opt-in (an in-app dialog, since the Tauri webview
+  // does not show window.confirm) and the adapter install come first; then the host starts the
+  // session and builds implicitly when no current build can launch it.
   async function prepareAndDebug(consented = false) {
     setBottomTab("debug");
-    if (!trusted) return;
+    if (!trusted) {
+      setMessage({
+        tone: "error",
+        text: `Debug unavailable: ${debugDisabledReason ?? "trust the workspace before debugging."}`,
+      });
+      return;
+    }
+    const invalid = invalidRunConfigReason();
+    if (invalid) {
+      setMessage({ tone: "error", text: invalid });
+      openRunConfigDialog(activeRunConfig?.id);
+      return;
+    }
+    if (["building", "preparing", "running", "paused"].includes(snapshot.dap.state)) {
+      setMessage({
+        tone: "error",
+        text: `Debug unavailable: ${debugDisabledReason ?? "a debug session is already active."}`,
+      });
+      return;
+    }
     try {
       let snap = snapshot;
       if (snap.debug.os === "macos" && snap.debug.arch === "aarch64" && !snap.debug.appleSiliconExperimental) {
@@ -273,11 +281,11 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
         }
       }
       if (snap.debug.adapterState !== "ready") throw new Error(snap.debug.gateReason ?? snap.debug.adapterMessage);
-      const { snap: built, project, configuration } = await prepareBuild("Debug");
-      onSnapshot(await call<Snapshot>("debug.start", launchParams(project.path, configuration, built.evaluation.context.targetFramework)));
+      onSnapshot(await call<Snapshot>("debug.start", debugStartParams()));
       setMessage(null);
     } catch (error) {
       setMessage({ tone: "error", text: `Debug could not start: ${messageOf(error)}` });
+      openConfigOnFieldError(error);
     }
   }
 
@@ -320,25 +328,10 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
     }
   }
 
-  useEffect(() => {
-    if (!pendingRunAfterBuild || build.state === "running") return;
-    const config = pendingRunAfterBuild;
-    setPendingRunAfterBuild(null);
-    if (
-      build.state === "ok" &&
-      build.exit === 0 &&
-      build.project?.path === config.project &&
-      build.configuration === config.configuration &&
-      (build.targetFramework ?? null) === (config.targetFramework ?? null)
-    ) {
-      void startRun(config);
-    }
-  }, [build, pendingRunAfterBuild]);
-
   return {
     buildDecision, setBuildDecision, runDecision, setRunDecision, debugConsent, setDebugConsent,
     startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
     startRun, requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
-    prepareAndRun, prepareAndDebug, startDebug, requestDebugStart, stopDebug,
+    prepareAndDebug, startDebug, requestDebugStart, stopDebug,
   };
 }

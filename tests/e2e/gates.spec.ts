@@ -247,24 +247,24 @@ async function coveredTrustPoint(page: Page, target: Locator) {
   throw new Error("No point of the target is covered by the Trust popover.");
 }
 
-test("Run is gated until the startup project is built", async ({ page }) => {
+test("Run builds the startup project when there is no build", async ({ page }) => {
   const base = await openTrustedRestored(page);
   try {
     await page.getByTestId("bottom-tab-build").click();
-    await expect(page.getByTestId("run-disabled-reason")).toContainText(
-      "Build the startup project first; Run never builds or restores implicitly.",
-    );
-    await expect(page.getByTestId("run-action")).toBeDisabled();
-    await page.getByTestId("build-action").click();
-    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", { timeout: 60_000 });
+    // No build yet: Run is available and the host builds before launching.
     await expect(page.getByTestId("run-action")).toBeEnabled();
-    await page.getByTestId("build-configuration").selectOption("Release");
-    // Switching configuration re-evaluates the model, which stales the saved build.
-    await expect(page.getByTestId("run-disabled-reason")).toContainText(
-      "The saved build is stale: The project model was re-evaluated",
-      { timeout: 30_000 },
-    );
-    await expect(page.getByTestId("run-action")).toBeDisabled();
+    await expect(page.getByTestId("run-disabled-reason")).toHaveCount(0);
+    await page.getByTestId("run-action").click();
+    await page.getByTestId("bottom-tab-run").click();
+    await expect(page.getByTestId("run-state")).toContainText(/Building|Running|Run exited/, {
+      timeout: 30_000,
+    });
+    await page.getByTestId("bottom-tab-run").click();
+    await expect(page.getByTestId("run-state")).toContainText("Run exited", { timeout: 60_000 });
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
+      timeout: 60_000,
+    });
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

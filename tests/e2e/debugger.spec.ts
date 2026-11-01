@@ -325,12 +325,8 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await selectEvaluationTfm(page, "net8.0");
     await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(3);
 
-    // The Debug launch stays blocked until a successful Debug build exists.
-    await expect(page.getByTestId("toolbar-debug")).toBeDisabled();
-    await expect(page.getByTestId("toolbar-debug")).toHaveAttribute(
-      "title",
-      /Build the startup project in Debug first/,
-    );
+    // No build yet: Debug is available; the host starts the implicit build on launch.
+    await expect(page.getByTestId("toolbar-debug")).toBeEnabled();
 
     // Breakpoint in Program.cs through the real editor. The gutter marker column is a
     // separate column from the line numbers.
@@ -515,7 +511,7 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
   }
 });
 
-test("one click on Debug enables the flag, restores, builds and stops at a breakpoint", async ({
+test("one click on Debug enables the flag, builds implicitly and stops at a breakpoint", async ({
   page,
   request,
 }) => {
@@ -541,6 +537,11 @@ test("one click on Debug enables the flag, restores, builds and stops at a break
     await page.getByTestId("workspace-open").click();
     await page.getByTestId("trust-prompt-trust").click();
     await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+    // Trust restores by itself; Debug never restores. Wait for the real assets, then let the
+    // host build implicitly on the first Debug click.
+    await page.getByTestId("workspace-tools-toggle").click();
+    await settleRestore(page);
+    await page.getByTestId("workspace-tools-toggle").click();
     await hostCall(request, "debug.setBreakpoints", {
       path: path.join(copy, "src/OrderDesk.Cli/Program.cs"),
       lines: [3],
@@ -550,6 +551,9 @@ test("one click on Debug enables the flag, restores, builds and stops at a break
     await page.getByTestId("toolbar-debug").click({ force: true });
     // The Tauri webview has no window.confirm, so consent is an in-app dialog.
     await page.getByTestId("debug-consent-accept").click();
+    await expect(page.getByTestId("dap-state")).toContainText(/Building|Preparing|Paused/, {
+      timeout: 30_000,
+    });
     await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 120_000 });
     await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:3");
     await page.getByTestId("debug-stop").click();

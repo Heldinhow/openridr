@@ -2717,8 +2717,7 @@ fn write_console_project(dir: &Path, name: &str, extra: &str) {
     .unwrap();
 }
 
-fn wait_for_build(host: &Host, timeout: Duration) -> Value {
-    let deadline = Instant::now() + timeout;
+fn wait_for_build(host: &Host, timeout: Duration) -> Value {    let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
         let build = state["build"].clone();
@@ -2729,6 +2728,23 @@ fn wait_for_build(host: &Host, timeout: Duration) -> Value {
             Instant::now() < deadline,
             "build did not finish: {}",
             build["log"]
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Waits until the DAP record leaves `building`/`preparing`: the session has real state.
+fn wait_for_dap(host: &Host, timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let dap = snapshot(host)["dap"].clone();
+        if !matches!(dap["state"].as_str(), Some("building" | "preparing")) {
+            return dap;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "dap did not leave building/preparing: {}",
+            dap["log"]
         );
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -3115,22 +3131,20 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
         finished["log"]
     );
 
-    // A saved source change after the build refuses the launch, even though the build is
-    // still marked successful: Run would otherwise execute old code and claim it is current.
+    // A saved source change after the build starts the same build pipeline and only then runs:
+    // the host never launches code it cannot prove is current.
     let original = fs::read_to_string(&program).unwrap();
     fs::write(&program, format!("{original}\n// edited after the build\n")).unwrap();
-    let changed = host
-        .dispatch("run.start", json!({}))
-        .expect_err("a saved source change makes the build stale for run");
-    assert_eq!(changed.code, "build_stale");
-    let details = changed.details.unwrap();
-    assert_eq!(details["reason"], "source_changed");
-    assert!(details["changedSources"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|source| source == "src/OrderDesk.Cli/Program.cs"));
-    assert!(details["action"]["method"] == "build.start");
+    let implicit = host.dispatch("run.start", json!({})).unwrap();
+    assert_eq!(implicit["run"]["state"], "building");
+    assert_ne!(implicit["build"]["revision"], 0);
+    let rebuilt_for_change = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(rebuilt_for_change["state"], "ok", "{}", rebuilt_for_change["log"]);
+    assert_ne!(rebuilt_for_change["buildId"], build_id);
+    let after_change = wait_for_run(&host, Duration::from_secs(30));
+    assert_eq!(after_change["state"], "exited", "{}", after_change["log"]);
+    assert_eq!(after_change["exit"], 0);
+    assert_eq!(after_change["buildId"], rebuilt_for_change["buildId"]);
 
     // The rebuild produces new output, which proves the run below used the new build.
     fs::write(
@@ -3143,9 +3157,6 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
         "# values for the active configuration\nOPENRIDR_F4=from-file\nOPENRIDR_OVERRIDE=file\n",
     )
     .unwrap();
-    host.dispatch("build.start", json!({})).unwrap();
-    let rebuilt = wait_for_build(&host, Duration::from_secs(60));
-    assert_eq!(rebuilt["state"], "ok", "{}", rebuilt["log"]);
     let configured = host
         .dispatch(
             "run.start",
@@ -3157,8 +3168,10 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
             }),
         )
         .unwrap();
-    let configured_run = &configured["run"];
-    let configured_command: Vec<&str> = configured_run["command"]
+    assert_eq!(configured["run"]["state"], "building");
+    let rerun = wait_for_run(&host, Duration::from_secs(60));
+    assert_eq!(rerun["state"], "exited", "{}", rerun["log"]);
+    let configured_command: Vec<&str> = rerun["command"]
         .as_array()
         .unwrap()
         .iter()
@@ -3170,15 +3183,10 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
         "{configured_command:?}"
     );
     assert!(
-        configured_run["cwd"]
-            .as_str()
-            .unwrap()
-            .ends_with("/src"),
+        rerun["cwd"].as_str().unwrap().ends_with("/src"),
         "{}",
-        configured_run["cwd"]
+        rerun["cwd"]
     );
-    let rerun = wait_for_run(&host, Duration::from_secs(30));
-    assert_eq!(rerun["state"], "exited");
     let log = rerun["log"].as_str().unwrap();
     assert!(log.contains("Order A-999:"), "{log}");
     assert!(log.contains("args=[--first|two words]"), "{log}");
@@ -3191,30 +3199,221 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     );
     assert_ne!(rerun["buildId"], build_id);
 
-    // A failed build is never runnable, and its log is in the refusal details.
+    // A failed implicit build never runs and keeps its diagnostics in the Build tab.
+    let run_processes = |host: &Host| {
+        snapshot(host)["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|process| {
+                process["kind"]
+                    .as_str()
+                    .is_some_and(|kind| kind.starts_with("run:"))
+            })
+            .count()
+    };
+    let runs_before = run_processes(&host);
     fs::write(&program, "class Broken {\n").unwrap();
-    host.dispatch("build.start", json!({})).unwrap();
-    let failed = wait_for_build(&host, Duration::from_secs(60));
+    let started = host.dispatch("run.start", json!({})).unwrap();
+    assert_eq!(started["run"]["state"], "building");
+    let failed = wait_for_run(&host, Duration::from_secs(60));
     assert_eq!(failed["state"], "failed", "{}", failed["log"]);
-    let refused = host
-        .dispatch("run.start", json!({}))
-        .expect_err("a failed build is not runnable");
-    assert_eq!(refused.code, "invalid_state");
-    let details = refused.details.unwrap();
-    assert_eq!(details["reason"], "build_failed");
-    assert!(details["buildLog"].as_str().unwrap().contains("error CS"));
+    assert!(
+        failed["log"]
+            .as_str()
+            .unwrap()
+            .contains("Build failed; see the Build tab"),
+        "{}",
+        failed["log"]
+    );
+    let failed_build = snapshot(&host)["build"].clone();
+    assert_eq!(failed_build["state"], "failed");
+    assert!(
+        failed_build["log"].as_str().unwrap().contains("error CS"),
+        "{}",
+        failed_build["log"]
+    );
+    assert_eq!(
+        run_processes(&host),
+        runs_before,
+        "a failed build must not spawn the program"
+    );
 
-    // A real successful build whose TargetPath disappeared is refused, not replaced.
+    // A real successful build whose TargetPath disappeared is rebuilt, not launched into a
+    // stale path and not refused.
     fs::write(&program, original).unwrap();
     host.dispatch("build.start", json!({})).unwrap();
     let fixed = wait_for_build(&host, Duration::from_secs(60));
     assert_eq!(fixed["state"], "ok", "{}", fixed["log"]);
     fs::remove_file(&dll).unwrap();
-    let missing = host
+    let missing = host.dispatch("run.start", json!({})).unwrap();
+    assert_eq!(missing["run"]["state"], "building");
+    let rebuilt = wait_for_run(&host, Duration::from_secs(60));
+    assert_eq!(rebuilt["state"], "exited", "{}", rebuilt["log"]);
+    assert_eq!(rebuilt["exit"], 0);
+    assert!(dll.is_file(), "the implicit build must restore the TargetPath");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_implicitly_builds_and_runs_when_there_is_no_build() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_console_project(&root, "Implicit", "");
+    let host = Host::new();
+    ready_project(&host, &root, "Implicit.csproj");
+    assert_eq!(snapshot(&host)["build"]["revision"], 0);
+
+    let started = host.dispatch("run.start", json!({})).unwrap();
+    assert_eq!(started["run"]["state"], "building");
+    assert_ne!(started["build"]["revision"], 0, "{}", started["build"]);
+    assert_eq!(started["run"]["buildId"], started["build"]["buildId"]);
+    assert!(
+        started["run"]["targetPath"]
+            .as_str()
+            .unwrap()
+            .ends_with("Implicit.dll"),
+        "{}",
+        started["run"]["targetPath"]
+    );
+    assert!(
+        !started["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("run:"))),
+        "the program must not start before its build"
+    );
+
+    let finished = wait_for_run(&host, Duration::from_secs(60));
+    assert_eq!(finished["state"], "exited", "{}", finished["log"]);
+    assert_eq!(finished["exit"], 0);
+    assert!(
+        finished["log"].as_str().unwrap().contains("ready"),
+        "{}",
+        finished["log"]
+    );
+    let build = snapshot(&host)["build"].clone();
+    assert_eq!(build["state"], "ok", "{}", build["log"]);
+    assert_eq!(build["buildId"], finished["buildId"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_implicit_build_fails_the_run_and_keeps_its_diagnostics() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_console_project(&root, "BrokenRun", "");
+    fs::write(root.join("BrokenRun.cs"), "class Broken {\n").unwrap();
+    let host = Host::new();
+    ready_project(&host, &root, "BrokenRun.csproj");
+
+    let started = host.dispatch("run.start", json!({})).unwrap();
+    assert_eq!(started["run"]["state"], "building");
+    let failed = wait_for_run(&host, Duration::from_secs(60));
+    assert_eq!(failed["state"], "failed", "{}", failed["log"]);
+    assert!(
+        failed["log"]
+            .as_str()
+            .unwrap()
+            .contains("Build failed; see the Build tab"),
+        "{}",
+        failed["log"]
+    );
+    let state = snapshot(&host);
+    assert_eq!(state["build"]["state"], "failed");
+    assert!(
+        state["build"]["log"].as_str().unwrap().contains("error CS"),
+        "{}",
+        state["build"]["log"]
+    );
+    assert!(
+        !state["build"]["problems"].as_array().unwrap().is_empty(),
+        "the failed build keeps its diagnostics in the Build view"
+    );
+    assert!(
+        !state["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("run:"))),
+        "a failed build must not spawn the program"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_a_run_waiting_for_its_build_stops_the_build_and_never_launches() {
+    let temp = hanging_build_workspace();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let host = Host::new();
+    ready_for_build(&host, &root);
+
+    let started = host.dispatch("run.start", json!({})).unwrap();
+    assert_eq!(started["run"]["state"], "building");
+    wait_for_build_output(&host, "Slow.dll", Duration::from_secs(30));
+
+    let cancelled = host.dispatch("run.cancel", json!({})).unwrap();
+    assert_eq!(cancelled["run"]["state"], "cancelled");
+    assert_eq!(cancelled["run"]["exit"], Value::Null);
+    assert_eq!(cancelled["build"]["state"], "cancelled");
+    assert!(
+        cancelled["build"]["termination"]["requested"]
+            .as_str()
+            .is_some(),
+        "{}",
+        cancelled["build"]["termination"]
+    );
+    let state = snapshot(&host);
+    assert!(
+        !state["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("run:"))),
+        "the program must never start after a cancelled build"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_run_start_while_waiting_for_the_build_does_not_start_another() {
+    let temp = hanging_build_workspace();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let host = Host::new();
+    ready_for_build(&host, &root);
+
+    let first = host.dispatch("run.start", json!({})).unwrap();
+    assert_eq!(first["run"]["state"], "building");
+    let second = host
         .dispatch("run.start", json!({}))
-        .expect_err("a missing TargetPath cannot be launched");
-    assert_eq!(missing.code, "invalid_state");
-    assert_eq!(missing.details.unwrap()["reason"], "target_missing");
+        .expect_err("a second run must not start another build");
+    assert_eq!(second.code, "invalid_state");
+    assert!(
+        second.message.contains("already waiting"),
+        "{}",
+        second.message
+    );
+    let builds = snapshot(&host)["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|process| {
+            process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("build:"))
+        })
+        .count();
+    assert_eq!(builds, 1, "a double start must not start two builds");
+    let _ = host.dispatch("run.cancel", json!({}));
 }
 
 /// A successful build proves compilation, not that the restore inputs it depended on still
@@ -3283,7 +3482,8 @@ fn wait_for_run(host: &Host, timeout: Duration) -> Value {
     loop {
         let state = snapshot(host);
         let run = state["run"].clone();
-        if run["state"] != "running" {
+        // `building` is the implicit build this run waits for, not a finished state.
+        if !matches!(run["state"].as_str(), Some("running" | "building")) {
             return run;
         }
         assert!(
@@ -3485,10 +3685,24 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
         .unwrap();
 
-    // No build yet: nothing is launched.
-    let no_build = host.dispatch("debug.start", json!({})).expect_err("no build");
-    assert_eq!(no_build.code, "invalid_state");
-    assert_eq!(no_build.details.unwrap()["reason"], "no_build");
+    // No build yet: Debug starts the implicit build and waits; Stop cancels both, and no
+    // adapter is ever spawned.
+    let building = host.dispatch("debug.start", json!({})).unwrap();
+    assert_eq!(building["dap"]["state"], "building");
+    assert_ne!(building["build"]["revision"], 0);
+    let cancelled = host.dispatch("debug.stop", json!({})).unwrap();
+    assert_eq!(cancelled["dap"]["state"], "cancelled");
+    assert!(cancelled["dap"]["session"].as_u64().unwrap() > 0);
+    assert!(
+        !snapshot(&host)["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("debug:"))),
+        "a session waiting for its build must not spawn the adapter"
+    );
 
     // Breakpoints can be prepared before the session; without an adapter they stay pending.
     let pending = host
@@ -3499,7 +3713,6 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
         .unwrap();
     assert_eq!(pending["dap"]["breakpoints"][0]["line"], 2);
     assert_eq!(pending["dap"]["breakpoints"][0]["verified"], false);
-    assert_eq!(pending["dap"]["state"], "idle");
     assert!(
         !snapshot(&host)["processes"]
             .as_array()
@@ -3516,22 +3729,40 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     assert_eq!(built["state"], "ok", "{}", built["log"]);
     assert_eq!(built["configuration"], "Debug");
 
-    // A saved source changed after the build is refused before any adapter is spawned.
+    // A saved source changed after the build starts the implicit rebuild; Stop cancels it
+    // before any adapter exists.
     fs::write(&source, "System.Console.WriteLine(\"changed\");\n").unwrap();
-    let changed = host.dispatch("debug.start", json!({})).expect_err("source changed");
-    assert_eq!(changed.code, "build_stale");
-    assert_eq!(changed.details.unwrap()["reason"], "source_changed");
-    assert_eq!(snapshot(&host)["dap"]["state"], "idle");
+    let changed = host.dispatch("debug.start", json!({})).unwrap();
+    assert_eq!(changed["dap"]["state"], "building");
+    let stopped = host.dispatch("debug.stop", json!({})).unwrap();
+    assert_eq!(stopped["dap"]["state"], "cancelled");
 
-    // A failed build never authorizes a launch.
+    // A failed implicit build fails the pending session and never spawns the adapter.
     fs::write(&source, "this is not C#\n").unwrap();
-    host.dispatch("build.start", json!({})).unwrap();
-    let failed = wait_for_build(&host, Duration::from_secs(60));
+    let failed_start = host.dispatch("debug.start", json!({})).unwrap();
+    assert_eq!(failed_start["dap"]["state"], "building");
+    let failed = wait_for_dap(&host, Duration::from_secs(60));
     assert_eq!(failed["state"], "failed", "{}", failed["log"]);
-    let failed_start = host.dispatch("debug.start", json!({})).expect_err("failed build");
-    assert_eq!(failed_start.code, "invalid_state");
-    assert_eq!(failed_start.details.unwrap()["reason"], "build_failed");
+    assert!(
+        failed["log"]
+            .as_str()
+            .unwrap()
+            .contains("Build failed; see the Build tab"),
+        "{}",
+        failed["log"]
+    );
+    assert!(
+        !snapshot(&host)["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("debug:"))),
+        "a failed build must not spawn the adapter"
+    );
 
+    let failed_session = failed["session"].clone();
     // A version that is not the approved one is not a debugger.
     write_netcoredbg(&adapter, "3.1.0");
     let wrong_version = host.dispatch("debug.start", json!({})).expect_err("wrong version");
@@ -3552,8 +3783,147 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     let stale = host.dispatch("debug.start", json!({})).expect_err("stale evaluation");
     assert_eq!(stale.code, "invalid_state");
     assert_eq!(stale.details.unwrap()["reason"], "evaluation_stale");
-    assert_eq!(snapshot(&host)["dap"]["state"], "idle");
-    assert!(snapshot(&host)["dap"]["assembly"].is_null());
+    let unchanged = snapshot(&host);
+    assert_eq!(unchanged["dap"]["session"], failed_session);
+    assert_eq!(unchanged["dap"]["state"], "failed");
+}
+
+#[cfg(target_os = "macos")]
+fn copy_dir(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).unwrap();
+    for entry in fs::read_dir(source).unwrap() {
+        let entry = entry.unwrap();
+        if entry.path().is_file() {
+            fs::copy(entry.path(), destination.join(entry.file_name())).unwrap();
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    if std::env::consts::ARCH != "aarch64" {
+        return;
+    }
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let adapter = home
+        .path()
+        .join("tools/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg");
+    write_netcoredbg(&adapter, "3.2.0");
+
+    let temp = hanging_build_workspace();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let host = Host::new();
+    ready_for_build(&host, &root);
+    host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap();
+
+    let started = host.dispatch("debug.start", json!({})).unwrap();
+    assert_eq!(started["dap"]["state"], "building");
+    wait_for_build_output(&host, "Slow.dll", Duration::from_secs(30));
+
+    let stopped = host.dispatch("debug.stop", json!({})).unwrap();
+    assert_eq!(stopped["dap"]["state"], "cancelled");
+    assert_eq!(stopped["build"]["state"], "cancelled");
+    assert!(
+        stopped["dap"]["termination"].is_null(),
+        "no termination is invented for a session that never started"
+    );
+    assert!(
+        !snapshot(&host)["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("debug:"))),
+        "no adapter is spawned for a cancelled implicit build"
+    );
+
+    // Cancel and restart during the build: the new pending session must not repeat the
+    // session number the cancelled `building` record already showed.
+    let cancelled_session = stopped["dap"]["session"].as_u64().unwrap();
+    let restarted = host.dispatch("debug.start", json!({})).unwrap();
+    assert_eq!(restarted["dap"]["state"], "building");
+    assert_ne!(restarted["dap"]["session"].as_u64().unwrap(), cancelled_session);
+    let stopped_again = host.dispatch("debug.stop", json!({})).unwrap();
+    assert_eq!(stopped_again["dap"]["state"], "cancelled");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    if std::env::consts::ARCH != "aarch64" {
+        return;
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
+    let installed = home.join(
+        "Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg",
+    );
+    if !installed.join("netcoredbg").is_file() {
+        eprintln!("not verified: netcoredbg 3.2.0-1092 is not installed in the default app home");
+        return;
+    }
+    let app_home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", app_home.path());
+    copy_dir(
+        &installed,
+        &app_home
+            .path()
+            .join("tools/netcoredbg/3.2.0-1092/netcoredbg"),
+    );
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_console_project(&root, "ImplicitDebug", "");
+    let host = Host::new();
+    open(&host, &root.join("ImplicitDebug.csproj"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    wait_for_restore(&host, Duration::from_secs(60));
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap();
+    assert_eq!(snapshot(&host)["build"]["revision"], 0);
+
+    let started = host.dispatch("debug.start", json!({})).unwrap();
+    assert_eq!(started["dap"]["state"], "building");
+    assert_ne!(started["build"]["revision"], 0);
+    assert_eq!(started["dap"]["buildId"], started["build"]["buildId"]);
+
+    let session = wait_for_dap(&host, Duration::from_secs(90));
+    assert!(
+        matches!(
+            session["state"].as_str(),
+            Some("running" | "paused" | "terminated")
+        ),
+        "{}",
+        session["log"]
+    );
+    assert!(session["session"].as_u64().unwrap() > 0);
+    assert_eq!(session["buildId"], snapshot(&host)["build"]["buildId"]);
+    assert_eq!(
+        snapshot(&host)["build"]["state"],
+        "ok",
+        "{}",
+        snapshot(&host)["build"]["log"]
+    );
+    assert!(
+        snapshot(&host)["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("debug:"))),
+        "the adapter is an observed process"
+    );
+    let _ = host.dispatch("debug.stop", json!({}));
 }
 
 fn wait_for_terminal_output(host: &Host, needle: &str, timeout: Duration) -> String {

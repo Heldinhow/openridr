@@ -353,7 +353,7 @@ export type TestRun = {
 /** The program launched from the identified successful build. `exited` is neutral: the
  * exit code is shown as observed and `null` stays unknown. */
 export type Run = {
-  state: "idle" | "running" | "exited" | "failed" | "cancelled";
+  state: "idle" | "building" | "running" | "exited" | "failed" | "cancelled";
   project: { name: string; path: string } | null;
   targetPath: string | null;
   buildId: string | null;
@@ -633,7 +633,7 @@ export type DapChildren = {
 
 /** One real DAP session. `exitKnown:false` means the adapter never reported an exit code. */
 export type Dap = {
-  state: "idle" | "preparing" | "running" | "paused" | "terminated" | "cancelled" | "failed";
+  state: "idle" | "building" | "preparing" | "running" | "paused" | "terminated" | "cancelled" | "failed";
   phase: string;
   session: number;
   project: { name: string; path: string } | null;

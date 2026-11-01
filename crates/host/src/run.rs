@@ -1,9 +1,10 @@
-//! Explicit run of the TargetPath from the identified successful build.
+//! Run of the TargetPath from the identified successful build.
 //!
-//! Run never builds, never restores and never guesses a path: it launches the evaluated
-//! `TargetPath` recorded by the current build (through the project SDK muxer for a managed
-//! `.dll`) and streams the real stdout/stderr into a bounded log. Exit and termination are
-//! the ones the registry observed, so a missing exit code is never success.
+//! Run restores never and guesses no path: it launches the evaluated `TargetPath` recorded by
+//! the current build (through the project SDK muxer for a managed `.dll`) and streams the real
+//! stdout/stderr into a bounded log. When there is no current build, the host starts the same
+//! `build.start` pipeline and shows `building` until it finishes (decision 2026-11-01). Exit and
+//! termination are the ones the registry observed, so a missing exit code is never success.
 
 use crate::error::{HostError, HostResult};
 use crate::logbuf::LogBuffer;
@@ -128,10 +129,20 @@ impl Run {
     }
 
     pub fn begin(start: Start) -> Self {
+        Self::from_start(start, "running", Some(now_ms()))
+    }
+
+    /// No process yet: the host is building the target this run needs. The record carries the
+    /// same identity, so the snapshot can show `building` with the project and build id.
+    pub fn building(start: Start) -> Self {
+        Self::from_start(start, "building", None)
+    }
+
+    fn from_start(start: Start, state: &'static str, started_at: Option<u64>) -> Self {
         Self {
             data: Mutex::new(Data {
                 revision: start.revision,
-                state: "running",
+                state,
                 run_id: start.run_id,
                 project: Some(RunProject {
                     name: start.project_name,
@@ -153,7 +164,7 @@ impl Run {
                 sealed: false,
                 stale: false,
                 stale_reason: None,
-                started_at: Some(now_ms()),
+                started_at,
                 finished_at: None,
                 log: LogBuffer::default(),
             }),
@@ -250,6 +261,27 @@ impl Run {
         }
         data.log.push(message.into());
         data.state = "failed";
+        data.finished_at = Some(now_ms());
+    }
+
+    /// The implicit build did not succeed: the run fails with the reason and never spawns.
+    pub fn fail_pending(&self, message: impl Into<String>) {
+        let mut data = self.data.lock().unwrap();
+        if data.sealed || data.state != "building" {
+            return;
+        }
+        data.log.push(message.into());
+        data.state = "failed";
+        data.finished_at = Some(now_ms());
+    }
+
+    /// The implicit build was cancelled or replaced: no program ran.
+    pub fn cancel_pending(&self) {
+        let mut data = self.data.lock().unwrap();
+        if data.sealed || data.state != "building" {
+            return;
+        }
+        data.state = "cancelled";
         data.finished_at = Some(now_ms());
     }
 
@@ -397,8 +429,8 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
 
-    fn started() -> Run {
-        Run::begin(Start {
+    fn start() -> Start {
+        Start {
             revision: 1,
             run_id: "run:1:1".to_string(),
             project_name: "App".to_string(),
@@ -411,7 +443,32 @@ mod tests {
             cwd: "/work".to_string(),
             workspace_id: 1,
             context_id: 1,
-        })
+        }
+    }
+
+    fn started() -> Run {
+        Run::begin(start())
+    }
+
+    #[test]
+    fn a_pending_build_is_visible_and_never_becomes_a_running_program() {
+        let failed = Run::building(start());
+        assert_eq!(failed.view().state, "building");
+        assert_eq!(failed.running_process_id(), None);
+        failed.fail_pending("Build failed; see the Build tab for diagnostics.");
+        assert_eq!(failed.view().state, "failed");
+        assert!(failed
+            .view()
+            .log
+            .contains("Build failed; see the Build tab"));
+
+        let cancelled = Run::building(start());
+        cancelled.cancel_pending();
+        let view = cancelled.view();
+        assert_eq!(view.state, "cancelled");
+        assert_eq!(view.exit, None);
+        assert_eq!(view.build_id.as_deref(), Some("build:1:1"));
+        assert_eq!(view.run_id.as_deref(), Some("run:1:1"));
     }
 
     fn status(

@@ -3,7 +3,7 @@ import { runStateLabel, timeLabel } from "./BuildPanel";
 
 // Run is its own bottom tool window: program output first, metadata folded in details.
 export function RunPanel({ run, onCancelRun }: { run: Run; onCancelRun: () => void }) {
-  const running = run.state === "running";
+  const running = run.state === "running" || run.state === "building";
   return (
     <div className="run-window">
       <div className="run-window-head">
@@ -19,7 +19,7 @@ export function RunPanel({ run, onCancelRun }: { run: Run; onCancelRun: () => vo
           <button
             data-testid="run-stop"
             onClick={onCancelRun}
-            title="Requests termination of the program's process group, children included, and reports what was observed."
+            title="Requests termination of the program's process group, children included, and reports what was observed. While the host is building, it also stops that build."
           >
             Stop
           </button>
@@ -27,7 +27,14 @@ export function RunPanel({ run, onCancelRun }: { run: Run; onCancelRun: () => vo
       </div>
       {run.revision === 0 && (
         <p className="muted" data-testid="run-empty">
-          Run starts the saved build here; its output stays in this window.
+          Run starts the saved build here; when there is no current build the host builds the
+          startup project first and its output stays in the Build tab.
+        </p>
+      )}
+      {run.state === "building" && (
+        <p className="muted" data-testid="run-building">
+          Building the startup project before the program starts. Build output and diagnostics
+          stay in the Build tab; Stop cancels the build.
         </p>
       )}
       {run.revision > 0 && (

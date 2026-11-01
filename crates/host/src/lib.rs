@@ -137,6 +137,10 @@ struct Inner {
     build_seq: u64,
     run: Arc<run::Run>,
     run_seq: u64,
+    /// A run waiting for the build it started; `None` when nothing is pending.
+    pending_run: Option<PendingRun>,
+    /// A debug session waiting for the build it started; `None` when nothing is pending.
+    pending_debug: Option<PendingDebug>,
     terminal: Arc<terminal::Terminal>,
     terminal_seq: u64,
     tests: Arc<test_discovery::Tests>,
@@ -169,6 +173,33 @@ struct TrustDecision {
     granted_at: u64,
     workspace_id: u64,
     revoked_at: Option<u64>,
+}
+
+/// A launch that started an implicit build and waits for it. The original params are kept so
+/// the launch runs exactly what was asked for, through the same gates.
+#[derive(Clone)]
+struct PendingRun {
+    build_id: String,
+    token: ContextToken,
+    params: Value,
+}
+
+#[derive(Clone)]
+struct PendingDebug {
+    build_id: String,
+    token: ContextToken,
+    params: Value,
+    /// The session shown in the `building` record; the real launch reuses it.
+    session: u64,
+}
+
+/// What the snapshot must do with a launch whose implicit build has been observed.
+enum PendingOutcome {
+    Wait,
+    Launch,
+    Cancelled,
+    Failed,
+    Replaced,
 }
 
 #[derive(Clone, Copy)]
@@ -352,6 +383,8 @@ impl Host {
                 build_seq: 0,
                 run: Arc::new(run::Run::idle()),
                 run_seq: 0,
+                pending_run: None,
+                pending_debug: None,
                 terminal: Arc::new(terminal::Terminal::idle()),
                 terminal_seq: 0,
                 tests: Arc::new(test_discovery::Tests::idle()),
@@ -716,11 +749,73 @@ impl Host {
         serde_json::to_value(self.snapshot(inner)).unwrap()
     }
 
+    /// After `sync_build`, finishes launches whose implicit build has been observed. A build
+    /// still running leaves them waiting; a different build id means the build was replaced.
+    /// The launch itself reruns every gate, so a stale build cannot slip through.
+    fn finish_pending_launches(&self, inner: &mut Inner) {
+        if let Some(pending) = inner.pending_run.take() {
+            match pending_outcome(&inner.build.view(), &pending.build_id) {
+                PendingOutcome::Wait => inner.pending_run = Some(pending),
+                PendingOutcome::Launch => {
+                    if let Err(error) =
+                        self.start_run_locked(inner, pending.token, pending.params, false)
+                    {
+                        inner.run.fail_pending(format!(
+                            "The build finished, but the program was not started: {}",
+                            error.message
+                        ));
+                    }
+                }
+                PendingOutcome::Cancelled => inner.run.cancel_pending(),
+                PendingOutcome::Failed => inner.run.fail_pending(
+                    "Build failed; see the Build tab for diagnostics. The program was not started.",
+                ),
+                PendingOutcome::Replaced => inner.run.fail_pending(
+                    "The build this run started was replaced before it finished; the program was not started.",
+                ),
+            }
+        }
+        if let Some(pending) = inner.pending_debug.take() {
+            match pending_outcome(&inner.build.view(), &pending.build_id) {
+                PendingOutcome::Wait => inner.pending_debug = Some(pending),
+                PendingOutcome::Launch => {
+                    // start_debug_locked takes `dap_seq + 1`; moving the counter back makes the
+                    // real launch reuse the session the building record already showed.
+                    inner.dap_seq = pending.session.saturating_sub(1);
+                    let result =
+                        self.start_debug_locked(inner, pending.token, pending.params, false);
+                    // Burned even on failure: a retry must never repeat the session number.
+                    inner.dap_seq = pending.session;
+                    if let Err(error) = result {
+                        inner.dap.fail_pending(format!(
+                            "The build finished, but the debug session was not started: {}",
+                            error.message
+                        ));
+                    }
+                }
+                PendingOutcome::Cancelled => inner.dap.cancel_pending(),
+                PendingOutcome::Failed => inner.dap.fail_pending(
+                    "Build failed; see the Build tab for diagnostics. No debug session was started.",
+                ),
+                PendingOutcome::Replaced => inner.dap.fail_pending(
+                    "The build this session started was replaced before it finished; no debug session was started.",
+                ),
+            }
+        }
+    }
+
     fn snapshot(&self, inner: &mut Inner) -> Snapshot {
         inner.ensure_inventory();
         inner.processes.lock().unwrap().refresh();
         inner.sync_restore();
         inner.sync_build();
+        // External .csproj/import edits are checked before a pending launch is completed, so
+        // the launch gates see `evaluation_stale` instead of running the previous build.
+        let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
+        if let Some(root) = root {
+            inner.evaluation.check_external_changes(&root);
+        }
+        self.finish_pending_launches(inner);
         inner.sync_run();
         inner.sync_terminal();
         inner.sync_tests();
@@ -728,10 +823,6 @@ impl Host {
         inner.sync_dap();
         inner.sync_tools();
         inner.sync_lsp();
-        let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
-        if let Some(root) = root {
-            inner.evaluation.check_external_changes(&root);
-        }
         if inner.evaluation.stale {
             inner.build.mark_stale(
                 "The evaluated project model is stale; the previous build is not current.",
@@ -1627,12 +1718,22 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
-    /// Explicit `dotnet build` of one console startup project from the current evaluation.
-    /// Never restores, never saves a buffer, and never reuses a stale TargetPath.
     fn start_build(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("build.start")?;
         let mut inner = self.inner.lock().unwrap();
+        self.start_build_locked(&mut inner, token, params)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
 
+    /// Explicit `dotnet build` of one console startup project from the current evaluation.
+    /// Never restores, never saves a buffer, and never reuses a stale TargetPath. Shared by
+    /// `build.start` and the implicit build Run/Debug start; the lock stays with the caller.
+    fn start_build_locked(
+        &self,
+        inner: &mut Inner,
+        token: ContextToken,
+        params: Value,
+    ) -> HostResult<String> {
         if let Some(process_id) = inner.build.running_process_id() {
             return Err(HostError::new(
                 "invalid_state",
@@ -1792,7 +1893,7 @@ impl Host {
 
         inner.build = Arc::new(build::Build::begin(build::Start {
             revision: inner.build_seq,
-            build_id,
+            build_id: build_id.clone(),
             evaluation_revision: evaluation.revision,
             sources,
             project_name: selected.name.clone(),
@@ -1825,7 +1926,7 @@ impl Host {
             Ok(piped) => piped,
             Err(error) => {
                 inner.build.fail(format!("Could not start dotnet build: {error}"));
-                return Ok(self.snapshot_value(&mut inner));
+                return Ok(build_id);
             }
         };
         inner.build.note_process(piped.id);
@@ -1838,11 +1939,12 @@ impl Host {
             let sink = shared.clone();
             std::thread::spawn(move || build::pump(stderr, sink, true));
         }
-        Ok(self.snapshot_value(&mut inner))
+        Ok(build_id)
     }
 
     /// Safety action: allowed without trust, like `processes.terminate`. It requests
-    /// termination and reports what the registry observed; the raw log is kept.
+    /// termination and reports what the registry observed; the raw log is kept. A Run/Debug
+    /// waiting for this build is cancelled at once, so it never launches after the stop.
     fn cancel_build(&self) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
         let Some(process_id) = inner.build.running_process_id() else {
@@ -1854,7 +1956,17 @@ impl Host {
             inner.build.observe(status);
         }
         inner.sync_build();
+        self.cancel_pending_launches(&mut inner);
         Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn cancel_pending_launches(&self, inner: &mut Inner) {
+        if inner.pending_run.take().is_some() {
+            inner.run.cancel_pending();
+        }
+        if inner.pending_debug.take().is_some() {
+            inner.dap.cancel_pending();
+        }
     }
 
     /// Real VSTest discovery of one explicitly selected test project. Never restores, never
@@ -2290,10 +2402,30 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
+    /// Launches the evaluated TargetPath. When no saved build can launch it, the same
+    /// `build.start` pipeline runs first, the record shows `building`, and the snapshot finishes
+    /// the launch. Restore stays explicit. `allow_build = false` is the completion path: the
+    /// same failure is then a precise error that fails the pending record.
     fn start_run(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("run.start")?;
         let mut inner = self.inner.lock().unwrap();
+        self.start_run_locked(&mut inner, token, params, true)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
 
+    fn start_run_locked(
+        &self,
+        inner: &mut Inner,
+        token: ContextToken,
+        params: Value,
+        allow_build: bool,
+    ) -> HostResult<()> {
+        if allow_build && inner.pending_run.is_some() {
+            return Err(HostError::new(
+                "invalid_state",
+                "A run is already waiting for its build to finish; stop it before starting another.",
+            ));
+        }
         if let Some(process_id) = inner.run.running_process_id() {
             return Err(HostError::new(
                 "invalid_state",
@@ -2417,17 +2549,21 @@ impl Host {
                 "targetFramework": target_framework,
             },
         });
-        let build = inner.build.view();
-        if build.revision == 0 {
-            return Err(HostError::with_details(
-                "invalid_state",
-                format!(
-                    "Run was not started: there is no build of {} yet. Build it first; Run never builds or restores implicitly.",
-                    selected.name
-                ),
-                json!({ "reason": "no_build", "action": build_action }),
-            ));
-        }
+        // Every reason a saved build cannot launch this run: the host starts the same
+        // `build.start` pipeline instead of refusing. At completion (`allow_build = false`)
+        // the same reason fails the pending run with its precise message.
+        let (build, built_target) = match (|| -> HostResult<(build::BuildView, String)> {
+            let build = inner.build.view();
+            if build.revision == 0 {
+                return Err(HostError::with_details(
+                    "invalid_state",
+                    format!(
+                        "Run was not started: there is no current build of {}; the host builds it first.",
+                        selected.name
+                    ),
+                    json!({ "reason": "no_build", "action": build_action }),
+                ));
+            }
         if build.sealed || build.stale {
             return Err(HostError::with_details(
                 "build_stale",
@@ -2574,7 +2710,23 @@ impl Host {
                     "action": build_action,
                 }),
             ));
-        }
+            }
+            Ok((build, built_target))
+        })() {
+            Ok((build, built_target)) => (build, built_target),
+            Err(_) if allow_build => {
+                return self.start_pending_run(
+                    inner,
+                    token,
+                    params,
+                    &selected,
+                    &configuration,
+                    target_framework.clone(),
+                    &root,
+                );
+            }
+            Err(error) => return Err(error),
+        };
 
         let sdk = inner.project_sdk.clone();
         if sdk.state != "resolved" {
@@ -2612,7 +2764,21 @@ impl Host {
             .working_directory
             .clone()
             .unwrap_or(project_directory);
-        let mut command = run::launch_command(Path::new(&built_target), &muxer)?;
+        let mut command = match run::launch_command(Path::new(&built_target), &muxer) {
+            Ok(command) => command,
+            Err(_) if allow_build => {
+                return self.start_pending_run(
+                    inner,
+                    token,
+                    params,
+                    &selected,
+                    &configuration,
+                    target_framework.clone(),
+                    &root,
+                );
+            }
+            Err(error) => return Err(error),
+        };
         command.extend(options.args.iter().cloned());
 
         inner.run_seq += 1;
@@ -2648,7 +2814,7 @@ impl Host {
                 inner
                     .run
                     .fail(format!("Could not start the program: {error}"));
-                return Ok(self.snapshot_value(&mut inner));
+                return Ok(());
             }
         };
         inner.run.note_process(piped.id);
@@ -2661,13 +2827,68 @@ impl Host {
             let sink = shared.clone();
             std::thread::spawn(move || run::pump(stderr, sink, true));
         }
-        Ok(self.snapshot_value(&mut inner))
+        Ok(())
+    }
+
+    /// Starts the implicit build and leaves a `building` run record; the snapshot launches it
+    /// when that build succeeds. The build params mirror the evaluated selection exactly.
+    fn start_pending_run(
+        &self,
+        inner: &mut Inner,
+        token: ContextToken,
+        params: Value,
+        selected: &evaluation::EvaluatedProject,
+        configuration: &str,
+        target_framework: Option<String>,
+        root: &Path,
+    ) -> HostResult<()> {
+        let build_params = json!({
+            "project": selected.path,
+            "configuration": configuration,
+            "targetFramework": target_framework.clone(),
+        });
+        let build_id = self.start_build_locked(inner, token, build_params)?;
+        let Some(project_directory) = root.join(&selected.path).parent().map(Path::to_path_buf)
+        else {
+            return Err(HostError::new(
+                "invalid_state",
+                "Run was not started: the startup project has no directory.",
+            ));
+        };
+        inner.run_seq += 1;
+        inner.run = Arc::new(run::Run::building(run::Start {
+            revision: inner.run_seq,
+            run_id: format!("run:{}:{}", token.workspace_id, inner.run_seq),
+            project_name: selected.name.clone(),
+            project_path: selected.path.clone(),
+            target_path: selected.target_path.clone().unwrap_or_default(),
+            build_id: build_id.clone(),
+            configuration: configuration.to_string(),
+            target_framework,
+            command: Vec::new(),
+            cwd: project_directory.to_string_lossy().to_string(),
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+        }));
+        inner.pending_run = Some(PendingRun {
+            build_id,
+            token,
+            params,
+        });
+        Ok(())
     }
 
     /// Safety action: allowed without trust. It requests group termination and reports what
-    /// the registry observed, keeping the log and the exit code (or its absence).
+    /// the registry observed, keeping the log and the exit code (or its absence). A run still
+    /// waiting for its build is cancelled at once and the build it started is stopped.
     fn cancel_run(&self) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
+        if inner.pending_run.take().is_some() {
+            inner.run.cancel_pending();
+            self.cancel_pending_build(&mut inner);
+            inner.sync_run();
+            return Ok(self.snapshot_value(&mut inner));
+        }
         let Some(process_id) = inner.run.running_process_id() else {
             return Err(HostError::new("invalid_state", "No program is running."));
         };
@@ -2678,6 +2899,20 @@ impl Host {
         }
         inner.sync_run();
         Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Stops the build a pending launch started. The observed exit is the registry's; nothing
+    /// is invented when it has not exited yet.
+    fn cancel_pending_build(&self, inner: &mut Inner) {
+        let Some(process_id) = inner.build.running_process_id() else {
+            return;
+        };
+        inner.build.request_cancel();
+        let status = inner.processes.lock().unwrap().terminate_status(process_id);
+        if let Some(status) = &status {
+            inner.build.observe(status);
+        }
+        inner.sync_build();
     }
 
     /// One real PTY shell after trust. The gate runs before anything observable: a direct
@@ -2976,14 +3211,32 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
-    /// Launches the evaluated managed assembly under the verified adapter. Every gate is
-    /// evaluated here: trust, adapter/platform/flag, a current successful Debug build with the
-    /// same identity as the current evaluation, unchanged saved sources, and a managed
-    /// assembly path from the evaluation. A failure names the reason and spawns nothing.
+    /// Launches the evaluated managed assembly under the verified adapter. Every non-build gate
+    /// is evaluated here: trust, adapter/platform/flag, evaluation and Debug configuration. A
+    /// saved build that cannot launch starts the same `build.start` pipeline and the session
+    /// shows `building`; a failure names the reason and spawns nothing. Restore stays explicit.
     fn start_debug(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("debug.start")?;
         let mut inner = self.inner.lock().unwrap();
-        if inner.dap.is_active() {
+        self.start_debug_locked(&mut inner, token, params, true)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn start_debug_locked(
+        &self,
+        inner: &mut Inner,
+        token: ContextToken,
+        params: Value,
+        allow_build: bool,
+    ) -> HostResult<()> {
+        if allow_build && inner.pending_debug.is_some() {
+            return Err(HostError::new(
+                "invalid_state",
+                "Debug is already waiting for its build to finish; stop it before starting another.",
+            ));
+        }
+        // At completion the record is the `building` one this launch created; it is replaced.
+        if allow_build && inner.dap.is_active() {
             return Err(HostError::new(
                 "invalid_state",
                 "A debug session is already active; stop it before starting another.",
@@ -3103,152 +3356,6 @@ impl Host {
                 json!({ "reason": "assembly_missing", "action": { "method": "evaluation.run", "params": {} } }),
             ));
         };
-        let build = inner.build.view();
-        let action = build_action(
-            &selected.path,
-            &configuration,
-            target_framework.as_deref(),
-        );
-        if build.revision == 0 {
-            return Err(HostError::with_details(
-                "invalid_state",
-                format!(
-                    "Debug was not started: there is no build of {} yet. Build it first; Debug never builds or restores implicitly.",
-                    selected.name
-                ),
-                json!({ "reason": "no_build", "action": action }),
-            ));
-        }
-        if build.sealed || build.stale {
-            return Err(HostError::with_details(
-                "build_stale",
-                format!(
-                    "Debug was not started: the saved build is stale ({}). Rebuild before debugging.",
-                    build
-                        .stale_reason
-                        .clone()
-                        .unwrap_or_else(|| "stale build".to_string())
-                ),
-                json!({
-                    "reason": "build_stale",
-                    "buildId": build.build_id,
-                    "staleReason": build.stale_reason,
-                    "buildLog": log_tail(&build.log, 30),
-                    "action": action,
-                }),
-            ));
-        }
-        if build.state != "ok" || build.exit != Some(0) {
-            return Err(HostError::with_details(
-                "invalid_state",
-                format!(
-                    "Debug was not started: the last build did not succeed ({}). Fix the build before debugging.",
-                    if build.state == "idle" {
-                        "no build".to_string()
-                    } else {
-                        let exit = build
-                            .exit
-                            .map(|exit| format!("exit {exit}"))
-                            .unwrap_or_else(|| "exit unknown".to_string());
-                        format!("{} · {exit}", build.state)
-                    }
-                ),
-                json!({
-                    "reason": "build_failed",
-                    "buildId": build.build_id,
-                    "exit": build.exit,
-                    "buildLog": log_tail(&build.log, 30),
-                    "action": action,
-                }),
-            ));
-        }
-        if build.workspace_id != Some(token.workspace_id)
-            || build.context_id != Some(token.context_id)
-        {
-            return Err(HostError::with_details(
-                "build_stale",
-                "Debug was not started: the saved build belongs to an older workspace or context. Rebuild before debugging.",
-                json!({ "reason": "context_changed", "buildId": build.build_id, "action": action }),
-            ));
-        }
-        if !build.configuration.eq_ignore_ascii_case("Debug") {
-            return Err(HostError::with_details(
-                "build_stale",
-                format!(
-                    "Debug was not started: the saved build used {}. Build with Debug before debugging.",
-                    build.configuration
-                ),
-                json!({ "reason": "build_not_debug", "buildId": build.build_id, "action": action }),
-            ));
-        }
-        if inner.build.evaluation_revision() != evaluation.revision {
-            return Err(HostError::with_details(
-                "build_stale",
-                "Debug was not started: the project model was re-evaluated after this build. Rebuild before debugging.",
-                json!({ "reason": "evaluation_changed", "buildId": build.build_id, "action": action }),
-            ));
-        }
-        let Some(build_project) = build.project.as_ref() else {
-            return Err(HostError::with_details(
-                "build_stale",
-                "Debug was not started: the saved build has no startup project identity. Rebuild before debugging.",
-                json!({ "reason": "build_project_missing", "action": action }),
-            ));
-        };
-        if build_project.path != selected.path
-            || build.configuration != configuration
-            || build.target_framework != target_framework
-        {
-            return Err(HostError::with_details(
-                "build_stale",
-                format!(
-                    "Debug was not started: the saved build is not the current {} / {}{}. Build the selected startup project before debugging.",
-                    selected.name,
-                    configuration,
-                    target_framework
-                        .clone()
-                        .map(|tfm| format!(" / {tfm}"))
-                        .unwrap_or_default()
-                ),
-                json!({ "reason": "build_context_mismatch", "buildId": build.build_id, "action": action }),
-            ));
-        }
-        if build_project.target_path.as_deref() != selected.target_path.as_deref() {
-            return Err(HostError::with_details(
-                "build_stale",
-                "Debug was not started: the evaluated TargetPath changed after the build. Rebuild before debugging.",
-                json!({ "reason": "target_changed", "buildId": build.build_id, "action": action }),
-            ));
-        }
-        let changed = inner.build.changed_sources(&root);
-        if !changed.is_empty() {
-            return Err(HostError::with_details(
-                "build_stale",
-                format!(
-                    "Debug was not started: {} saved source{} changed after this build ({}). Rebuild before debugging.",
-                    changed.len(),
-                    if changed.len() == 1 { "" } else { "s" },
-                    changed.join(", ")
-                ),
-                json!({
-                    "reason": "source_changed",
-                    "buildId": build.build_id,
-                    "changedSources": changed,
-                    "action": action,
-                }),
-            ));
-        }
-        let assembly_path = PathBuf::from(&assembly);
-        if !assembly_path.is_file() {
-            return Err(HostError::with_details(
-                "invalid_state",
-                format!(
-                    "Debug was not started: the evaluated assembly {} is not on disk. Rebuild before debugging.",
-                    assembly
-                ),
-                json!({ "reason": "assembly_missing", "action": action }),
-            ));
-        }
         let sdk = inner.project_sdk.clone();
         if sdk.state != "resolved" {
             return Err(HostError::new(
@@ -3280,21 +3387,28 @@ impl Host {
         };
         let project_directory = options
             .working_directory
+            .clone()
             .unwrap_or(project_directory);
 
-        inner.dap_seq += 1;
-        let session = inner.dap_seq;
-        let launch = dap::Launch {
+        let action = build_action(
+            &selected.path,
+            &configuration,
+            target_framework.as_deref(),
+        );
+        let breakpoints = inner.dap.breakpoints();
+        let breakpoints_muted = inner.dap.breakpoints_muted();
+        let exception_filters = inner.dap.exception_filters();
+        let make_launch = |build_id: String, session: u64| dap::Launch {
             session,
             project_name: selected.name.clone(),
             project_path: selected.path.clone(),
-            build_id: build.build_id.clone().unwrap_or_default(),
+            build_id,
             assembly: assembly.clone(),
             configuration: configuration.clone(),
             target_framework: target_framework.clone(),
-            cwd: project_directory,
-            args: options.args,
-            env: options.env,
+            cwd: project_directory.clone(),
+            args: options.args.clone(),
+            env: options.env.clone(),
             root: root.clone(),
             sdk_root: sdk_root.clone(),
             adapter_binary: adapter.binary.to_string_lossy().to_string(),
@@ -3302,21 +3416,227 @@ impl Host {
             adapter_platform: adapter.platform.clone(),
             workspace_id: token.workspace_id,
             context_id: token.context_id,
-            breakpoints: inner.dap.breakpoints(),
-            breakpoints_muted: inner.dap.breakpoints_muted(),
-            exception_filters: inner.dap.exception_filters(),
+            breakpoints: breakpoints.clone(),
+            breakpoints_muted,
+            exception_filters: exception_filters.clone(),
         };
+
+        // Every reason a saved build cannot launch this session starts the same
+        // `build.start` pipeline; at completion (`allow_build = false`) the precise message
+        // fails the pending record instead.
+        let build = match (|| -> HostResult<build::BuildView> {
+            let build = inner.build.view();
+            if build.revision == 0 {
+                return Err(HostError::with_details(
+                    "invalid_state",
+                    format!(
+                        "Debug was not started: there is no current build of {}; the host builds it first.",
+                        selected.name
+                    ),
+                    json!({ "reason": "no_build", "action": action }),
+                ));
+            }
+            if build.sealed || build.stale {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    format!(
+                        "Debug was not started: the saved build is stale ({}). Rebuild before debugging.",
+                        build
+                            .stale_reason
+                            .clone()
+                            .unwrap_or_else(|| "stale build".to_string())
+                    ),
+                    json!({
+                        "reason": "build_stale",
+                        "buildId": build.build_id,
+                        "staleReason": build.stale_reason,
+                        "buildLog": log_tail(&build.log, 30),
+                        "action": action,
+                    }),
+                ));
+            }
+            if build.state != "ok" || build.exit != Some(0) {
+                return Err(HostError::with_details(
+                    "invalid_state",
+                    format!(
+                        "Debug was not started: the last build did not succeed ({}). Fix the build before debugging.",
+                        if build.state == "idle" {
+                            "no build".to_string()
+                        } else {
+                            let exit = build
+                                .exit
+                                .map(|exit| format!("exit {exit}"))
+                                .unwrap_or_else(|| "exit unknown".to_string());
+                            format!("{} · {exit}", build.state)
+                        }
+                    ),
+                    json!({
+                        "reason": "build_failed",
+                        "buildId": build.build_id,
+                        "exit": build.exit,
+                        "buildLog": log_tail(&build.log, 30),
+                        "action": action,
+                    }),
+                ));
+            }
+            if build.workspace_id != Some(token.workspace_id)
+                || build.context_id != Some(token.context_id)
+            {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    "Debug was not started: the saved build belongs to an older workspace or context. Rebuild before debugging.",
+                    json!({ "reason": "context_changed", "buildId": build.build_id, "action": action }),
+                ));
+            }
+            if !build.configuration.eq_ignore_ascii_case("Debug") {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    format!(
+                        "Debug was not started: the saved build used {}. Build with Debug before debugging.",
+                        build.configuration
+                    ),
+                    json!({ "reason": "build_not_debug", "buildId": build.build_id, "action": action }),
+                ));
+            }
+            if inner.build.evaluation_revision() != evaluation.revision {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    "Debug was not started: the project model was re-evaluated after this build. Rebuild before debugging.",
+                    json!({ "reason": "evaluation_changed", "buildId": build.build_id, "action": action }),
+                ));
+            }
+            let Some(build_project) = build.project.as_ref() else {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    "Debug was not started: the saved build has no startup project identity. Rebuild before debugging.",
+                    json!({ "reason": "build_project_missing", "action": action }),
+                ));
+            };
+            if build_project.path != selected.path
+                || build.configuration != configuration
+                || build.target_framework != target_framework
+            {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    format!(
+                        "Debug was not started: the saved build is not the current {} / {}{}. Build the selected startup project before debugging.",
+                        selected.name,
+                        configuration,
+                        target_framework
+                            .clone()
+                            .map(|tfm| format!(" / {tfm}"))
+                            .unwrap_or_default()
+                    ),
+                    json!({ "reason": "build_context_mismatch", "buildId": build.build_id, "action": action }),
+                ));
+            }
+            if build_project.target_path.as_deref() != selected.target_path.as_deref() {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    "Debug was not started: the evaluated TargetPath changed after the build. Rebuild before debugging.",
+                    json!({ "reason": "target_changed", "buildId": build.build_id, "action": action }),
+                ));
+            }
+            let changed = inner.build.changed_sources(&root);
+            if !changed.is_empty() {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    format!(
+                        "Debug was not started: {} saved source{} changed after this build ({}). Rebuild before debugging.",
+                        changed.len(),
+                        if changed.len() == 1 { "" } else { "s" },
+                        changed.join(", ")
+                    ),
+                    json!({
+                        "reason": "source_changed",
+                        "buildId": build.build_id,
+                        "changedSources": changed,
+                        "action": action,
+                    }),
+                ));
+            }
+            let assembly_path = PathBuf::from(&assembly);
+            if !assembly_path.is_file() {
+                return Err(HostError::with_details(
+                    "invalid_state",
+                    format!(
+                        "Debug was not started: the evaluated assembly {} is not on disk. Rebuild before debugging.",
+                        assembly
+                    ),
+                    json!({ "reason": "assembly_missing", "action": action }),
+                ));
+            }
+            Ok(build)
+        })() {
+            Ok(build) => build,
+            Err(_) if allow_build => {
+                return self.start_pending_debug(
+                    inner,
+                    token,
+                    params,
+                    &selected,
+                    &configuration,
+                    target_framework.clone(),
+                    make_launch,
+                );
+            }
+            Err(error) => return Err(error),
+        };
+
+        inner.dap_seq += 1;
+        let launch = make_launch(build.build_id.clone().unwrap_or_default(), inner.dap_seq);
         let mut command = Command::new(&adapter.binary);
         command.arg("--interpreter=vscode");
         let dap = dap::Dap::begin(launch, command, inner.processes.clone())?;
         inner.dap = dap;
-        Ok(self.snapshot_value(&mut inner))
+        Ok(())
+    }
+
+    /// Starts the implicit build and leaves a `building` session record; the snapshot starts the
+    /// adapter once that build succeeds. `make_launch` builds the exact DAP launch identity.
+    fn start_pending_debug<F>(
+        &self,
+        inner: &mut Inner,
+        token: ContextToken,
+        params: Value,
+        selected: &evaluation::EvaluatedProject,
+        configuration: &str,
+        target_framework: Option<String>,
+        make_launch: F,
+    ) -> HostResult<()>
+    where
+        F: FnOnce(String, u64) -> dap::Launch,
+    {
+        let build_params = json!({
+            "project": selected.path,
+            "configuration": configuration,
+            "targetFramework": target_framework,
+        });
+        let build_id = self.start_build_locked(inner, token, build_params)?;
+        inner.dap_seq += 1;
+        let session = inner.dap_seq;
+        let launch = make_launch(build_id.clone(), session);
+        inner.dap = inner.dap.building(launch);
+        inner.pending_debug = Some(PendingDebug {
+            build_id,
+            token,
+            params,
+            session,
+        });
+        Ok(())
     }
 
     /// Safety action: stops the adapter group and the debuggee, then reports requested vs
-    /// observed termination and keeps the logs. Allowed without trust.
+    /// observed termination and keeps the logs. Allowed without trust. A session still waiting
+    /// for its build is cancelled at once and the build it started is stopped.
     fn stop_debug_session(&self) -> HostResult<Value> {
         let mut inner = self.inner.lock().unwrap();
+        if inner.pending_debug.take().is_some() {
+            inner.dap.cancel_pending();
+            self.cancel_pending_build(&mut inner);
+            inner.sync_dap();
+            return Ok(self.snapshot_value(&mut inner));
+        }
         let dap = inner.dap.clone();
         if !dap.is_active() && dap.state() != "preparing" {
             return Err(HostError::new("invalid_state", "No debug session is active."));
@@ -5545,14 +5865,38 @@ impl Inner {
     }
 }
 
+/// The build a pending launch waits for: still running, finished, failed, cancelled or gone.
+fn pending_outcome(build: &build::BuildView, pending_build_id: &str) -> PendingOutcome {
+    if build.revision == 0 || build.build_id.as_deref() != Some(pending_build_id) {
+        return PendingOutcome::Replaced;
+    }
+    if build.state == "running" {
+        return PendingOutcome::Wait;
+    }
+    if build.state == "cancelled" {
+        return PendingOutcome::Cancelled;
+    }
+    if build.state == "ok" && build.exit == Some(0) {
+        return PendingOutcome::Launch;
+    }
+    PendingOutcome::Failed
+}
+
 /// A workspace boundary (revoke, close, switch) terminates a real build and keeps only what
 /// was observed. The record is sealed so its late exit cannot become another context's build.
+/// A Run/Debug waiting for that build is cancelled: it must never launch afterwards.
 fn stop_build(inner: &mut Inner, reason: &str) {
     if let Some(process_id) = inner.build.running_process_id() {
         let status = inner.processes.lock().unwrap().terminate_status(process_id);
         inner.build.seal(reason, status.as_ref());
     } else {
         inner.build.mark_stale(reason);
+    }
+    if inner.pending_run.take().is_some() {
+        inner.run.cancel_pending();
+    }
+    if inner.pending_debug.take().is_some() {
+        inner.dap.cancel_pending();
     }
 }
 

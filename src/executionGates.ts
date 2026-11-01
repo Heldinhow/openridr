@@ -11,36 +11,9 @@ export interface GateContext {
   // The active named configuration points at a project that is not an evaluated console project.
   activeConfigProjectInvalid: boolean;
   runRunning: boolean;
-  savedSourceAfterBuild: boolean;
+  runBuilding: boolean;
   debugActive: boolean;
-}
-
-// Why the saved build cannot be used for `verb`, or null when it can.
-function savedBuildReason(
-  { snapshot: { build }, savedSourceAfterBuild }: GateContext,
-  project: EvaluationProject,
-  verb: string,
-  needsDebug = false,
-) {
-  return build.revision === 0
-    ? needsDebug
-      ? "Build the startup project in Debug first; Debug never builds or restores implicitly."
-      : "Build the startup project first; Run never builds or restores implicitly."
-    : needsDebug && build.configuration.toLowerCase() !== "debug"
-      ? "The saved build is not a Debug build; build with Debug before debugging."
-      : build.sealed
-        ? `The saved build belongs to a previous context; rebuild before ${verb}.`
-        : build.stale
-          ? `The saved build is stale: ${(build.staleReason || "no current build").replace(/\.$/, "")}.`
-          : build.state !== "ok" || build.exit !== 0
-            ? `The last build did not succeed (${
-                build.exit === null ? "exit unknown" : `exit ${build.exit}`
-              }); fix it and rebuild.`
-            : build.project?.path !== project.path
-              ? "The saved build is for another startup project; build the selected one."
-              : savedSourceAfterBuild
-                ? `Sources were saved after this build; rebuild before ${verb}.`
-                : null;
+  debugBuilding: boolean;
 }
 
 export function buildDisabledReason(c: GateContext) {
@@ -86,7 +59,7 @@ export function runAvailabilityReason(
         : evaluation.stale
           ? "The evaluated project model is stale; re-evaluate before running."
           : !["ok", "partial"].includes(evaluation.state)
-            ? "Evaluate the project model before running; Run uses the saved build's TargetPath."
+            ? "Evaluate the project model before running; Run needs its evaluated TargetPath."
             : !configEvaluated
               ? "The run configuration has not been evaluated yet; re-evaluate the project model."
               : c.consoleCandidates.length === 0
@@ -95,20 +68,22 @@ export function runAvailabilityReason(
                   ? "The run configuration selects a project that is not an evaluated console project; edit the configuration."
                   : !project
                     ? "More than one console project; choose the startup project explicitly."
-                    : build.state === "running"
-                      ? "A build is running; wait for it to finish before running."
-                      : c.runRunning
-                        ? "A program is already running."
-                        : savedBuildReason(c, project, "running");
+                    : c.runBuilding
+                      ? "Run is already building; wait for it to finish or press Stop."
+                      : build.state === "running"
+                        ? "A build is running; wait for it to finish before running."
+                        : c.runRunning
+                          ? "A program is already running."
+                          : null;
 }
 
 export function debugDisabledReason(c: GateContext) {
-  const { evaluation, build, debug, app } = c.snapshot;
+  const { evaluation, build, debug } = c.snapshot;
   return !c.trusted
     ? "Trust the workspace before debugging; nothing runs in Restricted mode."
     : debug.adapterState !== "ready"
       ? `The debug adapter is not ready: ${debug.gateReason ?? debug.adapterMessage}`
-      : app.platform === "macos" && app.arch === "arm64" && !debug.appleSiliconExperimental
+      : debug.os === "macos" && debug.arch === "aarch64" && !debug.appleSiliconExperimental
         ? "Enable the Apple Silicon experimental flag before debugging; nothing was launched."
         : c.snapshot.sdk.project.state !== "resolved"
           ? "Resolve the project SDK before debugging; the host SDK is never substituted."
@@ -117,7 +92,7 @@ export function debugDisabledReason(c: GateContext) {
             : evaluation.stale
               ? "The evaluated project model is stale; re-evaluate before debugging."
               : !["ok", "partial"].includes(evaluation.state)
-                ? "Evaluate the project model before debugging; Debug uses its managed assembly."
+                ? "Evaluate the project model before debugging; Debug needs its managed assembly."
                 : !c.activeConfigEvaluated
                   ? "The run configuration has not been evaluated yet; re-evaluate the project model."
                   : c.consoleCandidates.length === 0
@@ -126,8 +101,11 @@ export function debugDisabledReason(c: GateContext) {
                       ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
                       : !c.startupProject
                         ? "More than one console project; choose the startup project explicitly."
-                        : build.state === "running"
-                          ? "A build is running; wait for it to finish before debugging."
-                          : (savedBuildReason(c, c.startupProject, "debugging", true) ??
-                            (c.debugActive ? "A debug session is already active." : null));
+                        : c.debugBuilding
+                          ? "Debug is already building; wait for it to finish or press Stop."
+                          : build.state === "running"
+                            ? "A build is running; wait for it to finish before debugging."
+                            : c.debugActive
+                              ? "A debug session is already active."
+                              : null;
 }

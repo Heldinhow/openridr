@@ -213,7 +213,7 @@ Atalhos mínimos do MVP (Mac / Windows):
 - Persistência: um arquivo por solução no app home, nomeado por `fnv1a64` do caminho canônico da solução, com a lista de configs e o id ativo. Nada dentro do repo.
 - Configuração padrão `Run <StartupProject>`, derivada da avaliação (projeto console, Configuration e TFM correntes), somente leitura; editar abre o diálogo em modo "duplicar", criando uma config nomeada.
 - Diálogo modal com validação por campo e rodapé Run/Cancel/Apply/OK. Sem "múltiplas instâncias", "anexar a filhos", "abrir navegador" nem templates — não se aplicam ao recorte.
-- Run/Debug chamam os fluxos existentes: `build.start` e, no sucesso, `run.start`/`debug.start`, com os gates de restore, plataforma e revisão já implementados. Nenhum pipeline novo e nenhum restore implícito.
+- Run/Debug chamam `run.start`/`debug.start` com os gates de restore, plataforma e revisão já implementados. O host constrói implicitamente quando não há build atual e utilizável (estado `building` na aba do lançamento) e só lança após exit 0 observado; build falho não lança e mantém os diagnósticos no Build. Nenhum pipeline novo e nenhum restore implícito.
 - Trocar Configuration/TFM/projeto na barra atualiza a config ativa e dispara `evaluation.run`; a UI nunca reutiliza TargetPath de outra configuração.
 - Buffers não salvos: antes de build/run, a UI pergunta entre "Save all and build", "Build saved content (N unsaved buffers excluded)" e "Cancel"; nunca salva sozinha.
 - Arquivos `.env`: uma linha `KEY=VALUE` por variável, `#` inicia comentário, sem expansão de variáveis e sem shell. Linha inválida é reportada no diálogo, não ignorada em silêncio.
