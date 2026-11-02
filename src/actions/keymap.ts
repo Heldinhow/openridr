@@ -185,8 +185,10 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
   },
   "search.text": {
     "rider-macos": binding([shortcut("e", { primary: true, alt: true, shift: true })]),
-    intellij: binding([shortcut("f", { primary: true, shift: true })]),
+    // Find in Files owns ⇧⌘F in the IntelliJ profile; Find in Path stays palette-only.
+    intellij: binding([]),
   },
+  "search.findInFiles": both([shortcut("f", { primary: true, shift: true })]),
   "search.line": {
     "rider-macos": binding([shortcut("g", { primary: true })]),
     intellij: binding([shortcut("l", { primary: true })]),

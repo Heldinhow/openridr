@@ -50,6 +50,7 @@ import { MidText } from "./shell/MidText";
 import { StatusBar } from "./shell/StatusBar";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
 import { FindAction, type SearchTab } from "./actions/FindAction";
+import { FindInFiles } from "./FindInFiles";
 import { KeymapDialog } from "./actions/KeymapDialog";
 import { SettingsDialog } from "./SettingsDialog";
 import {
@@ -343,6 +344,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [findActionOpen, setFindActionOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
+  const [findInFiles, setFindInFiles] = useState<{ scope: string; nonce: number } | null>(null);
   const [keymapOpen, setKeymapOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsBaseline = useRef<AppSettings | null>(null);
@@ -2256,7 +2258,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       onRun: () => config && requestRun(config),
       onDebug: () => config && void prepareAndDebug(config),
       onEditFile: () => void openFile(target.path),
-      onFind: () => openSearch("text"),
+      onFind: () => openFindInFiles(target.path),
       onCopyPath: () => void copyPath(absolutePath(target.path)),
       onProperties: () => {
         setSelectedProjectPath(target.path);
@@ -2272,7 +2274,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       open: target.kind === "file" ? () => void openFile(target.path) : undefined,
       reload: target.kind === "root" ? { reason: reloadReason, run: () => void runEvaluation() } : undefined,
       onCopyPath: () => void copyPath(absolutePath(path)),
-      onFind: () => openSearch("text"),
+      onFind: () => openFindInFiles(path),
     });
   }
 
@@ -2434,6 +2436,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     setKeymapOpen(false);
     setSearchTab(tab);
     setFindActionOpen(true);
+  }
+
+  function openFindInFiles(scope: string) {
+    setKeymapOpen(false);
+    setFindActionOpen(false);
+    setFindInFiles((current) => ({ scope, nonce: (current?.nonce ?? 0) + 1 }));
   }
 
   function openFindAction() {
@@ -2710,6 +2718,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       title: "Go to Symbol",
       group: "Search",
       execute: () => openSearch("symbols"),
+    }),
+    define({
+      id: "search.findInFiles",
+      title: "Find in Files",
+      group: "Search",
+      execute: () => openFindInFiles(""),
     }),
     define({
       id: "search.text",
@@ -4505,6 +4519,22 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onOpenFile={openSearchFile}
           onNavigate={openSearchLocation}
           onClose={closeSearch}
+        />
+      )}
+
+      {findInFiles && (
+        <FindInFiles
+          key={findInFiles.nonce}
+          scope={findInFiles.scope}
+          onClose={() => {
+            setFindInFiles(null);
+            focusEditor();
+          }}
+          onNavigate={(path, line, character) => {
+            setFindInFiles(null);
+            focusEditor();
+            void navigateTo(path, { line, character });
+          }}
         />
       )}
 
