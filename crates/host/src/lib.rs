@@ -584,6 +584,9 @@ impl Host {
         if method == "workspace.files" {
             return self.workspace_files();
         }
+        if method == "workspace.tree" {
+            return self.workspace_tree(&params);
+        }
         if method == "search.text" {
             return self.search_text(params);
         }
@@ -5117,6 +5120,24 @@ impl Host {
         }))
     }
 
+    /// Read-only listing of one workspace directory; like `workspace.files` it needs no trust.
+    fn workspace_tree(&self, params: &Value) -> HostResult<Value> {
+        let root = self.workspace_root()?;
+        let raw = params.get("dir").and_then(Value::as_str).unwrap_or("");
+        let dir = fs::canonicalize(root.join(raw))
+            .map_err(|_| HostError::new("not_found", format!("Folder not found: {raw}")))?;
+        if !dir.starts_with(&root) || !dir.is_dir() {
+            return Err(HostError::new(
+                "outside_workspace",
+                format!("Not a folder inside the workspace: {raw}"),
+            ));
+        }
+        let entries = search::list_dir(&root, &dir).map_err(|error| {
+            HostError::new("operation_failed", format!("Could not list {raw}: {error}"))
+        })?;
+        Ok(json!({ "dir": raw, "entries": entries }))
+    }
+
     fn search_text(&self, params: Value) -> HostResult<Value> {
         let query = required_str(&params, "query")?;
         if query.is_empty() {
@@ -6959,6 +6980,25 @@ mod tests {
                 "end": { "line": 2, "character": 25 }
             })),
         }
+    }
+
+    #[test]
+    fn workspace_tree_lists_one_level_inside_the_workspace() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join(".gitignore"), "bin/\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let tree = host.dispatch("workspace.tree", json!({})).unwrap();
+        let names: Vec<(&str, bool)> = tree["entries"].as_array().unwrap().iter()
+            .map(|e| (e["name"].as_str().unwrap(), e["hidden"].as_bool().unwrap())).collect();
+        assert_eq!(names, vec![("bin", true), (".gitignore", true), ("App.csproj", false)]);
+        let outside = host.dispatch("workspace.tree", json!({ "dir": ".." })).unwrap_err();
+        assert_eq!(outside.code, "outside_workspace");
     }
 
     #[test]
