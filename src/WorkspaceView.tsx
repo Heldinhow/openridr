@@ -417,6 +417,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     character: number;
     nonce: number;
   } | null>(null);
+  useEffect(() => {
+    if (!editorTarget) return;
+    // Parent effects run after the child editor's, so the target is applied before it is cleared;
+    // a remount (switching tabs) must not force the old cursor and focus again.
+    const timer = window.setTimeout(() => setEditorTarget(null), 0);
+    return () => window.clearTimeout(timer);
+  }, [editorTarget]);
   // 84 = toolbar 52 + splitter 4 + status 28; the panel never squeezes the editor below 180 px.
   const outputMax = Math.max(
     120,
@@ -500,6 +507,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     // Only the store load for this workspace seeds the choice; later commits are user actions.
   }, [runConfigsLoaded, runConfigStore, workspace.id]);
   const [sessionReady, setSessionReady] = useState(false);
+  const [breakpointsApplied, setBreakpointsApplied] = useState(false);
   const restoredSessionFor = useRef<number | null>(null);
   const tabCursors = useRef<Record<string, { line: number; character: number }>>({});
   const savedBreakpoints = useRef<Record<string, number[]>>({});
@@ -532,27 +540,72 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const findUsagesSeq = useRef(0);
   const cursorRef = useRef({ line: 0, character: 0 });
   const [cursor, setCursor] = useState({ line: 0, character: 0 });
+  const sessionPayload = useRef<SessionState | null>(null);
   useEffect(() => {
     // Never write before the restore finished: the first empty render must not erase the store.
     if (!sessionReady) return;
     const live = breakpointsByPath(snapshot.dap.breakpoints);
-    const session = {
+    const applied = trusted && breakpointsApplied;
+    const session: SessionState = {
       tabs: tabs.map((tab) => ({
         path: tab.path,
         ...(tabCursors.current[tab.path] ?? { line: 0, character: 0 }),
       })),
       activePath,
-      // Restricted mode cannot read breakpoints back, so it keeps the ones already stored.
-      breakpoints: trusted ? live : savedBreakpoints.current,
+      // Before the saved breakpoints are applied the live list is still empty; writing it would
+      // erase the store. Restricted mode also keeps the ones already stored.
+      breakpoints: applied ? live : savedBreakpoints.current,
     };
-    if (trusted) savedBreakpoints.current = live;
+    sessionPayload.current = session;
+    if (applied) savedBreakpoints.current = live;
     const timer = window.setTimeout(() => {
       persistSession(session).catch((error) =>
         setMessage({ tone: "error", text: `Editor session could not be saved: ${messageOf(error)}` }),
       );
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [sessionReady, trusted, tabs, activePath, cursor, snapshot.dap.breakpoints, workspace.id]);
+  }, [
+    sessionReady,
+    trusted,
+    breakpointsApplied,
+    tabs,
+    activePath,
+    cursor,
+    snapshot.dap.breakpoints,
+    workspace.id,
+  ]);
+  useEffect(() => {
+    // The 400 ms debounce must not drop the last state when the workspace closes or switches.
+    // A direct call avoids setting state on an unmounted component.
+    return () => {
+      const session = sessionPayload.current;
+      if (!session) return;
+      void call("session.write", { solution: workspace.path, session }).catch(() => {});
+    };
+  }, [workspace.path]);
+  useEffect(() => {
+    // A Restricted open cannot restore breakpoints; apply them once trust is granted instead of
+    // letting the autosave overwrite the store with the still-empty live list.
+    if (!sessionReady || !trusted || breakpointsApplied) return;
+    let cancelled = false;
+    void (async () => {
+      let restored: Snapshot | null = null;
+      for (const [path, lines] of Object.entries(savedBreakpoints.current)) {
+        if (lines.length === 0) continue;
+        try {
+          restored = await call<Snapshot>("debug.setBreakpoints", { path, lines });
+        } catch {
+          // One missing source keeps the other breakpoints; the next start clears its own list.
+        }
+      }
+      if (cancelled) return;
+      if (restored) onSnapshot(restored);
+      setBreakpointsApplied(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionReady, trusted, breakpointsApplied, workspace.id]);
   const editPreviewHeading = useRef<HTMLHeadingElement | null>(null);
   const actionListHeading = useRef<HTMLHeadingElement | null>(null);
 
@@ -1225,18 +1278,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     const opened: string[] = [];
     for (const tab of saved.tabs) {
       if (await openFile(tab.path)) opened.push(tab.path);
-    }
-    if (trusted) {
-      let restored: Snapshot | null = null;
-      for (const [path, lines] of Object.entries(saved.breakpoints)) {
-        if (lines.length === 0) continue;
-        try {
-          restored = await call<Snapshot>("debug.setBreakpoints", { path, lines });
-        } catch {
-          // One missing source keeps the other breakpoints; the next start clears its own list.
-        }
-      }
-      if (restored) onSnapshot(restored);
     }
     savedBreakpoints.current = saved.breakpoints;
     // Every opened tab mounted an editor that reported 0:0; the saved cursor wins for all tabs.

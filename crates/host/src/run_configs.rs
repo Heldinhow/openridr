@@ -18,7 +18,7 @@ const MAX_CONFIGS: usize = 50;
 const MAX_ARGS: usize = 200;
 const MAX_ENV: usize = 100;
 const MAX_ENV_FILES: usize = 20;
-const MAX_SESSION_TABS: usize = 40;
+const MAX_SESSION_TABS: usize = 200;
 const MAX_SESSION_BREAKPOINTS: usize = 500;
 const MAX_SESSION_POSITION: u64 = 1_000_000;
 
@@ -109,6 +109,12 @@ pub fn read(params: &Value) -> HostResult<Value> {
     Ok(view(&store, &path, &solution))
 }
 
+/// E2E isolation: the shared Playwright host sets this off so one spec cannot restore another
+/// spec's tabs. The desktop app and the dedicated session spec leave it on.
+fn session_store_enabled() -> bool {
+    !matches!(std::env::var("OPENRIDR_SESSION_STORE").as_deref(), Ok("off"))
+}
+
 pub fn write(params: &Value) -> HostResult<Value> {
     let _guard = lock_store();
     let solution = solution_param(params)?;
@@ -134,6 +140,9 @@ pub fn read_session(params: &Value) -> HostResult<Value> {
 
 /// `session.write`: the editor writes paths and positions only; configurations are preserved.
 pub fn write_session(params: &Value) -> HostResult<Value> {
+    if !session_store_enabled() {
+        return read(params);
+    }
     let _guard = lock_store();
     let solution = solution_param(params)?;
     let path = path_for(&solution);
@@ -520,7 +529,11 @@ fn view(store: &Store, path: &Path, solution: &Path) -> Value {
         "activeId": &store.active_id,
         "startupProject": &store.startup_project,
         "configs": &store.configs,
-        "session": &store.session,
+        "session": if session_store_enabled() {
+            json!(&store.session)
+        } else {
+            json!(SessionState::default())
+        },
         "issues": issues(&store.configs, solution.parent().unwrap_or(Path::new("/"))),
     })
 }

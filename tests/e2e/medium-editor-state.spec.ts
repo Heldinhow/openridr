@@ -61,40 +61,6 @@ test.afterEach(async ({ request }) => {
   }
 });
 
-test("d9: reopening a solution restores tabs, cursor and breakpoints", async ({ page, request }) => {
-  const { copy, solution } = tempCopy("Order Desk session");
-  await openWorkspace(page, solution, true);
-  await page.getByTestId(`tree-file-${program}`).click();
-  await expect(page.getByTestId(`tab-${program}`)).toBeVisible();
-
-  const line = page.locator(".cm-line").nth(2);
-  await line.click();
-  const lineBox = (await line.boundingBox())!;
-  const gutterBox = (await page.locator(".cm-debug-gutter").boundingBox())!;
-  await page.mouse.click(gutterBox.x + 5, lineBox.y + lineBox.height / 2);
-  await expect(page.locator(".cm-line-breakpoint")).toHaveCount(1);
-
-  // The store is the source of truth; wait for the debounced write before reopening.
-  await expect
-    .poll(async () => {
-      const answer = await hostCall(request, "runConfigs.read", { solution: path.join(copy, "OrderDesk.sln") });
-      return answer.data?.session?.tabs?.length ?? 0;
-    })
-    .toBe(1);
-
-  await closeWorkspace(page, request);
-  await openWorkspace(page, solution, true);
-
-  await expect(page.getByTestId(`tab-${program}`)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("status-cursor")).toContainText("Ln 3");
-  await expect(page.locator(".cm-line-breakpoint")).toHaveCount(1);
-
-  // The background session never needs trust to read files: it only restores paths.
-  const stored = await hostCall(request, "runConfigs.read", { solution: path.join(copy, "OrderDesk.sln") });
-  expect(stored.data.session.activePath).toBe(program);
-  expect(stored.data.session.breakpoints[program]).toEqual([3]);
-});
-
 test("d13: a double click on a closed file opens one tab", async ({ page }) => {
   const { solution } = tempCopy("Order Desk dedupe");
   await openWorkspace(page, solution, false);
@@ -117,6 +83,17 @@ test("b14: a clean buffer reloads from disk and a dirty one keeps the conflict",
   await expect(page.getByTestId("editor")).toContainText("clean-disk-reload");
   await expect(page.getByTestId("conflict-banner")).toHaveCount(0);
   await expect(page.getByTestId("status-dirty")).toHaveCount(0);
+
+  // A clean reload keeps the caret on its line and is not an undo step.
+  await page.locator(".cm-line").nth(4).click();
+  await expect(page.getByTestId("status-cursor")).toContainText("Ln 5");
+  fs.writeFileSync(path.join(copy, program), `// second-clean-disk-reload\n${originalProgram}`);
+  await page.getByTestId(`tab-${program}`).click();
+  await expect(page.getByTestId("editor")).toContainText("second-clean-disk-reload");
+  await expect(page.getByTestId("status-cursor")).toContainText("Ln 5");
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+Z");
+  await expect(page.getByTestId("editor")).toContainText("second-clean-disk-reload");
 
   // A dirty buffer is never replaced silently; the existing conflict choice stays.
   await page.getByTestId("editor").click();
