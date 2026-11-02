@@ -236,6 +236,20 @@ function makeDebugGutter(
   })];
 }
 
+// Keywords, literals and built-in type names are never variables worth an adapter round-trip.
+const notVariables = new Set([
+  "abstract", "and", "as", "async", "await", "base", "bool", "break", "byte", "case",
+  "catch", "char", "checked", "class", "const", "continue", "decimal", "default", "delegate",
+  "do", "double", "dynamic", "else", "enum", "event", "explicit", "extern", "false", "finally",
+  "fixed", "float", "for", "foreach", "get", "goto", "if", "implicit", "in", "int",
+  "interface", "internal", "is", "lock", "long", "nameof", "namespace", "new", "not", "null",
+  "object", "operator", "or", "out", "override", "params", "private", "protected", "public",
+  "readonly", "record", "ref", "return", "sbyte", "sealed", "set", "short", "sizeof",
+  "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try",
+  "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "var", "virtual",
+  "void", "volatile", "when", "while", "yield",
+]);
+
 /** Evaluates the word under the cursor through the host, only while a pause supplies a handler. */
 function makeHoverEvaluate(onHoverRef: { current: Props["onHoverEvaluate"] }) {
   return hoverTooltip(
@@ -247,7 +261,7 @@ function makeHoverEvaluate(onHoverRef: { current: Props["onHoverEvaluate"] }) {
       const before = line.text.slice(0, offset).match(/[\w.]+$/)?.[0] ?? "";
       const after = line.text.slice(offset).match(/^[\w.]+/)?.[0] ?? "";
       const expression = `${before}${after}`.replace(/^\.+|\.+$/g, "");
-      if (!expression) return null;
+      if (expression.length < 2 || notVariables.has(expression)) return null;
       const result = await evaluate(expression);
       // The pause may have ended while the adapter was answering.
       if (!result || !onHoverRef.current) return null;

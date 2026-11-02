@@ -1525,8 +1525,17 @@ impl Dap {
         if expression.is_empty() {
             return Err(HostError::new("invalid_state", "The expression is empty."));
         }
-        let (_session, _stop_seq, frame_id) = self.paused_context("Hover")?;
-        Ok(self.evaluate_in(expression, frame_id, "repl"))
+        let (session, stop_seq, frame_id) = self.paused_context("Hover")?;
+        let result = self.evaluate_in(expression, frame_id, "repl");
+        // The adapter answered after a resume/step: never return values from the old pause.
+        let data = self.data.lock().unwrap();
+        if data.session != session || data.stop_seq != stop_seq || data.sealed {
+            return Err(HostError::new(
+                "stale_context",
+                "An evaluation from an older pause was discarded.",
+            ));
+        }
+        Ok(result)
     }
 
     /// Adds a watch and, when paused, evaluates it right away.

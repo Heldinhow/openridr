@@ -4309,7 +4309,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   currentLine={debugCurrentLine}
                   inlayText={debugInlay}
                   onHoverEvaluate={
-                    dap.state === "paused"
+                    trusted && dap.state === "paused"
                       ? async (expression) => {
                           try {
                             return await call<DapEvaluation>("debug.hover", { expression });
