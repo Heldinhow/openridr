@@ -28,7 +28,7 @@ Quarta alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/
 
 - **Debug de teste não está implementado.** Testes rodam via `dotnet test` num testhost sem pid exposto, e o host só faz `launch` de assembly console; o produto informa a lacuna e não habilita um botão falso.
 - **Format e Organize Usings não existem.** O host não expõe `textDocument/formatting` nem `source.organizeImports` do csharp-ls.
-- **O app Tauri real foi pouco testado.** O DMG é montado e aberto por segundos; a suíte E2E roda no Chrome contra a ponte HTTP de dev, não na janela WKWebView nativa. Persistência entre reinícios reais do app, ⌘O nativo (só Ctrl+O na ponte) e leitor de tela (VoiceOver) não foram verificados.
+- **O app Tauri real foi pouco testado.** O DMG foi montado e verificado (versão, binário arm64, assinatura ad-hoc), mas a janela não foi dirigida por muito tempo; a suíte E2E roda no Chrome contra a ponte HTTP de dev, não na janela WKWebView nativa. Persistência entre reinícios reais do app, ⌘O nativo (só Ctrl+O na ponte) e leitor de tela (VoiceOver) não foram verificados.
 - **New** e **Clone** ainda não existem; abra projetos existentes (`.sln`, `.csproj` ou pasta).
 - Find in Files não tem regex nem máscara de arquivo; Recent Files e o histórico Back/Forward são da sessão (não persistem). Condições de breakpoint não são restauradas, só a linha. Restaurar sessão não recupera conteúdo não salvo.
 - Com avaliação de projeto falha, o Build continua desabilitado (a árvore e o Problems foram corrigidos).
@@ -37,7 +37,8 @@ Quarta alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/
 ## Verificação
 
 ```
-PENDENTE  OpenRidr_0.3.0-alpha.4_aarch64.dmg
+461d3a93bcc521a8c74e88e0f95b9cb2561decceb579f60af4a42af431e14dd8  OpenRidr_0.3.0-alpha.4_aarch64.dmg
 ```
 
-Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: PENDENTE.
+Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: 4,91 MiB (5.146.077 bytes). Verificado do DMG
+montado: `CFBundleShortVersionString` 0.3.0-alpha.4, binário Mach-O arm64 e assinatura ad-hoc.
