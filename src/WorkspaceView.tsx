@@ -1359,8 +1359,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   async function checkDisk(path: string) {
-    // Proactive read. It only raises a conflict; it never replaces buffer content. A read
-    // failure is reported and the buffer stays editable.
+    // Proactive read. A clean buffer is replaced by the disk text; a dirty one only raises a
+    // conflict and is never overwritten. A read failure is reported and the buffer stays editable.
     if (writing.current.has(path) || !tabsRef.current.some((tab) => tab.path === path)) return;
     const epoch = diskEpoch.current.get(path) ?? 0;
     let file: { content: string; hash: string };
@@ -1379,6 +1379,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         if (tab.path !== path) return tab;
         const known = tab.conflict?.hash ?? tab.hash;
         if (file.hash === known) return tab;
+        if (!tab.conflict && tab.content === tab.savedContent) {
+          return { ...tab, content: file.content, hash: file.hash, savedContent: file.content };
+        }
         return { ...tab, conflict: { content: file.content, hash: file.hash } };
       }),
     );
