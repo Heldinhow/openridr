@@ -70,7 +70,9 @@ test("⌘W closes the active tab and the tab shortcuts wrap in both profiles", a
 test("⌘E lists the session's recent files and opens the chosen one", async ({ page }) => {
   await openTrusted(page);
   await page.getByTestId(`tree-file-${program}`).click();
+  await expect(page.getByTestId(`tab-${program}`)).toHaveClass(/active/);
   await page.getByTestId(`tree-file-${order}`).click();
+  await expect(page.getByTestId(`tab-${order}`)).toHaveClass(/active/);
   await page.getByTestId("editor").click();
 
   await page.keyboard.press("Meta+e");
