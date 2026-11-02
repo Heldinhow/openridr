@@ -10,7 +10,7 @@ type RestoreStatus = {
   onRetry: (() => void) | null;
 };
 
-export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, restore, dirtyCount, breadcrumb, cursor, indent }: {
+export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, restore, dirtyCount, diagnostics, breadcrumb, cursor, indent }: {
   workspace: { name: string; path: string };
   snapshot: Snapshot;
   onSnapshot: (snapshot: Snapshot) => void;
@@ -18,6 +18,7 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
   evaluation: EvaluationStatus;
   restore: RestoreStatus;
   dirtyCount: number;
+  diagnostics: { errors: number; warnings: number; onOpen: () => void };
   breadcrumb: string;
   cursor: string;
   indent: { label: string; title: string };
@@ -51,6 +52,20 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
         <span data-testid="status-dirty">
           {dirtyCount} modified buffer{dirtyCount === 1 ? "" : "s"}
         </span>
+      )}
+      {(diagnostics.errors > 0 || diagnostics.warnings > 0) && (
+        <button
+          type="button"
+          className={`status-diagnostics ${diagnostics.errors > 0 ? "error" : "warning"}`}
+          data-testid="status-diagnostics"
+          title="Open Problems"
+          onClick={diagnostics.onOpen}
+        >
+          {[
+            diagnostics.errors > 0 && `${diagnostics.errors} error${diagnostics.errors === 1 ? "" : "s"}`,
+            diagnostics.warnings > 0 && `${diagnostics.warnings} warning${diagnostics.warnings === 1 ? "" : "s"}`,
+          ].filter(Boolean).join(" · ")}
+        </button>
       )}
       <span className="push" data-testid="status-keymap">
         Keymap: IntelliJ / Rider

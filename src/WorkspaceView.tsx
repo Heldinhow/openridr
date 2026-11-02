@@ -38,6 +38,7 @@ import {
 } from "./TestsPanel";
 import { TestsQuickList } from "./TestsQuickList";
 import { ProcessPanel } from "./ProcessPanel";
+import { collectDiagnostics, samePath } from "./diagnosticMarks";
 import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
@@ -3348,6 +3349,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const currentProblems = withLocalEdits(snapshot.diagnostics, editedAt)
     .filter((diagnostic) => diagnostic.state === "current")
     .reduce((count, diagnostic) => count + diagnostic.items.length, 0);
+  const allDiagnostics = collectDiagnostics(snapshot.diagnostics, build, buildObsolete, editedAt);
+  const activeDiagnostics = active ? allDiagnostics.filter((item) => samePath(item.path, active.path)) : [];
+  const diagnosticCounts = {
+    errors: allDiagnostics.filter((item) => item.severity === "error").length,
+    warnings: allDiagnostics.filter((item) => item.severity === "warning").length,
+  };
   const evaluationErrors = evaluation.projects.filter((project) => project.state === "failed" && project.error).length;
   const activeInspections = active
     ? snapshot.diagnostics.snapshots
@@ -3997,6 +4004,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   renameRequest={renameRequest}
                   definitionRequest={definitionRequest}
                   onCursor={noteCursor}
+                  diagnostics={activeDiagnostics}
                   breakpoints={activeBreakpoints}
                   currentLine={debugCurrentLine}
                   inlayText={debugInlay}
@@ -4436,6 +4444,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onRetry: restoreAvailable ? () => void startRestore("restore.retry") : null,
         }}
         dirtyCount={dirtyCount}
+        diagnostics={{ ...diagnosticCounts, onOpen: () => setBottomTab("problems") }}
         breadcrumb={statusBreadcrumb}
         cursor={active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}
         indent={{
