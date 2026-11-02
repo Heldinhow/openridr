@@ -111,7 +111,8 @@ type Tab = {
   content: string;
   hash: string;
   revision: number;
-  savedRevision: number;
+  /** Text at the last read/write; null when the disk text is unknown. Dirty = content differs. */
+  savedContent: string | null;
   conflict: null | { content: string; hash: string };
 };
 
@@ -228,7 +229,7 @@ function baseName(path: string) {
 }
 
 function isDirty(tab: Tab) {
-  return tab.revision !== tab.savedRevision || tab.conflict !== null;
+  return tab.content !== tab.savedContent || tab.conflict !== null;
 }
 
 function lineDiffCount(buffer: string, disk: string) {
@@ -1118,7 +1119,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           content: file.content,
           hash: file.hash,
           revision: 0,
-          savedRevision: 0,
+          savedContent: file.content,
           conflict: null,
         },
       ]);
@@ -1207,12 +1208,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       setMessage({ tone: "error", text: error });
       return { ok: false, error };
     }
-    if (tab.revision === tab.savedRevision) {
+    if (!isDirty(tab)) {
       setMessage({ tone: "info", text: "No changes to save." });
       return { ok: true };
     }
     const content = tab.content;
-    const revision = tab.revision;
     writing.current.add(tab.path);
     try {
       const result = await call<{ path: string; hash: string }>("file.write", {
@@ -1223,7 +1223,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       setTabs((current) =>
         current.map((item) =>
           item.path === tab.path
-            ? { ...item, hash: result.hash, savedRevision: revision, conflict: null }
+            ? { ...item, hash: result.hash, savedContent: content, conflict: null }
             : item,
         ),
       );
@@ -1934,7 +1934,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         content: document.newContent,
         hash: document.baseHash,
         revision: 1,
-        savedRevision: 0,
+        savedContent: null,
         conflict: null,
       });
     }
@@ -1960,7 +1960,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     const tab = active;
     if (!tab?.conflict) return;
     const conflict = tab.conflict;
-    const hadEdits = tab.revision !== tab.savedRevision;
+    const hadEdits = tab.content !== tab.savedContent;
     const revision = tab.revision + 1;
     setTabs((current) =>
       current.map((item) =>
@@ -1970,7 +1970,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               content: conflict.content,
               hash: conflict.hash,
               revision,
-              savedRevision: revision,
+              savedContent: conflict.content,
               conflict: null,
             }
           : item,
@@ -1990,7 +1990,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     if (!tab?.conflict) return;
     const conflict = tab.conflict;
     const content = tab.content;
-    const revision = tab.revision;
     writing.current.add(tab.path);
     try {
       const result = await call<{ path: string; hash: string }>("file.write", {
@@ -2001,7 +2000,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       setTabs((current) =>
         current.map((item) =>
           item.path === tab.path
-            ? { ...item, hash: result.hash, savedRevision: revision, conflict: null }
+            ? { ...item, hash: result.hash, savedContent: content, conflict: null }
             : item,
         ),
       );

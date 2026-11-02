@@ -475,3 +475,7 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Build/Run/Debug por projeto** usam o gate do próprio projeto e uma `RunConfig` explícita, nunca mudam o startup project; só projeto console avaliado executa. Restricted bloqueia com o motivo existente e o menu oferece "Trust this project" (mesmo `grantTrust`).
 - **`workspace.tree {dir}`**: listagem de um nível, só leitura, sem trust, confinada ao workspace (como `workspace.files`). `no index` é heurístico: pasta ignorada do host, dotfile ou arquivo que não é fonte avaliada; `.gitignore` não é lido.
 - `EditorContextMenu` ganhou um nível de submenu e o modo `compact` (motivo no tooltip, como o Rider).
+
+## 2026-11-02 — QA top 4 (docs/SPEC-QA-TOP4.md)
+
+- **Modified compara texto (achado 3).** Substitui a regra de 2025 "`revision` ≠ `savedRevision`": `Tab.savedContent` guarda o texto da última leitura/gravação e dirty é `content !== savedContent` (ou conflito). Undo até o texto salvo limpa a aba, o contador e os diálogos de Build/Run/fechar. `revision` continua sendo só o contador de versão usado para descartar respostas atrasadas do LSP. Aba aberta por edição aplicada (rename/code action) em arquivo não aberto usa `savedContent = null` (texto em disco desconhecido ⇒ dirty). O teste D-12 de `csharp-ls.spec.ts` deixou de afirmar "Modified" depois do undo.

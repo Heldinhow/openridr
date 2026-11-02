@@ -2114,15 +2114,12 @@ for (const scenario of focusTypingCases) {
       await expect(page.getByTestId("editor")).toBeFocused();
       await expectDismissedWithoutEdits(page, copy, before);
       await expectEditorAcceptsTyping(page, false);
-      // Undo restores the text but legitimately advances the buffer revision and dirty state.
+      // Undo restores the saved text, so the buffer is clean again (QA finding 3).
       await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
-      await expect(page.getByTestId("editor-revision")).toContainText("Modified");
-      await expect(
-        page.getByTestId(`tab-${renameFiles.library}`).getByRole("tab"),
-      ).toHaveAttribute("aria-label", /modified/);
+      await expect(page.getByTestId("editor-revision")).not.toContainText("Modified");
       await expect(
         page.getByTestId(`tab-${renameFiles.library}`).getByTestId("dirty-marker"),
-      ).toBeVisible();
+      ).toHaveCount(0);
       expect(sourceHashes(copy)).toEqual(before);
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
