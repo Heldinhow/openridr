@@ -17,7 +17,7 @@ import { CodeEditor, type ChangedLine } from "./CodeEditor";
 import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
 import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
-import { ROOT_KEY, dirKey, dirOf, folderKey } from "./solutionNodes";
+import { ROOT_KEY, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
 import { fileMenuItems, projectMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
@@ -1171,14 +1171,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   async function openFile(path: string) {
-    if (tabs.some((tab) => tab.path === path)) {
-      setActivePath(path);
-      void checkDisk(path);
+    const relative = workspaceRelative(path, workspaceDir);
+    if (tabs.some((tab) => tab.path === relative)) {
+      setActivePath(relative);
+      void checkDisk(relative);
       return true;
     }
     try {
       const file = await call<{ path: string; content: string; hash: string }>("file.read", {
-        path,
+        path: relative,
       });
       setTabs((current) => [
         ...current,
@@ -1238,12 +1239,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   async function navigateTo(path: string, position: { line: number; character: number }) {
+    const relative = workspaceRelative(path, workspaceDir);
     const from = navEntry();
-    if (!(await openFile(path))) return;
-    recordNavigation(from, { path, ...position });
+    if (!(await openFile(relative))) return;
+    recordNavigation(from, { path: relative, ...position });
     navigationSeq.current += 1;
     setEditorTarget({
-      path,
+      path: relative,
       line: position.line,
       character: position.character,
       nonce: navigationSeq.current,

@@ -28,7 +28,7 @@ Rodar os dois antes da correção e ver falhar pelo motivo certo.
 
 ## Aceite
 
-- [ ] Um frame clicado duas vezes mantém uma aba só.
-- [ ] Nenhum caminho absoluto vira `tab-` no DOM.
-- [ ] Teste puro verde; debugger real verde quando o adaptador existe.
-- [ ] `bun run check` verde. Commit `fix(debug): reuse tab for stack frames`.
+- [x] Um frame clicado duas vezes mantém uma aba só.
+- [x] Nenhum caminho absoluto vira `tab-` no DOM.
+- [x] Teste puro verde; debugger real verde quando o adaptador existe.
+- [x] `bun run check` verde. Commit `fix(debug): reuse tab for stack frames`.

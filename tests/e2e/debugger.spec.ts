@@ -418,13 +418,17 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
       timeout: 15_000,
     });
     // A frame with source opens in the editor at its line; its locals replace the list.
-    await page.getByRole("button", { name: "Program.<Main>$()" }).click();
+    const mainFrame = page.getByRole("button", { name: "Program.<Main>$()" });
+    await mainFrame.click();
     await expect(page.getByTestId("breadcrumb")).toContainText("Program.cs");
-    await expect(page.getByRole("button", { name: "Program.<Main>$()" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    await expect(mainFrame).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("debug-locals")).toContainText("order");
+    // The adapter sends the frame path absolute; the tab opened from the tree stays relative,
+    // so clicking the same frame again must reuse it instead of adding a duplicate.
+    const programTab = page.getByTestId("tab-src/OrderDesk.Cli/Program.cs");
+    await expect(programTab).toHaveCount(1);
+    await mainFrame.click();
+    await expect(programTab).toHaveCount(1);
     await page.getByTestId("debug-step-out").click();
     await expect(page.getByTestId("debug-frames")).toContainText("Program.cs:3", {
       timeout: 15_000,
