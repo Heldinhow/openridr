@@ -1182,17 +1182,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       const file = await call<{ path: string; content: string; hash: string }>("file.read", {
         path: relative,
       });
-      setTabs((current) => [
-        ...current,
-        {
-          path: file.path,
-          content: file.content,
-          hash: file.hash,
-          revision: 0,
-          savedContent: file.content,
-          conflict: null,
-        },
-      ]);
+      setTabs((current) =>
+        current.some((tab) => tab.path === file.path)
+          ? current
+          : [
+              ...current,
+              {
+                path: file.path,
+                content: file.content,
+                hash: file.hash,
+                revision: 0,
+                savedContent: file.content,
+                conflict: null,
+              },
+            ],
+      );
       setActivePath(file.path);
       setMessage(null);
       return true;
