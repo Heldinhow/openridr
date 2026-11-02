@@ -497,3 +497,10 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Recent Files é lista da sessão.** Até 20 caminhos, mais recente primeiro, sem persistência entre sessões e sem escrever no app home. A lista é atualizada ao abrir um arquivo e ao ativar uma aba.
 - **Find in Files continua sem regex/máscara.** `search.text` é a única fonte e aceita consulta e `caseSensitive`; regex e máscara de arquivo exigiriam mudança no host.
 - **Perfil Rider edita com ⌘D/⌘⌫.** `Prec.high` sobrepõe `copyLineDown`/`deleteLine` só em `rider-macos`; o perfil IntelliJ mantém o keymap padrão do CodeMirror.
+
+## 2026-11-02 — Debug de teste continua fora: falta attach ao testhost
+
+- **Decisão.** Não habilitar "Debug selected" nesta rodada; a ação continua visível e desabilitada. Estende a entrada de 2026-10-28 ("debug de teste desabilitado com motivo") e não deve ser reaberta sem uma decisão nova sobre attach/testhost.
+- **Motivo.** Testes rodam num único `dotnet test` (`test_run.rs`), e o VSTest cria o `testhost` como processo filho próprio; o host não expõe nem endereça esse pid. A camada DAP só envia `launch` do assembly console avaliado (`dap.rs`), e o projeto de teste é uma biblioteca, sem entrada para lançar. Não existe, hoje, nem `attach`, nem `processId`, nem filtro de teste no contrato do debug.
+- **Alternativas descartadas.** (1) Lançar `vstest.console` sob o netcoredbg: o adaptador depuraria o runner, não o teste. (2) `attach` no `testhost`: o host não tem o pid do testhost e o VSTest não o publica.
+- **Consequência.** O texto único (`testDebugUnavailable` em `src/TestsPanel.tsx`) passa a dizer que falta um attach de test-host: "Debugging tests needs a test-host attach the debugger does not support yet. Use Run selected.", no painel, na quick list, no menu do editor e na ação. Usar Run selected continua sendo o caminho suportado. Uma decisão futura precisa definir a integração de attach/host (descobrir o testhost ou lançar o teste sob o depurador), com mudanças no host e nos gates de debug.

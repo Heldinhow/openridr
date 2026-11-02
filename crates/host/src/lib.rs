@@ -83,6 +83,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.children",
     "debug.selectThread",
     "debug.evaluate",
+    "debug.hover",
     "debug.addWatch",
     "debug.removeWatch",
     "debug.pause",
@@ -541,6 +542,9 @@ impl Host {
         }
         if method == "debug.evaluate" {
             return self.debug_evaluate(params);
+        }
+        if method == "debug.hover" {
+            return self.debug_hover(params);
         }
         if method == "debug.addWatch" {
             return self.debug_watch(params, true);
@@ -2056,6 +2060,7 @@ impl Host {
             target_framework: target_framework.clone(),
             command: Vec::new(),
             cwd: root.clone(),
+            root: root.clone(),
             sdk_root: sdk_root.clone(),
             sdk_version,
             workspace_id: token.workspace_id,
@@ -3838,6 +3843,16 @@ impl Host {
         let dap = inner.dap.clone();
         dap.evaluate(&expression)?;
         Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Hover evaluation: returns the value without touching the panel's evaluation.
+    fn debug_hover(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.hover")?;
+        let expression = required_str(&params, "expression")?;
+        let inner = self.inner.lock().unwrap();
+        let dap = inner.dap.clone();
+        let evaluation = dap.hover(&expression)?;
+        Ok(serde_json::to_value(evaluation).expect("evaluation serializes"))
     }
 
     fn debug_watch(&self, params: Value, add: bool) -> HostResult<Value> {

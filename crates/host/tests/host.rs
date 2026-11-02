@@ -2788,7 +2788,7 @@ fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn build_start_needs_the_current_evaluation_and_rejects_a_library_startup() {
+fn build_start_needs_the_current_evaluation_and_accepts_an_explicit_library() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk build gate");
     let host = Host::new();
@@ -2799,16 +2799,6 @@ fn build_start_needs_the_current_evaluation_and_rejects_a_library_startup() {
     wait_for_restore(&host, Duration::from_secs(60));
     host.dispatch("evaluation.run", json!({})).unwrap();
     let processes_before = snapshot(&host)["processes"].as_array().unwrap().len();
-
-    let library = host
-        .dispatch("build.start", json!({ "project": "src/OrderDesk.Core/OrderDesk.Core.csproj" }))
-        .expect_err("a library is not an executable startup project");
-    assert_eq!(library.code, "invalid_state");
-    assert!(
-        library.message.contains("library") && library.message.contains("console"),
-        "{}",
-        library.message
-    );
 
     let unevaluated = host
         .dispatch(
@@ -2828,6 +2818,20 @@ fn build_start_needs_the_current_evaluation_and_rejects_a_library_startup() {
         processes_before,
         "rejected build.start calls must not spawn a process"
     );
+
+    // An explicit tree build may target a library, which is not an executable startup project.
+    let started = host
+        .dispatch(
+            "build.start",
+            json!({ "project": "src/OrderDesk.Core/OrderDesk.Core.csproj" }),
+        )
+        .expect("an explicit library build starts");
+    assert_eq!(started["build"]["state"], "running");
+    assert_eq!(started["build"]["project"]["name"], "OrderDesk.Core");
+    assert_eq!(started["build"]["project"]["kind"], "library");
+    let finished = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(finished["state"], "ok", "{}", finished["log"]);
+    assert!(finished["log"].as_str().unwrap().contains("Build succeeded"));
 
     // A successful restore invalidates the evaluated model, so a later build must not reuse it.
     host.dispatch("restore.start", json!({})).unwrap();

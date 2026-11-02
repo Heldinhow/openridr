@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { copyLineDown, deleteLine, indentWithTab } from "@codemirror/commands";
 import { Compartment, EditorState, Prec, RangeSet, type Text } from "@codemirror/state";
-import { Decoration, EditorView, GutterMarker, WidgetType, gutter, keymap } from "@codemirror/view";
+import { Decoration, EditorView, GutterMarker, WidgetType, gutter, hoverTooltip, keymap } from "@codemirror/view";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { gotoLine } from "@codemirror/search";
@@ -50,6 +50,13 @@ const theme = EditorView.theme(
     ".cm-diagnostic-marker-error": { color: "#f75464" },
     ".cm-diagnostic-marker-warning": { color: "#e5b94e" },
     ".cm-diagnostic-marker-information, .cm-diagnostic-marker-hint": { color: "#6f9fe0" },
+    ".cm-tooltip.cm-tooltip-hover": {
+      backgroundColor: "var(--raised)",
+      border: "1px solid var(--line-input)",
+      color: "var(--fg)",
+    },
+    ".cm-debug-hover": { padding: "0.3rem 0.6rem", maxWidth: "36rem", whiteSpace: "pre-wrap" },
+    ".cm-debug-hover.is-error": { color: "var(--error)" },
   },
   { dark: true },
 );
@@ -64,6 +71,12 @@ const syntaxColors = HighlightStyle.define([
 ]);
 
 type Target = { path: string; line: number; character: number; nonce: number };
+
+type HoverEvaluation = {
+  value: string | null;
+  typeName: string | null;
+  error: string | null;
+};
 
 type Props = {
   value: string;
@@ -84,6 +97,8 @@ type Props = {
   changedLines?: ChangedLine[];
   /** Locals of the paused frame, printed after the current line. */
   inlayText?: string;
+  /** Present only while paused: hover evaluates the word under the cursor in the adapter. */
+  onHoverEvaluate?: (expression: string) => Promise<HoverEvaluation | null>;
   /** Incremented by the Rename action/menu; the inline field opens at the selection. */
   renameRequest?: number;
   /** Incremented by the Go to Declaration action/menu. */
@@ -219,6 +234,51 @@ function makeDebugGutter(
       },
     },
   })];
+}
+
+// Keywords, literals and built-in type names are never variables worth an adapter round-trip.
+const notVariables = new Set([
+  "abstract", "and", "as", "async", "await", "base", "bool", "break", "byte", "case",
+  "catch", "char", "checked", "class", "const", "continue", "decimal", "default", "delegate",
+  "do", "double", "dynamic", "else", "enum", "event", "explicit", "extern", "false", "finally",
+  "fixed", "float", "for", "foreach", "get", "goto", "if", "implicit", "in", "int",
+  "interface", "internal", "is", "lock", "long", "nameof", "namespace", "new", "not", "null",
+  "object", "operator", "or", "out", "override", "params", "private", "protected", "public",
+  "readonly", "record", "ref", "return", "sbyte", "sealed", "set", "short", "sizeof",
+  "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try",
+  "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "var", "virtual",
+  "void", "volatile", "when", "while", "yield",
+]);
+
+/** Evaluates the word under the cursor through the host, only while a pause supplies a handler. */
+function makeHoverEvaluate(onHoverRef: { current: Props["onHoverEvaluate"] }) {
+  return hoverTooltip(
+    async (view, pos) => {
+      const evaluate = onHoverRef.current;
+      if (!evaluate) return null;
+      const line = view.state.doc.lineAt(pos);
+      const offset = pos - line.from;
+      const before = line.text.slice(0, offset).match(/[\w.]+$/)?.[0] ?? "";
+      const after = line.text.slice(offset).match(/^[\w.]+/)?.[0] ?? "";
+      const expression = `${before}${after}`.replace(/^\.+|\.+$/g, "");
+      if (expression.length < 2 || notVariables.has(expression)) return null;
+      const result = await evaluate(expression);
+      // The pause may have ended while the adapter was answering.
+      if (!result || !onHoverRef.current) return null;
+      const text = result.error ?? [result.typeName, result.value].filter(Boolean).join(" ");
+      return {
+        pos: line.from + offset - before.length,
+        end: line.from + offset + after.length,
+        create() {
+          const dom = document.createElement("div");
+          dom.className = result.error ? "cm-debug-hover is-error" : "cm-debug-hover";
+          dom.textContent = text || "(no value)";
+          return { dom };
+        },
+      };
+    },
+    { hoverTime: 300 },
+  );
 }
 
 class ActionMarker extends GutterMarker {
@@ -460,6 +520,7 @@ export function CodeEditor({
   onContextMenu,
   onGutterAction,
   onCursor,
+  onHoverEvaluate,
   target,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -474,6 +535,7 @@ export function CodeEditor({
   const onContextMenuRef = useRef(onContextMenu);
   const onGutterActionRef = useRef(onGutterAction);
   const onCursorRef = useRef(onCursor);
+  const onHoverEvaluateRef = useRef(onHoverEvaluate);
   const breakpointsRef = useRef<number[]>(breakpoints);
   const currentLineRef = useRef<number | null>(currentLine);
   const gutterActionsRef = useRef<GutterAction[]>(gutterActions);
@@ -504,6 +566,7 @@ export function CodeEditor({
   onContextMenuRef.current = onContextMenu;
   onGutterActionRef.current = onGutterAction;
   onCursorRef.current = onCursor;
+  onHoverEvaluateRef.current = onHoverEvaluate;
   pathRef.current = path;
   revisionRef.current = revision;
   const applyingExternal = useRef(false);
@@ -790,6 +853,7 @@ export function CodeEditor({
         changeCompartment.current.of(makeChangeGutter(changedLinesRef.current)),
         diagnosticCompartment.current.of(makeDiagnostics(diagnostics, EditorState.create({ doc: value }).doc)),
         inlayCompartment.current.of(makeInlay(currentLine, inlayText)),
+        makeHoverEvaluate(onHoverEvaluateRef),
         autocompletion({ override: [completionSource], activateOnTyping: false }),
         StreamLanguage.define(csharp),
         theme,

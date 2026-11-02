@@ -67,6 +67,7 @@ export type ProcessInfo = {
   workspaceId: number;
   state: "running" | "exited";
   exit: number | null;
+  signal: number | null;
   awaitingDecision: boolean;
   kept: boolean;
   termination: null | {
@@ -272,6 +273,9 @@ export type TestsDiscovery = {
   partial: boolean;
   error: string | null;
   mtpMessage: string | null;
+  /** Compile diagnostics parsed from the discovery output, same shape as `Build.problems`. */
+  problems: BuildProblem[];
+  problemsTruncated: boolean;
   stale: boolean;
   staleReason: string | null;
   sealed: boolean;
@@ -365,6 +369,7 @@ export type Run = {
   log: string;
   logTruncated: boolean;
   exit: number | null;
+  signal: string | null;
   termination: null | {
     requested: string;
     observed: string;

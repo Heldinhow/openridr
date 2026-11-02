@@ -496,28 +496,55 @@ impl Build {
         let Line::Problem(problem) = parsed else {
             return;
         };
-        let key = format!(
-            "{}:{:?}:{:?}:{}",
-            problem.path, problem.position, problem.code, problem.message
-        );
-        if data.seen.contains_key(&key) {
-            return;
-        }
-        if data.problems.len() >= MAX_PROBLEMS {
-            data.problems_truncated = true;
-            return;
-        }
-        data.seen.insert(key, ());
-        let index = data.problems.len();
         let build_id = data.build_id.clone();
         let revision = data.revision;
-        data.problems.push(BuildProblem {
-            id: format!("{build_id}:{index}"),
-            build_id,
+        let Data {
+            problems,
+            seen,
+            problems_truncated,
+            ..
+        } = &mut *data;
+        record_problem(
+            problem,
+            &build_id,
             revision,
-            ..problem
-        });
+            problems,
+            seen,
+            problems_truncated,
+        );
     }
+}
+
+/// Records one parsed diagnostic in a build or discovery list: dedupe by
+/// path/position/code/message, assign the `id`/`build_id`/`revision`, and stop listing at
+/// `MAX_PROBLEMS`. The raw log is never affected by the cap.
+pub fn record_problem(
+    problem: BuildProblem,
+    build_id: &str,
+    revision: u64,
+    problems: &mut Vec<BuildProblem>,
+    seen: &mut HashMap<String, ()>,
+    problems_truncated: &mut bool,
+) {
+    let key = format!(
+        "{}:{:?}:{:?}:{}",
+        problem.path, problem.position, problem.code, problem.message
+    );
+    if seen.contains_key(&key) {
+        return;
+    }
+    if problems.len() >= MAX_PROBLEMS {
+        *problems_truncated = true;
+        return;
+    }
+    seen.insert(key, ());
+    let index = problems.len();
+    problems.push(BuildProblem {
+        id: format!("{build_id}:{index}"),
+        build_id: build_id.to_string(),
+        revision,
+        ..problem
+    });
 }
 
 /// One line of MSBuild text. Unrecognized lines stay only in the raw log.
@@ -728,19 +755,36 @@ fn normalize(path: &Path) -> PathBuf {
     result
 }
 
-/// One console project per build; anything else needs an explicit reason, never a guess.
+/// One console project per build; an explicit request may also name an evaluated library or
+/// test project, matching the tree menu's build gate.
 pub fn select_startup<'a>(
     projects: &'a [EvaluatedProject],
     requested: Option<&str>,
 ) -> HostResult<&'a EvaluatedProject> {
-    select_startup_for(projects, requested, "build")
+    select_kinds(
+        projects,
+        requested,
+        "build",
+        &["console", "library", "test"],
+        "console executable, library or test",
+    )
 }
 
-/// Same selection for another consumer (run), so its refusal names what was refused.
+/// Same selection for another consumer (run, debug), so its refusal names what was refused.
 pub fn select_startup_for<'a>(
     projects: &'a [EvaluatedProject],
     requested: Option<&str>,
     consumer: &str,
+) -> HostResult<&'a EvaluatedProject> {
+    select_kinds(projects, requested, consumer, &["console"], "console executable")
+}
+
+fn select_kinds<'a>(
+    projects: &'a [EvaluatedProject],
+    requested: Option<&str>,
+    consumer: &str,
+    kinds: &[&str],
+    allowed: &str,
 ) -> HostResult<&'a EvaluatedProject> {
     if let Some(requested) = requested {
         let normalized = requested
@@ -753,20 +797,20 @@ pub fn select_startup_for<'a>(
                 format!("{requested} is not a project of the current evaluation."),
             ));
         };
-        if project.kind != "console" {
+        if !kinds.contains(&project.kind) {
             return Err(HostError::new(
                 "invalid_state",
                 format!(
-                    "{} is a {} project; only a console executable project can be the {consumer} startup project.",
+                    "{} is a {} project; only a {allowed} project can be the {consumer} startup project.",
                     project.name, project.kind
                 ),
             ));
         }
-        if project.state != "ok" || project.assembly_path.is_none() {
+        if project.state != "ok" || project.target_path.is_none() {
             return Err(HostError::new(
                 "invalid_state",
                 format!(
-                    "{} has no evaluated managed assembly (TargetPath); re-evaluate the project model before running it.",
+                    "{} has no evaluated TargetPath; re-evaluate the project model before using it.",
                     project.name
                 ),
             ));
@@ -974,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_selection_requires_one_console_project_and_rejects_libraries() {
+    fn startup_selection_defaults_to_console_but_build_accepts_any_evaluated_project() {
         let projects = vec![
             evaluated(
                 "App",
@@ -994,22 +1038,45 @@ mod tests {
                 "test",
                 Some("/work/Tests.dll"),
             ),
+            evaluated(
+                "Tool",
+                "tools/Tool/Tool.csproj",
+                "unknown",
+                Some("/work/Tool.dll"),
+            ),
         ];
         let selected = select_startup(&projects, None).expect("one console project");
         assert_eq!(selected.name, "App");
-        for (name, path) in [
-            ("Core", "src/Core/Core.csproj"),
-            ("Tests", "tests/Tests.csproj"),
-        ] {
-            let error = select_startup(&projects, Some(path))
-                .expect_err("only a console project may be the startup project");
-            assert_eq!(error.code, "invalid_state");
-            assert!(
-                error.message.contains("only a console executable project"),
-                "{name}: {}",
-                error.message
-            );
-        }
+        assert_eq!(
+            select_startup(&projects, Some("src/Core/Core.csproj"))
+                .expect("an explicit library build")
+                .name,
+            "Core"
+        );
+        assert_eq!(
+            select_startup(&projects, Some("tests/Tests.csproj"))
+                .expect("an explicit test-project build")
+                .name,
+            "Tests"
+        );
+        let error = select_startup(&projects, Some("tools/Tool/Tool.csproj"))
+            .expect_err("an unknown project kind is not built through build.start");
+        assert_eq!(error.code, "invalid_state");
+        assert!(
+            error
+                .message
+                .contains("only a console executable, library or test project"),
+            "{}",
+            error.message
+        );
+        let error = select_startup_for(&projects, Some("src/Core/Core.csproj"), "run")
+            .expect_err("run still refuses a library");
+        assert_eq!(error.code, "invalid_state");
+        assert!(
+            error.message.contains("only a console executable project"),
+            "{}",
+            error.message
+        );
 
         let with_two = vec![
             evaluated(
@@ -1084,6 +1151,7 @@ mod tests {
         let unknown = ProcessStatus {
             state: "exited",
             exit: None,
+            signal: None,
             termination: None,
             awaiting_decision: false,
         };
@@ -1224,6 +1292,7 @@ mod tests {
         let status = ProcessStatus {
             state: "exited",
             exit: Some(143),
+            signal: None,
             termination: Some(Termination {
                 requested: "SIGTERM".to_string(),
                 observed: "exited".to_string(),

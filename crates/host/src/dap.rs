@@ -1519,6 +1519,25 @@ impl Dap {
         Ok(())
     }
 
+    /// Evaluates an expression for a hover tooltip without replacing the panel's evaluation.
+    pub fn hover(&self, expression: &str) -> HostResult<EvaluationView> {
+        let expression = expression.trim();
+        if expression.is_empty() {
+            return Err(HostError::new("invalid_state", "The expression is empty."));
+        }
+        let (session, stop_seq, frame_id) = self.paused_context("Hover")?;
+        let result = self.evaluate_in(expression, frame_id, "repl");
+        // The adapter answered after a resume/step: never return values from the old pause.
+        let data = self.data.lock().unwrap();
+        if data.session != session || data.stop_seq != stop_seq || data.sealed {
+            return Err(HostError::new(
+                "stale_context",
+                "An evaluation from an older pause was discarded.",
+            ));
+        }
+        Ok(result)
+    }
+
     /// Adds a watch and, when paused, evaluates it right away.
     pub fn add_watch(&self, expression: &str) -> HostResult<()> {
         let expression = expression.trim().to_string();

@@ -188,6 +188,53 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
   }
 });
 
+test("a test-project compile error is published in Problems during discovery", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const { base, copy } = tempCopy("Order Desk discovery problems");
+  fs.appendFileSync(
+    path.join(copy, "tests/OrderDesk.Tests/OrderTests.cs"),
+    "\nthis is not c#\n",
+  );
+  try {
+    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    await trustWorkspace(page);
+    await enterWorkspace(page);
+    await waitForEvaluation(page);
+    await restoreAndReload(page);
+
+    await page.getByTestId("bottom-tab-tests").click();
+    await page.getByTestId("tests-tfm").selectOption("net8.0");
+    await waitForEvaluation(page, 3);
+    await page.getByTestId("tests-discover").click();
+    await expect(page.getByTestId("tests-state")).toContainText("Discovery failed", {
+      timeout: 120_000,
+    });
+    await expect(page.getByTestId("tests-log")).toContainText("error CS");
+
+    await page.getByTestId("bottom-tab-problems").click();
+    await expect(page.getByTestId("tests-problems")).toBeVisible();
+    const row = page.getByTestId("tests-problem-row-0");
+    await expect(row).toContainText("Tests · VSTest");
+    await expect(row).toContainText("CS");
+    const position = await row.getAttribute("data-position");
+    expect(position).toMatch(/^\d+:\d+$/);
+    await row.click();
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", position!);
+    await expect(page.getByTestId("tab-tests/OrderDesk.Tests/OrderTests.cs")).toBeVisible();
+
+    // A re-evaluation makes the discovery stale: its old compile errors leave Problems.
+    await page.getByTestId("bottom-tab-problems").click();
+    await page.getByTestId("eval-run").click();
+    await waitForEvaluation(page, 4);
+    await page.getByTestId("bottom-tab-problems").click();
+    await expect(page.getByTestId("tests-problems")).toHaveCount(0);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("an MTP project shows the exact message and runs no VSTest command", async ({ page }) => {
   const { base, copy } = tempProject(
     "MtpGate",

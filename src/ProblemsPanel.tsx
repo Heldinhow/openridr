@@ -1,11 +1,19 @@
 import { useState } from "react";
-import type { Build, DiagnosticSnapshot, Diagnostics, Evaluation, ProblemItem } from "./host/client";
+import type {
+  Build,
+  DiagnosticSnapshot,
+  Diagnostics,
+  Evaluation,
+  ProblemItem,
+  Tests,
+} from "./host/client";
 
 type Row = { key: string; snapshot: DiagnosticSnapshot; item: ProblemItem };
 
 type Props = {
   diagnostics: Diagnostics;
   build: Build;
+  tests: Tests;
   evaluation: Evaluation;
   /** A buffer was edited after the build finished. */
   buildObsolete?: boolean;
@@ -19,6 +27,12 @@ function buildProblemState(build: Build, obsolete: boolean) {
   if (build.sealed) return "Sealed";
   if (build.stale) return "Stale";
   if (obsolete) return "Obsolete";
+  return "Current";
+}
+
+function testsProblemState(discovery: Tests["discovery"]) {
+  if (discovery.sealed) return "Sealed";
+  if (discovery.stale) return "Stale";
   return "Current";
 }
 
@@ -93,6 +107,7 @@ export function withLocalEdits(
 export function ProblemsPanel({
   diagnostics,
   build,
+  tests,
   evaluation,
   buildObsolete = false,
   editedAt = {},
@@ -120,6 +135,9 @@ export function ProblemsPanel({
     })),
   );
   const failedProjects = evaluation.projects.filter((project) => project.state === "failed" && project.error);
+  const testsState = testsProblemState(tests.discovery);
+  // A stale or sealed discovery describes an older model: never show its compile errors as current.
+  const showTestsProblems = testsState === "Current" && tests.discovery.problems.length > 0;
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
   const currentEmpty = visible.filter(
     (snapshot) => snapshot.state === "current" && snapshot.items.length === 0,
@@ -517,6 +535,71 @@ export function ProblemsPanel({
                 in the raw log; absence of parsed problems is not a clean-solution claim.
               </p>
             )}
+          </div>
+        </section>
+      )}
+
+      {showTestsProblems && (
+        <section
+          className="build-problems"
+          data-testid="tests-problems"
+          aria-label="Test discovery problems"
+        >
+          <div className="build-problems-head">
+            <strong>Tests · VSTest</strong>
+            <span data-testid="tests-problems-state">{testsState}</span>
+            <span className="muted">
+              {tests.discovery.problems.length} problem
+              {tests.discovery.problems.length === 1 ? "" : "s"} ·{" "}
+              {tests.discovery.discoveryId ?? "unknown discovery"} · revision{" "}
+              {tests.discovery.revision} · separate from build · dotnet
+            </span>
+          </div>
+          {tests.discovery.problemsTruncated && (
+            <p className="warning" data-testid="tests-problems-capped">
+              More diagnostics were printed than listed; the raw discovery log keeps every line.
+            </p>
+          )}
+          <div className="build-problems-list" aria-label="Test discovery diagnostics">
+            {tests.discovery.problems.map((problem, index) => (
+              <button
+                key={problem.id}
+                type="button"
+                className="build-problem-row"
+                data-testid={`tests-problem-row-${index}`}
+                data-has-position={problem.position !== null ? "true" : "false"}
+                data-position={
+                  problem.position
+                    ? `${problem.position.line}:${problem.position.character}`
+                    : undefined
+                }
+                onClick={() => {
+                  if (problem.position) {
+                    onNavigate(problem.path, problem.position);
+                  } else {
+                    onOpen(problem.path);
+                  }
+                }}
+                title={
+                  problem.position
+                    ? `Open ${problem.path} at line ${problem.position.line + 1}`
+                    : `Open ${problem.path} without positioning (dotnet printed no position)`
+                }
+              >
+                <span className={`problem-severity severity-${problem.severityLabel}`}>
+                  {problem.severityLabel}
+                </span>
+                <span className="problem-code">{problem.code ?? "no code"}</span>
+                <span className="problem-message">{problem.message}</span>
+                <span>{buildProblemLocation(problem)}</span>
+                <span>{problem.path}</span>
+                <span>Tests · VSTest</span>
+                <span>{problem.category}</span>
+                <span className={`problem-state state-${testsState.toLowerCase()}`}>
+                  {testsState}
+                </span>
+              </button>
+            ))}
           </div>
         </section>
       )}

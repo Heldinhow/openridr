@@ -6,6 +6,8 @@ export interface ProjectMenu {
   name: string;
   projectFile: string;
   trusted: boolean;
+  /** Run/Debug only exist for console projects; a library is buildable but not executable. */
+  executable: boolean;
   /** Why Reload Project (re-evaluation) cannot run, or null. */
   reloadReason: string | null;
   buildReason: string | null;
@@ -33,8 +35,14 @@ export function projectMenuItems(m: ProjectMenu): ContextMenuItem[] {
     { id: "nuget", label: "Manage NuGet Packages", action: m.onNuGet, separatorBefore: !m.trusted },
     { id: "reload", label: "Reload Project", disabledReason: m.reloadReason, action: m.onReload },
     { id: "build", label: "Build Selected Projects", shortcut: m.shortcuts.build, disabledReason: m.buildReason, action: m.onBuild, separatorBefore: true },
-    { id: "run", label: `Run '${m.name}'`, shortcut: m.shortcuts.run, disabledReason: m.runReason, action: m.onRun },
-    { id: "debug", label: `Debug '${m.name}'`, shortcut: m.shortcuts.debug, disabledReason: m.debugReason, action: m.onDebug },
+  );
+  if (m.executable) {
+    items.push(
+      { id: "run", label: `Run '${m.name}'`, shortcut: m.shortcuts.run, disabledReason: m.runReason, action: m.onRun },
+      { id: "debug", label: `Debug '${m.name}'`, shortcut: m.shortcuts.debug, disabledReason: m.debugReason, action: m.onDebug },
+    );
+  }
+  items.push(
     {
       id: "unit-test",
       label: "Run Unit Test",

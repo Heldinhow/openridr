@@ -8,6 +8,17 @@ export const dirOf = (path: string) => (path.includes("/") ? path.slice(0, path.
 export const baseOf = (path: string) => path.split("/").pop() ?? path;
 export const countLabel = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
+/** Workspace-relative tab path: normalize separators and strip the workspace root from absolute paths. */
+export function workspaceRelative(path: string, workspaceDir: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const base = workspaceDir.replace(/\\/g, "/").replace(/\/+$/, "");
+  // A solution at the filesystem root has an empty workspaceDir; absolute paths are already
+  // relative to `/`, so only the leading separator has to go.
+  if (!base) return normalized.startsWith("/") ? normalized.slice(1) : normalized;
+  if (normalized === base) return "";
+  return normalized.startsWith(`${base}/`) ? normalized.slice(base.length + 1) : normalized;
+}
+
 export type SourceNode =
   | { kind: "dir"; name: string; path: string; children: SourceNode[] }
   | { kind: "file"; name: string; path: string };

@@ -27,6 +27,7 @@ pub struct Termination {
 pub struct ProcessStatus {
     pub state: &'static str,
     pub exit: Option<i32>,
+    pub signal: Option<i32>,
     pub termination: Option<Termination>,
     pub awaiting_decision: bool,
 }
@@ -52,6 +53,7 @@ struct Entry {
     killer: Option<Box<dyn ChildKiller + Send + Sync>>,
     exited: bool,
     exit: Option<i32>,
+    signal: Option<i32>,
     awaiting_decision: bool,
     kept: bool,
     termination: Option<Termination>,
@@ -66,6 +68,7 @@ impl Entry {
             "workspaceId": self.workspace_id,
             "state": if self.exited { "exited" } else { "running" },
             "exit": self.exit,
+            "signal": self.signal,
             "awaitingDecision": self.awaiting_decision,
             "kept": self.kept,
             "termination": self.termination,
@@ -80,6 +83,7 @@ impl Entry {
             if let Ok(Some(status)) = child.try_wait() {
                 self.exited = true;
                 self.exit = status.code();
+                self.signal = exit_signal(&status);
                 // Once the host has observed the exit there is no termination decision left.
                 self.awaiting_decision = false;
             }
@@ -182,6 +186,7 @@ impl Registry {
             killer: None,
             exited: false,
             exit: None,
+            signal: None,
             awaiting_decision: false,
             kept: false,
             termination: None,
@@ -212,6 +217,7 @@ impl Registry {
             killer: Some(killer),
             exited: false,
             exit: None,
+            signal: None,
             awaiting_decision: false,
             kept: false,
             termination: None,
@@ -224,6 +230,7 @@ impl Registry {
         Some(ProcessStatus {
             state: if entry.exited { "exited" } else { "running" },
             exit: entry.exit,
+            signal: entry.signal,
             termination: entry.termination.clone(),
             awaiting_decision: entry.awaiting_decision,
         })
@@ -375,6 +382,68 @@ fn taskkill(pid: u32, hard: bool) -> bool {
     matches!(command.status(), Ok(status) if status.success())
 }
 
+/// The signal that killed the child, if any. A normal exit reports `code()` and no signal.
+#[cfg(unix)]
+fn exit_signal(status: &std::process::ExitStatus) -> Option<i32> {
+    use std::os::unix::process::ExitStatusExt;
+    status.signal()
+}
+
+#[cfg(not(unix))]
+fn exit_signal(_status: &std::process::ExitStatus) -> Option<i32> {
+    None
+}
+
+/// Portable signal names for numbers 1–15. These five numbers do not share a meaning between
+/// macOS and Linux, so the table is chosen by OS instead of guessing one numbering.
+#[cfg(target_os = "macos")]
+const SIGNALS: &[(i32, &str)] = &[
+    (1, "SIGHUP"),
+    (2, "SIGINT"),
+    (3, "SIGQUIT"),
+    (4, "SIGILL"),
+    (5, "SIGTRAP"),
+    (6, "SIGABRT"),
+    (7, "SIGEMT"),
+    (8, "SIGFPE"),
+    (9, "SIGKILL"),
+    (10, "SIGBUS"),
+    (11, "SIGSEGV"),
+    (12, "SIGSYS"),
+    (13, "SIGPIPE"),
+    (14, "SIGALRM"),
+    (15, "SIGTERM"),
+];
+
+/// Linux numbering; Windows never reports a POSIX signal, so this table is unreachable there.
+#[cfg(not(target_os = "macos"))]
+const SIGNALS: &[(i32, &str)] = &[
+    (1, "SIGHUP"),
+    (2, "SIGINT"),
+    (3, "SIGQUIT"),
+    (4, "SIGILL"),
+    (5, "SIGTRAP"),
+    (6, "SIGABRT"),
+    (7, "SIGBUS"),
+    (8, "SIGFPE"),
+    (9, "SIGKILL"),
+    (10, "SIGUSR1"),
+    (11, "SIGSEGV"),
+    (12, "SIGUSR2"),
+    (13, "SIGPIPE"),
+    (14, "SIGALRM"),
+    (15, "SIGTERM"),
+];
+
+/// Short name of a POSIX signal; an unknown number stays `SIG<n>` instead of inventing a name.
+pub fn signal_name(signal: i32) -> String {
+    SIGNALS
+        .iter()
+        .find(|(number, _)| *number == signal)
+        .map(|(_, name)| (*name).to_string())
+        .unwrap_or_else(|| format!("SIG{signal}"))
+}
+
 /// Signals a process group that this host created. Returns false when the signal could not
 /// be delivered (already gone or not permitted).
 #[cfg(unix)]
@@ -444,5 +513,34 @@ pub fn probe_command(kind: &str) -> io::Result<Command> {
             io::ErrorKind::Unsupported,
             "processes.probe is only implemented on Unix in this slice.",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_signal_number_is_reported_by_its_name() {
+        assert_eq!(signal_name(6), "SIGABRT");
+        assert_eq!(signal_name(11), "SIGSEGV");
+        assert_eq!(signal_name(999), "SIG999");
+    }
+
+    // SIGEMT/SIGBUS/SIGUSR1/SIGUSR2/SIGSYS numbers differ between macOS and Linux.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_signal_numbers_use_the_macos_names() {
+        assert_eq!(signal_name(7), "SIGEMT");
+        assert_eq!(signal_name(10), "SIGBUS");
+        assert_eq!(signal_name(12), "SIGSYS");
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn linux_signal_numbers_use_the_linux_names() {
+        assert_eq!(signal_name(7), "SIGBUS");
+        assert_eq!(signal_name(10), "SIGUSR1");
+        assert_eq!(signal_name(12), "SIGUSR2");
     }
 }

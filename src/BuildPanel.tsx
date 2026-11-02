@@ -55,7 +55,9 @@ export function runStateLabel(run: Run) {
     case "running":
       return "Running…";
     case "exited":
-      return `Run exited · ${exit}`;
+      return run.signal
+        ? `Run crashed · ${run.signal}`
+        : `Run exited · ${exit}`;
     case "failed":
       return "Run failed to start";
     case "cancelled":
@@ -114,6 +116,7 @@ export function BuildPanel({
   const runRunning = run.state === "running";
   const shortcut = runShortcutLabel(platform);
   const buildShortcut = platform === "macos" ? "Cmd+F9" : "Ctrl+F9";
+  const solutionShortcut = platform === "macos" ? "⇧⌘F9" : "Shift+Ctrl+F9";
   const startup =
     candidates.find((project) => project.path === startupPath) ?? null;
 
@@ -188,10 +191,12 @@ export function BuildPanel({
           onClick={onBuild}
           title={
             disabledReason ??
-            "Runs dotnet build for the selected startup project with the current evaluation. Never restores and never saves buffers."
+            `Runs an incremental dotnet build of the startup project; use Build Solution (${solutionShortcut}) for the whole solution.`
           }
         >
-          {running ? "Building…" : `${build.revision > 0 ? "Rebuild" : "Build"} (${buildShortcut})`}
+          {running
+            ? "Building…"
+            : `Build startup${startup ? ` '${startup.name}'` : ""} (${buildShortcut})`}
         </button>
         <button
           data-testid="build-solution"

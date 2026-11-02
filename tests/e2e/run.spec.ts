@@ -16,10 +16,10 @@ const originalProgram = fs.readFileSync(
   "utf8",
 );
 
-function tempCopy(name: string) {
+function tempCopy(name: string, source = fixture) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-run-"));
   const copy = path.join(base, name);
-  fs.cpSync(fixture, copy, {
+  fs.cpSync(source, copy, {
     recursive: true,
     filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
   });
@@ -275,6 +275,8 @@ test("stopping a real long-running program reports requested and observed termin
     await expect(page.getByTestId("run-state")).toContainText("Run cancelled", {
       timeout: 15_000,
     });
+    // A termination the host requested is not a crash: cancelled runs keep the neutral tag.
+    await expect(page.getByTestId("run-state")).not.toHaveClass(/\berror\b/);
     await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-termination")).toContainText(
       "Termination requested: SIGTERM",
@@ -282,7 +284,9 @@ test("stopping a real long-running program reports requested and observed termin
     await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-termination")).toContainText("Observed: exited");
     await page.getByTestId("bottom-tab-run").click();
-    await expect(page.getByTestId("run-exit")).toHaveText(/^exit (unknown|-?\d+)$/);
+    await expect(page.getByTestId("run-exit")).toHaveText(
+      /^(exit (unknown|-?\d+)|signal SIG[A-Z]+)$/,
+    );
     await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-log")).toContainText("long-running");
     await page.getByTestId("bottom-tab-run").click();
@@ -290,6 +294,39 @@ test("stopping a real long-running program reports requested and observed termin
     await page.getByTestId("bottom-tab-run").click();
     await page.getByTestId("run-termination").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(screenshots, "12-run-cancelled.png") });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("an unhandled exception reports the crash signal and opens the stack frame", async ({
+  page,
+}) => {
+  const { base, copy } = tempCopy(
+    "Crash App run",
+    path.resolve(process.cwd(), "fixtures/CrashApp"),
+  );
+  try {
+    await openTrustedEvaluated(page, path.join(copy, "CrashApp.csproj"));
+    await restoreAndReload(page);
+    await build(page);
+
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("run-action")).toBeEnabled();
+    await page.getByTestId("run-action").click();
+    await page.getByTestId("bottom-tab-run").click();
+    const state = page.getByTestId("run-state");
+    await expect(state).toContainText("Run crashed", { timeout: 60_000 });
+    await expect(state).toContainText(/SIG[A-Z]+/);
+    await expect(state).toHaveClass(/\berror\b/);
+    await expect(page.getByTestId("run-exit")).toContainText("signal SIG");
+
+    const frame = page.getByTestId("run-log-frame-0");
+    await expect(frame).toBeVisible();
+    await expect(frame).toContainText("Program.cs");
+    await frame.click();
+    await expect(page.getByTestId("tab-Program.cs")).toBeVisible();
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", "1:0");
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
