@@ -51,6 +51,7 @@ import { StatusBar } from "./shell/StatusBar";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
 import { FindAction, type SearchTab } from "./actions/FindAction";
 import { FindInFiles } from "./FindInFiles";
+import { RecentFilesDialog } from "./RecentFilesDialog";
 import { KeymapDialog } from "./actions/KeymapDialog";
 import { SettingsDialog } from "./SettingsDialog";
 import {
@@ -347,6 +348,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [findActionOpen, setFindActionOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
   const [findInFiles, setFindInFiles] = useState<{ scope: string; nonce: number } | null>(null);
+  const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  const [recentFilesOpen, setRecentFilesOpen] = useState(false);
   const [keymapOpen, setKeymapOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsBaseline = useRef<AppSettings | null>(null);
@@ -503,6 +506,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const actionListHeading = useRef<HTMLHeadingElement | null>(null);
 
   const active = tabs.find((tab) => tab.path === activePath) ?? null;
+  useEffect(() => {
+    if (!activePath) return;
+    setRecentFiles((current) =>
+      [activePath, ...current.filter((path) => path !== activePath)].slice(0, 20),
+    );
+  }, [activePath]);
   const previewDocs = editPreview ? previewDocuments(editPreview) : [];
   const activeProject = active ? projectFor(active.path, projects) : undefined;
   const activeEvaluationProject = active
@@ -2151,6 +2160,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     closeTab(path);
   }
 
+  function switchTab(delta: number) {
+    if (tabs.length < 2) return;
+    const index = tabs.findIndex((tab) => tab.path === activePath);
+    if (index < 0) return;
+    const next = tabs[(index + delta + tabs.length) % tabs.length];
+    setActivePath(next.path);
+    void checkDisk(next.path);
+  }
+
   async function closeWorkspace() {
     try {
       const closed = await call<Snapshot>("workspace.close");
@@ -2607,6 +2625,29 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       disabledReason: active ? null : "Open a file to save.",
     }),
     define({
+      id: "editor.closeTab",
+      title: "Close Tab",
+      group: "Editor",
+      execute: () => {
+        if (activePath) requestCloseTab(activePath);
+      },
+      disabledReason: active ? null : "Open a file to close its tab.",
+    }),
+    define({
+      id: "editor.nextTab",
+      title: "Next Tab",
+      group: "Editor",
+      execute: () => switchTab(1),
+      disabledReason: tabs.length > 1 ? null : "Open at least two files to switch tabs.",
+    }),
+    define({
+      id: "editor.previousTab",
+      title: "Previous Tab",
+      group: "Editor",
+      execute: () => switchTab(-1),
+      disabledReason: tabs.length > 1 ? null : "Open at least two files to switch tabs.",
+    }),
+    define({
       id: "navigate.back",
       title: "Back",
       group: "Navigation",
@@ -2780,7 +2821,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "search.everywhere",
       title: "Search Everywhere",
       group: "Search",
-      execute: () => openSearch("last"),
+      execute: () => openSearch("all"),
     }),
     define({
       id: "search.file",
@@ -2799,6 +2840,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       title: "Find in Files",
       group: "Search",
       execute: () => openFindInFiles(""),
+    }),
+    define({
+      id: "search.recentFiles",
+      title: "Recent Files",
+      group: "Search",
+      execute: () => {
+        setFindActionOpen(false);
+        setRecentFilesOpen(true);
+      },
     }),
     define({
       id: "search.text",
@@ -3078,33 +3128,33 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const actionsRef = useRef<ResolvedAction[]>([]);
   actionsRef.current = resolvedActions;
   const lastShift = useRef<number | null>(null);
+  const shiftTap = useRef<"armed" | "invalid" | null>(null);
   const chordPending = useRef<number | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        shiftTap.current = null;
+        return;
+      }
       const target = event.target instanceof HTMLElement ? event.target : null;
       const inEditor = Boolean(target?.closest(".cm-editor"));
       const textField =
         Boolean(target?.closest("input, textarea, select")) ||
         Boolean(target?.isContentEditable && !inEditor);
-      if (event.key === "Shift" && !event.repeat) {
+      if (event.key === "Shift") {
         if (textField) {
           lastShift.current = null;
+          shiftTap.current = null;
           return;
         }
-        const now = performance.now();
-        if (lastShift.current !== null && now - lastShift.current <= 400) {
-          lastShift.current = null;
-          event.preventDefault();
-          event.stopPropagation();
-          openSearch("last");
-          return;
-        }
-        lastShift.current = now;
+        if (!event.repeat) shiftTap.current = "armed";
         return;
       }
+      // Another key during the beat makes it impure and forgets the previous completed tap.
+      if (shiftTap.current !== null) shiftTap.current = "invalid";
+      else lastShift.current = null;
+      if (event.defaultPrevented) return;
       if (textField) return;
       const profile = settings.keymap.profile;
       const pending = chordPending.current;
@@ -3135,8 +3185,33 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       // palette and menus keep it disabled.
       action.execute();
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Shift") return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const textField =
+        Boolean(target?.closest("input, textarea, select")) ||
+        Boolean(target?.isContentEditable && !target.closest(".cm-editor"));
+      const clean = shiftTap.current === "armed" && !textField;
+      shiftTap.current = null;
+      if (!clean) {
+        lastShift.current = null;
+        return;
+      }
+      const now = performance.now();
+      if (lastShift.current !== null && now - lastShift.current <= 400) {
+        lastShift.current = null;
+        event.preventDefault();
+        openSearch("all");
+        return;
+      }
+      lastShift.current = now;
+    };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
   }, [snapshot.app.platform, settings.keymap.profile]);
 
   function requestCloseWorkspace() {
@@ -4172,6 +4247,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   value={active.content}
                   path={active.path}
                   platform={snapshot.app.platform}
+                  profile={settings.keymap.profile}
                   revision={active.revision}
                   editor={settings.editor}
                   onChange={(value) => updateContent(active.path, value)}
@@ -4613,6 +4689,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             setFindInFiles(null);
             focusEditor();
             void navigateTo(path, { line, character });
+          }}
+        />
+      )}
+
+      {recentFilesOpen && (
+        <RecentFilesDialog
+          files={recentFiles}
+          onOpen={(path) => {
+            setRecentFilesOpen(false);
+            focusEditor();
+            void openUserFile(path);
+          }}
+          onClose={() => {
+            setRecentFilesOpen(false);
+            focusEditor();
           }}
         />
       )}

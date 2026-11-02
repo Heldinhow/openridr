@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
-import { indentWithTab } from "@codemirror/commands";
-import { EditorState, type Text } from "@codemirror/state";
+import { copyLineDown, deleteLine, indentWithTab } from "@codemirror/commands";
+import { Compartment, EditorState, Prec, RangeSet, type Text } from "@codemirror/state";
 import { Decoration, EditorView, GutterMarker, WidgetType, gutter, keymap } from "@codemirror/view";
-import { Compartment, RangeSet } from "@codemirror/state";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { gotoLine } from "@codemirror/search";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
-import type { EditorSettings } from "./actions/keymap";
+import type { EditorSettings, ProfileId } from "./actions/keymap";
 import {
   autocompletion,
   insertCompletionText,
@@ -70,6 +69,7 @@ type Props = {
   value: string;
   path: string;
   platform: string;
+  profile: ProfileId;
   revision: number;
   editor: EditorSettings;
   /** Diagnostics for this file: underline in the text, marker in the margin. */
@@ -138,6 +138,17 @@ function editorIndent(settings: EditorSettings) {
     EditorState.tabSize.of(settings.indentSize),
     indentUnit.of(settings.useTabs ? "\t" : " ".repeat(settings.indentSize)),
   ];
+}
+
+/** Rider-only editing keys; the IntelliJ profile keeps the CodeMirror defaults. */
+function profileKeymap(profile: ProfileId) {
+  if (profile !== "rider-macos") return [];
+  return Prec.high(
+    keymap.of([
+      { key: "Mod-d", preventDefault: true, run: copyLineDown },
+      { key: "Mod-Backspace", preventDefault: true, run: deleteLine },
+    ]),
+  );
 }
 
 class DebugMarker extends GutterMarker {
@@ -426,6 +437,7 @@ export function CodeEditor({
   value,
   path,
   platform,
+  profile,
   revision,
   editor,
   diagnostics = [],
@@ -475,6 +487,7 @@ export function CodeEditor({
   changedLinesRef.current = changedLines;
   const fontCompartment = useRef(new Compartment());
   const indentCompartment = useRef(new Compartment());
+  const profileCompartment = useRef(new Compartment());
   breakpointsRef.current = breakpoints;
   currentLineRef.current = currentLine;
   gutterActionsRef.current = gutterActions;
@@ -782,6 +795,7 @@ export function CodeEditor({
         theme,
         fontCompartment.current.of(editorTheme(editor)),
         indentCompartment.current.of(editorIndent(editor)),
+        profileCompartment.current.of(profileKeymap(profile)),
         syntaxHighlighting(syntaxColors),
         EditorView.contentAttributes.of({
           "aria-label": "Editor",
@@ -896,6 +910,12 @@ export function CodeEditor({
       ],
     });
   }, [editor.fontFamily, editor.fontSize, editor.indentSize, editor.useTabs]);
+
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: profileCompartment.current.reconfigure(profileKeymap(profile)),
+    });
+  }, [profile]);
 
   useEffect(() => {
     const instance = view.current;
