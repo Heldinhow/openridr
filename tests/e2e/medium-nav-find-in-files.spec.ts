@@ -73,6 +73,26 @@ test("the tree menu opens Find in Files with the clicked folder as scope", async
   }
 });
 
+test("the project menu scopes Find in Files to the project folder", async ({ page }) => {
+  await openTrusted(page);
+  await page.getByTestId("tree-expand-all").click();
+  await page.getByTestId("tree-project-OrderDesk.Core").click({ button: "right" });
+  await expect(page.getByTestId("tree-context-menu")).toBeVisible();
+  await page.getByTestId("tree-menu-edit").hover();
+  await page.getByTestId("tree-menu-find").click();
+
+  await expect(page.getByTestId("find-in-files-scope")).toContainText("src/OrderDesk.Core");
+  await page.getByTestId("find-in-files-input").fill("Order");
+
+  const paths = page.locator('[data-testid^="find-in-files-item-"] .action-group');
+  await expect(paths.filter({ hasText: "src/OrderDesk.Core/Order.cs" }).first()).toBeVisible();
+  const count = await paths.count();
+  expect(count).toBeGreaterThan(0);
+  for (let index = 0; index < count; index += 1) {
+    await expect(paths.nth(index)).toHaveText(/^src\/OrderDesk\.Core\//);
+  }
+});
+
 test("Match case reaches the host: ORDER matches off and does not match on", async ({ page }) => {
   await openTrusted(page);
   await page.keyboard.press("Meta+Shift+F");

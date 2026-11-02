@@ -2337,7 +2337,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       onRun: () => config && requestRun(config),
       onDebug: () => config && void prepareAndDebug(config),
       onEditFile: () => void openUserFile(target.path),
-      onFind: () => openFindInFiles(target.path),
+      onFind: () => openFindInFiles(dirOf(target.path)),
       onCopyPath: () => void copyPath(absolutePath(target.path)),
       onProperties: () => {
         setSelectedProjectPath(target.path);
