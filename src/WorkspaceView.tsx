@@ -532,11 +532,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const workspaceIdRef = useRef(workspace.id);
   workspaceIdRef.current = workspace.id;
   const analysisAutoStarted = useRef<string | null>(null);
-  async function startAnalysis() {
+  async function startAnalysis(automatic = false) {
     try {
       onSnapshot(await call<Snapshot>("lsp.start"));
     } catch (error) {
-      setMessage({ tone: "error", text: `Analysis could not start: ${messageOf(error)}` });
+      // The host has the last word on preconditions (e.g. stale restore assets); an automatic
+      // attempt stays quiet and leaves the visible Start button, a click reports the reason.
+      if (!automatic) setMessage({ tone: "error", text: `Analysis could not start: ${messageOf(error)}` });
     }
   }
   useEffect(() => {
@@ -547,7 +549,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     const boundary = `${workspace.id}:${snapshot.contextId}:${restore.revision}`;
     if (analysisAutoStarted.current === boundary) return;
     analysisAutoStarted.current = boundary;
-    void startAnalysis();
+    void startAnalysis(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot, workspace.id]);
   const toolState = snapshot.tools["csharp-ls"].state;
