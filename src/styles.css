@@ -574,7 +574,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   height: 100%;
   display: grid;
   grid-template-columns: 34px var(--sidebar-width, 280px) 4px minmax(0, 1fr) var(--tools-width, 0px) 34px;
-  grid-template-rows: 52px auto minmax(0, 1fr) 4px var(--output-height, 220px) 28px;
+  grid-template-rows: 52px 0 minmax(0, 1fr) 4px var(--output-height, 220px) 28px;
   overflow: hidden;
   position: relative;
 }
@@ -584,11 +584,11 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 @media (min-width: 1300px) {
   .workspace-view.tools-open:has(.analysis-plan[open]) { --tools-width: 640px; }
 }
-/* Ticket 32: a docked preview takes height from the bottom tool window (tabs stay visible) instead of being clipped. */
-.workspace-view:not(.bottom-closed):has(.editor-popup) { grid-template-rows: 52px auto minmax(0, 1fr) 4px minmax(0, min(var(--output-height, 220px), 96px)) 28px; }
-.workspace-view.bottom-closed { grid-template-rows: 52px auto minmax(0, 1fr) 0 0 28px; }
+/* Ticket 06: a docked preview stays inside the editor; the bottom tool window keeps --output-height. */
+.workspace-view.bottom-closed { grid-template-rows: 52px 0 minmax(0, 1fr) 0 0 28px; }
 .workspace-view > .toolbar { grid-column: 1 / -1; grid-row: 1; position: relative; z-index: 30; }
-.workspace-view > .workspace-notices { grid-column: 4; grid-row: 2; max-height: 30vh; }
+/* Notifications overlay the editor top instead of taking grid height and moving tabs/editor. */
+.workspace-view > .workspace-notices { position: absolute; top: 100px; right: calc(34px + var(--tools-width, 0px) + 12px); width: min(520px, calc(100vw - 120px)); max-height: 30vh; overflow-y: auto; z-index: 20; }
 .workspace-view > .toolrail { grid-column: 1; grid-row: 2 / 6; }
 .workspace-view .side { grid-column: 2; grid-row: 2 / 6; }
 .workspace-view .editor-pane { grid-column: 4; grid-row: 3; overflow: hidden; }
@@ -2728,7 +2728,7 @@ label.run-config-field > :not(span:first-child):not(input):not(select):not(texta
 
 
 .workspace-view > .toolrail-right { grid-column: 6; grid-row: 2 / 6; }
-.workspace-view > .tools-drawer { grid-column: 5; grid-row: 2 / 6; min-width: 0; overflow: auto; background: var(--panel); border-left: 1px solid var(--line); }
+.workspace-view > .tools-drawer { grid-column: 5; grid-row: 2 / 6; min-width: 0; overflow-y: auto; overflow-x: hidden; background: var(--panel); border-left: 1px solid var(--line); }
 .tools-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; position: sticky; top: 0; background: var(--panel); z-index: 1; }
 .tools-drawer-head button { border: 0; background: transparent; }
 .toolrail-right .toolband-button { font-size: 11px; font-weight: 600; }
@@ -2775,7 +2775,11 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .side .eval-controls button { min-height: 22px; padding: 0 6px; font-size: 11px; background: transparent; border-color: transparent; color: var(--muted); }
 
 /* Tools window (restore, adapter, installer, LSP, processes) lives in the bottom panel, not over the editor. */
-.workspace-tools-body { display: grid; gap: 8px; padding: 8px 12px; align-content: start; }
+.workspace-tools-body { display: grid; gap: 8px; padding: 8px 12px; align-content: start; min-width: 0; }
+/* Ticket 06: long commands, paths and URLs wrap inside the drawer; no horizontal scroll. */
+.workspace-tools-body > * { min-width: 0; }
+.tools-drawer code, .tools-drawer pre, .tools-drawer dd, .tools-drawer p, .tools-drawer summary { overflow-wrap: anywhere; }
+.tools-drawer pre { white-space: pre-wrap; }
 
 /* Run tool window: output first, the run head stays on one line. */
 .run-window { display: grid; gap: 6px; padding: 8px; align-content: start; min-height: 0; }

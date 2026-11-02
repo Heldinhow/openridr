@@ -7,12 +7,13 @@ test("empty editor scrolls locally in a constrained workspace (isolated DOM)", a
   await page.setContent(`
     <div class="workspace-view" style="--output-height:294px">
       <header class="toolbar">Workspace</header>
-      <div class="workspace-notices" style="height:168px">Workspace tools expanded</div>
+      <div class="workspace-notices">Workspace tools expanded</div>
       <section class="editor-pane" aria-label="Editor">
         <div class="empty-editor">
           <svg class="icon"></svg><h1>Your code, in focus.</h1>
           <p class="muted">Open a file from the solution explorer to start editing.</p>
           <dl class="shortcut-list">
+            <dt>Search Everywhere</dt><dd><kbd>Shift Shift</kbd></dd>
             <dt>Save file</dt><dd><kbd>⌘S</kbd></dd>
             <dt>Go to definition</dt><dd><kbd>⌘B</kbd></dd>
             <dt>Rename symbol</dt><dd><kbd>Shift+F6</kbd></dd>
@@ -25,12 +26,13 @@ test("empty editor scrolls locally in a constrained workspace (isolated DOM)", a
     </div>`);
   await page.addStyleTag({ content: fs.readFileSync(path.resolve("src/styles.css"), "utf8") });
   const pane = page.getByRole("region", { name: "Editor" });
-  // 700 - 52px bar - 168px notices - 294px output - 4px splitter - 28px status (ui-shape tokens).
-  expect((await pane.boundingBox())!.height).toBe(154);
+  // 700 - 52px bar - 0 notices (overlay) - 294px output - 4px splitter - 28px status.
+  expect((await pane.boundingBox())!.height).toBe(322);
   const empty = page.locator(".empty-editor");
   await expect(empty).toHaveCSS("overflow-y", "auto");
   expect(await empty.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
-  await empty.locator(".hint").scrollIntoViewIfNeeded();
+  // The overflow is small at 322px: scroll the editor itself and prove the page stays put.
+  await empty.evaluate((element) => element.scrollTo(0, element.scrollHeight));
   expect(await empty.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   const hint = (await empty.locator(".hint").boundingBox())!;
   const bounds = (await pane.boundingBox())!;
