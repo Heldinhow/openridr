@@ -1,17 +1,20 @@
-# OpenRidr 0.3.0-alpha.3 (pré-release)
+# OpenRidr 0.3.0-alpha.4 (pré-release)
 
-Terceira alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/TS), tema escuro.
+Quarta alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/TS), tema escuro.
 
 ## Novidades
 
-- **Debug em um clique, sem pergunta.** Clicar em Debug (ou usar o atalho) ativa sozinho a flag experimental do netcoredbg no macOS Apple Silicon, reusa a versão aprovada **3.2.0-1092** quando ela já existe e só instala se faltar. Em seguida o host builda quando não há build utilizável e inicia a sessão. O antigo diálogo "Enable the experimental debugger?" deixou de existir.
-- **O status experimental continua visível, sem bloquear.** O painel Debug mostra uma nota discreta (`dap-experimental-note`) lembrando que o build arm64 do netcoredbg é experimental e com suporte da comunidade; nenhum modal interrompe o fluxo.
-- **Confiar direto do aviso de bloqueio.** Com Build, Run ou Debug bloqueados por Restricted mode, o próprio motivo mostra **Trust this project**: um clique concede e memoriza a confiança para o projeto, sem passar pela caixa de seleção do popover da barra de status. O indicador de confiança continua apenas na barra de status e no menu "⋯" dos recentes.
-- **Restore automático ao confiar.** O workspace Trusted restaura sozinho uma vez ao abrir/confiar; depois disso o restore do host continua explícito e o Debug builda implicitamente quando não há build atual.
+- **Solution explorer no estilo Rider.** Uma linha por projeto/pasta/arquivo (`C#`, `· console · net8.0`), contagem `· N projects` na solução e nas pastas, pastas de código aninhadas e **Dependencies** expansível com projetos e pacotes. A barra ganhou Show All Files, busca na árvore, locate, expandir/recolher, menu `⋮` e minimizar. Botão direito em projeto/arquivo/pasta abre menu com Edit, Reload Project, Manage NuGet, Find in Files, Copy Path, Properties e Build/Run/Debug usando o projeto clicado; em Restricted, o menu oferece Trust. Show All Files lista `bin`/`obj` e dotfiles como `no index` (não lê `.gitignore`).
+- **Os 4 achados altos do QA de fluxo.** A análise (csharp-ls) inicia sozinha ao confiar no workspace — com o plano de instalação quando o launcher ainda falta — e volta a iniciar em sessões seguintes. Erros de compilação aparecem sublinhados no editor e na margem, além do Problems. A flag `*` de "modified" volta ao limpo depois de undo quando o conteúdo é igual ao do disco. Projeto com avaliação falha deixa de esconder os arquivos na árvore e publica o erro em Problems.
+- **Debug sem perder a linha.** O editor rola até a linha de execução atual na parada, no step e na exceção, sem roubar o foco. O keymap global passou a ser capturado antes do editor: `⌘U`+letra (testes), `⇧⌘K` (Push) e `⌃D` (Debug) funcionam com o cursor no código e não alteram mais o buffer.
+- **Mais de um console na solução.** O startup project é escolhido direto na toolbar e a escolha é lembrada por solução. **Build Solution (`⇧⌘F9`)** compila o `.sln` inteiro, publica problemas de todos os projetos e o build resultante é reutilizado por Run/Debug; `⌘F9` continua sendo o build do startup project.
+- **Navegação e busca.** **Find in Files (`⇧⌘F`)** no workspace ou no escopo do arquivo/pasta/projeto clicado, com Match case, resultados agrupados por arquivo e uma entrada por linha. **Go to Line (`⌘G`/`⌘L`)** funciona dentro e fora do editor. Back/Forward com histórico real (`⌘[`/`⌘]` e `⌘⌥←`/`⌘⌥→`), fechar aba (`⌘W`), próxima/anterior (`⇧⌘]`/`⇧⌘[`, `⌃Tab`/`⌃⇧Tab`), **Recent Files (`⌘E`)** e Go to File (`⇧⌘O`). O perfil **Rider (macOS)** ganhou `⌘D` (duplicar linha) e `⌘⌫` (apagar linha); `⌘T` deixou de ser Search Everywhere nesse perfil. O duplo Shift só abre o Search Everywhere com duas batidas limpas; Push/Update por atalho focam o diálogo e fecham com Esc; Search Everywhere não duplica linhas, prioriza nome exato e reabre com a consulta selecionada.
+- **Debug, run e build mais legíveis.** Crash por sinal aparece como **Run crashed · SIGABRT**, em vermelho, com a pilha do log clicável. Erro de compilação da descoberta de testes vai para o Problems. Passar o mouse numa variável durante a pausa mostra o valor. Clicar num frame reutiliza a aba do arquivo em vez de abrir duplicatas. Build de biblioteca e projeto de testes funciona pelo menu da árvore; Run/Debug continuam apenas para consoles. Debug de teste segue indisponível, agora com mensagem explícita ("needs a test-host attach the debugger does not support yet").
+- **Editor e estado.** Reabrir a solução restaura abas, arquivo ativo, cursor e breakpoints (breakpoints só com trust). Duplo clique na árvore abre uma única aba. Buffer limpo recarrega do disco quando o arquivo muda por fora; buffer com edições continua mostrando conflito e nunca é sobrescrito. Janela pequena mantém ao menos 180 px de editor. Problems abre com 320 px e contagens consistentes com a barra de status. NuGet mostra a versão resolvida em Current. Projeto com SDK ausente explica o que instalar, oferece **Redetect SDKs**, o link oficial e Open `global.json` — nada é instalado automaticamente. A aba Terminal recebe foco ao abrir.
 
 ## Instalar
 
-1. Baixe `OpenRidr_0.3.0-alpha.3_aarch64.dmg`, abra e arraste **OpenRidr** para **Applications**.
+1. Baixe `OpenRidr_0.3.0-alpha.4_aarch64.dmg`, abra e arraste **OpenRidr** para **Applications**.
 2. O app tem assinatura **ad-hoc** (sem Apple Developer ID, sem notarização). O Gatekeeper vai bloquear a primeira abertura:
    - botão direito em OpenRidr.app > **Abrir** > **Abrir**; ou
    - `xattr -dr com.apple.quarantine /Applications/OpenRidr.app`
@@ -23,20 +26,18 @@ Terceira alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + Reac
 
 ## Limitações conhecidas
 
-Não verificadas (sem evidência no ambiente de build):
-
-- Janela Tauri real em uso prolongado: o DMG foi apenas montado e o app aberto por segundos; os testes E2E rodam contra a ponte HTTP de dev, não contra a janela nativa.
-- ⌘O nativo (só Ctrl+O na ponte).
-- Leitor de tela (VoiceOver/NVDA).
-- Windows e macOS Intel.
-
-Funcionalidade ausente: **New** e **Clone** ainda não existem; abra projetos existentes (`.sln`, `.csproj` ou pasta).
+- **Debug de teste não está implementado.** Testes rodam via `dotnet test` num testhost sem pid exposto, e o host só faz `launch` de assembly console; o produto informa a lacuna e não habilita um botão falso.
+- **Format e Organize Usings não existem.** O host não expõe `textDocument/formatting` nem `source.organizeImports` do csharp-ls.
+- **O app Tauri real foi pouco testado.** O DMG é montado e aberto por segundos; a suíte E2E roda no Chrome contra a ponte HTTP de dev, não na janela WKWebView nativa. Persistência entre reinícios reais do app, ⌘O nativo (só Ctrl+O na ponte) e leitor de tela (VoiceOver) não foram verificados.
+- **New** e **Clone** ainda não existem; abra projetos existentes (`.sln`, `.csproj` ou pasta).
+- Find in Files não tem regex nem máscara de arquivo; Recent Files e o histórico Back/Forward são da sessão (não persistem). Condições de breakpoint não são restauradas, só a linha. Restaurar sessão não recupera conteúdo não salvo.
+- Com avaliação de projeto falha, o Build continua desabilitado (a árvore e o Problems foram corrigidos).
+- Windows e macOS Intel não são suportados nem verificados.
 
 ## Verificação
 
 ```
-7cc8bd3d6a9bc22ef99d0fee74f1954c380cc99192383910b64ff64256ac61c2  OpenRidr_0.3.0-alpha.3_aarch64.dmg
+PENDENTE  OpenRidr_0.3.0-alpha.4_aarch64.dmg
 ```
 
-Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: 4,86 MiB (5.096.080 bytes). Verificado do DMG
-montado: `CFBundleShortVersionString` 0.3.0-alpha.3, binário Mach-O arm64 e assinatura ad-hoc.
+Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: PENDENTE.
