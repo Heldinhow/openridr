@@ -50,6 +50,8 @@ import { MidText } from "./shell/MidText";
 import { StatusBar } from "./shell/StatusBar";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
 import { FindAction, type SearchTab } from "./actions/FindAction";
+import { FindInFiles } from "./FindInFiles";
+import { RecentFilesDialog } from "./RecentFilesDialog";
 import { KeymapDialog } from "./actions/KeymapDialog";
 import { SettingsDialog } from "./SettingsDialog";
 import {
@@ -185,6 +187,8 @@ type Confirmation =
   | { kind: "tab"; path: string }
   | { kind: "workspace" }
   | { kind: "window" };
+
+type NavEntry = { path: string; line: number; character: number };
 
 type Props = {
   snapshot: Snapshot;
@@ -343,6 +347,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [findActionOpen, setFindActionOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
+  const [searchSeq, setSearchSeq] = useState(0);
+  const [findInFiles, setFindInFiles] = useState<{ scope: string; nonce: number } | null>(null);
+  const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  const [recentFilesOpen, setRecentFilesOpen] = useState(false);
   const [keymapOpen, setKeymapOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsBaseline = useRef<AppSettings | null>(null);
@@ -451,6 +459,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
+  const navHistory = useRef<{ entries: NavEntry[]; index: number }>({ entries: [], index: -1 });
+  const [navEnabled, setNavEnabled] = useState({ back: false, forward: false });
+  const [gotoLineRequest, setGotoLineRequest] = useState(0);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activePathRef = useRef(activePath);
@@ -496,6 +507,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const actionListHeading = useRef<HTMLHeadingElement | null>(null);
 
   const active = tabs.find((tab) => tab.path === activePath) ?? null;
+  useEffect(() => {
+    if (!activePath) return;
+    setRecentFiles((current) =>
+      [activePath, ...current.filter((path) => path !== activePath)].slice(0, 20),
+    );
+  }, [activePath]);
   const previewDocs = editPreview ? previewDocuments(editPreview) : [];
   const activeProject = active ? projectFor(active.path, projects) : undefined;
   const activeEvaluationProject = active
@@ -1183,13 +1200,69 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  async function navigateTo(path: string, position: { line: number; character: number }) {
+  function navEntry(): NavEntry | null {
+    const path = activePathRef.current;
+    return path
+      ? { path, line: cursorRef.current.line, character: cursorRef.current.character }
+      : null;
+  }
+
+  function syncNavEnabled() {
+    const { entries, index } = navHistory.current;
+    setNavEnabled({
+      back: index > 0,
+      forward: index >= 0 && index < entries.length - 1,
+    });
+  }
+
+  /** A navigation starts at the first location only; the destination is the new history tip. */
+  function recordNavigation(from: NavEntry | null, to: NavEntry) {
+    if (!from) return;
+    const history = navHistory.current;
+    const entries = history.entries.slice(0, history.index + 1);
+    if (entries.length === 0) entries.push(from);
+    entries.push(to);
+    const limited = entries.length > 100 ? entries.slice(entries.length - 100) : entries;
+    navHistory.current = { entries: limited, index: limited.length - 1 };
+    syncNavEnabled();
+  }
+
+  async function openUserFile(path: string) {
+    if (path === activePathRef.current) {
+      await openFile(path);
+      return;
+    }
+    const from = navEntry();
     if (!(await openFile(path))) return;
+    recordNavigation(from, { path, line: 0, character: 0 });
+  }
+
+  async function navigateTo(path: string, position: { line: number; character: number }) {
+    const from = navEntry();
+    if (!(await openFile(path))) return;
+    recordNavigation(from, { path, ...position });
     navigationSeq.current += 1;
     setEditorTarget({
       path,
       line: position.line,
       character: position.character,
+      nonce: navigationSeq.current,
+    });
+  }
+
+  async function travel(delta: number) {
+    const history = navHistory.current;
+    const next = history.index + delta;
+    const entry = history.entries[next];
+    if (!entry) return;
+    if (!(await openFile(entry.path))) return;
+    navHistory.current = { ...history, index: next };
+    syncNavEnabled();
+    navigationSeq.current += 1;
+    setEditorTarget({
+      path: entry.path,
+      line: entry.line,
+      character: entry.character,
       nonce: navigationSeq.current,
     });
   }
@@ -2088,6 +2161,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     closeTab(path);
   }
 
+  function switchTab(delta: number) {
+    if (tabs.length < 2) return;
+    const index = tabs.findIndex((tab) => tab.path === activePath);
+    if (index < 0) return;
+    const next = tabs[(index + delta + tabs.length) % tabs.length];
+    setActivePath(next.path);
+    void checkDisk(next.path);
+  }
+
   async function closeWorkspace() {
     try {
       const closed = await call<Snapshot>("workspace.close");
@@ -2157,7 +2239,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   function openGlobalJson() {
-    void openFile(projectSdk.globalJsonPath ?? "global.json");
+    void openUserFile(projectSdk.globalJsonPath ?? "global.json");
   }
 
   // One grant path for every "Trust this project" control: the decision is remembered, so the
@@ -2255,8 +2337,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       onBuild: () => config && requestBuild(config),
       onRun: () => config && requestRun(config),
       onDebug: () => config && void prepareAndDebug(config),
-      onEditFile: () => void openFile(target.path),
-      onFind: () => openSearch("text"),
+      onEditFile: () => void openUserFile(target.path),
+      onFind: () => openFindInFiles(dirOf(target.path)),
       onCopyPath: () => void copyPath(absolutePath(target.path)),
       onProperties: () => {
         setSelectedProjectPath(target.path);
@@ -2269,10 +2351,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     if (target.kind === "project") return projectMenu(target);
     const path = target.kind === "root" ? "" : target.path;
     return fileMenuItems({
-      open: target.kind === "file" ? () => void openFile(target.path) : undefined,
+      open: target.kind === "file" ? () => void openUserFile(target.path) : undefined,
       reload: target.kind === "root" ? { reason: reloadReason, run: () => void runEvaluation() } : undefined,
       onCopyPath: () => void copyPath(absolutePath(path)),
-      onFind: () => openSearch("text"),
+      onFind: () => openFindInFiles(path),
     });
   }
 
@@ -2433,7 +2515,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   function openSearch(tab: SearchTab | "last") {
     setKeymapOpen(false);
     setSearchTab(tab);
+    // FindAction reads initialTab only on mount; a new key applies the requested tab even
+    // when the palette is already open on another tab.
+    setSearchSeq((current) => current + 1);
     setFindActionOpen(true);
+  }
+
+  function openFindInFiles(scope: string) {
+    setKeymapOpen(false);
+    setFindActionOpen(false);
+    setFindInFiles((current) => ({ scope, nonce: (current?.nonce ?? 0) + 1 }));
   }
 
   function openFindAction() {
@@ -2453,7 +2544,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   function openSearchFile(path: string) {
     setFindActionOpen(false);
     focusEditor();
-    void openFile(path);
+    void openUserFile(path);
   }
 
   function openSearchLocation(path: string, line: number, character: number) {
@@ -2536,6 +2627,43 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       group: "File",
       execute: () => void save(),
       disabledReason: active ? null : "Open a file to save.",
+    }),
+    define({
+      id: "editor.closeTab",
+      title: "Close Tab",
+      group: "Editor",
+      execute: () => {
+        if (activePath) requestCloseTab(activePath);
+      },
+      disabledReason: active ? null : "Open a file to close its tab.",
+    }),
+    define({
+      id: "editor.nextTab",
+      title: "Next Tab",
+      group: "Editor",
+      execute: () => switchTab(1),
+      disabledReason: tabs.length > 1 ? null : "Open at least two files to switch tabs.",
+    }),
+    define({
+      id: "editor.previousTab",
+      title: "Previous Tab",
+      group: "Editor",
+      execute: () => switchTab(-1),
+      disabledReason: tabs.length > 1 ? null : "Open at least two files to switch tabs.",
+    }),
+    define({
+      id: "navigate.back",
+      title: "Back",
+      group: "Navigation",
+      execute: () => void travel(-1),
+      disabledReason: navEnabled.back ? null : "No earlier location in history.",
+    }),
+    define({
+      id: "navigate.forward",
+      title: "Forward",
+      group: "Navigation",
+      execute: () => void travel(1),
+      disabledReason: navEnabled.forward ? null : "No later location in history.",
     }),
     define({
       id: "toolWindow.hideActive",
@@ -2697,7 +2825,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "search.everywhere",
       title: "Search Everywhere",
       group: "Search",
-      execute: () => openSearch("last"),
+      execute: () => openSearch("all"),
     }),
     define({
       id: "search.file",
@@ -2712,6 +2840,23 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       execute: () => openSearch("symbols"),
     }),
     define({
+      id: "search.findInFiles",
+      title: "Find in Files",
+      group: "Search",
+      execute: () => openFindInFiles(""),
+    }),
+    define({
+      id: "search.recentFiles",
+      title: "Recent Files",
+      group: "Search",
+      execute: () => {
+        if (recentFiles.length === 0) return;
+        setFindActionOpen(false);
+        setRecentFilesOpen(true);
+      },
+      disabledReason: recentFiles.length === 0 ? "No recent files yet." : null,
+    }),
+    define({
       id: "search.text",
       title: "Find in Path",
       group: "Search",
@@ -2721,10 +2866,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "search.line",
       title: "Go to Line",
       group: "Search",
-      // ⌘G stays CodeMirror's find-next until the real dialog lands (SPEC-DEVFLOW-TOP4, finding 3).
-      editor: false,
-      execute: () => undefined,
-      disabledReason: "Go to Line arrives in F3.",
+      execute: () => {
+        focusEditor();
+        setGotoLineRequest((current) => current + 1);
+      },
+      disabledReason: active ? null : "Open a file to go to a line.",
     }),
     define({
       id: "tests.runAll",
@@ -2988,33 +3134,33 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const actionsRef = useRef<ResolvedAction[]>([]);
   actionsRef.current = resolvedActions;
   const lastShift = useRef<number | null>(null);
+  const shiftTap = useRef<"armed" | "invalid" | null>(null);
   const chordPending = useRef<number | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        shiftTap.current = null;
+        return;
+      }
       const target = event.target instanceof HTMLElement ? event.target : null;
       const inEditor = Boolean(target?.closest(".cm-editor"));
       const textField =
         Boolean(target?.closest("input, textarea, select")) ||
         Boolean(target?.isContentEditable && !inEditor);
-      if (event.key === "Shift" && !event.repeat) {
+      if (event.key === "Shift") {
         if (textField) {
           lastShift.current = null;
+          shiftTap.current = null;
           return;
         }
-        const now = performance.now();
-        if (lastShift.current !== null && now - lastShift.current <= 400) {
-          lastShift.current = null;
-          event.preventDefault();
-          event.stopPropagation();
-          openSearch("last");
-          return;
-        }
-        lastShift.current = now;
+        if (!event.repeat) shiftTap.current = "armed";
         return;
       }
+      // Another key during the beat makes it impure and forgets the previous completed tap.
+      if (shiftTap.current !== null) shiftTap.current = "invalid";
+      else lastShift.current = null;
+      if (event.defaultPrevented) return;
       if (textField) return;
       const profile = settings.keymap.profile;
       const pending = chordPending.current;
@@ -3045,8 +3191,33 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       // palette and menus keep it disabled.
       action.execute();
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Shift") return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const textField =
+        Boolean(target?.closest("input, textarea, select")) ||
+        Boolean(target?.isContentEditable && !target.closest(".cm-editor"));
+      const clean = shiftTap.current === "armed" && !textField;
+      shiftTap.current = null;
+      if (!clean) {
+        lastShift.current = null;
+        return;
+      }
+      const now = performance.now();
+      if (lastShift.current !== null && now - lastShift.current <= 400) {
+        lastShift.current = null;
+        event.preventDefault();
+        openSearch("all");
+        return;
+      }
+      lastShift.current = now;
+    };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
   }, [snapshot.app.platform, settings.keymap.profile]);
 
   function requestCloseWorkspace() {
@@ -3326,7 +3497,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             buildObsolete={buildObsolete}
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
-            onOpen={(path) => void openFile(path)}
+            onOpen={(path) => void openUserFile(path)}
           />
         );
       case "debug":
@@ -3483,6 +3654,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const renameAction = requireAction(actionById, "code.rename");
   const contextActionsAction = requireAction(actionById, "code.contextActions");
   const saveAction = requireAction(actionById, "file.save");
+  const backAction = requireAction(actionById, "navigate.back");
+  const forwardAction = requireAction(actionById, "navigate.forward");
 
   return (
     <main
@@ -3496,8 +3669,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       } as CSSProperties}
     >
       <div className="toolbar">
-        <button type="button" className="toolbar-icon-button nav-button" disabled aria-label="Back" title="Back"><Icon name="back" /></button>
-        <button type="button" className="toolbar-icon-button nav-button" disabled aria-label="Forward" title="Forward"><Icon name="forward" /></button>
+        <button type="button" className="toolbar-icon-button nav-button" data-testid="nav-back" disabled={backAction.disabledReason !== null} aria-label="Back" title={backAction.disabledReason ?? `Back (${backAction.shortcutTexts.join(" or ")})`} onClick={backAction.execute}><Icon name="back" /></button>
+        <button type="button" className="toolbar-icon-button nav-button" data-testid="nav-forward" disabled={forwardAction.disabledReason !== null} aria-label="Forward" title={forwardAction.disabledReason ?? `Forward (${forwardAction.shortcutTexts.join(" or ")})`} onClick={forwardAction.execute}><Icon name="forward" /></button>
         <details className="toolbar-menu project-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
@@ -3674,19 +3847,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             </button>
           </div>
         </details>
-        <span className="toolbar-disabled" title="Search Everywhere arrives in F3.">
-          <button
-            type="button"
-            className="toolbar-icon-button"
-            data-testid="toolbar-search"
-            disabled={Boolean(searchAction.disabledReason)}
-            aria-label={searchAction.title}
-            title={searchAction.disabledReason ?? searchAction.shortcutTexts.join(" or ")}
-            onClick={searchAction.execute}
-          >
-            <Icon name="search" />
-          </button>
-        </span>
+        <button
+          type="button"
+          className="toolbar-icon-button"
+          data-testid="toolbar-search"
+          disabled={Boolean(searchAction.disabledReason)}
+          aria-label={searchAction.title}
+          title={searchAction.disabledReason ?? (searchAction.shortcutTexts.join(" or ") || "Double Shift")}
+          onClick={searchAction.execute}
+        >
+          <Icon name="search" />
+        </button>
         <button
           type="button"
           className="toolbar-icon-button"
@@ -3888,7 +4059,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             selectedProjectPath={selectedProjectPath}
             onSelectProject={setSelectedProjectPath}
             activePath={activePath}
-            onOpenFile={(path) => void openFile(path)}
+            onOpenFile={(path) => void openUserFile(path)}
             restoreIncomplete={(path) => showsEvaluatedTree && restore.revision > 0 && restoreProjectState.get(path) !== "restored"}
             showAll={showAllFiles}
             filter={treeFilter}
@@ -4080,6 +4251,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   value={active.content}
                   path={active.path}
                   platform={snapshot.app.platform}
+                  profile={settings.keymap.profile}
                   revision={active.revision}
                   editor={settings.editor}
                   onChange={(value) => updateContent(active.path, value)}
@@ -4109,6 +4281,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   changedLines={changedLines}
                   renameRequest={renameRequest}
                   definitionRequest={definitionRequest}
+                  gotoLineRequest={gotoLineRequest}
                   onCursor={noteCursor}
                   diagnostics={activeDiagnostics}
                   breakpoints={activeBreakpoints}
@@ -4452,7 +4625,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 <div className="actions">
                   <button
                     data-testid="eval-open-project"
-                    onClick={() => void openFile(selectedProject.path)}
+                    onClick={() => void openUserFile(selectedProject.path)}
                   >
                     Open project file
                   </button>
@@ -4493,6 +4666,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
       {findActionOpen && (
         <FindAction
+          key={`${searchTab}:${searchSeq}`}
           actions={resolvedActions}
           platform={snapshot.app.platform}
           profile={settings.keymap.profile}
@@ -4505,6 +4679,37 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onOpenFile={openSearchFile}
           onNavigate={openSearchLocation}
           onClose={closeSearch}
+        />
+      )}
+
+      {findInFiles && (
+        <FindInFiles
+          key={findInFiles.nonce}
+          scope={findInFiles.scope}
+          onClose={() => {
+            setFindInFiles(null);
+            focusEditor();
+          }}
+          onNavigate={(path, line, character) => {
+            setFindInFiles(null);
+            focusEditor();
+            void navigateTo(path, { line, character });
+          }}
+        />
+      )}
+
+      {recentFilesOpen && (
+        <RecentFilesDialog
+          files={recentFiles}
+          onOpen={(path) => {
+            setRecentFilesOpen(false);
+            focusEditor();
+            void openUserFile(path);
+          }}
+          onClose={() => {
+            setRecentFilesOpen(false);
+            focusEditor();
+          }}
         />
       )}
 

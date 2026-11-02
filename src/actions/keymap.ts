@@ -130,6 +130,15 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
   "view.findAction": both([shortcut("a", { primary: true, shift: true })]),
   "settings.open": both([shortcut(",", { primary: true })]),
   "file.save": both([shortcut("s", { primary: true })]),
+  "editor.closeTab": both([shortcut("w", { primary: true })]),
+  "editor.nextTab": both([
+    shortcut("]", { primary: true, shift: true }),
+    shortcut("tab", { control: true }),
+  ]),
+  "editor.previousTab": both([
+    shortcut("[", { primary: true, shift: true }),
+    shortcut("tab", { control: true, shift: true }),
+  ]),
   "toolWindow.hideActive": both([shortcut("escape", { shift: true })]),
   "build.start": both([shortcut("f9", { primary: true })]),
   "build.solution": both([shortcut("f9", { primary: true, shift: true })]),
@@ -172,24 +181,42 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
   "code.contextActions": both([shortcut("enter", { alt: true })]),
   "code.rename": both([shortcut("f6", { shift: true })]),
   "search.everywhere": {
-    "rider-macos": binding([shortcut("t", { primary: true })]),
+    "rider-macos": binding([]),
     intellij: binding([]),
   },
   "search.file": {
-    "rider-macos": binding([shortcut("t", { primary: true, shift: true })]),
+    "rider-macos": binding([shortcut("o", { primary: true, shift: true })]),
     intellij: binding([shortcut("o", { primary: true })]),
   },
+  "search.recentFiles": both([shortcut("e", { primary: true })]),
   "search.symbol": {
     "rider-macos": binding([shortcut("t", { primary: true, alt: true, shift: true })]),
     intellij: binding([shortcut("o", { primary: true, alt: true })]),
   },
   "search.text": {
     "rider-macos": binding([shortcut("e", { primary: true, alt: true, shift: true })]),
-    intellij: binding([shortcut("f", { primary: true, shift: true })]),
+    // Find in Files owns ⇧⌘F in the IntelliJ profile; Find in Path stays palette-only.
+    intellij: binding([]),
   },
+  "search.findInFiles": both([shortcut("f", { primary: true, shift: true })]),
   "search.line": {
-    "rider-macos": binding([shortcut("g", { primary: true })]),
+    "rider-macos": binding([shortcut("g", { primary: true }), shortcut("l", { primary: true })]),
     intellij: binding([shortcut("l", { primary: true })]),
+  },
+  // Rider history navigation; the IntelliJ profile keeps its own table untouched.
+  "navigate.back": {
+    "rider-macos": binding([
+      shortcut("[", { primary: true }),
+      shortcut("arrowleft", { primary: true, alt: true }),
+    ]),
+    intellij: binding([]),
+  },
+  "navigate.forward": {
+    "rider-macos": binding([
+      shortcut("]", { primary: true }),
+      shortcut("arrowright", { primary: true, alt: true }),
+    ]),
+    intellij: binding([]),
   },
   // Rider uses the approved two-key chords (⌘U then the key); only the IntelliJ profile has
   // single keys for the same actions. Chords are not remappable yet.

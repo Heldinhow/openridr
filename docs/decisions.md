@@ -490,3 +490,10 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Startup project persistido por solução.** O store de run configurations ganha `startupProject` (opcional) e `runConfigs.setStartup`; `runConfigs.write` preserva o campo quando não o recebe. Com 2+ consoles a UI não bloqueia a toolbar: usa a escolha salva ou o primeiro candidato console. A escolha é uma preferência de execução, não uma alteração em arquivo de projeto; por isso vive no app home, como as run configurations.
 - **Build Solution separado do build do startup.** `build.solution` roda `dotnet build <sln> -c <config> --no-restore` e publica problemas de todos os projetos; `BuildView.solution` distingue esse build. Run/Debug aceitam um build de solução quando configuração, TFM, avaliação e fontes salvas continuam atuais, sem rebuild implícito; um build por projeto (`build.start`, ⌘F9) mantém a identidade do projeto e a checagem de TargetPath. Build Solution não substitui a ação de build do startup na toolbar.
 - **Limite conhecido:** `build.solution` envia `-p:TargetFramework` da avaliação; em solução com projetos multi-TFM que não compartilhem o TFM selecionado o build pode falhar em vez de escolher um default. A mensagem de erro do MSBuild é preservada; uma decisão futura pode omitir o TFM para o escopo de solução.
+
+## 2026-11-02 — Abas, Recent Files e perfil Rider (ticket 03)
+
+- **Format/Organize Usings ficam de fora.** O host não expõe `textDocument/formatting` nem `source.organizeImports`; a UI não anuncia nem simula essas ações.
+- **Recent Files é lista da sessão.** Até 20 caminhos, mais recente primeiro, sem persistência entre sessões e sem escrever no app home. A lista é atualizada ao abrir um arquivo e ao ativar uma aba.
+- **Find in Files continua sem regex/máscara.** `search.text` é a única fonte e aceita consulta e `caseSensitive`; regex e máscara de arquivo exigiriam mudança no host.
+- **Perfil Rider edita com ⌘D/⌘⌫.** `Prec.high` sobrepõe `copyLineDown`/`deleteLine` só em `rider-macos`; o perfil IntelliJ mantém o keymap padrão do CodeMirror.

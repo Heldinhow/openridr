@@ -96,8 +96,8 @@ test("Rider is the default profile and IntelliJ from settings.json changes short
   await page.goto("/");
   await openTextOnly(page);
   await page.keyboard.press("Meta+Shift+A");
-  await expect(page.getByTestId("find-action-shortcut-search.file")).toHaveText("⇧⌘T");
-  await expect(page.getByTestId("find-action-shortcut-search.everywhere")).toHaveText("⌘T");
+  await expect(page.getByTestId("find-action-shortcut-search.file")).toHaveText("⇧⌘O");
+  await expect(page.getByTestId("find-action-shortcut-search.everywhere")).toHaveText("No shortcut");
   await expect(page.getByTestId("find-action-shortcut-run.start")).toContainText("⌃F5");
   await expect(page.getByTestId("find-action-shortcut-git.commit")).toContainText("⌥⇧⌘K");
   await page.getByTestId("find-action-input").press("Escape");

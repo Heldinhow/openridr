@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { call, messageOf } from "./host/client";
 import { Icon } from "./Icon";
 import { MidText } from "./shell/MidText";
@@ -373,6 +373,14 @@ export function BranchWidget({
     detailsRef.current?.removeAttribute("open");
   }
 
+  // Escape dismisses the dialog unless an operation is in flight.
+  function dialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Escape" || dialogBusy) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDialog(null);
+  }
+
   return (
     <>
       <details
@@ -528,7 +536,7 @@ export function BranchWidget({
 
       {dialog === "update" && (
         <div className="modal-backdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-dialog">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-dialog" onKeyDown={dialogKeyDown}>
             <h2 id="update-title">Update project</h2>
             <dl>
               <dt>Branch</dt>
@@ -546,7 +554,7 @@ export function BranchWidget({
               <p className="error" role="alert" data-testid="update-error">{dialogError}</p>
             )}
             <div className="actions">
-              <button type="button" data-testid="update-confirm" disabled={dialogBusy} onClick={() => void confirmUpdate()}>
+              <button type="button" data-testid="update-confirm" autoFocus disabled={dialogBusy} onClick={() => void confirmUpdate()}>
                 {dialogBusy ? "Updating…" : "Update"}
               </button>
               <button type="button" data-testid="update-cancel" onClick={() => setDialog(null)}>Cancel</button>
@@ -557,7 +565,7 @@ export function BranchWidget({
 
       {dialog === "push" && (
         <div className="modal-backdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="push-title" data-testid="push-dialog">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="push-title" data-testid="push-dialog" onKeyDown={dialogKeyDown}>
             <h2 id="push-title">Push</h2>
             <dl>
               <dt>Remote</dt>
@@ -580,10 +588,10 @@ export function BranchWidget({
               <p className="error" role="alert" data-testid="push-error">{dialogError}</p>
             )}
             <div className="actions">
-              <button type="button" data-testid="push-confirm" disabled={dialogBusy || remote === null} onClick={() => void confirmPush()}>
+              <button type="button" data-testid="push-confirm" autoFocus={remote !== null} disabled={dialogBusy || remote === null} onClick={() => void confirmPush()}>
                 {dialogBusy ? "Pushing…" : "Push"}
               </button>
-              <button type="button" data-testid="push-cancel" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" data-testid="push-cancel" autoFocus={remote === null} onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>

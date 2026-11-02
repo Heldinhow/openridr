@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
-import { indentWithTab } from "@codemirror/commands";
-import { EditorState, type Text } from "@codemirror/state";
+import { copyLineDown, deleteLine, indentWithTab } from "@codemirror/commands";
+import { Compartment, EditorState, Prec, RangeSet, type Text } from "@codemirror/state";
 import { Decoration, EditorView, GutterMarker, WidgetType, gutter, keymap } from "@codemirror/view";
-import { Compartment, RangeSet } from "@codemirror/state";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
+import { gotoLine } from "@codemirror/search";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
-import type { EditorSettings } from "./actions/keymap";
+import type { EditorSettings, ProfileId } from "./actions/keymap";
 import {
   autocompletion,
   insertCompletionText,
@@ -69,6 +69,7 @@ type Props = {
   value: string;
   path: string;
   platform: string;
+  profile: ProfileId;
   revision: number;
   editor: EditorSettings;
   /** Diagnostics for this file: underline in the text, marker in the margin. */
@@ -87,6 +88,8 @@ type Props = {
   renameRequest?: number;
   /** Incremented by the Go to Declaration action/menu. */
   definitionRequest?: number;
+  /** Incremented by Go to Line; opens the CodeMirror dialog at the current line. */
+  gotoLineRequest?: number;
   onToggleBreakpoint?: (line: number) => void;
   onChange: (value: string) => void;
   onSave: () => void;
@@ -135,6 +138,17 @@ function editorIndent(settings: EditorSettings) {
     EditorState.tabSize.of(settings.indentSize),
     indentUnit.of(settings.useTabs ? "\t" : " ".repeat(settings.indentSize)),
   ];
+}
+
+/** Rider-only editing keys; the IntelliJ profile keeps the CodeMirror defaults. */
+function profileKeymap(profile: ProfileId) {
+  if (profile !== "rider-macos") return [];
+  return Prec.high(
+    keymap.of([
+      { key: "Mod-d", preventDefault: true, run: copyLineDown },
+      { key: "Mod-Backspace", preventDefault: true, run: deleteLine },
+    ]),
+  );
 }
 
 class DebugMarker extends GutterMarker {
@@ -423,6 +437,7 @@ export function CodeEditor({
   value,
   path,
   platform,
+  profile,
   revision,
   editor,
   diagnostics = [],
@@ -433,6 +448,7 @@ export function CodeEditor({
   inlayText = "",
   renameRequest = 0,
   definitionRequest = 0,
+  gotoLineRequest = 0,
   onToggleBreakpoint,
   onChange,
   onSave,
@@ -471,6 +487,7 @@ export function CodeEditor({
   changedLinesRef.current = changedLines;
   const fontCompartment = useRef(new Compartment());
   const indentCompartment = useRef(new Compartment());
+  const profileCompartment = useRef(new Compartment());
   breakpointsRef.current = breakpoints;
   currentLineRef.current = currentLine;
   gutterActionsRef.current = gutterActions;
@@ -496,6 +513,7 @@ export function CodeEditor({
   const inlineRef = useRef<InlineRename | null>(null);
   const handledRename = useRef(renameRequest);
   const handledDefinition = useRef(definitionRequest);
+  const handledGotoLine = useRef(gotoLineRequest);
   const inputRef = useRef<HTMLInputElement>(null);
   const [inline, setInline] = useState<InlineRename | null>(null);
   inlineRef.current = inline;
@@ -777,6 +795,7 @@ export function CodeEditor({
         theme,
         fontCompartment.current.of(editorTheme(editor)),
         indentCompartment.current.of(editorIndent(editor)),
+        profileCompartment.current.of(profileKeymap(profile)),
         syntaxHighlighting(syntaxColors),
         EditorView.contentAttributes.of({
           "aria-label": "Editor",
@@ -893,6 +912,12 @@ export function CodeEditor({
   }, [editor.fontFamily, editor.fontSize, editor.indentSize, editor.useTabs]);
 
   useEffect(() => {
+    view.current?.dispatch({
+      effects: profileCompartment.current.reconfigure(profileKeymap(profile)),
+    });
+  }, [profile]);
+
+  useEffect(() => {
     const instance = view.current;
     if (!instance) return;
     instance.dispatch({
@@ -965,6 +990,18 @@ export function CodeEditor({
     // The nonce is the only trigger; the cursor is read when the action runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [definitionRequest]);
+
+  useEffect(() => {
+    if (gotoLineRequest === handledGotoLine.current) return;
+    handledGotoLine.current = gotoLineRequest;
+    const instance = view.current;
+    if (!instance) return;
+    // Focus first so the dialog keeps its own input focus when it opens.
+    instance.focus();
+    gotoLine(instance);
+    // The nonce is the only trigger; the dialog starts at the current line.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gotoLineRequest]);
 
   useEffect(() => {
     const instance = view.current;
