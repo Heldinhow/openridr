@@ -43,8 +43,8 @@ test("the test gutter runs one test from the editor and reports its result", asy
     await page.getByTestId("tests-discover").click();
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", { timeout: 120_000 });
 
-    // Start analysis after the TFM re-evaluation, otherwise the session is stale for the new context.
-    await page.getByTestId("lsp-start").click();
+    // Analysis already started by itself; restart it after the TFM re-evaluation, otherwise the session is stale for the new context.
+    await page.getByTestId("lsp-restart").click();
     await expect(page.getByTestId("lsp-state")).toContainText("Ready", { timeout: 90_000 });
     await page.getByTestId("tree-file-tests/OrderDesk.Tests/OrderTests.cs").click();
     await expect(page.getByTestId("editor")).toContainText("Id_is_preserved");

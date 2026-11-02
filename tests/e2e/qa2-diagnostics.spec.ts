@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
-import { cleanup, hostState, openEvaluated, program, orderDesk, tempCopy } from "./qa-top4";
+import { cleanup, confirmToolPlan, hostState, openEvaluated, program, orderDesk, tempCopy } from "./qa-top4";
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.describe.configure({ timeout: 240_000 });
@@ -33,10 +33,10 @@ test.describe("2 - diagnostics show in the editor and the status bar", () => {
   });
 
   test("analysis diagnostics are underlined too", async ({ page, request }) => {
-    expect((await hostState(request)).tools["csharp-ls"].state).toBe("ready");
     const { base, copy } = tempCopy(orderDesk, "Order Desk qa2b");
     try {
       await openEvaluated(page, copy);
+      await confirmToolPlan(request);
       await expect
         .poll(async () => (await hostState(request)).lsp.state, { timeout: 150_000 })
         .toMatch(/ready|partial|awaiting_diagnostics/);

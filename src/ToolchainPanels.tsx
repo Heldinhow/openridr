@@ -28,7 +28,7 @@ function installStateLabel(state: Snapshot["tools"]["csharp-ls"]["state"]) {
   }
 }
 
-function lspStateLabel(state: Snapshot["lsp"]["state"]) {
+export function lspStateLabel(state: Snapshot["lsp"]["state"]) {
   switch (state) {
     case "starting":
       return "Starting…";
@@ -675,26 +675,20 @@ export function DebugAdapterPanel({
   );
 }
 
-export function LspPanel({ snapshot, onChange }: Props) {
-  const lsp = snapshot.lsp;
+/** Why analysis cannot start now (null = it can). One answer for the panel, the status bar and auto-start. */
+export function lspStartBlocker(snapshot: Snapshot): string | null {
   const tool = snapshot.tools["csharp-ls"];
   const trusted = snapshot.trust.granted;
   const projectSdk = snapshot.sdk.project;
   const restore = snapshot.restore;
   const evaluated = snapshot.evaluation.projects;
-  const active = ["starting", "loading", "ready", "partial", "awaiting_diagnostics"].includes(
-    lsp.state,
-  );
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
   const restoreCurrent =
     restore.revision > 0
       ? restore.state === "ok" &&
         restore.projects.length > 0 &&
         restore.projects.every((project) => project.state === "restored")
       : evaluated.length > 0 && evaluated.every((project) => project.restored === "restored");
-  const restoreReason = !trusted
+  return !trusted
     ? "Trust the workspace before analysis."
     : tool.state !== "ready"
       ? "Install and verify csharp-ls 0.28.0 first; the LSP never installs itself."
@@ -705,7 +699,17 @@ export function LspPanel({ snapshot, onChange }: Props) {
           : !restoreCurrent
             ? "Restore is not current. Analysis never restores; run the explicit Restore first."
             : null;
-  const startDisabledReason = restoreReason;
+}
+
+export function LspPanel({ snapshot, onChange }: Props) {
+  const lsp = snapshot.lsp;
+  const active = ["starting", "loading", "ready", "partial", "awaiting_diagnostics"].includes(
+    lsp.state,
+  );
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const startDisabledReason = lspStartBlocker(snapshot);
 
   async function run(action: () => Promise<Snapshot>) {
     setBusy(true);

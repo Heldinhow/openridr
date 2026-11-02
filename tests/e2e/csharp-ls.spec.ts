@@ -127,6 +127,16 @@ async function ensureTool(page: Page, request: APIRequestContext) {
   await waitToolState(request, "ready");
 }
 
+/** Analysis now starts by itself; tests that need the "not started" state let it begin, then stop it. */
+async function holdAnalysisStopped(page: Page, request: APIRequestContext) {
+  await expect
+    .poll(async () => (await hostState(request)).lsp.state, { timeout: 90_000 })
+    .not.toBe("unavailable");
+  await hostCall(request, "lsp.stop");
+  await expect.poll(async () => (await hostState(request)).lsp.state).toBe("stopped");
+  await expect(page.getByTestId("lsp-start")).toBeEnabled();
+}
+
 test.afterEach(async ({ request }) => {
   await hostCall(request, "lsp.stop").catch(() => {});
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
@@ -299,7 +309,9 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
     await restoreAndReload(page);
     await ensureTool(page, request);
 
-    await page.getByTestId("lsp-start").click();
+    // Analysis started by itself (QA finding 1); the evaluation reload since then made that
+    // session partial, so restart it for the final context.
+    await page.getByTestId("lsp-restart").click();
     await expect(page.getByTestId("lsp-state")).toContainText("Ready", {
       timeout: 60_000,
     });
@@ -564,7 +576,9 @@ test("analysis loads, republishes diagnostics, survives a crash and stops on rev
     await restoreAndReload(page);
     await ensureTool(page, request);
 
-    await page.getByTestId("lsp-start").click();
+    // Analysis started by itself (QA finding 1); the evaluation reload since then made that
+    // session partial, so restart it for the final context.
+    await page.getByTestId("lsp-restart").click();
     await expect(page.getByTestId("lsp-state")).toContainText("Ready", {
       timeout: 60_000,
     });
@@ -695,6 +709,7 @@ test("completion and definition use the real session and discard stale answers",
     await waitForEvaluation(page);
     await restoreAndReload(page);
     await ensureTool(page, request);
+    await holdAnalysisStopped(page, request);
 
     await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
     await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
@@ -707,7 +722,7 @@ test("completion and definition use the real session and discard stale answers",
       "unavailable",
     );
     await expect(page.getByTestId("editor-lsp-status")).toContainText(
-      "Analysis is not running",
+      /Analysis is not (running|ready to answer)/,
     );
     fs.mkdirSync(screenshots, { recursive: true });
     await page.screenshot({
@@ -1130,6 +1145,7 @@ async function startRenameSession(
   await waitForEvaluation(page);
   await restoreAndReload(page);
   await ensureTool(page, request);
+  await holdAnalysisStopped(page, request);
   await page.getByTestId(`tree-file-${renameFiles.library}`).click();
   await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
   // Before analysis starts the visible control explains the missing session.

@@ -39,7 +39,7 @@ import {
 import { TestsQuickList } from "./TestsQuickList";
 import { ProcessPanel } from "./ProcessPanel";
 import { collectDiagnostics, samePath } from "./diagnosticMarks";
-import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
+import { DebugAdapterPanel, LspPanel, ToolInstaller, lspStartBlocker, lspStateLabel } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { FileIcon } from "./FileIcon";
@@ -531,6 +531,41 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   contextIdRef.current = snapshot.contextId;
   const workspaceIdRef = useRef(workspace.id);
   workspaceIdRef.current = workspace.id;
+  const analysisAutoStarted = useRef<string | null>(null);
+  async function startAnalysis() {
+    try {
+      onSnapshot(await call<Snapshot>("lsp.start"));
+    } catch (error) {
+      setMessage({ tone: "error", text: `Analysis could not start: ${messageOf(error)}` });
+    }
+  }
+  useEffect(() => {
+    // The host stops analysis itself on restore/project changes (its reason says what to do);
+    // start again once per such boundary. A user stop or a failure is never undone behind their back.
+    const stoppedByHost = lsp.state === "stopped" && lsp.stoppedReason !== "Stopped by the user.";
+    if ((lsp.state !== "unavailable" && !stoppedByHost) || lspStartBlocker(snapshot) !== null) return;
+    const boundary = `${workspace.id}:${snapshot.contextId}:${restore.revision}`;
+    if (analysisAutoStarted.current === boundary) return;
+    analysisAutoStarted.current = boundary;
+    void startAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, workspace.id]);
+  const toolState = snapshot.tools["csharp-ls"].state;
+  const analysisStatus = !trusted
+    ? null
+    : lspActive || lsp.state === "starting"
+      ? { text: `Analysis: ${lspStateLabel(lsp.state)}`, action: null }
+      : toolState !== "ready"
+        ? ["downloading", "installing", "verifying"].includes(toolState)
+          ? { text: "Analysis: installing…", action: null }
+          : {
+              text: "Analysis: not installed",
+              action: { label: "Install analysis", disabledReason: null, onClick: () => setToolsOpen(true) },
+            }
+        : {
+            text: `Analysis: ${lsp.state === "unavailable" ? "not running" : lspStateLabel(lsp.state).toLowerCase()}`,
+            action: { label: "Start analysis", disabledReason: lspStartBlocker(snapshot), onClick: () => void startAnalysis() },
+          };
   const renameDisabledReason = !active
     ? "Open a file to rename a symbol."
     : !trusted
@@ -4445,6 +4480,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         }}
         dirtyCount={dirtyCount}
         diagnostics={{ ...diagnosticCounts, onOpen: () => setBottomTab("problems") }}
+        analysis={analysisStatus}
         breadcrumb={statusBreadcrumb}
         cursor={active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}
         indent={{

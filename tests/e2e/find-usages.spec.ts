@@ -33,7 +33,7 @@ test("Find Usages lists the real references of Order and opens one", async ({ pa
     const reused = await (await page.request.post(`${host}/call`, { data: { method: "tools.install", params: { planId: planned.data.tools["csharp-ls"].plan.planId, confirm: true } } })).json();
     expect(reused.data.tools["csharp-ls"].reused, "the present launcher is reused, not reinstalled").toBe(true);
     await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 120_000 });
-    await page.getByTestId("lsp-start").click();
+    // Analysis starts by itself once the restore is current.
     await expect(page.getByTestId("lsp-state")).toContainText("Ready", { timeout: 90_000 });
 
     await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
