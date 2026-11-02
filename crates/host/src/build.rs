@@ -755,12 +755,19 @@ fn normalize(path: &Path) -> PathBuf {
     result
 }
 
-/// One console project per build; an explicit request may also name an evaluated library.
+/// One console project per build; an explicit request may also name an evaluated library or
+/// test project, matching the tree menu's build gate.
 pub fn select_startup<'a>(
     projects: &'a [EvaluatedProject],
     requested: Option<&str>,
 ) -> HostResult<&'a EvaluatedProject> {
-    select_kinds(projects, requested, "build", &["console", "library"])
+    select_kinds(
+        projects,
+        requested,
+        "build",
+        &["console", "library", "test"],
+        "console executable, library or test",
+    )
 }
 
 /// Same selection for another consumer (run, debug), so its refusal names what was refused.
@@ -769,7 +776,7 @@ pub fn select_startup_for<'a>(
     requested: Option<&str>,
     consumer: &str,
 ) -> HostResult<&'a EvaluatedProject> {
-    select_kinds(projects, requested, consumer, &["console"])
+    select_kinds(projects, requested, consumer, &["console"], "console executable")
 }
 
 fn select_kinds<'a>(
@@ -777,6 +784,7 @@ fn select_kinds<'a>(
     requested: Option<&str>,
     consumer: &str,
     kinds: &[&str],
+    allowed: &str,
 ) -> HostResult<&'a EvaluatedProject> {
     if let Some(requested) = requested {
         let normalized = requested
@@ -790,17 +798,6 @@ fn select_kinds<'a>(
             ));
         };
         if !kinds.contains(&project.kind) {
-            let allowed = kinds
-                .iter()
-                .map(|kind| {
-                    if *kind == "console" {
-                        "console executable"
-                    } else {
-                        kind
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" or ");
             return Err(HostError::new(
                 "invalid_state",
                 format!(
@@ -809,11 +806,11 @@ fn select_kinds<'a>(
                 ),
             ));
         }
-        if project.state != "ok" || project.assembly_path.is_none() {
+        if project.state != "ok" || project.target_path.is_none() {
             return Err(HostError::new(
                 "invalid_state",
                 format!(
-                    "{} has no evaluated managed assembly (TargetPath); re-evaluate the project model before running it.",
+                    "{} has no evaluated TargetPath; re-evaluate the project model before using it.",
                     project.name
                 ),
             ));
@@ -1021,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_selection_defaults_to_console_but_build_accepts_an_explicit_library() {
+    fn startup_selection_defaults_to_console_but_build_accepts_any_evaluated_project() {
         let projects = vec![
             evaluated(
                 "App",
@@ -1041,6 +1038,12 @@ mod tests {
                 "test",
                 Some("/work/Tests.dll"),
             ),
+            evaluated(
+                "Tool",
+                "tools/Tool/Tool.csproj",
+                "unknown",
+                Some("/work/Tool.dll"),
+            ),
         ];
         let selected = select_startup(&projects, None).expect("one console project");
         assert_eq!(selected.name, "App");
@@ -1050,13 +1053,19 @@ mod tests {
                 .name,
             "Core"
         );
-        let error = select_startup(&projects, Some("tests/Tests.csproj"))
-            .expect_err("a test project is not built through build.start");
+        assert_eq!(
+            select_startup(&projects, Some("tests/Tests.csproj"))
+                .expect("an explicit test-project build")
+                .name,
+            "Tests"
+        );
+        let error = select_startup(&projects, Some("tools/Tool/Tool.csproj"))
+            .expect_err("an unknown project kind is not built through build.start");
         assert_eq!(error.code, "invalid_state");
         assert!(
             error
                 .message
-                .contains("only a console executable or library project"),
+                .contains("only a console executable, library or test project"),
             "{}",
             error.message
         );
