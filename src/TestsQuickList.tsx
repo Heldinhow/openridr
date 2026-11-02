@@ -43,8 +43,7 @@ export function TestsQuickList({ items, onClose }: { items: TestQuickItem[]; onC
       >
         <h2 id="tests-quick-list-title">Tests</h2>
         <p className="muted">
-          Press 1–5 to act; items are dimmed with the reason when unavailable. Test debugging is
-          not part of this version.
+          Press 1–5 to act; items are dimmed with the reason when unavailable.
         </p>
         <ol className="quick-list-items">
           {items.map((item, index) => {

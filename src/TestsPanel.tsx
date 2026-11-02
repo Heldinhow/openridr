@@ -90,10 +90,11 @@ export function isRunObsolete(run: TestRun, editedAt: Record<string, number>) {
   return Object.values(editedAt).some((edited) => edited > reference);
 }
 
-/** Debugging a VSTest selection needs a debugger-backed test host; docs/README keeps it in P1,
- * so the action stays visible and honest instead of pretending to debug with a plain run. */
+/** The host only launches an evaluated console assembly and has no testhost attach, so the
+ * action stays visible and honest instead of pretending to debug with a plain run.
+ * Decision: docs/decisions.md, 2026-11-02. */
 export const testDebugUnavailable =
-  "Debugging tests is not part of this version (P1 in docs/README); no VSTest debug host exists. Use Run selected.";
+  "Debugging tests needs a test-host attach the debugger does not support yet. Use Run selected.";
 
 export function testRunBlockedReason(args: {
   disabledReason: string | null;

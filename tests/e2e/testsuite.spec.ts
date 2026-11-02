@@ -144,7 +144,7 @@ test("a grouped tree filters without losing selection and rerun failed uses the 
     );
     await expect(page.getByTestId("tests-quick-list-item-tests.debugSelected")).toBeDisabled();
     await expect(page.getByTestId("tests-quick-list-reason-tests.debugSelected")).toContainText(
-      "Debugging tests is not part of this version",
+      "Debugging tests needs a test-host attach the debugger does not support yet",
     );
     await expect(page.getByTestId("tests-quick-list-item-tests.rerunFailed")).toBeEnabled();
     await expect(page.getByTestId("tests-quick-list-item-tests.rerunFailed")).toContainText("⌘U F");
@@ -193,7 +193,7 @@ test("the quick list dims unavailable actions with their reason", async ({ page 
   await expect(page.getByTestId("tests-quick-list-reason-tests.runAll")).not.toBeEmpty();
   await expect(page.getByTestId("tests-quick-list-item-tests.debugSelected")).toBeDisabled();
   await expect(page.getByTestId("tests-quick-list-reason-tests.debugSelected")).toContainText(
-    "Debugging tests is not part of this version",
+    "Debugging tests needs a test-host attach the debugger does not support yet",
   );
   await expect(page.getByTestId("tests-quick-list-item-tests.stop")).toBeDisabled();
   await expect(page.getByTestId("tests-quick-list-reason-tests.stop")).toContainText(

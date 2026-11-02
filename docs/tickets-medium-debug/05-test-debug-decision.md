@@ -28,7 +28,7 @@ honesta em todos os pontos onde o usuário encontra o botão desabilitado.
 
 ## Aceite
 
-- [ ] Mesma mensagem no painel, quick list, menu e ação.
-- [ ] Decisão e matriz atualizadas.
-- [ ] Suíte de testes de UI verde com o novo texto.
-- [ ] `bun run check` verde. Commit `docs(tests): record why test debugging is unavailable`.
+- [x] Mesma mensagem no painel, quick list, menu e ação.
+- [x] Decisão e matriz atualizadas.
+- [x] Suíte de testes de UI verde com o novo texto.
+- [x] `bun run check` verde. Commit `docs(tests): record why test debugging is unavailable`.
