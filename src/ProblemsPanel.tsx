@@ -135,6 +135,9 @@ export function ProblemsPanel({
     })),
   );
   const failedProjects = evaluation.projects.filter((project) => project.state === "failed" && project.error);
+  const testsState = testsProblemState(tests.discovery);
+  // A stale or sealed discovery describes an older model: never show its compile errors as current.
+  const showTestsProblems = testsState === "Current" && tests.discovery.problems.length > 0;
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
   const currentEmpty = visible.filter(
     (snapshot) => snapshot.state === "current" && snapshot.items.length === 0,
@@ -536,7 +539,7 @@ export function ProblemsPanel({
         </section>
       )}
 
-      {tests.discovery.problems.length > 0 && (
+      {showTestsProblems && (
         <section
           className="build-problems"
           data-testid="tests-problems"
@@ -544,9 +547,7 @@ export function ProblemsPanel({
         >
           <div className="build-problems-head">
             <strong>Tests · VSTest</strong>
-            <span data-testid="tests-problems-state">
-              {testsProblemState(tests.discovery)}
-            </span>
+            <span data-testid="tests-problems-state">{testsState}</span>
             <span className="muted">
               {tests.discovery.problems.length} problem
               {tests.discovery.problems.length === 1 ? "" : "s"} ·{" "}
@@ -594,8 +595,8 @@ export function ProblemsPanel({
                 <span>{problem.path}</span>
                 <span>Tests · VSTest</span>
                 <span>{problem.category}</span>
-                <span className={`problem-state state-${testsProblemState(tests.discovery).toLowerCase()}`}>
-                  {testsProblemState(tests.discovery)}
+                <span className={`problem-state state-${testsState.toLowerCase()}`}>
+                  {testsState}
                 </span>
               </button>
             ))}

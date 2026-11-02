@@ -223,6 +223,13 @@ test("a test-project compile error is published in Problems during discovery", a
     await row.click();
     await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", position!);
     await expect(page.getByTestId("tab-tests/OrderDesk.Tests/OrderTests.cs")).toBeVisible();
+
+    // A re-evaluation makes the discovery stale: its old compile errors leave Problems.
+    await page.getByTestId("bottom-tab-problems").click();
+    await page.getByTestId("eval-run").click();
+    await waitForEvaluation(page, 4);
+    await page.getByTestId("bottom-tab-problems").click();
+    await expect(page.getByTestId("tests-problems")).toHaveCount(0);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
