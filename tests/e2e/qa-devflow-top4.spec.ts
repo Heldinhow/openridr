@@ -306,12 +306,30 @@ test("achado 4: two consoles keep Build/Run/Debug enabled and Build Solution run
     await expect(page.getByTestId("run-log")).toContainText("MultiConsole Alpha", {
       timeout: 60_000,
     });
+    await expect(page.getByTestId("run-exit")).toHaveText("exit 0", { timeout: 60_000 });
     await page.getByTestId("bottom-tab-build").click();
     await expect(page.getByTestId("build-state")).toContainText("Build succeeded");
     await expect(page.getByTestId("build-id")).toHaveText(buildId ?? "");
 
-    // Choosing the second console persists per solution and comes back after reopening it.
+    // Choosing the second console is persisted before the next Run relies on it.
     await startup.selectOption(beta);
+    await expect(startup).toHaveValue(beta);
+    await expect
+      .poll(
+        async () =>
+          (await hostCall(request, "runConfigs.read", { solution })).data?.startupProject ??
+          null,
+      )
+      .toBe(beta);
+
+    // The very next Run launches Beta; output proves no earlier project was reused.
+    await page.getByTestId("toolbar-run").click();
+    await expect(page.getByTestId("run-log")).toContainText("MultiConsole Beta", {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("run-exit")).toHaveText("exit 0", { timeout: 60_000 });
+
+    // The choice comes back after reopening the solution.
     await page.getByTestId("workspace-actions-menu").locator("summary").click();
     await page.getByTestId("close-workspace").click();
     await page.getByTestId("workspace-path-input").fill(solution);

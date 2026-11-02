@@ -12,11 +12,23 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 const MAX_CONFIGS: usize = 50;
 const MAX_ARGS: usize = 200;
 const MAX_ENV: usize = 100;
 const MAX_ENV_FILES: usize = 20;
+
+/// `write` and `setStartup` both read-modify-write the same file; one lock keeps concurrent
+/// calls from dropping each other's change. `read_at`/`write_at` stay lock-free because the
+/// public entry points already hold it (and tests call them directly).
+static STORE_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_store() -> MutexGuard<'static, ()> {
+    STORE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +78,7 @@ pub struct LaunchOptions {
 }
 
 pub fn read(params: &Value) -> HostResult<Value> {
+    let _guard = lock_store();
     let solution = solution_param(params)?;
     let path = path_for(&solution);
     let store = read_at(&path, &solution)?;
@@ -73,6 +86,7 @@ pub fn read(params: &Value) -> HostResult<Value> {
 }
 
 pub fn write(params: &Value) -> HostResult<Value> {
+    let _guard = lock_store();
     let solution = solution_param(params)?;
     let path = path_for(&solution);
     let store = store_from_params(&path, &solution, params)?;
@@ -82,6 +96,7 @@ pub fn write(params: &Value) -> HostResult<Value> {
 
 /// `runConfigs.setStartup`: the toolbar and the Build panel share one choice per solution.
 pub fn set_startup(params: &Value) -> HostResult<Value> {
+    let _guard = lock_store();
     let solution = solution_param(params)?;
     let path = path_for(&solution);
     let store = set_startup_at(&path, &solution, params)?;
