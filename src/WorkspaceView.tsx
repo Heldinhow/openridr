@@ -460,7 +460,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const diskEpoch = useRef(new Map<string, number>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
-  const { runConfigStore, runConfigsLoaded, commitRunConfigs } = useRunConfigs({ workspacePath: workspace.path, setMessage });
+  const seededRunConfigsFor = useRef<number | null>(null);
+  const { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject } = useRunConfigs({ workspacePath: workspace.path, setMessage });
+  useEffect(() => {
+    if (!runConfigsLoaded || !runConfigStore || seededRunConfigsFor.current === workspace.id) return;
+    seededRunConfigsFor.current = workspace.id;
+    setStartupPath(runConfigStore.startupProject ?? null);
+    // Only the store load for this workspace seeds the choice; later commits are user actions.
+  }, [runConfigsLoaded, runConfigStore, workspace.id]);
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -664,9 +671,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const consoleCandidates = evaluatedProjects.filter(
     (project) => project.kind === "console" && project.state === "ok" && project.targetPath,
   );
+  // Several consoles are not an ambiguity: the saved choice wins, else the first candidate.
   const defaultStartupProject =
     consoleCandidates.find((project) => project.path === startupPath) ??
-    (consoleCandidates.length === 1 ? consoleCandidates[0] : null);
+    consoleCandidates[0] ??
+    null;
   const activeNamedConfig =
     runConfigStore && runConfigStore.activeId !== DEFAULT_RUN_CONFIG_ID
       ? runConfigStore.configs.find((config) => config.id === runConfigStore.activeId) ?? null
@@ -774,6 +783,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     gates.activeConfigProjectInvalid,
   );
   const debugDisabledReason = debugGate(gates);
+  const buildSolutionDisabledReason =
+    workspace.kind !== "solution"
+      ? "Build Solution needs an open solution; build the single project with Build."
+      : buildDisabledReason;
   const debugCurrentFrame =
     dap.frames.find((frame) => frame.id === dap.selectedFrameId) ?? dap.frames[0] ?? null;
   const activeBreakpoints = active
@@ -2105,10 +2118,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   function setStartupProject(path: string) {
-    if (!activeNamedConfig) {
-      setStartupPath(path);
-      return;
-    }
+    if (!path) return;
+    setStartupPath(path);
+    void persistStartupProject(path).catch((error) =>
+      setMessage({
+        tone: "error",
+        text: `The startup project could not be saved: ${messageOf(error)}`,
+      }),
+    );
+    if (!activeNamedConfig) return;
     const configs = (runConfigStore?.configs ?? []).map((config) =>
       config.id === activeNamedConfig.id ? { ...config, project: path } : config,
     );
@@ -2157,6 +2175,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const {
     buildDecision, setBuildDecision, runDecision, setRunDecision,
     startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
+    requestBuildSolution,
     startRun, requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
     prepareAndDebug, requestDebugStart, stopDebug,
   } = useExecutionFlow({
@@ -2541,6 +2560,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       group: "Build",
       execute: () => requestBuild(),
       disabledReason: buildDisabledReason,
+    }),
+    define({
+      id: "build.solution",
+      title: "Build Solution",
+      group: "Build",
+      execute: requestBuildSolution,
+      disabledReason: buildSolutionDisabledReason,
     }),
     define({
       id: "run.start",
@@ -3279,6 +3305,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             onStartup={setStartupProject}
             onEvaluate={(next) => void runEvaluation(next)}
             onBuild={() => requestBuild()}
+            onBuildSolution={requestBuildSolution}
+            solutionBuildDisabledReason={buildSolutionDisabledReason}
             onCancel={() => void cancelBuild()}
             disabledReason={buildDisabledReason}
             trusted={trusted}
@@ -3440,6 +3468,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   const buildAction = requireAction(actionById, "build.start");
+  const buildSolutionAction = requireAction(actionById, "build.solution");
   const runAction = requireAction(actionById, "run.start");
   const debugStartAction = requireAction(actionById, "debug.start");
   const stopAction = requireAction(actionById, "run.stop");
@@ -3528,6 +3557,29 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onSelect={(id) => void selectRunConfig(id)}
           onEdit={() => openRunConfigDialog()}
         />
+        <label
+          className="toolbar-startup"
+          title={
+            consoleCandidates.length === 0
+              ? "No evaluated console project is available."
+              : "Startup project for Build, Run and Debug; saved per solution."
+          }
+        >
+          <select
+            data-testid="toolbar-startup"
+            aria-label="Startup project"
+            value={startupProject?.path ?? ""}
+            disabled={consoleCandidates.length === 0 || buildRunning}
+            onChange={(event) => setStartupProject(event.target.value)}
+          >
+            {consoleCandidates.length === 0 && <option value="">No console project</option>}
+            {consoleCandidates.map((project) => (
+              <option key={project.path} value={project.path}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </label>
         {debugActive && (
           <button
             data-testid="toolbar-debug-stop"
@@ -3572,6 +3624,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           <div className="menu-content">
             <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a configuration." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a configuration." : evaluationBusy ? "Wait for evaluation to finish before changing configuration." : "MSBuild configuration for evaluation."}>{configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}</select></label>
             <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value || null })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a TFM." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a TFM." : evaluationBusy ? "Wait for evaluation to finish before changing TFM." : "Target framework for evaluation."}><option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}</select></label>
+            <button
+              data-testid="build-solution-menu"
+              disabled={buildSolutionAction.disabledReason !== null}
+              title={buildSolutionAction.disabledReason ?? "Builds the open .sln with the current configuration and reports problems from every project."}
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                buildSolutionAction.execute();
+              }}
+            >
+              Build Solution <kbd>{buildSolutionAction.shortcutLabels[0] ?? ""}</kbd>
+            </button>
             <button data-testid="open-find-action" onClick={(event) => {
               event.currentTarget.closest("details")?.removeAttribute("open");
               findActionAction.execute();

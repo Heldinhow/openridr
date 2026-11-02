@@ -248,6 +248,85 @@ test("achado 3: ⇧⌘K opens Push from the editor without deleting the current 
   }
 });
 
+/**
+ * SPEC-DEVFLOW-TOP4.md, finding 4: a solution with two console projects keeps the toolbar
+ * usable, the toolbar picks the startup project, Build Solution compiles the whole solution,
+ * Run reuses it without rebuilding, and the choice survives reopening the solution.
+ */
+test("achado 4: two consoles keep Build/Run/Debug enabled and Build Solution runs", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(240_000);
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-top4-multi-"));
+  const copy = path.join(base, "Multi Console");
+  fs.cpSync(path.resolve(process.cwd(), "fixtures/MultiConsole"), copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  const solution = path.join(copy, "MultiConsole.sln");
+  const alpha = "src/MultiConsole.Alpha/MultiConsole.Alpha.csproj";
+  const beta = "src/MultiConsole.Beta/MultiConsole.Beta.csproj";
+
+  try {
+    await page.goto("/");
+    await page.getByTestId("workspace-path-input").fill(solution);
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+    await page.getByTestId("workspace-tools-toggle").click();
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+    await settleRestore(page);
+
+    // Two consoles no longer disable the toolbar: a startup project is always chosen.
+    await expect(page.getByTestId("toolbar-build")).toBeEnabled();
+    await expect(page.getByTestId("toolbar-run")).toHaveAttribute("aria-disabled", "false");
+    await expect(page.getByTestId("toolbar-debug")).toHaveAttribute("aria-disabled", "false");
+    await expect(page.getByTestId("toolbar-run-config")).toBeVisible();
+
+    const startup = page.getByTestId("toolbar-startup");
+    await expect(startup).toBeVisible();
+    await expect(startup).toHaveAttribute("aria-label", "Startup project");
+    const values = await startup.locator("option").evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value),
+    );
+    expect(values).toEqual([alpha, beta]);
+    await expect(startup).toHaveValue(alpha);
+
+    // Build Solution compiles the .sln and reports one successful build for the whole solution.
+    await page.getByTestId("workspace-actions-menu").locator("summary").click();
+    await page.getByTestId("build-solution-menu").click();
+    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
+      timeout: 60_000,
+    });
+    const buildId = await page.getByTestId("build-id").textContent();
+
+    // Run reuses that solution build: no second build, output from the startup project.
+    await page.getByTestId("toolbar-run").click();
+    await expect(page.getByTestId("run-log")).toContainText("MultiConsole Alpha", {
+      timeout: 60_000,
+    });
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-state")).toContainText("Build succeeded");
+    await expect(page.getByTestId("build-id")).toHaveText(buildId ?? "");
+
+    // Choosing the second console persists per solution and comes back after reopening it.
+    await startup.selectOption(beta);
+    await page.getByTestId("workspace-actions-menu").locator("summary").click();
+    await page.getByTestId("close-workspace").click();
+    await page.getByTestId("workspace-path-input").fill(solution);
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+    await page.getByTestId("workspace-tools-toggle").click();
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+    await expect(page.getByTestId("toolbar-startup")).toHaveValue(beta);
+  } finally {
+    await hostCall(request, "workspace.close");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("achado 3: ⌃D starts Debug from the editor without deleting a character", async ({
   page,
   request,

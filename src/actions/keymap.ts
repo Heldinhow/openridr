@@ -132,6 +132,7 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
   "file.save": both([shortcut("s", { primary: true })]),
   "toolWindow.hideActive": both([shortcut("escape", { shift: true })]),
   "build.start": both([shortcut("f9", { primary: true })]),
+  "build.solution": both([shortcut("f9", { primary: true, shift: true })]),
   "run.start": {
     "rider-macos": binding(
       [shortcut("f5", { control: true }), shortcut("r", { control: true })],

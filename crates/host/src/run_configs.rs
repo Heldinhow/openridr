@@ -43,6 +43,9 @@ struct Store {
     solution: String,
     active_id: String,
     configs: Vec<RunConfig>,
+    /// Chosen from the toolbar or the Build panel; kept even while no named config selects it.
+    #[serde(default)]
+    startup_project: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -71,6 +74,21 @@ pub fn read(params: &Value) -> HostResult<Value> {
 
 pub fn write(params: &Value) -> HostResult<Value> {
     let solution = solution_param(params)?;
+    let path = path_for(&solution);
+    let store = store_from_params(&path, &solution, params)?;
+    write_at(&path, &store)?;
+    Ok(view(&store, &path, &solution))
+}
+
+/// `runConfigs.setStartup`: the toolbar and the Build panel share one choice per solution.
+pub fn set_startup(params: &Value) -> HostResult<Value> {
+    let solution = solution_param(params)?;
+    let path = path_for(&solution);
+    let store = set_startup_at(&path, &solution, params)?;
+    Ok(view(&store, &path, &solution))
+}
+
+fn store_from_params(path: &Path, solution: &Path, params: &Value) -> HostResult<Store> {
     let active_id = params
         .get("activeId")
         .and_then(Value::as_str)
@@ -89,14 +107,46 @@ pub fn write(params: &Value) -> HostResult<Value> {
         })?
         .unwrap_or_default();
     validate(&configs, &active_id)?;
-    let path = path_for(&solution);
-    let store = Store {
+    // A write that only edits configurations must not erase the persisted startup choice.
+    let startup_project = if params.get("startupProject").is_some() {
+        startup_param(params)?
+    } else {
+        read_at(path, solution)
+            .ok()
+            .and_then(|store| store.startup_project)
+    };
+    Ok(Store {
         solution: solution.to_string_lossy().to_string(),
         active_id,
         configs,
-    };
-    write_at(&path, &store)?;
-    Ok(view(&store, &path, &solution))
+        startup_project,
+    })
+}
+
+fn set_startup_at(path: &Path, solution: &Path, params: &Value) -> HostResult<Store> {
+    let mut store = read_at(path, solution)?;
+    store.startup_project = startup_param(params)?;
+    write_at(path, &store)?;
+    Ok(store)
+}
+
+fn startup_param(params: &Value) -> HostResult<Option<String>> {
+    match params.get("startupProject") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => {
+            let value = value.trim();
+            if value.is_empty() {
+                return Ok(None);
+            }
+            if value.len() > 1024 || value.contains('\0') {
+                return Err(invalid(
+                    "startupProject must be a project path of at most 1024 characters.",
+                ));
+            }
+            Ok(Some(value.to_string()))
+        }
+        Some(_) => Err(invalid("startupProject must be a string or null.")),
+    }
 }
 
 /// Parses the launch options shared by `run.start` and `debug.start`. Paths are relative to
@@ -301,6 +351,7 @@ fn read_at(path: &Path, solution: &Path) -> HostResult<Store> {
         solution: solution.to_string_lossy().to_string(),
         active_id: "default".to_string(),
         configs: Vec::new(),
+        startup_project: None,
     };
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
@@ -343,6 +394,7 @@ fn view(store: &Store, path: &Path, solution: &Path) -> Value {
         "solution": solution.to_string_lossy(),
         "path": path.to_string_lossy(),
         "activeId": &store.active_id,
+        "startupProject": &store.startup_project,
         "configs": &store.configs,
         "issues": issues(&store.configs, solution.parent().unwrap_or(Path::new("/"))),
     })
@@ -716,6 +768,7 @@ mod tests {
             solution: fs::canonicalize(&solution).unwrap().to_string_lossy().to_string(),
             active_id: "one".to_string(),
             configs: vec![stored],
+            startup_project: None,
         };
         validate(&store.configs, &store.active_id).unwrap();
         write_at(&path, &store).unwrap();
@@ -732,6 +785,43 @@ mod tests {
             .filter(|name| name.ends_with(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn startup_project_roundtrips_is_preserved_by_a_config_write_and_can_be_cleared() {
+        let home = tempfile::tempdir().unwrap();
+        let solution_file = home.path().join("App.sln");
+        fs::write(&solution_file, "").unwrap();
+        let solution = fs::canonicalize(&solution_file).unwrap();
+        let path = home.path().join("run-configs").join("store.json");
+
+        let written = store_from_params(
+            &path,
+            &solution,
+            &json!({
+                "activeId": "default",
+                "configs": [],
+                "startupProject": "src/Tool/Tool.csproj",
+            }),
+        )
+        .unwrap();
+        write_at(&path, &written).unwrap();
+        let read = read_at(&path, &solution).unwrap();
+        assert_eq!(
+            read.startup_project.as_deref(),
+            Some("src/Tool/Tool.csproj")
+        );
+
+        // A configuration-only write keeps the choice; an explicit null clears it.
+        let preserved =
+            store_from_params(&path, &solution, &json!({ "configs": [] })).unwrap();
+        assert_eq!(
+            preserved.startup_project.as_deref(),
+            Some("src/Tool/Tool.csproj")
+        );
+        let cleared = set_startup_at(&path, &solution, &json!({ "startupProject": null })).unwrap();
+        assert_eq!(cleared.startup_project, None);
+        assert_eq!(read_at(&path, &solution).unwrap().startup_project, None);
     }
 
     #[test]

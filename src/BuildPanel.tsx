@@ -13,6 +13,8 @@ type Props = {
   onStartup: (path: string) => void;
   onEvaluate: (next: { configuration?: string; targetFramework?: string | null }) => void;
   onBuild: () => void;
+  onBuildSolution: () => void;
+  solutionBuildDisabledReason: string | null;
   onCancel: () => void;
   disabledReason: string | null;
   trusted: boolean;
@@ -84,6 +86,8 @@ export function BuildPanel({
   onStartup,
   onEvaluate,
   onBuild,
+  onBuildSolution,
+  solutionBuildDisabledReason,
   onCancel,
   disabledReason,
   trusted,
@@ -188,6 +192,17 @@ export function BuildPanel({
           }
         >
           {running ? "Building…" : `${build.revision > 0 ? "Rebuild" : "Build"} (${buildShortcut})`}
+        </button>
+        <button
+          data-testid="build-solution"
+          disabled={solutionBuildDisabledReason !== null}
+          onClick={onBuildSolution}
+          title={
+            solutionBuildDisabledReason ??
+            "Runs dotnet build for the open solution with the current evaluation. Never restores and never saves buffers."
+          }
+        >
+          Build Solution
         </button>
         {running && (
           <button
@@ -315,12 +330,15 @@ export function BuildPanel({
             )}
             <dt>Startup project</dt>
             <dd data-testid="build-project">
-              {build.project?.name ?? "unknown"} · {build.project?.kind ?? "unknown"} ·{" "}
-              <code>{build.project?.path ?? "unknown"}</code>
+              {build.solution
+                ? `${build.project?.name ?? "solution"} · whole solution`
+                : `${build.project?.name ?? "unknown"} · ${build.project?.kind ?? "unknown"} · ${build.project?.path ?? "unknown"}`}
             </dd>
             <dt>TargetPath</dt>
             <dd>
-              <code data-testid="build-target-path">{build.project?.targetPath ?? "unknown"}</code>
+              <code data-testid="build-target-path">
+                {build.solution ? "every evaluated project" : build.project?.targetPath ?? "unknown"}
+              </code>
             </dd>
             <dt>Configuration / TFM</dt>
             <dd>
