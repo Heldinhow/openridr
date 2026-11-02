@@ -1,11 +1,12 @@
 import { useState } from "react";
-import type { Build, DiagnosticSnapshot, Diagnostics, ProblemItem } from "./host/client";
+import type { Build, DiagnosticSnapshot, Diagnostics, Evaluation, ProblemItem } from "./host/client";
 
 type Row = { key: string; snapshot: DiagnosticSnapshot; item: ProblemItem };
 
 type Props = {
   diagnostics: Diagnostics;
   build: Build;
+  evaluation: Evaluation;
   /** A buffer was edited after the build finished. */
   buildObsolete?: boolean;
   /** Local edit times; a publication older than the buffer is shown as awaiting at once. */
@@ -92,6 +93,7 @@ export function withLocalEdits(
 export function ProblemsPanel({
   diagnostics,
   build,
+  evaluation,
   buildObsolete = false,
   editedAt = {},
   onNavigate,
@@ -117,6 +119,7 @@ export function ProblemsPanel({
       item,
     })),
   );
+  const failedProjects = evaluation.projects.filter((project) => project.state === "failed" && project.error);
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
   const currentEmpty = visible.filter(
     (snapshot) => snapshot.state === "current" && snapshot.items.length === 0,
@@ -381,6 +384,41 @@ export function ProblemsPanel({
           )}
         </aside>
       </div>
+
+      {failedProjects.length > 0 && (
+        <section className="build-problems" data-testid="eval-problems" aria-label="Evaluation problems">
+          <div className="build-problems-head">
+            <strong>Evaluation · MSBuild</strong>
+            <span className="muted">
+              {failedProjects.length} failed project{failedProjects.length === 1 ? "" : "s"} · revision{" "}
+              {evaluation.revision} · the project model could not be built
+            </span>
+          </div>
+          <div className="build-problems-list" aria-label="Evaluation diagnostics">
+            {failedProjects.map((project, index) => (
+              <button
+                key={project.path}
+                type="button"
+                className="build-problem-row"
+                data-testid={`eval-problem-row-${index}`}
+                onClick={() => onOpen(project.path)}
+                title={`Open ${project.path}`}
+              >
+                <span className="problem-severity severity-error">error</span>
+                <span className="problem-code">{project.error?.match(/\b(?:MSB|NU|CS)\d+\b/)?.[0] ?? "no code"}</span>
+                <span className="problem-message">{project.error}</span>
+                <span>position unknown</span>
+                <span>{project.path}</span>
+                <span>Evaluation · MSBuild</span>
+                <span>evaluation</span>
+                <span className={`problem-state state-${evaluation.stale ? "stale" : "current"}`}>
+                  {evaluation.stale ? "Stale" : "Current"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {build.revision > 0 && (
         <section className="build-problems" data-testid="build-problems" aria-label="Build problems">

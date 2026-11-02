@@ -23,6 +23,7 @@ import {
   type DefinitionLocation,
 } from "./host/client";
 import type { GutterAction } from "./codeNavigation";
+import type { EditorDiagnostic } from "./diagnosticMarks";
 
 const theme = EditorView.theme(
   {
@@ -40,6 +41,15 @@ const theme = EditorView.theme(
     "&.cm-focused": { outline: "none" },
     ".cm-selectionBackground, ::selection": { backgroundColor: "#214283 !important" },
     ".cm-cursor": { borderLeftColor: "var(--accent)" },
+    ".cm-diagnostic": { textUnderlineOffset: "3px" },
+    ".cm-diagnostic-error": { textDecoration: "underline wavy #f75464" },
+    ".cm-diagnostic-warning": { textDecoration: "underline wavy #e5b94e" },
+    ".cm-diagnostic-information, .cm-diagnostic-hint": { textDecoration: "underline dotted #6f9fe0" },
+    ".cm-diagnostic-gutter": { width: "1rem" },
+    ".cm-diagnostic-marker": { fontSize: "0.7em", lineHeight: "inherit", cursor: "default" },
+    ".cm-diagnostic-marker-error": { color: "#f75464" },
+    ".cm-diagnostic-marker-warning": { color: "#e5b94e" },
+    ".cm-diagnostic-marker-information, .cm-diagnostic-marker-hint": { color: "#6f9fe0" },
   },
   { dark: true },
 );
@@ -61,6 +71,8 @@ type Props = {
   platform: string;
   revision: number;
   editor: EditorSettings;
+  /** Diagnostics for this file: underline in the text, marker in the margin. */
+  diagnostics?: EditorDiagnostic[];
   /** 1-based breakpoint lines for this file. */
   breakpoints?: number[];
   /** 1-based line of the current pause, when this file is the paused frame. */
@@ -253,6 +265,74 @@ class ActionMarker extends GutterMarker {
   }
 }
 
+class DiagnosticMarker extends GutterMarker {
+  constructor(
+    private readonly severity: EditorDiagnostic["severity"],
+    private readonly title: string,
+  ) {
+    super();
+  }
+
+  eq(other: DiagnosticMarker) {
+    return other.severity === this.severity && other.title === this.title;
+  }
+
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = `cm-diagnostic-marker cm-diagnostic-marker-${this.severity}`;
+    span.textContent = "●";
+    span.title = this.title;
+    return span;
+  }
+}
+
+const severityRank = { error: 0, warning: 1, information: 2, hint: 3 };
+
+// Positions come straight from the server/MSBuild (0-based line and character); a missing end
+// underlines the identifier that starts at the position.
+function makeDiagnostics(list: EditorDiagnostic[], doc: Text) {
+  const marks = [];
+  const byLine = new Map<number, EditorDiagnostic[]>();
+  for (const item of list) {
+    if (item.line < 0 || item.line >= doc.lines) continue;
+    const line = doc.line(item.line + 1);
+    const from = Math.min(line.from + item.character, line.to);
+    let to = from;
+    if (item.endLine !== null && item.endCharacter !== null && item.endLine < doc.lines) {
+      to = Math.min(doc.line(item.endLine + 1).from + item.endCharacter, doc.length);
+    } else {
+      to = from + (/^\w+/.exec(doc.sliceString(from, line.to))?.[0].length ?? 1);
+    }
+    to = Math.min(to, doc.length);
+    const title = `${item.code ? `${item.code}: ` : ""}${item.message}`;
+    if (to > from) {
+      marks.push(
+        Decoration.mark({
+          class: `cm-diagnostic cm-diagnostic-${item.severity}`,
+          attributes: { title },
+        }).range(from, to),
+      );
+    }
+    byLine.set(item.line + 1, [...(byLine.get(item.line + 1) ?? []), item]);
+  }
+  return [
+    EditorView.decorations.of(Decoration.set(marks, true)),
+    gutter({
+      class: "cm-diagnostic-gutter",
+      markers: (view) => {
+        const markers = [];
+        for (const [number, items] of byLine) {
+          if (number > view.state.doc.lines) continue;
+          const worst = items.reduce((a, b) => (severityRank[b.severity] < severityRank[a.severity] ? b : a));
+          const title = items.map((i) => `${i.code ? `${i.code}: ` : ""}${i.message}`).join("\n");
+          markers.push(new DiagnosticMarker(worst.severity, title).range(view.state.doc.line(number).from));
+        }
+        return RangeSet.of(markers, true);
+      },
+    }),
+  ];
+}
+
 class ChangeMarker extends GutterMarker {
   constructor(private readonly kind: "add" | "mod") { super(); }
   eq(other: ChangeMarker) { return other.kind === this.kind; }
@@ -345,6 +425,7 @@ export function CodeEditor({
   platform,
   revision,
   editor,
+  diagnostics = [],
   breakpoints = [],
   currentLine = null,
   gutterActions = [],
@@ -384,6 +465,7 @@ export function CodeEditor({
   const gutterCompartment = useRef(new Compartment());
   const actionGutterCompartment = useRef(new Compartment());
   const changeCompartment = useRef(new Compartment());
+  const diagnosticCompartment = useRef(new Compartment());
   const inlayCompartment = useRef(new Compartment());
   const changedLinesRef = useRef(changedLines);
   changedLinesRef.current = changedLines;
@@ -688,6 +770,7 @@ export function CodeEditor({
         ),
         basicSetup,
         changeCompartment.current.of(makeChangeGutter(changedLinesRef.current)),
+        diagnosticCompartment.current.of(makeDiagnostics(diagnostics, EditorState.create({ doc: value }).doc)),
         inlayCompartment.current.of(makeInlay(currentLine, inlayText)),
         autocompletion({ override: [completionSource], activateOnTyping: false }),
         StreamLanguage.define(csharp),
@@ -839,6 +922,17 @@ export function CodeEditor({
       effects: changeCompartment.current.reconfigure(makeChangeGutter(changedLinesRef.current)),
     });
   }, [changeKey]);
+
+  const diagnosticKey = JSON.stringify(diagnostics);
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance) return;
+    instance.dispatch({
+      effects: diagnosticCompartment.current.reconfigure(makeDiagnostics(diagnostics, instance.state.doc)),
+    });
+    // The serialized list is the dependency; the array identity changes on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagnosticKey]);
 
   useEffect(() => {
     if (renameRequest === handledRename.current) return;

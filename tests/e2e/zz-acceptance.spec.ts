@@ -320,7 +320,9 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
 
     // ---- Real csharp-ls session: diagnostics, completion, definition, rename, code actions.
     await ensureCsharpLs(page, request);
-    await clickTestId(page, "lsp-start");
+    // Analysis started by itself once tool, SDK and restore were ready (QA finding 1); the TFM
+    // re-evaluation since then made that session partial, so restart for the final context.
+    await clickTestId(page, "lsp-restart");
     await expect(page.getByTestId("lsp-state")).toContainText("Ready", { timeout: 90_000 });
     await expect(page.getByTestId("lsp-capabilities")).toContainText("completion");
     await expect(page.getByTestId("lsp-capabilities")).toContainText("definition");

@@ -38,7 +38,8 @@ import {
 } from "./TestsPanel";
 import { TestsQuickList } from "./TestsQuickList";
 import { ProcessPanel } from "./ProcessPanel";
-import { DebugAdapterPanel, LspPanel, ToolInstaller } from "./ToolchainPanels";
+import { collectDiagnostics, samePath } from "./diagnosticMarks";
+import { DebugAdapterPanel, LspPanel, ToolInstaller, lspStartBlocker, lspStateLabel } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { FileIcon } from "./FileIcon";
@@ -111,7 +112,8 @@ type Tab = {
   content: string;
   hash: string;
   revision: number;
-  savedRevision: number;
+  /** Text at the last read/write; null when the disk text is unknown. Dirty = content differs. */
+  savedContent: string | null;
   conflict: null | { content: string; hash: string };
 };
 
@@ -228,7 +230,7 @@ function baseName(path: string) {
 }
 
 function isDirty(tab: Tab) {
-  return tab.revision !== tab.savedRevision || tab.conflict !== null;
+  return tab.content !== tab.savedContent || tab.conflict !== null;
 }
 
 function lineDiffCount(buffer: string, disk: string) {
@@ -529,6 +531,43 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   contextIdRef.current = snapshot.contextId;
   const workspaceIdRef = useRef(workspace.id);
   workspaceIdRef.current = workspace.id;
+  const analysisAutoStarted = useRef<string | null>(null);
+  async function startAnalysis(automatic = false) {
+    try {
+      onSnapshot(await call<Snapshot>("lsp.start"));
+    } catch (error) {
+      // The host has the last word on preconditions (e.g. stale restore assets); an automatic
+      // attempt stays quiet and leaves the visible Start button, a click reports the reason.
+      if (!automatic) setMessage({ tone: "error", text: `Analysis could not start: ${messageOf(error)}` });
+    }
+  }
+  useEffect(() => {
+    // The host stops analysis itself on restore/project changes (its reason says what to do);
+    // start again once per such boundary. A user stop or a failure is never undone behind their back.
+    const stoppedByHost = lsp.state === "stopped" && lsp.stoppedReason !== "Stopped by the user.";
+    if ((lsp.state !== "unavailable" && !stoppedByHost) || lspStartBlocker(snapshot) !== null) return;
+    const boundary = `${workspace.id}:${snapshot.contextId}:${restore.revision}`;
+    if (analysisAutoStarted.current === boundary) return;
+    analysisAutoStarted.current = boundary;
+    void startAnalysis(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, workspace.id]);
+  const toolState = snapshot.tools["csharp-ls"].state;
+  const analysisStatus = !trusted
+    ? null
+    : lspActive || lsp.state === "starting"
+      ? { text: `Analysis: ${lspStateLabel(lsp.state)}`, action: null }
+      : toolState !== "ready"
+        ? ["downloading", "installing", "verifying"].includes(toolState)
+          ? { text: "Analysis: installing…", action: null }
+          : {
+              text: "Analysis: not installed",
+              action: { label: "Install analysis", disabledReason: null, onClick: () => setToolsOpen(true) },
+            }
+        : {
+            text: `Analysis: ${lsp.state === "unavailable" ? "not running" : lspStateLabel(lsp.state).toLowerCase()}`,
+            action: { label: "Start analysis", disabledReason: lspStartBlocker(snapshot), onClick: () => void startAnalysis() },
+          };
   const renameDisabledReason = !active
     ? "Open a file to rename a symbol."
     : !trusted
@@ -1118,7 +1157,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           content: file.content,
           hash: file.hash,
           revision: 0,
-          savedRevision: 0,
+          savedContent: file.content,
           conflict: null,
         },
       ]);
@@ -1207,12 +1246,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       setMessage({ tone: "error", text: error });
       return { ok: false, error };
     }
-    if (tab.revision === tab.savedRevision) {
+    if (!isDirty(tab)) {
       setMessage({ tone: "info", text: "No changes to save." });
       return { ok: true };
     }
     const content = tab.content;
-    const revision = tab.revision;
     writing.current.add(tab.path);
     try {
       const result = await call<{ path: string; hash: string }>("file.write", {
@@ -1223,7 +1261,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       setTabs((current) =>
         current.map((item) =>
           item.path === tab.path
-            ? { ...item, hash: result.hash, savedRevision: revision, conflict: null }
+            ? { ...item, hash: result.hash, savedContent: content, conflict: null }
             : item,
         ),
       );
@@ -1934,7 +1972,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         content: document.newContent,
         hash: document.baseHash,
         revision: 1,
-        savedRevision: 0,
+        savedContent: null,
         conflict: null,
       });
     }
@@ -1960,7 +1998,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     const tab = active;
     if (!tab?.conflict) return;
     const conflict = tab.conflict;
-    const hadEdits = tab.revision !== tab.savedRevision;
+    const hadEdits = tab.content !== tab.savedContent;
     const revision = tab.revision + 1;
     setTabs((current) =>
       current.map((item) =>
@@ -1970,7 +2008,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               content: conflict.content,
               hash: conflict.hash,
               revision,
-              savedRevision: revision,
+              savedContent: conflict.content,
               conflict: null,
             }
           : item,
@@ -1990,7 +2028,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     if (!tab?.conflict) return;
     const conflict = tab.conflict;
     const content = tab.content;
-    const revision = tab.revision;
     writing.current.add(tab.path);
     try {
       const result = await call<{ path: string; hash: string }>("file.write", {
@@ -2001,7 +2038,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       setTabs((current) =>
         current.map((item) =>
           item.path === tab.path
-            ? { ...item, hash: result.hash, savedRevision: revision, conflict: null }
+            ? { ...item, hash: result.hash, savedContent: content, conflict: null }
             : item,
         ),
       );
@@ -3251,6 +3288,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           <ProblemsPanel
             diagnostics={snapshot.diagnostics}
             build={build}
+            evaluation={evaluation}
             buildObsolete={buildObsolete}
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
@@ -3348,6 +3386,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const currentProblems = withLocalEdits(snapshot.diagnostics, editedAt)
     .filter((diagnostic) => diagnostic.state === "current")
     .reduce((count, diagnostic) => count + diagnostic.items.length, 0);
+  const allDiagnostics = collectDiagnostics(snapshot.diagnostics, build, buildObsolete, editedAt);
+  const activeDiagnostics = active ? allDiagnostics.filter((item) => samePath(item.path, active.path)) : [];
+  const diagnosticCounts = {
+    errors: allDiagnostics.filter((item) => item.severity === "error").length,
+    warnings: allDiagnostics.filter((item) => item.severity === "warning").length,
+  };
+  const evaluationErrors = evaluation.projects.filter((project) => project.state === "failed" && project.error).length;
   const activeInspections = active
     ? snapshot.diagnostics.snapshots
         .filter((snap) => snap.state === "current" && snap.path && snap.path.replace(/\\/g, "/").endsWith(`/${active.path}`))
@@ -3360,7 +3405,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     : null;
   const bottomTabLabels = bottomTools.map(({ id, title }) => ({
     id: id as BottomToolId,
-    label: id === "problems" && currentProblems > 0 ? `Problems (${currentProblems})` : title,
+    label: id === "problems" && currentProblems + evaluationErrors > 0 ? `Problems (${currentProblems + evaluationErrors})` : title,
   }));
   const breadcrumbProject = activeEvaluationProject?.name ?? activeProject?.name ?? null;
   const statusBreadcrumb = [
@@ -3996,6 +4041,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   renameRequest={renameRequest}
                   definitionRequest={definitionRequest}
                   onCursor={noteCursor}
+                  diagnostics={activeDiagnostics}
                   breakpoints={activeBreakpoints}
                   currentLine={debugCurrentLine}
                   inlayText={debugInlay}
@@ -4435,6 +4481,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           onRetry: restoreAvailable ? () => void startRestore("restore.retry") : null,
         }}
         dirtyCount={dirtyCount}
+        diagnostics={{ ...diagnosticCounts, onOpen: () => setBottomTab("problems") }}
+        analysis={analysisStatus}
         breadcrumb={statusBreadcrumb}
         cursor={active ? `Ln ${cursor.line + 1}, Col ${cursor.character + 1}` : "No file open"}
         indent={{
