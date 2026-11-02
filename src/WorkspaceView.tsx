@@ -3847,19 +3847,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             </button>
           </div>
         </details>
-        <span className="toolbar-disabled" title="Search Everywhere arrives in F3.">
-          <button
-            type="button"
-            className="toolbar-icon-button"
-            data-testid="toolbar-search"
-            disabled={Boolean(searchAction.disabledReason)}
-            aria-label={searchAction.title}
-            title={searchAction.disabledReason ?? searchAction.shortcutTexts.join(" or ")}
-            onClick={searchAction.execute}
-          >
-            <Icon name="search" />
-          </button>
-        </span>
+        <button
+          type="button"
+          className="toolbar-icon-button"
+          data-testid="toolbar-search"
+          disabled={Boolean(searchAction.disabledReason)}
+          aria-label={searchAction.title}
+          title={searchAction.disabledReason ?? (searchAction.shortcutTexts.join(" or ") || "Double Shift")}
+          onClick={searchAction.execute}
+        >
+          <Icon name="search" />
+        </button>
         <button
           type="button"
           className="toolbar-icon-button"

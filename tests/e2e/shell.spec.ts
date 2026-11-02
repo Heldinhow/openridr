@@ -117,7 +117,7 @@ test("the single bar keeps placeholders disabled and the status bar reports the 
     expect(await page.getByTestId(id).getAttribute("title")).toBeTruthy();
   }
   await expect(page.getByTestId("toolbar-search")).toBeEnabled();
-  await expect(page.getByTestId("toolbar-search")).toHaveAttribute("title", /Cmd\+T/);
+  await expect(page.getByTestId("toolbar-search")).toHaveAttribute("title", /Double Shift/);
   await expect(page.getByTestId("toolbar-run-config")).toHaveAttribute("title", /Trust the workspace before choosing a run configuration/);
   // F8 enables Settings; the disabled reason it used to carry is gone.
   await expect(page.getByTestId("toolbar-settings")).toBeEnabled();
