@@ -48,6 +48,11 @@ Fonte: [SPEC-ALPHA3-DEBUG-TRUST](../SPEC-ALPHA3-DEBUG-TRUST.md). Três fatias in
 | [35 — Debug sem modal de consentimento](35-debug-sem-modal.md) | Clique em Debug liga a flag, reusa/instala o adaptador e inicia; sem diálogo | Nenhum |
 | [36 — Confiar no próprio aviso de bloqueio](36-confiar-no-aviso.md) | Avisos de Build/Run/Debug em Restricted oferecem "Trust this project" | Nenhum |
 | [37 — Dados de teste isolados e higiene](37-dados-de-teste-isolados.md) | Host E2E em home temporário, `host:http` fora do app home, `.gitignore` | Nenhum |
+| [38 — Solution: árvore fiel ao Rider](38-solution-arvore-rider.md) | Linha única, contagens, pastas aninhadas, Dependencies com filhos | Nenhum |
+| [39 — Solution: barra e Show All Files](39-solution-barra-show-all.md) | Barra completa, `workspace.tree`, `no index` | 38 |
+| [40 — Solution: menu de contexto](40-solution-menu-contexto.md) | Menu de projeto com submenu, gates e Trust | 38 |
+| [41 — Solution: E2E, review e retro](41-solution-e2e-docs.md) | Spec isolado e documentação | 38–40 |
+
 
 ## Gates válidos em todos os tickets
 

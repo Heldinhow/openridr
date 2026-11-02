@@ -45,6 +45,8 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
   const [buildDecision, setBuildDecision] = useState(false);
   const [runDecision, setRunDecision] = useState(false);
   const [pendingRunConfig, setPendingRunConfig] = useState<RunConfig | null>(null);
+  // A Solution-tree Build on a specific project survives the unsaved-buffers decision.
+  const [pendingBuildConfig, setPendingBuildConfig] = useState<RunConfig | null>(null);
 
   async function startBuild(savedNote: string, requestedConfig?: RunConfig | null): Promise<boolean> {
     const project = requestedConfig
@@ -81,19 +83,25 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
     }
   }
 
-  function requestBuild() {
-    if (buildDisabledReason) {
-      setMessage({ tone: "error", text: `Build unavailable: ${buildDisabledReason}` });
+  // `requestedConfig` comes from the Solution tree; its caller already applied the project's gate.
+  function requestBuild(requestedConfig?: RunConfig) {
+    // A tree-requested config skips the startup-project gate, never the trust gate.
+    const reason = requestedConfig && snapshot.trust.granted ? null : buildDisabledReason;
+    if (reason) {
+      setMessage({ tone: "error", text: `Build unavailable: ${reason}` });
       return;
     }
     if (dirtyCount > 0) {
+      setPendingBuildConfig(requestedConfig ?? null);
       setBuildDecision(true);
       return;
     }
-    void startBuild("Built saved content; no unsaved buffers were open.");
+    void startBuild("Built saved content; no unsaved buffers were open.", requestedConfig);
   }
 
-  async function saveAllAndBuild(requestedConfig?: RunConfig | null): Promise<boolean> {
+  async function saveAllAndBuild(requested?: RunConfig | null): Promise<boolean> {
+    const requestedConfig = requested ?? pendingBuildConfig;
+    setPendingBuildConfig(null);
     const dirty = dirtyCount;
     const failures = await saveAll();
     if (failures.length > 0) {
@@ -111,8 +119,11 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
   async function buildSavedContent() {
     const excluded = dirtyCount;
     setBuildDecision(false);
+    const requestedConfig = pendingBuildConfig;
+    setPendingBuildConfig(null);
     await startBuild(
       `Built saved content; ${excluded} unsaved buffer${excluded === 1 ? "" : "s"} excluded.`,
+      requestedConfig,
     );
   }
 
@@ -220,15 +231,16 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
 
   const cancelRun = () => runCancel({ onSnapshot, setMessage });
 
-  function debugStartParams() {
+  function debugStartParams(requested?: RunConfig) {
+    const config = requested ?? activeRunConfig;
     return {
-      project: startupProject?.path,
-      configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
-      targetFramework: activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
-      args: activeRunConfig?.args ?? [],
-      workingDirectory: activeRunConfig?.workingDirectory ?? "",
-      env: activeRunConfig?.env ?? {},
-      envFiles: activeRunConfig?.envFiles ?? [],
+      project: requested ? requested.project : startupProject?.path,
+      configuration: config?.configuration ?? evaluation.context.configuration,
+      targetFramework: config?.targetFramework ?? evaluation.context.targetFramework,
+      args: config?.args ?? [],
+      workingDirectory: config?.workingDirectory ?? "",
+      env: config?.env ?? {},
+      envFiles: config?.envFiles ?? [],
     };
   }
 
@@ -238,12 +250,13 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
   // macOS arm64 flag for the session, reuses or installs the approved adapter only when it is
   // missing, then lets the host start the session and build implicitly when no current build
   // can launch it. Restore stays explicit.
-  async function prepareAndDebug() {
-    if (debugDisabledReason) {
-      setMessage({ tone: "error", text: `Debug unavailable: ${debugDisabledReason}` });
+  async function prepareAndDebug(requested?: RunConfig) {
+    const reason = requested && snapshot.trust.granted ? null : debugDisabledReason;
+    if (reason) {
+      setMessage({ tone: "error", text: `Debug unavailable: ${reason}` });
       return;
     }
-    const invalid = invalidRunConfigReason();
+    const invalid = invalidRunConfigReason(requested);
     if (invalid) {
       setMessage({ tone: "error", text: invalid });
       openRunConfigDialog(activeRunConfig?.id);
@@ -273,7 +286,7 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
         }
       }
       if (snap.debug.adapterState !== "ready") throw new Error(snap.debug.gateReason ?? snap.debug.adapterMessage);
-      onSnapshot(await call<Snapshot>("debug.start", debugStartParams()));
+      onSnapshot(await call<Snapshot>("debug.start", debugStartParams(requested)));
       setMessage(null);
     } catch (error) {
       setMessage({ tone: "error", text: `Debug could not start: ${messageOf(error)}` });

@@ -2854,12 +2854,6 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tree-row .tag { flex: 0 8 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Project rows are two layers: name on top, kind · TFM · restore state below, aligned under the name.
    46px = chevron + icon + their gaps; the ::after spacer pushes the tags under the name. */
-.tree-row[aria-expanded] { flex-wrap: wrap; align-content: center; row-gap: 0; padding-top: 4px; padding-bottom: 4px; line-height: 1.3; }
-.tree-row[aria-expanded] .tree-name { flex: 0 0 calc(100% - 46px); min-width: 0; }
-.tree-row[aria-expanded]::after { content: ""; order: 1; flex: 0 0 40px; }
-.tree-row[aria-expanded] .tag { order: 2; flex: 0 0 auto; }
-.tree-row[aria-expanded] .tag + .tag::before { content: "· "; }
-.tree-row[aria-expanded] .tag.warning { flex: 0 1 auto; }
 .explorer-title { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; } .explorer-title .icon { width: 12px; height: 12px; color: var(--muted); }
 
 /* ui-shape 04: Problems — two-layer rows (severity · code · message / location · document · origin · state), no horizontal scroll. */
@@ -3169,3 +3163,27 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 
 /* ui-shape polish — keyboard focus is a ring, never fill alone: dense rows and menu items take it inset so scrollers do not clip it. */
 .editor-context-menu button:not(:disabled):focus-visible, .find-usages-file li button:focus-visible, .tree-row:focus-visible, .branch-list button:focus-visible, .branch-actions > button:focus-visible, .menu-content > button:focus-visible, .bottom-hide:focus-visible, .settings-tree button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Solution tree menu: submenu opens to the right of its parent row, like Rider. */
+.editor-context-menu.has-submenu { overflow: visible; max-height: none; }
+.context-menu-parent { position: relative; }
+.editor-context-menu.context-submenu { position: absolute; left: calc(100% + 2px); top: -4px; max-height: none; overflow: visible; }
+
+/* Solution tree: single-line Rider rows; indentation comes from the row's inline padding. */
+.sol-tree { padding: 4px 6px; min-width: 0; }
+.workspace-view .side .tree-row.sol-row { padding-top: 0; padding-bottom: 0; padding-right: 8px; min-height: 28px; gap: 6px; font-weight: 400; border-radius: var(--r-md); }
+.sol-row .tree-chevron.leaf { visibility: hidden; }
+.sol-row .tag { flex: 0 8 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); white-space: nowrap; }
+.sol-row .tag.error { color: var(--error); }
+.sol-row .tag.warning { color: var(--warning); }
+.sol-row .tree-name { flex: 0 0 auto; min-width: 0; }
+.sol-row .icon-folder, .sol-row .icon-solution, .sol-row .icon-dependencies { color: var(--muted); }
+.sol-row .icon-solutionFolder { color: var(--muted); }
+.sol-row.no-index { background: color-mix(in srgb, var(--warning) 9%, transparent); }
+.sol-row.no-index:hover { background: color-mix(in srgb, var(--warning) 16%, transparent); }
+.sol-row.selected.no-index { background: var(--select); }
+.explorer-tools button.active { background: var(--accent-surface-strong); color: var(--fg); }
+.tree-filter { margin: 6px 10px 2px; padding: 4px 8px; min-height: 28px; }
+.explorer-heading { flex-wrap: nowrap; }
+.explorer-tools { flex: 0 0 auto; gap: 0; }
+.workspace-view .side .explorer-tools button { width: 24px; height: 24px; min-height: 24px; }
