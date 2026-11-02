@@ -1293,14 +1293,15 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   flex: 0 0 auto;
   box-sizing: border-box;
   min-height: 100px;
-  max-height: min(50%, 300px);
+  max-height: min(calc(50% - 8px), 300px);
+  margin-bottom: 8px;
   overflow: auto;
-  padding: 6px 12px;
+  padding: 2px 12px 6px;
   border-top: 1px solid var(--accent);
 }
 
 /* Compact, never hidden: safety/truncation text stays; only spacing and size give way. */
-.editor-popup h2 { margin: 0 0 2px; font-size: 0.85rem; }
+.editor-popup h2 { margin: 0; font-size: 0.85rem; }
 .editor-popup p { margin: 1px 0; font-size: 0.75rem; line-height: 1.25; }
 
 /* While a preview is docked, the role=status line shrinks to one line (full text in its title). */
@@ -1327,7 +1328,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 }
 
 .rename-index {
-  margin: 8px 0 0;
+  margin: 0;
   padding-left: 18px;
   font-size: 0.78rem;
 }

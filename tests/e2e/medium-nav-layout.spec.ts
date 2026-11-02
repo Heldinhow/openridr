@@ -24,7 +24,8 @@ test.afterEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => {});
 });
 
-test("docked Find Usages keeps the bottom tool window at its configured height", async ({ page }) => {
+async function dockedFindUsages(page: Page, viewport: { width: number; height: number }) {
+  await page.setViewportSize(viewport);
   const { base, copy } = tempCopy("openridr-layout-usages-");
   try {
     await page.goto("/");
@@ -82,7 +83,13 @@ test("docked Find Usages keeps the bottom tool window at its configured height",
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
-});
+}
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700 }]) {
+  test(`docked Find Usages stays above the bottom tool window at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await dockedFindUsages(page, viewport);
+  });
+}
 
 test("notifications overlay the editor without moving tabs or editor", async ({ page }) => {
   const { base, copy } = tempCopy("openridr-layout-notice-");
