@@ -190,8 +190,23 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
   },
   "search.findInFiles": both([shortcut("f", { primary: true, shift: true })]),
   "search.line": {
-    "rider-macos": binding([shortcut("g", { primary: true })]),
+    "rider-macos": binding([shortcut("g", { primary: true }), shortcut("l", { primary: true })]),
     intellij: binding([shortcut("l", { primary: true })]),
+  },
+  // Rider history navigation; the IntelliJ profile keeps its own table untouched.
+  "navigate.back": {
+    "rider-macos": binding([
+      shortcut("[", { primary: true }),
+      shortcut("arrowleft", { primary: true, alt: true }),
+    ]),
+    intellij: binding([]),
+  },
+  "navigate.forward": {
+    "rider-macos": binding([
+      shortcut("]", { primary: true }),
+      shortcut("arrowright", { primary: true, alt: true }),
+    ]),
+    intellij: binding([]),
   },
   // Rider uses the approved two-key chords (⌘U then the key); only the IntelliJ profile has
   // single keys for the same actions. Chords are not remappable yet.

@@ -6,6 +6,7 @@ import { Decoration, EditorView, GutterMarker, WidgetType, gutter, keymap } from
 import { Compartment, RangeSet } from "@codemirror/state";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
+import { gotoLine } from "@codemirror/search";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
 import type { EditorSettings } from "./actions/keymap";
 import {
@@ -87,6 +88,8 @@ type Props = {
   renameRequest?: number;
   /** Incremented by the Go to Declaration action/menu. */
   definitionRequest?: number;
+  /** Incremented by Go to Line; opens the CodeMirror dialog at the current line. */
+  gotoLineRequest?: number;
   onToggleBreakpoint?: (line: number) => void;
   onChange: (value: string) => void;
   onSave: () => void;
@@ -433,6 +436,7 @@ export function CodeEditor({
   inlayText = "",
   renameRequest = 0,
   definitionRequest = 0,
+  gotoLineRequest = 0,
   onToggleBreakpoint,
   onChange,
   onSave,
@@ -496,6 +500,7 @@ export function CodeEditor({
   const inlineRef = useRef<InlineRename | null>(null);
   const handledRename = useRef(renameRequest);
   const handledDefinition = useRef(definitionRequest);
+  const handledGotoLine = useRef(gotoLineRequest);
   const inputRef = useRef<HTMLInputElement>(null);
   const [inline, setInline] = useState<InlineRename | null>(null);
   inlineRef.current = inline;
@@ -965,6 +970,18 @@ export function CodeEditor({
     // The nonce is the only trigger; the cursor is read when the action runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [definitionRequest]);
+
+  useEffect(() => {
+    if (gotoLineRequest === handledGotoLine.current) return;
+    handledGotoLine.current = gotoLineRequest;
+    const instance = view.current;
+    if (!instance) return;
+    // Focus first so the dialog keeps its own input focus when it opens.
+    instance.focus();
+    gotoLine(instance);
+    // The nonce is the only trigger; the dialog starts at the current line.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gotoLineRequest]);
 
   useEffect(() => {
     const instance = view.current;

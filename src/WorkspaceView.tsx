@@ -187,6 +187,8 @@ type Confirmation =
   | { kind: "workspace" }
   | { kind: "window" };
 
+type NavEntry = { path: string; line: number; character: number };
+
 type Props = {
   snapshot: Snapshot;
   initialFile: string | null;
@@ -453,6 +455,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
+  const navHistory = useRef<{ entries: NavEntry[]; index: number }>({ entries: [], index: -1 });
+  const [navEnabled, setNavEnabled] = useState({ back: false, forward: false });
+  const [gotoLineRequest, setGotoLineRequest] = useState(0);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activePathRef = useRef(activePath);
@@ -1185,13 +1190,69 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     }
   }
 
-  async function navigateTo(path: string, position: { line: number; character: number }) {
+  function navEntry(): NavEntry | null {
+    const path = activePathRef.current;
+    return path
+      ? { path, line: cursorRef.current.line, character: cursorRef.current.character }
+      : null;
+  }
+
+  function syncNavEnabled() {
+    const { entries, index } = navHistory.current;
+    setNavEnabled({
+      back: index > 0,
+      forward: index >= 0 && index < entries.length - 1,
+    });
+  }
+
+  /** A navigation starts at the first location only; the destination is the new history tip. */
+  function recordNavigation(from: NavEntry | null, to: NavEntry) {
+    if (!from) return;
+    const history = navHistory.current;
+    const entries = history.entries.slice(0, history.index + 1);
+    if (entries.length === 0) entries.push(from);
+    entries.push(to);
+    const limited = entries.length > 100 ? entries.slice(entries.length - 100) : entries;
+    navHistory.current = { entries: limited, index: limited.length - 1 };
+    syncNavEnabled();
+  }
+
+  async function openUserFile(path: string) {
+    if (path === activePathRef.current) {
+      await openFile(path);
+      return;
+    }
+    const from = navEntry();
     if (!(await openFile(path))) return;
+    recordNavigation(from, { path, line: 0, character: 0 });
+  }
+
+  async function navigateTo(path: string, position: { line: number; character: number }) {
+    const from = navEntry();
+    if (!(await openFile(path))) return;
+    recordNavigation(from, { path, ...position });
     navigationSeq.current += 1;
     setEditorTarget({
       path,
       line: position.line,
       character: position.character,
+      nonce: navigationSeq.current,
+    });
+  }
+
+  async function travel(delta: number) {
+    const history = navHistory.current;
+    const next = history.index + delta;
+    const entry = history.entries[next];
+    if (!entry) return;
+    if (!(await openFile(entry.path))) return;
+    navHistory.current = { ...history, index: next };
+    syncNavEnabled();
+    navigationSeq.current += 1;
+    setEditorTarget({
+      path: entry.path,
+      line: entry.line,
+      character: entry.character,
       nonce: navigationSeq.current,
     });
   }
@@ -2159,7 +2220,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   function openGlobalJson() {
-    void openFile(projectSdk.globalJsonPath ?? "global.json");
+    void openUserFile(projectSdk.globalJsonPath ?? "global.json");
   }
 
   // One grant path for every "Trust this project" control: the decision is remembered, so the
@@ -2257,7 +2318,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       onBuild: () => config && requestBuild(config),
       onRun: () => config && requestRun(config),
       onDebug: () => config && void prepareAndDebug(config),
-      onEditFile: () => void openFile(target.path),
+      onEditFile: () => void openUserFile(target.path),
       onFind: () => openFindInFiles(target.path),
       onCopyPath: () => void copyPath(absolutePath(target.path)),
       onProperties: () => {
@@ -2271,7 +2332,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     if (target.kind === "project") return projectMenu(target);
     const path = target.kind === "root" ? "" : target.path;
     return fileMenuItems({
-      open: target.kind === "file" ? () => void openFile(target.path) : undefined,
+      open: target.kind === "file" ? () => void openUserFile(target.path) : undefined,
       reload: target.kind === "root" ? { reason: reloadReason, run: () => void runEvaluation() } : undefined,
       onCopyPath: () => void copyPath(absolutePath(path)),
       onFind: () => openFindInFiles(path),
@@ -2461,7 +2522,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   function openSearchFile(path: string) {
     setFindActionOpen(false);
     focusEditor();
-    void openFile(path);
+    void openUserFile(path);
   }
 
   function openSearchLocation(path: string, line: number, character: number) {
@@ -2544,6 +2605,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       group: "File",
       execute: () => void save(),
       disabledReason: active ? null : "Open a file to save.",
+    }),
+    define({
+      id: "navigate.back",
+      title: "Back",
+      group: "Navigation",
+      execute: () => void travel(-1),
+      disabledReason: navEnabled.back ? null : "No earlier location in history.",
+    }),
+    define({
+      id: "navigate.forward",
+      title: "Forward",
+      group: "Navigation",
+      execute: () => void travel(1),
+      disabledReason: navEnabled.forward ? null : "No later location in history.",
     }),
     define({
       id: "toolWindow.hideActive",
@@ -2735,10 +2810,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "search.line",
       title: "Go to Line",
       group: "Search",
-      // ⌘G stays CodeMirror's find-next until the real dialog lands (SPEC-DEVFLOW-TOP4, finding 3).
-      editor: false,
-      execute: () => undefined,
-      disabledReason: "Go to Line arrives in F3.",
+      execute: () => {
+        focusEditor();
+        setGotoLineRequest((current) => current + 1);
+      },
+      disabledReason: active ? null : "Open a file to go to a line.",
     }),
     define({
       id: "tests.runAll",
@@ -3340,7 +3416,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             buildObsolete={buildObsolete}
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
-            onOpen={(path) => void openFile(path)}
+            onOpen={(path) => void openUserFile(path)}
           />
         );
       case "debug":
@@ -3497,6 +3573,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const renameAction = requireAction(actionById, "code.rename");
   const contextActionsAction = requireAction(actionById, "code.contextActions");
   const saveAction = requireAction(actionById, "file.save");
+  const backAction = requireAction(actionById, "navigate.back");
+  const forwardAction = requireAction(actionById, "navigate.forward");
 
   return (
     <main
@@ -3510,8 +3588,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       } as CSSProperties}
     >
       <div className="toolbar">
-        <button type="button" className="toolbar-icon-button nav-button" disabled aria-label="Back" title="Back"><Icon name="back" /></button>
-        <button type="button" className="toolbar-icon-button nav-button" disabled aria-label="Forward" title="Forward"><Icon name="forward" /></button>
+        <button type="button" className="toolbar-icon-button nav-button" data-testid="nav-back" disabled={backAction.disabledReason !== null} aria-label="Back" title={backAction.disabledReason ?? `Back (${backAction.shortcutTexts.join(" or ")})`} onClick={backAction.execute}><Icon name="back" /></button>
+        <button type="button" className="toolbar-icon-button nav-button" data-testid="nav-forward" disabled={forwardAction.disabledReason !== null} aria-label="Forward" title={forwardAction.disabledReason ?? `Forward (${forwardAction.shortcutTexts.join(" or ")})`} onClick={forwardAction.execute}><Icon name="forward" /></button>
         <details className="toolbar-menu project-menu" onKeyDown={(event) => {
           if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
         }}>
@@ -3902,7 +3980,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             selectedProjectPath={selectedProjectPath}
             onSelectProject={setSelectedProjectPath}
             activePath={activePath}
-            onOpenFile={(path) => void openFile(path)}
+            onOpenFile={(path) => void openUserFile(path)}
             restoreIncomplete={(path) => showsEvaluatedTree && restore.revision > 0 && restoreProjectState.get(path) !== "restored"}
             showAll={showAllFiles}
             filter={treeFilter}
@@ -4123,6 +4201,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   changedLines={changedLines}
                   renameRequest={renameRequest}
                   definitionRequest={definitionRequest}
+                  gotoLineRequest={gotoLineRequest}
                   onCursor={noteCursor}
                   diagnostics={activeDiagnostics}
                   breakpoints={activeBreakpoints}
@@ -4466,7 +4545,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                 <div className="actions">
                   <button
                     data-testid="eval-open-project"
-                    onClick={() => void openFile(selectedProject.path)}
+                    onClick={() => void openUserFile(selectedProject.path)}
                   >
                     Open project file
                   </button>
