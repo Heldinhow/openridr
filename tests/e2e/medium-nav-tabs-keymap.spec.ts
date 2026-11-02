@@ -141,6 +141,23 @@ test("Rider duplicates and deletes lines with ⌘D and ⌘⌫; IntelliJ keeps Co
   await expect(page.getByTestId("editor").locator(".cm-line").first()).toHaveText(intellijFirst ?? "");
 });
 
+test("Find Action applies the requested search tab and Recent Files is disabled without history", async ({
+  page,
+}) => {
+  await openTrusted(page);
+
+  await page.keyboard.press("Meta+Shift+A");
+  await page.getByTestId("find-action-input").fill("Recent Files");
+  const recent = page.getByTestId("find-action-item-search.recentFiles").getByRole("button");
+  await expect(recent).toBeDisabled();
+  await expect(recent).toHaveAttribute("title", "No recent files yet.");
+
+  await page.getByTestId("find-action-input").fill("Search Everywhere");
+  await page.getByTestId("find-action-input").press("Enter");
+  await expect(page.getByTestId("find-action")).toBeVisible();
+  await expect(page.getByTestId("search-tab-all")).toHaveAttribute("aria-selected", "true");
+});
+
 test("Shift selection does not trigger Search Everywhere; two clean Shift taps do", async ({ page }) => {
   await openTrusted(page);
   await page.getByTestId(`tree-file-${program}`).click();

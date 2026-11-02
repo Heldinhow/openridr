@@ -347,6 +347,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [findActionOpen, setFindActionOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab | "last">("last");
+  const [searchSeq, setSearchSeq] = useState(0);
   const [findInFiles, setFindInFiles] = useState<{ scope: string; nonce: number } | null>(null);
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
   const [recentFilesOpen, setRecentFilesOpen] = useState(false);
@@ -2514,6 +2515,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   function openSearch(tab: SearchTab | "last") {
     setKeymapOpen(false);
     setSearchTab(tab);
+    // FindAction reads initialTab only on mount; a new key applies the requested tab even
+    // when the palette is already open on another tab.
+    setSearchSeq((current) => current + 1);
     setFindActionOpen(true);
   }
 
@@ -2846,9 +2850,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       title: "Recent Files",
       group: "Search",
       execute: () => {
+        if (recentFiles.length === 0) return;
         setFindActionOpen(false);
         setRecentFilesOpen(true);
       },
+      disabledReason: recentFiles.length === 0 ? "No recent files yet." : null,
     }),
     define({
       id: "search.text",
@@ -4662,6 +4668,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
       {findActionOpen && (
         <FindAction
+          key={`${searchTab}:${searchSeq}`}
           actions={resolvedActions}
           platform={snapshot.app.platform}
           profile={settings.keymap.profile}
