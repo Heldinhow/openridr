@@ -33,3 +33,17 @@ test("an absolute path outside the workspace is unchanged", () => {
 test("the workspace root itself becomes the empty relative path", () => {
   expect(workspaceRelative(workspace, workspace)).toBe("");
 });
+
+test("a workspace with no directory keeps absolute paths relative to the filesystem root", () => {
+  // A solution opened as /OrderDesk.sln has dirOf "" and the adapter still sends /Program.cs.
+  expect(workspaceRelative("/Program.cs", "")).toBe("Program.cs");
+  expect(workspaceRelative("/src/OrderDesk.Cli/Program.cs", "")).toBe(
+    "src/OrderDesk.Cli/Program.cs",
+  );
+  // Already-relative paths do not gain or lose a separator.
+  expect(workspaceRelative("src/OrderDesk.Cli/Program.cs", "")).toBe(
+    "src/OrderDesk.Cli/Program.cs",
+  );
+  expect(workspaceRelative("/", "/")).toBe("");
+  expect(workspaceRelative("/Program.cs", "/")).toBe("Program.cs");
+});

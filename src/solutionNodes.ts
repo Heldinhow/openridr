@@ -12,7 +12,9 @@ export const countLabel = (count: number, noun: string) => `${count} ${noun}${co
 export function workspaceRelative(path: string, workspaceDir: string): string {
   const normalized = path.replace(/\\/g, "/");
   const base = workspaceDir.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!base) return normalized;
+  // A solution at the filesystem root has an empty workspaceDir; absolute paths are already
+  // relative to `/`, so only the leading separator has to go.
+  if (!base) return normalized.startsWith("/") ? normalized.slice(1) : normalized;
   if (normalized === base) return "";
   return normalized.startsWith(`${base}/`) ? normalized.slice(base.length + 1) : normalized;
 }
