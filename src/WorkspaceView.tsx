@@ -28,7 +28,7 @@ import {
   lineSnippet,
   type GutterAction,
 } from "./codeNavigation";
-import { ProblemsPanel, withLocalEdits } from "./ProblemsPanel";
+import { ProblemsPanel } from "./ProblemsPanel";
 import { RunPanel } from "./RunPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
 import {
@@ -40,7 +40,7 @@ import {
 } from "./TestsPanel";
 import { TestsQuickList } from "./TestsQuickList";
 import { ProcessPanel } from "./ProcessPanel";
-import { collectDiagnostics, samePath } from "./diagnosticMarks";
+import { collectDiagnostics, problemCounts, samePath } from "./diagnosticMarks";
 import { DebugAdapterPanel, LspPanel, ToolInstaller, lspStartBlocker, lspStateLabel } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
@@ -3697,16 +3697,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               : "Project SDK unresolved"
   }`;
 
-  const currentProblems = withLocalEdits(snapshot.diagnostics, editedAt)
-    .filter((diagnostic) => diagnostic.state === "current")
-    .reduce((count, diagnostic) => count + diagnostic.items.length, 0);
   const allDiagnostics = collectDiagnostics(snapshot.diagnostics, build, buildObsolete, editedAt);
   const activeDiagnostics = active ? allDiagnostics.filter((item) => samePath(item.path, active.path)) : [];
-  const diagnosticCounts = {
-    errors: allDiagnostics.filter((item) => item.severity === "error").length,
-    warnings: allDiagnostics.filter((item) => item.severity === "warning").length,
-  };
-  const evaluationErrors = evaluation.projects.filter((project) => project.state === "failed" && project.error).length;
+  const problems = problemCounts(
+    snapshot.diagnostics,
+    build,
+    snapshot.tests,
+    evaluation,
+    buildObsolete,
+    editedAt,
+  );
+  const diagnosticCounts = { errors: problems.errors, warnings: problems.warnings };
   const activeInspections = active
     ? snapshot.diagnostics.snapshots
         .filter((snap) => snap.state === "current" && snap.path && snap.path.replace(/\\/g, "/").endsWith(`/${active.path}`))
@@ -3719,7 +3720,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     : null;
   const bottomTabLabels = bottomTools.map(({ id, title }) => ({
     id: id as BottomToolId,
-    label: id === "problems" && currentProblems + evaluationErrors > 0 ? `Problems (${currentProblems + evaluationErrors})` : title,
+    label: id === "problems" && problems.total > 0 ? `Problems (${problems.total})` : title,
   }));
   const breadcrumbProject = activeEvaluationProject?.name ?? activeProject?.name ?? null;
   const statusBreadcrumb = [

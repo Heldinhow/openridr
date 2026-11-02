@@ -1,5 +1,23 @@
-import type { Build, Diagnostics } from "./host/client";
-import { withLocalEdits } from "./ProblemsPanel";
+import type { Build, Diagnostics, Evaluation, Tests } from "./host/client";
+
+/** A local edit newer than the publication makes its items awaiting before the next poll. */
+export function withLocalEdits(
+  diagnostics: Diagnostics,
+  editedAt: Record<string, number>,
+) {
+  return diagnostics.snapshots.map((snapshot) =>
+    snapshot.state === "current" &&
+    snapshot.path !== null &&
+    (editedAt[snapshot.path] ?? 0) > snapshot.receivedAt
+      ? {
+          ...snapshot,
+          state: "awaiting" as const,
+          staleReason:
+            "The buffer was edited after this publication; awaiting diagnostics for the new revision.",
+        }
+      : snapshot,
+  );
+}
 
 // Editor-ready diagnostics: current LSP publications plus the current build's problems, one list.
 export type EditorDiagnostic = {
@@ -64,4 +82,30 @@ export function collectDiagnostics(
     }
   }
   return out;
+}
+
+export type ProblemCounts = { errors: number; warnings: number; total: number };
+
+/** One count for every origin: LSP, build, test discovery and failed evaluations. */
+export function problemCounts(
+  diagnostics: Diagnostics,
+  build: Build,
+  tests: Tests,
+  evaluation: Evaluation,
+  buildObsolete: boolean,
+  editedAt: Record<string, number>,
+): ProblemCounts {
+  const severities = collectDiagnostics(diagnostics, build, buildObsolete, editedAt).map(
+    (item) => item.severity,
+  );
+  // A stale or sealed discovery describes an older model; its problems are not current.
+  if (!tests.discovery.sealed && !tests.discovery.stale) {
+    severities.push(...tests.discovery.problems.map((problem) => problem.severityLabel));
+  }
+  const failedProjects = evaluation.projects.filter(
+    (project) => project.state === "failed" && project.error,
+  ).length;
+  const errors = severities.filter((severity) => severity === "error").length + failedProjects;
+  const warnings = severities.filter((severity) => severity === "warning").length;
+  return { errors, warnings, total: errors + warnings };
 }

@@ -155,6 +155,7 @@ test("b15: small windows leave the editor visible and do not overflow", async ({
 test("d19: Problems counts build errors once and the default panel is tall enough", async ({ page }) => {
   const { solution } = tempCopy("Order Desk problems");
   await openWorkspace(page, solution, true);
+  await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", { timeout: 60_000 });
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
 
@@ -173,8 +174,7 @@ test("d19: Problems counts build errors once and the default panel is tall enoug
 
   // Without a stored layout, the real default is a panel with room for several rows.
   await page.evaluate(() => localStorage.removeItem("openridr.layout.v1"));
-  await page.reload();
-  await expect(page.getByTestId("tree")).toBeVisible();
+  await openWorkspace(page, solution, true);
   await page.getByTestId("toolband-problems").click();
   const output = (await page.getByRole("region", { name: "Bottom panel" }).boundingBox())!;
   expect(output.height).toBe(320);
