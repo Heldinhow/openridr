@@ -77,18 +77,18 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
   await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
   await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
-  const dependencies = page.getByRole("group", { name: "OrderDesk.Cli dependencies" });
-  await expect(dependencies.locator("summary")).toBeVisible();
-  await expect(dependencies.getByText("References: OrderDesk.Core")).toBeHidden();
-  await dependencies.locator("summary").focus();
-  await page.keyboard.press("Enter");
-  await expect(dependencies.getByText("References: OrderDesk.Core")).toBeVisible();
-  await page.keyboard.press("Enter");
+  // Dependencies is a tree node (closed by default) whose children are the real references.
+  const cliDeps = page.getByTestId("tree-deps-OrderDesk.Cli");
+  await expect(cliDeps).toHaveAttribute("aria-expanded", "false");
+  await cliDeps.click();
+  await expect(cliDeps).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("tree")).toContainText(/OrderDesk\.Core\s*· project/);
+  await cliDeps.click();
+  await page.getByTestId("tree-deps-OrderDesk.Tests").click();
   if (process.env.OPENRIDR_EVALUATION_SCREENSHOT) {
     await page.screenshot({ path: process.env.OPENRIDR_EVALUATION_SCREENSHOT });
   }
-  await expect(page.getByTestId("tree")).toContainText("References: OrderDesk.Core");
-  await expect(page.getByTestId("tree")).toContainText("Packages: Microsoft.NET.Test.Sdk 17.11.1");
+  await expect(page.getByTestId("tree")).toContainText(/Microsoft\.NET\.Test\.Sdk 17\.11\.1\s*· package/);
   await expect(page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs")).toBeVisible();
   await expect(page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs")).toBeVisible();
   await expect(page.getByTestId("tree-file-tests/OrderDesk.Tests/OrderTests.cs")).toBeVisible();

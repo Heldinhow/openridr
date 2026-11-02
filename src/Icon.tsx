@@ -30,7 +30,14 @@ export type IconName =
   | "stepInto"
   | "stepOut"
   | "pause"
-  | "restart";
+  | "restart"
+  | "folder"
+  | "solution"
+  | "solutionFolder"
+  | "dependencies"
+  | "eye"
+  | "more"
+  | "minimize";
 
 export function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, string> = {
@@ -66,6 +73,13 @@ export function Icon({ name }: { name: IconName }) {
     runconfig: "M4 7h6m4 0h6M4 17h10m4 0h2M12 4v6M18 14v6",
     pause: "M8 5v14M16 5v14",
     restart: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5",
+    folder: "M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z",
+    solution: "M4 5h16v12H4V5Zm0 3h16m-12 9v3h8v-3",
+    solutionFolder: "M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Zm9 4 3.5 6h-7L12 10Z",
+    dependencies: "M12 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM6 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm12 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM12 8v3m0 0-5 5m5-5 5 5",
+    eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
+    more: "M12 5v.01M12 12v.01M12 19v.01",
+    minimize: "M5 12h14",
   };
   return <svg className={`icon icon-${name}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }

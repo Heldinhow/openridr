@@ -466,3 +466,12 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - `bun run host:http` passa a rodar com `OPENRIDR_HOME=${OPENRIDR_HOME:-$PWD/.scratch/host-home}`: o smoke manual não escreve no app home real. Para usar o home real de propósito, exporte `OPENRIDR_HOME` explicitamente.
 - `.gitignore` cobre `.openchamber/`, `.playwright-mcp/`, `.scratch/design-ref/`, `.scratch/ui-shape/`, `.scratch/host-home/` (novo diretório do `host:http`) e `docs/evidence/logs/*`. Logs já versionados continuam versionados; a regra vale para arquivos novos.
 - Evidência: `docs/evidence/alpha3-debug-trust.md`.
+
+## 2026-11-02 — Solution Explorer fiel ao Rider (tickets 38–41)
+
+- Fonte e aceite em `docs/SPEC-SOLUTION-EXPLORER.md`. A árvore passa a vir de `SolutionTree`/`TreeRow` (linha única); `kind`/TFM viram sufixo cinza `· console · net8.0` para manter os `toContainText` existentes.
+- **Só entra o que tem backend.** Fora: Add, Unload, EF Core, Run Multiple, More Run/Debug, Publish, Advanced Build, Local History, Refactor, Inspect, Reformat, Diagrams, Tools, Cut/Copy/Paste/Delete/Rename, Open In, Replace in Files, Scratches and Consoles. `Run Unit Test` fica visível e desabilitado (como no Rider). Rename/Delete exigiriam métodos de escrita novos no host; ficam para uma decisão própria.
+- **Reload Project = re-avaliação do modelo inteiro** (o host não avalia um projeto isolado); o rótulo segue o Rider, o efeito é o de `evaluation.run`.
+- **Build/Run/Debug por projeto** usam o gate do próprio projeto e uma `RunConfig` explícita, nunca mudam o startup project; só projeto console avaliado executa. Restricted bloqueia com o motivo existente e o menu oferece "Trust this project" (mesmo `grantTrust`).
+- **`workspace.tree {dir}`**: listagem de um nível, só leitura, sem trust, confinada ao workspace (como `workspace.files`). `no index` é heurístico: pasta ignorada do host, dotfile ou arquivo que não é fonte avaliada; `.gitignore` não é lido.
+- `EditorContextMenu` ganhou um nível de submenu e o modo `compact` (motivo no tooltip, como o Rider).

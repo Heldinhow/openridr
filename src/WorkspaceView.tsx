@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import {
   call,
   HostCallError,
@@ -15,6 +15,10 @@ import {
 } from "./host/client";
 import { CodeEditor, type ChangedLine } from "./CodeEditor";
 import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
+import { SolutionToolbar } from "./SolutionToolbar";
+import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
+import { ROOT_KEY, dirKey, dirOf, folderKey } from "./solutionNodes";
+import { fileMenuItems, projectMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
   gutterActionAt,
@@ -458,9 +462,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(projects.map((project) => project.path)),
-  );
+  const [expanded, setExpanded] = useState<Set<string>>(() => expandableKeys(null, projects));
+  const [showAllFiles, setShowAllFiles] = useState(false);
+  const [treeSearchOpen, setTreeSearchOpen] = useState(false);
+  const [treeFilter, setTreeFilter] = useState("");
+  const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; target: TreeTarget } | null>(null);
   const [editPreview, setEditPreview] = useState<EditPreview | null>(null);
   const editPreviewRef = useRef<EditPreview | null>(null);
   editPreviewRef.current = editPreview;
@@ -820,7 +826,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   useEffect(() => {
     if (evaluation.revision === 0) return;
-    setExpanded(new Set(evaluatedProjects.map((project) => project.path)));
+    setExpanded(expandableKeys(evaluatedProjects, []));
     setSelectedProjectPath((current) => {
       if (evaluatedProjects.some((project) => project.path === current)) {
         return current;
@@ -2122,6 +2128,106 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     onSnapshot, setMessage, setBottomTab, saveAll, invalidRunConfigReason, openRunConfigDialog, openConfigOnFieldError,
   });
 
+  const workspaceDir = dirOf(workspace.path);
+  const absolutePath = (rel: string) => (rel ? `${workspaceDir}/${rel}` : workspaceDir);
+
+  function locateOpenedFile() {
+    const owner = showsEvaluatedTree
+      ? evaluatedProjects.find((item) => item.sources.includes(activePath ?? ""))
+      : projects.find((item) => item.files.includes(activePath ?? ""));
+    if (owner) {
+      setExpanded((current) => {
+        const next = new Set(current).add(ROOT_KEY).add(owner.path);
+        const folder = "folder" in owner ? owner.folder : null;
+        if (folder) next.add(folderKey(folder));
+        // Open every source folder between the project and the opened file.
+        for (let dir = dirOf(activePath ?? ""); dir && dir !== dirOf(owner.path); dir = dirOf(dir)) next.add(dirKey(dir));
+        return next;
+      });
+    }
+    setSelectedProjectPath(owner?.path ?? null);
+  }
+
+  function openTreeMenu(event: ReactMouseEvent, target: TreeTarget) {
+    event.preventDefault();
+    setTreeMenu({ x: event.clientX, y: event.clientY, target });
+  }
+
+  const reloadReason =
+    evaluationAvailable && !evaluationBusy
+      ? null
+      : evaluationBusy
+        ? "An evaluation is already running."
+        : trusted
+          ? "Evaluation needs a resolved project SDK."
+          : "Trust the workspace and resolve the project SDK before evaluating.";
+
+  // Build/Run/Debug on a tree project use that project's own gate, never the startup project's.
+  function projectGates(project: EvaluationProject | undefined) {
+    const consoleOk = Boolean(project && project.kind === "console" && project.state === "ok" && project.targetPath);
+    const context: GateContext = {
+      ...gates,
+      startupProject: consoleOk ? project! : null,
+      activeConfigEvaluated: true,
+      activeConfigProjectInvalid: false,
+    };
+    const notConsole = "Only evaluated console projects can be built, run or debugged.";
+    const gated = (reason: string | null) => (!trusted || !consoleOk ? (!trusted ? reason : notConsole) : reason);
+    return {
+      build: gated(buildGate(context)),
+      run: gated(runGate(context, consoleOk ? project! : null, true)),
+      debug: gated(debugGate(context)),
+    };
+  }
+
+  function projectMenu(target: Extract<TreeTarget, { kind: "project" }>): ContextMenuItem[] {
+    const project = evaluatedProjects.find((item) => item.path === target.path);
+    const reasons = projectGates(project);
+    const config = project ? (deriveDefaultRunConfig(project, evaluation) as RunConfig) : null;
+    return projectMenuItems({
+      name: target.name,
+      projectFile: baseName(target.path),
+      trusted,
+      reloadReason,
+      buildReason: reasons.build,
+      runReason: reasons.run,
+      debugReason: reasons.debug,
+      shortcuts: { build: shortcutOf("build.start"), run: shortcutOf("run.start"), debug: shortcutOf("debug.start") },
+      onTrust: () => void grantTrust(),
+      onNuGet: () => setBottomTab("nuget"),
+      onReload: () => void runEvaluation(),
+      onBuild: () => config && requestBuild(config),
+      onRun: () => config && requestRun(config),
+      onDebug: () => config && void prepareAndDebug(config),
+      onEditFile: () => void openFile(target.path),
+      onFind: () => openSearch("text"),
+      onCopyPath: () => void copyPath(absolutePath(target.path)),
+      onProperties: () => {
+        setSelectedProjectPath(target.path);
+        setProjectDetailsOpen(true);
+      },
+    });
+  }
+
+  function treeMenuItems(target: TreeTarget): ContextMenuItem[] {
+    if (target.kind === "project") return projectMenu(target);
+    const path = target.kind === "root" ? "" : target.path;
+    return fileMenuItems({
+      open: target.kind === "file" ? () => void openFile(target.path) : undefined,
+      reload: target.kind === "root" ? { reason: reloadReason, run: () => void runEvaluation() } : undefined,
+      onCopyPath: () => void copyPath(absolutePath(path)),
+      onFind: () => openSearch("text"),
+    });
+  }
+
+  const treeMoreItems: ContextMenuItem[] = [
+    { id: "reevaluate", label: "Re-evaluate project model", disabledReason: reloadReason, action: () => void runEvaluation() },
+    { id: "details", label: "Project details", disabledReason: selectedProject ? null : "Select a project first.", action: () => setProjectDetailsOpen((current) => !current) },
+    { id: "expand-all", label: "Expand All", action: () => setExpanded(expandableKeys(showsEvaluatedTree ? evaluatedProjects : null, projects, true)), separatorBefore: true },
+    { id: "collapse-all", label: "Collapse All", action: () => setExpanded(new Set([ROOT_KEY])) },
+    { id: "show-all", label: showAllFiles ? "Hide All Files" : "Show All Files", action: () => setShowAllFiles((current) => !current), separatorBefore: true },
+  ];
+
   async function startTestDiscovery(project: string) {
     setBottomTab("tests");
     try {
@@ -2396,7 +2502,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "build.start",
       title: "Build",
       group: "Build",
-      execute: requestBuild,
+      execute: () => requestBuild(),
       disabledReason: buildDisabledReason,
     }),
     define({
@@ -3129,7 +3235,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             startupPath={startupProject?.path ?? null}
             onStartup={setStartupProject}
             onEvaluate={(next) => void runEvaluation(next)}
-            onBuild={requestBuild}
+            onBuild={() => requestBuild()}
             onCancel={() => void cancelBuild()}
             disabledReason={buildDisabledReason}
             trusted={trusted}
@@ -3573,17 +3679,40 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   {showsEvaluatedTree ? "MSBuild evaluated" : "Text outline · not evaluated"}
                 </span>
               </span>
-              <span className="explorer-tools">
-                <button data-testid="tree-locate" aria-label="Select opened file" title="Select opened file" disabled={!activePath} onClick={() => {
-                  const owner = (showsEvaluatedTree ? evaluatedProjects.find((item) => item.sources.includes(activePath ?? "")) : projects.find((item) => item.files.includes(activePath ?? "")));
-                  if (owner) setExpanded((current) => new Set(current).add(owner.path));
-                  setSelectedProjectPath(owner?.path ?? null);
-                }}><Icon name="locate" /></button>
-                <button data-testid="tree-expand-all" aria-label="Expand all" title="Expand all" onClick={() => setExpanded(new Set((showsEvaluatedTree ? evaluatedProjects : projects).map((item) => item.path)))}><Icon name="expandAll" /></button>
-                <button data-testid="tree-collapse-all" aria-label="Collapse all" title="Collapse all" onClick={() => setExpanded(new Set())}><Icon name="collapseAll" /></button>
-              </span>
+              <SolutionToolbar
+                showAll={showAllFiles}
+                searchOpen={treeSearchOpen}
+                locateDisabled={!activePath}
+                moreItems={treeMoreItems}
+                onToggleShowAll={() => setShowAllFiles((current) => !current)}
+                onToggleSearch={() => {
+                  setTreeSearchOpen((current) => !current);
+                  setTreeFilter("");
+                }}
+                onLocate={locateOpenedFile}
+                onExpandAll={() => setExpanded(expandableKeys(showsEvaluatedTree ? evaluatedProjects : null, projects, true))}
+                onCollapseAll={() => setExpanded(new Set([ROOT_KEY]))}
+                onMinimize={() => toggleToolWindow("left", "solution")}
+              />
             </span>
           </div>
+          {treeSearchOpen && (
+            <input
+              className="tree-filter"
+              data-testid="tree-filter"
+              aria-label="Filter the Solution tree"
+              placeholder="Filter by name"
+              autoFocus
+              value={treeFilter}
+              onChange={(event) => setTreeFilter(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.stopPropagation();
+                setTreeSearchOpen(false);
+                setTreeFilter("");
+              }}
+            />
+          )}
 
           <div className="eval-controls">
             <button
@@ -3636,156 +3765,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             </div>
           )}
 
-          {showsEvaluatedTree ? (
-            <div className="tree">
-              <div className="tree-root"><Icon name="project" /> {workspace.name} <span className="tree-count">· {showsEvaluatedTree ? evaluatedProjects.length : projects.length} projects</span></div>
-              {projectGroups.map(([folder, items]) => (
-                <div key={folder || "root"}>
-                  {folder && (
-                    <div className="tree-folder l1" data-testid={`tree-folder-${folder}`}>
-                      {folder}
-                    </div>
-                  )}
-                  {items.map((project) => {
-                    const open = expanded.has(project.path);
-                    const selected = selectedProject?.path === project.path;
-                    return (
-                      <div key={project.path}>
-                        <button
-                          className={`tree-row ${folder ? "l2" : "l1"} ${selected ? "selected" : ""}`}
-                          data-testid={`tree-project-${project.name}`}
-                          aria-expanded={open}
-                          aria-current={selected ? "true" : undefined}
-                          onClick={() => {
-                            toggleProject(project.path);
-                            setSelectedProjectPath(project.path);
-                          }}
-                          title={project.path}
-                        >
-                          <span className={`tree-chevron ${expanded.has(project.path) ? "open" : ""}`} aria-hidden="true"><Icon name="chevron" /></span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
-                          <span className="tag">{project.kind}</span>
-                          {project.state === "failed" && <span className="tag error">error</span>}
-                          {project.tfms.map((tfm) => (
-                            <span className="tag" key={tfm}>
-                              {tfm}
-                            </span>
-                          ))}
-                          {project.restored !== "restored" && (
-                            <span className="tag warning">
-                              {project.restored === "unknown" ? "restore unknown" : "partial context"}
-                            </span>
-                          )}
-                          {restore.revision > 0 &&
-                            restoreProjectState.get(project.path) !== "restored" && (
-                              <span className="tag warning">restore incomplete</span>
-                            )}
-                        </button>
-                        {open && (
-                          <>
-                            {project.error && (
-                              <div
-                                className="tree-note error"
-                                data-testid={`eval-project-error-${project.name}`}
-                              >
-                                Evaluation failed: {project.error}
-                              </div>
-                            )}
-                            {project.note && <div className="tree-note">{project.note}</div>}
-                            {(project.projectRefs.length > 0 || project.packageRefs.length > 0) && (
-                              <details className="tree-dependencies" aria-label={`${project.name} dependencies`}>
-                                <summary>Dependencies</summary>
-                                {project.projectRefs.length > 0 && (
-                                  <div className="tree-note tree-node tree-node-refs">
-                                    References: {project.projectRefs.map((ref) => ref.name).join(", ")}
-                                  </div>
-                                )}
-                                {project.packageRefs.length > 0 && (
-                                  <div className="tree-note tree-node tree-node-packages">
-                                    Packages:{" "}
-                                    {project.packageRefs
-                                      .map((pkg) =>
-                                        pkg.version ? `${pkg.name} ${pkg.version}` : `${pkg.name} (version unknown)`,
-                                      )
-                                      .join(", ")}
-                                  </div>
-                                )}
-                              </details>
-                            )}
-                            {project.sources.map((file) => (
-                              <button
-                                key={file}
-                                className={`tree-row l3 ${activePath === file ? "selected" : ""}`}
-                                data-testid={`tree-file-${file}`}
-                                aria-current={activePath === file ? "page" : undefined}
-                                onClick={() => void openFile(file)}
-                                title={file}
-                              >
-                                <FileIcon path={file} /><span className="tree-name">{baseName(file)}</span>
-                              </button>
-                            ))}
-                            {project.sources.length === 0 && !project.error && (
-                              <div className="tree-note">No source files evaluated.</div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="tree">
-              <div className="tree-root"><Icon name="project" /> {workspace.name} <span className="tree-count">· {showsEvaluatedTree ? evaluatedProjects.length : projects.length} projects</span></div>
-              {projects.map((project) => {
-                const open = expanded.has(project.path);
-                return (
-                  <div key={project.path}>
-                    <button
-                      className="tree-row l1"
-                      data-testid={`tree-project-${project.name}`}
-                      aria-expanded={open}
-                      onClick={() => toggleProject(project.path)}
-                      title={project.path}
-                    >
-                      <span className={`tree-chevron ${expanded.has(project.path) ? "open" : ""}`} aria-hidden="true"><Icon name="chevron" /></span><FileIcon path={project.path} project /><span className="tree-name">{project.name}</span>
-                      <span className="tag">{project.kind}</span>
-                      {project.tfms.map((tfm) => (
-                        <span className="tag" key={tfm}>
-                          {tfm}
-                        </span>
-                      ))}
-                    </button>
-                    {open && (
-                      <>
-                        {project.references.length > 0 && (
-                          <div className="tree-note l2">
-                            References: {project.references.join(", ")}
-                          </div>
-                        )}
-                        {project.files.map((file) => (
-                          <button
-                            key={file}
-                            className={`tree-row l2 ${activePath === file ? "selected" : ""}`}
-                            data-testid={`tree-file-${file}`}
-                            aria-current={activePath === file ? "page" : undefined}
-                            onClick={() => void openFile(file)}
-                            title={file}
-                          >
-                            <FileIcon path={file} /><span className="tree-name">{baseName(file)}</span>
-                          </button>
-                        ))}
-                        {project.files.length === 0 && (
-                          <div className="tree-note l2">No .cs files found (bin/obj hidden).</div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
+          <SolutionTree
+            workspaceName={workspace.name}
+            evaluated={showsEvaluatedTree ? evaluatedProjects : null}
+            outline={projects}
+            expanded={expanded}
+            onToggle={toggleProject}
+            selectedProjectPath={selectedProjectPath}
+            onSelectProject={setSelectedProjectPath}
+            activePath={activePath}
+            onOpenFile={(path) => void openFile(path)}
+            restoreIncomplete={(path) => showsEvaluatedTree && restore.revision > 0 && restoreProjectState.get(path) !== "restored"}
+            showAll={showAllFiles}
+            filter={treeFilter}
+            onMenu={openTreeMenu}
+          />
 
           {showsEvaluatedTree && evaluatedProjects.some((project) => project.state === "failed" || project.restored !== "restored") && (
             <p className="tree-footnote" data-testid="tree-partial">
@@ -4601,6 +4595,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
             </div>
           </div>
         </div>
+      )}
+
+      {treeMenu && (
+        <EditorContextMenu
+          compact
+          testId="tree-context-menu"
+          itemPrefix="tree-menu"
+          x={treeMenu.x}
+          y={treeMenu.y}
+          items={treeMenuItems(treeMenu.target)}
+          onClose={() => setTreeMenu(null)}
+        />
       )}
 
       {contextMenu && (
