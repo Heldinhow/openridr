@@ -51,12 +51,14 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
 
   async function startBuild(savedNote: string, requestedConfig?: RunConfig | null): Promise<boolean> {
     const project = requestedConfig
-      ? consoleCandidates.find((item) => item.path === requestedConfig.project) ?? null
+      ? evaluation.projects.find((item) => item.path === requestedConfig.project) ?? null
       : startupProject;
     if (!project) {
       setMessage({
         tone: "error",
-        text: "Choose a console startup project before building.",
+        text: requestedConfig
+          ? `${requestedConfig.project} is not a project of the current evaluation.`
+          : "Choose a console startup project before building.",
       });
       return false;
     }

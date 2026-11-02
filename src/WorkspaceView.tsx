@@ -2305,17 +2305,26 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   // Build/Run/Debug on a tree project use that project's own gate, never the startup project's.
   function projectGates(project: EvaluationProject | undefined) {
-    const consoleOk = Boolean(project && project.kind === "console" && project.state === "ok" && project.targetPath);
+    const buildable = Boolean(project && project.state === "ok" && project.targetPath);
+    const consoleOk = buildable && project!.kind === "console";
     const context: GateContext = {
       ...gates,
       startupProject: consoleOk ? project! : null,
       activeConfigEvaluated: true,
       activeConfigProjectInvalid: false,
     };
-    const notConsole = "Only evaluated console projects can be built, run or debugged.";
-    const gated = (reason: string | null) => (!trusted || !consoleOk ? (!trusted ? reason : notConsole) : reason);
+    // An explicit tree build may target a library, so the startup console-candidate rule
+    // does not apply; the rest of the build gate still does.
+    const buildContext: GateContext = {
+      ...context,
+      consoleCandidates: buildable ? [project!] : [],
+      startupProject: buildable ? project! : null,
+    };
+    const notConsole = "Only evaluated console projects can be run or debugged.";
+    const notBuildable = "Only an evaluated project with a TargetPath can be built; re-evaluate the project model.";
+    const gated = (reason: string | null) => (trusted ? (consoleOk ? reason : notConsole) : reason);
     return {
-      build: gated(buildGate(context)),
+      build: !trusted ? buildGate(context) : buildable ? buildGate(buildContext) : notBuildable,
       run: gated(runGate(context, consoleOk ? project! : null, true)),
       debug: gated(debugGate(context)),
     };
@@ -2323,12 +2332,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
 
   function projectMenu(target: Extract<TreeTarget, { kind: "project" }>): ContextMenuItem[] {
     const project = evaluatedProjects.find((item) => item.path === target.path);
+    const outline = projects.find((item) => item.path === target.path);
     const reasons = projectGates(project);
     const config = project ? (deriveDefaultRunConfig(project, evaluation) as RunConfig) : null;
     return projectMenuItems({
       name: target.name,
       projectFile: baseName(target.path),
       trusted,
+      executable: (project?.kind ?? outline?.kind) === "console",
       reloadReason,
       buildReason: reasons.build,
       runReason: reasons.run,

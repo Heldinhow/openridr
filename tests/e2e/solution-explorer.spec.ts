@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { host } from "./environment";
+import { settleRestore } from "./automatic";
 
 // Isolated data: every spec works on a temp copy of the fixture; the host runs with the E2E app home.
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
@@ -103,21 +104,31 @@ test("Restricted project menu blocks execution, offers Trust and edits the cspro
   await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 });
 
-test("trusted menu: console project can run, library cannot; folders show counts", async ({ page }) => {
+test("trusted menu: console can run, library builds; folders show counts", async ({ page }) => {
+  test.setTimeout(180_000);
   await open(page, tempCopy(), true);
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+  await page.getByTestId("workspace-tools-toggle").click();
+  await settleRestore(page);
   await expect(page.getByTestId("tree-folder-src")).toContainText("2 projects");
   await expect(page.getByTestId("tree-folder-tests")).toContainText("1 project");
   await page.getByTestId("tree-expand-all").click();
   await expect(page.getByTestId("tree-deps-OrderDesk.Cli")).toBeVisible();
 
   await page.getByTestId("tree-project-OrderDesk.Core").click({ button: "right" });
-  await expect(page.getByTestId("tree-menu-run")).toBeDisabled();
-  await expect(page.getByTestId("tree-menu-run")).toHaveAttribute("title", /console projects/);
-  await page.keyboard.press("Escape");
+  const build = page.getByTestId("tree-menu-build");
+  await expect(build).toBeEnabled();
+  await expect(build).not.toHaveAttribute("title", /console projects/);
+  await expect(page.getByTestId("tree-menu-run")).toHaveCount(0);
+  await expect(page.getByTestId("tree-menu-debug")).toHaveCount(0);
+  await build.click();
+  await expect(page.getByTestId("build-state")).toContainText("Build succeeded", { timeout: 60_000 });
+  await expect(page.getByTestId("build-project")).toContainText("OrderDesk.Core");
 
   await page.getByTestId("tree-project-OrderDesk.Cli").click({ button: "right" });
   await expect(page.getByTestId("tree-menu-trust")).toHaveCount(0);
   await expect(page.getByTestId("tree-menu-reload")).toBeEnabled();
+  await expect(page.getByTestId("tree-menu-run")).toBeEnabled();
+  await expect(page.getByTestId("tree-menu-debug")).toBeEnabled();
   await expect(page.getByTestId("tree-menu-unit-test")).toBeDisabled();
 });

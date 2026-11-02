@@ -32,7 +32,7 @@ biblioteca está desabilitado e Run/Debug existem).
 
 ## Aceite
 
-- [ ] `build.start` com projeto explícito de biblioteca compila e publica problemas.
-- [ ] Menu da biblioteca: Build habilitado; Run/Debug ausentes.
-- [ ] Startup select da toolbar continua só com consoles; Run/Debug recusam biblioteca.
-- [ ] `bun run check` verde. Commit `feat(build): build library projects from the tree`.
+- [x] `build.start` com projeto explícito de biblioteca compila e publica problemas.
+- [x] Menu da biblioteca: Build habilitado; Run/Debug ausentes.
+- [x] Startup select da toolbar continua só com consoles; Run/Debug recusam biblioteca.
+- [x] `bun run check` verde. Commit `feat(build): build library projects from the tree`.

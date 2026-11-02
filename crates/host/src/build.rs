@@ -755,19 +755,28 @@ fn normalize(path: &Path) -> PathBuf {
     result
 }
 
-/// One console project per build; anything else needs an explicit reason, never a guess.
+/// One console project per build; an explicit request may also name an evaluated library.
 pub fn select_startup<'a>(
     projects: &'a [EvaluatedProject],
     requested: Option<&str>,
 ) -> HostResult<&'a EvaluatedProject> {
-    select_startup_for(projects, requested, "build")
+    select_kinds(projects, requested, "build", &["console", "library"])
 }
 
-/// Same selection for another consumer (run), so its refusal names what was refused.
+/// Same selection for another consumer (run, debug), so its refusal names what was refused.
 pub fn select_startup_for<'a>(
     projects: &'a [EvaluatedProject],
     requested: Option<&str>,
     consumer: &str,
+) -> HostResult<&'a EvaluatedProject> {
+    select_kinds(projects, requested, consumer, &["console"])
+}
+
+fn select_kinds<'a>(
+    projects: &'a [EvaluatedProject],
+    requested: Option<&str>,
+    consumer: &str,
+    kinds: &[&str],
 ) -> HostResult<&'a EvaluatedProject> {
     if let Some(requested) = requested {
         let normalized = requested
@@ -780,11 +789,22 @@ pub fn select_startup_for<'a>(
                 format!("{requested} is not a project of the current evaluation."),
             ));
         };
-        if project.kind != "console" {
+        if !kinds.contains(&project.kind) {
+            let allowed = kinds
+                .iter()
+                .map(|kind| {
+                    if *kind == "console" {
+                        "console executable"
+                    } else {
+                        kind
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" or ");
             return Err(HostError::new(
                 "invalid_state",
                 format!(
-                    "{} is a {} project; only a console executable project can be the {consumer} startup project.",
+                    "{} is a {} project; only a {allowed} project can be the {consumer} startup project.",
                     project.name, project.kind
                 ),
             ));
@@ -1001,7 +1021,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_selection_requires_one_console_project_and_rejects_libraries() {
+    fn startup_selection_defaults_to_console_but_build_accepts_an_explicit_library() {
         let projects = vec![
             evaluated(
                 "App",
@@ -1024,19 +1044,30 @@ mod tests {
         ];
         let selected = select_startup(&projects, None).expect("one console project");
         assert_eq!(selected.name, "App");
-        for (name, path) in [
-            ("Core", "src/Core/Core.csproj"),
-            ("Tests", "tests/Tests.csproj"),
-        ] {
-            let error = select_startup(&projects, Some(path))
-                .expect_err("only a console project may be the startup project");
-            assert_eq!(error.code, "invalid_state");
-            assert!(
-                error.message.contains("only a console executable project"),
-                "{name}: {}",
-                error.message
-            );
-        }
+        assert_eq!(
+            select_startup(&projects, Some("src/Core/Core.csproj"))
+                .expect("an explicit library build")
+                .name,
+            "Core"
+        );
+        let error = select_startup(&projects, Some("tests/Tests.csproj"))
+            .expect_err("a test project is not built through build.start");
+        assert_eq!(error.code, "invalid_state");
+        assert!(
+            error
+                .message
+                .contains("only a console executable or library project"),
+            "{}",
+            error.message
+        );
+        let error = select_startup_for(&projects, Some("src/Core/Core.csproj"), "run")
+            .expect_err("run still refuses a library");
+        assert_eq!(error.code, "invalid_state");
+        assert!(
+            error.message.contains("only a console executable project"),
+            "{}",
+            error.message
+        );
 
         let with_two = vec![
             evaluated(
