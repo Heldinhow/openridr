@@ -408,6 +408,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, []);
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
@@ -416,10 +417,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     character: number;
     nonce: number;
   } | null>(null);
-  const outputMax = Math.max(120, Math.min(500, Math.floor(viewportHeight * 0.42)));
+  // 84 = toolbar 52 + splitter 4 + status 28; the panel never squeezes the editor below 180 px.
+  const outputMax = Math.max(
+    120,
+    Math.min(500, Math.floor(viewportHeight * 0.42), viewportHeight - 84 - 180),
+  );
   const visibleOutputHeight = Math.min(outputHeight, outputMax);
+  // 34 rail + sidebar + 4 splitter + editor + 34 rail: a narrow window narrows the tree, not the editor.
+  const effectiveSidebarWidth = Math.min(sidebarWidth, Math.max(160, viewportWidth - 392));
   useEffect(() => {
-    const resize = () => setViewportHeight(window.innerHeight);
+    const resize = () => {
+      setViewportWidth(window.innerWidth);
+      setViewportHeight(window.innerHeight);
+    };
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
@@ -3772,7 +3782,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       className={`workspace-view ${leftOpen ? "" : "left-closed"} ${bottomOpen ? "" : "bottom-closed"} ${toolsOpen ? "tools-open" : ""}`}
       data-density={settings.appearance.density}
       style={{
-        "--sidebar-width": `${sidebarWidth}px`,
+        "--sidebar-width": `${effectiveSidebarWidth}px`,
         "--output-height": `${visibleOutputHeight}px`,
         "--ui-zoom": settings.appearance.zoom / 100,
         zoom: settings.appearance.zoom / 100,
@@ -4216,7 +4226,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           )}
         </nav>
         )}
-        <Splitter label="Solution explorer width" value={sidebarWidth} min={220} max={420} onChange={setSidebarWidth} />
+        <Splitter label="Solution explorer width" value={effectiveSidebarWidth} min={Math.min(220, effectiveSidebarWidth)} max={420} onChange={setSidebarWidth} />
           </>
         )}
 
