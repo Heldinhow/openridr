@@ -389,10 +389,15 @@ test("detects external changes on focus and tab activation without replacing the
   await openProgram(page);
   await expect(page.getByTestId("editor-revision")).toHaveText("");
 
+  // A dirty buffer keeps its text and raises a conflict; a clean one reloads (b14).
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.insertText("// local edit before focus\n");
   fs.writeFileSync(program, "// focus disk version\n");
   await dispatchWindowFocus(page);
   const banner = page.getByTestId("conflict-banner");
   await expect(banner).toBeVisible();
+  await expect(page.getByTestId("editor")).toContainText("local edit before focus");
   await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
   await expect(page.getByTestId("editor")).not.toContainText("focus disk version");
   await expect(page.getByTestId("editor-revision")).toHaveText("Modified");
@@ -413,24 +418,19 @@ test("detects external changes on focus and tab activation without replacing the
   await expect(page.getByTestId("app-log")).toContainText(`Saved ${programTab}`);
   expect(fs.readFileSync(program, "utf8")).toBe("// after reload\n");
 
-  // Switching back to a tab re-reads that file.
+  // Switching back to a clean tab adopts the disk text; it is not a conflict.
   await page.getByTestId(`tree-file-${coreTab}`).click();
   await expect(page.getByTestId(`tab-${coreTab}`)).toBeVisible();
   fs.writeFileSync(program, "// tab switch disk version\n");
   await page.getByTestId(`tab-${programTab}`).click();
-  await expect(banner).toBeVisible();
-  await expect(page.getByTestId("editor")).toContainText("after reload");
-  await page.getByTestId("conflict-compare").locator("summary").click();
-  await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
-    "// tab switch disk version\n",
-  );
-  await page.getByTestId("conflict-compare").locator("summary").click();
+  await expect(banner).toHaveCount(0);
+  await expect(page.getByTestId("editor")).toContainText("tab switch disk version");
 
   // A failed re-read reports and keeps the buffer editable.
   fs.rmSync(program);
   await dispatchWindowFocus(page);
   await expect(page.getByTestId("app-log")).toContainText("Could not re-read");
-  await expect(page.getByTestId("editor")).toContainText("after reload");
+  await expect(page.getByTestId("editor")).toContainText("tab switch disk version");
   await replaceEditorText(page, "// still editable\n");
   await expect(page.getByTestId(`tab-${programTab}`).getByTestId("dirty-marker")).toBeVisible();
 });

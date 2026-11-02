@@ -37,7 +37,9 @@ export default defineConfig({
       reuseExistingServer: false,
       // Dev/test-only probe used by the process-boundary E2E. Never set in the desktop app.
       // OPENRIDR_TRUST_STORE=off: specs reopen the same fixture and expect Restricted mode each time.
-      env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome, OPENRIDR_TRUST_STORE: "off" },
+      // OPENRIDR_SESSION_STORE=off: the shared host must not restore tabs saved by an earlier spec;
+      // medium-editor-session.spec.ts starts its own host with the store on.
+      env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome, OPENRIDR_TRUST_STORE: "off", OPENRIDR_SESSION_STORE: "off" },
     },
     {
       command: "bun run dev --config vite.e2e.config.ts",
