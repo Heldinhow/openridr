@@ -987,6 +987,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .status-mode:hover, .status-mode[aria-expanded="true"] { background: var(--accent-surface-strong); }
 .status-mode:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .status-diagnostics, .status-analysis-action { flex: 0 0 auto; height: 100%; padding: 0 6px; border: 0; border-radius: 0; background: transparent; font: inherit; cursor: pointer; }
+.status > [data-testid="status-analysis"] { flex: 0 0 auto; white-space: nowrap; }
 .status-diagnostics.error { color: #f75464; }
 .status-diagnostics.warning { color: #e5b94e; }
 .status-diagnostics:hover, .status-analysis-action:hover:not(:disabled) { background: var(--accent-surface-strong); }
