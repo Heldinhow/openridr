@@ -1288,6 +1288,7 @@ mod tests {
         ProcessStatus {
             state: "exited",
             exit,
+            signal: None,
             termination,
             awaiting_decision: false,
         }

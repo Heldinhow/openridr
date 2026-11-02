@@ -8,7 +8,7 @@
 
 use crate::error::{HostError, HostResult};
 use crate::logbuf::LogBuffer;
-use crate::process::{ProcessStatus, Termination};
+use crate::process::{signal_name, ProcessStatus, Termination};
 use serde::Serialize;
 use serde_json::json;
 use std::fs;
@@ -53,6 +53,7 @@ pub struct RunView {
     pub log: String,
     pub log_truncated: bool,
     pub exit: Option<i32>,
+    pub signal: Option<String>,
     pub termination: Option<Termination>,
     pub process_id: Option<u64>,
     pub awaiting_decision: bool,
@@ -82,6 +83,7 @@ struct Data {
     context_id: u64,
     process_id: Option<u64>,
     exit: Option<i32>,
+    signal: Option<i32>,
     termination: Option<Termination>,
     awaiting_decision: bool,
     cancel_requested: bool,
@@ -115,6 +117,7 @@ impl Run {
                 context_id: 0,
                 process_id: None,
                 exit: None,
+                signal: None,
                 termination: None,
                 awaiting_decision: false,
                 cancel_requested: false,
@@ -158,6 +161,7 @@ impl Run {
                 context_id: start.context_id,
                 process_id: None,
                 exit: None,
+                signal: None,
                 termination: None,
                 awaiting_decision: false,
                 cancel_requested: false,
@@ -186,6 +190,7 @@ impl Run {
             log,
             log_truncated,
             exit: data.exit,
+            signal: data.signal.map(signal_name),
             termination: data.termination.clone(),
             process_id: data.process_id,
             awaiting_decision: data.awaiting_decision,
@@ -231,6 +236,7 @@ impl Run {
             return;
         }
         data.exit = status.exit;
+        data.signal = status.signal;
         data.termination = status.termination.clone();
         data.awaiting_decision = status.awaiting_decision;
     }
@@ -244,6 +250,7 @@ impl Run {
             return data.state;
         }
         data.exit = status.exit;
+        data.signal = status.signal;
         if let Some(termination) = &status.termination {
             data.termination = Some(termination.clone());
         }
@@ -301,6 +308,7 @@ impl Run {
         data.cancel_requested = true;
         if let Some(status) = status {
             data.exit = status.exit;
+            data.signal = status.signal;
             data.termination = status.termination.clone();
             data.awaiting_decision = status.state == "running";
             if status.state == "exited" {
@@ -479,6 +487,7 @@ mod tests {
         ProcessStatus {
             state,
             exit,
+            signal: None,
             termination,
             awaiting_decision: false,
         }

@@ -1,14 +1,28 @@
 import type { Run } from "./host/client";
 import { runStateLabel, timeLabel } from "./BuildPanel";
 
+const stackFrame = /^\s*at .+ in (.+):line (\d+)$/;
+
 // Run is its own bottom tool window: program output first, metadata folded in details.
-export function RunPanel({ run, onCancelRun }: { run: Run; onCancelRun: () => void }) {
+export function RunPanel({
+  run,
+  onCancelRun,
+  onOpenFrame,
+}: {
+  run: Run;
+  onCancelRun: () => void;
+  onOpenFrame: (path: string, line: number) => void;
+}) {
   const running = run.state === "running" || run.state === "building";
+  const failed =
+    run.state === "failed" || Boolean(run.signal) || (run.exit !== null && run.exit !== 0);
+  const lines = (run.log || "No output yet.").split("\n");
+  let frameIndex = 0;
   return (
     <div className="run-window">
       <div className="run-window-head">
         <span
-          className={run.revision === 0 ? "muted" : `tag ${run.state === "failed" ? "error" : ""}`}
+          className={run.revision === 0 ? "muted" : `tag ${failed ? "error" : ""}`}
           data-testid="run-state"
           role="status"
         >
@@ -66,7 +80,11 @@ export function RunPanel({ run, onCancelRun }: { run: Run; onCancelRun: () => vo
         </dd>
         <dt>Exit</dt>
         <dd data-testid="run-exit">
-          {run.exit === null ? "exit unknown" : `exit ${run.exit}`}
+          {run.signal
+            ? `signal ${run.signal}`
+            : run.exit === null
+              ? "exit unknown"
+              : `exit ${run.exit}`}
         </dd>
         <dt>Started / finished</dt>
         <dd>
@@ -98,7 +116,24 @@ export function RunPanel({ run, onCancelRun }: { run: Run; onCancelRun: () => vo
       )}
       <h3>Run output</h3>
       <pre className="eval-pre build-log run-log" data-testid="run-log">
-        {run.log || "No output yet."}
+        {lines.map((line, index) => {
+          const match = stackFrame.exec(line.replace(/^\[stderr\] /, ""));
+          return (
+            <span key={index}>
+              {index > 0 ? "\n" : null}
+              {match ? (
+                <button
+                  data-testid={`run-log-frame-${frameIndex++}`}
+                  onClick={() => onOpenFrame(match[1], Number(match[2]))}
+                >
+                  {line}
+                </button>
+              ) : (
+                line
+              )}
+            </span>
+          );
+        })}
       </pre>
       {run.exit !== null && !run.stale && (
         <p className="process-finished">Process finished with exit code {run.exit}.</p>

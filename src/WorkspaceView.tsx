@@ -3462,7 +3462,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   function renderBottomContent() {
     switch (bottomTab) {
       case "run":
-        return <RunPanel run={run} onCancelRun={() => void cancelRun()} />;
+        return (
+          <RunPanel
+            run={run}
+            onCancelRun={() => void cancelRun()}
+            onOpenFrame={(path, line) => void navigateTo(path, { line: line - 1, character: 0 })}
+          />
+        );
       case "build":
         return (
           <BuildPanel

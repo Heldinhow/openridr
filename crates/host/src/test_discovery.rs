@@ -578,6 +578,7 @@ mod tests {
         ProcessStatus {
             state: "exited",
             exit,
+            signal: None,
             termination: None,
             awaiting_decision: false,
         }
@@ -692,6 +693,7 @@ mod tests {
         let status = ProcessStatus {
             state: "exited",
             exit: None,
+            signal: None,
             termination: Some(Termination {
                 requested: "SIGTERM".to_string(),
                 observed: "exited".to_string(),

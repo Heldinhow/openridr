@@ -67,6 +67,7 @@ export type ProcessInfo = {
   workspaceId: number;
   state: "running" | "exited";
   exit: number | null;
+  signal: number | null;
   awaitingDecision: boolean;
   kept: boolean;
   termination: null | {
@@ -365,6 +366,7 @@ export type Run = {
   log: string;
   logTruncated: boolean;
   exit: number | null;
+  signal: string | null;
   termination: null | {
     requested: string;
     observed: string;

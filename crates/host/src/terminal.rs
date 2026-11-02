@@ -853,6 +853,7 @@ mod tests {
         ProcessStatus {
             state,
             exit,
+            signal: None,
             termination,
             awaiting_decision,
         }

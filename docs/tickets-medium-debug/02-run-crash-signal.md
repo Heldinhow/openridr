@@ -33,7 +33,10 @@ Exceção não tratada (SIGABRT no macOS) deixa de ser "Run exited · exit unkno
 
 ## Aceite
 
-- [ ] `cargo test -p openridr-host` cobre o nome do sinal (sem novas falhas).
-- [ ] E2E prova crash, destaque, sinal e clique na pilha.
-- [ ] Exit 0 continua neutro; sem sinal/código continua "exit unknown".
-- [ ] `bun run check` verde. Commit `fix(run): report crash signal and clickable stack`.
+- [x] `cargo test -p openridr-host` cobre o nome do sinal (sem novas falhas).
+- [x] E2E prova crash, destaque, sinal e clique na pilha.
+- [x] Exit 0 continua neutro; sem sinal/código continua "exit unknown".
+- [x] `bun run check` verde. Commit `fix(run): report crash signal and clickable stack`.
+
+Ambiente macOS arm64: a exceção não tratada termina com sinal 6 (`SIGABRT`, exit 134). O E2E
+afirma `Run crashed · SIGABRT` pela regex `SIG[A-Z]+`; `run-exit` mostra `signal SIGABRT`.

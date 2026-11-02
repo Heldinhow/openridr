@@ -55,7 +55,9 @@ export function runStateLabel(run: Run) {
     case "running":
       return "Running…";
     case "exited":
-      return `Run exited · ${exit}`;
+      return run.signal
+        ? `Run crashed · ${run.signal}`
+        : `Run exited · ${exit}`;
     case "failed":
       return "Run failed to start";
     case "cancelled":
