@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { revisionOf, settleRestore } from "./automatic";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -185,6 +186,143 @@ test("achado 2: ⌘U chords run tests from the editor without typing into the bu
       timeout: 120_000,
     });
   } finally {
+    await hostCall(request, "workspace.close");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+/**
+ * SPEC-DEVFLOW-TOP4.md, finding 3: the global handler runs in capture and consumes the event
+ * when the app knows the shortcut, so ⇧⌘K and ⌃D never reach the CodeMirror default keymap
+ * (deleteLine and deleteCharForward).
+ */
+test("achado 3: ⇧⌘K opens Push from the editor without deleting the current line", async ({
+  page,
+  request,
+}) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-top4-push-"));
+  const copy = path.join(base, "Order Desk push");
+  fs.cpSync(fixture, copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  const git = (args: string[]) =>
+    execFileSync("git", args, {
+      cwd: copy,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: base,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      },
+    });
+  git(["init", "-q", "-b", "main"]);
+  git(["config", "user.name", "OpenRidr E2E"]);
+  git(["config", "user.email", "e2e@openridr.invalid"]);
+  git(["add", "."]);
+  git(["commit", "-qm", "Initial commit"]);
+
+  try {
+    await page.goto("/");
+    await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+    await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+    const editor = page.getByTestId("editor");
+    await expect(editor).toContainText("Console.WriteLine");
+    await editor.click();
+    const before = await editor.innerText();
+
+    await page.keyboard.press("Meta+Shift+K");
+    await expect(page.getByTestId("push-dialog")).toBeVisible({ timeout: 30_000 });
+    // CodeMirror's Shift+Meta+K would have deleted the line before the dialog opened.
+    await expect.poll(() => editor.innerText()).toBe(before);
+    await expect(page.getByTestId("dirty-marker")).toHaveCount(0);
+    await page.getByTestId("push-cancel").click();
+    await expect(page.getByTestId("push-dialog")).toHaveCount(0);
+  } finally {
+    await hostCall(request, "workspace.close");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("achado 3: ⌃D starts Debug from the editor without deleting a character", async ({
+  page,
+  request,
+}) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  test.setTimeout(240_000);
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-top4-debug-"));
+  const copy = path.join(base, "Order Desk debug");
+  fs.cpSync(fixture, copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  const program = path.join(copy, "src/OrderDesk.Cli/Program.cs");
+  fs.rmSync(debugToolDir, { recursive: true, force: true });
+  fs.mkdirSync(debugToolDir, { recursive: true });
+  fs.cpSync(realAdapter, path.join(debugToolDir, "3.2.0-1092"), { recursive: true });
+
+  try {
+    await page.goto("/");
+    await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+    await page.getByTestId("workspace-tools-toggle").click();
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+
+    expect((await hostCall(request, "debug.flag", { enabled: true, confirm: true })).ok).toBe(true);
+    const planned = await hostCall(request, "debug.plan");
+    const installed = await hostCall(request, "debug.install", {
+      planId: planned.data.debug.plan.planId,
+      confirm: true,
+    });
+    expect(installed.data.debug.adapterState).toBe("ready");
+
+    await settleRestore(page);
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(2);
+    await selectEvaluationTfm(page, "net8.0");
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(3);
+
+    await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+    const editor = page.getByTestId("editor");
+    await expect(editor).toContainText("Console.WriteLine");
+    await page.getByTestId("bottom-tab-debug").click();
+    await expect(page.getByTestId("dap-state")).toHaveText("Not started");
+
+    const breakpoint = await hostCall(request, "debug.setBreakpoints", {
+      path: program,
+      lines: [3],
+    });
+    expect(breakpoint.ok, JSON.stringify(breakpoint.error)).toBe(true);
+
+    await editor.click();
+    // Debug inlays decorate the paused line; compare the document text without them.
+    const bufferLines = () =>
+      editor.evaluate((root) =>
+        Array.from(root.querySelectorAll(".cm-line"), (line) => {
+          const copy = line.cloneNode(true) as HTMLElement;
+          copy.querySelectorAll('[data-testid="debug-inlay"]').forEach((node) => node.remove());
+          return copy.textContent ?? "";
+        }),
+      );
+    const before = await bufferLines();
+    await page.keyboard.press("Control+d");
+
+    // CodeMirror's Control+D (deleteCharForward) would have changed the buffer immediately.
+    await expect
+      .poll(async () => (await page.getByTestId("dap-state").textContent()) ?? "", {
+        timeout: 60_000,
+      })
+      .toMatch(/Building|Preparing|Running|Paused/);
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    await expect.poll(bufferLines).toEqual(before);
+    await expect(page.getByTestId("dirty-marker")).toHaveCount(0);
+  } finally {
+    await hostCall(request, "debug.stop");
     await hostCall(request, "workspace.close");
     fs.rmSync(base, { recursive: true, force: true });
   }
