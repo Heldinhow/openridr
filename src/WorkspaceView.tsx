@@ -2913,7 +2913,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       title: "Debug Selected Tests",
       group: "Tests",
       execute: () =>
-        setMessage({ tone: "error", text: `Debug selected unavailable: ${testDebugUnavailable}` }),
+        setMessage({ tone: "error", text: testDebugUnavailable }),
       disabledReason: testDebugUnavailable,
     }),
     define({
@@ -3116,7 +3116,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           ? testDebugUnavailable
           : "Place the cursor on a test method with analysis ready.",
         action: () => {
-          if (test) setMessage({ tone: "error", text: `Debug test unavailable: ${testDebugUnavailable}` });
+          if (test) setMessage({ tone: "error", text: testDebugUnavailable });
         },
       },
       {
