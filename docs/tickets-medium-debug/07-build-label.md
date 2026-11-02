@@ -27,7 +27,7 @@ startup" e o tooltip contém "Build Solution". `zz-acceptance.spec.ts` continua 
 
 ## Aceite
 
-- [ ] Nenhum texto "Rebuild" no Build panel.
-- [ ] Escopo startup explícito antes e depois de Build Solution.
-- [ ] Atalhos e ações inalterados; testids preservados.
-- [ ] `bun run check` verde. Commit `fix(build): label startup build without Rebuild`.
+- [x] Nenhum texto "Rebuild" no Build panel.
+- [x] Escopo startup explícito antes e depois de Build Solution.
+- [x] Atalhos e ações inalterados; testids preservados.
+- [x] `bun run check` verde. Commit `fix(build): label startup build without Rebuild`.

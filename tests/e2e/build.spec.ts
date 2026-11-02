@@ -75,6 +75,12 @@ test("a real build reports its raw log, fails on a compile error and navigates t
     await expect(startup).toHaveValue("src/OrderDesk.Cli/OrderDesk.Cli.csproj");
     await expect(startup).not.toContainText("OrderDesk.Core");
 
+    // The primary action names its scope: an incremental build of the startup project.
+    const buildAction = page.getByTestId("build-action");
+    await expect(buildAction).toContainText("Build startup");
+    await expect(buildAction).toContainText(/Cmd\+F9|Ctrl\+F9/);
+    await expect(buildAction).not.toContainText("Rebuild");
+
     await page.getByTestId("build-action").click();
     await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
       timeout: 60_000,
@@ -97,6 +103,18 @@ test("a real build reports its raw log, fails on a compile error and navigates t
     );
     await expect(page.getByTestId("build-log")).toContainText("Build succeeded");
     await page.screenshot({ path: path.join(screenshots, "11-build-ok.png") });
+
+    // A solution build does not change the startup button's scope: it still says Build startup
+    // and points at Build Solution for the whole solution.
+    await expect(buildAction).toContainText("Build startup");
+    await expect(buildAction).not.toContainText("Rebuild");
+    await page.getByTestId("build-solution").click();
+    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
+      timeout: 60_000,
+    });
+    await expect(buildAction).toContainText("Build startup");
+    await expect(buildAction).not.toContainText("Rebuild");
+    await expect(buildAction).toHaveAttribute("title", /Build Solution/);
 
     // A real compiler error, saved explicitly through the editor.
     await replaceProgram(page, `${originalProgram}\nnew Missing();\n`);
