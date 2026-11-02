@@ -275,6 +275,8 @@ test("stopping a real long-running program reports requested and observed termin
     await expect(page.getByTestId("run-state")).toContainText("Run cancelled", {
       timeout: 15_000,
     });
+    // A termination the host requested is not a crash: cancelled runs keep the neutral tag.
+    await expect(page.getByTestId("run-state")).not.toHaveClass(/\berror\b/);
     await page.getByTestId("bottom-tab-run").click();
     await expect(page.getByTestId("run-termination")).toContainText(
       "Termination requested: SIGTERM",

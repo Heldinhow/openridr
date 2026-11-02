@@ -14,8 +14,11 @@ export function RunPanel({
   onOpenFrame: (path: string, line: number) => void;
 }) {
   const running = run.state === "running" || run.state === "building";
+  // A host-requested SIGTERM ends as `cancelled`, not as a crash, even though it has a signal.
   const failed =
-    run.state === "failed" || Boolean(run.signal) || (run.exit !== null && run.exit !== 0);
+    run.state === "failed" ||
+    (run.state === "exited" &&
+      (Boolean(run.signal) || (run.exit !== null && run.exit !== 0)));
   const lines = (run.log || "No output yet.").split("\n");
   let frameIndex = 0;
   return (
@@ -118,13 +121,15 @@ export function RunPanel({
       <pre className="eval-pre build-log run-log" data-testid="run-log">
         {lines.map((line, index) => {
           const match = stackFrame.exec(line.replace(/^\[stderr\] /, ""));
+          // Only C# source positions are openable; other adapter frames stay plain log text.
+          const frame = match && match[1].endsWith(".cs") && Number(match[2]) >= 1 ? match : null;
           return (
             <span key={index}>
               {index > 0 ? "\n" : null}
-              {match ? (
+              {frame ? (
                 <button
                   data-testid={`run-log-frame-${frameIndex++}`}
-                  onClick={() => onOpenFrame(match[1], Number(match[2]))}
+                  onClick={() => onOpenFrame(frame[1], Number(frame[2]))}
                 >
                   {line}
                 </button>
