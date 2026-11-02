@@ -4138,9 +4138,37 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           </div>
 
           {!evaluationAvailable && trusted && (
-            <p className="tree-note" data-testid="eval-disabled-reason">
-              Evaluation needs a resolved project SDK. Host SDK 10 is never substituted.
-            </p>
+            <div className="tree-note" data-testid="eval-disabled-reason">
+              {projectSdk.state === "sdk_missing" ? (
+                <>
+                  <p>
+                    Project SDK {projectSdk.requestedVersion ?? "pinned by global.json"} is not
+                    installed. OpenRidr detects SDKs but never installs one or substitutes the host
+                    SDK. Install that SDK (or change global.json) and redetect.
+                  </p>
+                  <div className="actions">
+                    <button data-testid="eval-redetect" onClick={() => void redetectSdks()}>
+                      Redetect SDKs
+                    </button>
+                    <a
+                      data-testid="eval-sdk-download"
+                      href={projectSdk.instructionsUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                    >
+                      Official .NET downloads
+                    </a>
+                    {projectSdk.globalJsonPath && (
+                      <button data-testid="eval-open-global-json" onClick={openGlobalJson}>
+                        Open global.json
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p>Evaluation needs a resolved project SDK. Host SDK 10 is never substituted.</p>
+              )}
+            </div>
           )}
 
           {evaluation.staleReason && (
