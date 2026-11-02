@@ -32,7 +32,7 @@ de testes. Falhar antes da correção (Problems hoje só tem build).
 
 ## Aceite
 
-- [ ] Descoberta falha por compilação publica `problems` no host.
-- [ ] Problems lista e navega; log cru intacto.
-- [ ] Nenhuma mudança no formato de `build.problems`.
-- [ ] `bun run check` verde. Commit `fix(tests): publish discovery compile problems`.
+- [x] Descoberta falha por compilação publica `problems` no host.
+- [x] Problems lista e navega; log cru intacto.
+- [x] Nenhuma mudança no formato de `build.problems`.
+- [x] `bun run check` verde. Commit `fix(tests): publish discovery compile problems`.

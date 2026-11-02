@@ -3501,6 +3501,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           <ProblemsPanel
             diagnostics={snapshot.diagnostics}
             build={build}
+            tests={snapshot.tests}
             evaluation={evaluation}
             buildObsolete={buildObsolete}
             editedAt={editedAt}

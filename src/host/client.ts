@@ -273,6 +273,9 @@ export type TestsDiscovery = {
   partial: boolean;
   error: string | null;
   mtpMessage: string | null;
+  /** Compile diagnostics parsed from the discovery output, same shape as `Build.problems`. */
+  problems: BuildProblem[];
+  problemsTruncated: boolean;
   stale: boolean;
   staleReason: string | null;
   sealed: boolean;

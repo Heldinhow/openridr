@@ -2056,6 +2056,7 @@ impl Host {
             target_framework: target_framework.clone(),
             command: Vec::new(),
             cwd: root.clone(),
+            root: root.clone(),
             sdk_root: sdk_root.clone(),
             sdk_version,
             workspace_id: token.workspace_id,

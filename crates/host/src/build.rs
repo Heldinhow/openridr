@@ -496,28 +496,55 @@ impl Build {
         let Line::Problem(problem) = parsed else {
             return;
         };
-        let key = format!(
-            "{}:{:?}:{:?}:{}",
-            problem.path, problem.position, problem.code, problem.message
-        );
-        if data.seen.contains_key(&key) {
-            return;
-        }
-        if data.problems.len() >= MAX_PROBLEMS {
-            data.problems_truncated = true;
-            return;
-        }
-        data.seen.insert(key, ());
-        let index = data.problems.len();
         let build_id = data.build_id.clone();
         let revision = data.revision;
-        data.problems.push(BuildProblem {
-            id: format!("{build_id}:{index}"),
-            build_id,
+        let Data {
+            problems,
+            seen,
+            problems_truncated,
+            ..
+        } = &mut *data;
+        record_problem(
+            problem,
+            &build_id,
             revision,
-            ..problem
-        });
+            problems,
+            seen,
+            problems_truncated,
+        );
     }
+}
+
+/// Records one parsed diagnostic in a build or discovery list: dedupe by
+/// path/position/code/message, assign the `id`/`build_id`/`revision`, and stop listing at
+/// `MAX_PROBLEMS`. The raw log is never affected by the cap.
+pub fn record_problem(
+    problem: BuildProblem,
+    build_id: &str,
+    revision: u64,
+    problems: &mut Vec<BuildProblem>,
+    seen: &mut HashMap<String, ()>,
+    problems_truncated: &mut bool,
+) {
+    let key = format!(
+        "{}:{:?}:{:?}:{}",
+        problem.path, problem.position, problem.code, problem.message
+    );
+    if seen.contains_key(&key) {
+        return;
+    }
+    if problems.len() >= MAX_PROBLEMS {
+        *problems_truncated = true;
+        return;
+    }
+    seen.insert(key, ());
+    let index = problems.len();
+    problems.push(BuildProblem {
+        id: format!("{build_id}:{index}"),
+        build_id: build_id.to_string(),
+        revision,
+        ..problem
+    });
 }
 
 /// One line of MSBuild text. Unrecognized lines stay only in the raw log.

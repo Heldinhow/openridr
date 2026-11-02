@@ -6,11 +6,12 @@
 //! kept as what the runner printed, never used alone as identity. Microsoft.Testing.Platform
 //! projects are refused before any VSTest command because the console runner does not own them.
 
+use crate::build::{self, BuildProblem};
 use crate::evaluation::PackageRef;
 use crate::logbuf::LogBuffer;
 use crate::process::{ProcessStatus, Termination};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,6 +39,8 @@ pub struct Start {
     pub target_framework: Option<String>,
     pub command: Vec<String>,
     pub cwd: PathBuf,
+    /// Workspace root, used to resolve file paths in compile diagnostics.
+    pub root: PathBuf,
     pub sdk_root: PathBuf,
     pub sdk_version: String,
     pub workspace_id: u64,
@@ -95,6 +98,9 @@ pub struct DiscoveryView {
     pub partial: bool,
     pub error: Option<String>,
     pub mtp_message: Option<String>,
+    /// Compile diagnostics parsed from the same output, like `build.problems`.
+    pub problems: Vec<BuildProblem>,
+    pub problems_truncated: bool,
     pub stale: bool,
     pub stale_reason: Option<String>,
     pub sealed: bool,
@@ -117,6 +123,7 @@ struct Data {
     target_framework: Option<String>,
     command: Vec<String>,
     cwd: String,
+    root: PathBuf,
     sdk_root: String,
     sdk_version: String,
     workspace_id: u64,
@@ -139,6 +146,9 @@ struct Data {
     partial: bool,
     error: Option<String>,
     mtp_message: Option<String>,
+    problems: Vec<BuildProblem>,
+    problems_truncated: bool,
+    seen_problems: HashMap<String, ()>,
 }
 
 pub struct Tests {
@@ -159,6 +169,7 @@ impl Tests {
                 target_framework: None,
                 command: Vec::new(),
                 cwd: String::new(),
+                root: PathBuf::new(),
                 sdk_root: String::new(),
                 sdk_version: String::new(),
                 workspace_id: 0,
@@ -181,6 +192,9 @@ impl Tests {
                 partial: false,
                 error: None,
                 mtp_message: None,
+                problems: Vec::new(),
+                problems_truncated: false,
+                seen_problems: HashMap::new(),
             }),
         }
     }
@@ -242,6 +256,8 @@ impl Tests {
                 partial: data.partial,
                 error: data.error.clone(),
                 mtp_message: data.mtp_message.clone(),
+                problems: data.problems.clone(),
+                problems_truncated: data.problems_truncated,
                 stale: data.stale,
                 stale_reason: data.stale_reason.clone(),
                 sealed: data.sealed,
@@ -352,6 +368,24 @@ impl Tests {
         } else {
             line.to_string()
         });
+        if let build::Line::Problem(problem) = build::parse_line(&data.root, line) {
+            let discovery_id = data.discovery_id.clone();
+            let revision = data.revision;
+            let Data {
+                problems,
+                seen_problems,
+                problems_truncated,
+                ..
+            } = &mut *data;
+            build::record_problem(
+                problem,
+                &discovery_id,
+                revision,
+                problems,
+                seen_problems,
+                problems_truncated,
+            );
+        }
         if stderr || data.list_ended {
             return;
         }
@@ -429,6 +463,7 @@ fn data_for(
         target_framework: start.target_framework,
         command: start.command,
         cwd: start.cwd.to_string_lossy().to_string(),
+        root: start.root,
         sdk_root: start.sdk_root.to_string_lossy().to_string(),
         sdk_version: start.sdk_version,
         workspace_id: start.workspace_id,
@@ -451,6 +486,9 @@ fn data_for(
         partial: false,
         error,
         mtp_message,
+        problems: Vec::new(),
+        problems_truncated: false,
+        seen_problems: HashMap::new(),
     }
 }
 
@@ -567,6 +605,7 @@ mod tests {
             target_framework: None,
             command: vec!["dotnet".to_string(), "test".to_string()],
             cwd: PathBuf::from("/work/Order Desk"),
+            root: PathBuf::from("/work/Order Desk"),
             sdk_root: PathBuf::from("/sdk/8.0.408"),
             sdk_version: "8.0.408".to_string(),
             workspace_id: 1,
@@ -681,6 +720,22 @@ mod tests {
         assert!(view.log.contains("CS0246"));
         assert!(view.error.as_deref().unwrap().contains("exited 1"));
         assert!(!view.partial);
+    }
+
+    #[test]
+    fn discovery_records_compile_problems_with_its_own_identity() {
+        let tests = Tests::begin(start(1, "discovery:1:1"));
+        let line = "/work/Order Desk/tests/OrderDesk.Tests/OrderTests.cs(37,1): error CS1022: Type or namespace definition, or end-of-file expected [/work/Order Desk/tests/OrderDesk.Tests/OrderDesk.Tests.csproj]";
+        tests.append_line(line, false);
+        tests.append_line(line, false);
+        assert_eq!(tests.complete(&exited(Some(1))), "failed");
+        let view = tests.view().discovery;
+        assert_eq!(view.problems.len(), 1);
+        assert_eq!(view.problems[0].code.as_deref(), Some("CS1022"));
+        assert_eq!(view.problems[0].path, "tests/OrderDesk.Tests/OrderTests.cs");
+        assert_eq!(view.problems[0].build_id, "discovery:1:1");
+        assert_eq!(view.problems[0].position.as_ref().unwrap().line, 36);
+        assert!(!view.problems_truncated);
     }
 
     #[test]
