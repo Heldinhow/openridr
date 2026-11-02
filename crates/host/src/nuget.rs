@@ -630,8 +630,11 @@ pub fn parse_listing(stdout: &str) -> Result<Vec<FrameworkPackages>, String> {
                 else {
                     continue;
                 };
-                let requested = text_field(package, "requested");
-                let resolved = text_field(package, "resolved");
+                // Older fixtures spell these without "Version"; keep both readable.
+                let requested =
+                    text_field(package, "requested").or_else(|| text_field(package, "requestedVersion"));
+                let resolved =
+                    text_field(package, "resolved").or_else(|| text_field(package, "resolvedVersion"));
                 let latest = text_field(package, "latestVersion");
                 if let Some(existing) = target
                     .packages
@@ -1225,6 +1228,26 @@ mod tests {
   </ItemGroup>
 </Project>
 "#;
+
+    #[test]
+    fn parser_reads_resolved_version_and_requested_version_fields() {
+        // Newer dotnet list output uses *Version; Current must not stay "unknown".
+        let frameworks = parse_listing(
+            r#"{"projects":[{"path":"A.csproj","frameworks":[{"framework":"net8.0",
+                "topLevelPackages":[
+                    {"id":"Microsoft.NET.Test.Sdk","requestedVersion":"17.11.1","resolvedVersion":"17.11.1","latestVersion":"18.11.0"},
+                    {"id":"xunit","requestedVersion":"2.9.2","resolvedVersion":"2.9.2"},
+                    {"id":"xunit.runner.visualstudio","requestedVersion":"2.8.2","resolvedVersion":"2.8.2"}
+                ]}]}]}"#,
+        )
+        .unwrap();
+        let packages = &frameworks[0].packages;
+        assert_eq!(packages[0].requested.as_deref(), Some("17.11.1"));
+        assert_eq!(packages[0].resolved.as_deref(), Some("17.11.1"));
+        assert_eq!(packages[0].latest_version.as_deref(), Some("18.11.0"));
+        assert_eq!(packages[1].resolved.as_deref(), Some("2.9.2"));
+        assert_eq!(packages[2].resolved.as_deref(), Some("2.8.2"));
+    }
 
     #[test]
     fn recorded_listing_is_grouped_by_tfm_and_reads_all_versions() {
