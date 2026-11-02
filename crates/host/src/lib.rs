@@ -687,6 +687,8 @@ impl Host {
             "runConfigs.read" => run_configs::read(&params),
             "runConfigs.write" => run_configs::write(&params),
             "runConfigs.setStartup" => run_configs::set_startup(&params),
+            "session.read" => run_configs::read_session(&params),
+            "session.write" => run_configs::write_session(&params),
             _ => Err(HostError::new(
                 "not_found",
                 format!("Unknown host method: {method}"),

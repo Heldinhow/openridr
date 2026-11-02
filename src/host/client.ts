@@ -1023,6 +1023,21 @@ export type RunConfigIssue = {
   message: string;
 };
 
+export type SessionTab = {
+  path: string;
+  /** 0-based cursor line, as the editor reports it. */
+  line: number;
+  character: number;
+};
+
+/** Editor state persisted per solution; buffer content is never stored. */
+export type SessionState = {
+  tabs: SessionTab[];
+  activePath: string | null;
+  /** 1-based breakpoint lines per workspace-relative source path. */
+  breakpoints: Record<string, number[]>;
+};
+
 export type RunConfigStore = {
   solution: string;
   path: string;
@@ -1030,6 +1045,7 @@ export type RunConfigStore = {
   /** Startup project chosen in the toolbar or Build panel, per solution. */
   startupProject: string | null;
   configs: RunConfig[];
+  session: SessionState;
   issues: RunConfigIssue[];
 };
 

@@ -11,6 +11,7 @@ import {
   type ReferencesResponse,
   type RenameResponse,
   type RunConfig,
+  type SessionState,
   type Snapshot,
   type OutlineProject,
 } from "./host/client";
@@ -27,7 +28,7 @@ import {
   lineSnippet,
   type GutterAction,
 } from "./codeNavigation";
-import { ProblemsPanel, withLocalEdits } from "./ProblemsPanel";
+import { ProblemsPanel } from "./ProblemsPanel";
 import { RunPanel } from "./RunPanel";
 import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
 import {
@@ -39,7 +40,7 @@ import {
 } from "./TestsPanel";
 import { TestsQuickList } from "./TestsQuickList";
 import { ProcessPanel } from "./ProcessPanel";
-import { collectDiagnostics, samePath } from "./diagnosticMarks";
+import { collectDiagnostics, problemCounts, samePath } from "./diagnosticMarks";
 import { DebugAdapterPanel, LspPanel, ToolInstaller, lspStartBlocker, lspStateLabel } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
@@ -119,6 +120,14 @@ type Tab = {
   savedContent: string | null;
   conflict: null | { content: string; hash: string };
 };
+
+/** Breakpoint lines per source path, sorted, in the shape the session store keeps. */
+function breakpointsByPath(breakpoints: Snapshot["dap"]["breakpoints"]) {
+  const groups: Record<string, number[]> = {};
+  for (const breakpoint of breakpoints) (groups[breakpoint.path] ??= []).push(breakpoint.line);
+  for (const lines of Object.values(groups)) lines.sort((left, right) => left - right);
+  return groups;
+}
 
 type DocumentSymbolsState = {
   path: string;
@@ -399,6 +408,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, []);
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<{
@@ -407,10 +417,26 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     character: number;
     nonce: number;
   } | null>(null);
-  const outputMax = Math.max(120, Math.min(500, Math.floor(viewportHeight * 0.42)));
-  const visibleOutputHeight = Math.min(outputHeight, outputMax);
   useEffect(() => {
-    const resize = () => setViewportHeight(window.innerHeight);
+    if (!editorTarget) return;
+    // Parent effects run after the child editor's, so the target is applied before it is cleared;
+    // a remount (switching tabs) must not force the old cursor and focus again.
+    const timer = window.setTimeout(() => setEditorTarget(null), 0);
+    return () => window.clearTimeout(timer);
+  }, [editorTarget]);
+  // 84 = toolbar 52 + splitter 4 + status 28; the panel never squeezes the editor below 180 px.
+  const outputMax = Math.max(
+    120,
+    Math.min(500, Math.floor(viewportHeight * 0.42), viewportHeight - 84 - 180),
+  );
+  const visibleOutputHeight = Math.min(outputHeight, outputMax);
+  // 34 rail + sidebar + 4 splitter + editor + 34 rail: a narrow window narrows the tree, not the editor.
+  const effectiveSidebarWidth = Math.min(sidebarWidth, Math.max(160, viewportWidth - 392));
+  useEffect(() => {
+    const resize = () => {
+      setViewportWidth(window.innerWidth);
+      setViewportHeight(window.innerHeight);
+    };
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
@@ -473,12 +499,22 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
   const seededRunConfigsFor = useRef<number | null>(null);
-  const { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject } = useRunConfigs({ workspacePath: workspace.path, setMessage });
+  const { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject, persistSession } = useRunConfigs({ workspacePath: workspace.path, setMessage });
   useEffect(() => {
     if (!runConfigsLoaded || !runConfigStore || seededRunConfigsFor.current === workspace.id) return;
     seededRunConfigsFor.current = workspace.id;
     setStartupPath(runConfigStore.startupProject ?? null);
     // Only the store load for this workspace seeds the choice; later commits are user actions.
+  }, [runConfigsLoaded, runConfigStore, workspace.id]);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [breakpointsApplied, setBreakpointsApplied] = useState(false);
+  const restoredSessionFor = useRef<number | null>(null);
+  const tabCursors = useRef<Record<string, { line: number; character: number }>>({});
+  const savedBreakpoints = useRef<Record<string, number[]>>({});
+  useEffect(() => {
+    if (!runConfigsLoaded || !runConfigStore || restoredSessionFor.current === workspace.id) return;
+    restoredSessionFor.current = workspace.id;
+    void restoreSession(runConfigStore.session);
   }, [runConfigsLoaded, runConfigStore, workspace.id]);
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
@@ -504,6 +540,72 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const findUsagesSeq = useRef(0);
   const cursorRef = useRef({ line: 0, character: 0 });
   const [cursor, setCursor] = useState({ line: 0, character: 0 });
+  const sessionPayload = useRef<SessionState | null>(null);
+  useEffect(() => {
+    // Never write before the restore finished: the first empty render must not erase the store.
+    if (!sessionReady) return;
+    const live = breakpointsByPath(snapshot.dap.breakpoints);
+    const applied = trusted && breakpointsApplied;
+    const session: SessionState = {
+      tabs: tabs.map((tab) => ({
+        path: tab.path,
+        ...(tabCursors.current[tab.path] ?? { line: 0, character: 0 }),
+      })),
+      activePath,
+      // Before the saved breakpoints are applied the live list is still empty; writing it would
+      // erase the store. Restricted mode also keeps the ones already stored.
+      breakpoints: applied ? live : savedBreakpoints.current,
+    };
+    sessionPayload.current = session;
+    if (applied) savedBreakpoints.current = live;
+    const timer = window.setTimeout(() => {
+      persistSession(session).catch((error) =>
+        setMessage({ tone: "error", text: `Editor session could not be saved: ${messageOf(error)}` }),
+      );
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [
+    sessionReady,
+    trusted,
+    breakpointsApplied,
+    tabs,
+    activePath,
+    cursor,
+    snapshot.dap.breakpoints,
+    workspace.id,
+  ]);
+  useEffect(() => {
+    // The 400 ms debounce must not drop the last state when the workspace closes or switches.
+    // A direct call avoids setting state on an unmounted component.
+    return () => {
+      const session = sessionPayload.current;
+      if (!session) return;
+      void call("session.write", { solution: workspace.path, session }).catch(() => {});
+    };
+  }, [workspace.path]);
+  useEffect(() => {
+    // A Restricted open cannot restore breakpoints; apply them once trust is granted instead of
+    // letting the autosave overwrite the store with the still-empty live list.
+    if (!sessionReady || !trusted || breakpointsApplied) return;
+    let cancelled = false;
+    void (async () => {
+      let restored: Snapshot | null = null;
+      for (const [path, lines] of Object.entries(savedBreakpoints.current)) {
+        if (lines.length === 0) continue;
+        try {
+          restored = await call<Snapshot>("debug.setBreakpoints", { path, lines });
+        } catch {
+          // One missing source keeps the other breakpoints; the next start clears its own list.
+        }
+      }
+      if (cancelled) return;
+      if (restored) onSnapshot(restored);
+      setBreakpointsApplied(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionReady, trusted, breakpointsApplied, workspace.id]);
   const editPreviewHeading = useRef<HTMLHeadingElement | null>(null);
   const actionListHeading = useRef<HTMLHeadingElement | null>(null);
 
@@ -1171,6 +1273,35 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     });
   }
 
+  /** Reopens the saved tab paths once per workspace; deleted files are skipped, not fatal. */
+  async function restoreSession(saved: SessionState) {
+    const opened: string[] = [];
+    for (const tab of saved.tabs) {
+      if (await openFile(tab.path)) opened.push(tab.path);
+    }
+    savedBreakpoints.current = saved.breakpoints;
+    // Every opened tab mounted an editor that reported 0:0; the saved cursor wins for all tabs.
+    for (const tab of saved.tabs) {
+      tabCursors.current[tab.path] = { line: tab.line, character: tab.character };
+    }
+    const target =
+      saved.activePath && opened.includes(saved.activePath)
+        ? saved.activePath
+        : opened[opened.length - 1];
+    if (target) {
+      await openFile(target);
+      const position = tabCursors.current[target];
+      navigationSeq.current += 1;
+      setEditorTarget({
+        path: target,
+        line: position?.line ?? 0,
+        character: position?.character ?? 0,
+        nonce: navigationSeq.current,
+      });
+    }
+    setSessionReady(true);
+  }
+
   async function openFile(path: string) {
     const relative = workspaceRelative(path, workspaceDir);
     if (tabs.some((tab) => tab.path === relative)) {
@@ -1182,17 +1313,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       const file = await call<{ path: string; content: string; hash: string }>("file.read", {
         path: relative,
       });
-      setTabs((current) => [
-        ...current,
-        {
-          path: file.path,
-          content: file.content,
-          hash: file.hash,
-          revision: 0,
-          savedContent: file.content,
-          conflict: null,
-        },
-      ]);
+      setTabs((current) =>
+        current.some((tab) => tab.path === file.path)
+          ? current
+          : [
+              ...current,
+              {
+                path: file.path,
+                content: file.content,
+                hash: file.hash,
+                revision: 0,
+                savedContent: file.content,
+                conflict: null,
+              },
+            ],
+      );
       setActivePath(file.path);
       setMessage(null);
       return true;
@@ -1275,8 +1410,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   async function checkDisk(path: string) {
-    // Proactive read. It only raises a conflict; it never replaces buffer content. A read
-    // failure is reported and the buffer stays editable.
+    // Proactive read. A clean buffer is replaced by the disk text; a dirty one only raises a
+    // conflict and is never overwritten. A read failure is reported and the buffer stays editable.
     if (writing.current.has(path) || !tabsRef.current.some((tab) => tab.path === path)) return;
     const epoch = diskEpoch.current.get(path) ?? 0;
     let file: { content: string; hash: string };
@@ -1295,6 +1430,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         if (tab.path !== path) return tab;
         const known = tab.conflict?.hash ?? tab.hash;
         if (file.hash === known) return tab;
+        if (!tab.conflict && tab.content === tab.savedContent) {
+          return { ...tab, content: file.content, hash: file.hash, savedContent: file.content };
+        }
         return { ...tab, conflict: { content: file.content, hash: file.hash } };
       }),
     );
@@ -1387,6 +1525,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   function noteCursor(position: { line: number; character: number }) {
+    if (activePathRef.current) tabCursors.current[activePathRef.current] = position;
     cursorRef.current = position;
     setCursor(position);
     setActionList((current) => {
@@ -3609,16 +3748,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
               : "Project SDK unresolved"
   }`;
 
-  const currentProblems = withLocalEdits(snapshot.diagnostics, editedAt)
-    .filter((diagnostic) => diagnostic.state === "current")
-    .reduce((count, diagnostic) => count + diagnostic.items.length, 0);
   const allDiagnostics = collectDiagnostics(snapshot.diagnostics, build, buildObsolete, editedAt);
   const activeDiagnostics = active ? allDiagnostics.filter((item) => samePath(item.path, active.path)) : [];
-  const diagnosticCounts = {
-    errors: allDiagnostics.filter((item) => item.severity === "error").length,
-    warnings: allDiagnostics.filter((item) => item.severity === "warning").length,
-  };
-  const evaluationErrors = evaluation.projects.filter((project) => project.state === "failed" && project.error).length;
+  const problems = problemCounts(
+    snapshot.diagnostics,
+    build,
+    snapshot.tests,
+    evaluation,
+    buildObsolete,
+    editedAt,
+  );
+  const diagnosticCounts = { errors: problems.errors, warnings: problems.warnings };
   const activeInspections = active
     ? snapshot.diagnostics.snapshots
         .filter((snap) => snap.state === "current" && snap.path && snap.path.replace(/\\/g, "/").endsWith(`/${active.path}`))
@@ -3631,7 +3771,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     : null;
   const bottomTabLabels = bottomTools.map(({ id, title }) => ({
     id: id as BottomToolId,
-    label: id === "problems" && currentProblems + evaluationErrors > 0 ? `Problems (${currentProblems + evaluationErrors})` : title,
+    label: id === "problems" && problems.total > 0 ? `Problems (${problems.total})` : title,
   }));
   const breadcrumbProject = activeEvaluationProject?.name ?? activeProject?.name ?? null;
   const statusBreadcrumb = [
@@ -3683,7 +3823,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       className={`workspace-view ${leftOpen ? "" : "left-closed"} ${bottomOpen ? "" : "bottom-closed"} ${toolsOpen ? "tools-open" : ""}`}
       data-density={settings.appearance.density}
       style={{
-        "--sidebar-width": `${sidebarWidth}px`,
+        "--sidebar-width": `${effectiveSidebarWidth}px`,
         "--output-height": `${visibleOutputHeight}px`,
         "--ui-zoom": settings.appearance.zoom / 100,
         zoom: settings.appearance.zoom / 100,
@@ -4050,9 +4190,37 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           </div>
 
           {!evaluationAvailable && trusted && (
-            <p className="tree-note" data-testid="eval-disabled-reason">
-              Evaluation needs a resolved project SDK. Host SDK 10 is never substituted.
-            </p>
+            <div className="tree-note" data-testid="eval-disabled-reason">
+              {projectSdk.state === "sdk_missing" ? (
+                <>
+                  <p>
+                    Project SDK {projectSdk.requestedVersion ?? "pinned by global.json"} is not
+                    installed. OpenRidr detects SDKs but never installs one or substitutes the host
+                    SDK. Install that SDK (or change global.json) and redetect.
+                  </p>
+                  <div className="actions">
+                    <button data-testid="eval-redetect" onClick={() => void redetectSdks()}>
+                      Redetect SDKs
+                    </button>
+                    <a
+                      data-testid="eval-sdk-download"
+                      href={projectSdk.instructionsUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                    >
+                      Official .NET downloads
+                    </a>
+                    {projectSdk.globalJsonPath && (
+                      <button data-testid="eval-open-global-json" onClick={openGlobalJson}>
+                        Open global.json
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p>Evaluation needs a resolved project SDK. Host SDK 10 is never substituted.</p>
+              )}
+            </div>
           )}
 
           {evaluation.staleReason && (
@@ -4099,7 +4267,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           )}
         </nav>
         )}
-        <Splitter label="Solution explorer width" value={sidebarWidth} min={220} max={420} onChange={setSidebarWidth} />
+        <Splitter label="Solution explorer width" value={effectiveSidebarWidth} min={Math.min(220, effectiveSidebarWidth)} max={420} onChange={setSidebarWidth} />
           </>
         )}
 

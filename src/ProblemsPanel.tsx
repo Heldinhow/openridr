@@ -7,6 +7,7 @@ import type {
   ProblemItem,
   Tests,
 } from "./host/client";
+import { problemCounts, withLocalEdits, type ProblemCounts } from "./diagnosticMarks";
 
 type Row = { key: string; snapshot: DiagnosticSnapshot; item: ProblemItem };
 
@@ -69,39 +70,23 @@ function codeLabel(item: ProblemItem) {
   return item.code === null || item.code === "" ? "no code" : String(item.code);
 }
 
-function countText(snapshots: DiagnosticSnapshot[]) {
-  const counts = { error: 0, warning: 0, information: 0, hint: 0, unknown: 0 };
+function countText(counts: ProblemCounts, snapshots: DiagnosticSnapshot[]) {
+  const extra = { information: 0, hint: 0, unknown: 0 };
   for (const snapshot of snapshots) {
     if (snapshot.state !== "current") continue;
     for (const item of snapshot.items) {
-      counts[item.severityLabel === "unknown" ? "unknown" : item.severityLabel] += 1;
+      if (item.severityLabel === "information") extra.information += 1;
+      else if (item.severityLabel === "hint") extra.hint += 1;
+      else if (item.severityLabel === "unknown") extra.unknown += 1;
     }
   }
-  const { error, warning, information, hint, unknown } = counts;
-  return `${error} error${error === 1 ? "" : "s"} · ${warning} warning${
-    warning === 1 ? "" : "s"
+  const { errors, warnings } = counts;
+  const { information, hint, unknown } = extra;
+  return `${errors} error${errors === 1 ? "" : "s"} · ${warnings} warning${
+    warnings === 1 ? "" : "s"
   } · ${information} information · ${hint} hint${hint === 1 ? "" : "s"}${
     unknown ? ` · ${unknown} unknown severity` : ""
   }`;
-}
-
-/** A local edit newer than the publication makes its items awaiting before the next poll. */
-export function withLocalEdits(
-  diagnostics: Diagnostics,
-  editedAt: Record<string, number>,
-) {
-  return diagnostics.snapshots.map((snapshot) =>
-    snapshot.state === "current" &&
-    snapshot.path !== null &&
-    (editedAt[snapshot.path] ?? 0) > snapshot.receivedAt
-      ? {
-          ...snapshot,
-          state: "awaiting" as const,
-          staleReason:
-            "The buffer was edited after this publication; awaiting diagnostics for the new revision.",
-        }
-      : snapshot,
-  );
 }
 
 export function ProblemsPanel({
@@ -138,6 +123,9 @@ export function ProblemsPanel({
   const testsState = testsProblemState(tests.discovery);
   // A stale or sealed discovery describes an older model: never show its compile errors as current.
   const showTestsProblems = testsState === "Current" && tests.discovery.problems.length > 0;
+  const counts = problemCounts(diagnostics, build, tests, evaluation, buildObsolete, editedAt);
+  // The "no analysis session" fallback only speaks when no origin has any problem to list.
+  const noOtherProblems = build.revision === 0 && !showTestsProblems && failedProjects.length === 0;
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
   const currentEmpty = visible.filter(
     (snapshot) => snapshot.state === "current" && snapshot.items.length === 0,
@@ -194,7 +182,7 @@ export function ProblemsPanel({
           {" · No solution-wide clean state is claimed"}
         </span>
         <span className="muted" data-testid="problems-counts">
-          {countText(snapshots)}
+          {countText(counts, snapshots)}
         </span>
         {build.revision > 0 && (
           <span className="muted" data-testid="problems-build-count">
@@ -293,7 +281,7 @@ export function ProblemsPanel({
                 ))}
               </div>
             )}
-            {rows.length === 0 && currentEmpty.length === 0 && (
+            {rows.length === 0 && currentEmpty.length === 0 && noOtherProblems && (
               <p className="muted" data-testid="problems-empty">
                 {diagnostics.analysisUnavailable ??
                   (diagnostics.session === 0

@@ -72,6 +72,8 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
     const addon = new FitAddon();
     term.loadAddon(addon);
     term.open(screen);
+    // Opening the tab puts the cursor in the shell, not on the tab button.
+    term.focus();
     xterm.current = term;
     fit.current = addon;
     const sendSize = () => {
@@ -110,6 +112,11 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
   // The shell learns the screen size as soon as it runs, even when the panel did not resize in between.
   useEffect(() => {
     if (running) resize.current();
+  }, [running]);
+
+  // Auto-start happens after the tab mounts; focus lands on the shell once it can take keystrokes.
+  useEffect(() => {
+    if (running) xterm.current?.focus();
   }, [running]);
 
   // Raw PTY bytes arrive in order; the poll is quick while running and slow once the shell has ended.

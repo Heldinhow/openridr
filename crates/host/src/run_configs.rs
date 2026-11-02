@@ -9,7 +9,7 @@ use crate::error::{HostError, HostResult};
 use crate::tools::app_home;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -18,6 +18,9 @@ const MAX_CONFIGS: usize = 50;
 const MAX_ARGS: usize = 200;
 const MAX_ENV: usize = 100;
 const MAX_ENV_FILES: usize = 20;
+const MAX_SESSION_TABS: usize = 200;
+const MAX_SESSION_BREAKPOINTS: usize = 500;
+const MAX_SESSION_POSITION: u64 = 1_000_000;
 
 /// `write` and `setStartup` both read-modify-write the same file; one lock keeps concurrent
 /// calls from dropping each other's change. `read_at`/`write_at` stay lock-free because the
@@ -58,6 +61,27 @@ struct Store {
     /// Chosen from the toolbar or the Build panel; kept even while no named config selects it.
     #[serde(default)]
     startup_project: Option<String>,
+    /// Editor tabs, cursor and breakpoints last saved for this solution.
+    #[serde(default)]
+    session: SessionState,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SessionTab {
+    pub path: String,
+    pub line: u64,
+    pub character: u64,
+}
+
+/// What the editor shows for a solution: tab paths (content is never persisted), the cursor of
+/// each tab and the breakpoint lines per source (1-based, as the debugger reports them).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SessionState {
+    pub tabs: Vec<SessionTab>,
+    pub active_path: Option<String>,
+    pub breakpoints: BTreeMap<String, Vec<u64>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -85,6 +109,12 @@ pub fn read(params: &Value) -> HostResult<Value> {
     Ok(view(&store, &path, &solution))
 }
 
+/// E2E isolation: the shared Playwright host sets this off so one spec cannot restore another
+/// spec's tabs. The desktop app and the dedicated session spec leave it on.
+fn session_store_enabled() -> bool {
+    !matches!(std::env::var("OPENRIDR_SESSION_STORE").as_deref(), Ok("off"))
+}
+
 pub fn write(params: &Value) -> HostResult<Value> {
     let _guard = lock_store();
     let solution = solution_param(params)?;
@@ -101,6 +131,30 @@ pub fn set_startup(params: &Value) -> HostResult<Value> {
     let path = path_for(&solution);
     let store = set_startup_at(&path, &solution, params)?;
     Ok(view(&store, &path, &solution))
+}
+
+/// `session.read`: same view as `runConfigs.read`, so the UI can refresh one store shape.
+pub fn read_session(params: &Value) -> HostResult<Value> {
+    read(params)
+}
+
+/// `session.write`: the editor writes paths and positions only; configurations are preserved.
+pub fn write_session(params: &Value) -> HostResult<Value> {
+    if !session_store_enabled() {
+        return read(params);
+    }
+    let _guard = lock_store();
+    let solution = solution_param(params)?;
+    let path = path_for(&solution);
+    let store = write_session_at(&path, &solution, params)?;
+    Ok(view(&store, &path, &solution))
+}
+
+fn write_session_at(path: &Path, solution: &Path, params: &Value) -> HostResult<Store> {
+    let mut store = read_at(path, solution)?;
+    store.session = session_param(params)?;
+    write_at(path, &store)?;
+    Ok(store)
 }
 
 fn store_from_params(path: &Path, solution: &Path, params: &Value) -> HostResult<Store> {
@@ -130,12 +184,75 @@ fn store_from_params(path: &Path, solution: &Path, params: &Value) -> HostResult
             .ok()
             .and_then(|store| store.startup_project)
     };
+    // Likewise, editing configurations never changes the editor session.
+    let session = read_at(path, solution)
+        .ok()
+        .map(|store| store.session)
+        .unwrap_or_default();
     Ok(Store {
         solution: solution.to_string_lossy().to_string(),
         active_id,
         configs,
         startup_project,
+        session,
     })
+}
+
+fn session_param(params: &Value) -> HostResult<SessionState> {
+    let session = params
+        .get("session")
+        .cloned()
+        .map(serde_json::from_value::<SessionState>)
+        .transpose()
+        .map_err(|error| invalid(format!("session is not a valid editor session: {error}")))?
+        .unwrap_or_default();
+    validate_session(&session)?;
+    Ok(session)
+}
+
+fn validate_session(session: &SessionState) -> HostResult<()> {
+    if session.tabs.len() > MAX_SESSION_TABS {
+        return Err(invalid(format!(
+            "At most {MAX_SESSION_TABS} editor tabs are supported."
+        )));
+    }
+    for tab in &session.tabs {
+        validate_session_path(&tab.path)?;
+        if tab.line >= MAX_SESSION_POSITION || tab.character >= MAX_SESSION_POSITION {
+            return Err(invalid(
+                "A tab cursor position is out of range; nothing was saved.",
+            ));
+        }
+    }
+    if let Some(path) = &session.active_path {
+        validate_session_path(path)?;
+    }
+    for (path, lines) in &session.breakpoints {
+        validate_session_path(path)?;
+        if lines.len() > MAX_SESSION_BREAKPOINTS
+            || lines
+                .iter()
+                .any(|line| *line == 0 || *line >= MAX_SESSION_POSITION)
+        {
+            return Err(invalid(format!(
+                "Breakpoints per source must be 1..{MAX_SESSION_POSITION}, at most {MAX_SESSION_BREAKPOINTS}; nothing was saved."
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_session_path(path: &str) -> HostResult<()> {
+    if path.trim().is_empty()
+        || path.len() > 1024
+        || path.contains('\0')
+        || Path::new(path).is_absolute()
+    {
+        return Err(invalid(
+            "Session paths must be relative, non-empty and at most 1024 characters; nothing was saved.",
+        ));
+    }
+    Ok(())
 }
 
 fn set_startup_at(path: &Path, solution: &Path, params: &Value) -> HostResult<Store> {
@@ -367,6 +484,7 @@ fn read_at(path: &Path, solution: &Path) -> HostResult<Store> {
         active_id: "default".to_string(),
         configs: Vec::new(),
         startup_project: None,
+        session: SessionState::default(),
     };
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
@@ -411,6 +529,11 @@ fn view(store: &Store, path: &Path, solution: &Path) -> Value {
         "activeId": &store.active_id,
         "startupProject": &store.startup_project,
         "configs": &store.configs,
+        "session": if session_store_enabled() {
+            json!(&store.session)
+        } else {
+            json!(SessionState::default())
+        },
         "issues": issues(&store.configs, solution.parent().unwrap_or(Path::new("/"))),
     })
 }
@@ -784,6 +907,7 @@ mod tests {
             active_id: "one".to_string(),
             configs: vec![stored],
             startup_project: None,
+            session: SessionState::default(),
         };
         validate(&store.configs, &store.active_id).unwrap();
         write_at(&path, &store).unwrap();
@@ -800,6 +924,44 @@ mod tests {
             .filter(|name| name.ends_with(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn session_roundtrips_and_config_writes_preserve_it() {
+        let home = tempfile::tempdir().unwrap();
+        let solution_file = home.path().join("App.sln");
+        fs::write(&solution_file, "").unwrap();
+        let solution = fs::canonicalize(&solution_file).unwrap();
+        let path = home.path().join("run-configs").join("store.json");
+
+        let mut breakpoints = std::collections::BTreeMap::new();
+        breakpoints.insert("src/Program.cs".to_string(), vec![3, 9]);
+        let session = SessionState {
+            tabs: vec![SessionTab {
+                path: "src/Program.cs".to_string(),
+                line: 2,
+                character: 4,
+            }],
+            active_path: Some("src/Program.cs".to_string()),
+            breakpoints,
+        };
+        let store = Store {
+            solution: solution.to_string_lossy().to_string(),
+            active_id: "default".to_string(),
+            configs: Vec::new(),
+            startup_project: None,
+            session: session.clone(),
+        };
+        write_at(&path, &store).unwrap();
+        assert_eq!(read_at(&path, &solution).unwrap().session, session);
+
+        // The UI writes the session separately; a run-config write must not erase it.
+        let rewritten =
+            store_from_params(&path, &solution, &json!({ "configs": [] })).unwrap();
+        assert_eq!(rewritten.session, session);
+        let startup =
+            set_startup_at(&path, &solution, &json!({ "startupProject": null })).unwrap();
+        assert_eq!(startup.session, session);
     }
 
     #[test]

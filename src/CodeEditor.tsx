@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { copyLineDown, deleteLine, indentWithTab } from "@codemirror/commands";
-import { Compartment, EditorState, Prec, RangeSet, type Text } from "@codemirror/state";
+import { Compartment, EditorState, Prec, RangeSet, Transaction, type Text } from "@codemirror/state";
 import { Decoration, EditorView, GutterMarker, WidgetType, gutter, hoverTooltip, keymap } from "@codemirror/view";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
@@ -1072,13 +1072,27 @@ export function CodeEditor({
     if (!instance) return;
     const current = instance.state.doc.toString();
     if (current !== value) {
+      // A clean reload must keep the caret where it was and must not become an undo step.
+      const head = instance.state.selection.main.head;
+      const before = instance.state.doc.lineAt(head);
+      const line = before.number;
+      const column = head - before.from;
       // Reloads set content in React state; the dispatch must not count as a user edit,
       // otherwise the reloaded buffer would immediately be dirty at a higher revision.
       applyingExternal.current = true;
       instance.dispatch({
         changes: { from: 0, to: current.length, insert: value },
+        annotations: Transaction.addToHistory.of(false),
       });
       applyingExternal.current = false;
+      const doc = instance.state.doc;
+      const target = doc.line(Math.min(line, doc.lines));
+      const position = Math.min(target.from + column, target.to);
+      instance.dispatch({
+        selection: { anchor: position },
+        annotations: Transaction.addToHistory.of(false),
+      });
+      publishCursor(instance);
     }
   }, [value]);
 
