@@ -98,6 +98,27 @@ test("⌥⌘W focuses Update and Escape closes", async ({ page }) => {
   await expect(page.getByTestId("update-dialog")).toHaveCount(0);
 });
 
+test("Push without a remote still takes focus inside the dialog and Escape closes", async ({ page }) => {
+  // No remote means the confirm button is disabled, so the dialog itself must hold focus.
+  git(["remote", "remove", "origin"]);
+  git(["switch", "-q", "-c", "no-remote"]);
+  const editor = await openEditor(page);
+  const before = await editor.innerText();
+
+  await page.keyboard.press("Meta+Shift+K");
+  const dialog = page.getByTestId("push-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(page.getByTestId("push-confirm")).toBeDisabled();
+  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+
+  await page.keyboard.press("x");
+  await expect.poll(() => editor.innerText()).toBe(before);
+  await expect(page.getByTestId("dirty-marker")).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});
+
 test("reopening Push keeps the hidden buffer untouched", async ({ page }) => {
   const editor = await openEditor(page);
   const before = await editor.innerText();

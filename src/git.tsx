@@ -588,10 +588,10 @@ export function BranchWidget({
               <p className="error" role="alert" data-testid="push-error">{dialogError}</p>
             )}
             <div className="actions">
-              <button type="button" data-testid="push-confirm" autoFocus disabled={dialogBusy || remote === null} onClick={() => void confirmPush()}>
+              <button type="button" data-testid="push-confirm" autoFocus={remote !== null} disabled={dialogBusy || remote === null} onClick={() => void confirmPush()}>
                 {dialogBusy ? "Pushing…" : "Push"}
               </button>
-              <button type="button" data-testid="push-cancel" onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" data-testid="push-cancel" autoFocus={remote === null} onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>
