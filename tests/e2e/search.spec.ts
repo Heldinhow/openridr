@@ -13,6 +13,13 @@ async function openTextOnly(page: Page) {
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
+/** ⌘T is gone from the Rider profile; Search Everywhere opens on two clean Shift taps. */
+async function openSearch(page: Page) {
+  await page.keyboard.press("Shift");
+  await page.keyboard.press("Shift");
+  await expect(page.getByTestId("find-action")).toBeVisible();
+}
+
 test.beforeEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
@@ -33,7 +40,7 @@ test("a slow preview never shows the previous file as the newly selected result"
   try {
     await page.goto("/");
     await openTextOnly(page);
-    await page.keyboard.press("Meta+t");
+    await openSearch(page);
     await page.getByTestId("search-tab-files").click();
     const input = page.getByTestId("find-action-input");
     await input.fill("Program.cs");
@@ -49,7 +56,7 @@ test("a slow preview never shows the previous file as the newly selected result"
   }
 });
 
-test("⌘T opens Search Everywhere, Files opens a file, and the last tab and text persist", async ({
+test("⇧⇧ opens Search Everywhere, Files opens a file, and reopening returns to All with the query selected", async ({
   page,
 }) => {
   await page.goto("/");
@@ -57,11 +64,11 @@ test("⌘T opens Search Everywhere, Files opens a file, and the last tab and tex
   await page.getByTestId(`tree-file-${programTab}`).click();
   await page.getByTestId("editor").click();
 
-  await page.keyboard.press("Meta+t");
+  await openSearch(page);
   const dialog = page.getByTestId("find-action");
-  await expect(dialog).toBeVisible();
   await expect(page.getByRole("heading", { name: "Search Everywhere" })).toBeVisible();
   await expect(page.getByTestId("find-action-profile")).toContainText("Rider (macOS)");
+  await expect(page.getByTestId("search-tab-all")).toHaveAttribute("aria-selected", "true");
   for (const tab of ["all", "classes", "files", "symbols", "actions", "text"]) {
     await expect(page.getByTestId(`search-tab-${tab}`)).toBeVisible();
   }
@@ -85,22 +92,20 @@ test("⌘T opens Search Everywhere, Files opens a file, and the last tab and tex
   await expect(page.getByTestId(`tab-${testsTab}`)).toBeVisible();
   await expect(page.getByTestId("editor")).toContainText("class OrderTests");
 
-  // Reopening comes back to the last tab and the last text.
-  await page.keyboard.press("Meta+t");
-  await expect(dialog).toBeVisible();
-  await expect(page.getByTestId("search-tab-files")).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByTestId("find-action-input")).toHaveValue("OrderTests.cs");
-  await page.getByTestId("find-action-input").press("Escape");
+  // Reopening always comes back to All, with the previous query selected so typing replaces it.
+  await openSearch(page);
+  const input = page.getByTestId("find-action-input");
+  await expect(page.getByTestId("search-tab-all")).toHaveAttribute("aria-selected", "true");
+  await expect(input).toHaveValue("OrderTests.cs");
+  expect(
+    await input.evaluate((el) => {
+      const field = el as HTMLInputElement;
+      return [field.selectionStart, field.selectionEnd];
+    }),
+  ).toEqual([0, "OrderTests.cs".length]);
+  await input.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".cm-content").first()).toBeFocused();
-
-  // Shift Shift is the second entry point and also opens on the last tab.
-  await page.keyboard.press("Shift");
-  await page.keyboard.press("Shift");
-  await expect(dialog).toBeVisible();
-  await expect(page.getByTestId("search-tab-files")).toHaveAttribute("aria-selected", "true");
-  await page.getByTestId("find-action-input").press("Escape");
-  await expect(dialog).toHaveCount(0);
 });
 
 test("Tab and ⇧Tab change scope; Text groups matches, previews and opens the occurrence", async ({
@@ -109,7 +114,7 @@ test("Tab and ⇧Tab change scope; Text groups matches, previews and opens the o
   await page.goto("/");
   await openTextOnly(page);
 
-  await page.keyboard.press("Meta+t");
+  await openSearch(page);
   const input = page.getByTestId("find-action-input");
   await expect(input).toBeFocused();
   // Starting from the default All, Tab walks the tabs; ⇧Tab walks back.
@@ -138,7 +143,7 @@ test("Classes and Symbols say Analysis not ready without trust; No results needs
 }) => {
   await page.goto("/");
   await openTextOnly(page);
-  await page.keyboard.press("Meta+t");
+  await openSearch(page);
 
   await page.getByTestId("search-tab-symbols").click();
   await page.getByTestId("find-action-input").fill("Order");
@@ -161,7 +166,7 @@ test("Classes and Symbols say Analysis not ready without trust; No results needs
   await expect(page.getByTestId("search-state")).toHaveCount(0);
 });
 
-test("symbol search reports visible results, host truncation, and suggests Classes for a type", async ({
+test("symbol search reports visible results, host truncation, and lists types in Symbols", async ({
   page,
 }) => {
   await page.route("**/call", async (route) => {
@@ -199,7 +204,7 @@ test("symbol search reports visible results, host truncation, and suggests Class
   });
   await page.goto("/");
   await openTextOnly(page);
-  await page.keyboard.press("Meta+t");
+  await openSearch(page);
   await page.getByTestId("search-tab-symbols").click();
   const input = page.getByTestId("find-action-input");
   await input.fill("OrderDesk");
@@ -209,8 +214,10 @@ test("symbol search reports visible results, host truncation, and suggests Class
   await expect(page.getByTestId("search-truncated")).toContainText("2 returned of 523 total symbols");
 
   await input.fill("OrderDeskType");
-  await expect(page.getByTestId("search-empty")).toHaveText("No results");
-  await page.getByTestId("search-suggest-classes").click();
+  await expect(page.getByTestId("search-item-0")).toContainText("OrderDeskType");
+  await expect(page.getByTestId("search-item-0").locator(".search-kind")).toHaveText("class");
+  await expect(page.getByTestId("search-suggest-classes")).toHaveCount(0);
+  await page.getByTestId("search-tab-classes").click();
   await expect(page.getByTestId("search-tab-classes")).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("search-item-0")).toContainText("OrderDeskType");
 });

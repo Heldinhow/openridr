@@ -16,32 +16,57 @@ const TABS: { id: SearchTab; label: string }[] = [
 
 const STORAGE_KEY = "openridr.search";
 const ALL_LIMIT = 300;
+const ALL_TEXT_LIMIT = 50;
 const PREVIEW_LINES = 9;
 
 /** LSP SymbolKind: class, enum, interface, struct. Everything else is a member. */
 const TYPE_KINDS = new Set([5, 10, 11, 23]);
 
-function isSearchTab(value: unknown): value is SearchTab {
-  return TABS.some((tab) => tab.id === value);
+/** Lower sorts first: exact names outrank prefixes, actions, substrings, text and directory-only files. */
+const SCORE_FILE_EXACT = 0;
+const SCORE_SYMBOL_EXACT = 1;
+const SCORE_FILE_PREFIX = 2;
+const SCORE_SYMBOL_PREFIX = 3;
+const SCORE_ACTION = 4;
+const SCORE_FILE_SUBSTRING = 5;
+const SCORE_SYMBOL_SUBSTRING = 6;
+const SCORE_TEXT = 7;
+const SCORE_FILE_DIRECTORY = 8;
+
+function fileName(path: string) {
+  return (path.split("/").pop() ?? path).toLowerCase();
 }
 
-function loadSaved(): { tab: SearchTab; query: string } {
+function fileScore(path: string, needle: string) {
+  const name = fileName(path);
+  const stem = name.replace(/\.[^.]+$/, "");
+  if (stem === needle) return SCORE_FILE_EXACT;
+  if (stem.startsWith(needle)) return SCORE_FILE_PREFIX;
+  if (name.includes(needle)) return SCORE_FILE_SUBSTRING;
+  return SCORE_FILE_DIRECTORY;
+}
+
+function symbolScore(name: string, needle: string) {
+  const lower = name.toLowerCase();
+  if (lower === needle) return SCORE_SYMBOL_EXACT;
+  if (lower.startsWith(needle)) return SCORE_SYMBOL_PREFIX;
+  return SCORE_SYMBOL_SUBSTRING;
+}
+
+function loadSaved(): string {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as
-      | { tab?: unknown; query?: unknown }
+      | { query?: unknown }
       | null;
-    return {
-      tab: isSearchTab(parsed?.tab) ? parsed.tab : "all",
-      query: typeof parsed?.query === "string" ? parsed.query : "",
-    };
+    return typeof parsed?.query === "string" ? parsed.query : "";
   } catch {
-    return { tab: "all", query: "" };
+    return "";
   }
 }
 
-function saveSaved(tab: SearchTab, query: string) {
+function saveSaved(query: string) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tab, query }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ query }));
   } catch {
     // Storage may be unavailable; search still works without remembering.
   }
@@ -96,6 +121,17 @@ type Hit =
       text: string;
     };
 
+type ActionHit = Extract<Hit, { type: "action" }>;
+type FileHit = Extract<Hit, { type: "file" }>;
+type SymbolHit = Extract<Hit, { type: "symbol" }>;
+type TextHit = Extract<Hit, { type: "text" }>;
+
+/** The list shows types as `class`, members as `symbol`, and other hits by their own type. */
+function kindLabel(hit: Hit) {
+  if (hit.type !== "symbol") return hit.type;
+  return TYPE_KINDS.has(hit.symbol.kind) ? "class" : "symbol";
+}
+
 export function FindAction({
   actions,
   platform,
@@ -115,9 +151,8 @@ export function FindAction({
   onNavigate: (path: string, line: number, character: number) => void;
   onClose: () => void;
 }) {
-  const saved = useRef(loadSaved()).current;
-  const [tab, setTab] = useState<SearchTab>(initialTab === "last" ? saved.tab : initialTab);
-  const [query, setQuery] = useState(saved.query);
+  const [tab, setTab] = useState<SearchTab>(initialTab === "last" ? "all" : initialTab);
+  const [query, setQuery] = useState(loadSaved);
   const [active, setActive] = useState(0);
   const [files, setFiles] = useState<WorkspaceFiles | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -145,8 +180,12 @@ export function FindAction({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    saveSaved(tab, query);
-  }, [tab, query]);
+    saveSaved(query);
+  }, [query]);
+
+  useEffect(() => {
+    inputRef.current?.select();
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -230,7 +269,7 @@ export function FindAction({
   }, [files, needle]);
 
   const hitsResult = useMemo<{ hits: Hit[]; total: number }>(() => {
-    const actionHits: Hit[] = actionMatches.map((action) => ({
+    const actionHits: ActionHit[] = actionMatches.map((action) => ({
       key: `action:${action.id}`,
       type: "action",
       action,
@@ -239,23 +278,17 @@ export function FindAction({
         action.shortcutLabels.join(" / ") || action.chordLabels.join(" ") || "No shortcut"
       }`,
     }));
-    const fileHits: Hit[] = fileMatches.map((path) => ({
+    const fileHits: FileHit[] = fileMatches.map((path) => ({
       key: `file:${path}`,
       type: "file",
       path,
       title: path.split("/").pop() ?? path,
       detail: path,
     }));
-    const symbolHits: Hit[] =
+    const symbolHits: SymbolHit[] =
       symbols?.state === "ok"
         ? symbols.items
-            .filter((symbol) =>
-              tab === "classes"
-                ? TYPE_KINDS.has(symbol.kind)
-                : tab === "symbols"
-                  ? !TYPE_KINDS.has(symbol.kind)
-                  : true,
-            )
+            .filter((symbol) => tab !== "classes" || TYPE_KINDS.has(symbol.kind))
             .map((symbol) => ({
               key: `symbol:${symbol.path}:${symbol.range.start.line}:${symbol.name}:${symbol.kind}`,
               type: "symbol",
@@ -264,19 +297,25 @@ export function FindAction({
               detail: [symbol.containerName, symbol.path].filter(Boolean).join(" · "),
             }))
         : [];
-    const textHits: Hit[] =
-      text?.files.flatMap((file) =>
-        file.matches.map((match) => ({
-          key: `text:${file.path}:${match.line}:${match.character}`,
-          type: "text" as const,
+    const textHits: TextHit[] = [];
+    for (const file of text?.files ?? []) {
+      // One entry per line: a line with several occurrences is still a single result.
+      const seen = new Set<number>();
+      for (const match of file.matches) {
+        if (seen.has(match.line)) continue;
+        seen.add(match.line);
+        textHits.push({
+          key: `text:${file.path}:${match.line}`,
+          type: "text",
           path: file.path,
           line: match.line,
           character: match.character,
           title: match.text.trim() || file.path,
           detail: `${file.path}:${match.line + 1}`,
           text: match.text,
-        })),
-      ) ?? [];
+        });
+      }
+    }
 
     if (tab === "actions") return { hits: actionHits, total: actionHits.length };
     if (tab === "files") return { hits: fileHits, total: fileHits.length };
@@ -284,18 +323,43 @@ export function FindAction({
       return { hits: symbolHits, total: symbolHits.length };
     }
     if (tab === "text") return { hits: textHits, total: textHits.length };
-    const all = [...actionHits, ...fileHits, ...symbolHits, ...textHits];
+    if (!needle) {
+      const all = [...actionHits, ...fileHits, ...symbolHits, ...textHits];
+      return { hits: all.slice(0, ALL_LIMIT), total: all.length };
+    }
+    const ranked = [
+      ...fileHits.map((hit) => ({
+        hit,
+        score: fileScore(hit.path, needle),
+        sortPath: hit.path,
+      })),
+      ...symbolHits.map((hit) => ({
+        hit,
+        score: symbolScore(hit.symbol.name, needle),
+        sortPath: hit.symbol.path,
+      })),
+      ...actionHits.map((hit) => ({ hit, score: SCORE_ACTION, sortPath: hit.action.id })),
+      ...textHits.map((hit) => ({ hit, score: SCORE_TEXT, sortPath: hit.path })),
+    ].sort(
+      (a, b) =>
+        a.score - b.score ||
+        a.hit.title.localeCompare(b.hit.title) ||
+        a.sortPath.localeCompare(b.sortPath),
+    );
+    const all: Hit[] = [];
+    let shownText = 0;
+    for (const entry of ranked) {
+      if (entry.hit.type === "text") {
+        if (shownText >= ALL_TEXT_LIMIT) continue;
+        shownText += 1;
+      }
+      all.push(entry.hit);
+    }
     return { hits: all.slice(0, ALL_LIMIT), total: all.length };
-  }, [actionMatches, fileMatches, symbols, text, tab]);
+  }, [actionMatches, fileMatches, symbols, text, tab, needle]);
 
   const { hits, total: totalHits } = hitsResult;
   const selected = hits[Math.min(active, hits.length - 1)] ?? null;
-  const matchingTypes =
-    tab === "symbols" && symbolQuery && symbolQuery.toLowerCase() === needle && !symbolsLoading
-      ? (symbols?.items.filter(
-          (symbol) => TYPE_KINDS.has(symbol.kind) && symbol.name.toLowerCase().includes(needle),
-        ) ?? [])
-      : [];
 
   useEffect(() => {
     setActive(0);
@@ -507,6 +571,7 @@ export function FindAction({
                       onClick={() => choose(hit)}
                       title={action.disabledReason ?? action.title}
                     >
+                      <span className="search-kind">action</span>
                       <span className="action-title">{action.title}</span>
                       <span className="muted action-group">{action.group}</span>
                       <span
@@ -551,7 +616,7 @@ export function FindAction({
                     onClick={() => choose(hit)}
                     title={hit.detail}
                   >
-                    <span className="search-kind">{hit.type}</span>
+                    <span className="search-kind">{kindLabel(hit)}</span>
                     <span className="action-title">{hit.title}</span>
                     <span className="muted action-group">{hit.detail}</span>
                   </button>
@@ -571,16 +636,6 @@ export function FindAction({
             {empty && (
               <li className="muted" data-testid="find-action-empty">
                 <span data-testid="search-empty">No results</span>
-                {matchingTypes.length > 0 && (
-                  <button
-                    type="button"
-                    className="search-class-suggestion"
-                    data-testid="search-suggest-classes"
-                    onClick={() => setTab("classes")}
-                  >
-                    Try Classes for matching types
-                  </button>
-                )}
               </li>
             )}
             {truncatedNote && (
