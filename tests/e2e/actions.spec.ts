@@ -149,7 +149,8 @@ test("keymap captures a key, persists in settings.json, warns on conflicts and r
 
   await page.getByTestId("keymap-reset-run.start").click();
   await expect(page.getByTestId("keymap-shortcut-run.start")).toContainText("⌃F5");
-  await expect(page.getByTestId("keymap-conflict-build.start")).toHaveCount(0);
+  // Build Solution's default is ⇧⌘F9, the key the test remapped Build onto.
+  await expect(page.getByTestId("keymap-conflict-build.start")).toContainText("Build Solution");
 
   // Reload keeps the user remap, which wins over both profiles.
   await page.getByTestId("keymap-close").click();
