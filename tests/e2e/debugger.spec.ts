@@ -886,3 +886,67 @@ test("run to cursor stops on the chosen line without keeping a breakpoint", asyn
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("hovering a paused variable shows its type and value without changing Evaluate", async ({
+  page,
+  request,
+}) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-hover-"));
+  try {
+    // A plain local is in scope on the line the breakpoint stops at.
+    await prepareDebugCopy(
+      page,
+      request,
+      base,
+      ['var person = "Ada";', "System.Console.WriteLine(person);", ""].join("\n"),
+      2,
+    );
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    await page.getByTestId("bottom-tab-debug").click();
+    await page.getByTestId("debug-frames").getByRole("button", { name: "Program.<Main>$()" }).click();
+    await expect(page.locator(".cm-line-current")).toContainText("WriteLine", { timeout: 10_000 });
+
+    // The panel's own evaluation must survive the hover untouched.
+    await page.getByTestId("debug-evaluate-input").fill("1 + 1");
+    await page.getByTestId("debug-evaluate-run").click();
+    const evaluated = page.getByTestId("debug-evaluate-result");
+    await expect(evaluated).toContainText("2", { timeout: 15_000 });
+    const before = await evaluated.textContent();
+
+    const line = page.locator(".cm-line", { hasText: "WriteLine" });
+    // The C# mode leaves variable names in plain text nodes, so locate the word by its range.
+    const point = await line.evaluate((element) => {
+      const word = "person";
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const index = node.textContent?.indexOf(word) ?? -1;
+        if (index < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, index);
+        range.setEnd(node, index + word.length);
+        const box = range.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      }
+      return null;
+    });
+    expect(point).not.toBeNull();
+    await page.mouse.move(point!.x, point!.y);
+    const tooltip = page.locator(".cm-tooltip-hover");
+    await expect(tooltip).toContainText("string", { timeout: 15_000 });
+    await expect(tooltip).toContainText("Ada");
+    await expect(evaluated).toHaveText(before ?? "");
+
+    // Without a pause the editor has no hover handler, so no tooltip appears.
+    await page.getByTestId("debug-stop").click();
+    await expect(page.getByTestId("dap-state")).toContainText("Cancelled", { timeout: 30_000 });
+    await page.mouse.move(0, 0);
+    await page.mouse.move(point!.x, point!.y);
+    await page.waitForTimeout(800);
+    await expect(tooltip).toHaveCount(0);
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});

@@ -1519,6 +1519,16 @@ impl Dap {
         Ok(())
     }
 
+    /// Evaluates an expression for a hover tooltip without replacing the panel's evaluation.
+    pub fn hover(&self, expression: &str) -> HostResult<EvaluationView> {
+        let expression = expression.trim();
+        if expression.is_empty() {
+            return Err(HostError::new("invalid_state", "The expression is empty."));
+        }
+        let (_session, _stop_seq, frame_id) = self.paused_context("Hover")?;
+        Ok(self.evaluate_in(expression, frame_id, "repl"))
+    }
+
     /// Adds a watch and, when paused, evaluates it right away.
     pub fn add_watch(&self, expression: &str) -> HostResult<()> {
         let expression = expression.trim().to_string();

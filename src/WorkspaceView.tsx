@@ -5,6 +5,7 @@ import {
   messageOf,
   type CodeAction,
   type CodeActionsResponse,
+  type DapEvaluation,
   type DocumentSymbolResponse,
   type EvaluationProject,
   type ReferencesResponse,
@@ -4296,6 +4297,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
                   breakpoints={activeBreakpoints}
                   currentLine={debugCurrentLine}
                   inlayText={debugInlay}
+                  onHoverEvaluate={
+                    dap.state === "paused"
+                      ? async (expression) => {
+                          try {
+                            return await call<DapEvaluation>("debug.hover", { expression });
+                          } catch {
+                            return null;
+                          }
+                        }
+                      : undefined
+                  }
                   onToggleBreakpoint={(line) => void toggleBreakpoint(line)}
                   target={
                     editorTarget?.path === active.path ? editorTarget : null

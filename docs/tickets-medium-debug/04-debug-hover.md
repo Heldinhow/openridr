@@ -30,8 +30,8 @@ texto dentro de `.cm-line`); esperar `.cm-tooltip-hover` com o tipo/valor; garan
 
 ## Aceite
 
-- [ ] `debug.hover` exige pausa e não altera `dap.evaluation`.
-- [ ] Hover só aparece pausado; erro do adaptador aparece no tooltip.
-- [ ] Nenhuma dependência nova.
-- [ ] E2E real verde quando o adaptador existe; senão skip registrado.
-- [ ] `bun run check` verde. Commit `feat(debug): hover variable values while paused`.
+- [x] `debug.hover` exige pausa e não altera `dap.evaluation`.
+- [x] Hover só aparece pausado; erro do adaptador aparece no tooltip.
+- [x] Nenhuma dependência nova.
+- [x] E2E real verde quando o adaptador existe; senão skip registrado.
+- [x] `bun run check` verde. Commit `feat(debug): hover variable values while paused`.
