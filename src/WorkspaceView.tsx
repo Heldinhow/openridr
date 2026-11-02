@@ -3250,6 +3250,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
           <ProblemsPanel
             diagnostics={snapshot.diagnostics}
             build={build}
+            evaluation={evaluation}
             buildObsolete={buildObsolete}
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
@@ -3347,6 +3348,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const currentProblems = withLocalEdits(snapshot.diagnostics, editedAt)
     .filter((diagnostic) => diagnostic.state === "current")
     .reduce((count, diagnostic) => count + diagnostic.items.length, 0);
+  const evaluationErrors = evaluation.projects.filter((project) => project.state === "failed" && project.error).length;
   const activeInspections = active
     ? snapshot.diagnostics.snapshots
         .filter((snap) => snap.state === "current" && snap.path && snap.path.replace(/\\/g, "/").endsWith(`/${active.path}`))
@@ -3359,7 +3361,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     : null;
   const bottomTabLabels = bottomTools.map(({ id, title }) => ({
     id: id as BottomToolId,
-    label: id === "problems" && currentProblems > 0 ? `Problems (${currentProblems})` : title,
+    label: id === "problems" && currentProblems + evaluationErrors > 0 ? `Problems (${currentProblems + evaluationErrors})` : title,
   }));
   const breadcrumbProject = activeEvaluationProject?.name ?? activeProject?.name ?? null;
   const statusBreadcrumb = [

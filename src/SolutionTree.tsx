@@ -35,7 +35,11 @@ type View = {
 function toViews(evaluated: EvaluationProject[] | null, outline: OutlineProject[]): View[] {
   if (evaluated) {
     return evaluated.map((p) => ({
-      name: p.name, path: p.path, kind: p.kind, tfms: p.tfms, folder: p.folder, sources: p.sources,
+      // A failed evaluation has no sources; fall back to the text outline plus the project file itself.
+      sources: p.state === "failed" && p.sources.length === 0
+        ? [...(outline.find((o) => o.path === p.path)?.files ?? []), p.path]
+        : p.sources,
+      name: p.name, path: p.path, kind: p.kind, tfms: p.tfms, folder: p.folder,
       refs: p.projectRefs.map((r) => r.name),
       packages: p.packageRefs.map((k) => (k.version ? `${k.name} ${k.version}` : `${k.name} (version unknown)`)),
       evaluated: true, failed: p.state === "failed", restore: p.restored, error: p.error, note: p.note,
