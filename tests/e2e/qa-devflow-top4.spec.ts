@@ -129,3 +129,63 @@ test("achado 1: the editor scrolls to the current execution line when it is off 
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+/**
+ * SPEC-DEVFLOW-TOP4.md, finding 2: with focus in the editor, ⌘U arms the tests chord and the
+ * next letter runs the action. CodeMirror never sees the prefix (its Mod-u is undoSelection)
+ * nor the letter, so the buffer stays untouched.
+ */
+test("achado 2: ⌘U chords run tests from the editor without typing into the buffer", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(240_000);
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-top4-chord-"));
+  const copy = path.join(base, "Order Desk chord");
+  fs.cpSync(fixture, copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  try {
+    await page.goto("/");
+    await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+    await page.getByTestId("workspace-open").click();
+    await page.getByTestId("trust-prompt-trust").click();
+    await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+    await page.getByTestId("workspace-tools-toggle").click();
+    await expect(page.getByTestId("tree")).toBeVisible();
+    await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+    await settleRestore(page);
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(2);
+
+    await page.getByTestId("bottom-tab-tests").click();
+    await expect(page.getByTestId("tests-project")).toHaveValue(
+      "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+    );
+    await page.getByTestId("tests-tfm").selectOption("net8.0");
+    await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(3);
+    await page.getByTestId("tests-discover").click();
+    await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
+      timeout: 120_000,
+    });
+
+    await page.getByTestId("tree-file-tests/OrderDesk.Tests/OrderTests.cs").click();
+    const editor = page.getByTestId("editor");
+    await expect(editor).toContainText("Id_is_preserved");
+    await editor.click();
+    const before = await editor.innerText();
+
+    await page.keyboard.press("Meta+u");
+    await page.keyboard.press("l");
+
+    // Neither ⌘U (undoSelection) nor the chord letter reached the buffer.
+    await expect.poll(() => editor.innerText()).toBe(before);
+    await expect(page.getByTestId("dirty-marker")).toHaveCount(0);
+    await expect(page.getByTestId("tests-run-state")).toContainText("Run completed", {
+      timeout: 120_000,
+    });
+  } finally {
+    await hostCall(request, "workspace.close");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});

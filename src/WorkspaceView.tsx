@@ -2695,6 +2695,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       id: "search.line",
       title: "Go to Line",
       group: "Search",
+      // ⌘G stays CodeMirror's find-next until the real dialog lands (SPEC-DEVFLOW-TOP4, finding 3).
+      editor: false,
       execute: () => undefined,
       disabledReason: "Go to Line arrives in F3.",
     }),
@@ -2980,6 +2982,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         if (lastShift.current !== null && now - lastShift.current <= 400) {
           lastShift.current = null;
           event.preventDefault();
+          event.stopPropagation();
           openSearch("last");
           return;
         }
@@ -2994,6 +2997,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
         const target = chordTarget(profile, event.key);
         if (target && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
           event.preventDefault();
+          event.stopPropagation();
           actionsRef.current.find((candidate) => candidate.id === target)?.execute();
           return;
         }
@@ -3001,20 +3005,22 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       const prefix = chordPrefixFor(profile);
       if (prefix && matches(event, prefix, snapshot.app.platform)) {
         event.preventDefault();
+        event.stopPropagation();
         chordPending.current = performance.now();
         return;
       }
       const action = firstActionFor(actionsRef.current, event, snapshot.app.platform);
       if (!action) return;
       if (inEditor && !action.editor) return;
-      // Bubble, CodeMirror first: a consumed key never reaches this handler as an action.
+      // Capture, before CodeMirror: the app's shortcuts and chords outrank its keymap.
       event.preventDefault();
+      event.stopPropagation();
       // A disabled action still reports its own reason when reached by a shortcut; the
       // palette and menus keep it disabled.
       action.execute();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [snapshot.app.platform, settings.keymap.profile]);
 
   function requestCloseWorkspace() {
