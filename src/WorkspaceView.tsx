@@ -11,6 +11,7 @@ import {
   type ReferencesResponse,
   type RenameResponse,
   type RunConfig,
+  type SessionState,
   type Snapshot,
   type OutlineProject,
 } from "./host/client";
@@ -119,6 +120,14 @@ type Tab = {
   savedContent: string | null;
   conflict: null | { content: string; hash: string };
 };
+
+/** Breakpoint lines per source path, sorted, in the shape the session store keeps. */
+function breakpointsByPath(breakpoints: Snapshot["dap"]["breakpoints"]) {
+  const groups: Record<string, number[]> = {};
+  for (const breakpoint of breakpoints) (groups[breakpoint.path] ??= []).push(breakpoint.line);
+  for (const lines of Object.values(groups)) lines.sort((left, right) => left - right);
+  return groups;
+}
 
 type DocumentSymbolsState = {
   path: string;
@@ -473,12 +482,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
   const seededRunConfigsFor = useRef<number | null>(null);
-  const { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject } = useRunConfigs({ workspacePath: workspace.path, setMessage });
+  const { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject, persistSession } = useRunConfigs({ workspacePath: workspace.path, setMessage });
   useEffect(() => {
     if (!runConfigsLoaded || !runConfigStore || seededRunConfigsFor.current === workspace.id) return;
     seededRunConfigsFor.current = workspace.id;
     setStartupPath(runConfigStore.startupProject ?? null);
     // Only the store load for this workspace seeds the choice; later commits are user actions.
+  }, [runConfigsLoaded, runConfigStore, workspace.id]);
+  const [sessionReady, setSessionReady] = useState(false);
+  const restoredSessionFor = useRef<number | null>(null);
+  const tabCursors = useRef<Record<string, { line: number; character: number }>>({});
+  const savedBreakpoints = useRef<Record<string, number[]>>({});
+  useEffect(() => {
+    if (!runConfigsLoaded || !runConfigStore || restoredSessionFor.current === workspace.id) return;
+    restoredSessionFor.current = workspace.id;
+    void restoreSession(runConfigStore.session);
   }, [runConfigsLoaded, runConfigStore, workspace.id]);
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
@@ -504,6 +522,27 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   const findUsagesSeq = useRef(0);
   const cursorRef = useRef({ line: 0, character: 0 });
   const [cursor, setCursor] = useState({ line: 0, character: 0 });
+  useEffect(() => {
+    // Never write before the restore finished: the first empty render must not erase the store.
+    if (!sessionReady) return;
+    const live = breakpointsByPath(snapshot.dap.breakpoints);
+    const session = {
+      tabs: tabs.map((tab) => ({
+        path: tab.path,
+        ...(tabCursors.current[tab.path] ?? { line: 0, character: 0 }),
+      })),
+      activePath,
+      // Restricted mode cannot read breakpoints back, so it keeps the ones already stored.
+      breakpoints: trusted ? live : savedBreakpoints.current,
+    };
+    if (trusted) savedBreakpoints.current = live;
+    const timer = window.setTimeout(() => {
+      persistSession(session).catch((error) =>
+        setMessage({ tone: "error", text: `Editor session could not be saved: ${messageOf(error)}` }),
+      );
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [sessionReady, trusted, tabs, activePath, cursor, snapshot.dap.breakpoints, workspace.id]);
   const editPreviewHeading = useRef<HTMLHeadingElement | null>(null);
   const actionListHeading = useRef<HTMLHeadingElement | null>(null);
 
@@ -1171,6 +1210,47 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
     });
   }
 
+  /** Reopens the saved tab paths once per workspace; deleted files are skipped, not fatal. */
+  async function restoreSession(saved: SessionState) {
+    const opened: string[] = [];
+    for (const tab of saved.tabs) {
+      if (await openFile(tab.path)) opened.push(tab.path);
+    }
+    if (trusted) {
+      let restored: Snapshot | null = null;
+      for (const [path, lines] of Object.entries(saved.breakpoints)) {
+        if (lines.length === 0) continue;
+        try {
+          restored = await call<Snapshot>("debug.setBreakpoints", { path, lines });
+        } catch {
+          // One missing source keeps the other breakpoints; the next start clears its own list.
+        }
+      }
+      if (restored) onSnapshot(restored);
+    }
+    savedBreakpoints.current = saved.breakpoints;
+    // Every opened tab mounted an editor that reported 0:0; the saved cursor wins for all tabs.
+    for (const tab of saved.tabs) {
+      tabCursors.current[tab.path] = { line: tab.line, character: tab.character };
+    }
+    const target =
+      saved.activePath && opened.includes(saved.activePath)
+        ? saved.activePath
+        : opened[opened.length - 1];
+    if (target) {
+      await openFile(target);
+      const position = tabCursors.current[target];
+      navigationSeq.current += 1;
+      setEditorTarget({
+        path: target,
+        line: position?.line ?? 0,
+        character: position?.character ?? 0,
+        nonce: navigationSeq.current,
+      });
+    }
+    setSessionReady(true);
+  }
+
   async function openFile(path: string) {
     const relative = workspaceRelative(path, workspaceDir);
     if (tabs.some((tab) => tab.path === relative)) {
@@ -1391,6 +1471,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
   }
 
   function noteCursor(position: { line: number; character: number }) {
+    if (activePathRef.current) tabCursors.current[activePathRef.current] = position;
     cursorRef.current = position;
     setCursor(position);
     setActionList((current) => {

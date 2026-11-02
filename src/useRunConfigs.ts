@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { call, messageOf, type RunConfig, type RunConfigStore } from "./host/client";
+import { call, messageOf, type RunConfig, type RunConfigStore, type SessionState } from "./host/client";
 
 // The per-solution run configuration store: read when the workspace changes, written by every commit.
 // Moved out of WorkspaceView unchanged.
@@ -54,5 +54,14 @@ export function useRunConfigs(c: {
     return store;
   }
 
-  return { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject };
+  async function persistSession(session: SessionState) {
+    const store = await call<RunConfigStore>("session.write", {
+      solution: workspacePath,
+      session,
+    });
+    setRunConfigStore(store);
+    return store;
+  }
+
+  return { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject, persistSession };
 }
