@@ -13,6 +13,8 @@ export function useRunConfigs(c: {
 
   useEffect(() => {
     let alive = true;
+    setRunConfigStore(null);
+    setRunConfigsLoaded(false);
     call<RunConfigStore>("runConfigs.read", { solution: workspacePath })
       .then((store) => {
         if (alive) setRunConfigStore(store);
@@ -43,5 +45,14 @@ export function useRunConfigs(c: {
     return store;
   }
 
-  return { runConfigStore, runConfigsLoaded, commitRunConfigs };
+  async function persistStartupProject(project: string) {
+    const store = await call<RunConfigStore>("runConfigs.setStartup", {
+      solution: workspacePath,
+      startupProject: project,
+    });
+    setRunConfigStore(store);
+    return store;
+  }
+
+  return { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject };
 }

@@ -47,6 +47,7 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
   const [pendingRunConfig, setPendingRunConfig] = useState<RunConfig | null>(null);
   // A Solution-tree Build on a specific project survives the unsaved-buffers decision.
   const [pendingBuildConfig, setPendingBuildConfig] = useState<RunConfig | null>(null);
+  const [pendingBuildSolution, setPendingBuildSolution] = useState(false);
 
   async function startBuild(savedNote: string, requestedConfig?: RunConfig | null): Promise<boolean> {
     const project = requestedConfig
@@ -91,6 +92,7 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
       setMessage({ tone: "error", text: `Build unavailable: ${reason}` });
       return;
     }
+    setPendingBuildSolution(false);
     if (dirtyCount > 0) {
       setPendingBuildConfig(requestedConfig ?? null);
       setBuildDecision(true);
@@ -99,9 +101,48 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
     void startBuild("Built saved content; no unsaved buffers were open.", requestedConfig);
   }
 
+  async function startBuildSolution(savedNote: string): Promise<boolean> {
+    setBottomTab("build");
+    try {
+      onSnapshot(
+        await call<Snapshot>("build.solution", {
+          configuration: activeRunConfig?.configuration ?? evaluation.context.configuration,
+          targetFramework:
+            activeRunConfig?.targetFramework ?? evaluation.context.targetFramework,
+          savedNote,
+        }),
+      );
+      setMessage(null);
+      return true;
+    } catch (error) {
+      const text = `Build Solution could not start: ${messageOf(error)}`;
+      setMessage({ tone: "error", text });
+      if (error instanceof HostCallError && error.code === "restore_required") {
+        setBottomTab("build");
+      }
+      return false;
+    }
+  }
+
+  function requestBuildSolution() {
+    if (buildDisabledReason) {
+      setMessage({ tone: "error", text: `Build Solution unavailable: ${buildDisabledReason}` });
+      return;
+    }
+    setPendingBuildConfig(null);
+    if (dirtyCount > 0) {
+      setPendingBuildSolution(true);
+      setBuildDecision(true);
+      return;
+    }
+    void startBuildSolution("Built saved content; no unsaved buffers were open.");
+  }
+
   async function saveAllAndBuild(requested?: RunConfig | null): Promise<boolean> {
     const requestedConfig = requested ?? pendingBuildConfig;
+    const solution = pendingBuildSolution;
     setPendingBuildConfig(null);
+    setPendingBuildSolution(false);
     const dirty = dirtyCount;
     const failures = await saveAll();
     if (failures.length > 0) {
@@ -110,21 +151,20 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
       return false;
     }
     setBuildDecision(false);
-    return startBuild(
-      `Saved all ${dirty} modified buffer${dirty === 1 ? "" : "s"} before building.`,
-      requestedConfig,
-    );
+    const note = `Saved all ${dirty} modified buffer${dirty === 1 ? "" : "s"} before building.`;
+    return solution ? startBuildSolution(note) : startBuild(note, requestedConfig);
   }
 
   async function buildSavedContent() {
     const excluded = dirtyCount;
+    const solution = pendingBuildSolution;
     setBuildDecision(false);
     const requestedConfig = pendingBuildConfig;
     setPendingBuildConfig(null);
-    await startBuild(
-      `Built saved content; ${excluded} unsaved buffer${excluded === 1 ? "" : "s"} excluded.`,
-      requestedConfig,
-    );
+    setPendingBuildSolution(false);
+    const note = `Built saved content; ${excluded} unsaved buffer${excluded === 1 ? "" : "s"} excluded.`;
+    if (solution) await startBuildSolution(note);
+    else await startBuild(note, requestedConfig);
   }
 
   const cancelBuild = () => buildCancel({ onSnapshot, setMessage });
@@ -322,6 +362,7 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
   return {
     buildDecision, setBuildDecision, runDecision, setRunDecision,
     startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
+    startBuildSolution, requestBuildSolution,
     startRun, requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
     prepareAndDebug, requestDebugStart, stopDebug,
   };

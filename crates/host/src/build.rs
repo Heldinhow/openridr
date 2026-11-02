@@ -40,6 +40,8 @@ pub struct Start {
     pub context_id: u64,
     pub root: PathBuf,
     pub saved_note: Option<String>,
+    /// `true` when the command built the workspace .sln instead of one project.
+    pub solution: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,6 +118,7 @@ pub struct BuildView {
     pub saved_note: Option<String>,
     pub problems: Vec<BuildProblem>,
     pub problems_truncated: bool,
+    pub solution: bool,
 }
 
 struct Data {
@@ -150,6 +153,7 @@ struct Data {
     log: LogBuffer,
     problems: Vec<BuildProblem>,
     problems_truncated: bool,
+    solution: bool,
     /// Positions of accepted problems, used only to avoid printing the same MSBuild
     /// diagnostic twice (inline and again in the failure summary).
     seen: HashMap<String, ()>,
@@ -202,6 +206,23 @@ pub fn capture_sources(
     sources
 }
 
+/// Hashes every evaluated project's sources for a solution build, so Run/Debug can refuse a
+/// solution build whose saved content changed afterwards.
+pub fn capture_all_sources(root: &Path, projects: &[EvaluatedProject]) -> Vec<SourceHash> {
+    let mut sources: Vec<SourceHash> = Vec::new();
+    for project in projects {
+        for source in &project.sources {
+            sources.push(SourceHash {
+                path: source.clone(),
+                hash: hash_file(&root.join(source)),
+            });
+        }
+    }
+    sources.sort_by(|left, right| left.path.cmp(&right.path));
+    sources.dedup_by(|left, right| left.path == right.path);
+    sources
+}
+
 fn hash_file(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -245,6 +266,7 @@ impl Build {
                 log: LogBuffer::default(),
                 problems: Vec::new(),
                 problems_truncated: false,
+                solution: false,
                 seen: HashMap::new(),
             }),
         }
@@ -287,6 +309,7 @@ impl Build {
                 log: LogBuffer::default(),
                 problems: Vec::new(),
                 problems_truncated: false,
+                solution: start.solution,
                 seen: HashMap::new(),
             }),
         }
@@ -322,6 +345,7 @@ impl Build {
             saved_note: data.saved_note.clone(),
             problems: data.problems.clone(),
             problems_truncated: data.problems_truncated,
+            solution: data.solution,
         }
     }
 
@@ -1037,6 +1061,7 @@ mod tests {
             context_id: 1,
             root: root.clone(),
             saved_note: Some("Built saved content.".to_string()),
+            solution: false,
         });
         for index in 0..(MAX_PROBLEMS + 5) {
             build.append_line(
@@ -1090,6 +1115,7 @@ mod tests {
             context_id: 1,
             root: root.clone(),
             saved_note: None,
+            solution: false,
         }));
         pump(
             std::io::Cursor::new(
@@ -1160,6 +1186,7 @@ mod tests {
             context_id: 1,
             root: root.clone(),
             saved_note: None,
+            solution: false,
         });
         assert!(build.changed_sources(&root).is_empty());
         fs::write(root.join("src/Core/Order.cs"), "class Order { int Id; }\n").unwrap();
@@ -1187,6 +1214,7 @@ mod tests {
             context_id: 1,
             root: PathBuf::from("/work"),
             saved_note: None,
+            solution: false,
         });
         build.append_line("App.cs(1,1): error CS0001: before cancel", false);
         build.request_cancel();

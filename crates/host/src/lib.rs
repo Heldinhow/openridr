@@ -428,6 +428,9 @@ impl Host {
         if method == "build.start" {
             return self.start_build(params);
         }
+        if method == "build.solution" {
+            return self.start_solution_build(params);
+        }
         if method == "build.cancel" {
             return self.cancel_build();
         }
@@ -679,6 +682,7 @@ impl Host {
             "settings.write" => settings::write(&params),
             "runConfigs.read" => run_configs::read(&params),
             "runConfigs.write" => run_configs::write(&params),
+            "runConfigs.setStartup" => run_configs::set_startup(&params),
             _ => Err(HostError::new(
                 "not_found",
                 format!("Unknown host method: {method}"),
@@ -1724,18 +1728,27 @@ impl Host {
     fn start_build(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("build.start")?;
         let mut inner = self.inner.lock().unwrap();
-        self.start_build_locked(&mut inner, token, params)?;
+        self.start_build_locked(&mut inner, token, params, false)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn start_solution_build(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("build.solution")?;
+        let mut inner = self.inner.lock().unwrap();
+        self.start_build_locked(&mut inner, token, params, true)?;
         Ok(self.snapshot_value(&mut inner))
     }
 
     /// Explicit `dotnet build` of one console startup project from the current evaluation.
     /// Never restores, never saves a buffer, and never reuses a stale TargetPath. Shared by
-    /// `build.start` and the implicit build Run/Debug start; the lock stays with the caller.
+    /// `build.start`, `build.solution` and the implicit build Run/Debug start; the lock stays
+    /// with the caller.
     fn start_build_locked(
         &self,
         inner: &mut Inner,
         token: ContextToken,
         params: Value,
+        solution: bool,
     ) -> HostResult<String> {
         if let Some(process_id) = inner.build.running_process_id() {
             return Err(HostError::new(
@@ -1755,6 +1768,7 @@ impl Host {
             return Err(HostError::new("invalid_state", "No workspace is open."));
         };
         let is_solution = matches!(workspace.kind, WorkspaceKind::Solution);
+        let workspace_name = workspace.name.clone();
         let workspace_file = workspace.path.clone();
         let root = workspace.root.clone();
 
@@ -1858,17 +1872,6 @@ impl Host {
             ));
         }
 
-        let requested = optional_str(&params, "project").filter(|value| !value.trim().is_empty());
-        let selected = build::select_startup(&evaluation.projects, requested.as_deref())?;
-        let Some(target_path) = selected.target_path.clone() else {
-            return Err(HostError::new(
-                "invalid_state",
-                format!(
-                    "Build was not started: {} has no evaluated TargetPath.",
-                    selected.name
-                ),
-            ));
-        };
         let saved_note = optional_str(&params, "savedNote")
             .map(|note| {
                 let note = note.trim().to_string();
@@ -1876,14 +1879,53 @@ impl Host {
             })
             .filter(|note| !note.is_empty());
 
+        let (project_name, project_path, project_kind, project_target, sources, build_file, process_name) =
+            if solution {
+                if !is_solution {
+                    return Err(HostError::new(
+                        "invalid_state",
+                        "Build Solution needs an open solution; build the project with Build.",
+                    ));
+                }
+                (
+                    workspace_name,
+                    workspace_file.to_string_lossy().to_string(),
+                    "unknown",
+                    None,
+                    build::capture_all_sources(&root, &evaluation.projects),
+                    workspace_file.clone(),
+                    "solution".to_string(),
+                )
+            } else {
+                let requested =
+                    optional_str(&params, "project").filter(|value| !value.trim().is_empty());
+                let selected = build::select_startup(&evaluation.projects, requested.as_deref())?;
+                let Some(target_path) = selected.target_path.clone() else {
+                    return Err(HostError::new(
+                        "invalid_state",
+                        format!(
+                            "Build was not started: {} has no evaluated TargetPath.",
+                            selected.name
+                        ),
+                    ));
+                };
+                (
+                    selected.name.clone(),
+                    selected.path.clone(),
+                    selected.kind,
+                    Some(target_path),
+                    build::capture_sources(&root, &selected.path, &evaluation.projects),
+                    root.join(&selected.path),
+                    selected.name.clone(),
+                )
+            };
+
         inner.build_seq += 1;
         let build_id = format!("build:{}:{}", token.workspace_id, inner.build_seq);
-        let project_name = selected.name.clone();
-        let sources = build::capture_sources(&root, &selected.path, &evaluation.projects);
         let mut command = vec![
             muxer.to_string_lossy().to_string(),
             "build".to_string(),
-            root.join(&selected.path).to_string_lossy().to_string(),
+            build_file.to_string_lossy().to_string(),
             "-c".to_string(),
             configuration.clone(),
             "-nologo".to_string(),
@@ -1899,10 +1941,10 @@ impl Host {
             build_id: build_id.clone(),
             evaluation_revision: evaluation.revision,
             sources,
-            project_name: selected.name.clone(),
-            project_path: selected.path.clone(),
-            project_kind: selected.kind,
-            target_path: Some(target_path),
+            project_name,
+            project_path,
+            project_kind,
+            target_path: project_target,
             configuration,
             target_framework,
             command: command.clone(),
@@ -1916,12 +1958,13 @@ impl Host {
             context_id: token.context_id,
             root: root.clone(),
             saved_note,
+            solution,
         }));
 
         // Separate arguments and cwd via the shared dotnet environment helper.
         let process = dotnet_command(&command, &root, &sdk_root);
         let spawned = inner.processes.lock().unwrap().spawn_piped(
-            &format!("build:{project_name}"),
+            &format!("build:{process_name}"),
             token.workspace_id,
             process,
         );
@@ -2635,28 +2678,6 @@ impl Host {
                 }),
             ));
         }
-        let Some(build_project) = build.project.as_ref() else {
-            return Err(HostError::with_details(
-                "build_stale",
-                "Run was not started: the saved build has no startup project identity. Rebuild before running.",
-                json!({ "reason": "build_project_missing", "action": build_action }),
-            ));
-        };
-        if build_project.path != selected.path {
-            return Err(HostError::with_details(
-                "build_stale",
-                format!(
-                    "Run was not started: the saved build is for {}, not {}. Build the selected startup project before running.",
-                    build_project.name, selected.name
-                ),
-                json!({
-                    "reason": "project_changed",
-                    "buildId": build.build_id,
-                    "buildProject": build_project.path,
-                    "action": build_action,
-                }),
-            ));
-        }
         if build.configuration != configuration || build.target_framework != target_framework {
             return Err(HostError::with_details(
                 "build_stale",
@@ -2675,26 +2696,55 @@ impl Host {
                 }),
             ));
         }
-        let Some(built_target) = build_project.target_path.clone() else {
-            return Err(HostError::with_details(
-                "build_stale",
-                "Run was not started: the saved build has no TargetPath. Rebuild before running.",
-                json!({ "reason": "target_missing", "buildId": build.build_id, "action": build_action }),
-            ));
+        // A solution build already compiled every evaluated project, including the chosen
+        // startup; only a project build must prove it built that exact project.
+        let built_target = if build.solution {
+            evaluated_target.clone()
+        } else {
+            let Some(build_project) = build.project.as_ref() else {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    "Run was not started: the saved build has no startup project identity. Rebuild before running.",
+                    json!({ "reason": "build_project_missing", "action": build_action }),
+                ));
+            };
+            if build_project.path != selected.path {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    format!(
+                        "Run was not started: the saved build is for {}, not {}. Build the selected startup project before running.",
+                        build_project.name, selected.name
+                    ),
+                    json!({
+                        "reason": "project_changed",
+                        "buildId": build.build_id,
+                        "buildProject": build_project.path,
+                        "action": build_action,
+                    }),
+                ));
+            }
+            let Some(built_target) = build_project.target_path.clone() else {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    "Run was not started: the saved build has no TargetPath. Rebuild before running.",
+                    json!({ "reason": "target_missing", "buildId": build.build_id, "action": build_action }),
+                ));
+            };
+            if built_target != evaluated_target {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    "Run was not started: the evaluated TargetPath changed after the build. Rebuild before running.",
+                    json!({
+                        "reason": "target_changed",
+                        "buildId": build.build_id,
+                        "targetPath": built_target,
+                        "evaluatedTargetPath": evaluated_target,
+                        "action": build_action,
+                    }),
+                ));
+            }
+            built_target
         };
-        if built_target != evaluated_target {
-            return Err(HostError::with_details(
-                "build_stale",
-                "Run was not started: the evaluated TargetPath changed after the build. Rebuild before running.",
-                json!({
-                    "reason": "target_changed",
-                    "buildId": build.build_id,
-                    "targetPath": built_target,
-                    "evaluatedTargetPath": evaluated_target,
-                    "action": build_action,
-                }),
-            ));
-        }
         let changed = inner.build.changed_sources(&root);
         if !changed.is_empty() {
             return Err(HostError::with_details(
@@ -2850,7 +2900,7 @@ impl Host {
             "configuration": configuration,
             "targetFramework": target_framework.clone(),
         });
-        let build_id = self.start_build_locked(inner, token, build_params)?;
+        let build_id = self.start_build_locked(inner, token, build_params, false)?;
         let Some(project_directory) = root.join(&selected.path).parent().map(Path::to_path_buf)
         else {
             return Err(HostError::new(
@@ -3508,37 +3558,44 @@ impl Host {
                     json!({ "reason": "evaluation_changed", "buildId": build.build_id, "action": action }),
                 ));
             }
-            let Some(build_project) = build.project.as_ref() else {
+            if build.target_framework != target_framework {
                 return Err(HostError::with_details(
                     "build_stale",
-                    "Debug was not started: the saved build has no startup project identity. Rebuild before debugging.",
-                    json!({ "reason": "build_project_missing", "action": action }),
-                ));
-            };
-            if build_project.path != selected.path
-                || build.configuration != configuration
-                || build.target_framework != target_framework
-            {
-                return Err(HostError::with_details(
-                    "build_stale",
-                    format!(
-                        "Debug was not started: the saved build is not the current {} / {}{}. Build the selected startup project before debugging.",
-                        selected.name,
-                        configuration,
-                        target_framework
-                            .clone()
-                            .map(|tfm| format!(" / {tfm}"))
-                            .unwrap_or_default()
-                    ),
+                    "Debug was not started: the saved build used another TFM. Rebuild before debugging.",
                     json!({ "reason": "build_context_mismatch", "buildId": build.build_id, "action": action }),
                 ));
             }
-            if build_project.target_path.as_deref() != selected.target_path.as_deref() {
-                return Err(HostError::with_details(
-                    "build_stale",
-                    "Debug was not started: the evaluated TargetPath changed after the build. Rebuild before debugging.",
-                    json!({ "reason": "target_changed", "buildId": build.build_id, "action": action }),
-                ));
+            // A solution build covers every evaluated project, including the chosen startup.
+            if !build.solution {
+                let Some(build_project) = build.project.as_ref() else {
+                    return Err(HostError::with_details(
+                        "build_stale",
+                        "Debug was not started: the saved build has no startup project identity. Rebuild before debugging.",
+                        json!({ "reason": "build_project_missing", "action": action }),
+                    ));
+                };
+                if build_project.path != selected.path || build.configuration != configuration {
+                    return Err(HostError::with_details(
+                        "build_stale",
+                        format!(
+                            "Debug was not started: the saved build is not the current {} / {}{}. Build the selected startup project before debugging.",
+                            selected.name,
+                            configuration,
+                            target_framework
+                                .clone()
+                                .map(|tfm| format!(" / {tfm}"))
+                                .unwrap_or_default()
+                        ),
+                        json!({ "reason": "build_context_mismatch", "buildId": build.build_id, "action": action }),
+                    ));
+                }
+                if build_project.target_path.as_deref() != selected.target_path.as_deref() {
+                    return Err(HostError::with_details(
+                        "build_stale",
+                        "Debug was not started: the evaluated TargetPath changed after the build. Rebuild before debugging.",
+                        json!({ "reason": "target_changed", "buildId": build.build_id, "action": action }),
+                    ));
+                }
             }
             let changed = inner.build.changed_sources(&root);
             if !changed.is_empty() {
@@ -3615,7 +3672,7 @@ impl Host {
             "configuration": configuration,
             "targetFramework": target_framework,
         });
-        let build_id = self.start_build_locked(inner, token, build_params)?;
+        let build_id = self.start_build_locked(inner, token, build_params, false)?;
         inner.dap_seq += 1;
         let session = inner.dap_seq;
         let launch = make_launch(build_id.clone(), session);

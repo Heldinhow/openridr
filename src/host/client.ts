@@ -215,6 +215,7 @@ export type Build = {
   savedNote: string | null;
   problems: BuildProblem[];
   problemsTruncated: boolean;
+  solution: boolean;
 };
 
 /** One test listed by the project's VSTest adapter. The fully-qualified name is the identity;
@@ -1021,6 +1022,8 @@ export type RunConfigStore = {
   solution: string;
   path: string;
   activeId: string;
+  /** Startup project chosen in the toolbar or Build panel, per solution. */
+  startupProject: string | null;
   configs: RunConfig[];
   issues: RunConfigIssue[];
 };

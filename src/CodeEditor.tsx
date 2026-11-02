@@ -916,6 +916,21 @@ export function CodeEditor({
     view.current?.dispatch({ effects: inlayCompartment.current.reconfigure(makeInlay(currentLine, inlayText)) });
   }, [currentLine, inlayText]);
 
+  // Reveal the paused line from any source (breakpoint, step, exception, run to cursor) without
+  // taking focus from the Debug panel. An already visible line is left alone.
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance || currentLine === null) return;
+    if (currentLine < 1 || currentLine > instance.state.doc.lines) return;
+    const position = instance.state.doc.line(currentLine).from;
+    const block = instance.lineBlockAt(position);
+    const scroller = instance.scrollDOM;
+    if (block.top >= scroller.scrollTop && block.bottom <= scroller.scrollTop + scroller.clientHeight) {
+      return;
+    }
+    instance.dispatch({ effects: EditorView.scrollIntoView(position, { y: "nearest" }) });
+  }, [currentLine]);
+
   const changeKey = changedLines.map(([line, kind]) => `${line}${kind}`).join(",");
   useEffect(() => {
     view.current?.dispatch({
