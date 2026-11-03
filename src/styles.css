@@ -279,6 +279,18 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   color: var(--warning);
 }
 
+.external-open-error {
+  position: fixed;
+  left: 50%;
+  bottom: 36px;
+  z-index: 50;
+  transform: translateX(-50%);
+  max-width: min(640px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-popover);
+}
+
 .actions {
   display: flex;
   gap: 8px;

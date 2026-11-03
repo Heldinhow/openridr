@@ -204,6 +204,9 @@ type Props = {
   snapshot: Snapshot;
   initialFile: string | null;
   recentSolutions: string[];
+  // Path from Finder or the Dock; each request is a new object, so the same path can repeat.
+  externalOpen: { path: string } | null;
+  onExternalOpenError: (text: string) => void;
   onOpenRecent: (path: string) => Promise<void>;
   onSnapshot: (snapshot: Snapshot) => void;
   onClosed: (snapshot: Snapshot) => void;
@@ -338,7 +341,7 @@ function restoreStateLabel(restore: Snapshot["restore"]) {
   }
 }
 
-export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRecent, onSnapshot, onClosed }: Props) {
+export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, onExternalOpenError, onOpenRecent, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
   const trusted = snapshot.trust.granted;
@@ -3786,18 +3789,29 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, onOpenRe
       }
     : { text: "Text outline · not evaluated" };
 
-  async function openSolution(solution: string) {
+  async function openSolution(
+    solution: string,
+    reportError: (text: string) => void = (text) => setMessage({ tone: "error", text }),
+  ) {
     if (solution === workspace.path) return;
     if (dirtyCount > 0) {
-      setMessage({ tone: "error", text: "Save or close modified buffers before opening another solution." });
+      reportError("Save or close modified buffers before opening another solution.");
       return;
     }
     try {
       await onOpenRecent(solution);
     } catch (error) {
-      setMessage({ tone: "error", text: `Could not open ${solution}: ${messageOf(error)}` });
+      reportError(`Could not open ${solution}: ${messageOf(error)}`);
     }
   }
+
+  // The request this view was mounted with was already handled by App; only new requests open.
+  const handledExternalOpen = useRef(externalOpen);
+  useEffect(() => {
+    if (!externalOpen || externalOpen === handledExternalOpen.current) return;
+    handledExternalOpen.current = externalOpen;
+    void openSolution(externalOpen.path, onExternalOpenError);
+  }, [externalOpen]);
 
   const buildAction = requireAction(actionById, "build.start");
   const buildSolutionAction = requireAction(actionById, "build.solution");
