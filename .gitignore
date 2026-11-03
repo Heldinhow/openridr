@@ -13,3 +13,9 @@ playwright-report/
 .scratch/ui-shape/
 .scratch/host-home/
 docs/evidence/logs/*
+
+# Public-repo hygiene: local scratch, proprietary reference shots, raw logs
+.scratch/
+docs/evidence/rider-reference/
+docs/evidence/rider-compare/
+docs/evidence/screenshots/

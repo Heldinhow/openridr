@@ -1,9 +1,0 @@
-run.start → run.cancel
-state: cancelled
-exit: 143
-runId: run:2:2
-buildId: build:2:4
-termination: {"exit": 143, "killedAfterGrace": false, "observed": "exited", "requested": "SIGTERM"}
---- raw run log (preserved) ---
-parent 58236 child 58237
-long-running
