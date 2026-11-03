@@ -1,5 +1,7 @@
 # Tickets P0 — OpenRidr
 
+> **Histórico.** Os 18 tickets P0 foram implementados (ver `docs/evidence/` e `acceptance-matrix.md`); `ready-for-agent` e o parágrafo de autorização abaixo refletem 27/10/2026 e não são mais o estado. Para o estado atual veja [../README.md](../README.md) e as retros. Esta numeração (01–18) é **independente** da de `tickets-mvp/`.
+
 ## Escopo e autorização
 
 Fonte normativa: [SPEC completa](../SPEC.md); decisões atualizadas: `/tmp/openridr-handoff-3.md` e solicitação aprovada de 27/10/2026. A autorização atual supera o ponto de parada histórico da SPEC **somente para criar estes 18 tickets, este índice e um commit local `docs: add P0 tickets`**. Não autoriza implementação, instalação, execução do app, checkout, fork, remote, push ou PR. A quebra já foi aprovada; não há novo quiz. A estratégia de validação abaixo está decidida pelo handoff, substituindo seu estado histórico de proposta na SPEC.

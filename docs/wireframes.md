@@ -1,6 +1,6 @@
 # OpenRidr — sete telas e estados
 
-**Proposta estática / controles ilustrativos.** Leia o [README](README.md) para decisões e prioridades; [HTML offline](index.html) mostra os cenários abaixo. UI em inglês desde v1 e docs PT são decisões aprovadas; aguarda-se aprovação das TELAS, não dessas decisões.
+**Proposta estática / controles ilustrativos.** Leia o [PROPOSTA-UI](PROPOSTA-UI-2026-10-28.md) para decisões e prioridades; [HTML offline](index.html) mostra os cenários abaixo. UI em inglês desde v1 e docs PT são decisões aprovadas; aguarda-se aprovação das TELAS, não dessas decisões.
 
 Referência desktop: 1440 × 900, composição mínima 1100 px com overflow local no documento. Árvore ~280 px, editor flexível, painel inferior ~200 px, gutter separado para breakpoint/linha. Fonte sans na UI (13–14 px), mono em código/log. No mobile, descrições e estados empilham; cada frame desktop rola horizontalmente sem alargar a página. Sem animação. Links têm foco; todos os controles de produto são ilustrativos/desabilitados.
 

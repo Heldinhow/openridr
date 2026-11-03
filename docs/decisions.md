@@ -274,7 +274,7 @@ O CodeMirror continua primeiro: o handler global roda em bubble e ignora `defaul
 
 ## 2026-10-28 — MVP Rider: debug de teste desabilitado com motivo
 
-`dotnet test` não expõe um fluxo de debug reutilizável pelos métodos atuais: `debug.start` lança o assembly do projeto, não um teste, e debugging de teste é P1 em `docs/README.md`. A tool window Tests e a quick list mostram "Debug selected" desabilitado com o motivo, em vez de mapear para `debug.start` e prometer algo que não é. Run, rerun failed e stop continuam reais. Consequência: a F5 não entrega debug de teste e o AC correspondente foi corrigido no ticket.
+`dotnet test` não expõe um fluxo de debug reutilizável pelos métodos atuais: `debug.start` lança o assembly do projeto, não um teste, e debugging de teste é P1 em `docs/PROPOSTA-UI-2026-10-28.md`. A tool window Tests e a quick list mostram "Debug selected" desabilitado com o motivo, em vez de mapear para `debug.start` e prometer algo que não é. Run, rerun failed e stop continuam reais. Consequência: a F5 não entrega debug de teste e o AC correspondente foi corrigido no ticket.
 
 ## 2026-10-29 — Ticket 21: indisponibilidade visual e confirmação após o plano
 

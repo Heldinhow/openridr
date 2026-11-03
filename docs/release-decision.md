@@ -1,5 +1,7 @@
 # Decisão de release P0 — OpenRidr
 
+> **Histórico — superada.** Decisão de 28/10/2026, anterior às alphas 0.3.0-alpha.1…4 (tags `v0.3.0-alpha.1`…`4`). Os gates G-WIN/G-INTEL/G-LEGAL seguem relevantes para Windows e Intel; o resto do texto não descreve o estado atual. Estado atual: [README.md](README.md), [RELEASE-ALPHA.md](RELEASE-ALPHA.md).
+
 Data: 28/10/2026. Base: `4b8885c` + commit `feat(acceptance)`.
 Referências: [matriz de aceitação](acceptance-matrix.md), [evidência 18](evidence/18-aceitacao-e-release.md),
 [SPEC](SPEC.md), [índice de tickets](tickets/README.md).
