@@ -51,3 +51,19 @@ ou em links. O app também não é notarizado, então vale a mesma nota de Gatek
   aberto, o LaunchServices reusa essa instância, não a outra. Feche a instância antes de testar.
   `open` também não repassa variáveis do shell: para isolar `OPENRIDR_HOME`, use
   `open --env OPENRIDR_HOME=<dir> -a <bundle> <arquivo>` direto, sem o launcher.
+
+- **Teste isolado do LaunchServices (sem tocar no app instalado):** copie o bundle, troque o
+  identificador, assine ad-hoc e abra com `--env`. O LaunchServices trata a cópia como outro app,
+  então a instância de `/Applications` não é reutilizada.
+
+  ```sh
+  verify=$(mktemp -d)/OpenRidrVerify.app
+  ditto src-tauri/target/debug/bundle/macos/OpenRidr.app "$verify"
+  plutil -replace CFBundleIdentifier -string com.openridr.verify.openwith "$verify/Contents/Info.plist"
+  codesign --force --deep --sign - "$verify"
+  open --env OPENRIDR_HOME="$PWD/.scratch/host-home" -a "$verify" fixtures/OrderDesk/OrderDesk.sln
+  ```
+
+  Repita o `open -a` com outro arquivo ou com a pasta `fixtures/OrderDesk` para provar a
+  instância única. Encerre a cópia e apague o diretório temporário ao final; nada é gravado em
+  `~/Library/Application Support/OpenRidr` com o `OPENRIDR_HOME` acima.

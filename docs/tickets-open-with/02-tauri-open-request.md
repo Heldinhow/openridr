@@ -57,8 +57,8 @@ existente — sem segunda janela, sem execução e sem perder buffer sujo.
 ## Aceite
 
 - [x] Associações no bundle gerado (`.sln`, `.slnx`, `.csproj`, pasta).
-- [ ] argv, `Opened` e URL inválida tratados; último caminho pendente vence.
-- [ ] UI abre o caminho pelo mesmo `workspace.open`; trust/recent inalterados.
+- [x] argv, `Opened` e URL inválida tratados; último caminho pendente vence.
+- [x] UI abre o caminho pelo mesmo `workspace.open`; trust/recent inalterados.
 - [ ] Workspace aberto com buffer sujo recusa a abertura externa com a mensagem existente.
 - [ ] Uma janela só; nenhum processo/dotnet ao abrir.
 - [x] Unidades do shell, `bun run build`, `cargo check` e o build do bundle verdes.

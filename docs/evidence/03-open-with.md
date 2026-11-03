@@ -16,6 +16,9 @@ e [03](../tickets-open-with/03-launcher-docs.md). Data: 2026-11-02, macOS 27.2 a
 
 - `lsregister -dump`: o bundle reclama as UTIs `com.openridr.solution`, `com.openridr.solution-xml`,
   `com.openridr.csproj` e `public.folder`.
+- `mdls` nos arquivos reais depois do registro: `OrderDesk.sln` = `com.openridr.solution`,
+  `OrderDesk.Cli.csproj` = `com.openridr.csproj` e um `Modern.slnx` temporário =
+  `com.openridr.solution-xml`. É o que faz o Finder oferecer o app em **Abrir Com**.
 
 ## Aberturas com `open -a` (teste nativo isolado)
 

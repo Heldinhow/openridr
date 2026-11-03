@@ -55,8 +55,9 @@ Rodar os testes e ver falhar pelo motivo certo antes de implementar:
 - [x] `.slnx` abre como solution e o outline lista os projetos.
 - [x] `.csproj` continua `kind: project`.
 - [x] Diretório ambíguo continua recusando com candidatos.
-- [ ] Nenhum processo/execute ao abrir; nenhuma dependência nova.
-- [ ] Unidades e E2E alvo verdes; `cargo test -p openridr-host` e `bun run check` verdes.
+- [x] Nenhum processo/execute ao abrir; nenhuma dependência nova.
+- [x] Unidades (201/201) e E2E alvo verdes; `bun run check` verde; `cargo test -p openridr-host`
+      com a única falha pré-existente `file_access_is_confined_to_the_workspace`.
 - [x] Entrada de 2026-11-02 em `docs/decisions.md` já cobre as decisões (ajustar só se o
       código provar outra coisa).
 - [x] Commit local `feat(open): accept external and .slnx workspace paths` só com os caminhos
