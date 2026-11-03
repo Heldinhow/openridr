@@ -69,6 +69,16 @@ Presentes no HEAD sem mudanças: E2E `find-usages` (intermitente), 2 em `run-con
 - Specs que dependem de dotnet/csharp-ls/netcoredbg real fazem `skip` quando o ambiente não tem a ferramenta. Skip não é passe: leia o motivo e registre "não verificado".
 - Não rode a suíte inteira por reflexo durante outra execução; as portas e a fixture são compartilhadas.
 
+## Verificação antes de entregar (substitui o `/code-review` do fluxo AIHero)
+
+O passo `/code-review` é, por padrão:
+
+1. **Checagem objetiva e curta** do diff contra a spec/ticket e os padrões deste arquivo (`## Regras`, `data-testid`, dependências). Lista só desvios concretos com `arquivo:linha`.
+2. **Rodar o skill `verify-openridr`** (`.agents/skills/verify-openridr/SKILL.md`) nas features tocadas: UI via Playwright/host isolado e, quando a tela do Mac estiver desbloqueada e com permissões, o app Tauri real via agent-desktop. O que não rodou entra como "não verificado".
+3. **Sem revisão adversarial aberta/multi-agente** por padrão. Só se o usuário pedir.
+
+Resto do fluxo (grill → spec → tickets → implement → retro) segue igual. Propostas de verificação formal: [docs/VERIFICACAO-FORMAL.md](docs/VERIFICACAO-FORMAL.md); a PoC de trust roda com `cargo test -p openridr-host --test trust_model`.
+
 ## Regras
 
 - **`data-testid` são contrato**: não renomeie nem remova os existentes; cada fatia adiciona os seus e mantém `role="tab"` no cabeçalho inferior.

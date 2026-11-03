@@ -12,6 +12,7 @@ Estado do produto: **OpenRidr 0.3.0-alpha.4**, macOS Apple Silicon. Onde fica ca
 | [implementation-notes.md](implementation-notes.md) | como cada ticket foi feito, contratos, **testids estáveis**, o que não foi verificado | busque por heading `## `; ~760 linhas, não leia inteiro |
 | [RELEASE-ALPHA.md](RELEASE-ALPHA.md) | notas da alpha atual (novidades, instalar, limitações, sha256) | reescrito a cada release |
 | [install-app.md](install-app.md) | `bun run app:install` e "abrir com" (Finder/Dock/terminal) | |
+| [VERIFICACAO-FORMAL.md](VERIFICACAO-FORMAL.md) | 3 regras críticas candidatas a modelo formal + PoC de trust | proposta; evidência em [evidence/verify-openridr.md](evidence/verify-openridr.md) |
 | [RETRO-*.md](.) | lições por onda de trabalho | só se o tema for o mesmo |
 
 ## Feature → docs

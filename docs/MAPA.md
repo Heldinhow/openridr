@@ -61,6 +61,8 @@ Estado do app: `~/Library/Application Support/OpenRidr` (`OPENRIDR_HOME` troca; 
 | `tests/e2e/` | Playwright contra host real; arquivos `medium-*`, `qa-*`, `zz-acceptance` etc. por onda de trabalho; helpers `.ts` sem `.spec` |
 | `fixtures/` | `OrderDesk` (principal), `MultiConsole`, `BrokenImport`, `MissingSdk`, `CrashApp` |
 | `scripts/` | `install-app.sh` (`bun run app:install`), `openridr` (CLI "abrir com"), `openridr-selfcheck.sh`, `commit-only.sh` (`scripts/commit-only.sh "msg" <paths>`: `add -N` nos novos + `commit --only`) |
+| `.agents/skills/verify-openridr/` | skill de verificação: `SKILL.md`, `features/` (uma por feature), `scripts/{web,desktop,doctor}.sh`. Portas próprias 1520/4417. Evidência em `docs/evidence/verify-openridr.md` |
+| `crates/host/tests/trust_model.rs` | teste de propriedade do ciclo de trust contra um modelo de referência (ver `docs/VERIFICACAO-FORMAL.md`) |
 | `.githooks/` | pre-commit = `bun run check` |
 | `.scratch/` | rascunho de sessões (capturas, scripts de auditoria visual). **Não é código do produto**; ignore ao buscar. Está no `.gitignore` e não é versionado |
 | `docs/` | ver [README.md](README.md) |
