@@ -1,6 +1,7 @@
 # Instalar o OpenRidr como app local (macOS ARM64)
 
-Uso pessoal, sem assinatura nem notarização.
+Uso pessoal, sem assinatura nem notarização. O DMG de release é assinado com Developer ID e
+notarizado; este script continua ad-hoc — ver [release-signing.md](release-signing.md).
 
 ```sh
 bun run app:install
@@ -9,14 +10,15 @@ bun run app:install
 O comando faz `tauri build --bundles app` e copia o bundle para `/Applications/OpenRidr.app`, substituindo a cópia anterior. Para atualizar, rode de novo depois de subir a versão em `package.json` e `src-tauri/tauri.conf.json`.
 
 - **Assinatura:** ad-hoc (`signingIdentity: "-"`), necessária para o Apple Silicon executar o binário. Não é Developer ID.
-- **Gatekeeper:** o app não é notarizado. Na primeira abertura, use botão direito → Abrir, ou remova a quarentena com `xattr -dr com.apple.quarantine /Applications/OpenRidr.app`.
+- **Gatekeeper:** o app gerado por este script não é notarizado. Na primeira abertura, use botão direito → Abrir, ou remova a quarentena com `xattr -dr com.apple.quarantine /Applications/OpenRidr.app`.
 - **Ícone:** provisório, o mesmo `src-tauri/icons/icon.png` do repositório, convertido para `.icns`/`.ico`.
-- **Fora deste fluxo:** assinatura de distribuição, notarização, instalador público e Windows/macOS Intel.
+- **Fora deste fluxo:** instalador público e Windows/macOS Intel. Assinatura Developer ID e notarização existem apenas no DMG de release (ver [release-signing.md](release-signing.md)); esse DMG abre sem aviso do Gatekeeper e roda só em Apple Silicon.
 
 ## Abrir do Finder e do terminal
 
 Nada disto é instalado automaticamente: nem o app nem o `install-app.sh` mexem no PATH, no shell
-ou em links. O app também não é notarizado, então vale a mesma nota de Gatekeeper acima.
+ou em links. O app instalado por este script também não é notarizado, então vale a mesma nota de
+Gatekeeper acima.
 
 - **Abrir Com:** o bundle declara `.sln`, `.slnx`, `.csproj` (Editor, padrão) e pastas (Alternate,
   não vira padrão para pastas). Depois de instalar, use Finder → Obter Informações → Abrir com →
