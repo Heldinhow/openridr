@@ -15,7 +15,7 @@ Implementação local em 28/10/2026. Fonte normativa: [ticket 04](../tickets/04-
 | Fixtures | `fixtures/OrderDesk`; cópias temporárias para restore/falha/cancelamento; nenhum `fixtures/` foi restaurado/mutado |
 | Base de código | `f7d92a1` (ticket 03) + esta fatia |
 
-Log: [`logs/04-environment.log`](logs/04-environment.log). Nenhum SDK/ferramenta foi instalado nesta tarefa.
+Log: `logs/04-environment.log` *(evidência removida do repositório público)*. Nenhum SDK/ferramenta foi instalado nesta tarefa.
 
 ## O que foi construído
 
@@ -31,7 +31,7 @@ Log: [`logs/04-environment.log`](logs/04-environment.log). Nenhum SDK/ferramenta
 
 ## Comandos e saídas reais
 
-Logs completos: [`logs/04-restore-success.log`](logs/04-restore-success.log), [`logs/04-restore-failure.log`](logs/04-restore-failure.log), [`logs/04-restore-cancel.log`](logs/04-restore-cancel.log). Todos usam o host real via ponte HTTP de desenvolvimento, cópia temporária da fixture e o SDK 8.0.408.
+Logs completos: `logs/04-restore-success.log` *(evidência removida do repositório público)*, `logs/04-restore-failure.log` *(evidência removida do repositório público)*, `logs/04-restore-cancel.log` *(evidência removida do repositório público)*. Todos usam o host real via ponte HTTP de desenvolvimento, cópia temporária da fixture e o SDK 8.0.408.
 
 ### Sucesso (exit 0, log real, assets criados)
 
@@ -155,7 +155,7 @@ running 33 tests   (boundary: gate, comando real, assets reais, sem restore impl
 test result: ok. 33 passed; 0 failed; 0 ignored
 ```
 
-Log: [`logs/04-cargo-test.log`](logs/04-cargo-test.log). Os testes reais usam SDK 8.0.408 e cópias temporárias; o cancelamento usa um servidor TCP local que aceita e atrasa (sem mock do host).
+Log: `logs/04-cargo-test.log` *(evidência removida do repositório público)*. Os testes reais usam SDK 8.0.408 e cópias temporárias; o cancelamento usa um servidor TCP local que aceita e atrasa (sem mock do host).
 
 ```text
 $ bun run test:e2e
@@ -166,7 +166,7 @@ $ bun run test:e2e
   17 passed (28.8s)
 ```
 
-Log: [`logs/04-playwright.log`](logs/04-playwright.log). Capturas: [`screenshots/04-restore.png`](screenshots/04-restore.png) (sucesso + comando + log stdout real + reload disponível) e [`screenshots/04-restore-failure.png`](screenshots/04-restore-failure.png) (exit 1, NU1100 no log, projeto incompleto, retry). Ambas usam cópias em diretório temporário; `fixtures/` não foi restaurada nem alterada.
+Log: `logs/04-playwright.log` *(evidência removida do repositório público)*. Capturas: `screenshots/04-restore.png` *(evidência removida do repositório público)* (sucesso + comando + log stdout real + reload disponível) e `screenshots/04-restore-failure.png` *(evidência removida do repositório público)* (exit 1, NU1100 no log, projeto incompleto, retry). Ambas usam cópias em diretório temporário; `fixtures/` não foi restaurada nem alterada.
 
 ### Frontend
 
@@ -175,7 +175,7 @@ $ bun run build
 ✓ built in 737ms
 ```
 
-Log: [`logs/04-build.log`](logs/04-build.log). O aviso de chunk >500 kB é do CodeMirror.
+Log: `logs/04-build.log` *(evidência removida do repositório público)*. O aviso de chunk >500 kB é do CodeMirror.
 
 ## Checklist por projeto (o que é derivado, não inventado)
 

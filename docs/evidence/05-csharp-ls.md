@@ -14,7 +14,7 @@ Implementação local em 28/10/2026. Fonte normativa: [ticket 05](../tickets/05-
 | Fixtures | `fixtures/OrderDesk`; cópias temporárias para instalação/análise; nenhum `fixtures/` foi restaurado/mutado |
 | Base de código | `50389fc` (ticket 04) + esta fatia |
 
-Logs: [`logs/05-hostroot-environment.log`](logs/05-hostroot-environment.log), [`logs/05-drive.log`](logs/05-drive.log). O fluxo de evidência usou `OPENRIDR_HOME` temporário; o app home real foi verificado separadamente. Nenhum SDK foi instalado.
+Logs: `logs/05-hostroot-environment.log` *(evidência removida do repositório público)*, `logs/05-drive.log` *(evidência removida do repositório público)*. O fluxo de evidência usou `OPENRIDR_HOME` temporário; o app home real foi verificado separadamente. Nenhum SDK foi instalado.
 
 ## O que foi construído
 
@@ -32,7 +32,7 @@ Logs: [`logs/05-hostroot-environment.log`](logs/05-hostroot-environment.log), [`
 
 ## Comandos e saídas reais
 
-Logs completos: [`05-install.log`](logs/05-install.log), [`05-install-state.json`](logs/05-install-state.json), [`05-plan-cancel.log`](logs/05-plan-cancel.log), [`05-lsp.log`](logs/05-lsp.log), [`05-diagnostics-broken.json`](logs/05-diagnostics-broken.json), [`05-diagnostics-fixed.json`](logs/05-diagnostics-fixed.json), [`05-restart.json`](logs/05-restart.json), [`05-revoke.json`](logs/05-revoke.json), [`05-hostroot-environment.log`](logs/05-hostroot-environment.log). O driver (HTTP bridge real) está descrito em [`05-drive.log`](logs/05-drive.log).
+Logs completos: `05-install.log` *(evidência removida do repositório público)*, `05-install-state.json` *(evidência removida do repositório público)*, `05-plan-cancel.log` *(evidência removida do repositório público)*, `05-lsp.log` *(evidência removida do repositório público)*, `05-diagnostics-broken.json` *(evidência removida do repositório público)*, `05-diagnostics-fixed.json` *(evidência removida do repositório público)*, `05-restart.json` *(evidência removida do repositório público)*, `05-revoke.json` *(evidência removida do repositório público)*, `05-hostroot-environment.log` *(evidência removida do repositório público)*. O driver (HTTP bridge real) está descrito em `05-drive.log` *(evidência removida do repositório público)*.
 
 ### Plano, cancelamento, confirmação e instalação
 
@@ -132,7 +132,7 @@ O `shutdown` não foi respondido dentro de 3 s, mas o `exit` foi aceito e o proc
 
 ### UI real
 
-Screenshots do mesmo build servido ao Chrome (Playwright, Chrome 155): [`screenshots/05-csharp-ls-install.png`](screenshots/05-csharp-ls-install.png) (plano/estado/log de instalação) e [`screenshots/05-csharp-ls.png`](screenshots/05-csharp-ls.png) (LSP ready, capacidades, diagnósticos e editor com buffer). O teste E2E também edita e salva depois de matar o servidor e depois de revogar trust; o editor permanece funcional.
+Screenshots do mesmo build servido ao Chrome (Playwright, Chrome 155): `screenshots/05-csharp-ls-install.png` *(evidência removida do repositório público)* (plano/estado/log de instalação) e [`screenshots/05-csharp-ls.png`](screenshots/05-csharp-ls.png) (LSP ready, capacidades, diagnósticos e editor com buffer). O teste E2E também edita e salva depois de matar o servidor e depois de revogar trust; o editor permanece funcional.
 
 ## Testes automatizados
 
@@ -150,7 +150,7 @@ running 40 tests   (boundary: gate/trust, plano/cancelamento inerte, mudança ma
 test result: ok. 40 passed; 0 failed; 0 ignored
 ```
 
-Log: [`05-cargo-test.log`](logs/05-cargo-test.log). A instalação real usa a origem NuGet.org e um `OPENRIDR_HOME` temporário; o teste de LSP usa o app home real e reutiliza a ferramenta verificada. O teste de hostroot prova `--list-sdks` = 8.0.408, `--list-runtimes` contém 10.0.0 e `--version` na fixture = 8.0.408.
+Log: `05-cargo-test.log` *(evidência removida do repositório público)*. A instalação real usa a origem NuGet.org e um `OPENRIDR_HOME` temporário; o teste de LSP usa o app home real e reutiliza a ferramenta verificada. O teste de hostroot prova `--list-sdks` = 8.0.408, `--list-runtimes` contém 10.0.0 e `--version` na fixture = 8.0.408.
 
 ```text
 $ bun run test:e2e
@@ -160,14 +160,14 @@ $ bun run test:e2e
   19 passed (50.1s)
 ```
 
-Log: [`05-playwright.log`](logs/05-playwright.log). O host E2E usa `OPENRIDR_HOME=$TMPDIR/openridr-e2e-home`; o teste de instalação remove a ferramenta só nesse home isolado e observa `downloading → installing → verifying → ready`; o teste de análise restaura, carrega o LSP, vê CS0246, corrige com didChange, mata o processo, reinicia e revoga. Capturas em [`screenshots/05-csharp-ls-install.png`](screenshots/05-csharp-ls-install.png) e [`screenshots/05-csharp-ls.png`](screenshots/05-csharp-ls.png).
+Log: `05-playwright.log` *(evidência removida do repositório público)*. O host E2E usa `OPENRIDR_HOME=$TMPDIR/openridr-e2e-home`; o teste de instalação remove a ferramenta só nesse home isolado e observa `downloading → installing → verifying → ready`; o teste de análise restaura, carrega o LSP, vê CS0246, corrige com didChange, mata o processo, reinicia e revoga. Capturas em `screenshots/05-csharp-ls-install.png` *(evidência removida do repositório público)* e [`screenshots/05-csharp-ls.png`](screenshots/05-csharp-ls.png).
 
 ```text
 $ bun run build
 ✓ built in 753ms
 ```
 
-Log: [`05-build.log`](logs/05-build.log). O aviso de chunk >500 kB é do CodeMirror.
+Log: `05-build.log` *(evidência removida do repositório público)*. O aviso de chunk >500 kB é do CodeMirror.
 
 ## Cobertura do ticket e dos gates
 

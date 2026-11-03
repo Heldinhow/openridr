@@ -15,7 +15,7 @@ Implementação local em 28/10/2026, base `7afc56e` (ticket 14). Fonte normativa
 | App home do driver | o padrão (`~/Library/Application Support/OpenRidr`), somente leitura de SDK; nada foi instalado |
 | Janela | Chrome real contra Vite + host-http (mesmo `dispatch`); a janela Tauri não foi dirigida (TCC) |
 
-Logs: [`logs/15-environment.log`](logs/15-environment.log), [`logs/15-drive.log`](logs/15-drive.log), [`logs/15-cargo-test.log`](logs/15-cargo-test.log), [`logs/15-playwright.log`](logs/15-playwright.log), [`logs/15-build.log`](logs/15-build.log), [`logs/15-tauri-build.log`](logs/15-tauri-build.log), snapshots [`15-terminal-start.json`](logs/15-terminal-start.json), [`15-terminal-ctrlc.json`](logs/15-terminal-ctrlc.json), [`15-terminal-dotnet-test.json`](logs/15-terminal-dotnet-test.json), [`15-terminal-closed.json`](logs/15-terminal-closed.json), [`15-terminal-revoke.json`](logs/15-terminal-revoke.json), [`15-terminal-switch.json`](logs/15-terminal-switch.json).
+Logs: `logs/15-environment.log` *(evidência removida do repositório público)*, `logs/15-drive.log` *(evidência removida do repositório público)*, `logs/15-cargo-test.log` *(evidência removida do repositório público)*, `logs/15-playwright.log` *(evidência removida do repositório público)*, `logs/15-build.log` *(evidência removida do repositório público)*, `logs/15-tauri-build.log` *(evidência removida do repositório público)*, snapshots `15-terminal-start.json` *(evidência removida do repositório público)*, `15-terminal-ctrlc.json` *(evidência removida do repositório público)*, `15-terminal-dotnet-test.json` *(evidência removida do repositório público)*, `15-terminal-closed.json` *(evidência removida do repositório público)*, `15-terminal-revoke.json` *(evidência removida do repositório público)*, `15-terminal-switch.json` *(evidência removida do repositório público)*.
 
 ## O que foi construído
 
@@ -67,7 +67,7 @@ elapsed_after_ctrl_c=0.77s
 interrupted command did not finish (done-42 absent)
 ```
 
-Log: [`15-terminal-ctrlc.json`](logs/15-terminal-ctrlc.json). O mesmo caminho é coberto pelo teste Rust com `/bin/sh`, que também verifica com `/bin/ps` que o filho em foreground morre no close.
+Log: `15-terminal-ctrlc.json` *(evidência removida do repositório público)*. O mesmo caminho é coberto pelo teste Rust com `/bin/sh`, que também verifica com `/bin/ps` que o filho em foreground morre no close.
 
 ### `dotnet test` manual e real através do shell
 
@@ -82,7 +82,7 @@ $ SDK="$HOME/Library/Application Support/OpenRidr/sdks/8.0.408"; "$SDK/dotnet" t
   Aprovado!  – Com falha: 0, Aprovado: 2, Ignorado: 0, Total: 2, Duração: 1 ms - OrderDesk.Tests.dll (net8.0)
 ```
 
-Log: [`15-terminal-dotnet-test.json`](logs/15-terminal-dotnet-test.json). O restore/build/test foram executados pelo comando digitado no PTY; o app não instala SDK nem pacote e a saída em português é o locale real da máquina (a UI continua em inglês).
+Log: `15-terminal-dotnet-test.json` *(evidência removida do repositório público)*. O restore/build/test foram executados pelo comando digitado no PTY; o app não instala SDK nem pacote e a saída em português é o locale real da máquina (a UI continua em inglês).
 
 ### Fechar exige decisão; término e exit observados
 
@@ -96,7 +96,7 @@ process 1: {"state":"exited","exit":null,"termination":{…}}
 log preservado: "Aprovado! … Total: 2" + prompt do zsh
 ```
 
-Log: [`15-terminal-closed.json`](logs/15-terminal-closed.json). O zsh interativo ignora SIGTERM; o host observou a necessidade do SIGKILL e reportou `killedAfterGrace:true` e `exit unknown` em vez de inventar um código. `dotnet test` e o filho em foreground do teste Rust foram verificados como inexistentes depois do close (`ps`).
+Log: `15-terminal-closed.json` *(evidência removida do repositório público)*. O zsh interativo ignora SIGTERM; o host observou a necessidade do SIGKILL e reportou `killedAfterGrace:true` e `exit unknown` em vez de inventar um código. `dotnet test` e o filho em foreground do teste Rust foram verificados como inexistentes depois do close (`ps`).
 
 ### Revogação sela; troca de workspace protege o novo contexto
 
@@ -113,7 +113,7 @@ workspace.open (outra cópia):
 processos antigos: {"kind":"terminal:zsh","state":"exited","termination":{…}}
 ```
 
-Logs: [`15-terminal-revoke.json`](logs/15-terminal-revoke.json) e [`15-terminal-switch.json`](logs/15-terminal-switch.json).
+Logs: `15-terminal-revoke.json` *(evidência removida do repositório público)* e `15-terminal-switch.json` *(evidência removida do repositório público)*.
 
 ## UI real (Playwright/Chrome 155, Vite + host-http)
 
@@ -122,7 +122,7 @@ Dois testes novos em `tests/e2e/terminal.spec.ts`, com cópias temporárias e sh
 1. **“a restricted workspace explains the terminal and starts no shell”** — workspace em Restricted mode: a aba Terminal mostra o motivo textual, Start/input desabilitados, estado `Not started` e shell `not started`; chamada direta `terminal.start` pela ponte devolve `trust_required` e o snapshot continua `terminal.idle`, sem processo `terminal:*` rodando.
 2. **“a real shell runs in the workspace, interrupts a child with Ctrl+C and closes after confirmation”** — trust, aba Terminal, Start; shell `/bin/zsh`, cwd igual ao root real, tamanho reportado. `pwd` devolve o workspace; `echo terminal-e2e-$((6*7))` devolve `terminal-e2e-42`; `dotnet --version` pelo SDK fixado devolve `8.0.408`. `sleep 30 && echo done-$((6*7))` seguido de Ctrl+C no input: `^C`, prompt de volta e `done-42` ausente. Close → diálogo; “Keep terminal” mantém a sessão e um novo `echo` funciona; Close → “Terminate shell and close”: estado `Stopped`, `Exit: exit unknown`, `Termination requested: SIGTERM then SIGKILL · Observed: exited`, log anterior preservado, input desabilitado. O snapshot do host confirma que o exit exibido é o mesmo do processo no registry.
 
-Capturas: [`15-terminal-running.png`](screenshots/15-terminal-running.png), [`15-terminal-ctrl-c.png`](screenshots/15-terminal-ctrl-c.png), [`15-terminal-close-dialog.png`](screenshots/15-terminal-close-dialog.png), [`15-terminal-closed.png`](screenshots/15-terminal-closed.png).
+Capturas: `15-terminal-running.png` *(evidência removida do repositório público)*, `15-terminal-ctrl-c.png` *(evidência removida do repositório público)*, `15-terminal-close-dialog.png` *(evidência removida do repositório público)*, `15-terminal-closed.png` *(evidência removida do repositório público)*.
 
 ## Testes automatizados
 
@@ -138,7 +138,7 @@ test result: ok. 9 passed; 0 failed
 test result: ok. 53 passed; 0 failed
 ```
 
-Log: [`15-cargo-test.log`](logs/15-cargo-test.log). A suíte de LSP csharp-ls passou nesta execução; não foi preciso repetir.
+Log: `15-cargo-test.log` *(evidência removida do repositório público)*. A suíte de LSP csharp-ls passou nesta execução; não foi preciso repetir.
 
 ```text
 $ bun run test:e2e
@@ -148,7 +148,7 @@ $ bun run test:e2e
   41 passed (3.5m)
 ```
 
-Log: [`15-playwright.log`](logs/15-playwright.log). Portas 4317/1420 foram encerradas antes e ficaram livres depois; `ps` não encontrou shell, `sleep 30` nem `dotnet test` remanescentes.
+Log: `15-playwright.log` *(evidência removida do repositório público)*. Portas 4317/1420 foram encerradas antes e ficaram livres depois; `ps` não encontrou shell, `sleep 30` nem `dotnet test` remanescentes.
 
 ```text
 $ bun run build
@@ -156,10 +156,10 @@ $ bun run build
 
 $ bun run tauri build --debug --no-bundle
 Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.00s
-Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
+Built application at: ~/Projetos/openridr/src-tauri/target/debug/openridr
 ```
 
-Logs: [`15-build.log`](logs/15-build.log) e [`15-tauri-build.log`](logs/15-tauri-build.log).
+Logs: `15-build.log` *(evidência removida do repositório público)* e `15-tauri-build.log` *(evidência removida do repositório público)*.
 
 ## Cobertura do ticket e dos gates
 

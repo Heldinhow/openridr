@@ -15,7 +15,7 @@ Implementação local em 28/10/2026. Fonte normativa: [ticket 03](../tickets/03-
 | Fixtures | `fixtures/OrderDesk` (sln + console + lib + testes), `fixtures/MissingSdk`, nova `fixtures/BrokenImport` (fora do `OrderDesk.sln`) |
 | Base de código | `93c493a` (ticket 02) + esta fatia |
 
-Log: [`logs/03-environment.log`](logs/03-environment.log). Nenhum SDK/ferramenta foi instalado nesta tarefa.
+Log: `logs/03-environment.log` *(evidência removida do repositório público)*. Nenhum SDK/ferramenta foi instalado nesta tarefa.
 
 ## O que foi construído
 
@@ -38,7 +38,7 @@ Log: [`logs/03-environment.log`](logs/03-environment.log). Nenhum SDK/ferramenta
     "Configuration": "Debug",
     "TargetFramework": "net8.0",
     "TargetFrameworks": "",
-    "TargetPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
+    "TargetPath": "~/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
     "OutputType": "Exe",
     "MSBuildProjectName": "OrderDesk.Cli",
     "IsTestProject": ""
@@ -47,7 +47,7 @@ Log: [`logs/03-environment.log`](logs/03-environment.log). Nenhum SDK/ferramenta
     "ProjectReference": [
       {
         "Identity": "../OrderDesk.Core/OrderDesk.Core.csproj",
-        "FullPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Core/OrderDesk.Core.csproj",
+        "FullPath": "~/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Core/OrderDesk.Core.csproj",
         "Filename": "OrderDesk.Core",
         "Extension": ".csproj"
       }
@@ -55,7 +55,7 @@ Log: [`logs/03-environment.log`](logs/03-environment.log). Nenhum SDK/ferramenta
     "PackageReference": [],
     "Compile": [
       { "Identity": "Program.cs",
-        "FullPath": "/Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/Program.cs" }
+        "FullPath": "~/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/Program.cs" }
     ]
   }
 }
@@ -64,8 +64,8 @@ Log: [`logs/03-environment.log`](logs/03-environment.log). Nenhum SDK/ferramenta
 O host devolveu o **mesmo** TargetPath para OrderDesk.Cli (valores conferidos no log HTTP):
 
 ```text
-msbuild Properties.TargetPath = /Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
-host evaluation.projects[OrderDesk.Cli].targetPath = /Users/helder/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+msbuild Properties.TargetPath = ~/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
+host evaluation.projects[OrderDesk.Cli].targetPath = ~/Projetos/openridr/fixtures/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll
 ```
 
 O mesmo comando foi rodado com `-p:Configuration=Release`: TargetPath avaliado `/…/bin/Release/net8.0/OrderDesk.Cli.dll`, exit 0, sem restore (`logs/03-host-http.log`).
@@ -92,16 +92,16 @@ $ dotnet msbuild BrokenImport.csproj -nologo -getProperty:TargetPath -getItem:Co
 exit=1
 --- stdout
 --- stderr
-/Users/helder/Projetos/openridr/fixtures/BrokenImport/BrokenImport.csproj(10,3): error MSB4019: The imported project
-"/Users/helder/Projetos/openridr/fixtures/BrokenImport/build/Missing.props" was not found. Confirm that the expression
+~/Projetos/openridr/fixtures/BrokenImport/BrokenImport.csproj(10,3): error MSB4019: The imported project
+"~/Projetos/openridr/fixtures/BrokenImport/build/Missing.props" was not found. Confirm that the expression
 in the Import declaration "build/Missing.props" is correct, and that the file exists on disk.
 ```
 
-Log: [`logs/03-msbuild-failure.log`](logs/03-msbuild-failure.log). Nenhum `bin/`/`obj/` foi criado na fixture. O projeto continua na árvore com `state=failed`, `error` com MSB4019, log completo, `Open project file` e `Retry evaluation`; os demais projetos da solução continuam avaliados (`partial`), coberto por teste Rust e pelo E2E.
+Log: `logs/03-msbuild-failure.log` *(evidência removida do repositório público)*. Nenhum `bin/`/`obj/` foi criado na fixture. O projeto continua na árvore com `state=failed`, `error` com MSB4019, log completo, `Open project file` e `Retry evaluation`; os demais projetos da solução continuam avaliados (`partial`), coberto por teste Rust e pelo E2E.
 
 ### Host pela ponte HTTP de desenvolvimento
 
-Log completo: [`logs/03-host-http.log`](logs/03-host-http.log). Trechos reais:
+Log completo: `logs/03-host-http.log` *(evidência removida do repositório público)*. Trechos reais:
 
 ```text
 $ POST /call {"method":"evaluation.run","params":{}}   (workspace aberto, sem trust)
@@ -111,7 +111,7 @@ $ POST /call {"method":"evaluation.run","params":{"targetFramework":"net8.0;Conf
 {"error":{"code":"invalid_state","message":"Configuration and TFM selections must not contain `;`, `=`, quotes or line breaks; MSBuild was not run."},"ok":false}
 
 $ POST /call {"method":"trust.grant","params":{}}      [trecho]
-"projectSdk": {"state":"resolved","resolvedVersion":"8.0.408","root":"/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408"}
+"projectSdk": {"state":"resolved","resolvedVersion":"8.0.408","root":"~/Library/Application Support/OpenRidr/sdks/8.0.408"}
 
 $ POST /call {"method":"evaluation.run","params":{}}
 state: ok | revision: 1 | workspaceId: 1 | contextId: 2
@@ -138,7 +138,7 @@ running 24 tests   (boundary: gate, SDK, avaliação real, espaço no path, sem 
 test result: ok. 24 passed; 0 failed; 0 ignored
 ```
 
-Log: [`logs/03-cargo-test.log`](logs/03-cargo-test.log). Testes reais desta máquina (`#[cfg(target_os = "macos")]`) usam o SDK 8.0.408:
+Log: `logs/03-cargo-test.log` *(evidência removida do repositório público)*. Testes reais desta máquina (`#[cfg(target_os = "macos")]`) usam o SDK 8.0.408:
 
 - `evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk` — `trust_required`, depois `invalid_state` sem SDK, estado `failed`, nenhum `bin/obj`.
 - `evaluation_with_a_missing_project_sdk_reports_sdk_missing` — `fixtures/MissingSdk`, código `sdk_missing`, `global.json` inalterado.
@@ -162,7 +162,7 @@ $ bun run test:e2e
   14 passed (18.9s)
 ```
 
-Log: [`logs/03-playwright.log`](logs/03-playwright.log). O fluxo principal usa a fixture real; os casos de save/falha usam cópias em diretório temporário (nunca mutam `fixtures/`). A troca de configuração no E2E é feita por teclado (foco no select + type-ahead “r” para Release). Captura: [`screenshots/03-evaluated-tree.png`](screenshots/03-evaluated-tree.png) — árvore avaliada com pastas, Cli/Core/Tests (fontes, refs, pacotes), state “Evaluated · revision 2”, painel de detalhes do Cli com TFMs, Evaluated TFM, TargetPath Release avaliado, restore e revisão/contexto.
+Log: `logs/03-playwright.log` *(evidência removida do repositório público)*. O fluxo principal usa a fixture real; os casos de save/falha usam cópias em diretório temporário (nunca mutam `fixtures/`). A troca de configuração no E2E é feita por teclado (foco no select + type-ahead “r” para Release). Captura: `screenshots/03-evaluated-tree.png` *(evidência removida do repositório público)* — árvore avaliada com pastas, Cli/Core/Tests (fontes, refs, pacotes), state “Evaluated · revision 2”, painel de detalhes do Cli com TFMs, Evaluated TFM, TargetPath Release avaliado, restore e revisão/contexto.
 
 ### Frontend
 
@@ -172,7 +172,7 @@ $ bun run build
 ✓ built in 742ms
 ```
 
-Log: [`logs/03-build.log`](logs/03-build.log). Aviso de chunk >500 kB é do CodeMirror.
+Log: `logs/03-build.log` *(evidência removida do repositório público)*. Aviso de chunk >500 kB é do CodeMirror.
 
 ## Cobertura do ticket e dos gates
 

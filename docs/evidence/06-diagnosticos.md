@@ -14,7 +14,7 @@ Implementação local em 28/10/2026. Fonte normativa: [ticket 06](../tickets/06-
 | Fixture | `fixtures/OrderDesk`, sempre copiada para diretório temporário; `Program.cs` alterado só na cópia |
 | App home da evidência | temporário (`openridr-06-evidence-*`); o E2E usa `$TMPDIR/openridr-e2e-home` |
 
-Logs: [`logs/06-drive.log`](logs/06-drive.log), [`logs/06-host-http.log`](logs/06-host-http.log), [`logs/06-lsp.log`](logs/06-lsp.log), JSONs `logs/06-diagnostics-*.json`, [`logs/06-cargo-test.log`](logs/06-cargo-test.log), [`logs/06-playwright.log`](logs/06-playwright.log), [`logs/06-build.log`](logs/06-build.log). Nenhum SDK foi instalado; nenhum arquivo de `fixtures/` foi restaurado/alterado.
+Logs: `logs/06-drive.log` *(evidência removida do repositório público)*, `logs/06-host-http.log` *(evidência removida do repositório público)*, `logs/06-lsp.log` *(evidência removida do repositório público)*, JSONs `logs/06-diagnostics-*.json`, `logs/06-cargo-test.log` *(evidência removida do repositório público)*, `logs/06-playwright.log` *(evidência removida do repositório público)*, `logs/06-build.log` *(evidência removida do repositório público)*. Nenhum SDK foi instalado; nenhum arquivo de `fixtures/` foi restaurado/alterado.
 
 ## O que foi construído
 

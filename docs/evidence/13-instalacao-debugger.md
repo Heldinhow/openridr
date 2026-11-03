@@ -14,7 +14,7 @@ Implementação local em 28/10/2026 (revisão). Fonte normativa: [ticket 13](../
 | Base de código | `a067bae` (ticket 13 inicial) + esta revisão |
 | Novas dependências | `ureq 2.12` (rustls) e `zip 2` (deflate) |
 
-Log de ambiente e metadata: [`logs/13-release-metadata.log`](logs/13-release-metadata.log).
+Log de ambiente e metadata: `logs/13-release-metadata.log` *(evidência removida do repositório público)*.
 
 ## Metadata oficial consultada (saída real)
 
@@ -46,7 +46,7 @@ A flag é opt-in de sessão, independente de trust; ligá-la replaneja o plano e
 
 ## Instalação real nesta máquina (host flow, app home padrão)
 
-Fluxo executado via `POST /call` no `openridr-host-http` com a home real: `workspace.open` (fixture), `trust.grant`, `debug.flag {enabled:true, confirm:true}`, `debug.plan`, `debug.install {planId, confirm:true}`. Transcript completo e plano: [`logs/13-real-install.log`](logs/13-real-install.log), [`logs/13-real-install-plan.json`](logs/13-real-install-plan.json), [`logs/13-real-install-state.json`](logs/13-real-install-state.json).
+Fluxo executado via `POST /call` no `openridr-host-http` com a home real: `workspace.open` (fixture), `trust.grant`, `debug.flag {enabled:true, confirm:true}`, `debug.plan`, `debug.install {planId, confirm:true}`. Transcript completo e plano: `logs/13-real-install.log` *(evidência removida do repositório público)*, `logs/13-real-install-plan.json` *(evidência removida do repositório público)*, `logs/13-real-install-state.json` *(evidência removida do repositório público)*.
 
 ```text
 planId fnv1a64:969d01a8390f3343
@@ -84,7 +84,7 @@ $ ls -la "$DEST" "$DEST/netcoredbg"
 … netcoredbg/ (ManagedPart.dll, Microsoft.CodeAnalysis*.dll, libdbgshim.dylib, netcoredbg -rwxr-xr-x)
 ```
 
-O `__MACOSX` extraído na primeira instalação permanece no destino (nada foi apagado); extrações novas pulam essas entradas. Reuso (plano novo + confirmação, sem download): [`logs/13-real-install-reuse.json`](logs/13-real-install-reuse.json).
+O `__MACOSX` extraído na primeira instalação permanece no destino (nada foi apagado); extrações novas pulam essas entradas. Reuso (plano novo + confirmação, sem download): `logs/13-real-install-reuse.json` *(evidência removida do repositório público)*.
 
 ```text
 after plan: state planned · existing present
@@ -98,9 +98,9 @@ log: Existing netcoredbg installation verified; reused without downloading.
 
 Card no Toolchain e faixa de avisos do workspace, com estado, fonte/versão, asset/availability, aviso community-supported, flag Apple Silicon, plano completo (incluindo `blockedCode`), limites, log e SHA/versão verificada. Capturas do mesmo build:
 
-- [`screenshots/13-debugger-plan.png`](screenshots/13-debugger-plan.png) — flag OFF: `Experimental · disabled`, asset disponível, instalação recusada com motivo.
-- [`screenshots/13-debugger-flag.png`](screenshots/13-debugger-flag.png) — flag ON: `Plan ready — nothing downloaded yet`, aviso explícito e botão de confirmação habilitado (o E2E não baixa).
-- [`screenshots/13-debugger-ready.png`](screenshots/13-debugger-ready.png) — app home real: `Adapter verified — DAP not proven`, versão/SHA reais e “Reused the verified installation” (`logs/13-ui-real-ready.log`).
+- `screenshots/13-debugger-plan.png` *(evidência removida do repositório público)* — flag OFF: `Experimental · disabled`, asset disponível, instalação recusada com motivo.
+- `screenshots/13-debugger-flag.png` *(evidência removida do repositório público)* — flag ON: `Plan ready — nothing downloaded yet`, aviso explícito e botão de confirmação habilitado (o E2E não baixa).
+- `screenshots/13-debugger-ready.png` *(evidência removida do repositório público)* — app home real: `Adapter verified — DAP not proven`, versão/SHA reais e “Reused the verified installation” (`logs/13-ui-real-ready.log`).
 
 `toolbar-debug` fica desabilitado com o motivo (flag OFF: instalação experimental exigida; flag ON: DAP não implementado). Análise, Run, build e editor permanecem disponíveis.
 
@@ -118,7 +118,7 @@ running 49 tests   (boundary dos tickets 01–12)
 test result: ok. 49 passed; 0 failed; 0 ignored
 ```
 
-Logs: [`13-cargo-test.log`](logs/13-cargo-test.log), [`13-debugger-states.log`](logs/13-debugger-states.log). Casos: Mac ARM64 flag OFF → `experimental_required` sem download; flag ON + artefato controlado → `downloading/installing/verifying/ready` (layout aninhado `netcoredbg/`, `__MACOSX` ignorado) e reuso sem segunda requisição; trust/consentimento/plano trocado; hash/versão errados; zip corrompido; traversal/absoluto/symlink; origem e redirect inválidos; cancelamento/retry; URL de log sem query assinada.
+Logs: `13-cargo-test.log` *(evidência removida do repositório público)*, `13-debugger-states.log` *(evidência removida do repositório público)*. Casos: Mac ARM64 flag OFF → `experimental_required` sem download; flag ON + artefato controlado → `downloading/installing/verifying/ready` (layout aninhado `netcoredbg/`, `__MACOSX` ignorado) e reuso sem segunda requisição; trust/consentimento/plano trocado; hash/versão errados; zip corrompido; traversal/absoluto/symlink; origem e redirect inválidos; cancelamento/retry; URL de log sem query assinada.
 
 ## E2E de UI (Playwright + Chrome)
 
@@ -130,7 +130,7 @@ $ bun run test:e2e
   38 passed (3.4m)
 ```
 
-Log: [`13-playwright.log`](logs/13-playwright.log). O E2E usa `OPENRIDR_HOME` isolado e **não** baixa o asset; a instalação real foi feita à parte na app home padrão, como registrado acima.
+Log: `13-playwright.log` *(evidência removida do repositório público)*. O E2E usa `OPENRIDR_HOME` isolado e **não** baixa o asset; a instalação real foi feita à parte na app home padrão, como registrado acima.
 
 ```text
 $ bun run build
@@ -138,7 +138,7 @@ $ bun run build
 
 $ bun run tauri build --debug --no-bundle
 Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.29s
-Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
+Built application at: ~/Projetos/openridr/src-tauri/target/debug/openridr
 ```
 
 ## Cobertura do ticket e dos gates

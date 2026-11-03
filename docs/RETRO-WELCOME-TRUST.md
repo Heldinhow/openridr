@@ -1,6 +1,6 @@
 # Retro — welcome-trust (tickets 01–06)
 
-Data: 01/11/2026. Branch `feat/welcome-trust`, `2d242ab..415da7d` (6588b6b grill/spec/tickets → 415da7d resolução do review). Fontes: `.scratch/welcome-trust/` (spec, issues), `docs/decisions.md` (2026-11-01), `docs/implementation-notes.md`, `docs/REVIEW-WELCOME-TRUST.md` (com Resolução), `docs/evidence/welcome-trust/VERIFICATION.md`, `git log`.
+Data: 01/11/2026. Branch `feat/welcome-trust`, `2d242ab..415da7d` (6588b6b grill/spec/tickets → 415da7d resolução do review). Fontes: `SPEC-WELCOME-TRUST.md` e `tickets-welcome-trust/` (movidos de `.scratch/welcome-trust/`) (spec, issues), `docs/decisions.md` (2026-11-01), `docs/implementation-notes.md`, `docs/REVIEW-WELCOME-TRUST.md` (com Resolução), `docs/evidence/welcome-trust/VERIFICATION.md`, `git log`.
 
 ## O que funcionou (manter)
 

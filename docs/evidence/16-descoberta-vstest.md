@@ -14,7 +14,7 @@ Implementação local em 28/10/2026, base `5864bae` (ticket 15). Fonte normativa
 | Testes da fixture | 2 aprovados, 1 falha deliberada, 1 `[Fact(Skip)]` (4 identidades) |
 | UI | Chrome real contra Vite + host-http; a janela Tauri não foi dirigida (TCC) |
 
-Logs: [`16-environment.log`](logs/16-environment.log), [`16-drive.log`](logs/16-drive.log), [`16-trust-gate.json`](logs/16-trust-gate.json), [`16-restore-required.json`](logs/16-restore-required.json), [`16-discovery.json`](logs/16-discovery.json) + [`16-discovery.log`](logs/16-discovery.log), [`16-mtp.json`](logs/16-mtp.json) + [`16-mtp.log`](logs/16-mtp.log), [`16-adapter-missing.json`](logs/16-adapter-missing.json) + [`16-adapter-missing.log`](logs/16-adapter-missing.log), [`16-empty.json`](logs/16-empty.json) + [`16-empty.log`](logs/16-empty.log), [`16-failed.json`](logs/16-failed.json) + [`16-failed.log`](logs/16-failed.log), [`16-cancel.json`](logs/16-cancel.json) + [`16-cancel.log`](logs/16-cancel.log), [`16-revoke.json`](logs/16-revoke.json) + [`16-revoke-late.json`](logs/16-revoke-late.json), [`16-cargo-test.log`](logs/16-cargo-test.log), [`16-playwright.log`](logs/16-playwright.log), [`16-build.log`](logs/16-build.log), [`16-tauri-build.log`](logs/16-tauri-build.log). Nada em `fixtures/` foi restaurado/alterado pelas execuções (cópias temporárias); nenhum package/SDK foi instalado ou editado.
+Logs: `16-environment.log` *(evidência removida do repositório público)*, `16-drive.log` *(evidência removida do repositório público)*, `16-trust-gate.json` *(evidência removida do repositório público)*, `16-restore-required.json` *(evidência removida do repositório público)*, `16-discovery.json` *(evidência removida do repositório público)* + `16-discovery.log` *(evidência removida do repositório público)*, `16-mtp.json` *(evidência removida do repositório público)* + `16-mtp.log` *(evidência removida do repositório público)*, `16-adapter-missing.json` *(evidência removida do repositório público)* + `16-adapter-missing.log` *(evidência removida do repositório público)*, `16-empty.json` *(evidência removida do repositório público)* + `16-empty.log` *(evidência removida do repositório público)*, `16-failed.json` *(evidência removida do repositório público)* + `16-failed.log` *(evidência removida do repositório público)*, `16-cancel.json` *(evidência removida do repositório público)* + `16-cancel.log` *(evidência removida do repositório público)*, `16-revoke.json` *(evidência removida do repositório público)* + `16-revoke-late.json` *(evidência removida do repositório público)*, `16-cargo-test.log` *(evidência removida do repositório público)*, `16-playwright.log` *(evidência removida do repositório público)*, `16-build.log` *(evidência removida do repositório público)*, `16-tauri-build.log` *(evidência removida do repositório público)*. Nada em `fixtures/` foi restaurado/alterado pelas execuções (cópias temporárias); nenhum package/SDK foi instalado ou editado.
 
 ## O que foi construído
 
@@ -45,7 +45,7 @@ $ tests.discover (trusted, sem assets)
  "details":{"consumer":"tests.discover","action":{"method":"restore.start","params":{}}}}}
 ```
 
-Logs: [`16-trust-gate.json`](logs/16-trust-gate.json), [`16-restore-required.json`](logs/16-restore-required.json).
+Logs: `16-trust-gate.json` *(evidência removida do repositório público)*, `16-restore-required.json` *(evidência removida do repositório público)*.
 
 ### Descoberta real da fixture (4 identidades, exit 0)
 
@@ -72,7 +72,7 @@ The following Tests are available:
     OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
 ```
 
-O log mostra que `--list-tests` **compila** o projeto antes de listar. Duas descobertas seguidas mantêm os mesmos ids e trocam `revision`/`discoveryId` (teste boundary `real_vstest_discovery…`). Logs: [`16-discovery.json`](logs/16-discovery.json), [`16-discovery.log`](logs/16-discovery.log).
+O log mostra que `--list-tests` **compila** o projeto antes de listar. Duas descobertas seguidas mantêm os mesmos ids e trocam `revision`/`discoveryId` (teste boundary `real_vstest_discovery…`). Logs: `16-discovery.json` *(evidência removida do repositório público)*, `16-discovery.log` *(evidência removida do repositório público)*.
 
 ### MTP: mensagem exata, nenhum comando VSTest
 
@@ -86,7 +86,7 @@ Microsoft.Testing.Platform is not supported in this version. Use the terminal.
 processes (kind tests:*): []
 ```
 
-Nenhum `Test run for` aparece no log e não há processo `tests:*`. Logs: [`16-mtp.json`](logs/16-mtp.json), [`16-mtp.log`](logs/16-mtp.log).
+Nenhum `Test run for` aparece no log e não há processo `tests:*`. Logs: `16-mtp.json` *(evidência removida do repositório público)*, `16-mtp.log` *(evidência removida do repositório público)*.
 
 ### Adapter ausente é distinto de vazio e de falha
 
@@ -115,7 +115,7 @@ error: dotnet test exited 1 before discovery completed; the raw log is preserved
 raw log: …/Code.cs(1,38): error CS0246: The type or namespace name 'MissingType' could not be found …
 ```
 
-Logs: [`16-adapter-missing.log`](logs/16-adapter-missing.log), [`16-empty.log`](logs/16-empty.log), [`16-failed.log`](logs/16-failed.log).
+Logs: `16-adapter-missing.log` *(evidência removida do repositório público)*, `16-empty.log` *(evidência removida do repositório público)*, `16-failed.log` *(evidência removida do repositório público)*.
 
 ### Cancelamento e revogação reais
 
@@ -135,7 +135,7 @@ termination: SIGTERM → observed exited · exit 143
 0,7 s depois: mesmo state/finishedAt/log; trust.granted false
 ```
 
-O caso com **itens parciais preservados** (2 nomes já listados, exit `null`) é coberto pelo teste unitário `cancel_preserves_partial_items_and_an_unknown_exit_stays_unknown`; a execução real acima terminou durante o build, antes do marcador, então tinha 0 itens. Logs: [`16-cancel.json`](logs/16-cancel.json), [`16-revoke.json`](logs/16-revoke.json), [`16-revoke-late.json`](logs/16-revoke-late.json).
+O caso com **itens parciais preservados** (2 nomes já listados, exit `null`) é coberto pelo teste unitário `cancel_preserves_partial_items_and_an_unknown_exit_stays_unknown`; a execução real acima terminou durante o build, antes do marcador, então tinha 0 itens. Logs: `16-cancel.json` *(evidência removida do repositório público)*, `16-revoke.json` *(evidência removida do repositório público)*, `16-revoke-late.json` *(evidência removida do repositório público)*.
 
 ## UI real (Playwright/Chrome 155, Vite + host-http)
 
@@ -144,7 +144,7 @@ O caso com **itens parciais preservados** (2 nomes já listados, exit `null`) é
 3. **Adapter ausente**: projeto temporário sem packages → `No VSTest adapter`, orientação com `Microsoft.NET.Test.Sdk`/`xunit.runner.visualstudio`, `No command was run.`.
 4. **Trust**: chamada direta `tests.discover`/`tests.run` antes de trust → `trust_required`; `tests.discover_cancel` sem operação → `invalid_state`; revisão 0 e nenhum processo.
 
-Capturas: [`screenshots/16-tests-discovery.png`](screenshots/16-tests-discovery.png), [`16-tests-stale.png`](screenshots/16-tests-stale.png), [`16-tests-mtp.png`](screenshots/16-tests-mtp.png), [`16-tests-adapter-missing.png`](screenshots/16-tests-adapter-missing.png).
+Capturas: `screenshots/16-tests-discovery.png` *(evidência removida do repositório público)*, `16-tests-stale.png` *(evidência removida do repositório público)*, `16-tests-mtp.png` *(evidência removida do repositório público)*, `16-tests-adapter-missing.png` *(evidência removida do repositório público)*.
 
 ## Testes automatizados
 
@@ -162,14 +162,14 @@ running 9 tests    (test_discovery: gate, escopo/TFM, multi-TFM explícito, fixt
 test result: ok. 9 passed; 0 failed; 0 ignored
 ```
 
-Log: [`16-cargo-test.log`](logs/16-cargo-test.log).
+Log: `16-cargo-test.log` *(evidência removida do repositório público)*.
 
 ```text
 $ bun run test:e2e
   45 passed (4.4m)
 ```
 
-Log: [`16-playwright.log`](logs/16-playwright.log) (inclui os 41 testes anteriores verdes e os 4 novos).
+Log: `16-playwright.log` *(evidência removida do repositório público)* (inclui os 41 testes anteriores verdes e os 4 novos).
 
 ```text
 $ bun run build
@@ -180,7 +180,7 @@ Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.25s
 Built application at: …/src-tauri/target/debug/openridr
 ```
 
-Logs: [`16-build.log`](logs/16-build.log), [`16-tauri-build.log`](logs/16-tauri-build.log).
+Logs: `16-build.log` *(evidência removida do repositório público)*, `16-tauri-build.log` *(evidência removida do repositório público)*.
 
 ## Cobertura do ticket e dos gates
 

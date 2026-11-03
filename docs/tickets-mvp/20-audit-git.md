@@ -19,4 +19,4 @@
 
 - Capturas: `docs/evidence/ui-audit/50-git-commit.png`, `51-git-diff.png`, `53-git-log.png`.
 - Não alterar comportamento de commit, branch, pull ou push; nenhuma operação remota foi validada pelo audit.
-- Capturas headed Chrome, slowMo 300 ms, fora do repositório: `/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/ticket20-git-diff.png` e `ticket20-git-log.png`.
+- Capturas headed Chrome, slowMo 300 ms, fora do repositório: `<tmp>/opencode/ticket20-git-diff.png` e `ticket20-git-log.png`.

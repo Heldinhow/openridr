@@ -14,7 +14,7 @@ Implementação local em 28/10/2026, base `0257d82` (ticket 16). Fonte normativa
 | Testes da fixture | 2 passed, 1 falha deliberada, 1 `[Fact(Skip)]` (4 identidades) |
 | UI | Chrome real contra Vite + host-http; a janela Tauri não foi dirigida (TCC) |
 
-Logs: [`17-environment.log`](logs/17-environment.log), [`17-duplicate-display.log`](logs/17-duplicate-display.log), [`17-drive.log`](logs/17-drive.log), [`17-trust-gate.json`](logs/17-trust-gate.json), [`17-restore-required.json`](logs/17-restore-required.json), [`17-run-all.json`](logs/17-run-all.json) + [`17-run-all.log`](logs/17-run-all.log) + [`17-run-all.trx`](logs/17-run-all.trx) + [`17-run-all-raw.log`](logs/17-run-all-raw.log), [`17-run-selected.json`](logs/17-run-selected.json) + [`17-run-selected.log`](logs/17-run-selected.log), [`17-empty-selection.json`](logs/17-empty-selection.json), [`17-invalid-selection.json`](logs/17-invalid-selection.json), [`17-infrastructure.json`](logs/17-infrastructure.json) + [`17-infrastructure.log`](logs/17-infrastructure.log), [`17-stale.json`](logs/17-stale.json), [`17-mtp.json`](logs/17-mtp.json), [`17-cancel.json`](logs/17-cancel.json) + [`17-cancel.log`](logs/17-cancel.log) + [`17-cancel-raw.log`](logs/17-cancel-raw.log), [`17-revoke.json`](logs/17-revoke.json) + [`17-revoke-late.json`](logs/17-revoke-late.json) + [`17-revoke.log`](logs/17-revoke.log), [`17-cargo-test.log`](logs/17-cargo-test.log), [`17-playwright.log`](logs/17-playwright.log), [`17-build.log`](logs/17-build.log), [`17-tauri-build.log`](logs/17-tauri-build.log). Nada em `fixtures/` foi restaurado/alterado pelas execuções (cópias temporárias); nenhum package/SDK foi instalado ou editado.
+Logs: `17-environment.log` *(evidência removida do repositório público)*, `17-duplicate-display.log` *(evidência removida do repositório público)*, `17-drive.log` *(evidência removida do repositório público)*, `17-trust-gate.json` *(evidência removida do repositório público)*, `17-restore-required.json` *(evidência removida do repositório público)*, `17-run-all.json` *(evidência removida do repositório público)* + `17-run-all.log` *(evidência removida do repositório público)* + `17-run-all.trx` *(evidência removida do repositório público)* + `17-run-all-raw.log` *(evidência removida do repositório público)*, `17-run-selected.json` *(evidência removida do repositório público)* + `17-run-selected.log` *(evidência removida do repositório público)*, `17-empty-selection.json` *(evidência removida do repositório público)*, `17-invalid-selection.json` *(evidência removida do repositório público)*, `17-infrastructure.json` *(evidência removida do repositório público)* + `17-infrastructure.log` *(evidência removida do repositório público)*, `17-stale.json` *(evidência removida do repositório público)*, `17-mtp.json` *(evidência removida do repositório público)*, `17-cancel.json` *(evidência removida do repositório público)* + `17-cancel.log` *(evidência removida do repositório público)* + `17-cancel-raw.log` *(evidência removida do repositório público)*, `17-revoke.json` *(evidência removida do repositório público)* + `17-revoke-late.json` *(evidência removida do repositório público)* + `17-revoke.log` *(evidência removida do repositório público)*, `17-cargo-test.log` *(evidência removida do repositório público)*, `17-playwright.log` *(evidência removida do repositório público)*, `17-build.log` *(evidência removida do repositório público)*, `17-tauri-build.log` *(evidência removida do repositório público)*. Nada em `fixtures/` foi restaurado/alterado pelas execuções (cópias temporárias); nenhum package/SDK foi instalado ou editado.
 
 ## O que foi construído
 
@@ -43,7 +43,7 @@ $ tests.run (trusted, sem assets)
  "details":{"consumer":"tests.run","action":{"method":"restore.start","params":{}}}}}
 ```
 
-Logs: [`17-trust-gate.json`](logs/17-trust-gate.json), [`17-restore-required.json`](logs/17-restore-required.json).
+Logs: `17-trust-gate.json` *(evidência removida do repositório público)*, `17-restore-required.json` *(evidência removida do repositório público)*.
 
 ### Run all real da fixture (2 passed, 1 failed, 1 skipped, exit 1)
 
@@ -66,7 +66,7 @@ results (4):
   [passed] OrderDesk.Tests.OrderTests.Total_is_preserved · 0 ms · trx Passed
 ```
 
-Os 4 resultados casam com as identidades da descoberta (`testId` preenchido, `matched:true`); só o failed tem stack/posição. TRX/log brutos copiados para [`17-run-all.trx`](logs/17-run-all.trx) e [`17-run-all-raw.log`](logs/17-run-all-raw.log); o run original ficou no app home temporário. Logs: [`17-run-all.json`](logs/17-run-all.json), [`17-run-all.log`](logs/17-run-all.log).
+Os 4 resultados casam com as identidades da descoberta (`testId` preenchido, `matched:true`); só o failed tem stack/posição. TRX/log brutos copiados para `17-run-all.trx` *(evidência removida do repositório público)* e `17-run-all-raw.log` *(evidência removida do repositório público)*; o run original ficou no app home temporário. Logs: `17-run-all.json` *(evidência removida do repositório público)*, `17-run-all.log` *(evidência removida do repositório público)*.
 
 ### Run selected exato (1 passed, exit 0, filtro real)
 
@@ -80,7 +80,7 @@ counts: {"failed":0,"matched":1,"passed":1,"total":1,"unknown":0}
 results (1): [passed] OrderDesk.Tests.OrderTests.Id_is_preserved · 1 ms
 ```
 
-Logs: [`17-run-selected.json`](logs/17-run-selected.json), [`17-run-selected.log`](logs/17-run-selected.log).
+Logs: `17-run-selected.json` *(evidência removida do repositório público)*, `17-run-selected.log` *(evidência removida do repositório público)*.
 
 Seleção vazia e id desconhecido bloqueiam sem processo e sem cair para todos:
 
@@ -89,7 +89,7 @@ selection=selected testIds=[]       → invalid_state · empty_selection
 selection=selected testIds=[test:not-current] → invalid_state · invalid_selection
 ```
 
-Logs: [`17-empty-selection.json`](logs/17-empty-selection.json), [`17-invalid-selection.json`](logs/17-invalid-selection.json).
+Logs: `17-empty-selection.json` *(evidência removida do repositório público)*, `17-invalid-selection.json` *(evidência removida do repositório público)*.
 
 ### Nomes de exibição duplicados (ferramenta real)
 
@@ -109,7 +109,7 @@ Passed!  - Failed: 0, Passed: 2, Skipped: 0, Total: 2
 TRX TestDefinitions: className="Disp.B" name="Two" · className="Disp.A" name="One"
 ```
 
-O host mantém **uma** identidade com `occurrences:2`; `tests.run selected` recusa com `ambiguous_selection` (não dá para mirar uma cópia) e `Run all` sem filtro executa os dois testes reais (2 passed), mostrando os resultados como não casados (`matched:0`) porque a lista não tinha FQN. Boundary `duplicate_display_names_are_one_ambiguous_identity_never_a_selected_run`. Log: [`17-duplicate-display.log`](logs/17-duplicate-display.log).
+O host mantém **uma** identidade com `occurrences:2`; `tests.run selected` recusa com `ambiguous_selection` (não dá para mirar uma cópia) e `Run all` sem filtro executa os dois testes reais (2 passed), mostrando os resultados como não casados (`matched:0`) porque a lista não tinha FQN. Boundary `duplicate_display_names_are_one_ambiguous_identity_never_a_selected_run`. Log: `17-duplicate-display.log` *(evidência removida do repositório público)*.
 
 ### Cancelamento real de um teste xUnit longo (`Task.Delay(60000)`)
 
@@ -122,7 +122,7 @@ error: Cancellation was requested; the run was terminated with exit 143. No test
        reported, so this run is not a success and no missing result is passed or skipped.
 ```
 
-O VSTest foi morto antes de gravar TRX, então 0 resultados é o honesto; o log/`run.log` foi preservado. A preservação de um TRX **parcial** com resultados já escritos é provada no teste unitário `cancel_keeps_partial_results_and_never_marks_a_test_cancelled`. Logs: [`17-cancel.json`](logs/17-cancel.json), [`17-cancel.log`](logs/17-cancel.log).
+O VSTest foi morto antes de gravar TRX, então 0 resultados é o honesto; o log/`run.log` foi preservado. A preservação de um TRX **parcial** com resultados já escritos é provada no teste unitário `cancel_keeps_partial_results_and_never_marks_a_test_cancelled`. Logs: `17-cancel.json` *(evidência removida do repositório público)*, `17-cancel.log` *(evidência removida do repositório público)*.
 
 ### Falha de infraestrutura distinta de asserção (TRX ausente, exit 1)
 
@@ -135,7 +135,7 @@ error: The test host finished with exit 1 without writing a TRX file; no test re
        so this is an infrastructure failure. The raw output is preserved.
 ```
 
-Em contraste, o Run all acima tem `exit 1` explicado por um teste `Failed` e fica `completed`, não `failed` de infraestrutura. Logs: [`17-infrastructure.json`](logs/17-infrastructure.json), [`17-infrastructure.log`](logs/17-infrastructure.log).
+Em contraste, o Run all acima tem `exit 1` explicado por um teste `Failed` e fica `completed`, não `failed` de infraestrutura. Logs: `17-infrastructure.json` *(evidência removida do repositório público)*, `17-infrastructure.log` *(evidência removida do repositório público)*.
 
 ### Stale após reavaliação (resultados preservados)
 
@@ -144,7 +144,7 @@ run.state: completed · stale: true · results: 1
 staleReason: The project model was re-evaluated; these test results are not current.
 ```
 
-Log: [`17-stale.json`](logs/17-stale.json).
+Log: `17-stale.json` *(evidência removida do repositório público)*.
 
 ### MTP continua bloqueado no run direto
 
@@ -154,7 +154,7 @@ Log: [`17-stale.json`](logs/17-stale.json).
  "details":{"reason":"mtp_unsupported"}}}
 ```
 
-Nenhum processo `tests:*` nasce. Log: [`17-mtp.json`](logs/17-mtp.json).
+Nenhum processo `tests:*` nasce. Log: `17-mtp.json` *(evidência removida do repositório público)*.
 
 ### Revogação durante run longo
 
@@ -165,14 +165,14 @@ termination/exit/log preservados; trust.granted: false
 0,7 s depois: mesmo state/finishedAt/log (resultado tardio não troca o run)
 ```
 
-Logs: [`17-revoke.json`](logs/17-revoke.json), [`17-revoke-late.json`](logs/17-revoke-late.json), [`17-revoke.log`](logs/17-revoke.log).
+Logs: `17-revoke.json` *(evidência removida do repositório público)*, `17-revoke-late.json` *(evidência removida do repositório público)*, `17-revoke.log` *(evidência removida do repositório público)*.
 
 ## UI real (Playwright/Chrome 155, Vite + host-http)
 
-1. **Run all e detalhes**: fixture real, discover 4, Run all → `Run completed`, `exit 1`, `4 results · 2 passed · 1 failed · 1 skipped · 0 not executed · 0 unknown`; comando mostra `--no-build --no-restore … --logger trx;LogFileName=openridr.trx --results-directory`; TRX `ok`; a linha do failed mostra mensagem `Assert.Equal() Failure`/`Expected: 43`/`Actual: 42` e stack `OrderTests.cs:line 29`; “Open source position” abre `tests/OrderDesk.Tests/OrderTests.cs` no cursor `28:0`. Run selected (1 checkbox) mostra `1 result · 1 passed`, filtro exato e `testrun:N:2`. Captura: [`screenshots/17-tests-run-all.png`](screenshots/17-tests-run-all.png).
-2. **Falha de infraestrutura**: com o assembly removido, Run all → `Run failed`, mensagem de infraestrutura, TRX `missing`. Captura: [`screenshots/17-tests-run-infrastructure.png`](screenshots/17-tests-run-infrastructure.png).
-3. **Cancelamento**: projeto temporário com `Task.Delay(60000)`, Run selected → Running → Cancel run → `Run cancelled`, `Observed: exited`, `0 passed`, API `state:"cancelled"`, `counts.passed:0`, termination observada; log preservado. Captura: [`screenshots/17-tests-run-cancel.png`](screenshots/17-tests-run-cancel.png).
-4. **Revogação**: segundo run longo, revoke durante Running → selo visível (`not current`), `Run cancelled`, `sealed:true`, `stale:true`, mesmo `finishedAt`/log 0,7 s depois. Captura: [`screenshots/17-tests-run-revoke.png`](screenshots/17-tests-run-revoke.png).
+1. **Run all e detalhes**: fixture real, discover 4, Run all → `Run completed`, `exit 1`, `4 results · 2 passed · 1 failed · 1 skipped · 0 not executed · 0 unknown`; comando mostra `--no-build --no-restore … --logger trx;LogFileName=openridr.trx --results-directory`; TRX `ok`; a linha do failed mostra mensagem `Assert.Equal() Failure`/`Expected: 43`/`Actual: 42` e stack `OrderTests.cs:line 29`; “Open source position” abre `tests/OrderDesk.Tests/OrderTests.cs` no cursor `28:0`. Run selected (1 checkbox) mostra `1 result · 1 passed`, filtro exato e `testrun:N:2`. Captura: `screenshots/17-tests-run-all.png` *(evidência removida do repositório público)*.
+2. **Falha de infraestrutura**: com o assembly removido, Run all → `Run failed`, mensagem de infraestrutura, TRX `missing`. Captura: `screenshots/17-tests-run-infrastructure.png` *(evidência removida do repositório público)*.
+3. **Cancelamento**: projeto temporário com `Task.Delay(60000)`, Run selected → Running → Cancel run → `Run cancelled`, `Observed: exited`, `0 passed`, API `state:"cancelled"`, `counts.passed:0`, termination observada; log preservado. Captura: `screenshots/17-tests-run-cancel.png` *(evidência removida do repositório público)*.
+4. **Revogação**: segundo run longo, revoke durante Running → selo visível (`not current`), `Run cancelled`, `sealed:true`, `stale:true`, mesmo `finishedAt`/log 0,7 s depois. Captura: `screenshots/17-tests-run-revoke.png` *(evidência removida do repositório público)*.
 5. **Stale por edição**: após Run selected, editar `OrderTests.cs` sem salvar → badge “preserved but not current” com contagens ainda visíveis; os checkboxes de descoberta ficam bloqueados (ticket 16).
 
 ## Testes automatizados
@@ -186,14 +186,14 @@ test result: ok. 9 passed            (test_discovery)
 test result: ok. 5 passed            (test_run: gates, MTP, fixture real all/selected, cancel+revoke, DisplayName duplicado)
 ```
 
-Log: [`17-cargo-test.log`](logs/17-cargo-test.log).
+Log: `17-cargo-test.log` *(evidência removida do repositório público)*.
 
 ```text
 $ bun run test:e2e
   47 passed (4.0m)
 ```
 
-Log: [`17-playwright.log`](logs/17-playwright.log) (inclui os 45 anteriores verdes e os 2 novos).
+Log: `17-playwright.log` *(evidência removida do repositório público)* (inclui os 45 anteriores verdes e os 2 novos).
 
 ```text
 $ bun run build
@@ -204,7 +204,7 @@ Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.58s
 Built application at: …/src-tauri/target/debug/openridr
 ```
 
-Logs: [`17-build.log`](logs/17-build.log), [`17-tauri-build.log`](logs/17-tauri-build.log).
+Logs: `17-build.log` *(evidência removida do repositório público)*, `17-tauri-build.log` *(evidência removida do repositório público)*.
 
 ## Cobertura do ticket e dos gates
 

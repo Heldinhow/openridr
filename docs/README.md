@@ -22,7 +22,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md`, tickets em `tickets-<tema>/NN-
 |---|---|---|---|---|
 | P0 original (Trust, SDK, MSBuild, LSP, build, run, DAP, PTY, VSTest) | [SPEC](SPEC.md) | [tickets/](tickets/README.md) (01–18) | [release-decision](release-decision.md) (histórico) | `evidence/NN-*.md`, [acceptance-matrix](acceptance-matrix.md) |
 | MVP Rider F1–F9, auditorias, Solution Explorer | [SPEC-MVP-RIDER](SPEC-MVP-RIDER.md), [SPEC-SOLUTION-EXPLORER](SPEC-SOLUTION-EXPLORER.md) | [tickets-mvp/](tickets-mvp/README.md) (01–41) | [RETRO-MVP-RIDER](RETRO-MVP-RIDER.md), [REVIEW-MVP-RIDER](REVIEW-MVP-RIDER.md), [RETRO-SOLUTION-EXPLORER](RETRO-SOLUTION-EXPLORER.md) | `evidence/`, [UI-AUDIT](UI-AUDIT.md) |
-| Welcome + Trust uma vez | `../.scratch/welcome-trust/spec.md` | `../.scratch/welcome-trust/issues/` | [RETRO-WELCOME-TRUST](RETRO-WELCOME-TRUST.md), [REVIEW-WELCOME-TRUST](REVIEW-WELCOME-TRUST.md) | `evidence/welcome-trust/` |
+| Welcome + Trust uma vez | [SPEC-WELCOME-TRUST](SPEC-WELCOME-TRUST.md) | [tickets-welcome-trust/](tickets-welcome-trust/) | [RETRO-WELCOME-TRUST](RETRO-WELCOME-TRUST.md), [REVIEW-WELCOME-TRUST](REVIEW-WELCOME-TRUST.md) | `evidence/welcome-trust/` |
 | Run/Debug com build automático | `decisions.md` (2026-11-01) | — | [RETRO-AUTO-BUILD](RETRO-AUTO-BUILD.md) | `evidence/auto-build-run-debug.md` |
 | Alfa 3: debug sem diálogo + confiar | [SPEC-ALPHA3-DEBUG-TRUST](SPEC-ALPHA3-DEBUG-TRUST.md) | `tickets-mvp/35–37` | [RETRO-ALPHA3-DEBUG-TRUST](RETRO-ALPHA3-DEBUG-TRUST.md) | `evidence/alpha3-debug-trust.md` |
 | QA bug hunt → 4 altos (QA) | [QA-BUGHUNT-2026-11-02](QA-BUGHUNT-2026-11-02.md), [SPEC-QA-TOP4](SPEC-QA-TOP4.md) | — | [RETRO-QA-TOP4](RETRO-QA-TOP4.md) | — |
@@ -43,6 +43,6 @@ Numeração de tickets **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`
 | [release-decision.md](release-decision.md) | decisão de 28/10: "release bloqueado" — superada pelas alphas 1–4 |
 | [nav-retest.md](nav-retest.md), [RIDR-VS-RIDER.md](RIDR-VS-RIDER.md), [UI-AUDIT.md](UI-AUDIT.md) | retestes e auditorias datados de 28–29/10 |
 | `superpowers/plans/` | plano de aproximação visual (29/10) |
-| `evidence/logs/` | ~240 logs brutos de execução; não leia à toa, cite a partir do `evidence/*.md` que os referencia |
+| `evidence/` (screenshots, logs) | parte da evidência bruta foi removida do repositório público (capturas com caminhos pessoais, referências de software proprietário); os `evidence/*.md` marcam o que não está mais aqui |
 
 Specs/tickets antigos mantêm `Status: ready-for-agent` no cabeçalho por serem anteriores à implementação: o estado real está nas retros e no `git log`.

@@ -14,7 +14,7 @@ Implementação local em 28/10/2026, base `54ceddc` (ticket 10). Fonte normativa
 | Fixture | `fixtures/OrderDesk`, sempre copiada para diretório temporário; `Program.cs`/`.csproj` alterados só nas cópias |
 | App home da evidência | temporário (`OPENRIDR_HOME=/tmp/openridr-11-home.*`); o E2E usa `$TMPDIR/openridr-e2e-home` |
 
-Logs: [`logs/11-environment.log`](logs/11-environment.log), [`logs/11-build-restore-required.json`](logs/11-build-restore-required.json), [`logs/11-build-ok.log`](logs/11-build-ok.log) + [`11-build-ok.json`](logs/11-build-ok.json), [`logs/11-build-failed.log`](logs/11-build-failed.log) + [`11-build-problems.json`](logs/11-build-problems.json), [`logs/11-build-library-rejected.json`](logs/11-build-library-rejected.json), [`logs/11-build-cancel.log`](logs/11-build-cancel.log), [`logs/11-build-revoke.json`](logs/11-build-revoke.json) + [`11-build-revoke-late.json`](logs/11-build-revoke-late.json), [`logs/11-cargo-test.log`](logs/11-cargo-test.log), [`logs/11-playwright.log`](logs/11-playwright.log), [`logs/11-build.log`](logs/11-build.log), [`logs/11-tauri-build.log`](logs/11-tauri-build.log). Nenhum SDK/ferramenta foi instalado; nenhum arquivo de `fixtures/` foi restaurado/alterado.
+Logs: `logs/11-environment.log` *(evidência removida do repositório público)*, `logs/11-build-restore-required.json` *(evidência removida do repositório público)*, `logs/11-build-ok.log` *(evidência removida do repositório público)* + `11-build-ok.json` *(evidência removida do repositório público)*, `logs/11-build-failed.log` *(evidência removida do repositório público)* + `11-build-problems.json` *(evidência removida do repositório público)*, `logs/11-build-library-rejected.json` *(evidência removida do repositório público)*, `logs/11-build-cancel.log` *(evidência removida do repositório público)*, `logs/11-build-revoke.json` *(evidência removida do repositório público)* + `11-build-revoke-late.json` *(evidência removida do repositório público)*, `logs/11-cargo-test.log` *(evidência removida do repositório público)*, `logs/11-playwright.log` *(evidência removida do repositório público)*, `logs/11-build.log` *(evidência removida do repositório público)*, `logs/11-tauri-build.log` *(evidência removida do repositório público)*. Nenhum SDK/ferramenta foi instalado; nenhum arquivo de `fixtures/` foi restaurado/alterado.
 
 ## O que foi construído
 
@@ -68,7 +68,7 @@ Build succeeded.
 Time Elapsed 00:00:00.81
 ```
 
-Log: [`logs/11-build-ok.log`](logs/11-build-ok.log).
+Log: `logs/11-build-ok.log` *(evidência removida do repositório público)*.
 
 ### Build falho real (CS0246, exit 1, problema navegável)
 
@@ -112,7 +112,7 @@ problems: 0
  "termination":{"requested":"SIGTERM","observed":"exited","exit":143,"killedAfterGrace":false}}
 ```
 
-`exit 143` é o que o registro observou; o log não foi apagado. Log: [`logs/11-build-cancel.log`](logs/11-build-cancel.log).
+`exit 143` é o que o registro observou; o log não foi apagado. Log: `logs/11-build-cancel.log` *(evidência removida do repositório público)*.
 
 ### Revogação sela o build
 
@@ -127,7 +127,7 @@ processo: exited, exit 143
 0,7 s depois: state cancelled · sealed true · finishedAt igual · logHasLateLines false · trust.granted false
 ```
 
-Logs: [`logs/11-build-revoke.json`](logs/11-build-revoke.json) e [`logs/11-build-revoke-late.json`](logs/11-build-revoke-late.json).
+Logs: `logs/11-build-revoke.json` *(evidência removida do repositório público)* e `logs/11-build-revoke-late.json` *(evidência removida do repositório público)*.
 
 ## UI real (Playwright/Chrome 155, Vite + host-http)
 
@@ -136,7 +136,7 @@ Dois testes novos com cópias temporárias e dotnet real:
 1. **“a real build reports its raw log, fails on a compile error and navigates to it”** — abre solução → trust → avalia → restore → recarrega modelo; o select de startup oferece só `OrderDesk.Cli` (a biblioteca não aparece); Build → `Build succeeded · exit 0`, comando/cwd/SDK/TargetPath/nota salvos e log real; salva `new Missing();` pelo editor → Rebuild → `Build failed · exit 1`, `error CS` no log e 1 build problem; Problems mostra `Build · dotnet`/`unknown`/CS e o clique em `build-problem-row-0` abre `Program.cs` no `data-cursor` publicado; corrigir+salvar mostra **Obsolete** (não “fixed”); Rebuild volta a `ok · exit 0` com 0 problemas.
 2. **“build waits for the explicit restore and asks before using unsaved buffers”** — antes do restore, Build desabilitado com motivo e `Restore now`; restore real + reload liberam o Build; buffer sujo → diálogo com Save all/Build saved content/Cancel; “Build saved content” executa e registra “1 unsaved buffer excluded”; editar e `Cmd+F9` mostra o mesmo diálogo (sem autosave).
 
-Capturas: [`screenshots/11-build-ok.png`](screenshots/11-build-ok.png), [`11-build-failed.png`](screenshots/11-build-failed.png), [`11-problems-build.png`](screenshots/11-problems-build.png), [`11-build-fixed.png`](screenshots/11-build-fixed.png), [`11-build-dirty.png`](screenshots/11-build-dirty.png).
+Capturas: `screenshots/11-build-ok.png` *(evidência removida do repositório público)*, `11-build-failed.png` *(evidência removida do repositório público)*, `11-problems-build.png` *(evidência removida do repositório público)*, `11-build-fixed.png` *(evidência removida do repositório público)*, `11-build-dirty.png` *(evidência removida do repositório público)*.
 
 ## Testes automatizados
 
@@ -152,7 +152,7 @@ running 46 tests  (boundary: gate/trust, restore_required, library, ambiguidade,
 test result: ok. 46 passed; 0 failed; 0 ignored
 ```
 
-Log: [`logs/11-cargo-test.log`](logs/11-cargo-test.log). Os testes reais usam SDK 8.0.408 e cópias temporárias; o cancelamento usa um target `Exec sleep 30` real, não mock do host.
+Log: `logs/11-cargo-test.log` *(evidência removida do repositório público)*. Os testes reais usam SDK 8.0.408 e cópias temporárias; o cancelamento usa um target `Exec sleep 30` real, não mock do host.
 
 ```text
 $ bun run test:e2e
@@ -162,7 +162,7 @@ $ bun run test:e2e
   34 passed (3.9m)
 ```
 
-Log: [`logs/11-playwright.log`](logs/11-playwright.log). O E2E usa Chrome real contra Vite + host-http; não é a janela Tauri nativa (limitação de captura TCC já registrada).
+Log: `logs/11-playwright.log` *(evidência removida do repositório público)*. O E2E usa Chrome real contra Vite + host-http; não é a janela Tauri nativa (limitação de captura TCC já registrada).
 
 ```text
 $ bun run build
@@ -170,10 +170,10 @@ $ bun run build
 
 $ bun run tauri build --debug --no-bundle
 Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.31s
-Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
+Built application at: ~/Projetos/openridr/src-tauri/target/debug/openridr
 ```
 
-Logs: [`logs/11-build.log`](logs/11-build.log) e [`logs/11-tauri-build.log`](logs/11-tauri-build.log). O aviso de chunk >500 kB é do CodeMirror.
+Logs: `logs/11-build.log` *(evidência removida do repositório público)* e `logs/11-tauri-build.log` *(evidência removida do repositório público)*. O aviso de chunk >500 kB é do CodeMirror.
 
 ## Cobertura do ticket e dos gates
 

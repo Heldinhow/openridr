@@ -26,19 +26,19 @@ macOS Intel não foram executados e permanecem gates abertos. Nenhuma aprovaçã
 | Base anterior | `4b8885c`; nenhum remote/push/PR |
 | App home de E2E | `$TMPDIR/openridr-e2e-home`; o app home real `~/Library/Application Support/OpenRidr` não foi apagado |
 
-Log de ambiente: [`logs/18-environment.log`](logs/18-environment.log).
+Log de ambiente: `logs/18-environment.log` *(evidência removida do repositório público)*.
 
 ## Comandos e resultados reais
 
 | Comando | Resultado | Log |
 |---|---|---|
-| `bun run build` | `tsc --noEmit` + Vite; 62 módulos; aviso de chunk >500 kB; exit 0 | [`logs/18-build.log`](logs/18-build.log) |
-| `cargo test -p openridr-host` | 192 testes passaram, 0 falharam (soma dos binários; doc-tests 0) | [`logs/18-cargo-test.log`](logs/18-cargo-test.log) |
-| `bun run test:e2e` | 49 testes passaram, incluindo o spec de aceitação | [`logs/18-playwright-full.log`](logs/18-playwright-full.log) |
-| `bun run test:e2e tests/e2e/zz-acceptance.spec.ts` | 2 testes passaram (jornada + auditoria de UI/layout) | [`logs/18-playwright-acceptance.log`](logs/18-playwright-acceptance.log) |
-| `bun run tauri build --debug --no-bundle` | app em `src-tauri/target/debug/openridr`; exit 0 | [`logs/18-tauri-build.log`](logs/18-tauri-build.log) |
-| `cargo metadata` + `cargo tree --target aarch64-apple-darwin` | licenças/grafo do app; 232 nomes de crates no grafo macOS | [`logs/18-licenses-summary.txt`](logs/18-licenses-summary.txt), [`logs/18-licenses-app-graph.tsv`](logs/18-licenses-app-graph.tsv) |
-| scan de `node_modules`/`bun.lock` | 157 entradas no lock; 96 pacotes instalados; licenças MIT/ISC/Apache/BSD/CC-BY-4.0 | [`logs/18-licenses-npm.tsv`](logs/18-licenses-npm.tsv) |
+| `bun run build` | `tsc --noEmit` + Vite; 62 módulos; aviso de chunk >500 kB; exit 0 | `logs/18-build.log` *(evidência removida do repositório público)* |
+| `cargo test -p openridr-host` | 192 testes passaram, 0 falharam (soma dos binários; doc-tests 0) | `logs/18-cargo-test.log` *(evidência removida do repositório público)* |
+| `bun run test:e2e` | 49 testes passaram, incluindo o spec de aceitação | `logs/18-playwright-full.log` *(evidência removida do repositório público)* |
+| `bun run test:e2e tests/e2e/zz-acceptance.spec.ts` | 2 testes passaram (jornada + auditoria de UI/layout) | `logs/18-playwright-acceptance.log` *(evidência removida do repositório público)* |
+| `bun run tauri build --debug --no-bundle` | app em `src-tauri/target/debug/openridr`; exit 0 | `logs/18-tauri-build.log` *(evidência removida do repositório público)* |
+| `cargo metadata` + `cargo tree --target aarch64-apple-darwin` | licenças/grafo do app; 232 nomes de crates no grafo macOS | `logs/18-licenses-summary.txt` *(evidência removida do repositório público)*, `logs/18-licenses-app-graph.tsv` *(evidência removida do repositório público)* |
+| scan de `node_modules`/`bun.lock` | 157 entradas no lock; 96 pacotes instalados; licenças MIT/ISC/Apache/BSD/CC-BY-4.0 | `logs/18-licenses-npm.tsv` *(evidência removida do repositório público)* |
 
 O spec de aceitação roda por último (`zz-acceptance.spec.ts`) porque as suítes por ticket
 assumem sessão/sequência inicial do host; ele não substitui nenhuma delas. A ordem é uma dívida
@@ -48,23 +48,23 @@ de teste registrada na decisão de release.
 
 Spec: [`tests/e2e/zz-acceptance.spec.ts`](../tests/e2e/zz-acceptance.spec.ts). UI real no Chrome
 contra Vite + `openridr-host-http` (mesmo `dispatch` do app); ferramentas reais; viewport 1440×900.
-Resumo em [`logs/18-acceptance-summary.json`](logs/18-acceptance-summary.json),
-pré-revogação em [`logs/18-acceptance-pre-revoke.json`](logs/18-acceptance-pre-revoke.json),
-pós-revogação em [`logs/18-acceptance-final.json`](logs/18-acceptance-final.json).
+Resumo em `logs/18-acceptance-summary.json` *(evidência removida do repositório público)*,
+pré-revogação em `logs/18-acceptance-pre-revoke.json` *(evidência removida do repositório público)*,
+pós-revogação em `logs/18-acceptance-final.json` *(evidência removida do repositório público)*.
 
 | Passo | Resultado observado | Evidência |
 |---|---|---|
 | Abrir solução restrita | caminho completo, `Restricted mode`, trust desmarcado, árvore textual; 12 métodos executáveis recusados com `trust_required`; edição/save de `Order.cs`; nenhum `bin/obj` criado | `18-acceptance-summary`, `S18-screen-01-trust.png` |
 | Confiar + SDKs | host `10.0.100`; projeto `8.0.408` resolvido por `global.json`; TFM net8.0; `status-sdk` separa os dois | `S18-toolchain-trusted.png`, `L18-environment` |
 | Árvore avaliada | console/biblioteca/teste, `TargetPath` Debug/net8.0, `bin/obj` ocultos; detalhes do projeto | `S18-screen-03-solution-explorer.png` |
-| Restore explícito | build bloqueado com “Dependencies are not restored”; restore real exit 0; três projetos `restored`; reload revision 2 | [`L18-restore.json`](logs/18-restore.json) |
-| csharp-ls | servidor 0.28.0.0, capabilities completion/definition/rename(prepare)/code actions; completion real `Id`; definição `Order.cs:4:11`; rename 3 arquivos/6 edições com cancelamento inerte; 6 code actions reais, prévia cancelada | [`L18-lsp-session.json`](logs/18-lsp-session.json), [`L18-code-actions.json`](logs/18-code-actions.json), E08–E10 |
+| Restore explícito | build bloqueado com “Dependencies are not restored”; restore real exit 0; três projetos `restored`; reload revision 2 | `L18-restore.json` *(evidência removida do repositório público)* |
+| csharp-ls | servidor 0.28.0.0, capabilities completion/definition/rename(prepare)/code actions; completion real `Id`; definição `Order.cs:4:11`; rename 3 arquivos/6 edições com cancelamento inerte; 6 code actions reais, prévia cancelada | `L18-lsp-session.json` *(evidência removida do repositório público)*, `L18-code-actions.json` *(evidência removida do repositório público)*, E08–E10 |
 | Diagnóstico real | `CS0246` LSP `current` na revisão; Problems separa `LSP · csharp-ls` e `Build · dotnet` | `S18-screen-04-problems.png` |
-| Build falho → correção | CS0246, exit 1, problema navegável; Run/Debug bloqueados; rebuild exit 0 | [`L18-build-failed.json`](logs/18-build-failed.json), [`L18-build-fixed.json`](logs/18-build-fixed.json) |
-| Run | `dotnet <TargetPath>` do build identificado; stdout `Order A-104`; exit 0 | [`L18-run.json`](logs/18-run.json), `S18-screen-02-editor-build.png` |
-| VSTest | descoberta 4; selected 1 passed; all 2 passed/1 failed/1 skipped exit 1; teste longo cancelado com 0 results parciais, TRX missing, exit 143 | [`L18-tests-run-all.json`](logs/18-tests-run-all.json), [`L18-tests-cancel.json`](logs/18-tests-cancel.json), `S18-screen-07-tests.png` |
-| PTY | `/bin/zsh`, cwd real com espaço, `pwd`, `echo`, `sleep 30` + Ctrl+C, `dotnet --version` 8.0.408; close com decisão; shell exit `null` e `SIGTERM then SIGKILL`, `killedAfterGrace:true` | [`L18-terminal.json`](logs/18-terminal.json), `S18-terminal-started.png`, `S18-screen-06-terminal.png` |
-| DAP experimental | opt-in, netcoredbg real `--interpreter=vscode`; breakpoint verificado, pausa, F8, locals, continue exit 0; segunda sessão stop/cancelled; processos debug `exited` | [`L18-dap.json`](logs/18-dap.json), `S18-debug-paused.png`, `S18-screen-05-debug.png`, `S18-dap-stopped.png` |
+| Build falho → correção | CS0246, exit 1, problema navegável; Run/Debug bloqueados; rebuild exit 0 | `L18-build-failed.json` *(evidência removida do repositório público)*, `L18-build-fixed.json` *(evidência removida do repositório público)* |
+| Run | `dotnet <TargetPath>` do build identificado; stdout `Order A-104`; exit 0 | `L18-run.json` *(evidência removida do repositório público)*, `S18-screen-02-editor-build.png` |
+| VSTest | descoberta 4; selected 1 passed; all 2 passed/1 failed/1 skipped exit 1; teste longo cancelado com 0 results parciais, TRX missing, exit 143 | `L18-tests-run-all.json` *(evidência removida do repositório público)*, `L18-tests-cancel.json` *(evidência removida do repositório público)*, `S18-screen-07-tests.png` |
+| PTY | `/bin/zsh`, cwd real com espaço, `pwd`, `echo`, `sleep 30` + Ctrl+C, `dotnet --version` 8.0.408; close com decisão; shell exit `null` e `SIGTERM then SIGKILL`, `killedAfterGrace:true` | `L18-terminal.json` *(evidência removida do repositório público)*, `S18-terminal-started.png`, `S18-screen-06-terminal.png` |
+| DAP experimental | opt-in, netcoredbg real `--interpreter=vscode`; breakpoint verificado, pausa, F8, locals, continue exit 0; segunda sessão stop/cancelled; processos debug `exited` | `L18-dap.json` *(evidência removida do repositório público)*, `S18-debug-paused.png`, `S18-screen-05-debug.png`, `S18-dap-stopped.png` |
 | Revogação | buffer não salvo preservado, chamada direta `trust_required`, LSP parado, nenhum processo do workspace `running`; depois descarte explícito | `18-acceptance-summary` (`revoke`), `18-acceptance-final` |
 
 Sete telas a 1440×900: `S18-screen-01-trust.png`, `S18-screen-02-editor-build.png`,
@@ -75,7 +75,7 @@ Sete telas a 1440×900: `S18-screen-01-trust.png`, `S18-screen-02-editor-build.p
 
 ## Auditoria de UI e acessibilidade
 
-Resultado em [`logs/18-ui-audit.json`](logs/18-ui-audit.json). Verificações reais via Playwright
+Resultado em `logs/18-ui-audit.json` *(evidência removida do repositório público)*. Verificações reais via Playwright
 (Chrome 155), não certificação WCAG:
 
 - `lang="en"`; amostra automatizada de seis termos PT (`Confiança`, `Salvar`, `Arquivo`,
@@ -143,9 +143,9 @@ prova DAP; a prova é o netcoredbg real em `--interpreter=vscode`.
 
 Fontes reais: `cargo metadata --format-version 1` (workspace e `src-tauri`), `cargo tree
 --target aarch64-apple-darwin`, `bun.lock`, `node_modules/*/package.json`, `tauri.conf.json`,
-`src-tauri/icons/icon.png`, `dist/`. Saídas: [`L18-licenses-summary.txt`](logs/18-licenses-summary.txt),
-[`L18-licenses-app-graph.tsv`](logs/18-licenses-app-graph.tsv),
-[`L18-licenses-npm.tsv`](logs/18-licenses-npm.tsv). **Isto é auditoria técnica, não parecer jurídico.**
+`src-tauri/icons/icon.png`, `dist/`. Saídas: `L18-licenses-summary.txt` *(evidência removida do repositório público)*,
+`L18-licenses-app-graph.tsv` *(evidência removida do repositório público)*,
+`L18-licenses-npm.tsv` *(evidência removida do repositório público)*. **Isto é auditoria técnica, não parecer jurídico.**
 
 ### Componentes diretos / efetivamente presentes
 
@@ -242,14 +242,14 @@ Checklist do ticket 18 (marcar só o que foi realmente provado):
 - Matriz: [`docs/acceptance-matrix.md`](acceptance-matrix.md)
 - Decisão: [`docs/release-decision.md`](release-decision.md)
 - Spec de aceitação: [`tests/e2e/zz-acceptance.spec.ts`](../tests/e2e/zz-acceptance.spec.ts)
-- Logs: [`logs/18-acceptance-summary.json`](logs/18-acceptance-summary.json),
-  [`logs/18-acceptance-pre-revoke.json`](logs/18-acceptance-pre-revoke.json),
-  [`logs/18-acceptance-final.json`](logs/18-acceptance-final.json),
-  [`logs/18-restore.json`](logs/18-restore.json), [`logs/18-build-failed.json`](logs/18-build-failed.json),
-  [`logs/18-build-fixed.json`](logs/18-build-fixed.json), [`logs/18-run.json`](logs/18-run.json),
-  [`logs/18-tests-run-all.json`](logs/18-tests-run-all.json), [`logs/18-tests-cancel.json`](logs/18-tests-cancel.json),
-  [`logs/18-terminal.json`](logs/18-terminal.json), [`logs/18-dap.json`](logs/18-dap.json),
-  [`logs/18-debug-install.json`](logs/18-debug-install.json), [`logs/18-lsp-session.json`](logs/18-lsp-session.json),
-  [`logs/18-ui-audit.json`](logs/18-ui-audit.json), [`logs/18-playwright-acceptance.log`](logs/18-playwright-acceptance.log),
-  [`logs/18-playwright-full.log`](logs/18-playwright-full.log), [`logs/18-licenses-summary.txt`](logs/18-licenses-summary.txt).
+- Logs: `logs/18-acceptance-summary.json` *(evidência removida do repositório público)*,
+  `logs/18-acceptance-pre-revoke.json` *(evidência removida do repositório público)*,
+  `logs/18-acceptance-final.json` *(evidência removida do repositório público)*,
+  `logs/18-restore.json` *(evidência removida do repositório público)*, `logs/18-build-failed.json` *(evidência removida do repositório público)*,
+  `logs/18-build-fixed.json` *(evidência removida do repositório público)*, `logs/18-run.json` *(evidência removida do repositório público)*,
+  `logs/18-tests-run-all.json` *(evidência removida do repositório público)*, `logs/18-tests-cancel.json` *(evidência removida do repositório público)*,
+  `logs/18-terminal.json` *(evidência removida do repositório público)*, `logs/18-dap.json` *(evidência removida do repositório público)*,
+  `logs/18-debug-install.json` *(evidência removida do repositório público)*, `logs/18-lsp-session.json` *(evidência removida do repositório público)*,
+  `logs/18-ui-audit.json` *(evidência removida do repositório público)*, `logs/18-playwright-acceptance.log` *(evidência removida do repositório público)*,
+  `logs/18-playwright-full.log` *(evidência removida do repositório público)*, `logs/18-licenses-summary.txt` *(evidência removida do repositório público)*.
 - Screenshots: `screenshots/18-screen-01…07-*.png` + extras listados acima.

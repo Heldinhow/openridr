@@ -33,7 +33,7 @@ Data: 29/10/2026. Sessão: implementação das fatias F1–F9 na branch local `m
 
 - `bun run check`: passou. Playwright em Chrome headed, `slowMo=300`, com .NET 8 e netcoredbg reais: 18/18 passaram (`run`, `debugger`, `git`, `ui-layout`, `run-configs`, `editor-overflow`).
 - Provas observadas: saída normal do Run (`Order A-104`); breakpoint pelo gutter; sessão Debug pausada nele; frames e locals visíveis no painel sem scroll; step into, step out e step over. O spec também confirmou saída/terminação e Stop.
-- Capturas/logs desta rodada fora do repo: `/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/openridr-ui-audit-20261029/` (`screenshots/12-run-output.png`, `screenshots/14-dap-paused.png`, `screenshots/14-dap-stepped.png`, `screenshots/14-dap-stopped.png`). Specs de layout cobriram 1600×1000, 1440×900 e 1100×700.
+- Capturas/logs desta rodada fora do repo: `<tmp>/opencode/openridr-ui-audit-20261029/` (`screenshots/12-run-output.png`, `screenshots/14-dap-paused.png`, `screenshots/14-dap-stepped.png`, `screenshots/14-dap-stopped.png`). Specs de layout cobriram 1600×1000, 1440×900 e 1100×700.
 - Funcionou: runner E2E isolado, fixture .NET real e adaptador real permitiram provar o fluxo ponta a ponta. Falhas/skip: nenhum nesta seleção.
 - Risco restante: validação é macOS ARM64; Windows/macOS Intel seguem sem prova. Alterações preexistentes em `docs/evidence/`, `docs/tickets-mvp/README.md` e `.scratch/` foram preservadas; sem mudanças de app.
 

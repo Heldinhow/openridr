@@ -52,7 +52,7 @@ $ bun run test:e2e
 
 Nota de execução: a primeira rodada completa teve 2 falhas (restore real com exit 1 e uma avaliação sem `eval-state`); os dois specs passaram isolados (6/6). A segunda rodada completa teve 1 falha de inicialização do csharp-ls (`lsp-state` "Starting…"), que passou no rerun isolado (9/9). A terceira rodada completa, acima, passou 49/49. Os artefatos gerados pela suíte (`docs/evidence/logs/18-*`, screenshots) foram restaurados ao estado do HEAD para não poluir este commit; os logs desta evidência são os arquivos `18-review-fixes-*.log`.
 
-Logs: [`18-review-fixes-build.log`](logs/18-review-fixes-build.log), [`18-review-fixes-cargo-test.log`](logs/18-review-fixes-cargo-test.log), [`18-review-fixes-e2e.log`](logs/18-review-fixes-e2e.log).
+Logs: `18-review-fixes-build.log` *(evidência removida do repositório público)*, `18-review-fixes-cargo-test.log` *(evidência removida do repositório público)*, `18-review-fixes-e2e.log` *(evidência removida do repositório público)*.
 
 ## Limitações (explícitas)
 

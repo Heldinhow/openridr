@@ -13,7 +13,7 @@ Implementação local em 28/10/2026, base `499bb9d`. Fonte normativa: [ticket 08
 | Fixture | `fixtures/OrderDesk`, copiada para diretório temporário com espaço no nome (`Order Desk completion`) |
 | App home da evidência | `$TMPDIR/openridr-e2e-home` (tool já verificada; `tools.plan` + reuso) |
 
-Logs: [`logs/08-drive.log`](logs/08-drive.log), [`logs/08-host-http.log`](logs/08-host-http.log), [`logs/08-lsp.log`](logs/08-lsp.log), [`logs/08-completion.json`](logs/08-completion.json), [`logs/08-definition.json`](logs/08-definition.json), [`logs/08-cargo-test.log`](logs/08-cargo-test.log), [`logs/08-build.log`](logs/08-build.log), [`logs/08-playwright.log`](logs/08-playwright.log), [`logs/08-tauri-build.log`](logs/08-tauri-build.log). Nenhum SDK foi instalado; a fixture do repositório não foi alterada (as cópias são temporárias).
+Logs: `logs/08-drive.log` *(evidência removida do repositório público)*, `logs/08-host-http.log` *(evidência removida do repositório público)*, `logs/08-lsp.log` *(evidência removida do repositório público)*, `logs/08-completion.json` *(evidência removida do repositório público)*, `logs/08-definition.json` *(evidência removida do repositório público)*, `logs/08-cargo-test.log` *(evidência removida do repositório público)*, `logs/08-build.log` *(evidência removida do repositório público)*, `logs/08-playwright.log` *(evidência removida do repositório público)*, `logs/08-tauri-build.log` *(evidência removida do repositório público)*. Nenhum SDK foi instalado; a fixture do repositório não foi alterada (as cópias são temporárias).
 
 ## O que foi construído
 
@@ -105,7 +105,7 @@ Novo teste “completion and definition use the real session and discard stale a
 8. Servidor pausado de novo, Ctrl+Space: após 5 s o estado é `timeout` (“did not answer within 5 seconds”); digitar continua funcionando. `SIGCONT` depois não aplica a resposta antiga.
 9. Revogar trust: Ctrl+Space e Cmd+B mostram `unavailable` com “requires workspace trust”; a aba atual não muda.
 
-Capturas: [`screenshots/08-completion.png`](screenshots/08-completion.png), [`screenshots/08-completion-unavailable.png`](screenshots/08-completion-unavailable.png), [`screenshots/08-definition.png`](screenshots/08-definition.png).
+Capturas: [`screenshots/08-completion.png`](screenshots/08-completion.png), `screenshots/08-completion-unavailable.png` *(evidência removida do repositório público)*, [`screenshots/08-definition.png`](screenshots/08-definition.png).
 
 ## Comandos e resultados reais
 
@@ -134,9 +134,9 @@ $ bun run test:e2e
 
 ```text
 $ bun run tauri build --debug --no-bundle
-   Compiling openridr v0.1.0 (/Users/helder/Projetos/openridr/src-tauri)
+   Compiling openridr v0.1.0 (~/Projetos/openridr/src-tauri)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.52s
-       Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
+       Built application at: ~/Projetos/openridr/src-tauri/target/debug/openridr
 ```
 
 Logs completos: `08-cargo-test.log`, `08-build.log`, `08-playwright.log`, `08-tauri-build.log`. O E2E é Chrome real contra Vite + host HTTP real, csharp-ls real e fixture real; não é a janela Tauri nativa (TCC).

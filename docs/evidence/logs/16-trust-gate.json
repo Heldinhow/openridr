@@ -1,7 +1,0 @@
-{
-  "error": {
-    "code": "trust_required",
-    "message": "tests.discover requires workspace trust; no process was started."
-  },
-  "ok": false
-}

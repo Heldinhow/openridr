@@ -17,7 +17,7 @@ Implementação local em 27–28/10/2026. Fonte normativa: [ticket 02](../ticket
 | Fixtures | `fixtures/OrderDesk` (sln + console + lib + testes) e `fixtures/MissingSdk` (projeto único com `global.json` 8.0.999/`disable`) |
 | Base de código | `89adba0` (ticket 01) + esta fatia |
 
-Log: [`logs/02-environment.log`](logs/02-environment.log). O teste de inventário Rust foi marcado `cfg(target_os = "macos")` porque as versões 8.0.408/8.0.416/10.0.100 são as observadas nesta máquina; Windows não tem inventário verificado nesta fatia.
+Log: `logs/02-environment.log` *(evidência removida do repositório público)*. O teste de inventário Rust foi marcado `cfg(target_os = "macos")` porque as versões 8.0.408/8.0.416/10.0.100 são as observadas nesta máquina; Windows não tem inventário verificado nesta fatia.
 
 ## O que foi construído
 
@@ -40,14 +40,14 @@ $ /usr/local/share/dotnet/dotnet --list-sdks
 10.0.100 [/usr/local/share/dotnet/sdk]
 
 $ "$HOME/Library/Application Support/OpenRidr/sdks/8.0.408/dotnet" --list-sdks
-8.0.408 [/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408/sdk]
+8.0.408 [~/Library/Application Support/OpenRidr/sdks/8.0.408/sdk]
 ```
 
-O host devolve `sdk.host = {state:"found", version:"10.0.100", root:"/usr/local/share/dotnet"}` e `sdk.project = {state:"resolved", requestedVersion:"8.0.408", rollForward:"disable", resolvedVersion:"8.0.408", root:"/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408"}`. As duas raízes e as três versões aparecem no snapshot; o teste Rust falha se 10.0.100, 8.0.408 ou 8.0.416 não aparecerem.
+O host devolve `sdk.host = {state:"found", version:"10.0.100", root:"/usr/local/share/dotnet"}` e `sdk.project = {state:"resolved", requestedVersion:"8.0.408", rollForward:"disable", resolvedVersion:"8.0.408", root:"~/Library/Application Support/OpenRidr/sdks/8.0.408"}`. As duas raízes e as três versões aparecem no snapshot; o teste Rust falha se 10.0.100, 8.0.408 ou 8.0.416 não aparecerem.
 
 ### Host gate pela ponte HTTP de desenvolvimento
 
-Log completo e comandos: [`logs/02-host-http.log`](logs/02-host-http.log). Trechos reais:
+Log completo e comandos: `logs/02-host-http.log` *(evidência removida do repositório público)*. Trechos reais:
 
 ```text
 $ POST /call {"method":"build.start","params":{}}
@@ -56,7 +56,7 @@ $ POST /call {"method":"build.start","params":{}}
 $ POST /call {"method":"trust.grant","params":{}}  [selected fields]
 "trust": {"decidedAt": 1793154417483, "granted": true, "revokedAt": null, "workspaceId": 1}
 "host": {"state":"found","version":"10.0.100","root":"/usr/local/share/dotnet"}
-"project": {"state":"resolved","requestedVersion":"8.0.408","rollForward":"disable","resolvedVersion":"8.0.408","root":"/Users/helder/Library/Application Support/OpenRidr/sdks/8.0.408"}
+"project": {"state":"resolved","requestedVersion":"8.0.408","rollForward":"disable","resolvedVersion":"8.0.408","root":"~/Library/Application Support/OpenRidr/sdks/8.0.408"}
 
 $ POST /call {"method":"build.start","params":{}}  (gate passes, not implemented in this slice)
 {"error":{"code":"invalid_state","message":"build.start is not implemented in this build."},"ok":false}
@@ -94,7 +94,7 @@ running 15 tests  (boundary: gate, stale context, SDK real, fixture ausente, red
 test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
-Log: [`logs/02-cargo-test.log`](logs/02-cargo-test.log). Cobertura de resolução: exato+`disable`, `patch`, `feature`, `minor`, `latestMajor`, `latestPatch` com pré-release excluída/liberada, maior versão entre raízes, ausência. Processos: TERM observado, TERM ignorado → KILL após ~2 s (`killedAfterGrace:true`), keep, exit code 3, revogação e troca de workspace.
+Log: `logs/02-cargo-test.log` *(evidência removida do repositório público)*. Cobertura de resolução: exato+`disable`, `patch`, `feature`, `minor`, `latestMajor`, `latestPatch` com pré-release excluída/liberada, maior versão entre raízes, ausência. Processos: TERM observado, TERM ignorado → KILL após ~2 s (`killedAfterGrace:true`), keep, exit code 3, revogação e troca de workspace.
 
 ### E2E Playwright (Chrome real + Vite + host + arquivos reais)
 
@@ -109,7 +109,7 @@ Running 10 tests using 1 worker
   10 passed (10.2s)
 ```
 
-Log: [`logs/02-playwright.log`](logs/02-playwright.log). O teste de processo sobe o host com `OPENRIDR_ENABLE_PROBE=1` (somente teste); o probe não aparece na UI. O `global.json` do `MissingSdk` tem SHA-256 `f1b3d83e…d9859252` antes e depois de trust/redetect/E2E, e nenhum `bin`/`obj` foi criado ([`logs/02-environment.log`](logs/02-environment.log)).
+Log: `logs/02-playwright.log` *(evidência removida do repositório público)*. O teste de processo sobe o host com `OPENRIDR_ENABLE_PROBE=1` (somente teste); o probe não aparece na UI. O `global.json` do `MissingSdk` tem SHA-256 `f1b3d83e…d9859252` antes e depois de trust/redetect/E2E, e nenhum `bin`/`obj` foi criado (`logs/02-environment.log` *(evidência removida do repositório público)*).
 
 ### Frontend
 
@@ -119,13 +119,13 @@ $ bun run build
 ✓ built in 768ms
 ```
 
-Log: [`logs/02-build.log`](logs/02-build.log). O aviso de chunk >500 kB é do CodeMirror, não é erro.
+Log: `logs/02-build.log` *(evidência removida do repositório público)*. O aviso de chunk >500 kB é do CodeMirror, não é erro.
 
 ### Capturas da UI real
 
-- [`screenshots/02-toolchain-restricted.png`](screenshots/02-toolchain-restricted.png) — workspace aberto, Restricted mode, host 10.0.100, projeto “Not inspected yet”, TFM declarada, debug não verificado, Apple Silicon OFF, Redetect.
-- [`screenshots/02-toolchain-trusted.png`](screenshots/02-toolchain-trusted.png) — após trust: decisão no host, projeto resolvido 8.0.408 na raiz do usuário e host 10.0.100 separados.
-- [`screenshots/02-toolchain-missing-sdk.png`](screenshots/02-toolchain-missing-sdk.png) — `fixtures/MissingSdk`: projeto 8.0.999 ausente com instruções e `Open global.json`, sem fallback para o host 10.0.100.
+- `screenshots/02-toolchain-restricted.png` *(evidência removida do repositório público)* — workspace aberto, Restricted mode, host 10.0.100, projeto “Not inspected yet”, TFM declarada, debug não verificado, Apple Silicon OFF, Redetect.
+- `screenshots/02-toolchain-trusted.png` *(evidência removida do repositório público)* — após trust: decisão no host, projeto resolvido 8.0.408 na raiz do usuário e host 10.0.100 separados.
+- `screenshots/02-toolchain-missing-sdk.png` *(evidência removida do repositório público)* — `fixtures/MissingSdk`: projeto 8.0.999 ausente com instruções e `Open global.json`, sem fallback para o host 10.0.100.
 - [`screenshots/02-workspace-trusted.png`](screenshots/02-workspace-trusted.png) — workspace com status `Host SDK 10.0.100 · Project SDK 8.0.408`.
 - [`screenshots/02-workspace-revoked.png`](screenshots/02-workspace-revoked.png) — após revoke: Restricted mode, projeto não inspecionado, edição preservada.
 
