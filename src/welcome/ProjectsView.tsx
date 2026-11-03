@@ -124,7 +124,7 @@ export function ProjectsView({ active, recent, busy, rowErrors, hostSdkMissing, 
       {empty && (
         <div className="projects-empty" data-testid="welcome-empty">
           <strong>No recent projects yet</strong>
-          <p className="muted">Open a .sln, .csproj or folder to start. OpenRidr asks once per project whether to trust it; until then no project code runs.</p>
+          <p className="muted">Open a .sln, .slnx, .csproj or folder to start. OpenRidr asks once per project whether to trust it; until then no project code runs.</p>
         </div>
       )}
       {!empty && shown.length === 0 && (

@@ -38,10 +38,10 @@ Nenhuma instância do app do Helder foi tocada. Procedimento:
 ## Launcher `scripts/openridr`
 
 - `sh -n scripts/openridr`: ok.
-- Self-check com `open` falso num PATH temporário (`sh /tmp/openridr-selfcheck/check.sh scripts/openridr`):
-  `ok: openridr self-check passed`. Cobre argv `-a OpenRidr <caminho>`, `OPENRIDR_APP` com espaços,
-  zero e dois argumentos (saem ≠ 0 sem chamar `open`), caminho inexistente (saída ≠ 0, mensagem em
-  `stderr`, `open` não chamado).
+- Self-check commitado: `sh scripts/openridr-selfcheck.sh` (`open` falso num PATH temporário, removido
+  no `trap`). Cobre argv `-a OpenRidr <caminho>`, `OPENRIDR_APP` com espaços, zero e dois argumentos
+  (saem ≠ 0 sem chamar `open`), caminho inexistente (saída ≠ 0, mensagem em `stderr`, `open` não
+  chamado). Resultado: `ok: openridr self-check passed`.
 - Não rodado contra o bundle real: o launcher não repassa `OPENRIDR_HOME`, e rodá-lo sem isolamento
   gravaria no app home do usuário.
 
@@ -49,6 +49,9 @@ Nenhuma instância do app do Helder foi tocada. Procedimento:
 
 - Prompt de Trust e banner de erro na tela (visual).
 - Recusa por buffer sujo em abertura externa.
+- Escolha de candidato na tela inicial depois de um diretório ambíguo vindo do Finder/Dock: o caminho
+  foi roteado para `SetupScreen` (que mostra a lista) e o `workspace.open` ambíguo foi provado no host;
+  a lista na tela e o clique não têm E2E de UI.
 - Duplo clique no Finder e menu **Abrir Com** visual. As claims do LaunchServices são a evidência.
 - Arrasto real de pasta para o Dock: usei `open -a` com pasta como proxy.
 - Launcher contra o bundle real.

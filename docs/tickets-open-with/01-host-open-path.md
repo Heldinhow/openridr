@@ -43,7 +43,7 @@ Nada é executado ao abrir.
    - `.slnx` temporário (criado no teste) devolve os projetos;
    - diretório temporário com dois `.sln` devolve `ambiguous_workspace`;
    - `package.json` existente devolve `path_not_allowed` e o workspace anterior continua.
-   Fechar o workspace ao final e restaurar o que o spec anterior deixou.
+   Fechar o workspace ao final (o `afterEach` do spec fecha).
 
 Rodar os testes e ver falhar pelo motivo certo antes de implementar:
 `cargo test -p openridr-host workspace_open` (ou o filtro escolhido) e

@@ -91,7 +91,7 @@ Finder entra pelo mesmo `workspace.open` da tela inicial: prompt de Trust uma ve
   compiladas por `cargo test --manifest-path src-tauri/Cargo.toml` (o crate não está no workspace
   raiz, então `bun run check` não o cobre).
 - **E2E:** um spec novo chama a ponte HTTP com `workspace.open` e cobre caminho relativo,
-  `.slnx`, `.csproj`, diretório ambíguo e extensão recusada, restaurando o workspace ao final.
+  `.slnx`, `.csproj`, diretório ambíguo e extensão recusada, fechando o workspace ao final.
   Prior art: `tests/e2e/evaluation.spec.ts` e `debugger.spec.ts` chamam o host direto.
 - **Manual (não substituto de teste):** build de debug do bundle, inspeção do Info.plist gerado,
   `open --env OPENRIDR_HOME=<.scratch/host-home> -a <bundle> <fixture.sln>` com app fechado e

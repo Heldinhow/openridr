@@ -3,6 +3,7 @@ import {
   call,
   HostCallError,
   messageOf,
+  type Candidate,
   type CodeAction,
   type CodeActionsResponse,
   type DapEvaluation,
@@ -206,7 +207,6 @@ type Props = {
   recentSolutions: string[];
   // Path from Finder or the Dock; each request is a new object, so the same path can repeat.
   externalOpen: { path: string } | null;
-  onExternalOpenError: (text: string) => void;
   onOpenRecent: (path: string) => Promise<void>;
   onSnapshot: (snapshot: Snapshot) => void;
   onClosed: (snapshot: Snapshot) => void;
@@ -341,7 +341,7 @@ function restoreStateLabel(restore: Snapshot["restore"]) {
   }
 }
 
-export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, onExternalOpenError, onOpenRecent, onSnapshot, onClosed }: Props) {
+export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, onOpenRecent, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
   const trusted = snapshot.trust.granted;
@@ -3789,19 +3789,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       }
     : { text: "Text outline · not evaluated" };
 
-  async function openSolution(
-    solution: string,
-    reportError: (text: string) => void = (text) => setMessage({ tone: "error", text }),
-  ) {
+  async function openSolution(solution: string) {
     if (solution === workspace.path) return;
     if (dirtyCount > 0) {
-      reportError("Save or close modified buffers before opening another solution.");
+      setMessage({ tone: "error", text: "Save or close modified buffers before opening another solution." });
       return;
     }
     try {
       await onOpenRecent(solution);
     } catch (error) {
-      reportError(`Could not open ${solution}: ${messageOf(error)}`);
+      if (error instanceof HostCallError && error.code === "ambiguous_workspace") {
+        const names = ((error.details as { candidates?: Candidate[] } | undefined)?.candidates ?? []).map((item) => item.name);
+        setMessage({ tone: "error", text: `Could not open ${solution}: it contains more than one solution or project: ${names.join(", ")}. Open one directly.` });
+        return;
+      }
+      setMessage({ tone: "error", text: `Could not open ${solution}: ${messageOf(error)}` });
     }
   }
 
@@ -3810,7 +3812,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   useEffect(() => {
     if (!externalOpen || externalOpen === handledExternalOpen.current) return;
     handledExternalOpen.current = externalOpen;
-    void openSolution(externalOpen.path, onExternalOpenError);
+    void openSolution(externalOpen.path);
   }, [externalOpen]);
 
   const buildAction = requireAction(actionById, "build.start");
@@ -3975,7 +3977,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             <button
               data-testid="build-solution-menu"
               disabled={buildSolutionAction.disabledReason !== null}
-              title={buildSolutionAction.disabledReason ?? "Builds the open .sln with the current configuration and reports problems from every project."}
+              title={buildSolutionAction.disabledReason ?? "Builds the open solution with the current configuration and reports problems from every project."}
               onClick={(event) => {
                 event.currentTarget.closest("details")?.removeAttribute("open");
                 buildSolutionAction.execute();

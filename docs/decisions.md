@@ -14,6 +14,8 @@ A lógica de host vive em `crates/host` (`openridr-host`), sem dependência de T
 
 O diálogo nativo de arquivos fica para depois. A tela inicial aceita caminho absoluto de `.sln`, `.csproj` ou diretório; o host lista candidatos e exige escolha quando há mais de uma solução/projeto. Custo menor e testável por teclado; trocar por seletor nativo não muda o contrato do host.
 
+> **Estendida em 2026-11-02**: o host (`workspace.open`) passou a aceitar caminho relativo com `baseDir` e `.slnx`. A abertura externa (Finder, Dock, `openridr`) usa o mesmo fluxo: sem workspace montado, cai na tela inicial, que mostra candidatos, erro e o prompt de Trust como na digitação.
+
 ## 2026-10-27 — Trust só em memória
 
 > **Substituída em 2026-11-01** por "Trust decision persistida por projeto" (abaixo). O código já divergia desta entrada: `trusted.json` guarda os caminhos confiados desde antes.

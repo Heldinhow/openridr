@@ -20,7 +20,7 @@ export function PathForm({ initialPath, busy, invalid, onOpen }: Props) {
           data-testid="workspace-path-input"
           value={path}
           onChange={(event) => setPath(event.target.value)}
-          placeholder="Path to a .sln, .csproj or folder"
+          placeholder="Path to a .sln, .slnx, .csproj or folder"
           aria-invalid={invalid ? true : undefined}
           spellCheck={false}
           disabled={busy}

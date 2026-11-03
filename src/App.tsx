@@ -20,6 +20,9 @@ export default function App() {
   const recentSolutions = recentProjects.map((project) => project.path);
   // Path from Finder or the Dock while a workspace is mounted; WorkspaceView applies it with its dirty-buffer guard.
   const [externalOpen, setExternalOpen] = useState<{ path: string } | null>(null);
+  // Same for the setup screen, which opens the path with its own form flow (candidates, errors, trust).
+  const [setupOpen, setSetupOpen] = useState<{ path: string } | null>(null);
+  // Only for a failed listener or invoke of the shell; open errors show where the open was started.
   const [externalError, setExternalError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -117,17 +120,13 @@ export default function App() {
     handleOpened(await call<Snapshot>("workspace.open", { path }));
   }
 
-  async function openExternal(path: string) {
+  function openExternal(path: string) {
     setExternalError(null);
     if (stage === "workspace" && snapshot?.workspace && !prompt) {
       setExternalOpen({ path });
       return;
     }
-    try {
-      await openRecent(path);
-    } catch (caught) {
-      setExternalError(`Could not open ${path}: ${messageOf(caught)}`);
-    }
+    setSetupOpen({ path });
   }
 
   // Read by the shell listener, which is registered once; the ref keeps the latest state.
@@ -144,7 +143,7 @@ export default function App() {
       const { listen } = await import("@tauri-apps/api/event");
       const takePending = async () => {
         const path = await invoke<string | null>("take_pending_open");
-        if (path) await openExternalRef.current(path);
+        if (path) openExternalRef.current(path);
       };
       const unlisten = await listen("openridr-open", () => void takePending());
       if (unmounted) {
@@ -184,7 +183,6 @@ export default function App() {
           initialFile={pendingFile}
           recentSolutions={recentSolutions}
           externalOpen={externalOpen}
-          onExternalOpenError={setExternalError}
           onOpenRecent={openRecent}
           onSnapshot={handleSnapshot}
           onClosed={handleClosed}
@@ -207,6 +205,7 @@ export default function App() {
       onOpened={handleOpened}
       onSnapshot={handleSnapshot}
       onOpenGlobalJson={openGlobalJson}
+      externalOpen={setupOpen}
     />
     </div>
     </>

@@ -6599,7 +6599,7 @@ fn resolve_directory(dir: &Path) -> HostResult<PathBuf> {
         1 => Ok(projects[0].clone()),
         0 => Err(HostError::new(
             "not_found",
-            format!("No .sln or .csproj found in {}.", dir.to_string_lossy()),
+            format!("No .sln, .slnx or .csproj found in {}.", dir.to_string_lossy()),
         )),
         _ => Err(ambiguous_workspace(dir, &projects, "project")),
     }
@@ -7668,5 +7668,37 @@ mod tests {
             .unwrap()
             .len();
         assert_eq!(candidates, 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_open_follows_a_solution_symlink_to_its_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let solution = solution_file(&root, "App.sln");
+        let link = root.join("Link.sln");
+        std::os::unix::fs::symlink(&solution, &link).unwrap();
+        let host = Host::default();
+
+        let opened = host
+            .dispatch("workspace.open", json!({ "path": link }))
+            .unwrap();
+        assert_eq!(opened["workspace"]["kind"], "solution");
+        assert_eq!(opened["workspace"]["path"], solution.to_str().unwrap());
+    }
+
+    #[test]
+    fn workspace_open_directory_with_one_csproj_opens_the_project() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\" />").unwrap();
+        let host = Host::default();
+
+        let opened = host
+            .dispatch("workspace.open", json!({ "path": root }))
+            .unwrap();
+        assert_eq!(opened["workspace"]["kind"], "project");
+        assert_eq!(opened["workspace"]["path"], project.to_str().unwrap());
     }
 }
