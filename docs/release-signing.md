@@ -59,13 +59,17 @@ O `submit` imprime `status: Accepted` e um `id`. O zip é só o transporte: o ti
 stage=$(mktemp -d)
 ditto "$app" "$stage/OpenRidr.app"
 ln -s /Applications "$stage/Applications"
-dmg=~/Downloads/OpenRidr_0.3.0-alpha.5_aarch64.dmg
+dmg=/tmp/OpenRidr_0.3.0-alpha.5_aarch64.dmg
 hdiutil create -volname OpenRidr -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dmg"
 codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg"
 xcrun notarytool submit "$dmg" --keychain-profile notary --wait
 xcrun stapler staple "$dmg"
 xcrun stapler validate "$dmg"
 ```
+
+Monte o DMG num diretório temporário e copie o arquivo final para `~/Downloads` só no fim: pasta
+sincronizada (iCloud/file provider) pode travar `codesign`/`hdiutil` no arquivo enquanto ele
+sincroniza.
 
 Montar o DMG com `hdiutil` em vez de `--bundles dmg` é o que garante um DMG com o **app já
 grampeado** dentro. O layout é o mesmo do release anterior (`CI=true` também pulava o AppleScript

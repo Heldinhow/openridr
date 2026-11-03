@@ -33,10 +33,12 @@ Quinta alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/
 ## Verificação
 
 ```
-SHA256  OpenRidr_0.3.0-alpha.5_aarch64.dmg
+2049b02280dc3620bbf26e53bd609508f09ccef0593998400c5946fa17be978c  OpenRidr_0.3.0-alpha.5_aarch64.dmg
 ```
 
-Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: TAMANHO. Verificado no DMG montado:
-`CFBundleShortVersionString` 0.3.0-alpha.5, binário Mach-O arm64, `codesign --verify --deep --strict`
-no app, `spctl --assess --type execute` = *accepted, source=Notarized Developer ID*, 
-`spctl --assess --type open` no DMG aceito e `xcrun stapler validate` verde no app e no DMG.
+Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: 5,34 MiB (5.604.275 bytes). Verificado no DMG
+montado: `CFBundleShortVersionString` 0.3.0-alpha.5, binário Mach-O arm64,
+`codesign --verify --deep --strict` e `xcrun stapler validate` no app e no DMG,
+`spctl --assess --type execute` no app = *accepted, source=Notarized Developer ID* e
+`spctl --assess --type open` no DMG = *accepted, source=Notarized Developer ID*. O app abriu a
+partir do DMG montado (com `OPENRIDR_HOME` isolado) sem alteração na assinatura.
