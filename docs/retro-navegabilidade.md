@@ -43,9 +43,9 @@ Arquivos mais lidos (Read + `sed -n`): `src/WorkspaceView.tsx` **403×** (5.229 
 ## Não feito (decisão sua)
 
 - **Quebrar `WorkspaceView.tsx` e `lib.rs`** (código de produto, fora do escopo). É a maior alavanca restante: o `useExecutionFlow` já mostra o caminho. O mapa só reduz a busca, não o tamanho do trecho lido.
-- **Guardrail para o commit**: um script `scripts/commit-only.sh` (faz `add -N` + `commit --only`) eliminaria a classe de erro 1 de vez; docs só reduzem.
+- ~~Guardrail para o commit~~ **Feito:** `scripts/commit-only.sh` (referenciado em `AGENTS.md` e `MAPA.md`).
 - **`docs/install-app.md` ficará desatualizado** quando a alpha.5 (assinada/notarizada, em andamento em outro worktree) entrar: ele diz “sem assinatura nem notarização”. Atualize junto com `RELEASE-ALPHA.md`.
-- **`.scratch/`**: 182 arquivos rastreados (capturas, JSON de auditoria); a retro `RETRO-MVP-RIDER.md` já aponta 96 PNGs com dados pessoais no OCR. Considere mover o que for evidência para `docs/evidence/` e parar de rastrear o resto.
+- **`.scratch/` (decisão pendente do Helder; intocado nesta entrega)**: 182 arquivos rastreados (capturas, JSON de auditoria); a retro `RETRO-MVP-RIDER.md` já aponta 96 PNGs com dados pessoais no OCR. Considere mover o que for evidência para `docs/evidence/` e parar de rastrear o resto.
 - **Fora do repo**: a sessão `e614` gastou ~10 chamadas procurando skills (`grill-with-docs`, `to-spec`) em `~/.claude` e `~/.config/opencode`; vale uma linha no `AGENTS.md` global dizendo onde estão.
 
 ## Estimativa de ganho (não medida; hipótese a conferir nas próximas sessões)

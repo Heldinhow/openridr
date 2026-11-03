@@ -60,7 +60,7 @@ Estado do app: `~/Library/Application Support/OpenRidr` (`OPENRIDR_HOME` troca; 
 | `src-tauri/` | janela Tauri; `src/main.rs` expõe `host_call` e a recepção de "abrir com"; `tauri.conf.json` tem versão e bundle |
 | `tests/e2e/` | Playwright contra host real; arquivos `medium-*`, `qa-*`, `zz-acceptance` etc. por onda de trabalho; helpers `.ts` sem `.spec` |
 | `fixtures/` | `OrderDesk` (principal), `MultiConsole`, `BrokenImport`, `MissingSdk`, `CrashApp` |
-| `scripts/` | `install-app.sh` (`bun run app:install`), `openridr` (CLI "abrir com"), `openridr-selfcheck.sh` |
+| `scripts/` | `install-app.sh` (`bun run app:install`), `openridr` (CLI "abrir com"), `openridr-selfcheck.sh`, `commit-only.sh` (`scripts/commit-only.sh "msg" <paths>`: `add -N` nos novos + `commit --only`) |
 | `.githooks/` | pre-commit = `bun run check` |
 | `.scratch/` | rascunho de sessões (capturas, scripts de auditoria visual). **Não é código do produto**; ignore ao buscar. Única exceção: spec e tickets de Welcome + Trust vivem em `.scratch/welcome-trust/` |
 | `docs/` | ver [README.md](README.md) |
