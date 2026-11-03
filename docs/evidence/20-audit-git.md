@@ -12,8 +12,8 @@
 
 Capturas novas foram gravadas fora do repositório para não alterar nem versionar screenshots existentes:
 
-- `/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/ticket20-git-diff.png`
-- `/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/ticket20-git-log.png`
+- `<tmp>/opencode/ticket20-git-diff.png`
+- `<tmp>/opencode/ticket20-git-log.png`
 
 ## Limitações
 

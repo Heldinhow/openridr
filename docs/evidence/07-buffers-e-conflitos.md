@@ -14,7 +14,7 @@ Implementação local em 28/10/2026, base `8aee0e2`. Fonte normativa: [ticket 07
 | Fixture | `fixtures/OrderDesk`; `Program.cs` e `Order.cs` restaurados em `beforeEach`/`afterEach` |
 | Fixture dos testes de buffer | modo restrito, sem trust, sem MSBuild, sem LSP |
 
-Log: [`logs/07-environment.log`](logs/07-environment.log).
+Log: `logs/07-environment.log` *(evidência removida do repositório público)*.
 
 ## O que foi construído
 
@@ -39,7 +39,7 @@ dist/assets/index-qZ764Ykl.js   634.74 kB │ gzip: 203.17 kB
 ✓ built in 1.38s
 ```
 
-Log: [`logs/07-build.log`](logs/07-build.log). O aviso de chunk >500 kB é do CodeMirror e não é erro.
+Log: `logs/07-build.log` *(evidência removida do repositório público)*. O aviso de chunk >500 kB é do CodeMirror e não é erro.
 
 ### Host (inalterado; unit + boundary)
 
@@ -52,7 +52,7 @@ test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 Doc-tests openridr_host: 0 passed
 ```
 
-Log: [`logs/07-cargo-test.log`](logs/07-cargo-test.log). Nenhum código de host mudou neste ticket, então nenhum teste de boundary novo foi necessário; os testes existentes de path/UTF-8/read-only seguem verdes.
+Log: `logs/07-cargo-test.log` *(evidência removida do repositório público)*. Nenhum código de host mudou neste ticket, então nenhum teste de boundary novo foi necessário; os testes existentes de path/UTF-8/read-only seguem verdes.
 
 ### Playwright (Chrome real + host real + arquivos reais)
 
@@ -68,18 +68,18 @@ $ bun run test:e2e
   26 passed (1.4m)
 ```
 
-Log completo: [`logs/07-playwright.log`](logs/07-playwright.log). A suíte inclui os 20 testes anteriores (build/restore/evaluation/csharp-ls/trust) e 6 novos de buffer; `workers: 1` porque host e arquivos são estado compartilhado.
+Log completo: `logs/07-playwright.log` *(evidência removida do repositório público)*. A suíte inclui os 20 testes anteriores (build/restore/evaluation/csharp-ls/trust) e 6 novos de buffer; `workers: 1` porque host e arquivos são estado compartilhado.
 
 ### Tauri (compile check)
 
 ```text
 $ bun run tauri build --debug --no-bundle
-   Compiling openridr v0.1.0 (/Users/helder/Projetos/openridr/src-tauri)
+   Compiling openridr v0.1.0 (~/Projetos/openridr/src-tauri)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.44s
-       Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
+       Built application at: ~/Projetos/openridr/src-tauri/target/debug/openridr
 ```
 
-Log: [`logs/07-tauri-build.log`](logs/07-tauri-build.log). A permissão `core:window:allow-destroy` foi aceita pelo schema/capability.
+Log: `logs/07-tauri-build.log` *(evidência removida do repositório público)*. A permissão `core:window:allow-destroy` foi aceita pelo schema/capability.
 
 ## Comparação de conflito (UI real)
 

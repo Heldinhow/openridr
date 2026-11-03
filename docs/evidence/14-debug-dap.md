@@ -14,7 +14,7 @@ Implementação local em 28/10/2026, revisão sobre `a925693` (ticket 13). Fonte
 | Base | `a925693` + árvore desta revisão |
 | Dependências novas | nenhuma (o cliente DAP usa `serde_json`, stdio e o `Registry` existentes) |
 
-Log: [`logs/14-environment.log`](logs/14-environment.log).
+Log: `logs/14-environment.log` *(evidência removida do repositório público)*.
 
 ## Sessão real na fixture (launch, breakpoint, step, frames, locals, continue)
 
@@ -43,7 +43,7 @@ ENDED {"state":"terminated","exit":0,"exitKnown":true,"adapterExit":0,
 
 O breakpoint começou `pending` no `setBreakpoints` e virou `verified` com o evento `breakpoint` do adaptador; sem símbolos ele permaneceria pendente. `order` era `null` na linha 3 e virou `{OrderDesk.Core.Order}` depois do step over. O exit 0 é o evento `exited` do adaptador; `adapterExit: 0` foi observado no `Registry` depois do término. O debuggee `88825` não existia mais (`ps` exit 1).
 
-Logs: [`14-real-dap-fixture.log`](logs/14-real-dap-fixture.log), [`14-real-dap-fixture-transcript.log`](logs/14-real-dap-fixture-transcript.log).
+Logs: `14-real-dap-fixture.log` *(evidência removida do repositório público)*, `14-real-dap-fixture-transcript.log` *(evidência removida do repositório público)*.
 
 ## Smoke async + multi-thread (prova para o gate da flag ARM64)
 
@@ -75,7 +75,7 @@ revoke: state=cancelled sealed=true termination={"requested":"DAP disconnect (te
 processes: debug:AsyncProbe pid 89212 state=exited
 ```
 
-Logs/JSON: [`14-real-dap-async.log`](logs/14-real-dap-async.log), [`14-real-dap-async-transcript.log`](logs/14-real-dap-async-transcript.log), [`14-real-dap-async.json`](logs/14-real-dap-async.json), [`14-real-dap-async-summary.json`](logs/14-real-dap-async-summary.json). PIDs 88825, 88924 e 89213 conferidos como inexistentes e nenhum `netcoredbg`/`AsyncProbe`/`OrderDesk.Cli` restante: [`14-process-tree.log`](logs/14-process-tree.log).
+Logs/JSON: `14-real-dap-async.log` *(evidência removida do repositório público)*, `14-real-dap-async-transcript.log` *(evidência removida do repositório público)*, `14-real-dap-async.json` *(evidência removida do repositório público)*, `14-real-dap-async-summary.json` *(evidência removida do repositório público)*. PIDs 88825, 88924 e 89213 conferidos como inexistentes e nenhum `netcoredbg`/`AsyncProbe`/`OrderDesk.Cli` restante: `14-process-tree.log` *(evidência removida do repositório público)*.
 
 ## UI real (Playwright + Chrome, mesmo build)
 
@@ -95,7 +95,7 @@ $ bun run test:e2e
   39 passed (3.2m)
 ```
 
-Capturas do mesmo build: [`screenshots/14-dap-paused.png`](screenshots/14-dap-paused.png), [`screenshots/14-dap-stepped.png`](screenshots/14-dap-stepped.png), [`screenshots/14-dap-stopped.png`](screenshots/14-dap-stopped.png). Estado final da sessão E2E: [`logs/14-e2e-debug-session.json`](logs/14-e2e-debug-session.json). Log Playwright: [`logs/14-playwright.log`](logs/14-playwright.log).
+Capturas do mesmo build: `screenshots/14-dap-paused.png` *(evidência removida do repositório público)*, `screenshots/14-dap-stepped.png` *(evidência removida do repositório público)*, `screenshots/14-dap-stopped.png` *(evidência removida do repositório público)*. Estado final da sessão E2E: `logs/14-e2e-debug-session.json` *(evidência removida do repositório público)*. Log Playwright: `logs/14-playwright.log` *(evidência removida do repositório público)*.
 
 ## Testes de fronteira (Rust + adaptador DAP controlado)
 
@@ -109,7 +109,7 @@ running 50 tests   (boundary dos tickets 01–14)
 test result: ok. 50 passed; 0 failed
 ```
 
-Log: [`logs/14-cargo-test.log`](logs/14-cargo-test.log). Casos DAP:
+Log: `logs/14-cargo-test.log` *(evidência removida do repositório público)*. Casos DAP:
 
 - framing `Content-Length` em bytes com adaptador controlado em Python sobre stdio (initialize/launch/setBreakpoints/configurationDone/threads/stackTrace/scopes/variables/disconnect);
 - ids/`seq` monotônicos, resposta só chega ao request dono, timeout remove o pendente e resposta tardia não ressuscita;

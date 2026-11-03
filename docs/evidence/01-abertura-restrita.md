@@ -16,7 +16,7 @@ Implementação local em 27/10/2026 (madrugada de 28/10 no UTC). Fonte normativa
 | SDK fixado pela fixture | 8.0.408 em `~/Library/Application Support/OpenRidr/sdks/8.0.408` |
 | Base de código anterior | `e304c57` (docs/tickets); nenhum código OpenIdea reutilizado |
 
-Log completo: [`logs/environment.log`](logs/environment.log).
+Log completo: `logs/environment.log` *(evidência removida do repositório público)*.
 
 ## O que foi construído nesta fatia
 
@@ -39,7 +39,7 @@ dist/assets/index-CF6dPSWq.js   582.43 kB │ gzip: 189.83 kB
 ✓ built in 748ms
 ```
 
-Log: [`logs/build.log`](logs/build.log). O aviso de chunk >500 kB é do CodeMirror e não é erro.
+Log: `logs/build.log` *(evidência removida do repositório público)*. O aviso de chunk >500 kB é do CodeMirror e não é erro.
 
 ### Host (unit + boundary)
 
@@ -55,7 +55,7 @@ test executable_methods_fail_before_trust_and_spawn_nothing ... ok
 test result: ok. 6 passed; 0 failed
 ```
 
-Log: [`logs/cargo-test.log`](logs/cargo-test.log).
+Log: `logs/cargo-test.log` *(evidência removida do repositório público)*.
 
 ### Ponte HTTP de desenvolvimento
 
@@ -74,7 +74,7 @@ Access-Control-Allow-Methods: GET, POST, OPTIONS
 Access-Control-Allow-Headers: content-type
 ```
 
-Log: [`logs/host-http-smoke.log`](logs/host-http-smoke.log).
+Log: `logs/host-http-smoke.log` *(evidência removida do repositório público)*.
 
 ### Playwright (Chrome real + host real + arquivos reais)
 
@@ -91,7 +91,7 @@ Running 7 tests using 1 worker
   7 passed (7.8s)
 ```
 
-Log: [`logs/playwright.log`](logs/playwright.log).
+Log: `logs/playwright.log` *(evidência removida do repositório público)*.
 
 Os testes abrem `fixtures/OrderDesk` de verdade, editam/salvam `Program.cs`, escrevem no arquivo pelo processo de teste para induzir conflito, fecham aba/workspace com buffer sujo e chamam o host HTTP diretamente. `beforeEach`/`afterEach` restauram o conteúdo original da fixture; `workers: 1` porque host e arquivo são estado compartilhado.
 
@@ -105,7 +105,7 @@ $ dotnet test OrderDesk.sln -c Debug --no-build
 Aprovado! – Com falha: 0, Aprovado: 2, Ignorado: 0, Total: 2
 ```
 
-Log: [`logs/fixture-build.log`](logs/fixture-build.log). Executado com `DOTNET_ROOT`/PATH apontando para o SDK 8.0.408 fixado. O app não executou dotnet em nenhum fluxo desta fatia.
+Log: `logs/fixture-build.log` *(evidência removida do repositório público)*. Executado com `DOTNET_ROOT`/PATH apontando para o SDK 8.0.408 fixado. O app não executou dotnet em nenhum fluxo desta fatia.
 
 ### Smoke desktop
 
@@ -120,9 +120,9 @@ $ screencapture -x /tmp/desktop-display.png
 could not create image from display
 ```
 
-Log: [`logs/desktop-smoke.log`](logs/desktop-smoke.log). A janela real foi criada e permaneceu estável; a captura de tela foi recusada pelo TCC de Screen Recording desta máquina (o mesmo ocorre para captura de display inteiro). `osascript`/System Events também está sem permissão assistiva. Portanto **não houve screenshot do desktop** e a janela não foi dirigida por automação; o conteúdo visual foi verificado no mesmo `dist/` servido ao Chrome real:
+Log: `logs/desktop-smoke.log` *(evidência removida do repositório público)*. A janela real foi criada e permaneceu estável; a captura de tela foi recusada pelo TCC de Screen Recording desta máquina (o mesmo ocorre para captura de display inteiro). `osascript`/System Events também está sem permissão assistiva. Portanto **não houve screenshot do desktop** e a janela não foi dirigida por automação; o conteúdo visual foi verificado no mesmo `dist/` servido ao Chrome real:
 
-- [`screenshots/ui-trust-screen.png`](screenshots/ui-trust-screen.png) — setup/trust, caminho completo, Restricted mode, trust desabilitado e motivo textual.
+- `screenshots/ui-trust-screen.png` *(evidência removida do repositório público)* — setup/trust, caminho completo, Restricted mode, trust desabilitado e motivo textual.
 - [`screenshots/ui-workspace.png`](screenshots/ui-workspace.png) — árvore textual, abas, breadcrumb, editor, painel inferior e status bar com keymap.
 
 Essas duas imagens são da UI real (Vite + host-http + fixture), não do desktop; não substituem a prova de interação desktop.

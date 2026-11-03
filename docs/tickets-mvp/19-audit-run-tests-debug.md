@@ -20,4 +20,4 @@
 
 - Capturas: `docs/evidence/ui-audit/25-run-output.png`, `61-tests-discovered.png`, `62-tests-results.png`, `81-debug-paused.png`, `83-debug-ended.png`, `18-editor-program.png`.
 - Não adicionar uma nova tool window Run sem necessidade: primeiro reutilizar os painéis/slots existentes e manter o menor diff que exponha a saída.
-- Verificação desta fatia e capturas novas fora do repositório: `docs/evidence/19-audit-run-tests-debug.md` e `/private/var/folders/n4/bjx54c1d3_d7438735kj02sr0000gn/T/opencode/ticket19-evidence/`.
+- Verificação desta fatia e capturas novas fora do repositório: `docs/evidence/19-audit-run-tests-debug.md` e `<tmp>/opencode/ticket19-evidence/`.

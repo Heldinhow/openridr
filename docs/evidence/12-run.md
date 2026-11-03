@@ -14,7 +14,7 @@ Implementação local em 28/10/2026, base `5e8e637` (ticket 11). Fonte normativa
 | Fixture | `fixtures/OrderDesk`, sempre copiada para diretório temporário; `Program.cs` alterado só nas cópias |
 | App home do driver | temporário (`OPENRIDR_HOME=/tmp/openridr-12-home-*`); o E2E usa `$TMPDIR/openridr-e2e-home` |
 
-Logs: [`logs/12-environment.log`](logs/12-environment.log), [`logs/12-run-ok.log`](logs/12-run-ok.log) + [`12-run-ok.json`](logs/12-run-ok.json), [`logs/12-run-source-changed.json`](logs/12-run-source-changed.json), [`logs/12-run-failed-build.json`](logs/12-run-failed-build.json), [`logs/12-run-library.json`](logs/12-run-library.json), [`logs/12-run-missing-target.json`](logs/12-run-missing-target.json), [`logs/12-run-cancel.log`](logs/12-run-cancel.log) + [`12-run-cancel.json`](logs/12-run-cancel.json), [`logs/12-run-revoke.log`](logs/12-run-revoke.log) + [`12-run-revoke.json`](logs/12-run-revoke.json) + [`12-run-revoke-late.json`](logs/12-run-revoke-late.json), [`logs/12-cargo-test.log`](logs/12-cargo-test.log), [`logs/12-playwright.log`](logs/12-playwright.log), [`logs/12-build.log`](logs/12-build.log), [`logs/12-tauri-build.log`](logs/12-tauri-build.log). Nenhum SDK/ferramenta foi instalado; nenhum arquivo versionado de `fixtures/` foi restaurado/alterado.
+Logs: `logs/12-environment.log` *(evidência removida do repositório público)*, `logs/12-run-ok.log` *(evidência removida do repositório público)* + `12-run-ok.json` *(evidência removida do repositório público)*, `logs/12-run-source-changed.json` *(evidência removida do repositório público)*, `logs/12-run-failed-build.json` *(evidência removida do repositório público)*, `logs/12-run-library.json` *(evidência removida do repositório público)*, `logs/12-run-missing-target.json` *(evidência removida do repositório público)*, `logs/12-run-cancel.log` *(evidência removida do repositório público)* + `12-run-cancel.json` *(evidência removida do repositório público)*, `logs/12-run-revoke.log` *(evidência removida do repositório público)* + `12-run-revoke.json` *(evidência removida do repositório público)* + `12-run-revoke-late.json` *(evidência removida do repositório público)*, `logs/12-cargo-test.log` *(evidência removida do repositório público)*, `logs/12-playwright.log` *(evidência removida do repositório público)*, `logs/12-build.log` *(evidência removida do repositório público)*, `logs/12-tauri-build.log` *(evidência removida do repositório público)*. Nenhum SDK/ferramenta foi instalado; nenhum arquivo versionado de `fixtures/` foi restaurado/alterado.
 
 ## O que foi construído
 
@@ -46,7 +46,7 @@ configuration: Debug · targetFramework: None
 Order A-104: R$ 42,00
 ```
 
-Log: [`logs/12-run-ok.log`](logs/12-run-ok.log).
+Log: `logs/12-run-ok.log` *(evidência removida do repositório público)*.
 
 ### Fonte salva depois do build → `build_stale` com arquivo e log do build
 
@@ -99,7 +99,7 @@ parent 58236 child 58237
 long-running
 ```
 
-Log: [`logs/12-run-cancel.log`](logs/12-run-cancel.log). O teste Rust `cancelling_a_real_run_observes_termination_of_the_group_including_its_child` também lê os dois pids do log e confirma com `/bin/ps` que pai e filho desapareceram, compara o exit do run com o do registro e recusa um segundo `run.start` concorrente.
+Log: `logs/12-run-cancel.log` *(evidência removida do repositório público)*. O teste Rust `cancelling_a_real_run_observes_termination_of_the_group_including_its_child` também lê os dois pids do log e confirma com `/bin/ps` que pai e filho desapareceram, compara o exit do run com o do registro e recusa um segundo `run.start` concorrente.
 
 ### Revogação sela o run
 
@@ -111,7 +111,7 @@ termination: {"exit":143,"killedAfterGrace":false,"observed":"exited","requested
 0.7 s later: state cancelled · finishedAt unchanged True · log has late lines: False
 ```
 
-Logs: [`logs/12-run-revoke.json`](logs/12-run-revoke.json) e [`logs/12-run-revoke-late.json`](logs/12-run-revoke-late.json).
+Logs: `logs/12-run-revoke.json` *(evidência removida do repositório público)* e `logs/12-run-revoke-late.json` *(evidência removida do repositório público)*.
 
 ## UI real (Playwright/Chrome 155, Vite + host-http)
 
@@ -120,7 +120,7 @@ Dois testes novos, cópias temporárias e dotnet real:
 1. **“a real run shows the saved build output and refuses a source saved after the build”** — restore/avalia/build reais; a lista de startup só oferece `OrderDesk.Cli` (a biblioteca não aparece); Run mostra `Order A-104:`/`exit 0`, buildId, comando, cwd real e log preservado. Buffer sujo → aviso “Running the saved build; 1 unsaved buffer is not included” e diálogo com Run saved build/Save all and rebuild; “Run saved build” executa e a saída continua `Order A-104:` (não `B-777`). Salvar → Run desabilitado com “Sources were saved after this build”, Cmd+R responde o mesmo motivo; rebuild → Run mostra `Order B-777:` e Cmd+R repete a execução com outra identidade.
 2. **“stopping a real long-running program reports requested and observed termination”** — projeto console temporário real (`Thread.Sleep(60_000)`), restore/avalia/build/run reais; Stop mostra `Run cancelled`, `Termination requested: SIGTERM`, `Observed: exited`, exit observado (143) e log preservado.
 
-Capturas: [`screenshots/12-run-output.png`](screenshots/12-run-output.png), [`12-run-dirty.png`](screenshots/12-run-dirty.png), [`12-run-saved-stale.png`](screenshots/12-run-saved-stale.png), [`12-run-rebuilt.png`](screenshots/12-run-rebuilt.png), [`12-run-cancelled.png`](screenshots/12-run-cancelled.png).
+Capturas: `screenshots/12-run-output.png` *(evidência removida do repositório público)*, `12-run-dirty.png` *(evidência removida do repositório público)*, `12-run-saved-stale.png` *(evidência removida do repositório público)*, `12-run-rebuilt.png` *(evidência removida do repositório público)*, `12-run-cancelled.png` *(evidência removida do repositório público)*.
 
 ## Testes automatizados
 
@@ -135,7 +135,7 @@ running 49 tests  (boundary: gate antes de trust, build falho/stale, fonte salva
 test result: ok. 49 passed; 0 failed; 0 ignored
 ```
 
-Log: [`logs/12-cargo-test.log`](logs/12-cargo-test.log). Numa execução intermediária, o teste LSP `initialize_failure…` falhou transitoriamente com `InvalidOperationException` do csharp-ls e os testes seguintes falharam por poison do `ENV_LOCK`; a execução completa seguinte (a do log) passou 74+49. Não houve mudança de código entre as duas.
+Log: `logs/12-cargo-test.log` *(evidência removida do repositório público)*. Numa execução intermediária, o teste LSP `initialize_failure…` falhou transitoriamente com `InvalidOperationException` do csharp-ls e os testes seguintes falharam por poison do `ENV_LOCK`; a execução completa seguinte (a do log) passou 74+49. Não houve mudança de código entre as duas.
 
 ```text
 $ bun run test:e2e
@@ -145,7 +145,7 @@ $ bun run test:e2e
   36 passed (3.1m)
 ```
 
-Log: [`logs/12-playwright.log`](logs/12-playwright.log). Portas 4317/1420 foram encerradas antes e ficaram livres depois (`lsof` sem saída).
+Log: `logs/12-playwright.log` *(evidência removida do repositório público)*. Portas 4317/1420 foram encerradas antes e ficaram livres depois (`lsof` sem saída).
 
 ```text
 $ bun run build
@@ -153,10 +153,10 @@ $ bun run build
 
 $ bun run tauri build --debug --no-bundle
 Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.23s
-Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
+Built application at: ~/Projetos/openridr/src-tauri/target/debug/openridr
 ```
 
-Logs: [`logs/12-build.log`](logs/12-build.log) e [`logs/12-tauri-build.log`](logs/12-tauri-build.log).
+Logs: `logs/12-build.log` *(evidência removida do repositório público)* e `logs/12-tauri-build.log` *(evidência removida do repositório público)*.
 
 ## Cobertura do ticket e dos gates
 

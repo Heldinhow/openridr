@@ -14,7 +14,7 @@ Implementação local em 28/10/2026, base `5a75082`. Fonte normativa: [ticket 10
 | Fixture | `fixtures/OrderDesk`, copiada para diretório temporário (`Order Desk actions`, `Order Desk actions diagnostic`) |
 | App home da evidência | `$TMPDIR/openridr-e2e-home` (o mesmo das suítes 05–09) |
 
-Logs: [`logs/10-lsp.log`](logs/10-lsp.log), [`logs/10-lsp-diagnostic.log`](logs/10-lsp-diagnostic.log), [`logs/10-csharp-ls-actions.json`](logs/10-csharp-ls-actions.json), [`logs/10-code-actions-diagnostic-actions.json`](logs/10-code-actions-diagnostic-actions.json), [`logs/10-cargo-test.log`](logs/10-cargo-test.log), [`logs/10-build.log`](logs/10-build.log), [`logs/10-playwright.log`](logs/10-playwright.log), [`logs/10-tauri-build.log`](logs/10-tauri-build.log). As cópias da fixture são temporárias e foram removidas; a fixture do repositório não foi alterada.
+Logs: `logs/10-lsp.log` *(evidência removida do repositório público)*, `logs/10-lsp-diagnostic.log` *(evidência removida do repositório público)*, `logs/10-csharp-ls-actions.json` *(evidência removida do repositório público)*, `logs/10-code-actions-diagnostic-actions.json` *(evidência removida do repositório público)*, `logs/10-cargo-test.log` *(evidência removida do repositório público)*, `logs/10-build.log` *(evidência removida do repositório público)*, `logs/10-playwright.log` *(evidência removida do repositório público)*, `logs/10-tauri-build.log` *(evidência removida do repositório público)*. As cópias da fixture são temporárias e foram removidas; a fixture do repositório não foi alterada.
 
 ## O que foi construído
 
@@ -61,7 +61,7 @@ Três testes novos na suíte real do ticket 05, com o mesmo csharp-ls e a mesma 
 2. **“code action lists and previews are invalidated before any write”**: editar o buffer fecha a lista; editar com a prévia aberta fecha a prévia com “Code action preview discarded” e nada é aplicado; alterar `Order.cs` no disco após a prévia faz Apply recusar o conjunto com “changed on disk”, mantendo a prévia e o buffer (`10-code-actions-stale.png`); com o servidor pausado (`SIGSTOP`), pedir ações, mover o cursor e retomar (`SIGCONT`) não abre lista; revogar trust fecha a prévia e mantém buffer/disco. Nenhum arquivo muda.
 3. **“code actions forward the current diagnostic and list the real quick fix”**: inserir `new MissingType()` em `Program.cs`, aguardar a publicação `CS0246` atual, pedir ações no identificador: a lista mostra “1 current diagnostic” e os `Generate type 'MissingType'` reais (`10-code-actions-diagnostic.png`); fechar não escreve nada.
 
-Capturas: [`screenshots/10-code-actions-list.png`](screenshots/10-code-actions-list.png), [`10-code-actions-preview.png`](screenshots/10-code-actions-preview.png), [`10-code-actions-empty.png`](screenshots/10-code-actions-empty.png), [`10-code-actions-applied.png`](screenshots/10-code-actions-applied.png), [`10-code-actions-stale.png`](screenshots/10-code-actions-stale.png), [`10-code-actions-diagnostic.png`](screenshots/10-code-actions-diagnostic.png).
+Capturas: `screenshots/10-code-actions-list.png` *(evidência removida do repositório público)*, [`10-code-actions-preview.png`](screenshots/10-code-actions-preview.png), [`10-code-actions-empty.png`](screenshots/10-code-actions-empty.png), [`10-code-actions-applied.png`](screenshots/10-code-actions-applied.png), [`10-code-actions-stale.png`](screenshots/10-code-actions-stale.png), `10-code-actions-diagnostic.png` *(evidência removida do repositório público)*.
 
 ## Comandos e resultados reais
 
@@ -93,7 +93,7 @@ $ bun run tauri build --debug --no-bundle
    Compiling openridr-host v0.1.0 (…/crates/host)
    Compiling openridr v0.1.0 (…/src-tauri)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.13s
-       Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
+       Built application at: ~/Projetos/openridr/src-tauri/target/debug/openridr
 ```
 
 ## Cobertura do ticket, ACs e gates

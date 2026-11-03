@@ -14,7 +14,7 @@ Implementação local em 28/10/2026, base `d43f248`. Fonte normativa: [ticket 09
 | Fixture | `fixtures/OrderDesk`, copiada para diretório temporário com espaço no nome (`Order Desk rename`) |
 | App home da evidência | `$TMPDIR/openridr-e2e-home` (ferramenta já verificada; `tools.install` reutilizou) |
 
-Logs: [`logs/09-drive.log`](logs/09-drive.log), [`logs/09-rename.json`](logs/09-rename.json), [`logs/09-lsp.log`](logs/09-lsp.log), [`logs/09-host-http.log`](logs/09-host-http.log), [`logs/09-environment.log`](logs/09-environment.log), [`logs/09-cargo-test.log`](logs/09-cargo-test.log), [`logs/09-build.log`](logs/09-build.log), [`logs/09-playwright.log`](logs/09-playwright.log), [`logs/09-tauri-build.log`](logs/09-tauri-build.log). As cópias da fixture são temporárias e foram removidas; a fixture do repositório não foi alterada.
+Logs: `logs/09-drive.log` *(evidência removida do repositório público)*, `logs/09-rename.json` *(evidência removida do repositório público)*, `logs/09-lsp.log` *(evidência removida do repositório público)*, `logs/09-host-http.log` *(evidência removida do repositório público)*, `logs/09-environment.log` *(evidência removida do repositório público)*, `logs/09-cargo-test.log` *(evidência removida do repositório público)*, `logs/09-build.log` *(evidência removida do repositório público)*, `logs/09-playwright.log` *(evidência removida do repositório público)*, `logs/09-tauri-build.log` *(evidência removida do repositório público)*. As cópias da fixture são temporárias e foram removidas; a fixture do repositório não foi alterada.
 
 ## O que foi construído
 
@@ -126,7 +126,7 @@ $ bun run tauri build --debug --no-bundle
    Compiling openridr-host v0.1.0 (…/crates/host)
    Compiling openridr v0.1.0 (…/src-tauri)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.07s
-       Built application at: /Users/helder/Projetos/openridr/src-tauri/target/debug/openridr
+       Built application at: ~/Projetos/openridr/src-tauri/target/debug/openridr
 ```
 
 ## Cobertura do ticket, ACs e gates
