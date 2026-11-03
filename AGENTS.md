@@ -4,11 +4,14 @@ IDE C# inspirada no Rider: Tauri 2 + Rust (host) + React/TS (UI). Alvo verificad
 
 ## Leia antes de mexer
 
+- `docs/MAPA.md` — **onde fica o quê** no código (inclui como achar a dona de um `data-testid` ou método do host). `WorkspaceView.tsx` (~5.200 linhas) e `crates/host/src/lib.rs` (~7.700) nunca se leem inteiros: `grep -n`, depois `sed -n`.
+- `docs/README.md` — índice dos docs: feature → spec/tickets/retro/evidência, e o que é histórico. Não use `docs/PROPOSTA-UI-*`, `release-decision.md`, `index.html`, `wireframes.md` como estado atual.
 - `docs/SPEC.md` — contrato do produto (P0).
 - `docs/SPEC-MVP-RIDER.md` e `docs/tickets-mvp/` — fatias F1–F9 e critérios de aceite.
 - `docs/decisions.md` — decisões incrementais; siga-as e registre uma nova em vez de reabrir uma antiga.
 - `docs/implementation-notes.md` — como cada ticket foi feito e o que não foi verificado.
 - `docs/REVIEW-MVP-RIDER.md` e `docs/RETRO-MVP-RIDER.md` — dívida e lições conhecidas.
+- Trabalho novo segue a convenção de `docs/README.md`: `SPEC-<tema>.md`, `tickets-<tema>/NN-slug.md`, `RETRO-<tema>.md`, `evidence/<tema>.md`.
 
 ## Estrutura
 
@@ -19,6 +22,8 @@ crates/host-http/    ponte HTTP só de dev/E2E (127.0.0.1, nunca distribuída)
 src-tauri/           janela Tauri; chama o mesmo dispatch do host
 tests/e2e/           specs Playwright contra host real + fixture real
 fixtures/            soluções C# de teste (OrderDesk, MissingSdk, ...)
+scripts/             install-app.sh, openridr (CLI abrir com), selfcheck
+.scratch/            rascunho de sessões — não é fonte
 docs/                SPECs, decisões, tickets, notas, evidência
 ```
 
@@ -37,7 +42,15 @@ bun run test:e2e       # Playwright; não rode junto com dev (portas 1420/4317)
 bun run host:http      # ponte HTTP de dev na 4317, com OPENRIDR_HOME em .scratch/host-home
 ```
 
+Rust: os pacotes se chamam `openridr-host` e `openridr-host-http` (não `host`). `cargo test` aceita **um** filtro antes do `--`; para vários: `cargo test -p openridr-host -- filtro_a filtro_b`.
+
+**Worktree nova não tem `node_modules`** (nem `target/` quente): rode `bun install` antes de `check`, `build` ou E2E. Sem isso, `tsc`/`playwright` falham e greps em `node_modules/` voltam vazios.
+
 `check` não inclui `cargo fmt --check` nem `clippy -D warnings`: o código atual não passa em nenhum dos dois. Não reformate o repo inteiro dentro de um ticket; formate apenas o que tocar até essa dívida ser paga.
+
+### Falhas conhecidas (não são suas)
+
+Presentes no HEAD sem mudanças: E2E `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts`; Rust `file_access_is_confined_to_the_workspace` (e, sem restore, `evaluation_returns_the_real_msbuild_model_for_every_project`). Qualquer outra falha é sua: investigue. Detalhes em `docs/RETRO-DEVFLOW-2026-11-02.md`.
 
 ## .NET SDK 8.0.408
 
@@ -63,5 +76,5 @@ bun run host:http      # ponte HTTP de dev na 4317, com OPENRIDR_HOME em .scratc
 - Um componente por arquivo; comentários em inglês; uma função de erro por fronteira (use `messageOf`/`requireAction` em vez de repetir mapeamento).
 - **Prova real, não inventada**: o que o ambiente não permitiu executar vai como "não verificado" no `implementation-notes.md` e no ticket.
 - **Commit**: um por ticket/fatia, mensagem convencional (`feat(git): ...`, `fix(search): ...`, `docs: ...`, `chore: ...`), com código, testes e checklist atualizado.
-- **Stage explícito**: commite caminhos com `git commit --only -- <paths>`; nunca use `git add -A` nem altere o index do usuário. Deixe `dist/`, `target/`, `test-results/` e afins fora (ver `.gitignore`).
+- **Stage explícito**: use `scripts/commit-only.sh "msg" <paths>` (faz o `git add -N` dos novos e `git commit --only -m "msg" -- <paths>`); à mão, é `git commit --only -m "msg" -- <paths>`; nunca use `git add -A` nem altere o index do usuário. Duas armadilhas que falharam 38 vezes em 10 sessões: (1) `-m` vai **antes** do `--` (depois dele vira pathspec); (2) arquivo/pasta **novo** precisa de `git add -N <paths>` antes (só marca intenção), senão dá `pathspec ... did not match`. Deixe `dist/`, `target/`, `test-results/` e afins fora (ver `.gitignore`).
 - **Sem push, remote ou PR** a partir de sessão de agente. O hook de pre-commit roda `bun run check`; não use `--no-verify`.

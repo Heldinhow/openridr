@@ -316,7 +316,7 @@ Mapear cada AC-01 a AC-34 a uma evidência ou limitação explícita por ambient
 
 ### Fontes e precedência
 
-- Telas aprovadas: [HTML offline](index.html) e [wireframes ASCII](wireframes.md); decisões e prioridades: [README](README.md), no diretório `/Users/helder/.opencode/plan/openridr-ui/`.
+- Telas aprovadas: [HTML offline](index.html) e [wireframes ASCII](wireframes.md); decisões e prioridades: [PROPOSTA-UI](PROPOSTA-UI-2026-10-28.md), no diretório `/Users/helder/.opencode/plan/openridr-ui/`.
 - Handoff lido: `/tmp/openridr-handoff.md`; notas remotas de apoio: `/Users/helder/.config/openchamber/chats/2026-10-27/session-1b9558e8-ecc3-4178-8b36-e6b8bd290c33/openidea-dotnet-notes.md` e `rider-like-architecture-notes.md` no mesmo diretório.
 - Base remota pesquisada: [OpenIdea, revisão 48ac2094fc62b51b730a59d4ae6530392ef7f18b](https://github.com/l0ng-ai/openidea/tree/48ac2094fc62b51b730a59d4ae6530392ef7f18b). Não há checkout/fork local nem integração garantida pelas notas.
 - Ferramentas: [csharp-ls 0.28.0](https://github.com/razzmatazz/csharp-language-server/releases/tag/0.28.0), [netcoredbg 3.2.0-1092](https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092), [relato upstream #256](https://github.com/Samsung/netcoredbg/issues/256). Referências herdadas, sem nova pesquisa ou execução nesta etapa.
