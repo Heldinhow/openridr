@@ -1,6 +1,7 @@
 # Instalar o OpenRidr como app local (macOS ARM64)
 
-Uso pessoal, sem assinatura nem notarização.
+Uso pessoal, sem assinatura nem notarização. O DMG de release é assinado com Developer ID e
+notarizado; este script continua ad-hoc — ver [release-signing.md](release-signing.md).
 
 ```sh
 bun run app:install
