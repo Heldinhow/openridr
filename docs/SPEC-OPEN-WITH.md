@@ -70,8 +70,11 @@ Finder entra pelo mesmo `workspace.open` da tela inicial: prompt de Trust uma ve
 - **UI reusa o fluxo existente.** A UI chama `workspace.open` com o caminho pendente e aplica o
   mesmo `handleOpened` (prompt de Trust, `previousPath` para Cancel, stage workspace). Com um
   workspace montado, a abertura externa é encaminhada ao `WorkspaceView`, que usa o mesmo guard
-  de `openSolution`/`Open Recent`; buffer sujo recusa e mostra a mensagem existente. Falha de
-  abertura aparece numa faixa `role="alert"` dispensável, sem mudar o workspace atual.
+  de `openSolution`/`Open Recent`; buffer sujo recusa e mostra a mensagem existente. Erros de `workspace.open` aparecem no formulário ou na área de mensagens de onde a abertura
+  começou (tela inicial ou workspace), sem mudar o workspace atual. Diretório ambíguo com workspace
+  montado vira botões de candidato na área de mensagens; clicar abre o escolhido. A faixa
+  `role="alert"` dispensável (`external-open-error`) é só falha do listener ou do invoke do shell.
+  Com um prompt de Trust pendente, outra abertura externa não o substitui: recebe essa faixa e nada muda.
 - **Launcher.** `scripts/openridr` valida `$# = 1` e a existência do caminho e chama
   `open -a "${OPENRIDR_APP:-OpenRidr}" "$1"`. Não instala link no PATH, não usa a ponte HTTP e
   não abre instância nova. `docs/install-app.md` documenta o link manual e o uso em dev.

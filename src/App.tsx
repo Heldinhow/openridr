@@ -122,7 +122,12 @@ export default function App() {
 
   function openExternal(path: string) {
     setExternalError(null);
-    if (stage === "workspace" && snapshot?.workspace && !prompt) {
+    // A pending Trust prompt belongs to the project already on screen; replacing it would drop that decision.
+    if (prompt) {
+      setExternalError("Finish the Trust decision for the pending project before opening another one.");
+      return;
+    }
+    if (stage === "workspace" && snapshot?.workspace) {
       setExternalOpen({ path });
       return;
     }

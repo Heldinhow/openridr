@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { call, HostCallError, messageOf, type Candidate, type Snapshot } from "./host/client";
+import { call, candidatesOf, HostCallError, messageOf, type Candidate, type Snapshot } from "./host/client";
 import { Icon } from "./Icon";
 import { PathForm } from "./welcome/PathForm";
 import { ProjectsView } from "./welcome/ProjectsView";
@@ -55,10 +55,7 @@ export function SetupScreen({
       } else {
         setError(messageOf(caught));
       }
-      if (caught instanceof HostCallError && caught.code === "ambiguous_workspace") {
-        const details = caught.details as { candidates?: Candidate[] } | undefined;
-        setCandidates(details?.candidates ?? []);
-      }
+      setCandidates(candidatesOf(caught));
     } finally {
       setBusy(false);
     }

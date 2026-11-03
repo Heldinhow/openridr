@@ -47,6 +47,9 @@ Nenhuma instância do app do Helder foi tocada. Procedimento:
 
 ## Não verificado
 
+- Botões de candidato (`external-open-candidate-N`, com workspace montado): implementados, mas a UI não foi exercitada
+  nem visualmente nem por E2E. O host já provou a recusa ambígua (`open-external.spec.ts`).
+- Recusa de abertura externa com prompt de Trust pendente: implementada em `App.openExternal`, sem prova na tela.
 - Prompt de Trust e banner de erro na tela (visual).
 - Recusa por buffer sujo em abertura externa.
 - Escolha de candidato na tela inicial depois de um diretório ambíguo vindo do Finder/Dock: o caminho

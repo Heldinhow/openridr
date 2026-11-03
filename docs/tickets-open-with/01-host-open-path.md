@@ -51,13 +51,13 @@ Rodar os testes e ver falhar pelo motivo certo antes de implementar:
 
 ## Aceite
 
-- [ ] `workspace.open` relativo/absoluto, extensão case-insensitive e `baseDir` validados.
-- [ ] `.slnx` abre como solution e o outline lista os projetos.
-- [ ] `.csproj` continua `kind: project`.
-- [ ] Diretório ambíguo continua recusando com candidatos.
+- [x] `workspace.open` relativo/absoluto, extensão case-insensitive e `baseDir` validados.
+- [x] `.slnx` abre como solution e o outline lista os projetos.
+- [x] `.csproj` continua `kind: project`.
+- [x] Diretório ambíguo continua recusando com candidatos.
 - [ ] Nenhum processo/execute ao abrir; nenhuma dependência nova.
 - [ ] Unidades e E2E alvo verdes; `cargo test -p openridr-host` e `bun run check` verdes.
-- [ ] Entrada de 2026-11-02 em `docs/decisions.md` já cobre as decisões (ajustar só se o
+- [x] Entrada de 2026-11-02 em `docs/decisions.md` já cobre as decisões (ajustar só se o
       código provar outra coisa).
-- [ ] Commit local `feat(open): accept external and .slnx workspace paths` só com os caminhos
+- [x] Commit local `feat(open): accept external and .slnx workspace paths` só com os caminhos
       deste ticket.

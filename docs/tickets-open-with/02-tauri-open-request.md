@@ -56,12 +56,12 @@ existente — sem segunda janela, sem execução e sem perder buffer sujo.
 
 ## Aceite
 
-- [ ] Associações no bundle gerado (`.sln`, `.slnx`, `.csproj`, pasta).
+- [x] Associações no bundle gerado (`.sln`, `.slnx`, `.csproj`, pasta).
 - [ ] argv, `Opened` e URL inválida tratados; último caminho pendente vence.
 - [ ] UI abre o caminho pelo mesmo `workspace.open`; trust/recent inalterados.
 - [ ] Workspace aberto com buffer sujo recusa a abertura externa com a mensagem existente.
 - [ ] Uma janela só; nenhum processo/dotnet ao abrir.
-- [ ] Unidades do shell, `bun run build`, `cargo check` e o build do bundle verdes.
-- [ ] Nenhum arquivo em `~/Library/Application Support/OpenRidr` ao testar.
-- [ ] Commit local `feat(app): open solutions from Finder and the Dock` só com os caminhos
+- [x] Unidades do shell, `bun run build`, `cargo check` e o build do bundle verdes.
+- [x] Nenhum arquivo em `~/Library/Application Support/OpenRidr` ao testar.
+- [x] Commit local `feat(app): open solutions from Finder and the Dock` só com os caminhos
       deste ticket.

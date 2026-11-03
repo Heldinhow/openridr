@@ -308,4 +308,12 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn project_reference_with_single_quoted_include_is_listed() {
+        assert_eq!(
+            project_references("<ProjectReference Include='../Lib/Lib.csproj' />"),
+            vec!["Lib".to_string()]
+        );
+    }
 }

@@ -2,6 +2,8 @@
 # Self-check for scripts/openridr: runs it with a fake `open` first on a temporary PATH.
 # Usage: sh scripts/openridr-selfcheck.sh. Never calls the real `open`; work dir is removed on exit.
 set -eu
+# A developer may export OPENRIDR_APP; the launcher under test must resolve the app itself.
+unset OPENRIDR_APP
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 launcher="$repo/scripts/openridr"

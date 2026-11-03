@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import {
   call,
+  candidatesOf,
   HostCallError,
   messageOf,
   type Candidate,
@@ -354,6 +355,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [activePath, setActivePath] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [trustError, setTrustError] = useState<string | null>(null);
+  // Ambiguous external open with the workspace mounted: the user picks the solution from these buttons.
+  const [externalCandidates, setExternalCandidates] = useState<{ path: string; candidates: Candidate[] } | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
@@ -3798,9 +3801,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     try {
       await onOpenRecent(solution);
     } catch (error) {
-      if (error instanceof HostCallError && error.code === "ambiguous_workspace") {
-        const names = ((error.details as { candidates?: Candidate[] } | undefined)?.candidates ?? []).map((item) => item.name);
-        setMessage({ tone: "error", text: `Could not open ${solution}: it contains more than one solution or project: ${names.join(", ")}. Open one directly.` });
+      const candidates = candidatesOf(error);
+      if (candidates.length > 0) {
+        setExternalCandidates({ path: solution, candidates });
         return;
       }
       setMessage({ tone: "error", text: `Could not open ${solution}: ${messageOf(error)}` });
@@ -3812,6 +3815,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   useEffect(() => {
     if (!externalOpen || externalOpen === handledExternalOpen.current) return;
     handledExternalOpen.current = externalOpen;
+    setExternalCandidates(null);
     void openSolution(externalOpen.path);
   }, [externalOpen]);
 
@@ -4048,6 +4052,25 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       </div>
 
       <div className="workspace-notices">
+      {externalCandidates && (
+        <div className="notice error" role="alert" data-testid="external-open-candidates">
+          {externalCandidates.path} contains more than one solution or project:
+          {externalCandidates.candidates.map((candidate, index) => (
+            <button
+              key={candidate.path}
+              className="link-button"
+              data-testid={`external-open-candidate-${index}`}
+              onClick={() => {
+                setExternalCandidates(null);
+                void openSolution(candidate.path);
+              }}
+            >
+              {candidate.name}
+            </button>
+          ))}
+          <button className="notice-dismiss" aria-label="Dismiss candidates" onClick={() => setExternalCandidates(null)}>×</button>
+        </div>
+      )}
       {message && (
         <div
           className={`notice ${message.tone === "error" ? "error" : ""}`}

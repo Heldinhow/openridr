@@ -38,10 +38,10 @@ que foi verificado de verdade e o que só vale no bundle real.
 
 ## Aceite
 
-- [ ] `scripts/openridr` executa e passa no self-check com `open` falso.
-- [ ] Documentação de **Abrir Com**, PATH manual e dev bundle em `docs/install-app.md`.
-- [ ] Notas de implementação com o limite de `.slnx` e o que não foi verificado.
-- [ ] Evidência real do bundle e das aberturas, sem tocar no app home real.
-- [ ] `bun run check` verde (fora as falhas pré-existentes listadas na spec).
-- [ ] Commit local `feat(cli): add openridr launcher and document Open With` só com os
+- [x] `scripts/openridr` executa e passa no self-check com `open` falso.
+- [x] Documentação de **Abrir Com**, PATH manual e dev bundle em `docs/install-app.md`.
+- [x] Notas de implementação com o limite de `.slnx` e o que não foi verificado.
+- [x] Evidência real do bundle e das aberturas, sem tocar no app home real.
+- [x] `bun run check` verde (fora as falhas pré-existentes listadas na spec).
+- [x] Commit local `feat(cli): add openridr launcher and document Open With` só com os
       caminhos deste ticket.
