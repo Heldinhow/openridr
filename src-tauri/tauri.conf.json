@@ -36,6 +36,48 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["sln"],
+        "name": "Solution",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "text/plain",
+        "exportedType": {
+          "identifier": "com.openridr.solution",
+          "conformsTo": ["public.plain-text"]
+        }
+      },
+      {
+        "ext": ["slnx"],
+        "name": "Solution (XML)",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "text/xml",
+        "exportedType": {
+          "identifier": "com.openridr.solution-xml",
+          "conformsTo": ["public.xml"]
+        }
+      },
+      {
+        "ext": ["csproj"],
+        "name": "C# Project",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "text/xml",
+        "exportedType": {
+          "identifier": "com.openridr.csproj",
+          "conformsTo": ["public.xml"]
+        }
+      },
+      {
+        "ext": [],
+        "name": "Folder",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": ["public.folder"]
+      }
+    ],
     "macOS": {
       "signingIdentity": "-",
       "minimumSystemVersion": "13.0"

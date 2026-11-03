@@ -1108,6 +1108,12 @@ export class HostCallError extends Error {
   }
 }
 
+// Candidates carried by an ambiguous_workspace refusal; any other error has none.
+export function candidatesOf(error: unknown): Candidate[] {
+  if (!(error instanceof HostCallError) || error.code !== "ambiguous_workspace") return [];
+  return (error.details as { candidates?: Candidate[] } | undefined)?.candidates ?? [];
+}
+
 function toHostError(error: unknown): HostCallError {
   if (error instanceof HostCallError) {
     return error;

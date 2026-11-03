@@ -14,6 +14,8 @@ A lógica de host vive em `crates/host` (`openridr-host`), sem dependência de T
 
 O diálogo nativo de arquivos fica para depois. A tela inicial aceita caminho absoluto de `.sln`, `.csproj` ou diretório; o host lista candidatos e exige escolha quando há mais de uma solução/projeto. Custo menor e testável por teclado; trocar por seletor nativo não muda o contrato do host.
 
+> **Estendida em 2026-11-02**: o host (`workspace.open`) passou a aceitar caminho relativo com `baseDir` e `.slnx`. A abertura externa (Finder, Dock, `openridr`) usa o mesmo fluxo: sem workspace montado, cai na tela inicial, que mostra candidatos, erro e o prompt de Trust como na digitação.
+
 ## 2026-10-27 — Trust só em memória
 
 > **Substituída em 2026-11-01** por "Trust decision persistida por projeto" (abaixo). O código já divergia desta entrada: `trusted.json` guarda os caminhos confiados desde antes.
@@ -510,3 +512,15 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - O store por solução (`run-configs/<hash>.json`) ganha `session`: abas (caminho relativo + cursor), `activePath` e breakpoints por arquivo (linhas 1-based). Conteúdo de buffer nunca é gravado. `runConfigs.write`/`setStartup` preservam a sessão; `session.read`/`session.write` gravam só ela sob o mesmo lock.
 - Ao abrir um workspace, a UI reabre as abas salvas uma vez, restaura cursor/scroll da aba ativa e reaplica breakpoints somente com Trusted. Arquivo removido do disco não impede as outras abas.
 - `OPENRIDR_SESSION_STORE=off` faz `session.read` devolver vazio e `session.write` não gravar. O host compartilhado do Playwright usa off para um spec não restaurar as abas do anterior; o app e `tests/e2e/medium-editor-session.spec.ts` (host isolado) mantêm ligado. Mesmo precedente de `OPENRIDR_TRUST_STORE=off`.
+
+## 2026-11-02 — Abrir do Finder e do terminal ("Abrir Com")
+
+- **Associações no bundle, não em runtime.** `bundle.fileAssociations` declara `.sln`, `.slnx` e `.csproj` com `exportedType` (UTIs `com.openridr.*`), `role: Editor` e `rank: Default`; o mesmo bloco declara `public.folder` com `rank: Alternate` para o ícone do Dock aceitar pasta sem virar o padrão de abertura de pastas. Quem lê isso é o LaunchServices a partir do Info.plist; o app não registra nada ao rodar.
+- **Um único caminho de abertura.** O shell Tauri só entrega o caminho (argv quando o binário é aberto direto; `RunEvent::Opened` quando o LaunchServices reusa a instância aberta) à UI, que chama o mesmo `workspace.open` da tela inicial. Trust, prompt, `recent.json` e recusa de caminho continuam no host; não nasce um segundo fluxo de confiança.
+- **Caminho relativo resolvido no host.** `workspace.open` aceita caminho relativo, juntando um `baseDir` opcional (absoluto) ou o cwd do host antes de canonicalizar. Extensões aceitas: `.sln`, `.slnx`, `.csproj` sem diferenciar maiúsculas; diretório só abre com exatamente uma solution ou um projeto. Abrir continua sem executar nada: lê texto para o outline e para as run configurations.
+- **`.csproj` é projeto.** Abrir um `.csproj` do Finder produz o mesmo workspace `kind: project` que escolher o arquivo na tela inicial; a solution que o contém não é procurada.
+- **`.slnx` abre e navega.** O outline lê `<Project Path="..."/>` do XML, além do `.sln` textual. O SDK 8.0.408 da fixture não restaura nem compila `.slnx`; restore/build falham com o erro do dotnet, sem sucesso inventado. O recorte é abrir/navegar, não executar `.slnx`.
+- **Sem segunda janela e sem perder buffer.** O macOS reusa a instância do bundle; o caminho fica pendente no processo Tauri (o último vence) até a UI consumir. Com um workspace aberto, a abertura externa passa pelo mesmo guard de buffers sujos do "Open Recent": se há alteração não salva, ela é recusada com a mensagem existente em vez de descartar edições.
+- **`openridr <caminho>` é script fino sobre `open -a`.** Valida que o caminho existe e delega ao LaunchServices, que reusa a instância aberta. Nada é copiado para o PATH automaticamente; o link em `~/.local/bin` ou `/usr/local/bin` é ação manual documentada. `OPENRIDR_APP` aponta para um bundle de desenvolvimento.
+- **Testes.** Unidade no host para resolução/allowlist e no shell para argv/URL; E2E contra a ponte HTTP para caminho relativo, `.slnx`, `.csproj`, diretório ambíguo e extensão recusada. O evento nativo do Finder e o arrasto para o Dock só são provados no bundle real; ficam como verificação manual registrada, com `OPENRIDR_HOME` isolado.
+- **Follow-ups da revisão.** Com workspace montado, a escolha ambígua (diretório com mais de uma solution ou projeto) aparece em botões na área de mensagens, e clicar abre o escolhido pelo `openSolution` existente. Um prompt de Trust pendente não é substituído por outra abertura externa: a nova recebe `external-open-error` ("Finish the Trust decision for the pending project before opening another one.") e o workspace permanece.

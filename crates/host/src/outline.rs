@@ -32,7 +32,15 @@ pub struct Outline {
 pub fn build_outline(root: &Path, workspace_file: &Path, is_solution: bool) -> Outline {
     let projects = if is_solution {
         let text = fs::read_to_string(workspace_file).unwrap_or_default();
-        parse_solution(&text)
+        let entries = if workspace_file
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("slnx"))
+        {
+            parse_slnx(&text)
+        } else {
+            parse_solution(&text)
+        };
+        entries
             .into_iter()
             .map(|(name, rel)| outline_project(root, &rel, &name))
             .collect()
@@ -161,6 +169,31 @@ pub fn parse_solution(text: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// `.slnx` lists projects as `<Project Path="..."/>`. A tag may span lines; `<Folder>` is not a project.
+fn parse_slnx(text: &str) -> Vec<(String, String)> {
+    let mut projects = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("<Project") {
+        let tag = &rest[start..];
+        let Some(end) = tag.find('>') else { break };
+        // `<ProjectExtensions>` and similar names are not projects.
+        let attributes = &tag["<Project".len()..end];
+        if attributes.starts_with(char::is_whitespace) {
+            if let Some(path) = attribute(attributes, "Path")
+                .filter(|path| path.to_lowercase().ends_with(".csproj"))
+            {
+                let name = Path::new(&normalize_rel(&path))
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                projects.push((name, path));
+            }
+        }
+        rest = &tag[end..];
+    }
+    projects
+}
+
 fn quoted(text: &str) -> Vec<String> {
     let mut values = Vec::new();
     let mut rest = text;
@@ -174,10 +207,12 @@ fn quoted(text: &str) -> Vec<String> {
 }
 
 fn attribute(line: &str, name: &str) -> Option<String> {
-    let needle = format!("{name}=\"");
-    let start = line.find(&needle)? + needle.len();
-    let end = line[start..].find('"')? + start;
-    Some(line[start..end].to_string())
+    ['"', '\''].into_iter().find_map(|quote| {
+        let needle = format!("{name}={quote}");
+        let start = line.find(&needle)? + needle.len();
+        let end = line[start..].find(quote)? + start;
+        Some(line[start..end].to_string())
+    })
 }
 
 fn element(text: &str, tag: &str) -> Option<String> {
@@ -240,5 +275,45 @@ fn walk(dir: &Path, root: &Path, files: &mut Vec<String>) {
         } else if path.extension().is_some_and(|ext| ext == "cs") {
             files.push(relative(root, &path));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slnx_compact_tags_list_projects_in_file_order_and_skip_folders() {
+        let text = r#"<Solution>
+  <Folder Name="/Project/"><Project Path="Api/Api.csproj" /></Folder>
+  <Project Path="Core/Core.csproj"/>
+</Solution>"#;
+        assert_eq!(
+            parse_slnx(text),
+            vec![
+                ("Api".to_string(), "Api/Api.csproj".to_string()),
+                ("Core".to_string(), "Core/Core.csproj".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn slnx_multiline_tags_accept_single_and_double_quotes() {
+        let text = "<Solution>\n  <Project\n    Path='Web Ui/Web Ui.csproj'\n  />\n  <Project Path=\"Tests\\Tests.csproj\"></Project>\n</Solution>";
+        assert_eq!(
+            parse_slnx(text),
+            vec![
+                ("Web Ui".to_string(), "Web Ui/Web Ui.csproj".to_string()),
+                ("Tests".to_string(), "Tests\\Tests.csproj".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn project_reference_with_single_quoted_include_is_listed() {
+        assert_eq!(
+            project_references("<ProjectReference Include='../Lib/Lib.csproj' />"),
+            vec!["Lib".to_string()]
+        );
     }
 }

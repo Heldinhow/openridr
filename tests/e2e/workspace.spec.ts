@@ -489,7 +489,7 @@ test("ambiguous and empty directories ask the user instead of guessing", async (
     fs.mkdirSync(empty);
     await openWorkspace(page, empty);
     await expect(page.getByTestId("workspace-error")).toContainText(
-      "No .sln or .csproj found",
+      "No .sln, .slnx or .csproj found",
     );
   } finally {
     fs.rmSync(base, { recursive: true, force: true });

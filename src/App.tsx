@@ -18,6 +18,12 @@ export default function App() {
   const [pendingFile, setPendingFile] = useState<string | null>(null);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const recentSolutions = recentProjects.map((project) => project.path);
+  // Path from Finder or the Dock while a workspace is mounted; WorkspaceView applies it with its dirty-buffer guard.
+  const [externalOpen, setExternalOpen] = useState<{ path: string } | null>(null);
+  // Same for the setup screen, which opens the path with its own form flow (candidates, errors, trust).
+  const [setupOpen, setSetupOpen] = useState<{ path: string } | null>(null);
+  // Only for a failed listener or invoke of the shell; open errors show where the open was started.
+  const [externalError, setExternalError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -109,32 +115,91 @@ export default function App() {
 
   async function openRecent(path: string) {
     // Opening another workspace resets trust in the host; the view remounts on the new id.
-    previousPath.current = snapshot?.workspace?.path ?? null;
+    // While a prompt is pending, the workspace to restore on Cancel is already in previousPath.
+    if (!prompt) previousPath.current = snapshot?.workspace?.path ?? null;
     handleOpened(await call<Snapshot>("workspace.open", { path }));
   }
+
+  function openExternal(path: string) {
+    setExternalError(null);
+    // A pending Trust prompt belongs to the project already on screen; replacing it would drop that decision.
+    if (prompt) {
+      setExternalError("Finish the Trust decision for the pending project before opening another one.");
+      return;
+    }
+    if (stage === "workspace" && snapshot?.workspace) {
+      setExternalOpen({ path });
+      return;
+    }
+    setSetupOpen({ path });
+  }
+
+  // Read by the shell listener, which is registered once; the ref keeps the latest state.
+  const openExternalRef = useRef(openExternal);
+  openExternalRef.current = openExternal;
+
+  useEffect(() => {
+    // Finder, the Dock and the command line hand paths over only in the desktop shell.
+    if (!window.__TAURI_INTERNALS__) return;
+    let unmounted = false;
+    let stop: (() => void) | undefined;
+    void (async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { listen } = await import("@tauri-apps/api/event");
+      const takePending = async () => {
+        const path = await invoke<string | null>("take_pending_open");
+        if (path) openExternalRef.current(path);
+      };
+      const unlisten = await listen("openridr-open", () => void takePending());
+      if (unmounted) {
+        unlisten();
+        return;
+      }
+      stop = unlisten;
+      // A path that arrived before this listener (launch from Finder or argv) waits in the shell.
+      await takePending();
+    })().catch((caught) => setExternalError(messageOf(caught)));
+    return () => {
+      unmounted = true;
+      stop?.();
+    };
+  }, []);
 
   function openGlobalJson() {
     setPendingFile(snapshot?.sdk.project.globalJsonPath ?? "global.json");
     setStage("workspace");
   }
 
+  // Dismissable band for a path that could not be opened from outside the app.
+  const externalBand = externalError ? (
+    <div className="notice error external-open-error" role="alert" data-testid="external-open-error">
+      {externalError}
+      <button className="notice-dismiss" aria-label="Dismiss external open error" onClick={() => setExternalError(null)}>×</button>
+    </div>
+  ) : null;
+
   if (stage === "workspace" && snapshot?.workspace && !prompt) {
     return (
-      <WorkspaceView
-        key={snapshot.workspace.id}
-        snapshot={snapshot}
-        initialFile={pendingFile}
-        recentSolutions={recentSolutions}
-        onOpenRecent={openRecent}
-        onSnapshot={handleSnapshot}
-        onClosed={handleClosed}
-      />
+      <>
+        {externalBand}
+        <WorkspaceView
+          key={snapshot.workspace.id}
+          snapshot={snapshot}
+          initialFile={pendingFile}
+          recentSolutions={recentSolutions}
+          externalOpen={externalOpen}
+          onOpenRecent={openRecent}
+          onSnapshot={handleSnapshot}
+          onClosed={handleClosed}
+        />
+      </>
     );
   }
 
   return (
     <>
     {prompt && <TrustPrompt snapshot={prompt} onDecided={decided} onCancel={() => void cancelPrompt()} cancelError={cancelError} />}
+    {externalBand}
     <div ref={background} style={{ display: "contents" }}>
     <SetupScreen
       key={lastPath}
@@ -145,6 +210,7 @@ export default function App() {
       onOpened={handleOpened}
       onSnapshot={handleSnapshot}
       onOpenGlobalJson={openGlobalJson}
+      externalOpen={setupOpen}
     />
     </div>
     </>

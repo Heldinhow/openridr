@@ -10,7 +10,7 @@ export async function fetchRecent(): Promise<RecentProject[]> {
 }
 
 export function projectName(path: string) {
-  return (path.split(/[\\/]/).pop() ?? path).replace(/\.(sln|csproj)$/i, "");
+  return (path.split(/[\\/]/).pop() ?? path).replace(/\.(slnx?|csproj)$/i, "");
 }
 
 // The browser cannot read the home folder, so the usual per-user roots stand in for it.

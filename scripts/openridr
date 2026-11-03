@@ -1,0 +1,17 @@
+#!/bin/sh
+# Opens a solution, project or folder in OpenRidr through LaunchServices (macOS).
+# Usage: openridr <path>. Installs nothing; see docs/install-app.md.
+# OPENRIDR_APP overrides the app (e.g. a debug bundle path).
+set -eu
+
+if [ "$#" -ne 1 ]; then
+  echo "usage: openridr <path-to-.sln|.slnx|.csproj|folder>" >&2
+  exit 2
+fi
+
+if [ ! -e "$1" ]; then
+  echo "openridr: path does not exist: $1" >&2
+  exit 1
+fi
+
+exec open -a "${OPENRIDR_APP:-OpenRidr}" "$1"

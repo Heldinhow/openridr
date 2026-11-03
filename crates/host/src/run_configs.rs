@@ -468,11 +468,11 @@ fn solution_param(params: &Value) -> HostResult<PathBuf> {
     })?;
     if !matches!(
         canonical.extension().and_then(|extension| extension.to_str()),
-        Some("sln") | Some("csproj")
+        Some("sln") | Some("slnx") | Some("csproj")
     ) {
         return Err(HostError::new(
             "invalid_run_configs",
-            "Run configurations are stored for a .sln or .csproj.",
+            "Run configurations are stored for a .sln, .slnx or .csproj.",
         ));
     }
     Ok(canonical)
@@ -812,6 +812,16 @@ mod tests {
             env: serde_json::Map::new(),
             env_files: Vec::new(),
         }
+    }
+
+    #[test]
+    fn solution_param_accepts_a_real_slnx() {
+        let home = tempfile::tempdir().unwrap();
+        let slnx = home.path().join("Modern.slnx");
+        fs::write(&slnx, "<Solution />").unwrap();
+
+        let accepted = solution_param(&json!({ "solution": slnx.to_str().unwrap() })).unwrap();
+        assert_eq!(accepted, fs::canonicalize(&slnx).unwrap());
     }
 
     #[test]

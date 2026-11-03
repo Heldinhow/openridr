@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { call, HostCallError, messageOf, type Candidate, type Snapshot } from "./host/client";
+import { useEffect, useRef, useState } from "react";
+import { call, candidatesOf, HostCallError, messageOf, type Candidate, type Snapshot } from "./host/client";
 import { Icon } from "./Icon";
 import { PathForm } from "./welcome/PathForm";
 import { ProjectsView } from "./welcome/ProjectsView";
@@ -15,6 +15,8 @@ type Props = {
   onOpened: (snapshot: Snapshot) => void;
   onSnapshot: (snapshot: Snapshot) => void;
   onOpenGlobalJson: () => void;
+  // Path from Finder, the Dock or the command line, opened through the same open() as the form.
+  externalOpen: { path: string } | null;
 };
 
 export function SetupScreen({
@@ -25,6 +27,7 @@ export function SetupScreen({
   onOpened,
   onSnapshot,
   onOpenGlobalJson,
+  externalOpen,
 }: Props) {
   const [view, setView] = useState<WelcomeView>("projects");
   const [busy, setBusy] = useState(false);
@@ -36,7 +39,7 @@ export function SetupScreen({
   // `row` is the recent project the open was started from: its failure is shown on that row.
   async function open(target: string, row?: string) {
     if (!target.trim()) {
-      setError("Enter an absolute path to a .sln, .csproj or a directory.");
+      setError("Enter an absolute path to a .sln, .slnx, .csproj or a directory.");
       return;
     }
     setBusy(true);
@@ -52,10 +55,7 @@ export function SetupScreen({
       } else {
         setError(messageOf(caught));
       }
-      if (caught instanceof HostCallError && caught.code === "ambiguous_workspace") {
-        const details = caught.details as { candidates?: Candidate[] } | undefined;
-        setCandidates(details?.candidates ?? []);
-      }
+      setCandidates(candidatesOf(caught));
     } finally {
       setBusy(false);
     }
@@ -69,6 +69,16 @@ export function SetupScreen({
       setError(messageOf(caught));
     }
   }
+
+  // The first value belongs to the mount that already handled it; only a new request opens.
+  const handledExternalOpen = useRef(externalOpen);
+  useEffect(() => {
+    if (!externalOpen || externalOpen === handledExternalOpen.current) return;
+    handledExternalOpen.current = externalOpen;
+    // Errors, candidates and the trust prompt show where the form's do, so the projects view must be visible.
+    setView("projects");
+    void open(externalOpen.path);
+  }, [externalOpen]);
 
   return (
     <main className="setup-screen">

@@ -711,7 +711,7 @@ fn strip_project_suffix(message: &str) -> String {
         return trimmed.to_string();
     }
     let bracket = &trimmed[start + 2..trimmed.len() - 1];
-    if bracket.ends_with(".csproj") || bracket.ends_with(".sln") {
+    if bracket.ends_with(".csproj") || bracket.ends_with(".sln") || bracket.ends_with(".slnx") {
         trimmed[..start].trim_end().to_string()
     } else {
         trimmed.to_string()
@@ -894,6 +894,14 @@ mod tests {
             Line::Rejected => panic!("line was rejected: {line}"),
             Line::Ignored => panic!("line was not recognized: {line}"),
         }
+    }
+
+    #[test]
+    fn msbuild_project_suffix_is_stripped_for_sln_slnx_and_csproj() {
+        assert_eq!(strip_project_suffix("bad [/w/App.csproj]"), "bad");
+        assert_eq!(strip_project_suffix("bad [/w/App.sln]"), "bad");
+        assert_eq!(strip_project_suffix("bad [/w/Modern.slnx]"), "bad");
+        assert_eq!(strip_project_suffix("kept [/w/notes.txt]"), "kept [/w/notes.txt]");
     }
 
     #[test]
