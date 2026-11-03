@@ -2,7 +2,7 @@
 name = "openridr-host"
 version = "0.3.0-alpha.4"
 edition = "2021"
-license = "Apache-2.0"
+license = "MIT"
 description = "OpenRidr host: workspace state, text outline and gated dispatch"
 
 [dependencies]
