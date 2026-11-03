@@ -958,16 +958,22 @@ impl Host {
 
     fn open_workspace(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
-        let requested = Path::new(&raw);
-        if !requested.is_absolute() {
+        if raw.trim().is_empty() {
             return Err(HostError::new(
                 "path_not_allowed",
-                "Workspace path must be absolute.",
+                "Workspace path is empty.",
             ));
         }
-        let canonical = fs::canonicalize(requested).map_err(|_| {
-            HostError::new("not_found", format!("Workspace path not found: {raw}"))
-        })?;
+        let base = match params.get("baseDir") {
+            None | Some(Value::Null) => std::env::current_dir().ok(),
+            Some(value) => value
+                .as_str()
+                .map(PathBuf::from)
+                .filter(|dir| dir.is_absolute()),
+        }
+        .ok_or_else(|| HostError::new("path_not_allowed", "Base directory must be absolute."))?;
+        let canonical = fs::canonicalize(base.join(&raw))
+            .map_err(|_| HostError::new("not_found", format!("Workspace path not found: {raw}")))?;
         let workspace_path = if canonical.is_dir() {
             resolve_directory(&canonical)?
         } else {
@@ -6485,6 +6491,7 @@ fn is_evaluation_input(rel: &str) -> bool {
         || lower.ends_with(".props")
         || lower.ends_with(".targets")
         || lower.ends_with(".sln")
+        || lower.ends_with(".slnx")
         || lower.ends_with("/global.json")
         || lower == "global.json"
 }
@@ -6559,18 +6566,27 @@ fn dotnet_command(command: &[String], cwd: &Path, sdk_root: &Path) -> Command {
     process
 }
 
+/// Workspace extensions, compared without case: `.SLN` opens like `.sln`.
+fn workspace_extension(path: &Path) -> Option<String> {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase)
+}
+
 fn workspace_file(path: &Path) -> HostResult<PathBuf> {
-    match path.extension().and_then(|ext| ext.to_str()) {
-        Some("sln") | Some("csproj") => Ok(path.to_path_buf()),
+    match workspace_extension(path).as_deref() {
+        Some("sln" | "slnx" | "csproj") => Ok(path.to_path_buf()),
         _ => Err(HostError::new(
             "path_not_allowed",
-            "Open a .sln, a .csproj or a directory that contains one.",
+            "Open a .sln, a .slnx, a .csproj or a directory that contains one.",
         )),
     }
 }
 
 fn resolve_directory(dir: &Path) -> HostResult<PathBuf> {
-    let solutions = files_with_extension(dir, "sln");
+    let mut solutions = files_with_extension(dir, "sln");
+    solutions.extend(files_with_extension(dir, "slnx"));
+    solutions.sort();
     if solutions.len() == 1 {
         return Ok(solutions[0].clone());
     }
@@ -6631,13 +6647,13 @@ fn ambiguous_workspace(dir: &Path, files: &[PathBuf], kind: &'static str) -> Hos
 }
 
 fn load_workspace(path: &Path) -> HostResult<Workspace> {
-    let kind = match path.extension().and_then(|ext| ext.to_str()) {
-        Some("sln") => WorkspaceKind::Solution,
+    let kind = match workspace_extension(path).as_deref() {
+        Some("sln" | "slnx") => WorkspaceKind::Solution,
         Some("csproj") => WorkspaceKind::Project,
         _ => {
             return Err(HostError::new(
                 "path_not_allowed",
-                "Workspace must be a .sln or .csproj file.",
+                "Workspace must be a .sln, a .slnx or a .csproj file.",
             ))
         }
     };
@@ -7556,5 +7572,101 @@ mod tests {
         assert!(range_covers_position(&range, 2, 11));
         assert!(!range_covers_position(&range, 2, 12));
         assert!(!range_covers_position(&Value::Null, 2, 6));
+    }
+
+    fn solution_file(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        fs::write(
+            &path,
+            "Microsoft Visual Studio Solution File, Format Version 12.00\n",
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn workspace_open_resolves_relative_paths_against_base_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let solution = solution_file(&root, "App.SLN");
+        let host = Host::default();
+
+        let relative = host
+            .dispatch(
+                "workspace.open",
+                json!({ "path": "App.SLN", "baseDir": root }),
+            )
+            .unwrap();
+        assert_eq!(relative["workspace"]["kind"], "solution");
+        assert_eq!(relative["workspace"]["path"], solution.to_str().unwrap());
+
+        let absolute = host
+            .dispatch("workspace.open", json!({ "path": solution }))
+            .unwrap();
+        assert_eq!(absolute["workspace"]["path"], solution.to_str().unwrap());
+
+        let empty = host
+            .dispatch("workspace.open", json!({ "path": "" }))
+            .unwrap_err();
+        assert_eq!(empty.code, "path_not_allowed");
+        let relative_base = host
+            .dispatch(
+                "workspace.open",
+                json!({ "path": "App.SLN", "baseDir": "relative" }),
+            )
+            .unwrap_err();
+        assert_eq!(relative_base.code, "path_not_allowed");
+    }
+
+    #[test]
+    fn workspace_open_refuses_other_extensions_and_keeps_the_open_workspace() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let solution = solution_file(&root, "App.sln");
+        let notes = root.join("notes.txt");
+        fs::write(&notes, "").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": solution }))
+            .unwrap();
+
+        let refused = host
+            .dispatch("workspace.open", json!({ "path": notes }))
+            .unwrap_err();
+        assert_eq!(refused.code, "path_not_allowed");
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        assert_eq!(state["workspace"]["path"], solution.to_str().unwrap());
+
+        let missing = host
+            .dispatch(
+                "workspace.open",
+                json!({ "path": "Missing.sln", "baseDir": root }),
+            )
+            .unwrap_err();
+        assert_eq!(missing.code, "not_found");
+    }
+
+    #[test]
+    fn workspace_open_directory_takes_one_slnx_and_lists_ambiguous_solutions() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let slnx = root.join("Modern.slnx");
+        fs::write(&slnx, "<Solution />").unwrap();
+        let host = Host::default();
+        let opened = host
+            .dispatch("workspace.open", json!({ "path": root }))
+            .unwrap();
+        assert_eq!(opened["workspace"]["kind"], "solution");
+        assert_eq!(opened["workspace"]["path"], slnx.to_str().unwrap());
+
+        solution_file(&root, "Legacy.sln");
+        let ambiguous = host
+            .dispatch("workspace.open", json!({ "path": root }))
+            .unwrap_err();
+        assert_eq!(ambiguous.code, "ambiguous_workspace");
+        let candidates = ambiguous.details.unwrap()["candidates"]
+            .as_array()
+            .unwrap()
+            .len();
+        assert_eq!(candidates, 2);
     }
 }

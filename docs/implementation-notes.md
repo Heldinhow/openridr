@@ -713,3 +713,13 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **b10:** `TerminalPanel` foca o textarea do xterm ao montar e quando o shell fica `running`.
 - **Verificado:** `bun run check`; `medium-editor-state.spec.ts` 6/6; `medium-editor-session.spec.ts` 2/2; suíte E2E completa 229 passed / 5 failed / 1 skipped, com as 5 falhas no conjunto conhecido (`find-usages`, 2 `run-configs`, 2 `tests.spec`); `cargo test --workspace --no-fail-fast` com a única falha conhecida `file_access_is_confined_to_the_workspace`. `b14`/`d13`/`d19`/`b13`/`b10` também foram cobertos por E2E real com fixture.
 - **Não verificado:** app Tauri/WKWebView (só Chrome sobre a ponte HTTP; restart real do app não executado), Windows/macOS Intel, condições de breakpoint (só linhas), >200 abas, flush do debounce em quit abrupto, abertura do link oficial do SDK e instalação real de SDK. O teste Rust do NuGet usa o JSON real do `dotnet list` copiado para o teste; não há E2E com rede NuGet.
+
+## Abrir com — ticket 01: caminho externo e `.slnx` no host (2026-11-02)
+
+- **Escopo:** ticket 01 de `docs/tickets-open-with/`; contrato em [SPEC-OPEN-WITH](SPEC-OPEN-WITH.md).
+- **`workspace.open`:** `path` relativo junta-se a `baseDir` (absoluto, opcional; sem ele, o cwd do host). Caminho vazio ou `baseDir` relativo recusam com `path_not_allowed`. `.sln`, `.slnx` e `.csproj` abrem sem diferenciar maiúsculas; diretório com uma solution abre, com mais de uma devolve `ambiguous_workspace`.
+- **Outline de `.slnx`:** `outline.rs::parse_slnx` lê `<Project Path="…"/>` com aspas simples ou duplas, tag em várias linhas, ignorando `<Folder>`. Só `.csproj` entra, como no `.sln`. `attribute` passou a aceitar aspas simples (uso antigo intacto).
+- **Reavaliação:** `.slnx` também entra em `is_evaluation_input`, como `.sln`, para uma edição externa da solução reavaliar o modelo.
+- **Verificado:** `cargo test -p openridr-host --lib` 196/196 (5 novos); `tests/e2e/open-external.spec.ts` 5/5 contra a ponte (4317). Com o código de HEAD, o E2E falha nos casos de caminho relativo, extensão maiúscula, `.slnx` e `not_found`, pelos motivos esperados. `bun run check` verde.
+- **Falhas pré-existentes (também no HEAD):** `tests/host.rs` → `file_access_is_confined_to_the_workspace` e `evaluation_returns_the_real_msbuild_model_for_every_project` (`not_restored`; restore não roda neste ambiente).
+- **Não verificado:** restore/build de `.slnx` (SDK 8.0.408 não o suporta; fora do ticket); Finder, bundle e launcher (tickets 02 e 03). `rustfmt` não foi aplicado ao arquivo inteiro (280 diffs antigos); só os trechos tocados estão formatados.
