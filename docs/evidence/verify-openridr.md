@@ -1,6 +1,6 @@
 # Evidência — skill `verify-openridr`
 
-Data: 2026-11-03. macOS ARM64, `OpenRidr 0.3.0-alpha.4`, branch `chore/verify-openridr`. Caminhos pessoais trocados por `~` e `<tmp>`. Capturas em [verify-openridr/](verify-openridr/).
+Data: 2026-11-03. macOS ARM64. Rodada 1 (seções 1–5): `OpenRidr 0.3.0-alpha.4`, branch `chore/verify-openridr`. Rodada 2 (seção 6, app Tauri real): `0.3.0-alpha.5`, branch `chore/verify-app-real`. Caminhos pessoais trocados por `~` e `<tmp>`. Capturas em [verify-openridr/](verify-openridr/) (`app-*.jpg` = rodada 2).
 
 Ambiente: `PATH` com `~/.bun/bin`, `~/.dotnet`, `~/.dotnet/tools`; `DOTNET_ROOT=~/.dotnet`; SDKs 8.0.408 e 10.0.100.
 
@@ -90,13 +90,37 @@ test result: ok. 1 passed; 0 failed; finished in 1.37s
 
 Teste de mutação: com o `Revoke` gravando `Some(true)` o teste **falhou**; revertido e passou de novo. Detalhes em [../VERIFICACAO-FORMAL.md](../VERIFICACAO-FORMAL.md).
 
+### 6. Superfície C — app Tauri real dirigido por `agent-desktop` (rodada 2)
+
+Pré-condições: `agent-desktop permissions` → Acessibilidade e Gravação de Tela `granted`. O doctor avisou `installed app 0.3.0-alpha.4 != package.json 0.3.0-alpha.5`; para não sobrescrever o app do usuário em `/Applications`, foi construído um bundle de debug com `bun run tauri build --debug --bundles app` (`src-tauri/target/debug/bundle/macos/OpenRidr.app`, `CFBundleShortVersionString` 0.3.0-alpha.5) e passado a `desktop.sh up <bundle>`. Home isolado em `<tmp>/verify-openridr-desktop/home`, cópia da fixture em `<tmp>/verify-openridr-desktop/work`. O home real do usuário não foi alterado (`grep -c verify-openridr ~/Library/Application Support/OpenRidr/trusted.json` → 0). Uma queda da sessão do agente derrubou a primeira instância; o fluxo foi refeito na segunda, e a decisão de Trust conferida em disco nas duas.
+
+| # | Lacuna | Ação na janela real | Estado observado | Captura |
+|---|---|---|---|---|
+| 1 | Abrir workspace (argv, mesmo caminho do CLI) | `desktop.sh up` com a `.sln` em argv | `list-windows`: 1 janela `OpenRidr` 1440x900; árvore de acessibilidade com `dialog` `Trust “OrderDesk.sln”?` | [app-01](verify-openridr/app-01-trust-prompt-argv.jpg) |
+| 3 | Trust: confiar | `click` em **Trust project** (AXPress) | `trusted.json` = `{"<tmp>/verify-openridr-desktop/work/OrderDesk/OrderDesk.sln": "trusted"}`; combobox `Trusted mode`; `recent.json` com o caminho | [app-02](verify-openridr/app-02-trusted-tree.jpg) |
+| 2 | Árvore + editor | `click` em `Program.cs` | árvore: `OrderDesk · 3 projects`, `OrderDesk.Cli · console · net8.0`, `OrderDesk.Core · library`, `OrderDesk.Tests · test`; campo `Editor` com o conteúdo real do arquivo (`using OrderDesk.Core;` … `Console.WriteLine`), `Ln 1, Col 1`, "Evaluated · revision 2" | [app-03](verify-openridr/app-03-editor-program-cs.jpg) |
+| 5 | Build | `click` em **Build** (toolbar) | `Build succeeded · exit 0`, 0 warnings/errors; `OrderDesk.Cli.dll` existe na **cópia** (`<tmp>/verify-openridr-desktop/work/OrderDesk/src/OrderDesk.Cli/bin/Debug/net8.0/`, 5120 bytes) | [app-04](verify-openridr/app-04-build.jpg) |
+| 5 | Test: descobrir | aba **Tests** → **Discover tests** | `Discovered 4 tests · exit 0` (`Id_is_preserved`, `Total_is_preserved`, `Deliberate_failure_for_runner_evidence`, `Skipped_until_fixture_changes`) | [app-05](verify-openridr/app-05-tests-discover.jpg) |
+| 5 | Test: rodar | **Run all** | `Run completed · 4 results · exit 1`: 2 passed, 1 failed, 1 skipped. O failed é a falha deliberada da fixture (`Deliberate_failure_for_runner_evidence`), o skip também é da fixture; o `exit 1` é o esperado | [app-06](verify-openridr/app-06-tests-run-all.jpg) |
+| 3 | Trust: restaurar a decisão | `desktop.sh down`, reabrir o binário com o **mesmo** home e a mesma `.sln` em argv | sem diálogo de Trust; direto em `Trusted mode`; `trusted.json` inalterado | [app-08](verify-openridr/app-08-reopen-trusted-no-prompt.jpg) |
+| 5 | Debug (smoke) | aba **Debug** → **Start debugging** | sessão `Terminated`, banner `macOS arm64 debugging is experimental ... approved netcoredbg 3.2.0-1092 build`, saída do debuggee `Order A-104: R$ 42,00` | [app-07](verify-openridr/app-07-debug-tab.jpg), [app-09](verify-openridr/app-09-debug-start.jpg) |
+| 4 | "Abrir com" pelo terminal | com o app aberto (pid 13565): `OPENRIDR_APP=<bundle de debug> sh scripts/openridr <tmp>/.../OrderDesk.Core.csproj` (exit 0) | `pgrep -x openridr` continuou só no pid 13565 (entregou à instância aberta, sem segunda instância); a UI mostrou `Trust “OrderDesk.Core.csproj”?` | [app-10](verify-openridr/app-10-open-with-cli-dialog.jpg) |
+| 3 | Trust: Restricted | **Open in Restricted mode** | `trusted.json` ganhou `"<tmp>/.../OrderDesk.Core.csproj": "restricted"` (a `.sln` segue `trusted`); combobox `Restricted mode`; árvore `OrderDesk.Core · 1 project` | [app-11](verify-openridr/app-11-open-with-restricted.jpg) |
+
+Detalhes do Debug: o home isolado não tinha netcoredbg; em vez de baixar (o que instalaria algo), `<tmp>/verify-openridr-desktop/home/tools` foi um symlink para o `~/Library/Application Support/OpenRidr/tools` que o usuário já tinha (`netcoredbg/3.2.0-1092`, `csharp-ls/0.28`), removido ao final; nada foi instalado nem alterado ali. O `csharp-ls` **não** foi reconhecido por esse caminho (a barra seguiu em `Analysis: not installed` / `Install analysis`, que não foi clicado).
+
+Limpeza: `desktop.sh down` (pid gravado), `pgrep -x openridr` vazio, portas 1520/4417 livres. `<tmp>/verify-openridr-desktop` fica (descartável).
+
 ## Não verificado
 
 | O quê | Por quê |
 |---|---|
-| Superfície C: app Tauri real dirigido por `agent-desktop` | `agent-desktop status`: Accessibility e Screen Recording `denied`; `snapshot` devolve `PERM_DENIED`. O usuário precisa conceder as duas permissões e deixar a tela desbloqueada. Só `list-windows` funcionou (uma janela 1440x900 abriu com a `.sln` em argv). Nenhuma captura da tela foi guardada. |
-| "Abrir com" pelo Finder/Dock (LaunchServices) | depende da superfície C |
-| Test e Debug (feature 5) na UI | só **build** foi provado (A). Os specs de test/debug dependem de `csharp-ls`/`netcoredbg`, que não foram rodados nesta sessão |
+| Editar e **salvar** pela janela real | `agent-desktop type` no campo `Editor` (CodeMirror) devolveu `ACTION_FAILED` e o arquivo/`Save` ficaram intactos; `press cmd+s` exige foco (`--headed`), que o skill reserva à permissão do usuário. Salvar segue provado só na superfície B/spec |
+| "Abrir com" pelo **Finder** (menu) e arrastar para o **Dock** | só o caminho `scripts/openridr` → `open -a` (LaunchServices) foi dirigido; a GUI do Finder/Dock não foi acionada |
+| Abrir **pasta** com 2+ solutions e troca de workspace com diálogo `externalOpen` na janela real | não exercitado nesta rodada (cobertos pelo spec `open-external`) |
+| Debug com breakpoint, passos e locals na UI | só a sessão curta (inicia, imprime, termina) foi observada |
+| `csharp-ls` (análise, diagnósticos, completion) no app real | não reconhecido no home isolado nem instalado, por regra desta rodada |
+| Cancel, revogar Trust e Esc na janela real | só confiar e Restricted foram dirigidos; o resto segue provado pelos specs `trust-prompt` |
 | Windows e macOS Intel | nunca executados |
 | TLA+/TLC | sem Java nesta máquina (`/usr/bin/java` é só stub). O candidato 2 é só proposta |
 | Falhas conhecidas do HEAD (`find-usages`, `run-configs`, `tests`, Rust `file_access_is_confined_to_the_workspace`) | não relacionadas; não foram reexecutadas |
