@@ -881,6 +881,7 @@ export function TestsPanel({
                     )}
                     {result.position ? (
                       <button
+                        className="link-button"
                         data-testid={`test-result-navigate-${index}`}
                         onClick={() =>
                           result.position &&
@@ -889,9 +890,9 @@ export function TestsPanel({
                             character: result.position.character,
                           })
                         }
-                        title="Opens the file at the position the stack trace reported."
+                        title="Opens the file at the line the stack trace reported."
                       >
-                        Open source position
+                        {result.position.path}:{result.position.line + 1}
                       </button>
                     ) : (
                       <p className="muted" data-testid={`test-result-no-position-${index}`}>

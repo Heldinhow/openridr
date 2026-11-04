@@ -392,7 +392,9 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await expect(
       failedRow.locator('[data-testid^="test-result-stack-"]'),
     ).toContainText("OrderTests.cs:line 29");
-    await failedRow.getByRole("button", { name: "Open source position" }).click();
+    const sourceLink = failedRow.locator('[data-testid^="test-result-navigate-"]');
+    await expect(sourceLink).toHaveText("tests/OrderDesk.Tests/OrderTests.cs:29");
+    await sourceLink.click();
     await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", "28:0");
     await expect(
       page.getByTestId("tab-tests/OrderDesk.Tests/OrderTests.cs"),

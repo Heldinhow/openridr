@@ -32,7 +32,25 @@ Clicar em `arquivo:linha` na saída de um teste abre o arquivo na linha, como no
 
 ## Aceite
 
-- [ ] `arquivo:linha` na stack trace é clicável e abre o arquivo na linha.
-- [ ] A stack trace crua continua visível.
-- [ ] Sem posição no workspace, nenhum link é inventado e a mensagem atual permanece.
-- [ ] Evidência no app real.
+- [x] `arquivo:linha` na stack trace é clicável e abre o arquivo na linha. — Playwright
+      `tests/e2e/tests.spec.ts`: link `tests/OrderDesk.Tests/OrderTests.cs:29` abre a aba e
+      deixa o cursor em `28:0` (linha 1-based exibida, 0-based interna).
+- [x] A stack trace crua continua visível. — o `<pre>` de `test-result-stack-*` não mudou e o
+      mesmo caso continua afirmando `OrderTests.cs:line 29`.
+- [x] Sem posição no workspace, nenhum link é inventado e a mensagem atual permanece. — o ramo
+      sem `position` continua renderizando `test-result-no-position-*` sem controle de navegação.
+- [ ] Evidência no app real. **Pendente:** a passada com `agent-desktop` (rodar OrderDesk.Tests
+      com a falha, abrir Details, clicar no link e conferir o cursor) fica para a varredura
+      final com `verify-openridr`.
+
+## Feito (2026-11-04)
+
+- `src/TestsPanel.tsx`: o botão "Open source position" virou um `<button className="link-button">`
+  com o texto exato `position.path:line` (linha exibida 1-based, `position.line + 1`), mantendo
+  `data-testid="test-result-navigate-<index>"` e chamando o `onNavigate`/`navigateTo` existente
+  com a linha e a coluna reportadas. A stack trace crua e o ramo sem posição não mudaram.
+- `tests/e2e/tests.spec.ts`: o caso de execução real afirma o texto exato do link e clica nele;
+  a asserção da stack crua continua antes do clique.
+- `bun run check`; Playwright `tests/e2e/tests.spec.ts` 7/7 com dotnet 8.0.408 real.
+- **Pendente no app real (agent-desktop):** o roteiro de aceite acima; a varredura final com
+  `verify-openridr` fecha este item.
