@@ -24,6 +24,9 @@ export interface ProjectMenu {
   onFind: () => void;
   onCopyPath: () => void;
   onProperties: () => void;
+  onNewFile: () => void;
+  onRename: () => void;
+  onDelete: () => void;
 }
 
 export function projectMenuItems(m: ProjectMenu): ContextMenuItem[] {
@@ -59,13 +62,29 @@ export function projectMenuItems(m: ProjectMenu): ContextMenuItem[] {
         { id: "find", label: "Find in Files…", action: m.onFind, separatorBefore: true },
       ],
     },
-    { id: "copy-path", label: "Copy Path", action: m.onCopyPath },
+    {
+      id: "new-file",
+      label: "New File…",
+      action: m.onNewFile,
+      separatorBefore: true,
+    },
+    { id: "rename", label: "Rename…", action: m.onRename },
+    { id: "delete", label: "Delete", action: m.onDelete },
+    { id: "copy-path", label: "Copy Path", action: m.onCopyPath, separatorBefore: true },
     { id: "properties", label: "Properties…", action: m.onProperties, separatorBefore: true },
   );
   return items;
 }
 
-export function fileMenuItems(m: { open?: () => void; onCopyPath: () => void; onFind: () => void; reload?: { reason: string | null; run: () => void } }): ContextMenuItem[] {
+export function fileMenuItems(m: {
+  open?: () => void;
+  onCopyPath: () => void;
+  onFind: () => void;
+  reload?: { reason: string | null; run: () => void };
+  newFile?: () => void;
+  rename?: () => void;
+  delete?: () => void;
+}): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   if (m.open) items.push({ id: "open", label: "Open", action: m.open });
   if (m.reload) items.push({ id: "reload", label: "Reload Solution", disabledReason: m.reload.reason, action: m.reload.run });
@@ -73,5 +92,8 @@ export function fileMenuItems(m: { open?: () => void; onCopyPath: () => void; on
     { id: "copy-path", label: "Copy Path", action: m.onCopyPath, separatorBefore: items.length > 0 },
     { id: "find", label: "Find in Files…", action: m.onFind },
   );
+  if (m.newFile) items.push({ id: "new-file", label: "New File…", action: m.newFile, separatorBefore: true });
+  if (m.rename) items.push({ id: "rename", label: "Rename…", action: m.rename });
+  if (m.delete) items.push({ id: "delete", label: "Delete", action: m.delete });
   return items;
 }

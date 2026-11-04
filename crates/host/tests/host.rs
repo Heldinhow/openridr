@@ -1383,6 +1383,198 @@ fn revoking_trust_while_msbuild_runs_drops_the_late_result() {
     );
 }
 
+#[test]
+fn file_operations_create_rename_and_delete_inside_the_workspace() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+
+    let created = host
+        .dispatch(
+            "file.create",
+            json!({ "path": "Extra.cs", "content": "class Extra {}\n" }),
+        )
+        .unwrap();
+    assert_eq!(created["path"], "Extra.cs");
+    assert_eq!(
+        fs::read_to_string(workspace.path().join("Extra.cs")).unwrap(),
+        "class Extra {}\n"
+    );
+
+    // A second create never overwrites the existing file.
+    assert_eq!(
+        error_code(host.dispatch("file.create", json!({ "path": "Extra.cs" }))),
+        "already_exists"
+    );
+    assert_eq!(
+        fs::read_to_string(workspace.path().join("Extra.cs")).unwrap(),
+        "class Extra {}\n"
+    );
+
+    let renamed = host
+        .dispatch(
+            "file.rename",
+            json!({ "from": "Extra.cs", "to": "Renamed.cs" }),
+        )
+        .unwrap();
+    assert_eq!(renamed["from"], "Extra.cs");
+    assert_eq!(renamed["to"], "Renamed.cs");
+    assert!(!workspace.path().join("Extra.cs").exists());
+    assert_eq!(
+        fs::read_to_string(workspace.path().join("Renamed.cs")).unwrap(),
+        "class Extra {}\n"
+    );
+
+    // Folders move with their contents and delete recursively.
+    fs::create_dir(workspace.path().join("Folder")).unwrap();
+    host.dispatch("file.create", json!({ "path": "Folder/Inside.cs" }))
+        .unwrap();
+    let moved = host
+        .dispatch("file.rename", json!({ "from": "Folder", "to": "Moved" }))
+        .unwrap();
+    assert_eq!(moved["to"], "Moved");
+    assert!(workspace.path().join("Moved/Inside.cs").is_file());
+    let deleted_folder = host
+        .dispatch("file.delete", json!({ "path": "Moved" }))
+        .unwrap();
+    assert_eq!(deleted_folder["directory"], true);
+    assert!(!workspace.path().join("Moved").exists());
+
+    host.dispatch("file.delete", json!({ "path": "Renamed.cs" }))
+        .unwrap();
+    assert!(!workspace.path().join("Renamed.cs").exists());
+}
+
+#[test]
+fn file_operations_refuse_traversal_missing_parents_and_the_workspace_root() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let outside = tempfile::tempdir().unwrap();
+    let outside_file = outside.path().join("Elsewhere.cs");
+    let absolute_outside = outside_file.to_string_lossy().to_string();
+
+    for (method, params, expected) in [
+        (
+            "file.create",
+            json!({ "path": "../Escape.cs" }),
+            "outside_workspace",
+        ),
+        (
+            "file.create",
+            json!({ "path": absolute_outside.clone() }),
+            "outside_workspace",
+        ),
+        (
+            "file.create",
+            json!({ "path": "Missing/Extra.cs" }),
+            "not_found",
+        ),
+        (
+            "file.rename",
+            json!({ "from": "../App.cs", "to": "Moved.cs" }),
+            "outside_workspace",
+        ),
+        (
+            "file.rename",
+            json!({ "from": "App.cs", "to": "Missing/Moved.cs" }),
+            "not_found",
+        ),
+        (
+            "file.delete",
+            json!({ "path": "../App.cs" }),
+            "outside_workspace",
+        ),
+        (
+            "file.delete",
+            json!({ "path": absolute_outside.clone() }),
+            "outside_workspace",
+        ),
+        ("file.delete", json!({ "path": "Missing.cs" }), "not_found"),
+        ("file.delete", json!({ "path": "" }), "path_not_allowed"),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch(method, params)),
+            expected,
+            "{method} did not refuse the path"
+        );
+    }
+
+    assert!(!workspace.path().join("../Escape.cs").exists());
+    assert!(!outside_file.exists());
+    assert!(workspace.path().join("App.cs").is_file());
+
+    // Renaming over an existing path is refused instead of replacing it.
+    fs::write(workspace.path().join("Target.cs"), "target\n").unwrap();
+    assert_eq!(
+        error_code(host.dispatch(
+            "file.rename",
+            json!({ "from": "App.cs", "to": "Target.cs" })
+        )),
+        "already_exists"
+    );
+    assert_eq!(
+        fs::read_to_string(workspace.path().join("Target.cs")).unwrap(),
+        "target\n"
+    );
+
+    // A folder cannot be moved inside itself.
+    fs::create_dir_all(workspace.path().join("Folder/Inner")).unwrap();
+    assert_eq!(
+        error_code(host.dispatch(
+            "file.rename",
+            json!({ "from": "Folder", "to": "Folder/Inner/Deep" })
+        )),
+        "path_not_allowed"
+    );
+
+    // A symlinked directory inside the workspace must not become an escape hatch; deleting the
+    // link itself removes only the link.
+    #[cfg(unix)]
+    {
+        let secret = outside.path().join("Secret.cs");
+        fs::write(&secret, "secret\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), workspace.path().join("Link")).unwrap();
+        assert_eq!(
+            error_code(host.dispatch(
+                "file.create",
+                json!({ "path": "Link/Extra.cs" })
+            )),
+            "outside_workspace"
+        );
+        host.dispatch("file.delete", json!({ "path": "Link" }))
+            .unwrap();
+        assert!(!workspace.path().join("Link").exists());
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "secret\n");
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn file_operations_mark_the_evaluated_model_stale() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "OrderDesk file ops");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let first = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(first["evaluation"]["stale"], false);
+    let context_before = first["contextId"].as_u64().unwrap();
+
+    host.dispatch(
+        "file.create",
+        json!({ "path": "Directory.Build.props", "content": "<Project />\n" }),
+    )
+    .unwrap();
+    let stale = snapshot(&host);
+    assert_eq!(stale["evaluation"]["stale"], true);
+    assert!(stale["evaluation"]["staleReason"]
+        .as_str()
+        .unwrap()
+        .contains("was created"));
+    assert!(stale["contextId"].as_u64().unwrap() > context_before);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {

@@ -828,3 +828,11 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **Testes:** `tests/e2e/settings.spec.ts` afirma os nomes de `toolbar-run`, `toolband-run`, as duas linhas homônimas do keymap, `settings-save` e `save-file`; `tests/e2e/solution-explorer.spec.ts` afirma `Project context menu`.
 - **Verificado:** `bun run build`; `bun run check`; `bunx playwright test tests/e2e/settings.spec.ts tests/e2e/solution-explorer.spec.ts` 11/11.
 - **Não verificado:** leitor de tela real (VoiceOver/NVDA). Menus de file/dir continuam "Solution context menu"; fora do escopo do ticket.
+
+## Operações de arquivo na árvore — ticket 09 (2026-11-04)
+
+- **Escopo:** `docs/tickets-fix-alpha5/09-tree-file-operations.md`.
+- **Host (`crates/host/src/lib.rs`):** novos `file.create` (`path`, `content` opcional), `file.rename` (`from`/`to`) e `file.delete` (`path`), servidos por `resolve_path_in_workspace` (pai canonicalizado, `..` recusado antes, raiz protegida, symlink final operado como link). `mark_inputs_stale` reusa `is_evaluation_input` e o mesmo bloco de stale/`stop_lsp_inner` do save; `write_file` passou a chamar o helper. Motivos incluem "changed on disk" para a reavaliação automática do ticket 05. Delete é permanente com confirmação; nada é avaliado/buildado dentro da operação.
+- **UI (`src/solutionMenu.ts`, `src/WorkspaceView.tsx`):** itens `New File…`, `Rename…` e `Delete` nos menus de projeto e de arquivo/pasta; diálogo `tree-name-dialog` (input `tree-name-input`, confirmar `tree-name-confirm`, cancelar `tree-name-cancel`, erro `tree-name-error`) para criar/renomear; diálogo `tree-delete-dialog` (`tree-delete-confirm`, `tree-delete-cancel`, `tree-delete-error`) para apagar. Testids de menu: `tree-menu-new-file`, `tree-menu-rename`, `tree-menu-delete`. Abas abertas do caminho antigo não são tocadas.
+- **Testes:** `cargo test -p openridr-host --test host -- file_operations` 3/3 (happy path incl. pasta, traversal/absoluto fora/pai ausente/raiz/overwrite/symlink, stale com avaliação real); e2e novo em `tests/e2e/solution-explorer.spec.ts` (criar Extra.cs, abrir, renomear Order.cs, cancelar e confirmar delete) e o spec inteiro 7/7; `bun run check` e `bun run build`.
+- **Não verificado:** app Tauri real (menus, diálogos e confirmação) e o caso de renomear/apagar uma pasta de projeto pela UI; ficam para `verify-openridr`.

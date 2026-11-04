@@ -4,14 +4,14 @@
 
 **Blocked by:** 05 (o refresh usa o mesmo caminho de frescor da árvore).
 
-**Status:** ready-for-agent
+**Status:** implementação concluída em código e e2e; prova no app Tauri real pendente (`verify-openridr`).
 
-- [ ] O menu de contexto de projeto/pasta oferece "New file…", "Rename…" e "Delete".
-- [ ] Criar grava um arquivo vazio (ou com o nome digitado) dentro da pasta escolhida.
-- [ ] Renomear move o arquivo/pasta e mantém o conteúdo.
-- [ ] Apagar pede confirmação e não age fora do workspace.
-- [ ] Caminhos com `..`, absolutos fora do workspace e pais inexistentes são recusados com erro claro.
-- [ ] A operação marca a avaliação stale e a árvore reflete o resultado.
-- [ ] Aba aberta do arquivo renomeado/apagado não corrompe o buffer; o conflito existente cuida do caso.
-- [ ] Testes de host para confinamento e operações; e2e para criar/renomear/apagar pela UI.
-- [ ] Fora: drag-drop, templates, multi-select, operações fora do workspace.
+- [x] O menu de contexto de projeto/pasta oferece "New file…", "Rename…" e "Delete".
+- [x] Criar grava um arquivo vazio (ou com o nome digitado) dentro da pasta escolhida.
+- [x] Renomear move o arquivo/pasta e mantém o conteúdo.
+- [x] Apagar pede confirmação e não age fora do workspace.
+- [x] Caminhos com `..`, absolutos fora do workspace e pais inexistentes são recusados com erro claro.
+- [x] A operação marca a avaliação stale e a árvore reflete o resultado.
+- [x] Aba aberta do arquivo renomeado/apagado não corrompe o buffer; o conflito existente cuida do caso.
+- [x] Testes de host para confinamento e operações; e2e para criar/renomear/apagar pela UI.
+- [x] Fora: drag-drop, templates, multi-select, operações fora do workspace.

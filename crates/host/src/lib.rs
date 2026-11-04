@@ -39,7 +39,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -682,6 +683,9 @@ impl Host {
             "processes.keep" => self.keep_process(params),
             "file.read" => self.read_file(params),
             "file.write" => self.write_file(params),
+            "file.create" => self.create_file(params),
+            "file.rename" => self.rename_path(params),
+            "file.delete" => self.delete_path(params),
             "settings.read" => settings::read(),
             "settings.write" => settings::write(&params),
             "runConfigs.read" => run_configs::read(&params),
@@ -5795,21 +5799,122 @@ impl Host {
                 format!("Could not replace {rel}: {error}"),
             ));
         }
-        if is_evaluation_input(&rel)
-            && inner
-                .evaluation
-                .mark_stale(format!("{rel} was saved; the evaluated project model is stale."))
-        {
-            inner.context_seq += 1;
-            inner.nuget_plan = None;
-            stop_lsp_inner(
-                &mut inner,
-                "A project input changed; analysis stopped so it cannot report the previous context.",
-            );
-        }
+        mark_inputs_stale(
+            &mut inner,
+            &[rel.as_str()],
+            format!("{rel} was saved; the evaluated project model is stale."),
+            false,
+        );
         // A source save is shown as an obsolete build snapshot by the UI (buffer edit
         // time vs. build time); the host marks stale only when the evaluated context changes.
         Ok(json!({ "path": rel, "hash": content_hash(&content) }))
+    }
+
+    fn create_file(&self, params: Value) -> HostResult<Value> {
+        let raw = required_str(&params, "path")?;
+        let content = optional_str(&params, "content").unwrap_or_default();
+        let mut inner = self.inner.lock().unwrap();
+        let (path, rel) = resolve_new_in_workspace(&inner, &raw)?;
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(HostError::new(
+                    "already_exists",
+                    format!("{rel} already exists; nothing was overwritten."),
+                ));
+            }
+            Err(error) => {
+                return Err(HostError::new(
+                    "operation_failed",
+                    format!("Could not create {rel}: {error}"),
+                ));
+            }
+        };
+        if let Err(error) = file.write_all(content.as_bytes()) {
+            drop(file);
+            let _ = fs::remove_file(&path);
+            return Err(HostError::new(
+                "operation_failed",
+                format!("Could not write {rel}: {error}"),
+            ));
+        }
+        drop(file);
+        mark_inputs_stale(
+            &mut inner,
+            &[rel.as_str()],
+            format!("{rel} was created and changed on disk; re-evaluate the project model."),
+            false,
+        );
+        Ok(json!({ "path": rel }))
+    }
+
+    fn rename_path(&self, params: Value) -> HostResult<Value> {
+        let from_raw = required_str(&params, "from")?;
+        let to_raw = required_str(&params, "to")?;
+        let mut inner = self.inner.lock().unwrap();
+        let (from, from_rel) = resolve_existing_in_workspace(&inner, &from_raw)?;
+        let (to, to_rel) = resolve_new_in_workspace(&inner, &to_raw)?;
+        if fs::symlink_metadata(&to).is_ok() {
+            return Err(HostError::new(
+                "already_exists",
+                format!("{to_rel} already exists; nothing was overwritten."),
+            ));
+        }
+        if to.starts_with(&from) {
+            return Err(HostError::new(
+                "path_not_allowed",
+                format!("A folder cannot be moved inside itself: {from_rel} -> {to_rel}"),
+            ));
+        }
+        let directory = fs::symlink_metadata(&from)
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false);
+        fs::rename(&from, &to).map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not rename {from_rel} to {to_rel}: {error}"),
+            )
+        })?;
+        mark_inputs_stale(
+            &mut inner,
+            &[from_rel.as_str(), to_rel.as_str()],
+            format!(
+                "{from_rel} was renamed to {to_rel}; the workspace changed on disk, so re-evaluate the project model."
+            ),
+            directory,
+        );
+        Ok(json!({ "from": from_rel, "to": to_rel }))
+    }
+
+    fn delete_path(&self, params: Value) -> HostResult<Value> {
+        let raw = required_str(&params, "path")?;
+        let mut inner = self.inner.lock().unwrap();
+        let (path, rel) = resolve_existing_in_workspace(&inner, &raw)?;
+        let directory = fs::symlink_metadata(&path)
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false);
+        let result = if directory {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        result.map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not delete {rel}: {error}"),
+            )
+        })?;
+        mark_inputs_stale(
+            &mut inner,
+            &[rel.as_str()],
+            format!("{rel} was deleted; the workspace changed on disk, so re-evaluate the project model."),
+            directory,
+        );
+        Ok(json!({ "path": rel, "directory": directory }))
     }
 }
 
@@ -6524,6 +6629,22 @@ fn is_evaluation_input(rel: &str) -> bool {
         || lower == "global.json"
 }
 
+/// Marks the evaluated model stale when a file operation touched an evaluation input (or a
+/// whole folder). The operation itself never evaluates or builds; the freshness path does.
+fn mark_inputs_stale(inner: &mut Inner, inputs: &[&str], reason: String, force: bool) {
+    if !force && !inputs.iter().any(|rel| is_evaluation_input(rel)) {
+        return;
+    }
+    if inner.evaluation.mark_stale(reason) {
+        inner.context_seq += 1;
+        inner.nuget_plan = None;
+        stop_lsp_inner(
+            inner,
+            "A project input changed; analysis stopped so it cannot report the previous context.",
+        );
+    }
+}
+
 fn dotnet_exe() -> &'static str {
     if cfg!(windows) {
         "dotnet.exe"
@@ -6933,6 +7054,92 @@ fn definition_location(root: &Path, target: &lsp::DefinitionTarget) -> Option<Va
         "range": target.range,
         "selectionRange": target.selection_range,
     }))
+}
+
+/// Resolves a create/rename target or a rename/delete source. Only the parent is canonicalized,
+/// so the last component may still be a symlink (the operation renames or deletes the link, never
+/// its target). `must_exist` distinguishes an existing source from a destination that may be new.
+fn resolve_path_in_workspace(
+    inner: &Inner,
+    raw: &str,
+    must_exist: bool,
+) -> HostResult<(PathBuf, String)> {
+    let workspace = inner
+        .workspace
+        .as_ref()
+        .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+    if raw.trim().is_empty() {
+        return Err(HostError::new("path_not_allowed", "File path is empty."));
+    }
+    let requested = Path::new(raw);
+    if requested
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        workspace.root.join(requested)
+    };
+    let name = candidate.file_name().ok_or_else(|| {
+        HostError::new(
+            "path_not_allowed",
+            format!("A file or folder name is required: {raw}"),
+        )
+    })?;
+    let parent = candidate.parent().ok_or_else(|| {
+        HostError::new(
+            "path_not_allowed",
+            format!("A file or folder name is required: {raw}"),
+        )
+    })?;
+    let parent = fs::canonicalize(parent).map_err(|_| {
+        HostError::new("not_found", format!("Folder not found: {raw}"))
+    })?;
+    if !parent.starts_with(&workspace.root) {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
+    if !parent.is_dir() {
+        return Err(HostError::new(
+            "not_found",
+            format!("Folder not found: {raw}"),
+        ));
+    }
+    let target = parent.join(name);
+    if target == workspace.root {
+        return Err(HostError::new(
+            "path_not_allowed",
+            "The workspace root cannot be renamed or deleted.",
+        ));
+    }
+    if must_exist && fs::symlink_metadata(&target).is_err() {
+        return Err(HostError::new(
+            "not_found",
+            format!("File or folder not found: {raw}"),
+        ));
+    }
+    let rel = target
+        .strip_prefix(&workspace.root)
+        .unwrap_or(&target)
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok((target, rel))
+}
+
+fn resolve_new_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
+    resolve_path_in_workspace(inner, raw, false)
+}
+
+fn resolve_existing_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
+    resolve_path_in_workspace(inner, raw, true)
 }
 
 fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {

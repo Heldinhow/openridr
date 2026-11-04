@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
 import {
   call,
   candidatesOf,
@@ -21,7 +21,7 @@ import { CodeEditor, type ChangedLine } from "./CodeEditor";
 import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
 import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
-import { ROOT_KEY, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
+import { ROOT_KEY, baseOf, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
 import { fileMenuItems, projectMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
@@ -201,6 +201,25 @@ type Confirmation =
   | { kind: "window" }
   | { kind: "quit" };
 
+// One prompt serves create and rename; `path` is the folder for create and the current path for
+// rename. The host remains the confinement authority; this only rejects names that carry a path.
+type NamePrompt = {
+  kind: "create" | "rename";
+  path: string;
+  value: string;
+  error: string | null;
+  busy: boolean;
+};
+
+type DeletePrompt = { path: string; directory: boolean; error: string | null; busy: boolean };
+
+function nameProblem(name: string): string | null {
+  if (!name) return "Enter a name.";
+  if (name === "." || name === "..") return "That is not a file or folder name.";
+  if (name.includes("/") || name.includes("\\")) return "Use a name without a path.";
+  return null;
+}
+
 type NavEntry = { path: string; line: number; character: number };
 
 type Props = {
@@ -365,6 +384,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [externalCandidates, setExternalCandidates] = useState<{ path: string; candidates: Candidate[] } | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null);
+  const [deletePrompt, setDeletePrompt] = useState<DeletePrompt | null>(null);
   const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [findActionOpen, setFindActionOpen] = useState(false);
@@ -2551,17 +2572,99 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         setSelectedProjectPath(target.path);
         setProjectDetailsOpen(true);
       },
+      onNewFile: () => startCreateFile(target),
+      onRename: () => startRename(target),
+      onDelete: () => requestDelete(target),
     });
+  }
+
+  function startCreateFile(target: TreeTarget) {
+    if (target.kind !== "project" && target.kind !== "dir") return;
+    const directory = target.kind === "project" ? dirOf(target.path) : target.path;
+    setNamePrompt({ kind: "create", path: directory, value: "", error: null, busy: false });
+  }
+
+  function startRename(target: TreeTarget) {
+    if (target.kind === "root") return;
+    setNamePrompt({
+      kind: "rename",
+      path: target.path,
+      value: baseOf(target.path),
+      error: null,
+      busy: false,
+    });
+  }
+
+  function requestDelete(target: TreeTarget) {
+    if (target.kind === "root") return;
+    setDeletePrompt({
+      path: target.path,
+      directory: target.kind === "dir",
+      error: null,
+      busy: false,
+    });
+  }
+
+  async function submitNamePrompt(event: FormEvent) {
+    event.preventDefault();
+    const prompt = namePrompt;
+    if (!prompt || prompt.busy) return;
+    const name = prompt.value.trim();
+    const problem = nameProblem(name);
+    if (problem) {
+      setNamePrompt({ ...prompt, error: problem });
+      return;
+    }
+    const directory = prompt.kind === "create" ? prompt.path : dirOf(prompt.path);
+    const to = directory ? `${directory}/${name}` : name;
+    if (prompt.kind === "rename" && to === prompt.path) {
+      setNamePrompt(null);
+      return;
+    }
+    setNamePrompt({ ...prompt, busy: true, error: null });
+    try {
+      if (prompt.kind === "create") {
+        await call("file.create", { path: to });
+        setMessage({ tone: "info", text: `Created ${to}.` });
+      } else {
+        await call("file.rename", { from: prompt.path, to });
+        setMessage({ tone: "info", text: `Renamed ${prompt.path} to ${to}.` });
+      }
+      setNamePrompt(null);
+    } catch (error) {
+      setNamePrompt((current) =>
+        current ? { ...current, busy: false, error: messageOf(error) } : current,
+      );
+    }
+  }
+
+  async function confirmDelete() {
+    const prompt = deletePrompt;
+    if (!prompt || prompt.busy) return;
+    setDeletePrompt({ ...prompt, busy: true, error: null });
+    try {
+      await call("file.delete", { path: prompt.path });
+      setMessage({ tone: "info", text: `Deleted ${prompt.path}.` });
+      setDeletePrompt(null);
+    } catch (error) {
+      setDeletePrompt((current) =>
+        current ? { ...current, busy: false, error: messageOf(error) } : current,
+      );
+    }
   }
 
   function treeMenuItems(target: TreeTarget): ContextMenuItem[] {
     if (target.kind === "project") return projectMenu(target);
     const path = target.kind === "root" ? "" : target.path;
+    const editable = target.kind === "file" || target.kind === "dir";
     return fileMenuItems({
       open: target.kind === "file" ? () => void openUserFile(target.path) : undefined,
       reload: target.kind === "root" ? { reason: reloadReason, run: () => void runEvaluation() } : undefined,
       onCopyPath: () => void copyPath(absolutePath(path)),
       onFind: () => openFindInFiles(path),
+      newFile: target.kind === "dir" ? () => startCreateFile(target) : undefined,
+      rename: editable ? () => startRename(target) : undefined,
+      delete: editable ? () => requestDelete(target) : undefined,
     });
   }
 
@@ -5168,6 +5271,110 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           onRun={(config) => requestRun(config)}
           onClose={() => setRunConfigOpen(false)}
         />
+      )}
+
+      {namePrompt && (
+        <div className="modal-backdrop">
+          <form
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tree-name-title"
+            data-testid="tree-name-dialog"
+            onSubmit={(event) => void submitNamePrompt(event)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setNamePrompt(null);
+              }
+            }}
+          >
+            <h2 id="tree-name-title">
+              {namePrompt.kind === "create" ? "New File" : "Rename"}
+            </h2>
+            <p className="muted">
+              {namePrompt.kind === "create"
+                ? `Create a file in ${namePrompt.path || "the workspace root"}.`
+                : `Rename ${namePrompt.path}.`}
+            </p>
+            <label className="rename-field">
+              Name
+              <input
+                data-testid="tree-name-input"
+                value={namePrompt.value}
+                autoFocus
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) =>
+                  setNamePrompt({ ...namePrompt, value: event.target.value, error: null })
+                }
+              />
+            </label>
+            {namePrompt.error && (
+              <p className="error" role="alert" data-testid="tree-name-error">
+                {namePrompt.error}
+              </p>
+            )}
+            <div className="actions">
+              <button
+                className="primary"
+                type="submit"
+                data-testid="tree-name-confirm"
+                disabled={namePrompt.busy}
+              >
+                {namePrompt.busy
+                  ? "Working…"
+                  : namePrompt.kind === "create"
+                    ? "Create"
+                    : "Rename"}
+              </button>
+              <button type="button" data-testid="tree-name-cancel" onClick={() => setNamePrompt(null)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {deletePrompt && (
+        <div className="modal-backdrop">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tree-delete-title"
+            data-testid="tree-delete-dialog"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setDeletePrompt(null);
+            }}
+          >
+            <h2 id="tree-delete-title">
+              Delete {deletePrompt.directory ? "folder" : "file"}?
+            </h2>
+            <p>
+              {deletePrompt.path} is removed from disk
+              {deletePrompt.directory ? " with everything inside it" : ""}. This cannot be
+              undone.
+            </p>
+            {deletePrompt.error && (
+              <p className="error" role="alert" data-testid="tree-delete-error">
+                {deletePrompt.error}
+              </p>
+            )}
+            <div className="actions">
+              <button autoFocus data-testid="tree-delete-cancel" onClick={() => setDeletePrompt(null)}>
+                Cancel
+              </button>
+              <button
+                className="primary"
+                data-testid="tree-delete-confirm"
+                disabled={deletePrompt.busy}
+                onClick={() => void confirmDelete()}
+              >
+                {deletePrompt.busy ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {confirm && (
