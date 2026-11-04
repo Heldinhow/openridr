@@ -4036,6 +4036,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const debugStartAction = requireAction(actionById, "debug.start");
   const stopAction = requireAction(actionById, "run.stop");
   const searchAction = requireAction(actionById, "search.everywhere");
+  const searchHint =
+    searchAction.shortcutTexts.length > 0
+      ? `${searchAction.shortcutTexts.join(" or ")} or Double Shift`
+      : "Double Shift";
   const settingsAction = requireAction(actionById, "settings.open");
   const findActionAction = requireAction(actionById, "view.findAction");
   const keymapAction = requireAction(actionById, "view.keymap");
@@ -4245,7 +4249,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           data-testid="toolbar-search"
           disabled={Boolean(searchAction.disabledReason)}
           aria-label={searchAction.title}
-          title={searchAction.disabledReason ?? (searchAction.shortcutTexts.join(" or ") || "Double Shift")}
+          title={searchAction.disabledReason ?? searchHint}
           onClick={searchAction.execute}
         >
           <Icon name="search" />
@@ -5008,7 +5012,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               <h1>Your code, in focus.</h1>
               <p className="muted">Open a file from the solution explorer to start editing.</p>
               <dl className="shortcut-list">
-                <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd></dd>
+                <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd> <span className="muted">or Double Shift</span></dd>
                 <dt>Save file</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘S" : "Ctrl+S"}</kbd></dd>
                 <dt>Go to definition</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘B" : "Ctrl+B"}</kbd></dd>
                 <dt>Rename symbol</dt><dd><kbd>Shift+F6</kbd></dd>

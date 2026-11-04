@@ -84,6 +84,9 @@ export function KeymapPanel({ actions, keymap, platform, onChange }: PanelProps)
       <p className="muted" data-testid="keymap-active-profile">
         Active profile: {profileTitle(keymap.profile)}
       </p>
+      <p className="muted" data-testid="keymap-gestures">
+        Double Shift always opens Search Everywhere.
+      </p>
       {error && (
         <p className="error" role="alert" data-testid="keymap-error">
           {error}

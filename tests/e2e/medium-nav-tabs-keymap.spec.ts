@@ -92,7 +92,7 @@ test("⌘E lists the session's recent files and opens the chosen one", async ({ 
   await expect(dialog).toHaveCount(0);
 });
 
-test("⇧⌘O opens Go to File on the Files tab and ⌘T opens nothing in Rider", async ({ page }) => {
+test("⇧⌘O opens Go to File on the Files tab and ⌘T opens Search Everywhere", async ({ page }) => {
   await openTrusted(page);
   await page.getByTestId(`tree-file-${program}`).click();
   await page.getByTestId("editor").click();
@@ -104,7 +104,97 @@ test("⇧⌘O opens Go to File on the Files tab and ⌘T opens nothing in Rider"
   await expect(page.getByTestId("find-action")).toHaveCount(0);
 
   await page.keyboard.press("Meta+t");
-  await expect(page.getByTestId("find-action")).toHaveCount(0);
+  await expect(page.getByTestId("find-action")).toBeVisible();
+  await expect(page.getByTestId("search-tab-all")).toHaveAttribute("aria-selected", "true");
+  await page.getByTestId("find-action-input").press("Escape");
+});
+
+test("⌘1..⌘8 focus the eight tool windows; repeating the active one toggles it", async ({ page }) => {
+  await openTrusted(page);
+  await page.getByTestId(`tree-file-${program}`).click();
+  await page.getByTestId("editor").click();
+
+  const band = [
+    [1, "solution"], [2, "commit"], [3, "build"], [4, "run"],
+    [5, "problems"], [6, "debug"], [7, "terminal"], [8, "tests"],
+  ] as const;
+  // Start from Commit and a non-default bottom tab so each ⌘N in the loop focuses, not toggles.
+  await page.keyboard.press("Meta+2");
+  await expect(page.getByTestId("toolband-commit")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Meta+4");
+  await expect(page.getByTestId("toolband-run")).toHaveAttribute("aria-pressed", "true");
+  for (const [key, id] of band) {
+    // The keymap ignores text fields by design; xterm focuses its own textarea, so return to the editor.
+    await page.getByTestId("editor").click();
+    await page.keyboard.press(`Meta+${key}`);
+    await expect(page.getByTestId(`toolband-${id}`)).toHaveAttribute("aria-pressed", "true");
+  }
+
+  // The same shortcut on the active window closes it and opens it again.
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+8");
+  await expect(page.getByTestId("toolband-tests")).toHaveAttribute("aria-pressed", "false");
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+8");
+  await expect(page.getByTestId("toolband-tests")).toHaveAttribute("aria-pressed", "true");
+  // Commit is still the active left window, so the first ⌘1 focuses Solution before toggling.
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+1");
+  await expect(page.getByTestId("toolband-solution")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+1");
+  await expect(page.getByTestId("toolband-solution")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("tree")).toHaveCount(0);
+  await page.keyboard.press("Meta+1");
+  await expect(page.getByTestId("toolband-solution")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("tree")).toBeVisible();
+});
+
+test("Settings list the keymap keepers and the new defaults; the start hint names Double Shift", async ({
+  page,
+}) => {
+  await openTrusted(page);
+
+  // The empty editor hint shows the ⌘T binding plus the fixed gesture.
+  const hint = page.locator(".empty-editor .shortcut-list");
+  await expect(hint).toContainText("⌘T");
+  await expect(hint).toContainText("Double Shift");
+
+  await page.keyboard.press("Meta+,");
+  await expect(page.getByTestId("settings-dialog")).toBeVisible();
+  await page.getByTestId("settings-page-keymap").click();
+  await expect(page.getByTestId("keymap-gestures")).toContainText("Double Shift");
+  await expect(page.getByTestId("keymap-shortcut-search.everywhere")).toHaveText("⌘T");
+  await expect(page.getByTestId("keymap-shortcut-code.findUsages")).toHaveText("⇧F12");
+  await expect(page.getByTestId("keymap-shortcut-search.symbol")).toHaveText("⌥⇧⌘T");
+  const band = ["solution", "commit", "build", "run", "problems", "debug", "terminal", "tests"];
+  for (const [index, id] of band.entries()) {
+    await expect(page.getByTestId(`keymap-shortcut-toolWindow.${id}`)).toHaveText(`⌘${index + 1}`);
+    await expect(page.getByTestId(`keymap-conflict-toolWindow.${id}`)).toHaveCount(0);
+  }
+  await expect(page.getByTestId("keymap-conflict-search.everywhere")).toHaveCount(0);
+
+  // The IntelliJ profile keeps ⌥F7 and gets the same Search Everywhere and tool-window keys.
+  await page.getByTestId("settings-cancel").click();
+  fs.writeFileSync(settingsFile, JSON.stringify({ keymap: { profile: "intellij" } }));
+  await page.reload();
+  await openTrusted(page);
+  await page.keyboard.press("Meta+,");
+  await page.getByTestId("settings-page-keymap").click();
+  await expect(page.getByTestId("keymap-active-profile")).toContainText("IntelliJ");
+  await expect(page.getByTestId("keymap-shortcut-code.findUsages")).toHaveText("⌥F7");
+  await expect(page.getByTestId("keymap-shortcut-search.everywhere")).toHaveText("⌘T");
+  await expect(page.getByTestId("keymap-shortcut-toolWindow.solution")).toHaveText("⌘1");
+  await expect(page.getByTestId("keymap-shortcut-toolWindow.tests")).toHaveText("⌘8");
+
+  // Both Search Everywhere gestures also work in the IntelliJ profile.
+  await page.getByTestId("settings-cancel").click();
+  await page.keyboard.press("Meta+t");
+  await expect(page.getByTestId("find-action")).toBeVisible();
+  await page.getByTestId("find-action-input").press("Escape");
+  await page.keyboard.press("Shift");
+  await page.keyboard.press("Shift");
+  await expect(page.getByTestId("find-action")).toBeVisible();
 });
 
 test("Rider duplicates and deletes lines with ⌘D and ⌘⌫; IntelliJ keeps CodeMirror behavior", async ({

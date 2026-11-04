@@ -41,8 +41,21 @@ Search Everywhere e as oito janelas de ferramenta.
 
 ## Aceite
 
-- [ ] ⇧F12 (rider-macos) e ⌥F7 (intellij) continuam funcionando e aparecem na Settings.
-- [ ] Duplo Shift e ⌘T abrem Search Everywhere; o atalho aparece na Settings e na dica.
-- [ ] ⌘1…⌘8 alternam as oito janelas de ferramenta, sem conflito, e aparecem na Settings.
-- [ ] O símbolo continua no atalho atual do perfil, com a pendência do keymap base registrada.
-- [ ] Evidência no app real para duplo Shift, ⌘T, ⌘1 e ⌘8.
+- [x] ⇧F12 (rider-macos) e ⌥F7 (intellij) continuam funcionando e aparecem na Settings. —
+      `keymapDefaults` inalterado para `code.findUsages`; `medium-nav-tabs-keymap.spec.ts` confere
+      os rótulos ⇧F12 e ⌥F7 na Settings. O comportamento por atalho já era coberto por
+      `find-usages.spec.ts`/`analysis-gate.spec.ts` e não mudou. `find-usages` não foi reexecutado
+      nesta rodada (csharp-ls ausente no home de E2E isolado).
+- [x] Duplo Shift e ⌘T abrem Search Everywhere; o atalho aparece na Settings e na dica. —
+      `keymapDefaults["search.everywhere"] = ⌘T` nos dois perfis; a dica do editor vazio e o
+      tooltip da toolbar mostram "Double Shift"; `keymap-gestures` na Settings registra o gesto.
+      `medium-nav-tabs-keymap.spec.ts` prova ⌘T e ⇧⇧ em Rider (macOS) e IntelliJ.
+- [x] ⌘1…⌘8 alternam as oito janelas de ferramenta, sem conflito, e aparecem na Settings. —
+      `medium-nav-tabs-keymap.spec.ts`: foco em cada uma das oito, toggle de Tests e de Solution e
+      ausência de conflito na Settings; os dois slots são exercitados.
+- [x] O símbolo continua no atalho atual do perfil, com a pendência do keymap base registrada. —
+      ⌥⇧⌘T em `rider-macos` e ⌥⌘O em `intellij` inalterados e conferidos na Settings;
+      `docs/decisions.md` (2026-11-04) mantém o mapeamento de Ctrl+Shift+Alt+N como não confirmado.
+- [ ] Evidência no app real para duplo Shift, ⌘T, ⌘1 e ⌘8. **Não verificado nesta rodada:** a
+      passada no app Tauri real (agent-desktop) fica para a varredura final com `verify-openridr`;
+      os atalhos só foram exercitados no Playwright/Chrome.
