@@ -2573,8 +2573,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         setProjectDetailsOpen(true);
       },
       onNewFile: () => startCreateFile(target),
-      onRename: () => startRename(target),
-      onDelete: () => requestDelete(target),
     });
   }
 

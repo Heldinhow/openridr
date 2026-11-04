@@ -1211,12 +1211,24 @@ impl Debugger {
             self.fail(&format!("Could not promote the verified tool: {error}"));
             return;
         }
+        // Promotion renamed the staging tree, so the verified path no longer exists; the
+        // recorded binary must come from the destination.
+        let Some(binary) =
+            find_executable(Path::new(&plan.destination), binary_name(&plan.platform))
+        else {
+            self.fail(
+                "The verified executable is missing after promotion; the destination is not ready.",
+            );
+            return;
+        };
+        let mut installed = verified.clone();
+        installed.binary = binary.to_string_lossy().to_string();
         let mut data = self.data.lock().unwrap();
         data.state = "ready";
-        data.sha256 = verified.sha256.clone();
-        data.verified_version = verified.verified_version.clone();
-        data.verified_output = verified.reason.clone();
-        data.installed = Some(verified.clone());
+        data.sha256 = installed.sha256.clone();
+        data.verified_version = installed.verified_version.clone();
+        data.verified_output = installed.reason.clone();
+        data.installed = Some(installed.clone());
         data.progress = None;
         data.error = None;
         data.note = Some(
@@ -1224,11 +1236,11 @@ impl Debugger {
                 .to_string(),
         );
         data.finished_at = Some(now_ms());
-        if let Some(output) = &verified.reason {
-            data.log.push(format!("$ {} --version", verified.binary));
+        if let Some(output) = &installed.reason {
+            data.log.push(format!("$ {} --version", installed.binary));
             data.log.push(output.clone());
         }
-        if let Some(sha) = &verified.sha256 {
+        if let Some(sha) = &installed.sha256 {
             data.log.push(format!("executable sha256 {sha}"));
         }
         data.log.push(

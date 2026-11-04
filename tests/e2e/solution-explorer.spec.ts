@@ -93,6 +93,9 @@ test("Restricted project menu blocks execution, offers Trust and edits the cspro
   await expect(page.getByTestId("tree-menu-build")).toHaveAttribute("title", /Trust the workspace/);
   await expect(page.getByTestId("tree-menu-run")).toContainText("Run 'OrderDesk.Cli'");
   await expect(page.getByTestId("tree-menu-trust")).toBeVisible();
+  // A project file is owned by the solution: no Rename/Delete from its menu.
+  await expect(page.getByTestId("tree-menu-rename")).toHaveCount(0);
+  await expect(page.getByTestId("tree-menu-delete")).toHaveCount(0);
 
   await page.getByTestId("tree-menu-edit").hover();
   await expect(page.getByTestId("tree-menu-edit-file")).toContainText("Edit 'OrderDesk.Cli.csproj'");
@@ -183,6 +186,8 @@ test("tree menu creates, renames and deletes files with confirmation", async ({ 
   // Rename keeps the contents and the evaluated tree follows the new path.
   const order = page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs");
   await order.click({ button: "right" });
+  // Files keep the destructive actions the project menu refuses.
+  await expect(page.getByTestId("tree-menu-delete")).toBeVisible();
   await page.getByTestId("tree-menu-rename").click();
   await expect(page.getByTestId("tree-name-input")).toHaveValue("Order.cs");
   await page.getByTestId("tree-name-input").fill("Renamed.cs");

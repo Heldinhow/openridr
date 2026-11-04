@@ -499,6 +499,11 @@ fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
     assert!(destination.join("netcoredbg/netcoredbg").is_file());
     assert!(!destination.join("__MACOSX").exists());
     assert!(destination.starts_with(seam.home.path()));
+    // The recorded path must outlive promotion: the staging tree it was verified in is gone.
+    let installed_binary = PathBuf::from(finished["installedBinary"].as_str().unwrap());
+    assert_eq!(installed_binary, destination.join("netcoredbg/netcoredbg"));
+    assert!(installed_binary.starts_with(&destination));
+    assert!(!installed_binary.to_string_lossy().contains(".staging"));
     assert_eq!(server.requests(), 1);
 
     // Reuse after a successful install: the nested executable is found, nothing is downloaded.
@@ -655,6 +660,9 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
     assert!(destination.join("netcoredbg.exe").is_file());
     assert!(destination.join("README.txt").is_file());
     assert!(destination.starts_with(seam.home.path()));
+    let installed_binary = PathBuf::from(finished["installedBinary"].as_str().unwrap());
+    assert_eq!(installed_binary, destination.join("netcoredbg.exe"));
+    assert!(!installed_binary.to_string_lossy().contains(".staging"));
     let requests = server.requests();
     assert_eq!(requests, 1);
 

@@ -14,6 +14,13 @@ up)
   app=${2:-${OPENRIDR_APP:-${OPENRIDR_APP_BUNDLE:-/Applications/OpenRidr.app}}}
   bin="$app/Contents/MacOS/openridr"
   [ -x "$bin" ] || { echo "desktop.sh: no executable at $bin" >&2; exit 1; }
+  # The bundle under test may not be the checkout; say which version runs so proof is not attributed to HEAD.
+  bundle_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist" 2>/dev/null || true)
+  package_version=$(sed -n 's/.*"version": "\(.*\)".*/\1/p' "$repo/package.json" | head -1)
+  echo "bundle $app ${bundle_version:-unknown}"
+  if [ -n "$bundle_version" ] && [ -n "$package_version" ] && [ "$bundle_version" != "$package_version" ]; then
+    echo "note: bundle is $bundle_version but package.json is $package_version; results describe the bundle, not this checkout" >&2
+  fi
   # Same CFBundleIdentifier for installed and debug bundles: never start a second instance next to the user's.
   if pgrep -x openridr >/dev/null; then echo "desktop.sh: an OpenRidr is already running; not double-driving it" >&2; exit 1; fi
   # Rotate instead of deleting: the previous session's log, trust store and fixture copy stay in .prev.

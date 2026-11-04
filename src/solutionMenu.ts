@@ -25,8 +25,6 @@ export interface ProjectMenu {
   onCopyPath: () => void;
   onProperties: () => void;
   onNewFile: () => void;
-  onRename: () => void;
-  onDelete: () => void;
 }
 
 export function projectMenuItems(m: ProjectMenu): ContextMenuItem[] {
@@ -68,8 +66,8 @@ export function projectMenuItems(m: ProjectMenu): ContextMenuItem[] {
       action: m.onNewFile,
       separatorBefore: true,
     },
-    { id: "rename", label: "Rename…", action: m.onRename },
-    { id: "delete", label: "Delete", action: m.onDelete },
+    // No Rename/Delete here: a project file belongs to the solution, so moving or deleting it
+    // would leave the workspace pointing at a file that no longer matches.
     { id: "copy-path", label: "Copy Path", action: m.onCopyPath, separatorBefore: true },
     { id: "properties", label: "Properties…", action: m.onProperties, separatorBefore: true },
   );
