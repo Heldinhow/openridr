@@ -223,7 +223,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
               "Starts the discovered shell in the workspace root; the shell and cwd are shown above."
             }
           >
-            <Icon name="run" /><span className="sr-only">Start shell</span>
+            <Icon name="terminal" /><span className="sr-only">Start shell</span>
           </button>
           {running && (
             <button

@@ -2962,7 +2962,6 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .terminal-controls button { width: 32px; padding: 0; background: transparent; border-color: transparent; box-shadow: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .terminal-controls button:hover:not(:disabled) { background: var(--accent-surface-strong); color: var(--fg); }
 .terminal-controls kbd { font: 12px var(--mono); color: inherit; }
-.terminal-controls [data-testid="terminal-start"] .icon { color: var(--success); }
 .terminal-panel > p { margin: 0; padding: 4px 12px; background: transparent; }
 .terminal-output { background: transparent; border: 0; padding: 4px 8px; min-height: 120px; }
 .terminal-screen { padding: 4px 8px; }
