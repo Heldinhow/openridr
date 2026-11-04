@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** implementação concluída — prova no app Tauri real pendente (`verify-openridr`).
+**Status:** implementação concluída — prova no app Tauri real feita em 2026-11-04 (`docs/evidence/fix-alpha5/VERIFICATION.md`).
 
 - [x] Arquivo CRLF: abrir, editar, salvar → todas as linhas continuam CRLF.
 - [x] Arquivo LF: abrir, editar, salvar → continua LF.
@@ -15,4 +15,4 @@
 - [x] O hash de conflito é estável entre leitura e escrita (texto normalizado dos dois lados).
 - [x] Bytes inválidos/encoding desconhecido continuam erro claro, sem corromper o arquivo.
 - [x] Testes de host para round-trip e conflito; e2e para abrir/salvar CRLF e UTF-16.
-- [ ] Prova no app Tauri real: abrir/salvar CRLF e UTF-16 no bundle (`verify-openridr`).
+- [x] Prova no app Tauri real: abrir/salvar CRLF e UTF-16 no bundle (`verify-openridr`).

@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** implementação concluída — prova no app Tauri real pendente (`verify-openridr`).
+**Status:** implementação concluída — prova no app Tauri real feita em 2026-11-04 (`docs/evidence/fix-alpha5/VERIFICATION.md`).
 
 - [x] Um arquivo ausente antes e depois do build não conta como "alterado desde o build".
 - [x] Um arquivo que existia no build e foi apagado depois continua disparando o rebuild implícito (proteção preservada).
 - [x] Um arquivo modificado depois do build continua bloqueando como hoje.
 - [x] Teste de host cobre o caso criar → build → apagar → rebuild → gate liberado.
-- [ ] Prova no app real: build verde após delete externo → Start debugging inicia.
+- [x] Prova no app real: build verde após delete externo → Start debugging inicia.

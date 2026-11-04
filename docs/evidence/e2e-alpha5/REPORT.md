@@ -262,3 +262,43 @@ Não executados pela skill nesta sessão: Playwright (`bunx playwright test …`
 - Skill nova: `.agents/skills/test-app-agent-desktop/SKILL.md`
 
 Contagem: **P0: 1 · P1: 1 · P2: 11 · P3: 7** (total 20).
+
+## 10. Status após as correções (branch `fix/e2e-alpha5`, 2026-11-04)
+
+Spec: [`../SPEC-FIX-ALPHA5.md`](../SPEC-FIX-ALPHA5.md). Tickets: [`../../tickets-fix-alpha5/`](../../tickets-fix-alpha5/). Evidência: [`../fix-alpha5/VERIFICATION.md`](../fix-alpha5/VERIFICATION.md).
+
+| ID | Status | Commit | Prova |
+|---|---|---|---|
+| BUG-001 | **corrigido** (Cmd+Q, menu Quit, botão Close) | `ceaa473` | diálogo no app real; Keep editing preserva; Save all grava; Close sem regressão |
+| BUG-002 | **corrigido** | `f4885ad` | app real: delete externo + rebuild verde → Debug inicia |
+| BUG-003 | **corrigido** | `d34a98e` | app real: texto externo aparece na aba ativa em ~3 s |
+| BUG-004 | **corrigido** | `403e330` | app real: criar/renomear/apagar externo aparece em ~4 s |
+| BUG-005 | **corrigido** | `e59bd4e` | app real: CRLF continua CRLF depois de editar e salvar |
+| BUG-006 | **corrigido** | `e59bd4e` | app real: UTF-16LE com BOM abre, edita e salva no mesmo encoding |
+| BUG-007 | **corrigido no script/relatório** | `4c0dda5` | não reproduzia no HEAD (alpha.4); script valida e imprime bundle; e2e cobre `.cs`/`.txt` |
+| BUG-008 | **corrigido** (comportamento mantido) | `a5680e7`, `d0f56c1` | checksum, retry, progresso e registro de origem/versão/checksum; sem diálogo novo |
+| BUG-009 | **corrigido** | `0ce59af` | `down` valida PID, espera e falha com instância restante |
+| BUG-010 | **corrigido** | `0ce59af` | estado por usuário, impresso, rotação em vez de `rm -rf` |
+| BUG-011 | **corrigido** | `0ce59af` | doctor aceita bundle e valida versão; desktop imprime versão e avisa divergência |
+| BUG-012 | **corrigido** | `0ce59af` | docs exigem `--headed` + `focus-window` para `type`/`press` |
+| BUG-013 | **corrigido** | `0ce59af` | docs sem `debug-consent-dialog`/diálogo de troca; status de PERM_DENIED atualizado |
+| BUG-014 | **corrigido** | `f6cd2da` | app real: segunda execução direta sai e encaminha o `.sln`; um processo |
+| BUG-015 | **corrigido** | `a5680e7` | app real: "experimental · enabled" com motivo; sem "blocked on this platform" |
+| BUG-016 | **corrigido** | `4c0dda5` | `.sln` sem projetos culpa o arquivo, não o SDK |
+| BUG-017 | **corrigido (texto)** | `4c0dda5` | `revision 1` não diz "previous evaluation"; stale real após restore continua |
+| BUG-018 | **corrigido** | `24655a9` | nomes acessíveis distintos; menu de projeto "Project context menu" |
+| BUG-019 | **corrigido (mínimo)** | `dfc0857`, `d0f56c1` | app real: criar/renomear/apagar com confirmação; nó de projeto protegido |
+| BUG-020 | **corrigido** | `0ce59af` | doctor imprime `granted`/`denied`, sem JSON cru |
+| Camada SDK | **implementada** | `9ab2b62`, `ff297da`, `3df4538` | app real: runtime 10.0.14 + SDK 8.0.408, sem pedir 10; descoberta ampla; csharp-ls com progresso/retry |
+| netcoredbg embutido | **proposta apenas** | `95a642c` | 3.39 MB medidos; decisão pendente do Helder; nada embutido |
+
+**Não corrigido / limitação declarada:**
+
+- **Dock Quit e AppleScript `quit`**: usam `terminate:` nativo do macOS; o Tauri não expõe `applicationShouldTerminate`, então só Cmd+Q, menu Quit e o botão Close passam pelo diálogo. Registrado em `decisions.md`.
+- **Capturas novas**: Screen Recording ficou negado nesta sessão; a prova da superfície C é snapshot de acessibilidade + estado em disco, sem PNG.
+- **Progresso visual no app**: o download do netcoredbg (3.4 MB) conclui antes de um snapshot; o do csharp-ls não foi feito pela UI nesta sessão. Componente, erro e retry são cobertos por host/e2e.
+- **Menu de arquivo** ainda se chama "Solution context menu" (o achado citava o menu de projeto, corrigido).
+- **`desktop.sh up`** ainda usa `/Applications` por padrão, mas imprime a versão e avisa quando difere de `package.json`.
+- **Embutir o netcoredbg** não foi implementado por decisão explícita; só a proposta medida.
+
+Itens do relatório marcados N/T (hover, rename LSP, breakpoints, Finder "Abrir com", múltiplas janelas, redimensionamento analisado) continuam fora desta rodada e não são regressão.

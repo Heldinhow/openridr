@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** implementação concluída — prova no app Tauri real pendente (`verify-openridr`); Dock Quit é `terminate:` nativo, limitação em `docs/decisions.md`.
+**Status:** implementação concluída — prova no app Tauri real feita em 2026-11-04 (`docs/evidence/fix-alpha5/VERIFICATION.md`); Dock Quit é `terminate:` nativo, limitação em `docs/decisions.md`.
 
 - [x] O menu do app tem um item Quit próprio com Cmd+Q que pede a decisão à UI em vez de encerrar direto.
 - [x] `ExitRequested` do Tauri impede a saída, pergunta à webview e só encerra após uma resposta autorizada.
@@ -13,5 +13,5 @@
 - [x] "Save all" grava todos os buffers sujos antes de encerrar.
 - [x] App sem buffers sujos encerra imediatamente, sem diálogo.
 - [x] Fechar a janela pelo botão Close continua funcionando como hoje (sem diálogo duplicado).
-- [ ] Prova no app Tauri real de Cmd+Q com buffer sujo, com antes/depois em `docs/evidence/fix-alpha5/`.
+- [x] Prova no app Tauri real de Cmd+Q com buffer sujo, com antes/depois em `docs/evidence/fix-alpha5/`.
 - [x] AppleScript `quit` registrado como limitação conhecida (fora do hook do Tauri).
