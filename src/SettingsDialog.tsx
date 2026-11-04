@@ -454,9 +454,9 @@ export function SettingsDialog({
                   <span className="settings-label">Detected SDKs</span>
                   <ul data-testid="settings-sdk-list">
                     <li>
-                      Host SDK:{" "}
+                      Analysis runtime:{" "}
                       {snapshot.sdk.host.state === "found"
-                        ? `${snapshot.sdk.host.version} · ${snapshot.sdk.host.sdkPath ?? snapshot.sdk.host.root ?? ""}`
+                        ? `${snapshot.sdk.host.version} · ${snapshot.sdk.host.root ?? ""}`
                         : (snapshot.sdk.host.message ?? "not found")}
                     </li>
                     <li>

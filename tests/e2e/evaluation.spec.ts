@@ -273,8 +273,10 @@ test("a workspace without global.json shows the host's reason, not a fixed SDK l
     await enterWorkspace(page);
     const reason = page.getByTestId("eval-disabled-reason");
     await expect(reason).toContainText("No global.json at the workspace root");
+    await expect(reason).toContainText("TargetFramework");
     await expect(reason).toContainText("fix or add global.json");
-    await expect(reason).not.toContainText("Host SDK 10 is never substituted");
+    await expect(reason).not.toContainText("host SDK");
+    await expect(reason).not.toContainText("SDK 10");
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

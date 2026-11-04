@@ -11,7 +11,7 @@ type Props = {
   busy: boolean;
   // Errors of opening a project, keyed by path; shown on that row.
   rowErrors: Record<string, string>;
-  hostSdkMissing: boolean;
+  runtimeMissing: boolean;
   // Tracked processes of a closed workspace that still wait for a keep/terminate decision.
   awaitingProcesses: number;
   onOpen: (path: string) => void;
@@ -22,7 +22,7 @@ type Props = {
   children?: ReactNode;
 };
 
-export function ProjectsView({ active, recent, busy, rowErrors, hostSdkMissing, awaitingProcesses, onOpen, onPick, onRecent, onShowToolchain, children }: Props) {
+export function ProjectsView({ active, recent, busy, rowErrors, runtimeMissing, awaitingProcesses, onOpen, onPick, onRecent, onShowToolchain, children }: Props) {
   const [filter, setFilter] = useState("");
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const search = useRef<HTMLInputElement>(null);
@@ -101,9 +101,9 @@ export function ProjectsView({ active, recent, busy, rowErrors, hostSdkMissing, 
         </button>
       </div>
       {children}
-      {hostSdkMissing && (
+      {runtimeMissing && (
         <p className="sdk-warning warning" role="status" data-testid="welcome-sdk-warning">
-          Analysis host SDK missing: C# analysis needs .NET 10.{" "}
+          Analysis runtime missing: C# analysis needs the .NET 10 runtime.{" "}
           <button type="button" className="link-button" onClick={onShowToolchain}>Open Toolchain</button>
         </p>
       )}

@@ -31,7 +31,8 @@ export type SdkRoot = {
   error: string | null;
 };
 
-export type HostSdk = {
+/** The .NET 10 runtime that executes csharp-ls; not the project SDK and not an SDK install. */
+export type AnalysisRuntime = {
   state: "found" | "missing";
   version: string | null;
   root: string | null;
@@ -1077,7 +1078,7 @@ export type Snapshot = {
     decision: "trusted" | "restricted" | null;
   };
   sdk: {
-    host: HostSdk;
+    host: AnalysisRuntime;
     project: ProjectSdk;
     roots: SdkRoot[];
     inspectedAt: number | null;

@@ -40,20 +40,18 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
         ) : (
           <div className="tool-rows">
             <details className="tool-row" open={workspace ? true : undefined}>
-              <summary><span>Analysis host</span><span className={sdk.host.state === "found" ? "success" : "warning"}>{sdk.host.state === "found" ? `✓ SDK ${sdk.host.version}` : "! SDK 10 needed"}</span></summary>
+              <summary><span>Analysis runtime</span><span className={sdk.host.state === "found" ? "success" : "warning"}>{sdk.host.state === "found" ? `✓ .NET ${sdk.host.version}` : "! .NET 10 runtime needed"}</span></summary>
               <div data-testid="sdk-host">
                 {sdk.host.state === "found" ? (
                   <>
-                    <strong className="success">SDK {sdk.host.version}</strong>{" "}
-                    <span className="tag">host analysis · separate from project</span>
-                    <br />
-                    <code>{sdk.host.sdkPath}</code>
+                    <strong className="success">.NET {sdk.host.version} runtime</strong>{" "}
+                    <span className="tag">runs the analysis tool · separate from the project SDK</span>
                     <br />
                     <span className="muted">Root: {sdk.host.root}</span>
                   </>
                 ) : (
                   <>
-                    <strong className="error">Analysis host missing</strong>
+                    <strong className="error">Analysis runtime missing</strong>
                     <p>{sdk.host.message}</p>
                     <a
                       href={sdk.host.instructionsUrl}
@@ -61,9 +59,13 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
                       rel="noreferrer noopener"
                       data-testid="sdk-host-instructions"
                     >
-                      Official .NET downloads
+                      Get the .NET 10 runtime
                     </a>
-                    <p className="muted">Install .NET 10, then use Redetect SDKs.</p>
+                    <p className="muted">
+                      Install it from that page, then use Redetect SDKs. No environment variables
+                      or manual file copies are needed; OpenRidr finds the runtime where the
+                      installer puts it.
+                    </p>
                   </>
                 )}
               </div>
@@ -72,7 +74,7 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
             <details className="tool-row" open={workspace ? true : undefined}>
               <summary><span>Project SDK</span><span className={sdk.project.state === "resolved" ? "success" : "muted"}>{sdk.project.state === "resolved" ? `✓ ${sdk.project.resolvedVersion}` : workspace ? "Review required" : "Open a workspace first"}</span></summary>
               <div data-testid="sdk-project">
-                <ProjectSdkBody project={sdk.project} onOpenGlobalJson={onOpenGlobalJson} />
+                <ProjectSdkBody project={sdk.project} tfms={tfms} onOpenGlobalJson={onOpenGlobalJson} />
               </div>
             </details>
 

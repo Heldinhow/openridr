@@ -622,3 +622,11 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Instalar ≠ executar.** O plano do csharp-ls roda `dotnet tool install` com o maior SDK detectado (qualquer versão, inclusive o 8 do projeto); `dotnet_root` do plano e a verificação `--version` apontam para a raiz do runtime 10. Sem SDK nenhum o plano falha separado de "falta runtime"; sem runtime 10 o plano nem é produzido.
 - **SDK do projeto intacto.** `global.json`/TargetFramework, `rollForward`, versão resolvida e `sdkRoot` absoluto não mudaram; os gates de evaluation/restore/build/run/test continuam exigindo `project_sdk.state == "resolved"`.
 - **Limite.** Windows e macOS Intel seguem não executados; a prova de uma raiz só-runtime usa raízes falsas nos testes (`describe`/descoberta), enquanto a análise real desta máquina usa a raiz de runtime detectada.
+
+## 2026-11-04 — Pedido de pré-requisito por projeto
+
+- **Runtime ≠ SDK na tela.** Card, banner de boas-vindas, Settings e status bar chamam `sdk.host` de "Analysis runtime"/".NET 10 runtime"; o link e a mensagem vêm do host (`/download/dotnet/10.0`). Nenhum texto manda instalar SDK 10 para analisar.
+- **SDK do projeto cita a origem.** `sdk.project.globalJsonPath` + `requestedVersion` viram `global.json requests <versão>`; sem `global.json`/versão, a UI diz que o `TargetFramework` declarado decide e não resolve um SDK por conta própria. O link é o `instructionsUrl` do host (página de SDKs).
+- **A UI não recalcula regra.** Estados, versões, mensagens e URLs vêm do snapshot (`sdk.host`, `sdk.project`); a única composição local é juntar a origem à versão para exibição. Gates de restore/build/run/debug/test/analysis perdem o "host SDK is never substituted".
+- **Ajuda sem ambiente.** O texto do runtime manda instalar pela página e usar Redetect SDKs, sem `DOTNET_ROOT`, cópia manual de arquivo ou edição de projeto.
+- **Prova.** `tests/e2e/sdk-prerequisites.spec.ts`: OrderDesk 8.0.408 + runtime 10 sem banner; MissingSdk cita 8.0.999 e o link do SDK; runtime ausente (snapshot sobreposto, porque a máquina tem runtime real) mostra ".NET 10 runtime" e `/download/dotnet/10.0`.

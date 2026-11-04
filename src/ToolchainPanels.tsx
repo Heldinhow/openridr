@@ -724,7 +724,7 @@ export function lspStartBlocker(snapshot: Snapshot): string | null {
     : tool.state !== "ready"
       ? "Install and verify csharp-ls 0.28.0 first; the LSP never installs itself."
       : projectSdk.state !== "resolved"
-        ? "Resolve the project SDK before analysis; host SDK 10 is never substituted."
+        ? "Resolve the project SDK before analysis."
         : restore.state === "running"
           ? "A restore is running; analysis starts after it completes."
           : !restoreCurrent

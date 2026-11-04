@@ -790,7 +790,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const restoreDisabledReason = !trusted
     ? "Trust the workspace before restoring; nothing runs in Restricted mode."
     : projectSdk.state !== "resolved"
-      ? "Resolve the project SDK before restoring; the host SDK is never substituted."
+      ? "Resolve the project SDK before restoring."
       : restoring
         ? "A restore is already running."
         : null;
@@ -870,7 +870,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const testsDisabledReason = !trusted
     ? "Trust the workspace before discovering tests; nothing runs in Restricted mode."
     : projectSdk.state !== "resolved"
-      ? "Resolve the project SDK before discovering tests; the host SDK is never substituted."
+      ? "Resolve the project SDK before discovering tests."
       : evaluation.state === "running"
         ? "Wait for the evaluation to finish before discovering tests."
         : evaluation.stale
@@ -3907,7 +3907,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
-  const sdkSummary = `Host SDK ${
+  const sdkSummary = `Analysis runtime ${
     snapshot.sdk.host.state === "found" ? snapshot.sdk.host.version : "missing"
   } · ${
     projectSdk.state === "resolved"
@@ -4407,9 +4407,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               ) : projectSdk.state === "sdk_missing" ? (
                 <>
                   <p>
-                    Project SDK {projectSdk.requestedVersion ?? "pinned by global.json"} is not
-                    installed. OpenRidr detects SDKs but never installs one or substitutes the host
-                    SDK. Install that SDK (or change global.json) and redetect.
+                    {projectSdk.globalJsonPath ?? "global.json"} requests{" "}
+                    {projectSdk.requestedVersion ?? "a pinned SDK"}. OpenRidr detects SDKs but
+                    never installs one or substitutes the .NET 10 analysis runtime. Install that
+                    SDK (or change global.json) and redetect.
                   </p>
                   <div className="actions">
                     <button data-testid="eval-redetect" onClick={() => void redetectSdks()}>
@@ -4421,7 +4422,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                       target="_blank"
                       rel="noreferrer noopener"
                     >
-                      Official .NET downloads
+                      Official .NET SDK downloads
                     </a>
                     {projectSdk.globalJsonPath && (
                       <button data-testid="eval-open-global-json" onClick={openGlobalJson}>
@@ -4433,7 +4434,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               ) : (
                 <p>
                   {projectSdk.message ?? "No project SDK is resolved."} Evaluation, build and run
-                  need a project SDK pinned by global.json; fix or add global.json.
+                  need a project SDK from global.json or the declared TargetFramework; fix or add
+                  global.json.
                 </p>
               )}
             </div>

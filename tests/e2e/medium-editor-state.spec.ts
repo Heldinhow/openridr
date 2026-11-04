@@ -192,10 +192,11 @@ test("b13: a missing project SDK says what to install and offers actions", async
   await page.getByTestId("workspace-tools-toggle").click();
 
   const reason = page.getByTestId("eval-disabled-reason");
-  await expect(reason).toContainText("8.0.999");
+  await expect(reason).toContainText("global.json requests 8.0.999");
   await expect(reason).toContainText("never installs");
+  await expect(reason).not.toContainText("SDK 10");
   const download = page.getByTestId("eval-sdk-download");
-  await expect(download).toHaveAttribute("href", /dotnet\.microsoft\.com/);
+  await expect(download).toHaveAttribute("href", "https://dotnet.microsoft.com/download/dotnet");
   await expect(page.getByTestId("eval-open-global-json")).toBeVisible();
 
   await page.getByTestId("eval-redetect").click();

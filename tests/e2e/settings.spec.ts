@@ -285,7 +285,7 @@ test("Build lists detected SDKs with Redetect and Version Control shows the git 
   await openSettings(page);
   await selectPage(page, "build");
 
-  await expect(page.getByTestId("settings-sdk-list")).toContainText("Host SDK");
+  await expect(page.getByTestId("settings-sdk-list")).toContainText("Analysis runtime");
   await expect(page.getByTestId("settings-sdk-list")).toContainText("Project SDK");
   await expect(page.getByTestId("settings-analysis-host")).not.toBeEmpty();
   await expect(page.getByTestId("settings-host-root")).toBeAttached();
