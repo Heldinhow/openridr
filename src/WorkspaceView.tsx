@@ -22,7 +22,7 @@ import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
 import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
 import { ROOT_KEY, baseOf, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
-import { fileMenuItems, projectMenuItems } from "./solutionMenu";
+import { fileMenuItems, projectMenuItems, solutionMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
   gutterActionAt,
@@ -1736,6 +1736,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
+  async function revealInFinder(path: string) {
+    try {
+      await call("workspace.reveal", { path });
+    } catch (error) {
+      setMessage({ tone: "error", text: `Show in Finder failed: ${messageOf(error)}` });
+    }
+  }
+
   async function requestCodeActions(position = cursorRef.current) {
     if (!active) return;
     if (codeActionsDisabledReason) {
@@ -2627,6 +2635,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       onEditFile: () => void openUserFile(target.path),
       onFind: () => openFindInFiles(dirOf(target.path)),
       onCopyPath: () => void copyPath(absolutePath(target.path)),
+      onReveal: () => void revealInFinder(target.path),
       onProperties: () => {
         setSelectedProjectPath(target.path);
         setProjectDetailsOpen(true);
@@ -2713,12 +2722,26 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   function treeMenuItems(target: TreeTarget): ContextMenuItem[] {
     if (target.kind === "project") return projectMenu(target);
     const path = target.kind === "root" ? "" : target.path;
+    if (target.kind === "root") {
+      return solutionMenuItems({
+        buildReason: buildSolutionDisabledReason,
+        restoreReason: restoreDisabledReason,
+        reloadReason,
+        buildShortcut: shortcutOf("build.solution"),
+        onBuild: requestBuildSolution,
+        onRestore: () => void startRestore("restore.start"),
+        onReload: () => void runEvaluation(),
+        onCopyPath: () => void copyPath(absolutePath("")),
+        onFind: () => openFindInFiles(""),
+        onReveal: () => void revealInFinder(""),
+      });
+    }
     const editable = target.kind === "file" || target.kind === "dir";
     return fileMenuItems({
       open: target.kind === "file" ? () => void openUserFile(target.path) : undefined,
-      reload: target.kind === "root" ? { reason: reloadReason, run: () => void runEvaluation() } : undefined,
       onCopyPath: () => void copyPath(absolutePath(path)),
       onFind: () => openFindInFiles(path),
+      onReveal: () => void revealInFinder(path),
       newFile: target.kind === "dir" ? () => startCreateFile(target) : undefined,
       rename: editable ? () => startRename(target) : undefined,
       delete: editable ? () => requestDelete(target) : undefined,

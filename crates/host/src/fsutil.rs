@@ -110,6 +110,24 @@ impl TextFormat {
     }
 }
 
+/// The command that selects `path` in the platform file manager. Only macOS is verified;
+/// another platform gets a clear error instead of a silent no-op.
+pub(crate) fn reveal_command(
+    platform: &str,
+    path: &Path,
+) -> HostResult<(&'static str, Vec<String>)> {
+    if platform != "macos" {
+        return Err(HostError::new(
+            "unsupported_platform",
+            format!("Show in Finder is only implemented on macOS; this build runs on {platform}."),
+        ));
+    }
+    Ok((
+        "open",
+        vec!["-R".to_string(), path.to_string_lossy().into_owned()],
+    ))
+}
+
 /// Writes JSON through a sibling temporary file and a rename, so an interrupted write never
 /// leaves a partial file. `invalid_code` is the caller's code for a value that cannot
 /// serialize; every filesystem failure is `operation_failed`.
@@ -155,4 +173,23 @@ pub(crate) fn write_json_atomic<T: Serialize>(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reveal_selects_the_item_in_finder_on_macos() {
+        let (program, args) = reveal_command("macos", Path::new("/work/App.cs")).unwrap();
+        assert_eq!(program, "open");
+        assert_eq!(args, vec!["-R".to_string(), "/work/App.cs".to_string()]);
+    }
+
+    #[test]
+    fn reveal_is_a_clear_error_off_macos() {
+        let error = reveal_command("windows", Path::new("C:\\work\\App.cs")).unwrap_err();
+        assert_eq!(error.code, "unsupported_platform");
+        assert!(error.message.contains("only implemented on macOS"), "{}", error.message);
+    }
 }

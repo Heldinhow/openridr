@@ -44,11 +44,42 @@ Finder, sem reescrever o que já funciona.
 
 ## Aceite
 
-- [ ] Pasta abre menu com Novo arquivo, Copiar caminho, Find in Files, Renomear, Excluir e
-      Show in Finder.
-- [ ] Show in Finder funciona em arquivo, pasta, projeto e solução e seleciona o item.
-- [ ] Caminho fora do workspace é recusado pelo host; plataforma não suportada devolve erro.
-- [ ] Menu da solução tem Build Solution, Restore Solution, Copy Path, Find in Files e Add
-      Project desabilitado com motivo.
-- [ ] Nenhum item sem backend é exibido como habilitado.
-- [ ] Evidência no app real, incluindo o Finder.
+- [x] Pasta abre menu com Novo arquivo, Copiar caminho, Find in Files, Renomear, Excluir e
+      Show in Finder. — Playwright `solution-explorer.spec.ts` ("folder menu keeps the existing
+      actions and adds Show in Finder") clica com o botão direito numa pasta e afirma os seis
+      itens; o menu já existia e o handler da linha da pasta não precisou de correção.
+- [x] Show in Finder funciona em arquivo, pasta, projeto e solução e seleciona o item. —
+      host `workspace.reveal` (arquivo/pasta/raiz validados em teste Rust) e item nos quatro
+      menus; o Playwright prova o caminho do item até o método e o erro de contenção. A seleção
+      no Finder real fica para a varredura final.
+- [x] Caminho fora do workspace é recusado pelo host; plataforma não suportada devolve erro. —
+      Rust `reveal_resolves_inside_the_workspace_only` (`outside_workspace`, `not_found`) e
+      `reveal_is_a_clear_error_off_macos` (`unsupported_platform`); Playwright posta um caminho
+      externo no host real e recebe `outside_workspace` sem abrir o Finder.
+- [x] Menu da solução tem Build Solution, Restore Solution, Copy Path, Find in Files e Add
+      Project desabilitado com motivo. — Playwright "solution menu: …" afirma os itens; em
+      Restricted, Build/Restore ficam desabilitados com o motivo do trust.
+- [x] Nenhum item sem backend é exibido como habilitado. — Add Project é o único item sem
+      backend e sai desabilitado com "Adding projects is not implemented."; Rebuild/Clean não
+      existem.
+- [ ] Evidência no app real, incluindo o Finder. **Pendente:** a passada com `agent-desktop`
+      (clique direito em pasta, arquivo, projeto e solução; Show in Finder e item selecionado
+      no Finder) fica para a varredura final com `verify-openridr`.
+
+## Feito (2026-11-04)
+
+- **G13 (reprodução):** o menu de pasta já abria com Novo arquivo, Copiar caminho, Find in
+  Files, Renomear e Excluir; nenhum handler foi reescrito. A prova virou teste Playwright.
+- **Host:** `workspace.reveal` em `crates/host/src/lib.rs` valida a contenção
+  (`resolve_reveal_in_workspace`, aceita a raiz do workspace) e chama `fsutil::reveal_command`,
+  que devolve `open -R <path>` no macOS e `unsupported_platform` no resto. Sem gate de trust
+  (não entra em `EXECUTABLE_METHODS`). A UI mostra `Show in Finder failed: <mensagem>`.
+- **UI:** `src/solutionMenu.ts` ganhou `onReveal` em `fileMenuItems`/`projectMenuItems` e o novo
+  `solutionMenuItems` (Build Solution com o gate de `build.solution`, Restore Solution,
+  Reload Solution, Copy Path, Find in Files, Show in Finder e Add Project desabilitado), ligado
+  em `treeMenuItems` para a raiz. `src/host/client.ts` não mudou: `call` já é genérico.
+- **Testes:** Rust `cargo test -p openridr-host --lib` 219/219 (3 novos); Playwright
+  `solution-explorer.spec.ts` + `medium-nav-find-in-files.spec.ts` 16/16; `bun run check`.
+- **Pendente no app real (agent-desktop):** o roteiro de aceite acima; a varredura final com
+  `verify-openridr` fecha este item.
+

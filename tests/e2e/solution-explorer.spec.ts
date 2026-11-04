@@ -241,3 +241,73 @@ test("trusted menu: console can run, library builds; folders show counts", async
   await expect(page.getByTestId("tree-menu-debug")).toBeEnabled();
   await expect(page.getByTestId("tree-menu-unit-test")).toBeDisabled();
 });
+
+test("folder menu keeps the existing actions and adds Show in Finder", async ({ page }) => {
+  const root = tempCopy();
+  fs.mkdirSync(path.join(root, "docs"));
+  await open(page, root);
+  await page.getByTestId("tree-show-all").click();
+  await page.getByTestId("tree-dir-docs").click({ button: "right" });
+  await expect(page.getByTestId("tree-context-menu")).toBeVisible();
+  for (const id of ["new-file", "copy-path", "find", "rename", "delete", "reveal"]) {
+    await expect(page.getByTestId(`tree-menu-${id}`)).toBeVisible();
+  }
+  await expect(page.getByTestId("tree-menu-reveal")).toContainText("Show in Finder");
+});
+
+test("solution menu: Build, Restore, Copy Path, Find in Files and a disabled Add Project", async ({ page }) => {
+  await open(page, tempCopy());
+  await page.getByTestId("tree-root").click({ button: "right" });
+  await expect(page.getByTestId("tree-context-menu")).toBeVisible();
+  await expect(page.getByTestId("tree-menu-build-solution")).toBeDisabled();
+  await expect(page.getByTestId("tree-menu-build-solution")).toHaveAttribute("title", /Trust the workspace/);
+  await expect(page.getByTestId("tree-menu-restore-solution")).toBeDisabled();
+  await expect(page.getByTestId("tree-menu-restore-solution")).toHaveAttribute("title", /Trust the workspace/);
+  await expect(page.getByTestId("tree-menu-copy-path")).toBeEnabled();
+  await expect(page.getByTestId("tree-menu-find")).toBeEnabled();
+  await expect(page.getByTestId("tree-menu-reveal")).toBeEnabled();
+  await expect(page.getByTestId("tree-menu-add-project")).toBeDisabled();
+  await expect(page.getByTestId("tree-menu-add-project")).toHaveAttribute("title", "Adding projects is not implemented.");
+});
+
+test("Show in Finder calls workspace.reveal with the item path and shows a host refusal", async ({ page }) => {
+  const root = tempCopy();
+  fs.mkdirSync(path.join(root, "docs"));
+  let revealed: string | undefined;
+  await page.route("**/call", async (route) => {
+    const body = route.request().postDataJSON() as { method: string; params?: { path?: string } };
+    if (body.method !== "workspace.reveal") {
+      await route.continue();
+      return;
+    }
+    revealed = body.params?.path;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: false,
+        error: { code: "outside_workspace", message: "Path is outside the workspace: ../outside" },
+      }),
+    });
+  });
+  await open(page, root);
+  await page.getByTestId("tree-show-all").click();
+  await page.getByTestId("tree-dir-docs").click({ button: "right" });
+  await page.getByTestId("tree-menu-reveal").click();
+  await expect(page.getByTestId("app-log")).toContainText("Show in Finder failed: Path is outside the workspace");
+  expect(revealed).toBe("docs");
+});
+
+test("workspace.reveal refuses a path outside the workspace without touching the Finder", async ({ request }) => {
+  const root = tempCopy();
+  await request.post(`${host}/call`, { data: { method: "workspace.open", params: { path: path.join(root, "OrderDesk.sln") } } });
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-outside-"));
+  const outsideFile = path.join(outside, "Outside.cs");
+  fs.writeFileSync(outsideFile, "class Outside {}\n");
+  const response = await request.post(`${host}/call`, {
+    data: { method: "workspace.reveal", params: { path: outsideFile } },
+  });
+  const body = await response.json();
+  expect(body.ok).toBe(false);
+  expect(body.error.code).toBe("outside_workspace");
+});

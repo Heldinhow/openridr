@@ -686,6 +686,7 @@ impl Host {
             "file.create" => self.create_file(params),
             "file.rename" => self.rename_path(params),
             "file.delete" => self.delete_path(params),
+            "workspace.reveal" => self.reveal_path(params),
             "settings.read" => settings::read(),
             "settings.write" => settings::write(&params),
             "runConfigs.read" => run_configs::read(&params),
@@ -5910,6 +5911,36 @@ impl Host {
         );
         Ok(json!({ "path": rel, "directory": directory }))
     }
+
+    /// Selects a file or folder in Finder. It never runs project code, so it takes no trust
+    /// gate; the containment check is the only thing between the UI and the filesystem.
+    fn reveal_path(&self, params: Value) -> HostResult<Value> {
+        let raw = required_str(&params, "path")?;
+        let root = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?
+                .root
+                .clone()
+        };
+        let (path, rel) = resolve_reveal_in_workspace(&root, &raw)?;
+        let (program, args) = fsutil::reveal_command(std::env::consts::OS, &path)?;
+        let status = Command::new(program).args(&args).status().map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not open the Finder for {rel}: {error}"),
+            )
+        })?;
+        if !status.success() {
+            return Err(HostError::new(
+                "operation_failed",
+                format!("The Finder refused {rel} with {status}."),
+            ));
+        }
+        Ok(json!({ "path": rel }))
+    }
 }
 
 impl Inner {
@@ -7136,6 +7167,33 @@ fn resolve_existing_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBu
     resolve_path_in_workspace(inner, raw, true)
 }
 
+/// Reveal accepts files and folders, including the workspace root itself (empty path); every
+/// other resolver refuses the root because they rename or delete their target.
+fn resolve_reveal_in_workspace(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
+    let requested = Path::new(raw);
+    let candidate = if raw.trim().is_empty() {
+        root.to_path_buf()
+    } else if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        root.join(requested)
+    };
+    let canonical = fs::canonicalize(&candidate)
+        .map_err(|_| HostError::new("not_found", format!("File or folder not found: {raw}")))?;
+    if !canonical.starts_with(root) {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
+    let rel = canonical
+        .strip_prefix(root)
+        .unwrap_or(&canonical)
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok((canonical, rel))
+}
+
 fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
     let workspace = inner
         .workspace
@@ -7290,6 +7348,32 @@ fn workspace_symbol_items(list: &lsp::WorkspaceSymbolList, root: &Path) -> (Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reveal_resolves_inside_the_workspace_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/App.cs"), "").unwrap();
+
+        let (path, rel) = resolve_reveal_in_workspace(&root, "src/App.cs").unwrap();
+        assert_eq!(rel, "src/App.cs");
+        assert_eq!(path, root.join("src/App.cs"));
+        assert_eq!(resolve_reveal_in_workspace(&root, "src").unwrap().1, "src");
+        // The solution row reveals the workspace root, which the rename/delete resolver refuses.
+        assert_eq!(resolve_reveal_in_workspace(&root, "").unwrap().1, "");
+
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = fs::canonicalize(outside.path()).unwrap().join("App.cs");
+        fs::write(&outside_file, "").unwrap();
+        let error =
+            resolve_reveal_in_workspace(&root, &outside_file.to_string_lossy()).unwrap_err();
+        assert_eq!(error.code, "outside_workspace");
+        let error = resolve_reveal_in_workspace(&root, "../").unwrap_err();
+        assert_eq!(error.code, "outside_workspace");
+        let error = resolve_reveal_in_workspace(&root, "missing.cs").unwrap_err();
+        assert_eq!(error.code, "not_found");
+    }
 
     #[test]
     fn symbols_outside_the_workspace_are_filtered_not_truncated() {
