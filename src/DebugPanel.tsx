@@ -2,6 +2,7 @@ import { DebugBreakpoint } from "./DebugBreakpoint";
 import { DebugEvaluate } from "./DebugEvaluate";
 import { DebugVariable } from "./DebugVariable";
 import { Icon } from "./Icon";
+import { ToolDownloadStatus } from "./ToolDownloadStatus";
 import { useState } from "react";
 import {
   call,
@@ -216,6 +217,19 @@ export function DebugPanel({
           )}
         </p>
       )}
+      <ToolDownloadStatus
+        testId="debug-install"
+        tool="netcoredbg"
+        state={snapshot.debug.adapterState}
+        progress={snapshot.debug.progress}
+        error={snapshot.debug.error}
+        note={snapshot.debug.note}
+        busy={busy !== null}
+        retryDisabledReason={
+          trusted ? null : "Trust the workspace before retrying an installation."
+        }
+        onRetry={() => void invoke("Retry adapter install", "debug.retry")}
+      />
       {snapshot.debug.os === "macos" &&
         snapshot.debug.arch === "aarch64" &&
         snapshot.debug.appleSiliconExperimental && (

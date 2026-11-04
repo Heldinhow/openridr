@@ -327,7 +327,14 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
           snap = await waitForHost((s) => !["downloading", "installing", "verifying"].includes(s.debug.adapterState));
         }
       }
-      if (snap.debug.adapterState !== "ready") throw new Error(snap.debug.gateReason ?? snap.debug.adapterMessage);
+      if (snap.debug.adapterState !== "ready") {
+        throw new Error(
+          snap.debug.error ??
+            snap.debug.note ??
+            snap.debug.gateReason ??
+            snap.debug.adapterMessage,
+        );
+      }
       onSnapshot(await call<Snapshot>("debug.start", debugStartParams(requested)));
       setMessage(null);
     } catch (error) {

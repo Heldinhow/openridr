@@ -582,6 +582,9 @@ export type DebugAdapter = {
   staleReason: string | null;
   stagingPresent: boolean;
   destinationPresent: boolean;
+  installed: boolean;
+  installedBinary: string | null;
+  installedSha256: string | null;
   busy: boolean;
 };
 

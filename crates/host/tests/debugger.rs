@@ -153,6 +153,20 @@ impl Server {
                                 );
                                 let _ = stream.write_all(header.as_bytes());
                             }
+                            Some(Route::FailOnce(body, fail)) => {
+                                if fail.swap(false, Ordering::SeqCst) {
+                                    let _ = stream.write_all(
+                                        b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                                    );
+                                } else {
+                                    let header = format!(
+                                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                        body.len()
+                                    );
+                                    let _ = stream.write_all(header.as_bytes());
+                                    let _ = stream.write_all(body);
+                                }
+                            }
                             None => {
                                 let _ = stream
                                     .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
@@ -196,6 +210,8 @@ enum Route {
     Ok(Vec<u8>),
     Slow(Vec<u8>),
     Redirect(&'static str),
+    /// Answers 500 until the flag is taken, then serves the body; one connection per request.
+    FailOnce(Vec<u8>, Arc<AtomicBool>),
 }
 
 /// Builds a zip with explicit names and unix modes, so traversal and symlink entries can be
@@ -661,6 +677,116 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
         reused["gateReason"].as_str().unwrap(),
         "Adapter executable and version are verified. This does not prove DAP; the Debug tab reports the real session, exit and processes."
     );
+}
+
+#[test]
+fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it() {
+    let _guard = env_guard();
+    let zip = zip_bytes(&[("netcoredbg/netcoredbg", ARTIFACT, Some(0o755))]);
+    let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
+    let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
+    let workspace = temp_workspace();
+    let first = Host::new();
+    open(&first, workspace.path());
+    first.dispatch("trust.grant", json!({})).unwrap();
+    first
+        .dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap();
+    let plan_id = first.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    first
+        .dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
+    let installed = wait_for(&first, &["ready"], Duration::from_secs(30));
+    let sha = installed["sha256"].as_str().unwrap().to_string();
+    assert_eq!(server.requests(), 1);
+    drop(first);
+
+    // A new host process starts with the experimental flag off and no in-memory install. The
+    // adapter on disk is still reported, and the plan names the flag as the remaining gate.
+    let second = Host::new();
+    open(&second, workspace.path());
+    let view = state(&second);
+    assert_eq!(view["adapterState"], "experimental_disabled");
+    assert_eq!(view["installed"], true);
+    assert_eq!(view["installedSha256"], sha);
+    assert!(view["installedBinary"]
+        .as_str()
+        .unwrap()
+        .starts_with(seam.home.path().to_str().unwrap()));
+    let message = view["adapterMessage"].as_str().unwrap();
+    assert!(message.contains("already installed"), "{message}");
+    assert!(!message.contains("stays blocked on this platform"), "{message}");
+
+    let planned = second.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
+    assert_eq!(planned["plan"]["existing"]["state"], "present");
+    assert_eq!(planned["plan"]["existing"]["sha256"], sha);
+    let note = planned["note"].as_str().unwrap();
+    assert!(!note.contains("stays blocked on this platform"), "{note}");
+    assert!(note.contains("already installed"), "{note}");
+    assert!(note.contains("experimental flag"), "{note}");
+    assert_eq!(server.requests(), 1, "planning and probing never download");
+
+    // With the flag on, the same installed adapter is a normal, unblocked plan.
+    let flagged = second
+        .dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap()["debug"]
+        .clone();
+    assert!(flagged["plan"]["blockedReason"].is_null());
+    assert_eq!(flagged["installed"], true);
+    assert_eq!(flagged["installedSha256"], sha);
+    let flagged_note = flagged["note"].as_str().unwrap();
+    assert!(flagged_note.contains("already installed"), "{flagged_note}");
+    assert!(!flagged_note.contains("stays blocked"), "{flagged_note}");
+}
+
+#[test]
+fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
+    let _guard = env_guard();
+    let zip = artifact_zip(ARTIFACT);
+    let fail = Arc::new(AtomicBool::new(true));
+    let server = Server::start(vec![(
+        "/asset.zip",
+        Route::FailOnce(zip.clone(), Arc::clone(&fail)),
+    )]);
+    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let plan_id = host.dispatch("debug.plan", json!({})).unwrap()["debug"]["plan"]["planId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    host.dispatch(
+        "debug.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .unwrap();
+
+    let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
+    let error = failed["error"].as_str().unwrap();
+    assert!(error.contains("HTTP 500"), "{error}");
+    assert_eq!(failed["progress"], Value::Null);
+    assert_eq!(failed["installed"], false);
+    assert_eq!(failed["destinationPresent"], false);
+    assert_eq!(server.requests(), 1);
+    assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
+
+    // Retry reuses the already confirmed plan; no new confirmation and no new download URL.
+    let retried = host.dispatch("debug.retry", json!({})).unwrap()["debug"].clone();
+    assert_eq!(retried["adapterState"], "downloading");
+    let finished = wait_for(&host, &["ready", "failed"], Duration::from_secs(30));
+    assert_eq!(finished["adapterState"], "ready", "{}", finished["log"]);
+    assert_eq!(finished["error"], Value::Null);
+    assert_eq!(finished["installed"], true);
+    assert_eq!(finished["installedSha256"], finished["sha256"]);
+    assert_eq!(server.requests(), 2);
 }
 
 #[test]

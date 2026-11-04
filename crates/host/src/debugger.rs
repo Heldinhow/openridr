@@ -546,12 +546,13 @@ fn existing_binary(platform: &str) -> Option<PathBuf> {
 fn inspect_existing(platform: &str) -> Existing {
     let found = existing_binary(platform);
     let present = found.is_some();
+    let sha256 = found.as_ref().and_then(|binary| sha256_file(binary));
     let binary = found.unwrap_or_else(|| destination().join(binary_name(platform)));
     Existing {
         state: if present { "present" } else { "absent" },
         binary: binary.to_string_lossy().to_string(),
         verified_version: None,
-        sha256: None,
+        sha256,
         reason: Some(if present {
             "A netcoredbg executable already exists. Confirming reuses it only when --version verifies 3.2.0; otherwise a verified staging install replaces it."
                 .to_string()
@@ -734,6 +735,10 @@ pub struct View {
     pub stale_reason: Option<String>,
     pub staging_present: bool,
     pub destination_present: bool,
+    /// A netcoredbg executable exists at the destination, whether or not this session installed it.
+    pub installed: bool,
+    pub installed_binary: Option<String>,
+    pub installed_sha256: Option<String>,
     /// A worker thread is still winding down after a cancel or failure.
     pub busy: bool,
 }
@@ -760,6 +765,9 @@ struct Data {
     finished_at: Option<u64>,
     sealed: bool,
     stale_reason: Option<String>,
+    /// What the disk showed the last time it was inspected; `probed` keeps the 400 ms poll cheap.
+    installed: Option<Existing>,
+    probed: bool,
     /// A worker thread is still running (download/extract/verify), even after a cancel request.
     active: bool,
 }
@@ -794,6 +802,8 @@ impl Debugger {
                 finished_at: None,
                 sealed: false,
                 stale_reason: None,
+                installed: None,
+                probed: false,
                 active: false,
             }),
             cancel: AtomicBool::new(false),
@@ -802,7 +812,7 @@ impl Debugger {
 
     /// Full state for the snapshot. `experimental` is the session-scoped opt-in.
     pub fn view(&self, experimental: bool) -> View {
-        let data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap();
         let (os, arch) = (
             std::env::consts::OS.to_string(),
             std::env::consts::ARCH.to_string(),
@@ -810,13 +820,19 @@ impl Debugger {
         let forced = forced_platform();
         let (os, arch) = forced.clone().unwrap_or((os, arch));
         let platform = platform_key(&os, &arch).to_string();
+        // A fresh host has not inspected the disk: an adapter left by a previous run is still
+        // installed. Hashing once per process keeps the 400 ms snapshot poll cheap.
+        if !data.probed && data.revision == 0 {
+            data.probed = true;
+            data.installed = Some(inspect_existing(&platform));
+        }
         let controlled = controlled_asset();
         let gate = gate(&os, &arch, experimental, controlled.is_some());
         let asset = asset_view(&platform, controlled.as_ref());
         let install_state = data.state;
         // `adapterMessage` always describes the platform/adapter availability; the operation
         // detail lives in `note`, `error` and `log`.
-        let (state, message) = if matches!(
+        let (state, mut message) = if matches!(
             install_state,
             "not_checked" | "unavailable" | "experimental_disabled"
         ) {
@@ -824,6 +840,18 @@ impl Debugger {
         } else {
             (install_state, gate.message.clone())
         };
+        let installed = data
+            .installed
+            .as_ref()
+            .filter(|existing| matches!(existing.state, "present" | "ready"));
+        if state != "ready" {
+            if let Some(existing) = installed {
+                message.push_str(&format!(
+                    " An executable is already installed at {}; a session verifies --version before launching it.",
+                    existing.binary
+                ));
+            }
+        }
         let (log, log_truncated) = data.log.text();
         let gate_reason = if state == "ready" {
             Some(
@@ -898,6 +926,9 @@ impl Debugger {
             stale_reason: data.stale_reason.clone(),
             staging_present: Path::new(&data.staging).is_dir(),
             destination_present: Path::new(&data.destination).is_dir(),
+            installed: installed.is_some(),
+            installed_binary: installed.map(|existing| existing.binary.clone()),
+            installed_sha256: installed.and_then(|existing| existing.sha256.clone()),
             busy: data.active,
         }
     }
@@ -911,7 +942,9 @@ impl Debugger {
         data.destination = plan.destination.clone();
         data.staging = plan.staging.clone();
         data.platform = plan.platform.clone();
-        let on_disk = existing_binary(&plan.platform).and_then(|binary| sha256_file(&binary));
+        data.installed = Some(plan.existing.clone());
+        data.probed = true;
+        let on_disk = plan.existing.sha256.clone();
         let still_installed = data.state == "ready"
             && match (&data.sha256, &on_disk) {
                 (Some(known), Some(found)) => known == found,
@@ -929,9 +962,33 @@ impl Debugger {
         data.progress = None;
         data.finished_at = None;
         data.note = Some(match &plan.blocked_reason {
-            Some(_) => "The plan is read-only and stays blocked on this platform; see the adapter reason and the plan's blocked field."
-                .to_string(),
+            Some(_) if plan.blocked_code == Some("experimental_required") => {
+                if plan.existing.state == "present" {
+                    format!(
+                        "The plan is read-only: an executable is already installed at {}; enabling the session-scoped experimental flag is what still blocks Debug, and the session then verifies --version before launching. No download is needed.",
+                        plan.existing.binary
+                    )
+                } else {
+                    "The plan is read-only; the session-scoped experimental flag still blocks installation and Debug. See the adapter reason and the plan's blocked field; nothing was downloaded."
+                        .to_string()
+                }
+            }
+            Some(_) => {
+                if plan.existing.state == "present" {
+                    format!(
+                        "The plan is read-only; an executable is already installed at {}. The platform gate in the adapter reason still blocks installation and Debug; nothing was downloaded.",
+                        plan.existing.binary
+                    )
+                } else {
+                    "The plan is read-only; the platform gate in the adapter reason and the plan's blocked field still blocks installation and Debug. Nothing was downloaded."
+                        .to_string()
+                }
+            }
             None if still_installed => "The verified installation remains ready; confirming the plan reuses it without downloading or overwriting.".to_string(),
+            None if plan.existing.state == "present" => format!(
+                "The plan did not download or execute anything. Confirming verifies the executable already installed at {} and reuses it without downloading; it installs only when that verification fails.",
+                plan.existing.binary
+            ),
             None => "The plan did not download or execute anything. Confirming downloads the official asset, verifies its hash and only then promotes it."
                 .to_string(),
         });
@@ -1000,6 +1057,7 @@ impl Debugger {
             data.sha256 = existing.sha256.clone();
             data.verified_version = existing.verified_version.clone();
             data.verified_output = existing.reason.clone();
+            data.installed = Some(existing.clone());
             data.reused = true;
             data.error = None;
             data.workspace_id = Some(workspace_id);
@@ -1158,6 +1216,7 @@ impl Debugger {
         data.sha256 = verified.sha256.clone();
         data.verified_version = verified.verified_version.clone();
         data.verified_output = verified.reason.clone();
+        data.installed = Some(verified.clone());
         data.progress = None;
         data.error = None;
         data.note = Some(

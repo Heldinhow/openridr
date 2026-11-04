@@ -450,6 +450,37 @@ export function DebugAdapterPanel({
           Source: <a href={debug.source.url} target="_blank" rel="noreferrer noopener">{debug.source.name}</a>{" "}
           · approved version {debug.version} · DAP proven by installation: {debug.dapProven ? "yes" : "no"}
         </p>
+        {debug.installed && (
+          <dl className="restore-meta" data-testid="debug-installed-adapter">
+            <dt>Installed origin</dt>
+            <dd data-testid="debug-installed-origin">
+              {debug.source.name} · <code>{debug.source.url}</code>
+            </dd>
+            <dt>Installed version</dt>
+            <dd data-testid="debug-installed-version">
+              {debug.verifiedVersion
+                ? `${debug.verifiedVersion} · verified with --version`
+                : `${debug.version} · approved; --version is verified when a session starts`}
+            </dd>
+            <dt>Installed checksum</dt>
+            <dd data-testid="debug-installed-checksum">
+              {debug.installedSha256 ? (
+                <code>{debug.installedSha256}</code>
+              ) : (
+                "not measured"
+              )}
+              <span className="muted">
+                {" "}
+                · SHA-256 of the installed executable; the archive hash is checked against the
+                release before execution.
+              </span>
+            </dd>
+            <dt>Executable</dt>
+            <dd data-testid="debug-installed-binary">
+              <code>{debug.installedBinary}</code>
+            </dd>
+          </dl>
+        )}
         <p className={debug.adapterState === "failed" ? "error" : "muted"} data-testid="debug-message">
           {debug.adapterMessage}
         </p>
@@ -505,9 +536,9 @@ export function DebugAdapterPanel({
             {debug.appleSiliconExperimental ? "experimental · enabled" : "experimental · disabled"}
           </span>
           <p className="muted" data-testid="debug-flag-note">
-            The opt-in is independent of trust and installation. It neither installs netcoredbg
-            nor proves compatibility. It only unlocks the install plan, which still requires trust
-            and an explicit confirmation.
+            The session-scoped experimental opt-in resets when the workspace opens or closes. It
+            neither installs netcoredbg nor proves compatibility. It only unlocks the install
+            plan, which still requires trust and an explicit confirmation.
           </p>
           <label className="check-row">
             <input
