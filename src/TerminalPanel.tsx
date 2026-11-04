@@ -64,7 +64,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
     const term = new XtermTerminal({
       convertEol: false,
       cursorBlink: true,
-      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      fontFamily: '"JetBrains Mono Variable", ui-monospace, Menlo, monospace',
       fontSize: 12,
       scrollback: 10_000,
       theme: { background: "#000000", foreground: "#f5f5f5", selectionBackground: "#1e3358" },

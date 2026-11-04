@@ -8,4 +8,8 @@ if (!root) {
   throw new Error("Missing #root element");
 }
 
-createRoot(root).render(<App />);
+// Load the bundled faces first so xterm measures cells with the real font and nothing reflows.
+const faces = ['400 14px "Inter Variable"', '400 13px "JetBrains Mono Variable"'];
+Promise.all(faces.map((face) => document.fonts.load(face)))
+  .catch(() => undefined)
+  .finally(() => createRoot(root).render(<App />));

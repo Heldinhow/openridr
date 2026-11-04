@@ -56,7 +56,7 @@ export const appearanceDefaults: AppearanceSettings = {
   density: "comfortable",
 };
 export const editorDefaults: EditorSettings = {
-  fontFamily: "ui-monospace",
+  fontFamily: "JetBrains Mono",
   fontSize: 13,
   indentSize: 4,
   useTabs: false,
