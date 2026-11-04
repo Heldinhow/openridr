@@ -97,7 +97,7 @@ test("opens the fixture asking for a Trust decision, with Restricted mode availa
   await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible();
   await expect(page.getByTestId("trust-prompt-path")).toContainText(solution);
   await expect(page.getByTestId("trust-prompt-restricted")).toBeEnabled();
-  await expect(page.getByTestId("sdk-host")).toContainText("10.0.100");
+  await expect(page.getByTestId("sdk-host")).toContainText(/10\.\d+\.\d+/);
   await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
   await expect(page.getByTestId("sdk-debug-adapter")).toContainText("netcoredbg");
   await expect(page.getByTestId("sdk-debug-adapter")).toContainText(

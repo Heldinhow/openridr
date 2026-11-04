@@ -1,12 +1,16 @@
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::env;
+use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SDK_INSTRUCTIONS_URL: &str = "https://dotnet.microsoft.com/download/dotnet";
+/// The analysis tool needs the runtime, so the missing-runtime link goes to the 10.0 page.
+pub const RUNTIME_INSTRUCTIONS_URL: &str = "https://dotnet.microsoft.com/download/dotnet/10.0";
+pub const ANALYSIS_RUNTIME_NAME: &str = "Microsoft.NETCore.App";
 
 /// One SDK installation reported by one root's own muxer.
 #[derive(Debug, Clone)]
@@ -14,6 +18,13 @@ pub struct Install {
     pub version: String,
     pub root: PathBuf,
     pub path: String,
+}
+
+/// One `Microsoft.NETCore.App` runtime reported by one root's own muxer.
+#[derive(Debug, Clone)]
+pub struct RuntimeInstall {
+    pub version: String,
+    pub root: PathBuf,
 }
 
 impl Install {
@@ -41,12 +52,16 @@ pub struct SdkRoot {
     pub error: Option<String>,
 }
 
+/// The .NET 10 runtime that executes the analysis tool (csharp-ls). It is a runtime, not the
+/// project SDK and not an SDK install: a project pinned to SDK 8 runs on an installed 10 runtime.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct HostSdk {
+pub struct AnalysisRuntime {
     pub state: &'static str,
+    /// `Microsoft.NETCore.App` 10.x, never an SDK version.
     pub version: Option<String>,
     pub root: Option<String>,
+    /// Always `None`: a runtime root has no SDK directory. Kept so the snapshot shape is stable.
     pub sdk_path: Option<String>,
     pub instructions_url: &'static str,
     pub message: Option<String>,
@@ -116,7 +131,7 @@ impl ProjectSdk {
     pub fn no_global_json() -> Self {
         Self::empty(
             "no_global_json",
-            "No global.json at the workspace root: no project SDK is pinned. OpenRidr does not substitute the analysis host SDK.",
+            "No global.json at the workspace root: no project SDK is pinned. OpenRidr does not substitute the .NET 10 analysis runtime.",
         )
     }
 
@@ -189,15 +204,15 @@ impl ProjectSdk {
     }
 }
 
-impl HostSdk {
-    pub fn from_inventory(installs: &[Install]) -> Self {
-        match host_install(installs) {
-            Some(install) => Self {
+impl AnalysisRuntime {
+    pub fn from_runtimes(runtimes: &[RuntimeInstall]) -> Self {
+        match analysis_runtime(runtimes) {
+            Some(runtime) => Self {
                 state: "found",
-                version: Some(install.version.clone()),
-                root: Some(install.root.to_string_lossy().to_string()),
-                sdk_path: Some(install.path.clone()),
-                instructions_url: SDK_INSTRUCTIONS_URL,
+                version: Some(runtime.version.clone()),
+                root: Some(runtime.root.to_string_lossy().to_string()),
+                sdk_path: None,
+                instructions_url: RUNTIME_INSTRUCTIONS_URL,
                 message: None,
             },
             None => Self {
@@ -205,9 +220,9 @@ impl HostSdk {
                 version: None,
                 root: None,
                 sdk_path: None,
-                instructions_url: SDK_INSTRUCTIONS_URL,
+                instructions_url: RUNTIME_INSTRUCTIONS_URL,
                 message: Some(
-                    "No .NET 10 SDK was found in the detected roots. Analysis requires .NET 10; the project SDK is never used as a substitute."
+                    "No .NET 10 runtime (Microsoft.NETCore.App) was found in the detected roots. C# analysis needs that runtime; the project SDK is separate and is never used as a substitute."
                         .to_string(),
                 ),
             },
@@ -218,14 +233,15 @@ impl HostSdk {
 pub struct Inventory {
     pub roots: Vec<SdkRoot>,
     pub installs: Vec<Install>,
+    pub runtimes: Vec<RuntimeInstall>,
     pub inspected_at: u64,
 }
 
-fn host_install(installs: &[Install]) -> Option<&Install> {
-    installs
+fn analysis_runtime(runtimes: &[RuntimeInstall]) -> Option<&RuntimeInstall> {
+    runtimes
         .iter()
-        .filter(|install| {
-            Version::parse(&install.version)
+        .filter(|runtime| {
+            Version::parse(&runtime.version)
                 .is_some_and(|version| version.major == 10 && version.prerelease.is_none())
         })
         .max_by(|left, right| {
@@ -239,23 +255,13 @@ fn host_install(installs: &[Install]) -> Option<&Install> {
 /// Runs each detected root's own muxer from a neutral cwd. DOTNET_ROOT is never set because
 /// it does not merge roots on this platform.
 pub fn inventory() -> Inventory {
-    let cwd = env::temp_dir();
     let mut roots = Vec::new();
     let mut installs = Vec::new();
+    let mut runtimes = Vec::new();
 
     for (root, source) in discover_roots() {
         let muxer = root.join(dotnet_exe());
-        let output = Command::new(&muxer)
-            .arg("--list-sdks")
-            .current_dir(&cwd)
-            .env_remove("DOTNET_ROOT")
-            .env_remove("DOTNET_MULTILEVEL_LOOKUP")
-            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
-            .env("DOTNET_NOLOGO", "1")
-            .env("DOTNET_CLI_UI_LANGUAGE", "en")
-            .output();
-
-        match output {
+        match run_muxer(&root, "--list-sdks") {
             Ok(output) => {
                 let text = String::from_utf8_lossy(&output.stdout).to_string();
                 let parsed = parse_list_sdks(&text);
@@ -298,13 +304,41 @@ pub fn inventory() -> Inventory {
                 error: Some(format!("Could not run {}: {error}", muxer.to_string_lossy())),
             }),
         }
+
+        // A runtime-only root lists no SDKs, so the runtime is read independently.
+        if let Ok(output) = run_muxer(&root, "--list-runtimes") {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                for (name, version) in parse_list_runtimes(&text) {
+                    if name == ANALYSIS_RUNTIME_NAME {
+                        runtimes.push(RuntimeInstall {
+                            version,
+                            root: root.clone(),
+                        });
+                    }
+                }
+            }
+        }
     }
 
     Inventory {
         roots,
         installs,
+        runtimes,
         inspected_at: now_ms(),
     }
+}
+
+fn run_muxer(root: &Path, arg: &str) -> std::io::Result<std::process::Output> {
+    Command::new(root.join(dotnet_exe()))
+        .arg(arg)
+        .current_dir(env::temp_dir())
+        .env_remove("DOTNET_ROOT")
+        .env_remove("DOTNET_MULTILEVEL_LOOKUP")
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        .env("DOTNET_NOLOGO", "1")
+        .env("DOTNET_CLI_UI_LANGUAGE", "en")
+        .output()
 }
 
 pub fn parse_list_sdks(text: &str) -> Vec<(String, String)> {
@@ -327,51 +361,105 @@ pub fn parse_list_sdks(text: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+pub fn parse_list_runtimes(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let name = parts.next()?;
+            let version = parts.next()?;
+            Version::parse(version)?;
+            Some((name.to_string(), version.to_string()))
+        })
+        .collect()
+}
+
 fn discover_roots() -> Vec<(PathBuf, &'static str)> {
+    let system: Vec<PathBuf> = SYSTEM_ROOTS.iter().map(PathBuf::from).collect();
+    candidate_roots(
+        home_dir(),
+        env::var_os("DOTNET_ROOT").map(PathBuf::from),
+        env::var_os("PATH"),
+        &system,
+    )
+}
+
+#[cfg(target_os = "macos")]
+const SYSTEM_ROOTS: &[&str] = &[
+    "/usr/local/share/dotnet",
+    "/opt/homebrew/opt/dotnet",
+    "/opt/homebrew/opt/dotnet/libexec",
+];
+#[cfg(not(target_os = "macos"))]
+const SYSTEM_ROOTS: &[&str] = &["/usr/local/share/dotnet"];
+
+/// Ordered candidates: DOTNET_ROOT, fixed system roots, ~/.dotnet, managed SDKs and every
+/// PATH entry. Only directories with a muxer are kept, already resolved to their real root.
+fn candidate_roots(
+    home: Option<PathBuf>,
+    dotnet_root: Option<PathBuf>,
+    path: Option<OsString>,
+    system: &[PathBuf],
+) -> Vec<(PathBuf, &'static str)> {
     let mut roots: Vec<(PathBuf, &'static str)> = Vec::new();
 
-    if let Some(muxer) = find_in_path() {
-        if let Some(parent) = muxer.parent() {
-            roots.push((parent.to_path_buf(), "path"));
+    if let Some(root) = dotnet_root.as_deref().and_then(muxer_root) {
+        roots.push((root, "dotnet-root"));
+    }
+    for dir in system {
+        if let Some(root) = muxer_root(dir) {
+            roots.push((root, "system"));
         }
     }
 
-    if let Some(home) = home_dir() {
+    if let Some(home) = home {
+        if let Some(root) = muxer_root(&home.join(".dotnet")) {
+            roots.push((root, "dotnet-home"));
+        }
         let user_sdks = home.join("Library/Application Support/OpenRidr/sdks");
         if let Ok(entries) = fs::read_dir(&user_sdks) {
             let mut dirs: Vec<PathBuf> = entries
                 .filter_map(|entry| entry.ok())
                 .map(|entry| entry.path())
-                .filter(|path| path.is_dir() && path.join(dotnet_exe()).is_file())
+                .filter(|path| path.is_dir())
                 .collect();
             dirs.sort();
             for dir in dirs {
-                roots.push((dir, "user-sdks"));
+                if let Some(root) = muxer_root(&dir) {
+                    roots.push((root, "user-sdks"));
+                }
             }
-        }
-
-        let dotnet_home = home.join(".dotnet");
-        if dotnet_home.join(dotnet_exe()).is_file() {
-            roots.push((dotnet_home, "dotnet-home"));
         }
     }
 
+    if let Some(path) = path {
+        for dir in env::split_paths(&path) {
+            if let Some(root) = muxer_root(&dir) {
+                roots.push((root, "path"));
+            }
+        }
+    }
+    dedupe_roots(roots)
+}
+
+/// Resolves a candidate directory to the real installation root of its muxer, so a PATH
+/// symlink and the root it points at dedupe to the same root.
+fn muxer_root(dir: &Path) -> Option<PathBuf> {
+    let muxer = dir.join(dotnet_exe());
+    if !muxer.is_file() {
+        return None;
+    }
+    let canonical = fs::canonicalize(&muxer).unwrap_or(muxer);
+    canonical.parent().map(Path::to_path_buf)
+}
+
+fn dedupe_roots(roots: Vec<(PathBuf, &'static str)>) -> Vec<(PathBuf, &'static str)> {
     let mut deduped: Vec<(PathBuf, &'static str)> = Vec::new();
     for (root, source) in roots {
-        let canonical = fs::canonicalize(&root).unwrap_or(root);
-        if !deduped.iter().any(|(known, _)| *known == canonical) {
-            deduped.push((canonical, source));
+        if !deduped.iter().any(|(known, _)| *known == root) {
+            deduped.push((root, source));
         }
     }
     deduped
-}
-
-fn find_in_path() -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
-    env::split_paths(&path)
-        .map(|dir| dir.join(dotnet_exe()))
-        .find(|candidate| candidate.is_file())
-        .and_then(|candidate| fs::canonicalize(candidate).ok())
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -582,7 +670,7 @@ pub fn resolve(
                 .join(", ")
         };
         format!(
-            "No detected .NET SDK satisfies global.json version {request_version} with rollForward {} (detected: {detected}). OpenRidr does not rewrite global.json and does not substitute the analysis host SDK.",
+            "No detected .NET SDK satisfies global.json version {request_version} with rollForward {} (detected: {detected}). OpenRidr does not rewrite global.json and does not substitute the .NET 10 analysis runtime.",
             policy.as_str()
         )
     })
@@ -726,5 +814,144 @@ mod tests {
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].0, "8.0.408");
         assert_eq!(parsed[1].1, "/usr/local/share/dotnet/sdk");
+    }
+
+    fn root_with_muxer(dir: &Path) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join(dotnet_exe()), "").unwrap();
+    }
+
+    #[test]
+    fn candidate_roots_cover_every_source_once_in_order() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let managed = home.join("Library/Application Support/OpenRidr/sdks/8.0.408");
+        let dotnet_home = home.join(".dotnet");
+        let dotnet_root = temp.path().join("dotnet-root");
+        let system = temp.path().join("system");
+        let path_a = temp.path().join("path-a");
+        let path_b = temp.path().join("path-b");
+        for dir in [&managed, &dotnet_home, &dotnet_root, &system, &path_a, &path_b] {
+            root_with_muxer(dir);
+        }
+        // A directory without a muxer, a duplicate entry and a repeated PATH entry are all skipped.
+        let empty = temp.path().join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        let path = env::join_paths([&path_a, &empty, &path_a, &path_b]).unwrap();
+
+        let roots = candidate_roots(Some(home), Some(dotnet_root), Some(path), &[system]);
+        let got: Vec<(PathBuf, &str)> = roots
+            .iter()
+            .map(|(root, source)| (root.clone(), *source))
+            .collect();
+        let expected: Vec<(PathBuf, &str)> = [
+            (&temp.path().join("dotnet-root"), "dotnet-root"),
+            (&temp.path().join("system"), "system"),
+            (&dotnet_home, "dotnet-home"),
+            (&managed, "user-sdks"),
+            (&path_a, "path"),
+            (&path_b, "path"),
+        ]
+        .iter()
+        .map(|(dir, source)| (fs::canonicalize(dir).unwrap(), *source))
+        .collect();
+        assert_eq!(got, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_symlinks_resolve_to_one_canonical_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        root_with_muxer(&real);
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        std::os::unix::fs::symlink(real.join(dotnet_exe()), bin.join(dotnet_exe())).unwrap();
+        let path = env::join_paths([&bin, &real]).unwrap();
+
+        let roots = candidate_roots(None, None, Some(path), &[]);
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].0, fs::canonicalize(&real).unwrap());
+        assert_eq!(roots[0].1, "path");
+    }
+
+    #[test]
+    fn list_runtimes_parsing_keeps_name_and_version() {
+        let text = "Microsoft.NETCore.App 10.0.1 [/usr/local/share/dotnet/shared/Microsoft.NETCore.App]\nMicrosoft.AspNetCore.App 10.0.1 [/usr/local/share/dotnet/shared/Microsoft.AspNetCore.App]\nnot a runtime\n";
+        let parsed = parse_list_runtimes(text);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], ("Microsoft.NETCore.App".to_string(), "10.0.1".to_string()));
+        assert_eq!(parsed[1].0, "Microsoft.AspNetCore.App");
+    }
+
+    #[test]
+    fn runtime_10_is_selected_without_an_sdk_10() {
+        let runtimes = vec![
+            RuntimeInstall {
+                version: "9.0.8".to_string(),
+                root: PathBuf::from("/nine"),
+            },
+            RuntimeInstall {
+                version: "10.0.1-preview.1".to_string(),
+                root: PathBuf::from("/preview"),
+            },
+            RuntimeInstall {
+                version: "10.0.0".to_string(),
+                root: PathBuf::from("/older"),
+            },
+            RuntimeInstall {
+                version: "10.0.1".to_string(),
+                root: PathBuf::from("/ten"),
+            },
+        ];
+        let runtime = AnalysisRuntime::from_runtimes(&runtimes);
+        assert_eq!(runtime.state, "found");
+        assert_eq!(runtime.version.as_deref(), Some("10.0.1"));
+        assert_eq!(runtime.root.as_deref(), Some("/ten"));
+        assert_eq!(runtime.sdk_path, None);
+        assert_eq!(runtime.instructions_url, RUNTIME_INSTRUCTIONS_URL);
+        assert_eq!(
+            AnalysisRuntime::from_runtimes(&runtimes[..2]).state,
+            "missing"
+        );
+    }
+
+    #[test]
+    fn project_pin_resolves_with_runtime_10_present() {
+        let installs = installs(&[("8.0.408", "/sdks/8")]);
+        let runtimes = vec![RuntimeInstall {
+            version: "10.0.1".to_string(),
+            root: PathBuf::from("/runtime"),
+        }];
+        let resolved = resolve("8.0.408", Some("disable"), None, &installs).unwrap();
+        assert_eq!(resolved.version, "8.0.408");
+        assert_eq!(resolved.root, PathBuf::from("/sdks/8"));
+        assert_eq!(
+            AnalysisRuntime::from_runtimes(&runtimes).version.as_deref(),
+            Some("10.0.1")
+        );
+    }
+
+    #[test]
+    fn runtime_missing_and_project_sdk_missing_are_distinct() {
+        let runtime = AnalysisRuntime::from_runtimes(&[]);
+        assert_eq!(runtime.state, "missing");
+        let message = runtime.message.as_deref().unwrap();
+        assert!(message.contains(".NET 10 runtime"), "{message}");
+        assert!(!message.contains("SDK 10"), "{message}");
+        assert_eq!(runtime.instructions_url, RUNTIME_INSTRUCTIONS_URL);
+
+        let project = ProjectSdk::missing(
+            &GlobalJsonRequest {
+                path: "global.json".to_string(),
+                version: Some("8.0.408".to_string()),
+                roll_forward: Some("disable".to_string()),
+                allow_prerelease: None,
+            },
+            "No detected .NET SDK satisfies global.json version 8.0.408 with rollForward disable.",
+        );
+        assert_eq!(project.state, "sdk_missing");
+        assert_eq!(project.instructions_url, SDK_INSTRUCTIONS_URL);
+        assert_ne!(project.instructions_url, runtime.instructions_url);
     }
 }

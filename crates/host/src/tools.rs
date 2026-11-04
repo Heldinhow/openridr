@@ -8,7 +8,7 @@
 use crate::error::{HostError, HostResult};
 use crate::logbuf::{self, LogBuffer};
 use crate::process::{ProcessStatus, Registry, Termination};
-use crate::sdk::HostSdk;
+use crate::sdk::{AnalysisRuntime, Install, Inventory, Version};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -186,29 +186,33 @@ fn plan_id(plan: &Plan) -> String {
     format!("fnv1a64:{hash:016x}")
 }
 
-/// Builds the plan from the current host SDK and filesystem. No process is started except the
-/// read-only `--version` check of an already-present launcher.
-pub fn plan(host: &HostSdk) -> HostResult<Plan> {
-    if host.state != "found" {
+/// Builds the plan from the detected runtimes and SDKs. `dotnet tool install` runs on any
+/// installed SDK; the launcher is verified against the .NET 10 runtime root.
+pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
+    let runtime = AnalysisRuntime::from_runtimes(&inventory.runtimes);
+    let Some(runtime_root) = runtime.root.clone() else {
         return Err(HostError::with_details(
             "sdk_missing",
-            "The csharp-ls plan needs the .NET 10 analysis host SDK; no plan was produced.",
+            "The csharp-ls plan needs the .NET 10 runtime; no plan was produced.",
             json!({ "action": { "method": "sdk.redetect", "params": {} } }),
         ));
-    }
-    let (Some(root), Some(_version)) = (host.root.clone(), host.version.clone()) else {
-        return Err(HostError::new(
+    };
+    let Some(install) = tool_install(&inventory.installs) else {
+        return Err(HostError::with_details(
             "sdk_missing",
-            "The analysis host SDK has no root path; no plan was produced.",
+            "The csharp-ls plan needs a .NET SDK to run `dotnet tool install`; no plan was produced.",
+            json!({ "action": { "method": "sdk.redetect", "params": {} } }),
         ));
     };
-    let muxer = Path::new(&root).join(if cfg!(windows) { "dotnet.exe" } else { "dotnet" });
+    let muxer = install
+        .root
+        .join(if cfg!(windows) { "dotnet.exe" } else { "dotnet" });
     if !muxer.is_file() {
         return Err(HostError::new(
             "sdk_missing",
             format!(
-                "The analysis host SDK root {} does not contain a .NET muxer.",
-                root
+                "The .NET SDK root {} does not contain a .NET muxer.",
+                install.root.to_string_lossy()
             ),
         ));
     }
@@ -228,7 +232,7 @@ pub fn plan(host: &HostSdk) -> HostResult<Plan> {
         arch: std::env::consts::ARCH,
         destination: destination.to_string_lossy().to_string(),
         staging: staging.to_string_lossy().to_string(),
-        dotnet_root: root.clone(),
+        dotnet_root: runtime_root,
         argv: vec![
             muxer.to_string_lossy().to_string(),
             "tool".to_string(),
@@ -258,6 +262,15 @@ pub fn plan(host: &HostSdk) -> HostResult<Plan> {
     Ok(plan)
 }
 
+/// `dotnet tool install` only needs an SDK, any version; the tool runs on the 10 runtime.
+fn tool_install(installs: &[Install]) -> Option<&Install> {
+    installs
+        .iter()
+        .filter_map(|install| Version::parse(&install.version).map(|version| (version, install)))
+        .max_by(|(left, _), (right, _)| left.cmp(right))
+        .map(|(_, install)| install)
+}
+
 /// Cheap, non-executable inspection used by the plan. It never runs the launcher.
 pub fn inspect_existing(destination: &Path) -> Existing {
     let binary = destination.join(binary_name());
@@ -285,8 +298,9 @@ pub fn inspect_existing(destination: &Path) -> Existing {
 }
 
 /// Runs the installed launcher without touching the workspace. Used by the plan, before
-/// reusing an existing tool, and after promotion.
-pub fn verify_installed(destination: &Path, host_root: &Path) -> Existing {
+/// reusing an existing tool, and after promotion. The launcher needs the .NET 10 runtime root,
+/// not the SDK that installed it.
+pub fn verify_installed(destination: &Path, runtime_root: &Path) -> Existing {
     let binary = destination.join(binary_name());
     let binary_text = binary.to_string_lossy().to_string();
     if !binary.is_file() {
@@ -323,7 +337,7 @@ pub fn verify_installed(destination: &Path, host_root: &Path) -> Existing {
         .arg("--version")
         .current_dir(neutral_cwd())
         .env("HOME", &home)
-        .env("DOTNET_ROOT", host_root)
+        .env("DOTNET_ROOT", runtime_root)
         .env("DOTNET_MULTILEVEL_LOOKUP", "0")
         .env("DOTNET_CLI_UI_LANGUAGE", "en")
         .env("DOTNET_NOLOGO", "1")
@@ -421,7 +435,7 @@ struct Data {
     state: &'static str,
     destination: String,
     staging: String,
-    host_root: String,
+    runtime_root: String,
     plan: Option<Plan>,
     confirmed_plan_id: Option<String>,
     log: LogBuffer,
@@ -458,7 +472,7 @@ impl Tools {
                 state: "absent",
                 destination: destination().to_string_lossy().to_string(),
                 staging: staging().to_string_lossy().to_string(),
-                host_root: String::new(),
+                runtime_root: String::new(),
                 plan: None,
                 confirmed_plan_id: None,
                 log: LogBuffer::default(),
@@ -562,7 +576,7 @@ impl Tools {
         let same_destination = data.destination == plan.destination;
         data.destination = plan.destination.clone();
         data.staging = plan.staging.clone();
-        data.host_root = plan.dotnet_root.clone();
+        data.runtime_root = plan.dotnet_root.clone();
         let still_installed = same_destination
             && data.state == "ready"
             && data.sha256.as_deref()
@@ -729,7 +743,7 @@ impl Tools {
         data.confirmed_plan_id = Some(plan.plan_id.clone());
         data.destination = plan.destination.clone();
         data.staging = plan.staging.clone();
-        data.host_root = plan.dotnet_root.clone();
+        data.runtime_root = plan.dotnet_root.clone();
         data.reused = false;
         data.exit = None;
         data.termination = None;
@@ -905,7 +919,7 @@ impl Tools {
                     "Verifying the launcher and its --version output at {}.",
                     destination.to_string_lossy()
                 ));
-                let existing = verify_installed(&destination, Path::new(&data.host_root));
+                let existing = verify_installed(&destination, Path::new(&data.runtime_root));
                 if existing.state != "ready" {
                     let failed_dir = PathBuf::from(format!(
                         "{}.failed-{}",
@@ -1102,21 +1116,37 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sdk::RuntimeInstall;
 
-    fn host() -> HostSdk {
-        HostSdk {
-            state: "found",
-            version: Some("10.0.100".to_string()),
-            root: Some("/usr/local/share/dotnet".to_string()),
-            sdk_path: Some("/usr/local/share/dotnet/sdk/10.0.100".to_string()),
-            instructions_url: "https://dotnet.microsoft.com/download/dotnet",
-            message: None,
-        }
+    fn inventory() -> (tempfile::TempDir, Inventory) {
+        let temp = tempfile::tempdir().unwrap();
+        let sdk_root = temp.path().join("sdk-root");
+        fs::create_dir_all(&sdk_root).unwrap();
+        fs::write(sdk_root.join("dotnet"), "").unwrap();
+        let runtime_root = temp.path().join("runtime-root");
+        fs::create_dir_all(&runtime_root).unwrap();
+        (
+            temp,
+            Inventory {
+                roots: Vec::new(),
+                installs: vec![Install {
+                    version: "8.0.408".to_string(),
+                    root: sdk_root.clone(),
+                    path: sdk_root.join("sdk").to_string_lossy().to_string(),
+                }],
+                runtimes: vec![RuntimeInstall {
+                    version: "10.0.1".to_string(),
+                    root: runtime_root,
+                }],
+                inspected_at: 0,
+            },
+        )
     }
 
     #[test]
     fn plan_id_changes_with_every_material_field() {
-        let plan = plan(&host()).unwrap();
+        let (_temp, inventory) = inventory();
+        let plan = plan(&inventory).unwrap();
         let mut changed = plan.clone();
         changed.staging = "/tmp/other.staging".to_string();
         assert_ne!(plan.plan_id, plan_id(&changed));
@@ -1130,17 +1160,38 @@ mod tests {
     }
 
     #[test]
-    fn plan_is_exact_and_uses_a_local_tool_path() {
-        let plan = plan(&host()).unwrap();
+    fn plan_runs_the_install_on_any_sdk_and_verifies_on_the_runtime() {
+        let (_temp, inventory) = inventory();
+        let plan = plan(&inventory).unwrap();
         assert_eq!(plan.tool, TOOL);
         assert_eq!(plan.version, VERSION);
         assert_eq!(plan.source.url, NUGET_SOURCE);
-        assert!(plan.argv[0].ends_with("dotnet"));
+        assert!(plan.argv[0].ends_with("sdk-root/dotnet"));
+        assert_eq!(plan.dotnet_root, inventory.runtimes[0].root.to_string_lossy());
         assert_eq!(&plan.argv[1..3], ["tool", "install"]);
         assert_eq!(plan.argv[3], TOOL);
         assert_eq!(&plan.argv[4..6], ["--version", VERSION]);
         assert_eq!(plan.argv[6], "--tool-path");
         assert!(plan.argv[7].ends_with("0.28.staging"));
         assert!(plan.argv.iter().all(|arg| !arg.contains("--global")));
+    }
+
+    #[test]
+    fn plan_requires_the_runtime_and_an_sdk_separately() {
+        let (_temp, mut detected) = inventory();
+        detected.runtimes.clear();
+        let error = plan(&detected).unwrap_err();
+        assert_eq!(error.code, "sdk_missing");
+        assert!(error.message.contains(".NET 10 runtime"), "{}", error.message);
+
+        let (_temp, mut detected) = inventory();
+        detected.installs.clear();
+        let error = plan(&detected).unwrap_err();
+        assert_eq!(error.code, "sdk_missing");
+        assert!(
+            error.message.contains("needs a .NET SDK"),
+            "{}",
+            error.message
+        );
     }
 }

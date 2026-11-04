@@ -34,7 +34,7 @@ pub use restore::{RestoreView, GATED_METHODS as RESTORE_GATED_METHODS};
 
 use outline::build_outline;
 use process::Registry;
-use sdk::{GlobalJsonRequest, HostSdk, Inventory, ProjectSdk, SdkRoot};
+use sdk::{AnalysisRuntime, GlobalJsonRequest, Inventory, ProjectSdk, SdkRoot};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -329,7 +329,7 @@ struct TrustView {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SdkView {
-    host: HostSdk,
+    host: AnalysisRuntime,
     project: ProjectSdk,
     roots: Vec<SdkRoot>,
     inspected_at: Option<u64>,
@@ -858,7 +858,7 @@ impl Host {
         }
         let inventory = inner.inventory.as_ref().expect("inventory was initialized");
         let sdk = SdkView {
-            host: HostSdk::from_inventory(&inventory.installs),
+            host: AnalysisRuntime::from_runtimes(&inventory.runtimes),
             project: inner.project_sdk.clone(),
             roots: inventory.roots.clone(),
             inspected_at: Some(inventory.inspected_at),
@@ -3150,9 +3150,7 @@ impl Host {
         }
         let mut inner = self.inner.lock().unwrap();
         inner.ensure_inventory();
-        let installs = &inner.inventory.as_ref().expect("inventory").installs;
-        let host = HostSdk::from_inventory(installs);
-        let plan = tools::plan(&host)?;
+        let plan = tools::plan(inner.inventory.as_ref().expect("inventory"))?;
         inner.tools.set_plan(plan);
         Ok(self.snapshot_value(&mut inner))
     }
@@ -3168,8 +3166,7 @@ impl Host {
         let plan_id = required_str(&params, "planId")?;
         let mut inner = self.inner.lock().unwrap();
         inner.ensure_inventory();
-        let host = HostSdk::from_inventory(&inner.inventory.as_ref().expect("inventory").installs);
-        let current = tools::plan(&host)?;
+        let current = tools::plan(inner.inventory.as_ref().expect("inventory"))?;
         if current.plan_id != plan_id {
             inner.tools.set_plan(current.clone());
             return Err(HostError::with_details(
@@ -3192,8 +3189,7 @@ impl Host {
         let token = self.require_trust("tools.retry")?;
         let mut inner = self.inner.lock().unwrap();
         inner.ensure_inventory();
-        let host = HostSdk::from_inventory(&inner.inventory.as_ref().expect("inventory").installs);
-        let current = tools::plan(&host)?;
+        let current = tools::plan(inner.inventory.as_ref().expect("inventory"))?;
         let Some(confirmed) = inner.tools.confirmed_plan_id() else {
             return Err(HostError::new(
                 "invalid_state",
@@ -4030,25 +4026,17 @@ impl Host {
             ));
         }
         let installs = &inner.inventory.as_ref().expect("inventory").installs;
-        let host_sdk = HostSdk::from_inventory(installs);
-        if host_sdk.state != "found" {
+        let runtime = AnalysisRuntime::from_runtimes(
+            &inner.inventory.as_ref().expect("inventory").runtimes,
+        );
+        if runtime.state != "found" {
             return Err(HostError::with_details(
                 "sdk_missing",
-                "Analysis was not started: the .NET 10 host SDK is missing. The project SDK is never substituted.",
+                "Analysis was not started: the .NET 10 runtime (Microsoft.NETCore.App) is missing. C# analysis needs that runtime; the project SDK is separate.",
                 json!({ "action": { "method": "sdk.redetect", "params": {} } }),
             ));
         }
-        let host_install = installs
-            .iter()
-            .find(|install| {
-                Some(&install.version) == host_sdk.version.as_ref()
-                    && Some(install.root.to_string_lossy().to_string())
-                        == host_sdk.root.clone()
-            })
-            .cloned()
-            .ok_or_else(|| {
-                HostError::new("sdk_missing", "The .NET 10 host SDK install could not be resolved.")
-            })?;
+        let runtime_root = PathBuf::from(runtime.root.clone().unwrap_or_default());
         let project_install = installs
             .iter()
             .find(|install| {
@@ -4092,7 +4080,7 @@ impl Host {
             token.context_id,
         );
 
-        let hostroot = match hostroot::ensure(&host_install, &project_install) {
+        let hostroot = match hostroot::ensure(&runtime_root, &project_install) {
             Ok(hostroot) => hostroot,
             Err(message) => {
                 let failed = lsp::Lsp::begin(

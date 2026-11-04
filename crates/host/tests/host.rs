@@ -793,20 +793,18 @@ fn a_late_result_from_an_older_workspace_or_context_is_discarded() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks() {
-    // The fixture pins 8.0.408 and the host SDK is 10.x; any detected root may hold them (no machine-specific paths).
+fn sdk_inventory_reads_the_real_roots_and_reports_a_runtime_and_the_project_sdk() {
+    // The fixture pins 8.0.408; analysis needs the .NET 10 runtime, not an SDK 10. Any detected root may hold them (no machine-specific paths).
     let inventory = sdk::inventory();
     let versions: Vec<&str> = inventory
         .installs
         .iter()
         .map(|install| install.version.as_str())
         .collect();
-    for expected in ["10.0.100", "8.0.408"] {
-        assert!(
-            versions.contains(&expected),
-            "expected SDK {expected} in the real inventory, found {versions:?}"
-        );
-    }
+    assert!(
+        versions.contains(&"8.0.408"),
+        "expected SDK 8.0.408 in the real inventory, found {versions:?}"
+    );
     assert!(inventory
         .roots
         .iter()
@@ -816,13 +814,17 @@ fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks
         .iter()
         .all(|root| root.exit == Some(0) && root.error.is_none()));
 
-    let host_sdk = sdk::HostSdk::from_inventory(&inventory.installs);
-    assert_eq!(host_sdk.state, "found");
-    assert_eq!(host_sdk.version.as_deref(), Some("10.0.100"));
+    let runtime = sdk::AnalysisRuntime::from_runtimes(&inventory.runtimes);
+    assert_eq!(runtime.state, "found");
+    let runtime_version = runtime.version.as_deref().expect("runtime version");
+    assert!(runtime_version.starts_with("10."), "{runtime_version}");
 
     let host = Host::new();
     let opened = open(&host, &fixture());
-    assert_eq!(opened["sdk"]["host"]["version"], "10.0.100");
+    assert_eq!(
+        opened["sdk"]["host"]["version"].as_str(),
+        Some(runtime_version)
+    );
     assert_eq!(opened["sdk"]["project"]["state"], "not_inspected");
     assert_eq!(opened["sdk"]["project"]["requestedVersion"], "8.0.408");
     assert_eq!(opened["sdk"]["project"]["rollForward"], "disable");
@@ -836,8 +838,11 @@ fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks
     let project_root = trusted["sdk"]["project"]["root"].as_str().unwrap();
     assert!(Path::new(project_root).is_absolute(), "{project_root}");
     assert!(Path::new(project_root).join("sdk/8.0.408").is_dir(), "{project_root}");
-    // Host and project SDKs may live in one root (e.g. ~/.dotnet); the contract is the separate versions below.
-    assert_eq!(trusted["sdk"]["host"]["version"], "10.0.100");
+    // The runtime may live in any detected root; the contract is the resolved version below.
+    assert_eq!(
+        trusted["sdk"]["host"]["version"].as_str(),
+        Some(runtime_version)
+    );
 }
 
 #[cfg(target_os = "macos")]
@@ -2295,16 +2300,16 @@ fn real_install(version: &str) -> sdk::Install {
         .unwrap_or_else(|| panic!("expected SDK {version} on this machine"))
 }
 
-fn host_install() -> sdk::Install {
-    let mut installs = sdk::inventory().installs;
-    installs.retain(|install| {
-        sdk::Version::parse(&install.version)
+fn runtime_10() -> sdk::RuntimeInstall {
+    let mut runtimes = sdk::inventory().runtimes;
+    runtimes.retain(|runtime| {
+        sdk::Version::parse(&runtime.version)
             .is_some_and(|version| version.major == 10 && version.prerelease.is_none())
     });
-    installs
+    runtimes
         .into_iter()
-        .max_by_key(|install| sdk::Version::parse(&install.version).unwrap())
-        .expect("a .NET 10 host SDK exists")
+        .max_by_key(|runtime| sdk::Version::parse(&runtime.version).unwrap())
+        .expect("a .NET 10 runtime exists")
 }
 
 fn tool_plan(host: &Host) -> Value {
@@ -2589,15 +2594,15 @@ fn tools_install_is_real_verified_and_reused() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
+fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
 
-    let host = host_install();
+    let runtime = runtime_10();
     let project = real_install("8.0.408");
-    let first = hostroot::ensure(&host, &project).expect("the composite root is built");
+    let first = hostroot::ensure(&runtime.root, &project).expect("the composite root is built");
     assert!(first.rebuilt);
     assert!(!first.forced);
     assert!(Path::new(&first.path).starts_with(home.path()));
@@ -2616,13 +2621,14 @@ fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
         .unwrap();
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout).to_string();
-    assert!(text.contains("8.0.408"), "{text}");
-    assert!(
-        !text.contains(&host.version),
-        "the host SDK must stay out of sdk/ so MSBuildLocator cannot prefer it: {text}"
+    let sdks: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    assert_eq!(
+        sdks.len(),
+        1,
+        "the project SDK must be the only MSBuild SDK in sdk/: {text}"
     );
     assert!(
-        text.lines().next().unwrap_or_default().starts_with("8.0.408"),
+        sdks[0].starts_with("8.0.408"),
         "the project SDK must be the only MSBuild SDK: {text}"
     );
 
@@ -2645,7 +2651,7 @@ fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
     assert!(version.status.success());
     assert_eq!(String::from_utf8_lossy(&version.stdout).trim(), "8.0.408");
 
-    let second = hostroot::ensure(&host, &project).expect("the composite root is reused");
+    let second = hostroot::ensure(&runtime.root, &project).expect("the composite root is reused");
     assert!(!second.rebuilt);
     assert_eq!(first.path, second.path);
     assert_eq!(second.check, first.check);

@@ -182,7 +182,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     step("open solution in Restricted mode");
     await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible();
     await expect(page.getByTestId("trust-prompt-path")).toContainText(copy);
-    await expect(page.getByTestId("sdk-host")).toContainText("10.0.100");
+    await expect(page.getByTestId("sdk-host")).toContainText(/10\.\d+\.\d+/);
     await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
     await screenshot(page, "18-screen-01-trust.png");
 
@@ -270,7 +270,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await page.request.post(`${host}/call`, { data: { method: "workspace.open", params: { path: path.join(copy, "OrderDesk.sln") } } });
     await page.request.post(`${host}/call`, { data: { method: "trust.grant", params: { remember: false } } });
     await page.goto("/");
-    await expect(page.getByTestId("sdk-host")).toContainText("SDK 10.0.100");
+    await expect(page.getByTestId("sdk-host")).toContainText(/SDK 10\.\d+\.\d+/);
     await expect(page.getByTestId("sdk-project")).toContainText("SDK 8.0.408", {
       timeout: 30_000,
     });
@@ -283,7 +283,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await grantTrust(page);
     await enterWorkspace(page);
     await waitEvaluation(page, 1);
-    await expect(page.getByTestId("status-sdk")).toContainText("Host SDK 10.0.100");
+    await expect(page.getByTestId("status-sdk")).toContainText(/Host SDK 10\.\d+\.\d+/);
     await expect(page.getByTestId("status-sdk")).toContainText("Project SDK 8.0.408");
     await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: IntelliJ / Rider");
 
