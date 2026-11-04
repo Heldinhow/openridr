@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
@@ -51,6 +52,20 @@ fn first_file_argument(args: impl IntoIterator<Item = String>) -> Option<String>
     args.into_iter()
         .skip(1)
         .find(|arg| !arg.is_empty() && !arg.starts_with('-'))
+}
+
+/// Path a launch asks to open, resolved against that launch's directory: a forwarded argv is
+/// read by another process, so its relative path no longer resolves against the right cwd.
+fn launch_path(args: impl IntoIterator<Item = String>, cwd: Option<&Path>) -> Option<String> {
+    let raw = first_file_argument(args)?;
+    let path = Path::new(&raw);
+    if path.is_absolute() {
+        return Some(raw);
+    }
+    match cwd {
+        Some(cwd) => Some(cwd.join(path).to_string_lossy().into_owned()),
+        None => Some(raw),
+    }
 }
 
 /// Local path of a `file://` URL; other schemes are not files this app opens.
@@ -105,6 +120,15 @@ fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
 fn main() {
     tauri::Builder::default()
+        // Must stay the first plugin: it has to exit a second process before any other setup runs.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+            if let Some(path) = launch_path(argv, Some(Path::new(&cwd))) {
+                offer_open(app, path);
+            }
+        }))
         .menu(default_menu)
         .on_menu_event(|app, event| {
             if event.id() == QUIT_MENU_ID {
@@ -121,7 +145,8 @@ fn main() {
             quit_app
         ])
         .setup(|app| {
-            if let Some(path) = first_file_argument(std::env::args()) {
+            let cwd = std::env::current_dir().ok();
+            if let Some(path) = launch_path(std::env::args(), cwd.as_deref()) {
                 offer_open(app.handle(), path);
             }
             Ok(())
@@ -162,6 +187,24 @@ mod tests {
         assert_eq!(
             first_file_argument(args(&["OpenRidr", "-psn_0_1", "/tmp/My Apps/App.sln"])),
             Some("/tmp/My Apps/App.sln".to_string()),
+        );
+    }
+
+    #[test]
+    fn a_forwarded_relative_path_resolves_against_the_second_launch_directory() {
+        let cwd = Path::new("/tmp/My Apps");
+        assert_eq!(
+            launch_path(args(&["OpenRidr", "-psn_0_1", "App.sln"]), Some(cwd)).as_deref(),
+            Some("/tmp/My Apps/App.sln"),
+        );
+        assert_eq!(
+            launch_path(args(&["OpenRidr", "/tmp/Other.sln"]), Some(cwd)).as_deref(),
+            Some("/tmp/Other.sln"),
+        );
+        assert_eq!(
+            launch_path(args(&["OpenRidr"]), Some(cwd)),
+            None,
+            "a launch with only flags forwards no path",
         );
     }
 

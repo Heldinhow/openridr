@@ -4,11 +4,13 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** implementação concluída em código e testes de unidade; prova no app Tauri real pendente (`verify-openridr`).
 
-- [ ] `tauri-plugin-single-instance` é registrado como primeiro plugin (dependência aprovada pelo Helder).
-- [ ] A segunda execução encerra e encaminha o argv à instância existente.
-- [ ] Um `.sln` passado à segunda execução abre na instância existente pelo caminho normal de `workspace.open`.
+- [x] `tauri-plugin-single-instance` é registrado como primeiro plugin (dependência aprovada pelo Helder).
+- [x] A segunda execução encerra e encaminha o argv à instância existente.
+- [x] Um `.sln` passado à segunda execução abre na instância existente pelo caminho normal de `workspace.open`.
 - [ ] `open -a` e Finder continuam funcionando como hoje, sem instância dupla.
-- [ ] Buffer sujo na instância existente mantém o guard atual (não descarta edição).
+- [x] Buffer sujo na instância existente mantém o guard atual (não descarta edição).
 - [ ] Prova no app real: duas execuções diretas → um processo, caminho encaminhado.
+
+Os dois itens em aberto exigem o bundle rodando (LaunchServices/Finder e duas execuções diretas); o resto está coberto por `cargo test --bin openridr` e `cargo check`.
