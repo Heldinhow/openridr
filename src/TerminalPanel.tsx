@@ -64,7 +64,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
     const term = new XtermTerminal({
       convertEol: false,
       cursorBlink: true,
-      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      fontFamily: '"JetBrains Mono Variable", ui-monospace, Menlo, monospace',
       fontSize: 12,
       scrollback: 10_000,
       theme: { background: "#000000", foreground: "#f5f5f5", selectionBackground: "#1e3358" },
@@ -223,7 +223,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
               "Starts the discovered shell in the workspace root; the shell and cwd are shown above."
             }
           >
-            <Icon name="run" /><span className="sr-only">Start shell</span>
+            <Icon name="terminal" /><span className="sr-only">Start shell</span>
           </button>
           {running && (
             <button

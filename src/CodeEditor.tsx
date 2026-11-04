@@ -142,7 +142,8 @@ function failureText(kind: string, response: AnalysisResponse): string {
 function editorTheme(settings: EditorSettings) {
   return EditorView.theme({
     ".cm-scroller": {
-      fontFamily: `"${settings.fontFamily}", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`,
+      fontFamily: `"${settings.fontFamily}", "JetBrains Mono Variable", ui-monospace, Menlo, monospace`,
+      fontVariantLigatures: "none",
       fontSize: `${settings.fontSize}px`,
     },
   });
