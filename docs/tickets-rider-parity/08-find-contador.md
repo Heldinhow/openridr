@@ -33,6 +33,9 @@ Motivo: limitar next/prev/all/replace a um range de seleção exige comandos pr�
 cabe no mesmo ticket. O que falta: um escopo explícito no estado da busca, comandos de
 navegação/replace limitados ao range e testes de seleção. Registrar em `docs/decisions.md`.
 
+Registrado em `docs/decisions.md` (G07). O painel não exibe nenhum checkbox de "na seleção";
+os únicos checkboxes continuam sendo caixa, regex e palavra.
+
 ## Teste e verificação
 
 - Playwright: abrir o Find, digitar uma consulta que existe em N lugares, afirmar `n de m`;
@@ -42,9 +45,9 @@ navegação/replace limitados ao range e testes de seleção. Registrar em `docs
 
 ## Aceite
 
-- [ ] O painel mostra `n de m` para a consulta atual.
-- [ ] O contador atualiza com consulta, documento e opções.
-- [ ] Sem consulta/ocorrência, mostra `0 de 0`.
-- [ ] Os controles existentes continuam funcionando.
-- [ ] "na seleção" está registrado como adiado, sem checkbox falso.
+- [x] O painel mostra `n de m` para a consulta atual.
+- [x] O contador atualiza com consulta, documento e opções.
+- [x] Sem consulta/ocorrência, mostra `0 de 0`.
+- [x] Os controles existentes continuam funcionando.
+- [x] "na seleção" está registrado como adiado, sem checkbox falso.
 - [ ] Evidência no app real.

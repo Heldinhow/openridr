@@ -2,10 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { copyLineDown, deleteLine, indentWithTab } from "@codemirror/commands";
 import { Compartment, EditorState, Prec, RangeSet, Transaction, type Text } from "@codemirror/state";
-import { Decoration, EditorView, GutterMarker, WidgetType, gutter, hoverTooltip, keymap } from "@codemirror/view";
+import {
+  Decoration,
+  EditorView,
+  GutterMarker,
+  ViewPlugin,
+  WidgetType,
+  gutter,
+  hoverTooltip,
+  keymap,
+  type ViewUpdate,
+} from "@codemirror/view";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
-import { gotoLine } from "@codemirror/search";
+import { getSearchQuery, gotoLine, searchPanelOpen } from "@codemirror/search";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
 import type { EditorSettings, ProfileId } from "./actions/keymap";
 import {
@@ -24,6 +34,70 @@ import {
 } from "./host/client";
 import type { GutterAction } from "./codeNavigation";
 import type { EditorDiagnostic } from "./diagnosticMarks";
+
+// "n of m" for the active query: n follows the caret/selection, m is the whole document.
+function searchCountLabel(state: EditorState): string {
+  const query = getSearchQuery(state);
+  if (!query.valid) return "0 of 0";
+  const matches: { from: number; to: number }[] = [];
+  const cursor = query.getCursor(state);
+  let step = cursor.next();
+  while (!step.done) {
+    matches.push(step.value);
+    step = cursor.next();
+  }
+  if (!matches.length) return "0 of 0";
+  const selection = state.selection.main;
+  let index = selection.empty
+    ? -1
+    : matches.findIndex((match) => match.from === selection.from && match.to === selection.to);
+  if (index < 0) {
+    index = matches.findIndex(
+      (match) => selection.head >= match.from && selection.head <= match.to,
+    );
+  }
+  if (index < 0) index = matches.findIndex((match) => match.from >= selection.head);
+  if (index < 0) index = matches.length - 1;
+  return `${index + 1} of ${matches.length}`;
+}
+
+// The counter lives inside the built-in panel, so its controls and keys stay untouched.
+class SearchCountView {
+  private element: HTMLElement | null = null;
+
+  constructor(private readonly view: EditorView) {}
+
+  update(update: ViewUpdate) {
+    if (!searchPanelOpen(update.state)) {
+      this.element = null;
+      return;
+    }
+    if (this.render(searchCountLabel(update.state))) return;
+    // The opening transaction runs before the panel manager mounts `.cm-search`.
+    update.view.requestMeasure({
+      read: () => searchCountLabel(update.state),
+      write: (label) => this.render(label),
+    });
+  }
+
+  private render(label: string): boolean {
+    const panel = this.view.dom.querySelector<HTMLElement>(".cm-search");
+    if (!panel) return false;
+    if (!this.element || !panel.contains(this.element)) {
+      const element = document.createElement("span");
+      element.className = "cm-search-count";
+      element.setAttribute("data-testid", "editor-find-count");
+      const field = panel.querySelector("[main-field]");
+      if (field) field.after(element);
+      else panel.prepend(element);
+      this.element = element;
+    }
+    this.element.textContent = label;
+    return true;
+  }
+}
+
+const searchCount = ViewPlugin.fromClass(SearchCountView);
 
 const theme = EditorView.theme(
   {
@@ -851,6 +925,7 @@ export function CodeEditor({
           ),
         ),
         basicSetup,
+        searchCount,
         changeCompartment.current.of(makeChangeGutter(changedLinesRef.current)),
         diagnosticCompartment.current.of(makeDiagnostics(diagnostics, EditorState.create({ doc: value }).doc)),
         inlayCompartment.current.of(makeInlay(currentLine, inlayText)),
