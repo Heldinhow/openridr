@@ -1,6 +1,6 @@
 # 01: Quit pergunta antes de fechar
 
-**What to build:** Cmd+Q, o item Quit do menu e o quit pelo Dock passam pelo mesmo diálogo de alterações não salvas que o botão Close da janela já usa. "Save all" grava e encerra; "Keep editing" mantém o app aberto e o buffer intacto; "Discard and close app" encerra sem gravar.
+**What to build:** Cmd+Q, o item Quit do menu e o Close da janela passam pelo mesmo diálogo de alterações não salvas que o botão Close da janela já usa. "Save all" grava e encerra; "Keep editing" mantém o app aberto e o buffer intacto; "Discard and close app" encerra sem gravar. Quit pelo Dock e via AppleScript (`terminate:` nativo) não são cobertos — limitação declarada em `docs/decisions.md`.
 
 **Blocked by:** None (can start immediately).
 

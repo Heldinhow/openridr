@@ -5743,25 +5743,9 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let (path, rel) = resolve_in_workspace(&inner, &raw)?;
 
-        let bytes = fs::read(&path).map_err(|error| {
-            HostError::new(
-                "operation_failed",
-                format!("Could not read {rel} before saving: {error}"),
-            )
-        })?;
-        let (current, format) = fsutil::decode_text(&bytes).map_err(|error| {
-            HostError::new(
-                "operation_failed",
-                format!("Could not read {rel} before saving: {error}"),
-            )
-        })?;
-        let current_hash = content_hash(&current);
-        if current_hash != expected_hash {
-            return Err(HostError::with_details(
-                "conflict",
-                format!("{rel} changed on disk since it was read; the buffer was not saved."),
-                json!({ "currentContent": current, "currentHash": current_hash }),
-            ));
+        let (current, format) = read_for_save(&path, &rel)?;
+        if content_hash(&current) != expected_hash {
+            return Err(save_conflict(&rel, &current));
         }
 
         // The hash covers LF text, so it stays stable between read and save.
@@ -5779,6 +5763,22 @@ impl Host {
                 "operation_failed",
                 format!("Could not write {rel}: {error}"),
             ));
+        }
+        #[cfg(test)]
+        take_before_rename_hook();
+        // Look again right before replacing: narrows the window for another writer's save.
+        // shortcut: check-then-rename still has a tiny window; upgrade to an exclusive write if it matters.
+        let latest = read_for_save(&path, &rel);
+        let latest = match latest {
+            Ok((latest, _)) => latest,
+            Err(error) => {
+                let _ = fs::remove_file(&temp);
+                return Err(error);
+            }
+        };
+        if content_hash(&latest) != expected_hash {
+            let _ = fs::remove_file(&temp);
+            return Err(save_conflict(&rel, &latest));
         }
         if let Err(error) = fs::rename(&temp, &path) {
             let _ = fs::remove_file(&temp);
@@ -7175,6 +7175,47 @@ fn content_hash(content: &str) -> String {
     format!("fnv1a64:{hash:016x}")
 }
 
+/// Reads a save destination and its encoding; both pre-save checks share this wording.
+fn read_for_save(path: &Path, rel: &str) -> HostResult<(String, fsutil::TextFormat)> {
+    let bytes = fs::read(path).map_err(|error| {
+        HostError::new(
+            "operation_failed",
+            format!("Could not read {rel} before saving: {error}"),
+        )
+    })?;
+    fsutil::decode_text(&bytes).map_err(|error| {
+        HostError::new(
+            "operation_failed",
+            format!("Could not read {rel} before saving: {error}"),
+        )
+    })
+}
+
+/// The conflict both pre-save checks report, carrying the text currently on disk.
+fn save_conflict(rel: &str, current: &str) -> HostError {
+    HostError::with_details(
+        "conflict",
+        format!("{rel} changed on disk since it was read; the buffer was not saved."),
+        json!({ "currentContent": current, "currentHash": content_hash(current) }),
+    )
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Lets a save test change the destination between the temp write and the pre-rename recheck.
+    static BEFORE_RENAME: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+fn take_before_rename_hook() {
+    BEFORE_RENAME.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().take() {
+            hook();
+        }
+    });
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -7923,5 +7964,51 @@ mod tests {
             .unwrap();
         assert_eq!(opened["workspace"]["kind"], "project");
         assert_eq!(opened["workspace"]["path"], project.to_str().unwrap());
+    }
+
+    #[test]
+    fn save_rechecks_the_destination_right_before_replacing_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\" />").unwrap();
+        let file = root.join("App.cs");
+        fs::write(&file, "original\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+        let read = host.dispatch("file.read", json!({ "path": "App.cs" })).unwrap();
+
+        // Simulate another writer saving between the first check and the rename.
+        let external = file.clone();
+        BEFORE_RENAME.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                fs::write(&external, "external save\n").unwrap();
+            }));
+        });
+
+        let conflict = host
+            .dispatch(
+                "file.write",
+                json!({
+                    "path": "App.cs",
+                    "content": "my buffer\n",
+                    "expected_hash": read["hash"]
+                }),
+            )
+            .expect_err("the recheck sees the external save");
+        assert_eq!(conflict.code, "conflict");
+        let details = conflict.details.unwrap();
+        assert_eq!(details["currentContent"], "external save\n");
+        assert_eq!(details["currentHash"], content_hash("external save\n"));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "external save\n");
+        assert!(
+            fs::read_dir(&root).unwrap().all(|entry| !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".openridr-save-")),
+            "the temp file is removed on conflict"
+        );
     }
 }

@@ -14,14 +14,14 @@ Na camada de toolchain, um projeto preso ao SDK 8 pelo `global.json` esbarra num
 
 Corrigir os 20 achados por prioridade, sem criar obrigação nova para o usuário e sem mudar o que já funciona:
 
-1. **P0** — Cmd+Q, menu Quit e Dock passam pelo mesmo diálogo de alterações não salvas que o botão Close já usa.
+1. **P0** — Cmd+Q, menu Quit e o Close da janela passam pelo mesmo diálogo de alterações não salvas que o botão Close já usa. Quit pelo Dock e via AppleScript (`terminate:` nativo) ficam declarados como limitação conhecida, não como corrigidos.
 2. **P1** — o gate de build deixa de bloquear o Debug por um arquivo que já não existe; um rebuild verde libera a sessão.
 3. **P2/P3** — o editor recarrega buffer limpo quando o disco muda, preserva CRLF e lê UTF-16 com BOM; a árvore reflete mudanças externas sozinha e ganha criar/renomear/apagar; o Debug mostra progresso, verifica SHA-256, tem retry e registra origem/versão do netcoredbg; mensagens de abertura e avaliação dizem a verdade; rótulos de acessibilidade são inequívocos; a skill `verify-openridr` para de mentir e de colidir entre sessões.
 4. **Camada SDK/toolchain** — o csharp-ls exige **runtime** .NET 10, nunca SDK 10; o projeto usa o SDK que o `global.json`/TargetFramework pedem; a descoberta olha DOTNET_ROOT, `/usr/local/share/dotnet`, `/opt/homebrew`, `~/.dotnet`, os SDKs gerenciados e todas as entradas do PATH; a UI pede só o que falta para aquele projeto, com link vivo e ajuda de instalação; o download do csharp-ls na primeira abertura de projeto C# tem progresso, retry e erro claro. O netcoredbg continua sendo baixado sozinho no Debug (decisão do Helder), com versão fixa, checksum, progresso e retry.
 
 ## User Stories
 
-1. Como pessoa editando um arquivo, quero que Cmd+Q, o menu Quit e o Dock perguntem antes de fechar com alterações não salvas, para não perder meu trabalho.
+1. Como pessoa editando um arquivo, quero que Cmd+Q, o menu Quit e o Close da janela perguntem antes de fechar com alterações não salvas, para não perder meu trabalho. (Quit pelo Dock e via AppleScript ficam de fora: limitação declarada.)
 2. Como pessoa que escolheu "Keep editing" no diálogo de saída, quero que o app continue aberto com o buffer intacto.
 3. Como pessoa que escolheu "Save all" no diálogo de saída, quero que os arquivos sejam gravados antes de o app encerrar.
 4. Como pessoa que apagou um arquivo por fora e fez rebuild, quero que o Debug inicie em vez de acusar um arquivo que já não existe.
@@ -53,7 +53,7 @@ Corrigir os 20 achados por prioridade, sem criar obrigação nova para o usuári
 
 ### Saída e integridade de dados
 
-- **Quit coberto**: menu Quit próprio (Cmd+Q) emite para a UI; `ExitRequested` do Tauri chama `prevent_exit` e pergunta à webview; a resposta chama um comando `quit_app` que marca a saída como autorizada e encerra. O diálogo existente ganha o caso "quit", reutilizando Save all / Keep editing / Discard and close app. AppleScript `quit` (terminate: nativo) fica documentado como limitação conhecida.
+- **Quit coberto**: menu Quit próprio (Cmd+Q) emite para a UI; `ExitRequested` do Tauri chama `prevent_exit` e pergunta à webview; a resposta chama um comando `quit_app` que marca a saída como autorizada e encerra. O diálogo existente ganha o caso "quit", reutilizando Save all / Keep editing / Discard and close app. AppleScript `quit` e o Quit do Dock (`terminate:` nativo) ficam documentados como limitação conhecida.
 - **Encoding**: a leitura detecta BOM UTF-8, UTF-16LE e UTF-16BE e decodifica; a escrita reaplica o mesmo encoding e BOM. O contrato de conflito (`expected_hash`) passa a ser sobre o texto normalizado, não sobre os bytes crus. Codificação desconhecida continua erro claro.
 - **CRLF**: o editor trabalha em LF; o host detecta o estilo do arquivo na leitura e o restaura na escrita. Arquivo misto preserva o estilo predominante (primeira ocorrência de `\r\n`).
 - **Buffer limpo**: uma verificação periódica (ordem de 1–2 s) relê a aba ativa quando a janela está visível; foco e troca de aba continuam relendo. Aba suja mantém o diálogo de conflito.

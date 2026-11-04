@@ -171,11 +171,19 @@ export default function App() {
       const { invoke } = await import("@tauri-apps/api/core");
       const { listen } = await import("@tauri-apps/api/event");
       const takePending = async () => {
-        const path = await invoke<string | null>("take_pending_open");
-        if (path) openExternalRef.current(path);
+        try {
+          const path = await invoke<string | null>("take_pending_open");
+          if (path) openExternalRef.current(path);
+        } catch (error) {
+          setExternalError(`Could not open the requested file: ${messageOf(error)}`);
+        }
       };
       const takeQuit = async () => {
-        if (await invoke<boolean>("take_pending_quit")) requestQuitRef.current();
+        try {
+          if (await invoke<boolean>("take_pending_quit")) requestQuitRef.current();
+        } catch (error) {
+          setExternalError(`Could not quit OpenRidr: ${messageOf(error)}`);
+        }
       };
       const stopOpen = await listen("openridr-open", () => void takePending());
       const stopQuit = await listen("openridr-quit", () => void takeQuit());
