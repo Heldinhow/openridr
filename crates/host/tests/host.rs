@@ -264,6 +264,235 @@ fn save_reports_conflict_instead_of_overwriting_disk() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "my buffer\n");
 }
 
+fn utf16_bytes(text: &str, little_endian: bool) -> Vec<u8> {
+    let mut bytes = if little_endian {
+        vec![0xFF, 0xFE]
+    } else {
+        vec![0xFE, 0xFF]
+    };
+    for unit in text.encode_utf16() {
+        bytes.extend(if little_endian {
+            unit.to_le_bytes()
+        } else {
+            unit.to_be_bytes()
+        });
+    }
+    bytes
+}
+
+fn read_file(host: &Host, path: &str) -> Value {
+    host.dispatch("file.read", json!({ "path": path }))
+        .expect("file reads")
+}
+
+#[test]
+fn save_preserves_crlf_lf_and_mixed_line_endings() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let crlf = workspace.path().join("Crlf.cs");
+    let lf = workspace.path().join("Lf.cs");
+    let mixed = workspace.path().join("Mixed.cs");
+    fs::write(&crlf, "one\r\ntwo\r\n").unwrap();
+    fs::write(&lf, "one\ntwo\n").unwrap();
+    fs::write(&mixed, "one\r\ntwo\nthree\n").unwrap();
+
+    let read = read_file(&host, "Crlf.cs");
+    assert_eq!(read["content"], "one\ntwo\n");
+    let saved = host
+        .dispatch(
+            "file.write",
+            json!({
+                "path": "Crlf.cs",
+                "content": "one\ntwo\nthree\n",
+                "expected_hash": read["hash"]
+            }),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&crlf).unwrap(), b"one\r\ntwo\r\nthree\r\n");
+    assert_eq!(read_file(&host, "Crlf.cs")["hash"], saved["hash"]);
+
+    let read = read_file(&host, "Lf.cs");
+    assert_eq!(read["content"], "one\ntwo\n");
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "Lf.cs",
+            "content": "one\ntwo\nthree\n",
+            "expected_hash": read["hash"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(fs::read(&lf).unwrap(), b"one\ntwo\nthree\n");
+
+    // A mixed file keeps CRLF because the first CRLF found defines the style.
+    let read = read_file(&host, "Mixed.cs");
+    assert_eq!(read["content"], "one\ntwo\nthree\n");
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "Mixed.cs",
+            "content": "one\ntwo\nthree\nfour\n",
+            "expected_hash": read["hash"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(&mixed).unwrap(),
+        b"one\r\ntwo\r\nthree\r\nfour\r\n"
+    );
+}
+
+#[test]
+fn save_preserves_utf16_and_utf8_bom_encodings() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let text = "olá 🌎\r\nfim\r\n";
+    fs::write(workspace.path().join("Le.cs"), utf16_bytes(text, true)).unwrap();
+    fs::write(workspace.path().join("Be.cs"), utf16_bytes(text, false)).unwrap();
+    fs::write(
+        workspace.path().join("Bom.cs"),
+        [&[0xEF, 0xBB, 0xBF][..], b"a\r\nb\r\n"].concat(),
+    )
+    .unwrap();
+    fs::write(workspace.path().join("Plain.cs"), "a\nb\n").unwrap();
+
+    for (name, little_endian) in [("Le.cs", true), ("Be.cs", false)] {
+        let read = read_file(&host, name);
+        assert_eq!(read["content"], "olá 🌎\nfim\n");
+        let saved = host
+            .dispatch(
+                "file.write",
+                json!({
+                    "path": name,
+                    "content": "olá 🌎\nfim\nagain\n",
+                    "expected_hash": read["hash"]
+                }),
+            )
+            .unwrap();
+        let bytes = fs::read(workspace.path().join(name)).unwrap();
+        let bom = if little_endian {
+            [0xFF, 0xFE]
+        } else {
+            [0xFE, 0xFF]
+        };
+        assert_eq!(bytes[..2], bom);
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| {
+                if little_endian {
+                    u16::from_le_bytes([pair[0], pair[1]])
+                } else {
+                    u16::from_be_bytes([pair[0], pair[1]])
+                }
+            })
+            .collect();
+        assert_eq!(
+            String::from_utf16(&units).unwrap(),
+            "olá 🌎\r\nfim\r\nagain\r\n"
+        );
+        assert_eq!(read_file(&host, name)["hash"], saved["hash"]);
+    }
+
+    let read = read_file(&host, "Bom.cs");
+    assert_eq!(read["content"], "a\nb\n");
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "Bom.cs",
+            "content": "a\nb\nc\n",
+            "expected_hash": read["hash"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(workspace.path().join("Bom.cs")).unwrap(),
+        [&[0xEF, 0xBB, 0xBF][..], b"a\r\nb\r\nc\r\n"].concat()
+    );
+
+    // A plain UTF-8 file must not gain a BOM.
+    let read = read_file(&host, "Plain.cs");
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "Plain.cs",
+            "content": "x\ny\n",
+            "expected_hash": read["hash"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(fs::read(workspace.path().join("Plain.cs")).unwrap(), b"x\ny\n");
+}
+
+#[test]
+fn conflict_hash_is_over_normalized_text() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let file = workspace.path().join("App.cs");
+    fs::write(&file, "one\r\ntwo\r\n").unwrap();
+    fs::write(workspace.path().join("Other.cs"), "one\ntwo\n").unwrap();
+
+    let crlf = read_file(&host, "App.cs");
+    let lf = read_file(&host, "Other.cs");
+    assert_eq!(crlf["hash"], lf["hash"]);
+
+    fs::write(&file, "one\r\ntwo\nthree\r\n").unwrap();
+    let current = read_file(&host, "App.cs");
+    let conflict = host
+        .dispatch(
+            "file.write",
+            json!({
+                "path": "App.cs",
+                "content": "my buffer\n",
+                "expected_hash": crlf["hash"]
+            }),
+        )
+        .expect_err("stale expected hash conflicts");
+    assert_eq!(conflict.code, "conflict");
+    let details = conflict.details.unwrap();
+    assert_eq!(details["currentContent"], "one\ntwo\nthree\n");
+    assert_eq!(details["currentHash"], current["hash"]);
+    assert_eq!(fs::read(&file).unwrap(), b"one\r\ntwo\nthree\r\n");
+}
+
+#[test]
+fn invalid_encodings_are_clear_errors_and_never_write() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let bad_utf8 = workspace.path().join("Bad.cs");
+    let bad_utf16 = workspace.path().join("Odd.cs");
+    fs::write(&bad_utf8, [0xC3, 0x28]).unwrap();
+    fs::write(&bad_utf16, [0xFF, 0xFE, 0x41]).unwrap();
+
+    let error = host
+        .dispatch("file.read", json!({ "path": "Bad.cs" }))
+        .expect_err("invalid UTF-8 fails");
+    assert_eq!(error.code, "operation_failed");
+    assert!(error.message.contains("UTF-8"), "{}", error.message);
+
+    let error = host
+        .dispatch(
+            "file.write",
+            json!({
+                "path": "Bad.cs",
+                "content": "x\n",
+                "expected_hash": "fnv1a64:0000000000000000"
+            }),
+        )
+        .expect_err("invalid UTF-8 fails before writing");
+    assert_eq!(error.code, "operation_failed");
+    assert_eq!(fs::read(&bad_utf8).unwrap(), [0xC3, 0x28]);
+
+    let error = host
+        .dispatch("file.read", json!({ "path": "Odd.cs" }))
+        .expect_err("odd UTF-16LE fails");
+    assert_eq!(error.code, "operation_failed");
+    assert!(error.message.contains("UTF-16LE"), "{}", error.message);
+}
+
 #[test]
 fn executable_methods_fail_before_trust_and_spawn_nothing() {
     let host = Host::new();

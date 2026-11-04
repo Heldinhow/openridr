@@ -778,3 +778,11 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **Teste:** o teste unitário de `capture_sources`/`changed_sources` em `build.rs` foi estendido para fonte ausente antes e depois (gate limpo), escrita depois do build (bloqueia), remoção depois do build (bloqueia) e nova captura após o rebuild implícito (gate limpo).
 - **Verificado:** `cargo test -p openridr-host --lib` 201/201; `bun run check` ok. O hook de pre-commit roda o `check`.
 - **Não verificado:** build real de um workspace após apagar um `.cs` e `debug.start` iniciando a sessão (teste de integração com dotnet) e a prova no app Tauri real; ficam para `verify-openridr`.
+
+## CRLF e UTF-16 preservados — ticket 03 (2026-11-04)
+
+- **Escopo:** `docs/tickets-fix-alpha5/03-encoding-crlf-utf16.md`.
+- **Host:** `crates/host/src/fsutil.rs` — `decode_text` faz sniff de BOM e devolve texto LF + `TextFormat`; `TextFormat::encode` reaplica BOM/UTF-16 e `\r\n`; `normalize_newlines` é a única regra de normalização. `file.read` e `file.write` (`crates/host/src/lib.rs`) usam o par para conteúdo e `content_hash`; `write_file` renormaliza o conteúdo, detecta o formato no arquivo atual e grava os bytes pelo mesmo helper. A mensagem de leitura inválida passa a nomear o encoding.
+- **Testes:** `crates/host/tests/host.rs` — round-trip CRLF/LF/misto, UTF-16LE/BE com BOM (com emoji), UTF-8 com BOM, UTF-8 sem BOM, hash igual para CRLF e LF do mesmo texto, conflito com `currentContent` normalizado, e UTF-8 inválido/UTF-16 ímpar sem tocar no arquivo. E2E `tests/e2e/medium-editor-state.spec.ts` `b16` reescreve `Program.cs` (CRLF) e `Order.cs` (UTF-16LE com BOM) no copy temporário, edita/salva pela UI e confere os bytes no disco.
+- **Verificado:** `cargo test -p openridr-host --test host -- <5 filtros>` 5/5; `bun run check` ok; `bunx playwright test tests/e2e/medium-editor-state.spec.ts -g b16` 1/1.
+- **Não verificado:** prova no app Tauri real (fica para `verify-openridr`); arquivo com `\r` isolado é normalizado para `\n` e salvo como LF (sem requisito no ticket); UTF-16 sem BOM continua não suportado.

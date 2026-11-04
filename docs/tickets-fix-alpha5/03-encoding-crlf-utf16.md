@@ -4,14 +4,15 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** implementação concluída — prova no app Tauri real pendente (`verify-openridr`).
 
-- [ ] Arquivo CRLF: abrir, editar, salvar → todas as linhas continuam CRLF.
-- [ ] Arquivo LF: abrir, editar, salvar → continua LF.
-- [ ] Arquivo misto preserva o estilo predominante (primeira ocorrência de CRLF define CRLF).
-- [ ] UTF-16LE e UTF-16BE com BOM abrem no editor sem erro de UTF-8.
-- [ ] Salvar um UTF-16 grava o mesmo encoding e o BOM.
-- [ ] UTF-8 com BOM preserva o BOM; UTF-8 sem BOM continua sem BOM.
-- [ ] O hash de conflito é estável entre leitura e escrita (texto normalizado dos dois lados).
-- [ ] Bytes inválidos/encoding desconhecido continuam erro claro, sem corromper o arquivo.
-- [ ] Testes de host para round-trip e conflito; e2e para abrir/salvar CRLF e UTF-16.
+- [x] Arquivo CRLF: abrir, editar, salvar → todas as linhas continuam CRLF.
+- [x] Arquivo LF: abrir, editar, salvar → continua LF.
+- [x] Arquivo misto preserva o estilo predominante (primeira ocorrência de CRLF define CRLF).
+- [x] UTF-16LE e UTF-16BE com BOM abrem no editor sem erro de UTF-8.
+- [x] Salvar um UTF-16 grava o mesmo encoding e o BOM.
+- [x] UTF-8 com BOM preserva o BOM; UTF-8 sem BOM continua sem BOM.
+- [x] O hash de conflito é estável entre leitura e escrita (texto normalizado dos dois lados).
+- [x] Bytes inválidos/encoding desconhecido continuam erro claro, sem corromper o arquivo.
+- [x] Testes de host para round-trip e conflito; e2e para abrir/salvar CRLF e UTF-16.
+- [ ] Prova no app Tauri real: abrir/salvar CRLF e UTF-16 no bundle (`verify-openridr`).

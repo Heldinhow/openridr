@@ -5714,11 +5714,14 @@ impl Host {
         let raw = required_str(&params, "path")?;
         let inner = self.inner.lock().unwrap();
         let (path, rel) = resolve_in_workspace(&inner, &raw)?;
-        let content = fs::read_to_string(&path).map_err(|error| {
+        let bytes = fs::read(&path).map_err(|error| {
             HostError::new(
                 "operation_failed",
-                format!("Could not read {rel} as UTF-8 text: {error}"),
+                format!("Could not read {rel}: {error}"),
             )
+        })?;
+        let (content, _) = fsutil::decode_text(&bytes).map_err(|error| {
+            HostError::new("operation_failed", format!("Could not read {rel}: {error}"))
         })?;
         let hash = content_hash(&content);
         Ok(json!({ "path": rel, "content": content, "hash": hash }))
@@ -5731,7 +5734,13 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let (path, rel) = resolve_in_workspace(&inner, &raw)?;
 
-        let current = fs::read_to_string(&path).map_err(|error| {
+        let bytes = fs::read(&path).map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not read {rel} before saving: {error}"),
+            )
+        })?;
+        let (current, format) = fsutil::decode_text(&bytes).map_err(|error| {
             HostError::new(
                 "operation_failed",
                 format!("Could not read {rel} before saving: {error}"),
@@ -5746,6 +5755,8 @@ impl Host {
             ));
         }
 
+        // The hash covers LF text, so it stays stable between read and save.
+        let content = fsutil::normalize_newlines(&content);
         let temp = path.with_file_name(format!(
             ".openridr-save-{}-{}",
             std::process::id(),
@@ -5754,7 +5765,7 @@ impl Host {
                 .map(|d| d.as_nanos())
                 .unwrap_or_default()
         ));
-        if let Err(error) = fs::write(&temp, content.as_bytes()) {
+        if let Err(error) = fs::write(&temp, format.encode(&content)) {
             return Err(HostError::new(
                 "operation_failed",
                 format!("Could not write {rel}: {error}"),
