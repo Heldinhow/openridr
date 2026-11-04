@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { revisionOf, settleRestore } from "./automatic";
+import { clickDiscover, revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -109,7 +109,7 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
 
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });
@@ -128,7 +128,11 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
     await expect(page.getByTestId("tests-exit")).toHaveText("exit 0");
     await expect(page.getByTestId("tests-discovery-id")).toContainText(/discovery:\d+:\d+/);
     await expect(page.getByTestId("tests-counts")).toContainText("4 tests · 0 selected");
-    await expect(page.getByTestId("tests-counts")).toContainText(/discovery:\d+:1 · revision 1/);
+    await expect(page.getByTestId("tests-counts")).toContainText(/discovery:\d+:\d+ · revision \d+/);
+    const discoveredRevision = Number(
+      (await page.getByTestId("tests-counts").textContent())?.match(/revision (\d+)/)?.[1] ?? 0,
+    );
+    expect(discoveredRevision).toBeGreaterThan(0);
     await expect(page.getByTestId("tests-log")).toContainText(
       "The following Tests are available:",
     );
@@ -176,13 +180,15 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
 
     // Rediscovery uses the saved code and clears the stale block; the dirty buffer stays
     // dirty and is a ticket-17 concern, not a reason to keep the list unusable.
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });
     await expect(page.getByTestId("tests-stale")).toHaveCount(0);
     await expect(page.getByTestId("test-checkbox-0")).toBeEnabled();
-    await expect(page.getByTestId("tests-counts")).toContainText("revision 2");
+    await expect(page.getByTestId("tests-counts")).toContainText(
+      `revision ${discoveredRevision + 1}`,
+    );
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -207,7 +213,7 @@ test("a test-project compile error is published in Problems during discovery", a
     await page.getByTestId("bottom-tab-tests").click();
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovery failed", {
       timeout: 120_000,
     });
@@ -248,7 +254,7 @@ test("an MTP project shows the exact message and runs no VSTest command", async 
     await restoreAndReload(page);
 
     await page.getByTestId("bottom-tab-tests").click();
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-mtp-message")).toHaveText(
       "Microsoft.Testing.Platform is not supported in this version. Use the terminal.",
     );
@@ -284,7 +290,7 @@ test("a project without a VSTest adapter is adapter-missing, not empty", async (
     await restoreAndReload(page);
 
     await page.getByTestId("bottom-tab-tests").click();
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("No VSTest adapter");
     await expect(page.getByTestId("tests-guidance")).toContainText("Microsoft.NET.Test.Sdk");
     await expect(page.getByTestId("tests-guidance")).toContainText(
@@ -326,7 +332,7 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     );
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });
@@ -488,7 +494,7 @@ public sealed class LongTests
     await page.getByTestId("bottom-tab-tests").click();
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 5 tests", {
       timeout: 120_000,
     });

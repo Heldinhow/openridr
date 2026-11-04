@@ -228,6 +228,7 @@ type PendingAnalysisAction = {
   kind: "findUsages" | "rename" | "codeActions";
   position: { line: number; character: number };
 };
+type AutoDiscoveryError = { boundary: string; message: string };
 
 type Props = {
   snapshot: Snapshot;
@@ -407,6 +408,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [quickListOpen, setQuickListOpen] = useState(false);
   const [testProjectPath, setTestProjectPath] = useState("");
   const [testSelected, setTestSelected] = useState<Set<string>>(new Set());
+  const [testAutoDiscoveryError, setTestAutoDiscoveryError] =
+    useState<AutoDiscoveryError | null>(null);
+  const testDiscoveryAutoStarted = useRef<string | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [gitStatusError, setGitStatusError] = useState<string | null>(null);
   const [gitIntent, setGitIntent] = useState<GitIntent | null>(null);
@@ -933,6 +937,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   useEffect(() => {
     setTestSelected(new Set());
   }, [testDiscoveryKey]);
+  const testDiscoveryBoundary = `${workspace.id}:${snapshot.contextId}:${restore.revision}:${testProjectPath}`;
+  useEffect(() => {
+    // One automatic discovery per workspace/context/restore boundary and selected test project;
+    // the ref keeps renders, edits and panel openings from launching it again. A running restore
+    // has no revision yet and the host would reject discovery for missing assets.
+    if (!testProjectPath || testsDisabledReason !== null || restoring) return;
+    if (testDiscoveryAutoStarted.current === testDiscoveryBoundary) return;
+    testDiscoveryAutoStarted.current = testDiscoveryBoundary;
+    void startTestDiscovery(testProjectPath, testDiscoveryBoundary);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testDiscoveryBoundary, testsDisabledReason, restoring]);
   const testProject = testCandidates.find((project) => project.path === testProjectPath) ?? null;
   const testRunBlocked = testRunBlockedReason({
     disabledReason: testsDisabledReason,
@@ -2718,8 +2733,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     { id: "show-all", label: showAllFiles ? "Hide All Files" : "Show All Files", action: () => setShowAllFiles((current) => !current), separatorBefore: true },
   ];
 
-  async function startTestDiscovery(project: string) {
-    setBottomTab("tests");
+  async function startTestDiscovery(project: string, automaticBoundary: string | null = null) {
+    const automatic = automaticBoundary !== null;
+    if (!automatic) {
+      // A manual discovery belongs to the same boundary; the automatic effect must not repeat it.
+      testDiscoveryAutoStarted.current = testDiscoveryBoundary;
+      setBottomTab("tests");
+    }
+    setTestAutoDiscoveryError(null);
     try {
       onSnapshot(
         await call<Snapshot>("tests.discover", {
@@ -2727,8 +2748,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           targetFramework: evaluation.context.targetFramework,
         }),
       );
-      setMessage(null);
+      if (!automatic) setMessage(null);
     } catch (error) {
+      if (automaticBoundary !== null) {
+        setTestAutoDiscoveryError({ boundary: automaticBoundary, message: messageOf(error) });
+        return;
+      }
       setMessage({ tone: "error", text: `Test discovery could not start: ${messageOf(error)}` });
       if (error instanceof HostCallError && error.code === "restore_required") {
         setBottomTab("tests");
@@ -3911,6 +3936,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             evaluation={evaluation}
             editedAt={editedAt}
             disabledReason={testsDisabledReason}
+            autoDiscoveryError={
+              testAutoDiscoveryError?.boundary === testDiscoveryBoundary
+                ? testAutoDiscoveryError.message
+                : null
+            }
             projectPath={testProjectPath}
             onProjectChange={setTestProjectPath}
             selected={testSelected}

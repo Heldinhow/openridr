@@ -40,8 +40,29 @@ tests". Falha de descoberta mostra a causa no painel.
 
 ## Aceite
 
-- [ ] Solução confiável, com SDK resolvido e restaurada, lista os testes sem clique.
-- [ ] A descoberta roda uma vez por fronteira e não entra em laço com edição/render.
-- [ ] Falha de descoberta mostra a causa no painel.
-- [ ] Trocar o projeto de teste dispara a descoberta do novo projeto.
+- [x] Solução confiável, com SDK resolvido e restaurada, lista os testes sem clique.
+- [x] A descoberta roda uma vez por fronteira e não entra em laço com edição/render.
+- [x] Falha de descoberta mostra a causa no painel.
+- [x] Trocar o projeto de teste dispara a descoberta do novo projeto.
 - [ ] Evidência no app real.
+
+## Feito (2026-11-04)
+
+- `src/WorkspaceView.tsx`: a descoberta automática usa a fronteira
+  `workspace.id:contextId:restore.revision:caminho do projeto` e um ref para rodar uma vez;
+  troca de projeto, restore concluído ou novo contexto disparam uma nova tentativa. Restore em
+  andamento bloqueia; descoberta manual marca a mesma fronteira. Falha ao iniciar vai para
+  `tests-auto-error` no painel com a mensagem do host.
+- `src/TestsPanel.tsx`: renderiza `tests-auto-error`; falhas de execução (`failed`,
+  `adapter_missing`, `mtp_unsupported`, etc.) continuam com o texto do host.
+- `tests/e2e/tests-auto-discovery.spec.ts`: árvore preenchida sem clique, edição e reabertura
+  sem nova descoberta, adapter ausente automático e troca entre dois projetos de teste.
+- `tests/e2e/automatic.ts`: `clickDiscover` espera a revisão nova do host terminar, porque uma
+  descoberta automática já pode estar atual.
+- `bun run check`; Playwright: `tests-auto-discovery` 3/3, `tests` 7/7, `testsuite` + `ui-fold`
+  6/6, `qa-devflow-top4 -g "achado 2"` 1/1, `zy-gutter` 1/1.
+- **Pendente no app real (agent-desktop):** abrir OrderDesk, ver a árvore em Tests sem clique,
+  trocar o projeto, conferir uma falha proposital; a varredura final com `verify-openridr`
+  fecha este aceite. `zz-acceptance` P0 não foi concluído: timeout ao clicar em
+  `tree-file-src/OrderDesk.Cli/Program.cs` depois de o teste clicar no projeto (o clique
+  recolhe o projeto; caminho não tocado por este ticket).

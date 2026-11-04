@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { revisionOf, settleRestore } from "./automatic";
+import { clickDiscover, revisionOf, settleRestore } from "./automatic";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -165,7 +165,7 @@ test("achado 2: ⌘U chords run tests from the editor without typing into the bu
     );
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(3);
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });

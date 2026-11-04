@@ -7,7 +7,7 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { revisionOf } from "./automatic";
+import { clickDiscover, revisionOf } from "./automatic";
 import os from "node:os";
 import path from "node:path";
 import { openTrustPopover, reveal } from "./disclosures";
@@ -563,7 +563,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await page.getByTestId("bottom-tab-tests").click();
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitEvaluation(page, 3);
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });
@@ -609,7 +609,7 @@ public sealed class LongTests
 }
 `,
     );
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 5 tests", {
       timeout: 120_000,
     });

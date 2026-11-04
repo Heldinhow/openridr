@@ -14,6 +14,7 @@ type Props = {
   evaluation: Evaluation;
   editedAt: Record<string, number>;
   disabledReason: string | null;
+  autoDiscoveryError: string | null;
   projectPath: string;
   onProjectChange: (path: string) => void;
   selected: Set<string>;
@@ -211,6 +212,7 @@ export function TestsPanel({
   evaluation,
   editedAt,
   disabledReason,
+  autoDiscoveryError,
   projectPath,
   onProjectChange,
   selected,
@@ -545,6 +547,12 @@ export function TestsPanel({
       {disabledReason && (
         <p className="muted" data-testid="tests-disabled-reason">
           {disabledReason}
+        </p>
+      )}
+
+      {autoDiscoveryError && (
+        <p className="warning" data-testid="tests-auto-error" role="status">
+          Automatic discovery did not start: {autoDiscoveryError}
         </p>
       )}
 
