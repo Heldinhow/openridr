@@ -89,6 +89,19 @@ pub struct BuildProblem {
     pub raw: String,
 }
 
+/// One navigable `path(line,column)` span in the displayed build log. `line` is the zero-based
+/// index of the line in `BuildView.log`; `start`/`end` are zero-based character columns of the
+/// span, `end` exclusive. Only paths that passed the workspace containment check become links.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildLogLink {
+    pub line: usize,
+    pub start: usize,
+    pub end: usize,
+    pub path: String,
+    pub position: BuildPosition,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildView {
@@ -102,6 +115,7 @@ pub struct BuildView {
     pub sdk_version: Option<String>,
     pub log: String,
     pub log_truncated: bool,
+    pub log_links: Vec<BuildLogLink>,
     pub exit: Option<i32>,
     pub termination: Option<Termination>,
     pub revision: u64,
@@ -157,6 +171,10 @@ struct Data {
     /// Positions of accepted problems, used only to avoid printing the same MSBuild
     /// diagnostic twice (inline and again in the failure summary).
     seen: HashMap<String, ()>,
+    /// Location spans with `line` as the absolute push index; `view()` rebases them onto the
+    /// retained log, which can drop earlier lines and prepends a truncation notice.
+    links: Vec<BuildLogLink>,
+    lines_pushed: usize,
 }
 
 pub struct Build {
@@ -269,6 +287,8 @@ impl Build {
                 problems_truncated: false,
                 solution: false,
                 seen: HashMap::new(),
+                links: Vec::new(),
+                lines_pushed: 0,
             }),
         }
     }
@@ -312,6 +332,8 @@ impl Build {
                 problems_truncated: false,
                 solution: start.solution,
                 seen: HashMap::new(),
+                links: Vec::new(),
+                lines_pushed: 0,
             }),
         }
     }
@@ -319,6 +341,18 @@ impl Build {
     pub fn view(&self) -> BuildView {
         let data = self.data.lock().unwrap();
         let (log, log_truncated) = data.log.text();
+        // `text()` prepends one truncation notice line, so retained lines shift by one.
+        let dropped = data.log.dropped();
+        let notice = usize::from(dropped > 0);
+        let log_links = data
+            .links
+            .iter()
+            .filter(|link| link.line >= dropped)
+            .map(|link| BuildLogLink {
+                line: link.line - dropped + notice,
+                ..link.clone()
+            })
+            .collect();
         BuildView {
             state: data.state,
             project: data.project.clone(),
@@ -330,6 +364,7 @@ impl Build {
             sdk_version: data.sdk_version.clone(),
             log,
             log_truncated,
+            log_links,
             exit: data.exit,
             termination: data.termination.clone(),
             revision: data.revision,
@@ -431,6 +466,7 @@ impl Build {
             return;
         }
         data.log.push(message.into());
+        data.lines_pushed += 1;
         data.state = "failed";
         data.finished_at = Some(now_ms());
     }
@@ -487,12 +523,32 @@ impl Build {
             return;
         }
         let parsed = parse_line(&data.root, line);
+        let link = match &parsed {
+            Line::Problem(problem) => problem.position.clone().and_then(|position| {
+                location_columns(line, stderr).map(|(start, end)| BuildLogLink {
+                    // Absolute push index; `view()` rebases it onto the displayed log.
+                    line: data.lines_pushed,
+                    start,
+                    end,
+                    path: problem.path.clone(),
+                    position,
+                })
+            }),
+            _ => None,
+        };
         let shown = if stderr {
             format!("[stderr] {line}")
         } else {
             line.to_string()
         };
         data.log.push(shown);
+        data.lines_pushed += 1;
+        if let Some(link) = link {
+            // The log is bounded; spans whose line was already dropped can never be shown.
+            let dropped = data.log.dropped();
+            data.links.retain(|link| link.line >= dropped);
+            data.links.push(link);
+        }
         let Line::Problem(problem) = parsed else {
             return;
         };
@@ -599,7 +655,7 @@ fn problem(
 /// that does not match exactly keeps no position and does not become a problem.
 pub fn parse_line(root: &Path, line: &str) -> Line {
     let trimmed = line.trim_start();
-    let Some((path_text, numbers, suffix)) = split_location(trimmed) else {
+    let Some((path_text, numbers, suffix, _)) = split_location(trimmed) else {
         return Line::Ignored;
     };
     let Some(severity) = severity_of(suffix) else {
@@ -640,9 +696,24 @@ pub fn parse_line(root: &Path, line: &str) -> Line {
     ))
 }
 
+/// Zero-based character columns of the whole `path(line,column)` text on the displayed line,
+/// `end` exclusive. The stderr prefix is part of what the user sees, so it is counted here.
+fn location_columns(line: &str, stderr: bool) -> Option<(usize, usize)> {
+    let trimmed = line.trim_start();
+    let (_, _, _, end) = split_location(trimmed)?;
+    let prefix = if stderr {
+        "[stderr] ".chars().count()
+    } else {
+        0
+    };
+    let start = prefix + line[..line.len() - trimmed.len()].chars().count();
+    Some((start, start + trimmed[..end].chars().count()))
+}
+
 /// Splits `path(line,column): error …` without assuming the path has no spaces or
-/// parentheses: the last `(…)` that parses as 1-based positions wins.
-fn split_location(line: &str) -> Option<(&str, Vec<u64>, &str)> {
+/// parentheses: the last `(…)` that parses as 1-based positions wins. The fourth value is the
+/// byte index just past the closing `)`.
+fn split_location(line: &str) -> Option<(&str, Vec<u64>, &str, usize)> {
     let mut candidate = None;
     for (index, _) in line.match_indices('(') {
         let Some(close) = line[index..].find(')') else {
@@ -666,16 +737,16 @@ fn split_location(line: &str) -> Option<(&str, Vec<u64>, &str)> {
         }
         let suffix = &line[close + 1..];
         if severity_of(suffix).is_some() {
-            candidate = Some((index, numbers, suffix));
+            candidate = Some((index, numbers, suffix, close + 1));
             break;
         }
     }
-    let (index, numbers, suffix) = candidate?;
+    let (index, numbers, suffix, end) = candidate?;
     let path = &line[..index];
     if path.trim().is_empty() {
         return None;
     }
-    Some((path, numbers, suffix))
+    Some((path, numbers, suffix, end))
 }
 
 fn severity_of(suffix: &str) -> Option<&'static str> {
@@ -882,6 +953,7 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logbuf::MAX_LOG_LINES;
     use std::fs;
 
     fn root() -> PathBuf {
@@ -1211,6 +1283,110 @@ mod tests {
         );
         assert!(!view.log.contains('\r'));
         assert!(view.log.contains("plain line"));
+    }
+
+    fn build_at(root: &Path) -> Build {
+        Build::begin(Start {
+            revision: 1,
+            build_id: "build:1:links".to_string(),
+            evaluation_revision: 1,
+            sources: Vec::new(),
+            project_name: "App".to_string(),
+            project_path: "App.csproj".to_string(),
+            project_kind: "console",
+            target_path: None,
+            configuration: "Debug".to_string(),
+            target_framework: None,
+            command: Vec::new(),
+            cwd: root.to_path_buf(),
+            sdk_root: root.to_path_buf(),
+            sdk_version: "8.0.408".to_string(),
+            workspace_id: 1,
+            context_id: 1,
+            root: root.to_path_buf(),
+            saved_note: None,
+            solution: false,
+        })
+    }
+
+    fn span(view: &BuildView, link: &BuildLogLink) -> String {
+        let line = view
+            .log
+            .split('\n')
+            .nth(link.line)
+            .expect("link line is in the displayed log");
+        line.chars()
+            .skip(link.start)
+            .take(link.end - link.start)
+            .collect()
+    }
+
+    #[test]
+    fn log_links_cover_the_location_on_the_displayed_line_including_stderr() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let build = build_at(&root);
+        build.append_line("src/App/Program.cs(5,17): error CS0246: missing", false);
+        build.append_line("src/App/Program.cs(7,3): warning CS0168: stderr", true);
+        build.append_line("Build succeeded.", false);
+        build.append_line(
+            "/usr/local/share/dotnet/File.cs(1,1): error MSB3277: outside",
+            false,
+        );
+        let view = build.view();
+        assert_eq!(view.log_links.len(), 2, "outside and unknown lines stay text");
+
+        let stdout = &view.log_links[0];
+        assert_eq!(stdout.line, 0);
+        assert_eq!(stdout.start, 0);
+        assert_eq!(stdout.path, "src/App/Program.cs");
+        assert_eq!(
+            stdout.position,
+            BuildPosition {
+                line: 4,
+                character: 16
+            }
+        );
+        assert_eq!(span(&view, stdout), "src/App/Program.cs(5,17)");
+
+        let stderr = &view.log_links[1];
+        assert_eq!(stderr.line, 1);
+        assert_eq!(stderr.start, "[stderr] ".chars().count());
+        assert_eq!(
+            stderr.position,
+            BuildPosition {
+                line: 6,
+                character: 2
+            }
+        );
+        assert_eq!(span(&view, stderr), "src/App/Program.cs(7,3)");
+    }
+
+    #[test]
+    fn a_truncated_log_rebases_links_and_drops_links_for_discarded_lines() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let build = build_at(&root);
+        for index in 0..(MAX_LOG_LINES + 3) {
+            build.append_line(&format!("padding line {index}"), false);
+        }
+        build.append_line("src/App/Program.cs(2,3): error CS0103: lost", false);
+        let view = build.view();
+        assert!(view.log_truncated);
+        assert_eq!(view.log_links.len(), 1);
+        let link = &view.log_links[0];
+        assert!(link.line > 0, "the truncation notice shifts the line");
+        assert_eq!(
+            view.log.split('\n').nth(link.line).unwrap(),
+            "src/App/Program.cs(2,3): error CS0103: lost"
+        );
+        assert_eq!(span(&view, link), "src/App/Program.cs(2,3)");
+
+        // The link's own line is gone once the buffer has dropped it.
+        for index in 0..MAX_LOG_LINES {
+            build.append_line(&format!("more {index}"), false);
+        }
+        assert!(build.view().log_links.is_empty());
     }
 
     #[test]

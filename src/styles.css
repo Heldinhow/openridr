@@ -1657,6 +1657,8 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   overflow-wrap: anywhere;
 }
 
+.build-log .link-button { font: inherit; }
+
 .build-context-details > summary,
 .debug-context-details > summary {
   cursor: pointer;

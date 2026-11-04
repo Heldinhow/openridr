@@ -3910,6 +3910,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             restoreDisabledReason={restoreDisabledReason}
             onRestore={() => void startRestore("restore.start")}
             obsolete={buildObsolete}
+            onNavigate={(path, position) => void navigateTo(path, position)}
           />
         );
       case "problems":

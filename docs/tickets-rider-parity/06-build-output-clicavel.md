@@ -37,8 +37,8 @@ na posição. O host fornece os spans; a UI não reparseia MSBuild.
 
 ## Aceite
 
-- [ ] Build com erro proposital mostra `arquivo(linha,coluna)` clicável no log.
-- [ ] Clicar abre o arquivo na linha e coluna corretas.
-- [ ] Os spans vêm do host; a UI não reparseia o log.
-- [ ] stderr e log truncado não deslocam links; linha irreconhecível fica texto.
+- [x] Build com erro proposital mostra `arquivo(linha,coluna)` clicável no log.
+- [x] Clicar abre o arquivo na linha e coluna corretas.
+- [x] Os spans vêm do host; a UI não reparseia o log.
+- [x] stderr e log truncado não deslocam links; linha irreconhecível fica texto.
 - [ ] Evidência no app real.

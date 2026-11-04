@@ -185,6 +185,17 @@ export type BuildProblem = {
   raw: string;
 };
 
+/** One navigable `path(line,column)` span in the displayed build log. `line` is zero-based
+ * into `Build.log`; `start`/`end` are zero-based character columns, `end` exclusive. The host
+ * only emits links for paths that resolved inside the workspace. */
+export type BuildLogLink = {
+  line: number;
+  start: number;
+  end: number;
+  path: string;
+  position: { line: number; character: number };
+};
+
 export type Build = {
   state: "idle" | "running" | "ok" | "failed" | "cancelled";
   project: BuildProject | null;
@@ -196,6 +207,7 @@ export type Build = {
   sdkVersion: string | null;
   log: string;
   logTruncated: boolean;
+  logLinks: BuildLogLink[];
   exit: number | null;
   termination: null | {
     requested: string;
