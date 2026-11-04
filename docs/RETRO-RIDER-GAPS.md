@@ -24,6 +24,7 @@ Com Acessibilidade e Gravação de Tela concedidas:
   - Fontes intactas: `git status` mostra só arquivos de `bin/` e `obj/` modificados (já rastreados no repositório) e itens não rastreados (`.idea/`, `*.DotSettings.user`, `global.json`), que não foram criados por mim.
   - O Rider está no modo Trial.
 - **Processo do Rider:** ativo (estado S, cerca de 5% de CPU). Não parece travado; a falha está na camada de acessibilidade e no foco.
+- **Nova tentativa (mesma sessão):** Rider em foco e snapshots respondendo. Clique direito semântico em um item de projeto (`Gabagool.Tests`) voltou com `ELEMENT_NOT_FOUND` em `AXRole` e `delivered_unverified`. O screenshot seguinte mostrou que nenhum menu abriu; só a linha ficou destacada. Não repeti para não arriscar efeitos colaterais.
 
 Com isso, as áreas que dependem de interação (Debug, Tests, Find in Files, Find Usages, aba Build) continuam sem comportamento verificado ao vivo nesta rodada. O que foi visto é a estrutura dos menus e a interface estática.
 
