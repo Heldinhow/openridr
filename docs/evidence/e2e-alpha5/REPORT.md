@@ -183,7 +183,7 @@ Legenda: PASS · FAIL (bug) · PARCIAL · N/T (não testado) · N/A.
 | Analysis | Falha de rede simulada | N/T | `HTTPS_PROXY` inválido configurado, instalação não concluída |
 | Janela | Fechar janela com buffer sujo → diálogo | PASS | Save all / Keep editing / Discard and close app |
 | Janela | Cmd+Q / quit com buffer sujo | FAIL | BUG-001 (P0) |
-| Janela | Redimensionar 760×560 | PARCIAL | captura em `resize-760x560.png`; tool deu timeout parcial; layout não analisado |
+| Janela | Redimensionar 760×560 | PARCIAL | captura removida do repositório público (continha caminho local); tool deu timeout parcial; layout não analisado |
 | Janela | Múltiplas janelas (Cmd+N) | N/T | |
 | Tema | Claro/escuro | N/A | Settings mostra "Light theme is unavailable in this build" |
 | Acessib. | Labels dos botões (árvore) | PASS | 54 botões, 0 sem nome |
