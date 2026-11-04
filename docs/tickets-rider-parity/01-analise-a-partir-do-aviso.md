@@ -43,11 +43,18 @@ pendente roda sozinha quando a análise fica ativa.
 
 ## Aceite
 
-- [ ] Find Usages num símbolo, sem análise, mostra ação "Install analysis" ou "Start analysis"
-      no próprio aviso.
-- [ ] "Install analysis" abre o painel com o plano solicitado e nenhum download antes da
-      confirmação.
-- [ ] Com a análise ativa, a consulta pendente roda uma vez e lista as ocorrências.
-- [ ] Rename e code actions mostram o mesmo aviso e as mesmas ações.
-- [ ] Restricted mode continua bloqueando por trust, sem oferecer instalação.
+- [x] Find Usages num símbolo, sem análise, mostra ação "Install analysis" ou "Start analysis"
+      no próprio aviso. — Playwright `analysis-gate.spec.ts` (Install) e `find-usages.spec.ts`
+      (Start).
+- [x] "Install analysis" abre o painel com o plano solicitado e nenhum download antes da
+      confirmação. — `analysis-gate.spec.ts`: plano `planned`, sem processo/progresso.
+- [x] Com a análise ativa, a consulta pendente roda uma vez e lista as ocorrências. — caso
+      "a blocked Find Usages runs once after Start analysis" em `find-usages.spec.ts`.
+- [x] Rename e code actions mostram o mesmo aviso e as mesmas ações. — mesmo spec cobre ⇧F12,
+      ⇧F6 e ⌥Enter.
+- [x] Restricted mode continua bloqueando por trust, sem oferecer instalação. — mesmo spec,
+      primeiro caso.
 - [ ] Evidência no app real (ou "não verificado" com motivo) em `docs/evidence/rider-parity.md`.
+      **Não verificado nesta rodada:** a passada no app Tauri real (agent-desktop) fica para a
+      varredura final com `verify-openridr`; o download real também não foi autorizado/executado.
+

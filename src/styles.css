@@ -326,6 +326,19 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   color: var(--warning);
 }
 
+.notice-action {
+  margin-left: 10px;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.notice-action:hover { background: var(--accent-surface); }
+
 .external-open-error {
   position: fixed;
   left: 50%;

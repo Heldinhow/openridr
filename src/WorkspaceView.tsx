@@ -222,6 +222,13 @@ function nameProblem(name: string): string | null {
 
 type NavEntry = { path: string; line: number; character: number };
 
+type NoticeAction = { label: string; onClick: () => void };
+type Notice = { tone: "info" | "error"; text: string; action?: NoticeAction };
+type PendingAnalysisAction = {
+  kind: "findUsages" | "rename" | "codeActions";
+  position: { line: number; character: number };
+};
+
 type Props = {
   snapshot: Snapshot;
   initialFile: string | null;
@@ -378,7 +385,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     evaluation.state !== "idle" && evaluatedProjects.length > 0;
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<Notice | null>(null);
   const [trustError, setTrustError] = useState<string | null>(null);
   // Ambiguous external open with the workspace mounted: the user picks the solution from these buttons.
   const [externalCandidates, setExternalCandidates] = useState<{ path: string; candidates: Candidate[] } | null>(null);
@@ -554,6 +561,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [installPlanRequest, setInstallPlanRequest] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(() => expandableKeys(null, projects));
   const seededTreeExpansion = useRef(0);
   const [showAllFiles, setShowAllFiles] = useState(false);
@@ -695,6 +703,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const workspaceIdRef = useRef(workspace.id);
   workspaceIdRef.current = workspace.id;
   const analysisAutoStarted = useRef<string | null>(null);
+  const pendingAnalysisAction = useRef<PendingAnalysisAction | null>(null);
   async function startAnalysis(automatic = false) {
     try {
       onSnapshot(await call<Snapshot>("lsp.start"));
@@ -715,6 +724,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     void startAnalysis(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot, workspace.id]);
+  useEffect(() => {
+    // One blocked analysis action waits for the next active session and runs once against the
+    // current render, so stale gates from the blocked render cannot re-arm it.
+    if (!lspActive || pendingAnalysisAction.current === null) return;
+    const pending = pendingAnalysisAction.current;
+    pendingAnalysisAction.current = null;
+    if (pending.kind === "findUsages") void requestFindUsages(pending.position);
+    else if (pending.kind === "rename") requestRename(pending.position);
+    else void requestCodeActions(pending.position);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lspActive]);
   const toolState = snapshot.tools["csharp-ls"].state;
   const analysisStatus = !trusted
     ? null
@@ -770,6 +790,26 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             : editPreview
               ? "Finish or cancel the current preview first."
               : null;
+  // One notice shape for Find Usages, Rename and code actions. The gate only offers a way
+  // forward when analysis is what blocks the action; trust and capability blocks stay plain.
+  function analysisNotice(label: string, reason: string, pending: PendingAnalysisAction): Notice {
+    let action: NoticeAction | undefined;
+    if (trusted && active && !lspActive) {
+      if (toolState !== "ready") {
+        action = {
+          label: "Install analysis",
+          onClick: () => {
+            setToolsOpen(true);
+            setInstallPlanRequest((count) => count + 1);
+          },
+        };
+      } else if (lspStartBlocker(snapshot) === null) {
+        action = { label: "Start analysis", onClick: () => void startAnalysis() };
+      }
+      if (action) pendingAnalysisAction.current = pending;
+    }
+    return { tone: "error", text: `${label} unavailable: ${reason}`, action };
+  }
   const goToDefinitionDisabledReason = !active
     ? "Open a file to go to a declaration."
     : !trusted
@@ -1615,7 +1655,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   function requestRename(position = cursorRef.current) {
     if (!active) return;
     if (renameDisabledReason) {
-      setMessage({ tone: "error", text: `Rename unavailable: ${renameDisabledReason}` });
+      setMessage(analysisNotice("Rename", renameDisabledReason, { kind: "rename", position }));
       return;
     }
     renameSeq.current += 1;
@@ -1684,7 +1724,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   async function requestCodeActions(position = cursorRef.current) {
     if (!active) return;
     if (codeActionsDisabledReason) {
-      setMessage({ tone: "error", text: `Code actions unavailable: ${codeActionsDisabledReason}` });
+      setMessage(
+        analysisNotice("Code actions", codeActionsDisabledReason, { kind: "codeActions", position }),
+      );
       return;
     }
     const sourcePath = active.path;
@@ -1800,7 +1842,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   async function requestFindUsages(position = cursorRef.current) {
     if (!active) return;
     if (findUsagesDisabledReason) {
-      setMessage({ tone: "error", text: `Find Usages unavailable: ${findUsagesDisabledReason}` });
+      setMessage(
+        analysisNotice("Find Usages", findUsagesDisabledReason, { kind: "findUsages", position }),
+      );
       return;
     }
     const sourcePath = active.path;
@@ -3775,7 +3819,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       )}
 
       <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
-      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
+      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} planRequest={installPlanRequest} />
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
 
       {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
@@ -4245,6 +4289,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           data-testid="app-log"
         >
           {message.text}
+          {message.action && (
+            <button
+              type="button"
+              className="notice-action"
+              data-testid="notice-action"
+              onClick={() => {
+                const action = message.action;
+                setMessage(null);
+                action?.onClick();
+              }}
+            >
+              {message.action.label}
+            </button>
+          )}
           <button className="notice-dismiss" aria-label="Dismiss notification" onClick={() => setMessage(null)}>×</button>
         </div>
       )}
