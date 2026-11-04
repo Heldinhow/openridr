@@ -4,7 +4,7 @@
 
 **Blocked by:** 01.
 
-**Status:** não iniciado.
+**Status:** implementado (commit local; ver RETRO-UI-POLISH).
 
 - [ ] Toolbar: Play, Debug, Build, Settings reconhecíveis a 100% (crop nativo antes/depois).
 - [ ] `TerminalPanel.tsx:226` usa ícone de terminal, não de Play.

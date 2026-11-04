@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 05.
 
-**Status:** não iniciado.
+**Status:** implementado (commit local; ver RETRO-UI-POLISH).
 
 - [ ] Cada licença com copyright e texto no `THIRD-PARTY-NOTICES.md`; o arquivo aparece em `Contents/Resources` no app construído.
 - [ ] Capturas "depois" no app real: Welcome, workspace, árvore, toolbar, painel Debug, Settings (hoje não verificada).

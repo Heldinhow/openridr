@@ -658,3 +658,16 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Licença.** `THIRD-PARTY-NOTICES.md` traz MIT do netcoredbg 3.2.0-1092 e dos componentes Roslyn/dbgshim/.NET, com bytes e SHA-256 do zip; `vendor/netcoredbg/LICENSE` preserva o texto upstream.
 - **csharp-ls intacto.** Plano revisável, download, progresso, retry e o runtime .NET 10 da análise não mudaram.
 - **Limite.** A prova no app Tauri real foi feita com home vazia (sem `tools/`) e com o DMG montado somente leitura; a medição real ficou em 5.671.389 → 10.454.440 bytes (DMG) e 14,68 → 23,85 MiB (app). Quarentena/translocation real e macOS Intel continuam não verificados. Ver `docs/evidence/embed-netcoredbg.md`.
+
+## 2026-11-04 — Polimento visual: ícones e fontes
+
+Spec: `docs/SPEC-UI-POLISH.md`. D4, D6, D7 e D9 respondidas pelo Helder; as demais seguem como assumidas no spec.
+
+- **Dependências aprovadas (D7), só estas três, via bun:** `lucide-react` (ISC), `@fontsource-variable/inter` e `@fontsource-variable/jetbrains-mono` (OFL-1.1). Nada além disso.
+- **Lucide é o único conjunto de UI (D1)**; o glifo C# é o `language-csharp` do MDI (Apache-2.0) vendorizado em `src/icons/CSharpIcon.tsx`. Sem hexágono do C#, sem logo do Visual Studio (D2, D11).
+- **Cor (D3, D4):** ícones de arquivo neutros (`--muted`, `--fg` na linha selecionada). Play e Debug continuam verdes, Stop vermelho.
+- **Traço:** 1,5 px na tela em qualquer tamanho, via `vector-effect: non-scaling-stroke` (`.icon *`) com `strokeWidth=1.5`, porque os tamanhos vêm do CSS e não do prop `size`.
+- **Fontes (D5, D6, D10):** `@font-face` próprio só com o subset latin (cobre pt-BR; `latin-ext` fica de fora). O pacote Fontsource traz todos os subsets e o Vite emitiria todos os woff2. "JetBrains Mono" (valor da Settings) e "JetBrains Mono Variable" apontam para o mesmo arquivo. Default novo do editor: JetBrains Mono; valor salvo não é migrado. Ligaduras desligadas (`font-variant-ligatures: none`). `main.tsx` espera as duas fontes carregarem antes de montar o React para o xterm medir a célula com a fonte real.
+- **Alvo (D9):** a toolbar da árvore passa de 22/24 px para 32×32 (ícone de 16 px).
+- **Escala:** `--fs-ui` 14, `--fs-label` 13, `--fs-meta` 12, `--fs-badge` 11. Títulos de popup/boas-vindas ficam em px literal (15/16/24); `0.85em` do inlay do debugger fica relativo.
+- **Debug `step*` (D8):** Lucide `redo-2` / `arrow-down-to-line` / `arrow-up-from-line`; Codicons só entraria se a captura reprovasse.

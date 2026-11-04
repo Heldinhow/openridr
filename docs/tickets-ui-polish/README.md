@@ -1,6 +1,6 @@
 # Tickets: polimento visual (ícones e tipografia)
 
-Spec: [../SPEC-UI-POLISH.md](../SPEC-UI-POLISH.md). Diagnóstico: [../evidence/ui-polish.md](../evidence/ui-polish.md). **Nenhum está implementado**; começar só com OK do Helder (ver D4, D6, D7 do spec).
+Spec: [../SPEC-UI-POLISH.md](../SPEC-UI-POLISH.md). Diagnóstico: [../evidence/ui-polish.md](../evidence/ui-polish.md). Implementados em 2026-11-04 após as respostas do Helder (D4, D6, D7, D9).
 
 | # | Ticket | Bloqueado por |
 |---|---|---|

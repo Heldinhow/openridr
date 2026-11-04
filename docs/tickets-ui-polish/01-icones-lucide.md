@@ -4,7 +4,7 @@
 
 **Blocked by:** aprovação explícita de `lucide-react` (AGENTS.md: sem dependência nova sem decisão registrada). Alternativa aprovável: vendorizar os SVGs de `lucide-static`.
 
-**Status:** não iniciado.
+**Status:** implementado (commit local; ver RETRO-UI-POLISH).
 
 - [ ] Decisão D7 registrada em `docs/decisions.md`.
 - [ ] `src/Icon.tsx` sem nenhum path `d` escrito à mão (exceto o glifo C# vendorizado).

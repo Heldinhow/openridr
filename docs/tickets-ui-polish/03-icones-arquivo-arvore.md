@@ -4,7 +4,7 @@
 
 **Blocked by:** 01.
 
-**Status:** não iniciado.
+**Status:** implementado (commit local; ver RETRO-UI-POLISH).
 
 - [ ] `grep -n "cs-badge\|json-badge" src` vazio.
 - [ ] Árvore do Gabagool: projeto, `.cs`, `.csproj`, `.sln`, `.json` e pasta distinguíveis sem ler o nome (captura em `docs/evidence/ui-polish/`).

@@ -4,7 +4,7 @@
 
 **Blocked by:** aprovação das dependências (D7).
 
-**Status:** não iniciado.
+**Status:** implementado (commit local; ver RETRO-UI-POLISH).
 
 - [ ] `document.fonts` mostra as duas famílias `loaded` com a rede desligada (no app Tauri real).
 - [ ] DMG/app antes e depois medidos (esperado ~130 KB de woff2).

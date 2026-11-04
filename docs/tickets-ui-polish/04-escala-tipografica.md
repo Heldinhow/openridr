@@ -4,7 +4,7 @@
 
 **Blocked by:** nenhum.
 
-**Status:** não iniciado.
+**Status:** implementado (commit local; ver RETRO-UI-POLISH).
 
 - [ ] `grep -nE "font-size: *(0\.[0-9]+rem|[0-9]px|10px)" src/*.css` não retorna nada abaixo de 11 px nem rem fracionário.
 - [ ] Papéis (título, linha, meta, selo) reconhecíveis sem ler o texto (crop antes/depois).
