@@ -41,10 +41,10 @@ distribuir o depurador dentro do app.
 ## Verificação
 
 ```
-PENDENTE  OpenRidr_0.3.0-alpha.6_aarch64.dmg
+c780d291414b229cd3e6f04f2add50413ffa7ca09793e075012ad6ab4951c45e  OpenRidr_0.3.0-alpha.6_aarch64.dmg
 ```
 
-Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: **PENDENTE**. Verificado no DMG montado:
+Confira com `shasum -a 256 <arquivo>.dmg`. Tamanho: 9,97 MiB (10.454.828 bytes). Verificado no DMG montado:
 `CFBundleShortVersionString` 0.3.0-alpha.6, binário Mach-O arm64,
 `codesign --verify --deep --strict` e `xcrun stapler validate` no app e no DMG,
 `spctl --assess --type execute` no app = *accepted, source=Notarized Developer ID* e
