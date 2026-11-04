@@ -2,6 +2,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Blocks,
+  Braces,
   Box,
   Bug,
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   EllipsisVertical,
   Eye,
   File,
+  FileText,
   FlaskConical,
   Folder,
   FolderTree,
@@ -80,7 +82,9 @@ export type IconName =
   | "dependencies"
   | "eye"
   | "more"
-  | "minimize";
+  | "minimize"
+  | "braces"
+  | "text";
 
 const icons: Record<IconName, LucideIcon> = {
   build: Hammer,
@@ -122,6 +126,8 @@ const icons: Record<IconName, LucideIcon> = {
   eye: Eye,
   more: EllipsisVertical,
   minimize: Minus,
+  braces: Braces,
+  text: FileText,
 };
 
 /** Lucide glyphs; stroke stays 1.5 screen px at any CSS size (`.icon *` uses non-scaling-stroke). */

@@ -691,8 +691,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   min-height: 28px;
 }
 .tree-name { flex: 0 0 auto; }
-.tree-row .icon-file { color: var(--info); }
-.tree-row .icon-project { color: var(--accent); }
 .tree { min-width: max-content; }
 .side .panel-title { font-size: 12px; }
 .side .panel-title .tag { display: block; width: fit-content; margin-top: 4px; font-weight: 400; }
@@ -2627,7 +2625,9 @@ mark.search-hit {
 .tree-row { border-radius: var(--r-md); border-color: transparent; background: transparent; min-height: 28px; box-shadow: none; font-weight: 500; }
 .tree-row:hover { background: var(--accent-surface); border-color: transparent; }
 .tree-row.selected { background: var(--select); border-color: transparent; box-shadow: none; }
-.tree-row .icon-project { color: var(--muted); }
+.tree-row .icon, .tab-label .icon { color: var(--muted); }
+.tree-row.selected .icon { color: var(--fg); }
+.tab-label .icon { margin-right: 6px; }
 .tree-root { font-weight: 500; }
 .tree-folder { color: var(--fg); font-weight: 400; text-transform: none; }
 
@@ -2766,16 +2766,9 @@ label.run-config-field > :not(span:first-child):not(input):not(select):not(texta
 .search-box input { flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; outline: 0; color: var(--fg); font: inherit; }
 .search-box:focus-within { background: var(--panel); outline: 1px solid var(--accent); }
 button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
-.cs-badge, .json-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; font-size: 8px; font-weight: 700; line-height: 1; }
-.cs-badge { min-width: 17px; height: 13px; padding: 0 2px; border: 1px solid #5fa86a; border-radius: 3px; color: #7cc58a; background: #2f4a35; }
-.cs-badge.project { min-width: 20px; height: 14px; font-size: 9px; }
-.json-badge { color: #b48ee8; font-size: 12px; min-width: 17px; }
 .tree-chevron { width: 10px; color: var(--muted); font-size: 10px; flex: 0 0 auto; }
 .tree-root { font-weight: 600; display: flex; align-items: center; gap: 4px; }
 .tree-count { color: var(--muted); font-weight: 400; }
-.cs-badge::before { content: "C#"; }
-.json-badge::before { content: "{}"; }
-.tab-label .cs-badge, .tab-label .json-badge { margin-right: 6px; }
 .explorer-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .explorer-tools { display: inline-flex; gap: 2px; }
 .explorer-tools button { width: 22px; height: 22px; padding: 0; background: transparent; border-color: transparent; color: var(--muted); font-size: 13px; }

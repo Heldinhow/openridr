@@ -1,10 +1,20 @@
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
+import { CSharpIcon } from "./icons/CSharpIcon";
 
-/** Rider-style type badge: green "C#" for C# projects/sources, braces for JSON, plain file otherwise. */
+const byExtension: Record<string, IconName> = {
+  csproj: "project",
+  props: "project",
+  targets: "project",
+  sln: "solution",
+  slnx: "solution",
+  json: "braces",
+  md: "text",
+  txt: "text",
+};
+
+/** Neutral type glyphs: C# lettering for C# projects/sources, Lucide for the rest. Color is state-only. */
 export function FileIcon({ path, project = false }: { path: string; project?: boolean }) {
-  if (project || path.endsWith(".cs")) {
-    return <span className={`cs-badge${project ? " project" : ""}`} aria-hidden="true" />;
-  }
-  if (path.endsWith(".json")) return <span className="json-badge" aria-hidden="true" />;
-  return <Icon name="file" />;
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  if (project || ext === "cs") return <CSharpIcon />;
+  return <Icon name={byExtension[ext] ?? "file"} />;
 }
