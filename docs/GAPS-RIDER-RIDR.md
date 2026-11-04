@@ -15,8 +15,8 @@ Legenda:
 | # | Gap | Rider | OpenRidr hoje (observado) | P | E | Critério de aceite |
 |---|---|---|---|---|---|---|
 | G01 | Find Usages, Rename e code actions dependem de análise que não está instalada | Análise vem com o IDE (**não verificado** nesta rodada) | Find Usages mostra "Find Usages unavailable: Start analysis before finding usages". A barra de status diz "Analysis: not installed" com botão "Install analysis" | P0 | M | Em projeto confiável com SDK resolvido e sem análise, Find Usages num símbolo oferece instalar e iniciar análise a partir do próprio aviso; após a análise, lista as ocorrências. Spec com csharp-ls real ou `skip` explícito com motivo |
-| G02 | Atalho de Find Usages diverge do keymap base | Menu Edit tem "Find Usages" (**visto ao vivo**; atalho e comportamento não verificados). Keymap base: Alt+F7 (**o perfil Rider de macOS do OpenRidr usa Shift+F12**; o perfil IntelliJ usa Alt+F7). Confirmar no app | Dica da barra: "Shift+F12: find usages" | P1 | S | Decisão registrada em `docs/decisions.md` com a fonte. Se mantido, justificativa; se trocado, atalho, dica e Settings mudam juntos |
-| G03 | Search Everywhere sem atalho em nenhum perfil | Menu Navigate tem "Search Everywhere" (**visto ao vivo**). Gesto de duplo Shift: **não verificado** | Dica vazia na tela inicial do editor ("Search Everywhere" sem tecla); Settings: ⇧⌘A é "Find Action" | P1 | S | Duplo Shift abre Search Everywhere, ou atalho documentado aparece na Settings e na dica |
+| G02 | Atalho de Find Usages diverge do keymap base | Menu Edit do Rider mostra Find Usages com **⇧F12** (**visto ao vivo**), igual ao perfil rider-macos do OpenRidr; a execução não foi feita. Keymap base: Alt+F7 (**o perfil Rider de macOS do OpenRidr usa Shift+F12**; o perfil IntelliJ usa Alt+F7). Confirmar no app | Dica da barra: "Shift+F12: find usages" | P1 | S | Decisão registrada em `docs/decisions.md` com a fonte. Se mantido, justificativa; se trocado, atalho, dica e Settings mudam juntos |
+| G03 | Search Everywhere sem atalho em nenhum perfil | Rider mostra a dica de Search Everywhere com duplo Shift ou ⌘T (**visto ao vivo**, tela inicial do editor). OpenRidr não tem atalho para isso | Dica vazia na tela inicial do editor ("Search Everywhere" sem tecla); Settings: ⇧⌘A é "Find Action" | P1 | S | Duplo Shift abre Search Everywhere, ou atalho documentado aparece na Settings e na dica |
 | G04 | Janelas de ferramenta sem atalho | Keymap base: Alt+1 a Alt+8 (**confirmar no macOS**). Ao vivo, a ação "Select Opened File" da Solution aparece rotulada com ⌥F1 | Settings lista "No shortcut" para Solution Explorer, Commit, Build, Run, Problems, Debug, Terminal, Tests, Git e NuGet | P1 | S | Atalho alterna a janela de ferramenta (abre, foca, fecha); aparece na Settings; teste de keymap |
 | G05 | Atalho de pesquisa por símbolo diverge do keymap base | Keymap base: Ctrl+Shift+Alt+N (**confirmar**). OpenRidr (rider-macos): ⌥⌘⇧T | Settings mostra ⌥⌘⇧T | P2 | S | Decisão registrada, como G02 |
 | G06 | ⌘F não abre a busca do editor quando o foco está na árvore ou no Search Everywhere | **Não verificado** | Após abrir `Order.cs` pela busca, ⌘F não mostrou painel; após clicar no editor, abriu | P2 | S | Ao abrir arquivo por qualquer caminho, o foco vai para o editor, ou ⌘F age no editor ativo |
@@ -27,8 +27,8 @@ Legenda:
 | # | Gap | Rider | OpenRidr hoje (observado) | P | E | Critério de aceite |
 |---|---|---|---|---|---|---|
 | G08 | Descoberta de testes é manual | Descoberta automática: **não verificada** nesta rodada | Painel mostra "No discovery has run" e exige "Discover tests". Após o clique, 4 testes agrupados por classe, status "not run" | P1 | M | Solução com SDK resolvido e restaurada lista os testes sem clique; falha de descoberta mostra a causa no painel |
-| G09 | Caminho e linha da stack trace não são links | **Não verificado** | Saída do teste mostra `OrderTests.cs:line 29` como texto; no DOM não há `a`, `button` nem `role=link` com esse texto | P1 | S | Clicar em `arquivo:linha` na saída de teste abre o arquivo na linha |
-| G10 | Debug de teste indisponível | Menu Tests tem "Debug Unit Test" e "Debug Unit Tests Until Fail" (**visto ao vivo**; comportamento não exercitado) | "Debug selected" desabilitado com motivo: precisa de attach ao test host, sem suporte | P1 | L | Decisão de escopo registrada; enquanto isso, o motivo continua visível. Quando houver suporte, teste de regressão com breakpoint |
+| G09 | Caminho e linha da stack trace não são links | Link arquivo:linha na stack trace abre o arquivo no editor já na linha (**visto ao vivo**) | Saída do teste mostra `OrderTests.cs:line 29` como texto; no DOM não há `a`, `button` nem `role=link` com esse texto | P1 | S | Clicar em `arquivo:linha` na saída de teste abre o arquivo na linha |
+| G10 | Debug de teste indisponível | Depurar teste unitário para no breakpoint e mostra threads, pilha, variáveis e avaliação (**visto ao vivo**) | "Debug selected" desabilitado com motivo: precisa de attach ao test host, sem suporte | P1 | L | Decisão de escopo registrada; enquanto isso, o motivo continua visível. Quando houver suporte, teste de regressão com breakpoint |
 | G11 | Atalhos de teste no perfil Rider: só ⌘U + tecla, sem remapeamento | Ctrl+U no keymap base é "super-método", não teste (**confirmar a origem do chord no Rider**) | Perfil rider-macos: sem atalho direto. Chords ⌘U+R/D/L/F existem e "não são remapeáveis ainda" (`keymap.ts`) | P2 | M | Chords aparecem em Settings e podem ser remapeados, ou decisão registrada manteve o modelo atual |
 | G12 | Sem navegação entre falhas | Menu Tests tem "Rerun Failed Tests" e "Run Unit Tests Until Fail" (**visto ao vivo**; comportamento não exercitado) | Status "failed" com cor e stack trace por teste (botão Details). Entre os controles do painel não há "próxima falha" | P2 | S | Atalho ou botão leva à próxima falha |
 
@@ -36,10 +36,10 @@ Legenda:
 
 | # | Gap | Rider | OpenRidr hoje (observado) | P | E | Critério de aceite |
 |---|---|---|---|---|---|---|
-| G13 | Menu da pasta da solução vazio | Menu de pasta **não verificado** | Clique direito em pasta não abre menu (nenhum `role=menu` no DOM) | P1 | S | Pasta abre menu com pelo menos Novo arquivo, Copiar caminho e Localizar no Finder |
-| G14 | Sem "Mostrar no Finder" nem "Abrir com" | Revelar no Finder: **não verificado** | Arquivo: Abrir, Copiar caminho, Find in Files, Renomear, Excluir. Projeto: NuGet, Recarregar, Build, Run Unit Test, Editar, Novo arquivo, Copiar caminho, Propriedades | P1 | S | Arquivo, pasta, projeto e solução têm "Mostrar no Finder" que seleciona o item no Finder. Antes de implementar, checar se o host ou o Tauri já expõem essa capacidade (não verificado) |
+| G13 | Menu da pasta da solução vazio | Menu de pasta com itens de Add, build dos selecionados, ações avançadas e Open In (**visto ao vivo**) | Clique direito em pasta não abre menu (nenhum `role=menu` no DOM) | P1 | S | Pasta abre menu com pelo menos Novo arquivo, Copiar caminho e Localizar no Finder |
+| G14 | Sem "Mostrar no Finder" nem "Abrir com" | Open In > Finder existe no Rider (**visto ao vivo**) | Arquivo: Abrir, Copiar caminho, Find in Files, Renomear, Excluir. Projeto: NuGet, Recarregar, Build, Run Unit Test, Editar, Novo arquivo, Copiar caminho, Propriedades | P1 | S | Arquivo, pasta, projeto e solução têm "Mostrar no Finder" que seleciona o item no Finder. Antes de implementar, checar se o host ou o Tauri já expõem essa capacidade (não verificado) |
 | G15 | Menu da solução restrito | Build, Rebuild e Clean da solução, build do projeto atual e do de inicialização, e troca de configuração existem no menu Build (**visto ao vivo**; comportamento não exercitado) | Solução: Recarregar, Copiar caminho, Find in Files. Sem build, restore nem adicionar projeto | P1 | M | Lista de itens definida em spec e coberta por teste de menu |
-| G16 | Sem mover, adicionar item existente nem excluir pasta | **Não verificado** | Só Renomear e Excluir em arquivo | P2 | M | Decisão de escopo por item; cada um com teste de E2E e fixture |
+| G16 | Sem mover, adicionar item existente nem excluir pasta | Arquivo tem Excluir e Renomear no submenu Editar; Mover não aparece no menu do arquivo (**visto ao vivo**) | Só Renomear e Excluir em arquivo | P2 | M | Decisão de escopo por item; cada um com teste de E2E e fixture |
 | G17 | "Run Unit Test" em projeto de biblioteca sem teste | **Não verificado** | Aparece no menu de OrderDesk.Core (biblioteca), sem indicação de motivo | P2 | S | Item oculto ou desabilitado com motivo quando o projeto não tem testes |
 
 ### Run e configurações
@@ -52,7 +52,7 @@ Legenda:
 
 | # | Gap | Rider | OpenRidr hoje (observado) | P | E | Critério de aceite |
 |---|---|---|---|---|---|---|
-| G19 | Breakpoint aceito em linha em branco | Menu Run tem "Toggle Breakpoint", "View Breakpoints and Exceptions…" e "Remove All Line Breakpoints" (**visto ao vivo**). Comportamento em linha sem código: **não verificado** | Atalho de breakpoint na linha 5 (em branco) criou marca vermelha ativa | P2 | S | Linha sem código não recebe breakpoint, ou move para a próxima linha executável (comportamento a confirmar no Rider) |
+| G19 | Breakpoint aceito em linha em branco | Menu Run tem "Toggle Breakpoint", "View Breakpoints and Exceptions…" e "Remove All Line Breakpoints" (**visto ao vivo**). Breakpoint de linha de código criado pelo menu (**visto ao vivo**). Linha em branco: **não verificado** | Atalho de breakpoint na linha 5 (em branco) criou marca vermelha ativa | P2 | S | Linha sem código não recebe breakpoint, ou move para a próxima linha executável (comportamento a confirmar no Rider) |
 
 ### Console e log
 
@@ -91,6 +91,8 @@ Verificado nesta rodada, no mesmo workspace isolado:
 Fora da lista e com esforço L: G10 (debug de teste, que exige attach ao test host).
 
 ## Verificações pendentes
+
+Terceira rodada (04/11, fixture OrderDesk, cliques por coordenada e menus): confirmados ao vivo os menus de contexto, a stack trace clicável, Debug de teste com breakpoint, Run, Search Everywhere e Find in Files. Continuam sem prova: execução de Find Usages (só o menu foi visto), rerun de testes que falharam (sem mudança visível), breakpoint em linha em branco, links `arquivo:linha` no Build output (sem erro de build provocado), e a edição de configuração de execução no Rider (o diálogo Edit Configurations não foi aberto nesta rodada).
 
 Segunda rodada (04/11, com Acessibilidade liberada): o menu do Rider foi lido ao vivo e confirmou a existência de várias funções (marcadas acima). O Rider não reagiu a cliques de contexto nem a atalhos, então o comportamento continua sem verificação:
 
