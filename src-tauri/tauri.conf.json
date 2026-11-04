@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "bun run build && sh \"$(git rev-parse --show-toplevel)/scripts/vendor-netcoredbg.sh\"",
     "frontendDist": "../dist"
   },
   "app": {
@@ -82,6 +82,10 @@
       "signingIdentity": "-",
       "hardenedRuntime": true,
       "minimumSystemVersion": "13.0"
+    },
+    "resources": {
+      "resources/netcoredbg/": "netcoredbg/",
+      "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
     }
   }
 }

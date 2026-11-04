@@ -550,6 +550,7 @@ export type DebugAdapter = {
     | "failed"
     | "experimental_disabled";
   adapterMessage: string;
+  bundled: boolean;
   appleSiliconExperimental: boolean;
   version: string;
   source: { name: string; url: string };

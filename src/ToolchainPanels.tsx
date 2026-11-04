@@ -342,29 +342,34 @@ export function DebugAdapterPanel({
   const plan = debug.plan;
   const trusted = snapshot.trust.granted;
   const active =
-    debug.busy || ["downloading", "installing", "verifying"].includes(debug.adapterState);
+    !debug.bundled &&
+    (debug.busy || ["downloading", "installing", "verifying"].includes(debug.adapterState));
   const appleSilicon = debug.os === "macos" && debug.arch === "aarch64";
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [debugPlanOpen, setDebugPlanOpen] = useState(false);
 
-  const installBlocker = !debug.installable
-    ? debug.adapterMessage
-    : !trusted
-      ? "Trust the workspace before installing a debug adapter; trust and installation are separate decisions."
-      : busy || active
-        ? "An install attempt is still running or winding down."
-        : !plan
-          ? "Review the exact install plan before confirming."
-          : plan.blockedReason
-            ? plan.blockedReason
-            : null;
+  const installBlocker = debug.bundled
+    ? null
+    : !debug.installable
+      ? debug.adapterMessage
+      : !trusted
+        ? "Trust the workspace before installing a debug adapter; trust and installation are separate decisions."
+        : busy || active
+          ? "An install attempt is still running or winding down."
+          : !plan
+            ? "Review the exact install plan before confirming."
+            : plan.blockedReason
+              ? plan.blockedReason
+              : null;
   const canCancel =
-    debug.adapterState === "planned" ||
-    debug.adapterState === "failed" ||
-    ["downloading", "installing", "verifying"].includes(debug.adapterState);
+    !debug.bundled &&
+    (debug.adapterState === "planned" ||
+      debug.adapterState === "failed" ||
+      ["downloading", "installing", "verifying"].includes(debug.adapterState));
   const canRetry =
+    !debug.bundled &&
     (debug.adapterState === "failed" || debug.adapterState === "cancelled") &&
     debug.revision > 0;
 
@@ -406,23 +411,27 @@ export function DebugAdapterPanel({
           data-testid="debug-state"
           role="status"
         >
-          {debugStateLabel(debug.adapterState)}
+          {debug.bundled && debug.adapterState === "ready"
+            ? "Bundled with OpenRidr — DAP not proven"
+            : debugStateLabel(debug.adapterState)}
         </span>
         <span className="muted" data-testid="debug-platform">
           {debug.os} / {debug.arch}
         </span>
         <span className="push" />
-        <button
-          data-testid="debug-plan-open"
-          disabled={busy}
-          onClick={() => {
-            setDebugPlanOpen(true);
-            void run(() => call<Snapshot>("debug.plan"));
-          }}
-          title="Shows the approved version, official source, platform asset, destination, operation, permissions, integrity and limits. It does not download or execute anything."
-        >
-          Review install plan
-        </button>
+        {!debug.bundled && (
+          <button
+            data-testid="debug-plan-open"
+            disabled={busy}
+            onClick={() => {
+              setDebugPlanOpen(true);
+              void run(() => call<Snapshot>("debug.plan"));
+            }}
+            title="Shows the approved version, official source, platform asset, destination, operation, permissions, integrity and limits. It does not download or execute anything."
+          >
+            Review install plan
+          </button>
+        )}
         {canCancel && (
           <button
             data-testid="debug-cancel"
@@ -463,7 +472,24 @@ export function DebugAdapterPanel({
           Source: <a href={debug.source.url} target="_blank" rel="noreferrer noopener">{debug.source.name}</a>{" "}
           · approved version {debug.version} · DAP proven by installation: {debug.dapProven ? "yes" : "no"}
         </p>
-        {debug.installed && (
+        {debug.bundled && (
+          <dl className="restore-meta" data-testid="debug-bundled-adapter">
+            <dt>Origin</dt>
+            <dd data-testid="debug-bundled-origin">Bundled with OpenRidr</dd>
+            <dt>Version</dt>
+            <dd data-testid="debug-bundled-version">{debug.version}</dd>
+            <dt>Checksum</dt>
+            <dd data-testid="debug-bundled-checksum">
+              {debug.sha256 ? <code>{debug.sha256}</code> : "not measured"}
+              <span className="muted"> · SHA-256 of the embedded executable; --version is verified when a session starts.</span>
+            </dd>
+            <dt>Executable</dt>
+            <dd data-testid="debug-bundled-binary">
+              <code>{debug.installedBinary}</code>
+            </dd>
+          </dl>
+        )}
+        {debug.installed && !debug.bundled && (
           <dl className="restore-meta" data-testid="debug-installed-adapter">
             <dt>Installed origin</dt>
             <dd data-testid="debug-installed-origin">
@@ -519,14 +545,14 @@ export function DebugAdapterPanel({
           {message}
         </p>
       )}
-      {debug.progress && (
+      {!debug.bundled && debug.progress && (
         <p className="muted" data-testid="debug-progress">
           Downloaded {debug.progress.downloaded} of{" "}
           {debug.progress.total === null ? "an unknown total" : `${debug.progress.total}`} bytes
           (measured; no percentage)
         </p>
       )}
-      {debug.sha256 && (
+      {!debug.bundled && debug.sha256 && (
         <p className="muted" data-testid="debug-sha256">
           SHA-256 of the installed executable: <code>{debug.sha256}</code>
         </p>
@@ -550,8 +576,9 @@ export function DebugAdapterPanel({
           </span>
           <p className="muted" data-testid="debug-flag-note">
             The session-scoped experimental opt-in resets when the workspace opens or closes. It
-            neither installs netcoredbg nor proves compatibility. It only unlocks the install
-            plan, which still requires trust and an explicit confirmation.
+            {debug.bundled
+              ? " only unlocks the bundled adapter; nothing is downloaded."
+              : " neither installs netcoredbg nor proves compatibility. It only unlocks the install plan, which still requires trust and an explicit confirmation."}
           </p>
           <label className="check-row">
             <input
@@ -595,7 +622,7 @@ export function DebugAdapterPanel({
         </div>
       )}
 
-      {plan && (
+      {!debug.bundled && plan && (
         <details
           className="eval-log analysis-plan"
           data-testid="debug-plan"

@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "tauri": "tauri",
     "host:http": "OPENRIDR_HOME=${OPENRIDR_HOME:-$PWD/.scratch/host-home} cargo run -p openridr-host-http -- --port 4317",
-    "app:install": "sh scripts/install-app.sh"
+    "app:install": "sh scripts/install-app.sh",
+    "vendor:netcoredbg": "sh scripts/vendor-netcoredbg.sh"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.1",

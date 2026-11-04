@@ -3234,6 +3234,9 @@ impl Host {
 
     fn install_debugger(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("debug.install")?;
+        if debugger::bundled_binary().is_some() {
+            return Err(debugger::bundled_refusal());
+        }
         if params.get("confirm") != Some(&Value::Bool(true)) {
             return Err(HostError::new(
                 "confirmation_required",
@@ -3262,6 +3265,9 @@ impl Host {
 
     fn retry_debugger(&self) -> HostResult<Value> {
         let token = self.require_trust("debug.retry")?;
+        if debugger::bundled_binary().is_some() {
+            return Err(debugger::bundled_refusal());
+        }
         let mut inner = self.inner.lock().unwrap();
         let plan = debugger::plan(
             std::env::consts::OS,

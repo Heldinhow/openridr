@@ -308,6 +308,12 @@ impl EnvVar {
         std::env::set_var(key, value);
         Self { key, old }
     }
+
+    fn remove(key: &'static str) -> Self {
+        let old = std::env::var_os(key);
+        std::env::remove_var(key);
+        Self { key, old }
+    }
 }
 
 impl Drop for EnvVar {
@@ -348,6 +354,22 @@ impl Seam {
 
 fn tool_dir(home: &Path) -> PathBuf {
     home.join("tools/netcoredbg")
+}
+
+fn fake_netcoredbg(path: &Path) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(
+        path,
+        "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1 (controlled test artifact, Release)\\n'\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
 }
 
 #[test]
@@ -1101,4 +1123,110 @@ fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
         host.dispatch("debug.state", json!({})).unwrap()["debug"]["version"],
         "3.2.0-1092"
     );
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
+    let _guard = env_guard();
+    let home = tempfile::tempdir().unwrap();
+    let bundle = tempfile::tempdir().unwrap();
+    let bundled_binary = bundle.path().join("netcoredbg");
+    fake_netcoredbg(&bundled_binary);
+    // An older per-user install must lose to the bundle.
+    fake_netcoredbg(&tool_dir(home.path()).join("3.2.0-1092/netcoredbg/netcoredbg"));
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
+    let _bundle = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path());
+
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let flagged = host
+        .dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap();
+    let debug = &flagged["debug"];
+    assert_eq!(debug["adapterState"], "ready");
+    assert_eq!(debug["bundled"], true);
+    assert_eq!(debug["version"], "3.2.0-1092");
+    assert_eq!(debug["installable"], false);
+    assert!(debug["progress"].is_null());
+    assert_eq!(
+        debug["installedBinary"].as_str().unwrap(),
+        bundled_binary.to_string_lossy()
+    );
+    assert_eq!(debug["sha256"].as_str().unwrap().len(), 64);
+    assert!(debug["adapterMessage"]
+        .as_str()
+        .unwrap()
+        .contains("Bundled with OpenRidr"));
+
+    let refused = host
+        .dispatch("debug.install", json!({ "confirm": true }))
+        .expect_err("bundled builds never download");
+    assert_eq!(refused.code, "invalid_state");
+    assert_eq!(
+        refused.message,
+        "netcoredbg is bundled with OpenRidr; there is nothing to download or install."
+    );
+    let retried = host
+        .dispatch("debug.retry", json!({}))
+        .expect_err("bundled builds never retry a download");
+    assert_eq!(retried.code, "invalid_state");
+    assert_eq!(retried.message, refused.message);
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn without_a_bundle_the_tools_install_is_reused() {
+    let _guard = env_guard();
+    let home = tempfile::tempdir().unwrap();
+    let installed = tool_dir(home.path()).join("3.2.0-1092/netcoredbg/netcoredbg");
+    fake_netcoredbg(&installed);
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
+    let _bundle = EnvVar::remove("OPENRIDR_BUNDLED_NETCOREDBG");
+
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+    host.dispatch("trust.grant", json!({})).unwrap();
+    host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap();
+    let planned = host.dispatch("debug.plan", json!({})).unwrap();
+    let plan_id = planned["debug"]["plan"]["planId"].as_str().unwrap().to_string();
+    let installed_snapshot = host
+        .dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+        .unwrap();
+    let debug = &installed_snapshot["debug"];
+    assert_eq!(debug["bundled"], false);
+    assert_eq!(debug["adapterState"], "ready");
+    assert_eq!(debug["reused"], true);
+    assert_eq!(
+        debug["installedBinary"].as_str().unwrap(),
+        installed.to_string_lossy()
+    );
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
+    let _guard = env_guard();
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
+    let _bundle = EnvVar::remove("OPENRIDR_BUNDLED_NETCOREDBG");
+
+    let host = Host::new();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+    host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
+        .unwrap();
+    let planned = host.dispatch("debug.plan", json!({})).unwrap();
+    let debug = &planned["debug"];
+    assert_eq!(debug["bundled"], false);
+    assert_ne!(debug["adapterState"], "ready");
+    assert_eq!(debug["plan"]["existing"]["state"], "absent");
+    assert!(!tool_dir(home.path()).exists());
 }
