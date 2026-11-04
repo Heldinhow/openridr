@@ -62,6 +62,7 @@ test("Find Usages lists the real references of Order and opens one", async ({ pa
     await panel.getByTitle("tests/OrderDesk.Tests/OrderTests.cs:11:25").click();
     await expect(page.getByTestId("tab-tests/OrderDesk.Tests/OrderTests.cs")).toBeVisible();
     await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", "10:24");
+    await expect(page.getByTestId("editor")).toBeFocused();
   } finally {
     await page.request.post(`${host}/call`, { data: { method: "lsp.stop", params: {} } }).catch(() => {});
     await page.request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => {});

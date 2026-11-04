@@ -396,6 +396,10 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await expect(sourceLink).toHaveText("tests/OrderDesk.Tests/OrderTests.cs:29");
     await sourceLink.click();
     await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", "28:0");
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Meta+f");
+    await expect(page.locator(".cm-search")).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(
       page.getByTestId("tab-tests/OrderDesk.Tests/OrderTests.cs"),
     ).toBeVisible();

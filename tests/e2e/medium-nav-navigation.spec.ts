@@ -144,6 +144,7 @@ test("Go to Definition records history and Back returns to the previous position
   await page.keyboard.press("Meta+b");
   await expect(page.getByTestId(`tab-${order}`)).toHaveClass(/active/, { timeout: 30_000 });
   await expect(page.getByTestId("editor")).toContainText("public sealed class Order");
+  await expect(page.getByTestId("editor")).toBeFocused();
 
   await page.keyboard.press("Meta+[");
   await expect(page.getByTestId(`tab-${program}`)).toHaveClass(/active/);

@@ -85,6 +85,7 @@ test("⌘E lists the session's recent files and opens the chosen one", async ({ 
   await page.getByTestId("recent-file-1").click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId(`tab-${program}`)).toHaveClass(/active/);
+  await expect(page.getByTestId("editor")).toBeFocused();
 
   await page.keyboard.press("Meta+e");
   await expect(dialog).toBeVisible();

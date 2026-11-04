@@ -2941,16 +2941,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     (editor?.querySelector<HTMLElement>(".cm-content") ?? editor)?.focus();
   }
 
+  // Opening another file remounts the editor; focusing before that lands on the old one or nothing.
+  function focusEditorAfterOpen(open: () => Promise<unknown>) {
+    void open().finally(() => window.setTimeout(focusEditor, 0));
+  }
+
   function openSearchFile(path: string) {
     setFindActionOpen(false);
-    focusEditor();
-    void openUserFile(path);
+    focusEditorAfterOpen(() => openUserFile(path));
   }
 
   function openSearchLocation(path: string, line: number, character: number) {
     setFindActionOpen(false);
-    focusEditor();
-    void navigateTo(path, { line, character });
+    focusEditorAfterOpen(() => navigateTo(path, { line, character }));
   }
 
   function openKeymap() {
@@ -3979,7 +3982,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               void startTestRun(project, selection, testIds)
             }
             onRunCancel={() => void cancelTestRun()}
-            onNavigate={(path, position) => void navigateTo(path, position)}
+            onNavigate={(path, position) =>
+              focusEditorAfterOpen(() => navigateTo(path, position))
+            }
           />
         );
       case "git":
@@ -4781,10 +4786,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   onChange={(value) => updateContent(active.path, value)}
                   onSave={() => void save()}
                   onDefinition={(location) =>
-                    void navigateTo(location.path, {
-                      line: location.line,
-                      character: location.character,
-                    })
+                    focusEditorAfterOpen(() =>
+                      navigateTo(location.path, {
+                        line: location.line,
+                        character: location.character,
+                      }),
+                    )
                   }
                   onRename={(position) => requestRename(position)}
                   onRenameSubmit={submitRenameInline}
@@ -4834,7 +4841,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   className="rename-preview find-usages editor-popup"
                   response={findUsages.response}
                   snippets={findUsages.snippets}
-                  onNavigate={(path, position) => void navigateTo(path, position)}
+                  onNavigate={(path, position) =>
+                    focusEditorAfterOpen(() => navigateTo(path, position))
+                  }
                   onClose={() => {
                     findUsagesSeq.current += 1;
                     setFindUsages(null);
@@ -5231,8 +5240,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           }}
           onNavigate={(path, line, character) => {
             setFindInFiles(null);
-            focusEditor();
-            void navigateTo(path, { line, character });
+            focusEditorAfterOpen(() => navigateTo(path, { line, character }));
           }}
         />
       )}
@@ -5242,8 +5250,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           files={recentFiles}
           onOpen={(path) => {
             setRecentFilesOpen(false);
-            focusEditor();
-            void openUserFile(path);
+            focusEditorAfterOpen(() => openUserFile(path));
           }}
           onClose={() => {
             setRecentFilesOpen(false);

@@ -36,7 +36,7 @@ com o foco na árvore.
 
 ## Aceite
 
-- [ ] Abrir arquivo pela busca e pressionar ⌘F abre a busca do editor na primeira vez.
-- [ ] Find in Files, recentes, Find Usages, definição e link de teste também devolvem o foco.
-- [ ] Clique simples na árvore mantém o foco na árvore.
+- [x] Abrir arquivo pela busca e pressionar ⌘F abre a busca do editor na primeira vez.
+- [x] Find in Files, recentes, Find Usages, definição e link de teste também devolvem o foco.
+- [x] Clique simples na árvore mantém o foco na árvore.
 - [ ] Evidência no app real.
