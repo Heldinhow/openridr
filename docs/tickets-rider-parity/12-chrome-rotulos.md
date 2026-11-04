@@ -34,7 +34,7 @@ todo ícone da Solution tem nome acessível e tooltip.
 
 ## Aceite
 
-- [ ] A status bar mostra o nome exato do perfil ativo.
-- [ ] Os três botões ausentes têm nome acessível e tooltip explicando que não fazem parte.
-- [ ] Os sete ícones da Solution têm `aria-label` e `title`.
+- [x] A status bar mostra o nome exato do perfil ativo.
+- [x] Os três botões ausentes têm nome acessível e tooltip explicando que não fazem parte.
+- [x] Os sete ícones da Solution têm `aria-label` e `title`.
 - [ ] Evidência no app real.

@@ -132,5 +132,46 @@ test("the single bar keeps placeholders disabled and the status bar reports the 
   await expect(page.getByTestId("status-cursor")).toContainText("Ln 1, Col 1");
   await expect(page.getByTestId("status-encoding")).toHaveText("UTF-8");
   await expect(page.getByTestId("status-indent")).toHaveText("4 spaces");
-  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: IntelliJ / Rider");
+  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
+});
+
+test("the status bar names the active keymap profile", async ({ page }) => {
+  await page.goto("/");
+  await openTextOnly(page);
+  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
+
+  await page.getByTestId("toolbar-settings").click();
+  await page.getByTestId("settings-page-keymap").click();
+  await page.getByTestId("keymap-profile").selectOption("intellij");
+  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: IntelliJ");
+
+  await page.getByTestId("settings-cancel").click();
+  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
+});
+
+test("the chrome names the absent tool windows and every Solution icon", async ({ page }) => {
+  await page.goto("/");
+  await openTextOnly(page);
+
+  const right = page.getByTestId("tool-windows-right");
+  for (const title of ["Monitoring", "AI Assistant", "Database"]) {
+    const button = right.getByRole("button", { name: title });
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveAttribute("title", `${title} is not part of OpenRidr`);
+  }
+
+  const solutionTools: [string, string, string][] = [
+    ["tree-show-all", "Show All Files", "Show All Files"],
+    ["tree-search", "Search in tree", "Search in tree"],
+    ["tree-locate", "Select opened file", "Select opened file"],
+    ["tree-expand-all", "Expand all", "Expand all"],
+    ["tree-collapse-all", "Collapse all", "Collapse all"],
+    ["tree-more", "Options", "Options"],
+    ["tree-minimize", "Hide Solution", "Hide"],
+  ];
+  await expect(page.locator(".explorer-tools button")).toHaveCount(solutionTools.length);
+  for (const [id, label, title] of solutionTools) {
+    await expect(page.getByTestId(id)).toHaveAttribute("aria-label", label);
+    await expect(page.getByTestId(id)).toHaveAttribute("title", title);
+  }
 });

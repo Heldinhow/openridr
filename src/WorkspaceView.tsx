@@ -5317,6 +5317,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             : `${settings.editor.indentSize} spaces`,
           title: "Indentation comes from Settings (Editor). No per-file detection is claimed.",
         }}
+        keymapProfile={settings.keymap.profile}
       />
 
       {buildDecision && (

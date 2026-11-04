@@ -115,7 +115,7 @@ test("opens the fixture asking for a Trust decision, with Restricted mode availa
   await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
   await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
   await expect(page.getByTestId(`tree-file-${programTab}`)).toBeVisible();
-  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: IntelliJ / Rider");
+  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
   await expect(page.getByTestId("status-mode")).toContainText("Restricted mode");
   await expect(page.getByTestId("bottom-tab-build")).toBeVisible();
   await expect(page.getByTestId("bottom-tab-problems")).toBeVisible();
