@@ -290,7 +290,7 @@ Spec: [`../SPEC-FIX-ALPHA5.md`](../SPEC-FIX-ALPHA5.md). Tickets: [`../../tickets
 | BUG-019 | **corrigido (mínimo)** | `dfc0857`, `d0f56c1` | app real: criar/renomear/apagar com confirmação; nó de projeto protegido |
 | BUG-020 | **corrigido** | `0ce59af` | doctor imprime `granted`/`denied`, sem JSON cru |
 | Camada SDK | **implementada** | `9ab2b62`, `ff297da`, `3df4538` | app real: runtime 10.0.14 + SDK 8.0.408, sem pedir 10; descoberta ampla; csharp-ls com progresso/retry |
-| netcoredbg embutido | **proposta apenas** | `95a642c` | 3.39 MB medidos; decisão pendente do Helder; nada embutido |
+| netcoredbg embutido | **implementado** | `f804cd8` | app real com home vazia e DMG read-only; app 14,68→23,85 MiB; DMG 5.671.389→10.454.440 B; notarizado |
 
 **Não corrigido / limitação declarada:**
 

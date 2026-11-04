@@ -1,6 +1,6 @@
 # PROPOSTA — Embutir o netcoredbg no app
 
-**Status:** proposta escrita, nenhum código ou comportamento mudou. Decisão pendente de Helder.
+**Status:** aprovada e implementada em 2026-11-04 (`f804cd8`). Spec: `docs/SPEC-EMBED-NETCOREDBG.md`; evidência: `docs/evidence/embed-netcoredbg.md`. As decisões pendentes no fim deste documento foram respondidas pelo Helder.
 **Data:** 2026-11-04. **Alvo:** macOS Apple Silicon (o único alvo distribuído hoje).
 
 ## Medição
