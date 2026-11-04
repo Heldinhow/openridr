@@ -246,6 +246,7 @@ p {
 }
 
 .icon { flex: 0 0 auto; vertical-align: middle; }
+.icon * { vector-effect: non-scaling-stroke; }
 .workspace-brand { display: flex; align-items: center; gap: 8px; min-width: 100px; max-width: 240px; }
 .workspace-brand strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-brand .icon { color: var(--accent); }
@@ -2863,8 +2864,8 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tree-node { padding-left: 28px; }
 .tree-row .tag.warning { text-transform: uppercase; letter-spacing: 0.02em; font-size: 11px; }
 .tree-note.error { color: var(--error); }
-.explorer-tools button { width: 28px; height: 28px; min-height: 28px; display: inline-flex; align-items: center; justify-content: center; box-shadow: none; }
-.explorer-tools .icon { width: 14px; height: 14px; }
+.explorer-tools button { width: 32px; height: 32px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; box-shadow: none; }
+.explorer-tools .icon { width: 16px; height: 16px; }
 .tree-footnote { border-top: 1px solid var(--line-internal); font-size: 12px; }
 .side { display: flex; flex-direction: column; }
 .side .tree-footnote { margin-top: auto; }
@@ -3204,4 +3205,4 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .tree-filter { margin: 6px 10px 2px; padding: 4px 8px; min-height: 28px; }
 .explorer-heading { flex-wrap: nowrap; }
 .explorer-tools { flex: 0 0 auto; gap: 0; }
-.workspace-view .side .explorer-tools button { width: 24px; height: 24px; min-height: 24px; }
+.workspace-view .side .explorer-tools button { width: 32px; height: 32px; min-height: 32px; }
