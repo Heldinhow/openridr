@@ -2,6 +2,30 @@
 
 Data: 04/11/2026. Branch `docs/rider-gaps`. Entregáveis: `RIDER-BEHAVIORS.md`, `GAPS-RIDER-RIDR.md` e este retro. Nenhuma correção de código foi feita.
 
+## Terceira rodada (04/11, fixture OrderDesk)
+
+Método, autorizado pelo usuário: cliques físicos por coordenada (utilitário Swift compilado em `.scratch/rider-gaps/click-bin`, com conferência em captura antes e depois), itens de menu via System Events, e atalhos. A sessão anterior não abriu menus de contexto pela acessibilidade; este caminho abriu.
+
+- **Funcionou:**
+  - Menus de contexto de solução, pasta, projeto e arquivo (por clique direito por coordenada).
+  - Submenus Editar, Abrir em e Find Usages.
+  - Menus Run, Tests e Navigate por nome (System Events).
+  - Run, Run All Tests, abertura do link de stack trace, breakpoint de linha, depuração de teste até o breakpoint, expansão de variáveis, step over, stop pelo botão da janela Debug.
+  - Search Everywhere e Find in Files (captura).
+- **Não funcionou ou não foi confirmado:**
+  - Item Stop do menu Run não localizado com a sessão de debug ativa (o botão de parar funcionou).
+  - Rerun Failed Tests: sem mudança visível após cerca de 45 s.
+  - Step over na asserção entrou em código externo; o diálogo External Sources ficou em progresso até o próximo passo. O step over não foi repetido.
+  - Find Usages não foi executado (só o menu).
+  - Build output com erro e breakpoint em linha em branco: não testados.
+- **Efeitos colaterais:**
+  - Fechei a solução de teste do usuário pelo menu File > Close Solution, sem salvar nada. O Rider não mostrou diálogo de salvamento.
+  - Abri a cópia `/tmp/rider-orderdesk` (fixture descartável). Aceitei a confiança só nela.
+  - Deixei um breakpoint na linha 29 do fixture e uma sessão de teste (resultado "Inconclusive" após o stop). Não limpei; o fixture é descartável.
+  - Nenhum arquivo de fonte do usuário foi alterado. Não executei o projeto de bot.
+  - Os cliques físicos não atingiram outros apps; a janela do Herdr ficou visível em segundo plano, sem digitação.
+- **Estado final do Rider:** fixture OrderDesk aberto, com o painel Run mostrando a última execução, o painel Debug parado e a janela Monitoring aberta. Nada salvo nas fontes do usuário. O projeto do usuário foi fechado.
+
 ## Segunda rodada (04/11, ao vivo no Rider)
 
 Com Acessibilidade e Gravação de Tela concedidas:
@@ -24,7 +48,7 @@ Com Acessibilidade e Gravação de Tela concedidas:
   - Fontes intactas: `git status` mostra só arquivos de `bin/` e `obj/` modificados (já rastreados no repositório) e itens não rastreados (`.idea/`, `*.DotSettings.user`, `global.json`), que não foram criados por mim.
   - O Rider está no modo Trial.
 - **Processo do Rider:** ativo (estado S, cerca de 5% de CPU). Não parece travado; a falha está na camada de acessibilidade e no foco.
-- **Nova tentativa (mesma sessão):** Rider em foco e snapshots respondendo. Clique direito semântico em um item de projeto (`Gabagool.Tests`) voltou com `ELEMENT_NOT_FOUND` em `AXRole` e `delivered_unverified`. O screenshot seguinte mostrou que nenhum menu abriu; só a linha ficou destacada. Não repeti para não arriscar efeitos colaterais.
+- **Nova tentativa (mesma sessão):** Rider em foco e snapshots respondendo. Clique direito semântico em um item de projeto da solução do usuário voltou com `ELEMENT_NOT_FOUND` em `AXRole` e `delivered_unverified`. O screenshot seguinte mostrou que nenhum menu abriu; só a linha ficou destacada. Não repeti para não arriscar efeitos colaterais.
 
 Com isso, as áreas que dependem de interação (Debug, Tests, Find in Files, Find Usages, aba Build) continuam sem comportamento verificado ao vivo nesta rodada. O que foi visto é a estrutura dos menus e a interface estática.
 
