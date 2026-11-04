@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Os diretórios de fontes avaliados entram no watch do host.
-- [ ] Criar/renomear/apagar um `.cs` dispara re-avaliação com debounce (~500 ms), coalescendo uma rajada.
-- [ ] A árvore mostra o arquivo novo, o nome novo e some com o apagado.
-- [ ] A seleção da árvore não é perdida à toa.
-- [ ] Janela oculta não reavalia.
-- [ ] Falha de avaliação mantém o banner de stale e não inventa árvore.
-- [ ] Teste de host para os caminhos observados; e2e para criar/renomear/apagar por fora.
+- [x] Os diretórios de fontes avaliados entram no watch do host.
+- [x] Criar/renomear/apagar um `.cs` dispara re-avaliação com debounce (~500 ms), coalescendo uma rajada.
+- [x] A árvore mostra o arquivo novo, o nome novo e some com o apagado.
+- [x] A seleção da árvore não é perdida à toa.
+- [x] Janela oculta não reavalia.
+- [x] Falha de avaliação mantém o banner de stale e não inventa árvore.
+- [x] Teste de host para os caminhos observados; e2e para criar/renomear/apagar por fora.

@@ -104,6 +104,59 @@ test("Restricted project menu blocks execution, offers Trust and edits the cspro
   await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
 });
 
+test("external create, rename and delete refresh the evaluated tree", async ({ page }) => {
+  test.setTimeout(180_000);
+  const root = tempCopy();
+  await open(page, root, true);
+  await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+  await page.getByTestId("tree-expand-all").click();
+  const order = page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs");
+  await expect(order).toBeVisible();
+
+  // Collapse and select Core; the automatic refresh must keep both.
+  await page.getByTestId("tree-project-OrderDesk.Core").click();
+  await expect(order).toHaveCount(0);
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+
+  // Create externally: the new .cs appears without clicking Re-evaluate.
+  fs.writeFileSync(
+    path.join(root, "src/OrderDesk.Cli/Extra.cs"),
+    "namespace OrderDesk.Cli;\npublic static class Extra {}\n",
+  );
+  await expect(page.getByTestId("tree-file-src/OrderDesk.Cli/Extra.cs")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(order).toHaveCount(0); // the collapsed state survived the refresh
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+
+  await page.getByTestId("tree-project-OrderDesk.Core").click();
+  await expect(order).toBeVisible();
+
+  // Rename externally: the old path goes and the new one arrives.
+  fs.renameSync(
+    path.join(root, "src/OrderDesk.Core/Order.cs"),
+    path.join(root, "src/OrderDesk.Core/Renamed.cs"),
+  );
+  await expect(page.getByTestId("tree-file-src/OrderDesk.Core/Renamed.cs")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(order).toHaveCount(0);
+
+  // Delete externally: the row disappears from the evaluated tree, which stays the model.
+  fs.rmSync(path.join(root, "src/OrderDesk.Core/Renamed.cs"));
+  await expect(page.getByTestId("tree-file-src/OrderDesk.Core/Renamed.cs")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toBeVisible();
+  await expect(page.getByTestId("eval-stale")).toHaveCount(0);
+});
+
 test("trusted menu: console can run, library builds; folders show counts", async ({ page }) => {
   test.setTimeout(180_000);
   await open(page, tempCopy(), true);

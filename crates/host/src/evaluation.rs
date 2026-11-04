@@ -14,6 +14,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_CONFIGURATION: &str = "Debug";
 const MAX_LOG_CHARS: usize = 32_000;
+/// One directory listing per watched directory per state poll; the cap keeps huge trees cheap.
+const MAX_WATCHED_DIRS: usize = 256;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,7 +71,14 @@ pub struct Watched {
     fingerprint: Fingerprint,
 }
 
-type Fingerprint = Option<(u64, u64, u64)>;
+/// Files keep the mtime/size fingerprint; directories fingerprint the entries that can change
+/// the evaluated tree, so an atomic save (temp file + rename) of an existing source is not a
+/// change while a create/rename/delete is.
+#[derive(Debug, Clone, PartialEq)]
+enum Fingerprint {
+    File(Option<(u64, u64, u64)>),
+    Dir(Vec<String>),
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -351,6 +360,7 @@ pub fn watch_paths(
     workspace_file: &Path,
     root: &Path,
     projects: &[PlanProject],
+    sources: &[String],
 ) -> Vec<Watched> {
     let mut paths: Vec<PathBuf> = Vec::new();
     paths.push(workspace_file.to_path_buf());
@@ -368,6 +378,45 @@ pub fn watch_paths(
         paths.push(root.join(name));
     }
 
+    // MSBuild's Compile items are a snapshot; a directory fingerprint makes an external
+    // create/rename/delete flip `stale` without a second tree scanner. Build output is skipped
+    // so a build does not mark its own evaluation stale.
+    // shortcut: watches at most MAX_WATCHED_DIRS directories; raise it when a real solution needs more.
+    let mut pending: Vec<PathBuf> = sources
+        .iter()
+        .filter_map(|source| root.join(source).parent().map(Path::to_path_buf))
+        .chain(projects.iter().filter_map(|project| {
+            project
+                .abs_path
+                .as_deref()?
+                .parent()
+                .map(Path::to_path_buf)
+        }))
+        .collect();
+    pending.sort();
+    pending.dedup();
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    while let Some(dir) = pending.pop() {
+        if dirs.len() >= MAX_WATCHED_DIRS {
+            break;
+        }
+        if !dir.starts_with(root) || !dir.is_dir() {
+            continue;
+        }
+        dirs.push(dir.clone());
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let skip = name.to_string_lossy().starts_with('.')
+                || name.eq_ignore_ascii_case("bin")
+                || name.eq_ignore_ascii_case("obj");
+            if !skip && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                pending.push(entry.path());
+            }
+        }
+    }
+    paths.extend(dirs);
+
     let mut seen = BTreeSet::new();
     let mut watched = Vec::new();
     for path in paths {
@@ -381,6 +430,22 @@ pub fn watch_paths(
         });
     }
     watched
+}
+
+/// Keeps the fingerprints taken before MSBuild and appends paths discovered only by this run,
+/// so a file created while MSBuild was running is still a change on the next poll.
+pub fn merge_watched(earlier: Vec<Watched>, later: Vec<Watched>) -> Vec<Watched> {
+    let known: BTreeSet<String> = earlier
+        .iter()
+        .map(|watched| watched.path.to_string_lossy().to_string())
+        .collect();
+    let mut merged = earlier;
+    for watched in later {
+        if !known.contains(&watched.path.to_string_lossy().to_string()) {
+            merged.push(watched);
+        }
+    }
+    merged
 }
 
 /// One MSBuild process. Arguments are passed as a vector; nothing is interpolated into a shell.
@@ -779,13 +844,39 @@ fn cap_log(log: &str) -> String {
 }
 
 fn fingerprint(path: &Path) -> Fingerprint {
-    let meta = fs::metadata(path).ok()?;
-    let modified = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
-    Some((
+    let Ok(meta) = fs::metadata(path) else {
+        return Fingerprint::File(None);
+    };
+    if meta.is_dir() {
+        let mut names: Vec<String> = fs::read_dir(path)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let skip = name.starts_with('.')
+                    || name.eq_ignore_ascii_case("bin")
+                    || name.eq_ignore_ascii_case("obj");
+                let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+                let is_source = name.to_ascii_lowercase().ends_with(".cs");
+                (!skip && (is_dir || is_source)).then_some(name)
+            })
+            .collect();
+        names.sort();
+        return Fingerprint::Dir(names);
+    }
+    let Some(modified) = meta
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+    else {
+        return Fingerprint::File(None);
+    };
+    Fingerprint::File(Some((
         modified.as_secs(),
         u64::from(modified.subsec_nanos()),
         meta.len(),
-    ))
+    )))
 }
 
 fn now_ms() -> u64 {
@@ -1055,5 +1146,86 @@ EndGlobal\n";
         assert_eq!(project_kind(None, Some("Library")), "library");
         assert_eq!(project_kind(Some("true"), Some("Exe")), "test");
         assert_eq!(project_kind(None, None), "unknown");
+    }
+
+    #[test]
+    fn watch_paths_include_evaluated_source_directories_and_skip_build_output() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("src/App/Models")).unwrap();
+        fs::create_dir_all(root.join("src/App/obj")).unwrap();
+        fs::write(root.join("src/App/Program.cs"), "class P {}\n").unwrap();
+        fs::write(root.join("src/App/Models/Order.cs"), "class O {}\n").unwrap();
+        let workspace_file = root.join("App.sln");
+        fs::write(&workspace_file, "").unwrap();
+        let project_file = root.join("src/App/App.csproj");
+        fs::write(&project_file, "<Project />\n").unwrap();
+
+        let projects = [PlanProject {
+            name: "App".into(),
+            path: "src/App/App.csproj".into(),
+            abs_path: Some(project_file),
+            folder: None,
+            error: None,
+        }];
+        let sources = [
+            "src/App/Program.cs".to_string(),
+            "src/App/Models/Order.cs".to_string(),
+        ];
+        let watched = watch_paths(&workspace_file, root, &projects, &sources);
+        let paths: Vec<&Path> = watched.iter().map(|watched| watched.path.as_path()).collect();
+
+        assert!(paths.contains(&root.join("src/App").as_path()));
+        assert!(paths.contains(&root.join("src/App/Models").as_path()));
+        assert!(!paths.contains(&root.join("src/App/obj").as_path()));
+        assert!(!paths.contains(&root.join("src/App/bin").as_path()));
+    }
+
+    #[test]
+    fn merge_watched_keeps_earlier_fingerprints_and_adds_new_paths() {
+        let early = Watched {
+            path: PathBuf::from("/work/src"),
+            fingerprint: Fingerprint::Dir(vec!["Order.cs".into()]),
+        };
+        let late = Watched {
+            path: PathBuf::from("/work/src"),
+            fingerprint: Fingerprint::Dir(vec!["Extra.cs".into(), "Order.cs".into()]),
+        };
+        let added = Watched {
+            path: PathBuf::from("/work/src/Models"),
+            fingerprint: Fingerprint::Dir(vec!["Cart.cs".into()]),
+        };
+
+        let merged = merge_watched(vec![early], vec![late, added]);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(
+            merged[0].fingerprint,
+            Fingerprint::Dir(vec!["Order.cs".into()])
+        );
+        assert_eq!(merged[1].path, PathBuf::from("/work/src/Models"));
+    }
+
+    #[test]
+    fn a_directory_fingerprint_ignores_content_edits_but_sees_create_and_delete() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("src");
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Order.cs");
+        fs::write(&file, "class Order {}\n").unwrap();
+
+        // A plain save of an existing file keeps the directory entry unchanged.
+        let before_edit = fingerprint(&dir);
+        fs::write(&file, "class Order { int Id; }\n").unwrap();
+        assert_eq!(fingerprint(&dir), before_edit);
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let before_create = fingerprint(&dir);
+        fs::write(dir.join("Extra.cs"), "class Extra {}\n").unwrap();
+        assert_ne!(fingerprint(&dir), before_create);
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let before_delete = fingerprint(&dir);
+        fs::remove_file(dir.join("Extra.cs")).unwrap();
+        assert_ne!(fingerprint(&dir), before_delete);
     }
 }

@@ -559,6 +559,15 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Encoding desconhecido continua erro.** Bytes que não são UTF-8/UTF-16 válidos devolvem `operation_failed` citando o encoding; a escrita revalida o arquivo atual antes de gravar e nunca substitui o original. UTF-16 sem BOM segue não suportado (seria adivinhação).
 - **Fora de escopo.** `settings`, `global.json`, `.sln` e `.csproj` lidos pela avaliação continuam `read_to_string` UTF-8: são arquivos do app/build, não buffers do editor.
 
+## 2026-11-04 — Árvore fresca após mudanças externas
+
+- **Diretórios de fontes no watch.** `watch_paths` passa a incluir os diretórios dos `Compile` items avaliados e os diretórios de projeto, mais subdiretórios (até 256, sem `bin`/`obj`/dotfiles). O `check_external_changes` do poll de 400 ms compara o fingerprint deles; criar, renomear ou apagar um `.cs` marca a avaliação stale. Editar o conteúdo de um arquivo existente não muda a lista de entradas e continua não invalidando o modelo — o contrato de `is_evaluation_input` não mudou.
+- **Fingerprint de diretório é a lista de entradas, não o mtime.** O save do host é atômico (arquivo temporário + rename), então o mtime do diretório mudaria a cada save de fonte. O fingerprint de diretório é a lista ordenada de `.cs` e subdiretórios; o de arquivo continua mtime + tamanho.
+- **Fingerprint antes do MSBuild.** A lista observada é capturada no início da avaliação e mesclada (`merge_watched`) com os caminhos que só o novo modelo descobriu. Um arquivo criado enquanto o MSBuild roda continua vendo a diferença no próximo poll, em vez de ser mascarado por um `stat` tardio.
+- **Reavaliação automática com debounce.** A UI reusa o efeito que já reavaliava arquivos de projeto: 500 ms, uma execução por rajada, só com a janela visível, sem buffer sujo e sem build/restore/evaluation em andamento. Falha continua no caminho existente (mensagem + banner de stale com `eval-stale-run`), sem inventar árvore.
+- **Expansão preservada.** O efeito que semeava `expandableKeys` a cada revisão passa a semear só a primeira; reavaliações mantêm o que o usuário abriu ou fechou. `selectedProjectPath` já era mantido quando o caminho ainda existe, e o arquivo ativo continua nos tabs.
+- **Limite.** O cap de 256 diretórios por workspace pode deixar de fora uma árvore maior (`shortcut:` no código); nesse caso o banner de stale continua sendo o caminho manual.
+
 ## 2026-11-04 — Buffer limpo recarrega do disco
 
 - **Poll da aba ativa, sem watcher.** O `checkDisk` já trocava buffer limpo pelo texto do disco e abria conflito para buffer sujo, mas só rodava em foco, troca de aba e reabertura. Um intervalo de 1,5 s em `WorkspaceView` chama o mesmo `checkDisk` para `activePathRef`, sem tocar em `workspace.state`. A janela oculta não relê (`document.hidden`); foco e troca de aba continuam iguais.

@@ -1397,6 +1397,16 @@ impl Host {
         let workspace_file = workspace.path.clone();
         let root = workspace.root.clone();
         let plan = evaluation::plan_workspace(&workspace_file, &root, is_solution);
+        // Fingerprints are taken before MSBuild: an external change made while it runs must
+        // still look like a change after the new model is stored, not be masked by a late stat.
+        let previous_sources: Vec<String> = inner
+            .evaluation
+            .projects
+            .iter()
+            .flat_map(|project| project.sources.iter().cloned())
+            .collect();
+        let earlier_watch =
+            evaluation::watch_paths(&workspace_file, &root, &plan.projects, &previous_sources);
 
         let context = EvaluationContext {
             configuration: optional_str(&params, "configuration")
@@ -1550,7 +1560,14 @@ impl Host {
                 "Restore not requested for {unrestored} project(s); package dependencies and analysis are incomplete."
             ));
         }
-        let watched = evaluation::watch_paths(&workspace_file, &root, &plan.projects);
+        let sources: Vec<String> = projects
+            .iter()
+            .flat_map(|project| project.sources.iter().cloned())
+            .collect();
+        let watched = evaluation::merge_watched(
+            earlier_watch,
+            evaluation::watch_paths(&workspace_file, &root, &plan.projects, &sources),
+        );
 
         let mut inner = self.inner.lock().unwrap();
         accept_locked(&inner, token)?;

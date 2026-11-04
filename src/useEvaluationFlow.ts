@@ -17,6 +17,7 @@ export interface EvaluationFlowInput {
   runConfigsLoaded: boolean;
   activeNamedConfig: RunConfigView | null;
   runConfigStore: RunConfigStore | null;
+  hasUnsavedBuffers: boolean;
   commitRunConfigs: (configs: RunConfig[], activeId: string) => Promise<RunConfigStore>;
   onSnapshot: (snapshot: Snapshot) => void;
   setMessage: (message: { tone: "info" | "error"; text: string } | null) => void;
@@ -27,15 +28,22 @@ export interface EvaluationFlowInput {
 export function useEvaluationFlow(c: EvaluationFlowInput) {
   const {
     snapshot, trusted, restoreAvailable, evaluationAvailable, runConfigsLoaded, activeNamedConfig, runConfigStore,
-    commitRunConfigs, onSnapshot, setMessage,
+    hasUnsavedBuffers, commitRunConfigs, onSnapshot, setMessage,
   } = c;
   const evaluation = snapshot.evaluation;
   const restore = snapshot.restore;
   const [evaluating, setEvaluating] = useState(false);
+  const [visible, setVisible] = useState(() => !document.hidden);
   const autoEvaluation = useRef<number | null>(null);
   const autoRestore = useRef<number | null>(null);
   const autoEvaluatedAfterRestore = useRef<number | null>(null);
   const autoReevaluated = useRef<string | null>(null);
+
+  useEffect(() => {
+    const onVisibilityChange = () => setVisible(!document.hidden);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
 
   async function evaluateContext(
     configuration: string,
@@ -120,14 +128,38 @@ export function useEvaluationFlow(c: EvaluationFlowInput) {
     void startRestore("restore.start");
   }, [trusted, restore.state, restoreAvailable, snapshot.contextId]);
 
-  // The host's state poll marks the model stale when a project file changes on disk; a Trusted workspace re-evaluates it.
+  // The host's state poll marks the model stale when a project file or a watched source
+  // directory changes on disk. Coalesce a burst of external creates/renames into one
+  // evaluation; a hidden window, a dirty buffer or a running build/restore waits.
   useEffect(() => {
     if (!trusted || !evaluation.staleReason?.includes("changed on disk")) return;
+    if (!visible || hasUnsavedBuffers || evaluating) return;
+    if (
+      evaluation.state === "running" ||
+      snapshot.build.state === "running" ||
+      snapshot.restore.state === "running"
+    ) {
+      return;
+    }
     const key = `${evaluation.revision}:${evaluation.staleReason}`;
     if (autoReevaluated.current === key) return;
-    autoReevaluated.current = key;
-    void runEvaluation();
-  }, [trusted, evaluation.revision, evaluation.staleReason]);
+    const timer = window.setTimeout(() => {
+      if (document.hidden) return;
+      autoReevaluated.current = key;
+      void runEvaluation();
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    trusted,
+    visible,
+    hasUnsavedBuffers,
+    evaluating,
+    evaluation.state,
+    evaluation.revision,
+    evaluation.staleReason,
+    snapshot.build.state,
+    snapshot.restore.state,
+  ]);
 
   // A finished restore makes the old model stale; evaluate once per restore so the tree matches the assets.
   useEffect(() => {

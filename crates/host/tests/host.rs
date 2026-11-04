@@ -1474,6 +1474,70 @@ fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn external_source_changes_make_the_evaluation_stale_and_reappear_in_the_evaluated_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "OrderDesk external sources");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let first = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(first["evaluation"]["stale"], false);
+    let core_sources = || {
+        let state = snapshot(&host);
+        state["evaluation"]["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|project| project["name"] == "OrderDesk.Core")
+            .unwrap()["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|source| source.as_str().unwrap().to_string())
+            .collect::<Vec<String>>()
+    };
+    assert!(core_sources().contains(&"src/OrderDesk.Core/Order.cs".to_string()));
+
+    // Creating a .cs externally flips the directory fingerprint and the next run lists it.
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(
+        copy.join("src/OrderDesk.Core/Extra.cs"),
+        "namespace OrderDesk.Core;\npublic static class Extra {}\n",
+    )
+    .unwrap();
+    let created = snapshot(&host);
+    assert_eq!(created["evaluation"]["stale"], true);
+    assert!(created["evaluation"]["staleReason"]
+        .as_str()
+        .unwrap()
+        .contains("src/OrderDesk.Core"));
+    let reevaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(reevaluated["evaluation"]["stale"], false);
+    assert!(core_sources().contains(&"src/OrderDesk.Core/Extra.cs".to_string()));
+
+    // Renaming and deleting are directory changes too.
+    std::thread::sleep(Duration::from_millis(20));
+    fs::rename(
+        copy.join("src/OrderDesk.Core/Extra.cs"),
+        copy.join("src/OrderDesk.Core/Renamed.cs"),
+    )
+    .unwrap();
+    assert_eq!(snapshot(&host)["evaluation"]["stale"], true);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    let renamed = core_sources();
+    assert!(renamed.contains(&"src/OrderDesk.Core/Renamed.cs".to_string()));
+    assert!(!renamed.contains(&"src/OrderDesk.Core/Extra.cs".to_string()));
+
+    std::thread::sleep(Duration::from_millis(20));
+    fs::remove_file(copy.join("src/OrderDesk.Core/Renamed.cs")).unwrap();
+    assert_eq!(snapshot(&host)["evaluation"]["stale"], true);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    assert!(!core_sources().contains(&"src/OrderDesk.Core/Renamed.cs".to_string()));
+    assert_eq!(snapshot(&host)["evaluation"]["stale"], false);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn a_late_evaluation_does_not_replace_a_newer_selection() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

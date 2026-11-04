@@ -531,6 +531,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => expandableKeys(null, projects));
+  const seededTreeExpansion = useRef(0);
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [treeSearchOpen, setTreeSearchOpen] = useState(false);
   const [treeFilter, setTreeFilter] = useState("");
@@ -813,6 +814,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       : null;
   const { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore, selectRunConfig, commitRunConfigDialog } = useEvaluationFlow({
     snapshot, trusted, restoreAvailable, evaluationAvailable, runConfigsLoaded, activeNamedConfig, runConfigStore,
+    hasUnsavedBuffers: dirtyCount > 0,
     commitRunConfigs, onSnapshot, setMessage,
   });
   const evaluationBusy = evaluating || evaluation.state === "running";
@@ -1008,8 +1010,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   ]);
 
   useEffect(() => {
-    if (evaluation.revision === 0) return;
-    setExpanded(expandableKeys(evaluatedProjects, []));
+    if (evaluation.revision === 0) {
+      seededTreeExpansion.current = 0;
+      return;
+    }
+    // Seed the opened/closed state once; a re-evaluation (including the automatic one after an
+    // external change) keeps what the user collapsed or expanded.
+    if (seededTreeExpansion.current === 0) {
+      setExpanded(expandableKeys(evaluatedProjects, []));
+    }
+    seededTreeExpansion.current = evaluation.revision;
     setSelectedProjectPath((current) => {
       if (evaluatedProjects.some((project) => project.path === current)) {
         return current;

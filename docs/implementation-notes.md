@@ -787,6 +787,15 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **Verificado:** `cargo test -p openridr-host --test host -- <5 filtros>` 5/5; `bun run check` ok; `bunx playwright test tests/e2e/medium-editor-state.spec.ts -g b16` 1/1.
 - **Não verificado:** prova no app Tauri real (fica para `verify-openridr`); arquivo com `\r` isolado é normalizado para `\n` e salvo como LF (sem requisito no ticket); UTF-16 sem BOM continua não suportado.
 
+## Árvore reflete mudanças externas — ticket 05 (2026-11-04)
+
+- **Escopo:** `docs/tickets-fix-alpha5/05-tree-external-freshness.md`.
+- **Host (`crates/host/src/evaluation.rs`):** `Fingerprint` virou `File(mtime/tamanho)` ou `Dir(lista ordenada de .cs e subdiretórios)`. `watch_paths` recebe as fontes avaliadas e adiciona diretórios de projeto e de fontes, com subdiretórios (cap de 256) e sem `bin`/`obj`/dotfiles. `run_evaluation` tira o fingerprint antes do MSBuild; `merge_watched` mantém o antigo para caminhos já conhecidos, então um arquivo criado durante a avaliação ainda marca stale no poll seguinte.
+- **UI:** `src/useEvaluationFlow.ts` — o efeito de reavaliação "changed on disk" ganhou debounce de 500 ms, guarda de janela visível (`visibilitychange`), buffer sujo e build/restore/evaluation em andamento. `WorkspaceView` passa `hasUnsavedBuffers` e só semeia a expansão da árvore na primeira revisão; `selectedProjectPath` continua preservado quando o projeto ainda existe.
+- **Testes:** `cargo test -p openridr-host --lib -- watch_paths directory_fingerprint merge_watched` 3/3; `cargo test -p openridr-host --test host -- external_source_changes_make saving_a_project_file_or_an_external_edit` 2/2; e2e novo em `tests/e2e/solution-explorer.spec.ts` (criar/renomear/apagar + seleção/expansão) e a suíte do spec 6/6; `evaluation.spec.ts` + `restore.spec.ts` 9/9; `workspace.spec.ts` 16/16; `bun run check` e `bun run build`.
+- **Não verificado:** janela oculta (`document.hidden`) não é assertada no Playwright; falha de avaliação durante a reavaliação automática não tem e2e próprio (coberta pelos testes existentes de stale e BrokenImport); prova no app Tauri real fica para `verify-openridr`.
+
+
 ## Recarga de buffer limpo — ticket 04 (2026-11-04)
 
 - **Escopo:** `docs/tickets-fix-alpha5/04-clean-buffer-reload.md`.
