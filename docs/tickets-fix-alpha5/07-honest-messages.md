@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** implementação concluída em código, launcher e e2e; prova no app Tauri real de argv `.cs`/`.txt` não feita nesta rodada.
 
-- [ ] `scripts/openridr` recusa extensão não suportada com a mesma orientação da tela de pasta vazia e imprime qual bundle abriu.
-- [ ] O app já trata `.cs`/`.txt` com mensagem no HEAD; e2e cobre argv para os dois.
-- [ ] `.sln` que não lista projetos mostra "não lista projetos; não é uma solução válida" (sem mencionar SDK).
-- [ ] `revision == 1` com erro de TFM não diz "previous evaluation"; a frase aparece só a partir de `revision > 1`.
-- [ ] O reload reason (`evaluation.reloadReason`) segue a mesma regra.
-- [ ] e2e cobre `.sln` inválido e TFM inválido na primeira avaliação.
+- [x] `scripts/openridr` recusa extensão não suportada com a mesma orientação da tela de pasta vazia e imprime qual bundle abriu.
+- [x] O app já trata `.cs`/`.txt` com mensagem no HEAD; e2e cobre argv para os dois.
+- [x] `.sln` que não lista projetos mostra "não lista projetos; não é uma solução válida" (sem mencionar SDK).
+- [x] `revision == 1` com erro de TFM não diz "previous evaluation"; a frase aparece só a partir de `revision > 1`.
+- [x] O reload reason (`evaluation.reloadReason`) segue a mesma regra. Não existe campo `evaluation.reloadReason` no HEAD; o `reloadReason` dos menus nunca afirmou avaliação anterior e não mudou.
+- [x] e2e cobre `.sln` inválido e TFM inválido na primeira avaliação.

@@ -75,9 +75,12 @@ Finder entra pelo mesmo `workspace.open` da tela inicial: prompt de Trust uma ve
   montado vira botões de candidato na área de mensagens; clicar abre o escolhido. A faixa
   `role="alert"` dispensável (`external-open-error`) é só falha do listener ou do invoke do shell.
   Com um prompt de Trust pendente, outra abertura externa não o substitui: recebe essa faixa e nada muda.
-- **Launcher.** `scripts/openridr` valida `$# = 1` e a existência do caminho e chama
-  `open -a "${OPENRIDR_APP:-OpenRidr}" "$1"`. Não instala link no PATH, não usa a ponte HTTP e
-  não abre instância nova. `docs/install-app.md` documenta o link manual e o uso em dev.
+- **Launcher.** `scripts/openridr` valida `$# = 1`, a existência do caminho e a extensão
+  (`sln`/`slnx`/`csproj`, sem case; pasta sempre passa), imprime o bundle efetivo
+  (`openridr: opening <bundle>`) e chama `open -a "${OPENRIDR_APP:-OpenRidr}" "$1"`. Caminho
+  não suportado sai com código 2 e a orientação de `.sln`/`.slnx`/`.csproj`/pasta, sem chamar
+  `open`. Não instala link no PATH, não usa a ponte HTTP e não abre instância nova.
+  `docs/install-app.md` documenta o link manual e o uso em dev.
 - **Sem dependência nova.** Nem Rust nem npm: o parser de XML é local e a integração Tauri usa
   apenas `tauri` já presente.
 

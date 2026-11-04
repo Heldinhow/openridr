@@ -14,4 +14,18 @@ if [ ! -e "$1" ]; then
   exit 1
 fi
 
-exec open -a "${OPENRIDR_APP:-OpenRidr}" "$1"
+if [ ! -d "$1" ]; then
+  lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$lower" in
+    *.sln | *.slnx | *.csproj) ;;
+    *)
+      echo "openridr: not a .sln, .slnx or .csproj: $1" >&2
+      echo "openridr: open a .sln, a .slnx, a .csproj or a directory that contains one." >&2
+      exit 2
+      ;;
+  esac
+fi
+
+bundle=${OPENRIDR_APP:-OpenRidr}
+echo "openridr: opening $bundle" >&2
+exec open -a "$bundle" "$1"

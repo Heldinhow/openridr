@@ -88,6 +88,21 @@ test("a directory with two solutions asks for a choice and lists the candidates"
   expect(names).toEqual(["First.sln", "Second.sln"]);
 });
 
+// argv in src-tauri reaches the same workspace.open: only .sln/.slnx/.csproj (or a folder) is a workspace.
+test("argv-like .cs and .txt paths get the same guidance as an empty folder", async ({ request }) => {
+  const dir = tempDir();
+  for (const name of ["A.cs", "notes.txt"]) {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, "text\n");
+    const refused = await call(request, "workspace.open", { path: file });
+    expect(refused.ok).toBe(false);
+    expect(refused.error?.code).toBe("path_not_allowed");
+    expect(refused.error?.message).toBe(
+      "Open a .sln, a .slnx, a .csproj or a directory that contains one.",
+    );
+  }
+});
+
 test("refused paths keep the open workspace and never replace it", async ({ request }) => {
   const opened = await call(request, "workspace.open", { path: solution });
   expect(opened.ok, JSON.stringify(opened.error)).toBe(true);

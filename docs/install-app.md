@@ -32,9 +32,10 @@ Gatekeeper acima.
 - **Cache do LaunchServices:** se o Finder ainda não mostrar o app, registre o bundle de novo:
   `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/OpenRidr.app`
   e, se preciso, reabra o Finder.
-- **Terminal:** `scripts/openridr <caminho>` valida que o caminho existe e chama
-  `open -a OpenRidr <caminho>`, que reusa a instância já aberta. Uso inválido ou caminho ausente
-  saem com erro em `stderr` e código diferente de 0.
+- **Terminal:** `scripts/openridr <caminho>` valida que o caminho existe e que é pasta ou
+  `.sln`/`.slnx`/`.csproj`, imprime qual bundle vai abrir e chama `open -a OpenRidr <caminho>`,
+  que reusa a instância já aberta. Uso inválido, extensão não suportada ou caminho ausente saem
+  com erro em `stderr` e código diferente de 0, sem chamar `open`.
 - **Link manual no PATH (opcional, sua decisão):**
 
   ```sh

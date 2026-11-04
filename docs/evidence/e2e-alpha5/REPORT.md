@@ -87,6 +87,7 @@ Passos exatos de reprodução:
 
 **BUG-007 (P2).** Abrir o app com argv `A.cs` ou `notes.txt` (ou `scripts/openridr A.cs`).
 - Obtido: Welcome sem mensagem. Esperado: explicar que é preciso `.sln`, `.slnx`, `.csproj` ou pasta. (A tela de pasta vazia já mostra mensagem assim.)
+- **Correção do relatório (2026-11-04):** não reproduz no HEAD. O repro usou `scripts/openridr` sem `OPENRIDR_APP`, que abre `/Applications/OpenRidr.app` (0.3.0-alpha.4, anterior ao argv/open-with); as quatro capturas do achado são md5-idênticas e mostram a mensagem correta. O conserto desta rodada é no launcher (recusa extensão não suportada e imprime o bundle) + e2e; o status desta linha será finalizado depois.
 
 **BUG-008 (P2).** Solução confiada, build atual. Clicar Debug (toolbar, sem menu). Sem nenhuma pergunta, o app baixa `netcoredbg-osx-arm64.zip` (3.2.0-1092) para `home/tools/netcoredbg` e inicia a sessão. Código: `useExecutionFlow.ts:291`, "One-click Debug: there is no consent question". Em contraste, "Install analysis" exige "Review install plan" e "Confirm and install".
 - Decisão a tomar: ou o clique em Debug vale como consentimento (documentar), ou o download precisa de confirmação como o plano. O SHA-256 publicado e o limite de 20 MiB estão corretos no plano.

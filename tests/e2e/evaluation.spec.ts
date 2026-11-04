@@ -192,6 +192,14 @@ test("saving a project file in a temp copy marks the model stale and re-evaluate
     await enterWorkspace(page);
     await waitForEvaluation(page);
     await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
+    // The restore may already have triggered a second evaluation; make sure this save has a real predecessor.
+    await expect(page.getByTestId("eval-run")).toBeEnabled({ timeout: 20_000 });
+    const beforeSave = await revisionOf(page);
+    await page.getByTestId("eval-run").click();
+    await expect
+      .poll(() => revisionOf(page), { timeout: 20_000 })
+      .toBeGreaterThan(beforeSave);
+    await expect(page.getByTestId("eval-stale")).toHaveCount(0);
 
     await page.getByTestId("tree-project-OrderDesk.Cli").click();
     await page.getByRole("button", { name: "Project details", exact: true }).click();
@@ -207,7 +215,11 @@ test("saving a project file in a temp copy marks the model stale and re-evaluate
     await expect(page.getByTestId("app-log")).toContainText(`Saved ${projectFile}`);
 
     await expect(page.getByTestId("eval-stale")).toBeVisible();
-    await expect(page.getByTestId("eval-state")).toContainText("stale");
+    await expect(page.getByTestId("eval-state")).toContainText("not current");
+    // revision > 1 is the only case that may claim values from a previous evaluation.
+    await expect(page.getByTestId("eval-stale")).toContainText(
+      "Values shown are from the previous evaluation",
+    );
     await expect(page.getByTestId("eval-target-path")).toContainText(
       "Previous evaluation (stale)",
     );
@@ -222,6 +234,86 @@ test("saving a project file in a temp copy marks the model stale and re-evaluate
     await expect(page.getByTestId("eval-target-path")).toContainText(
       "src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
     );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a solution with no projects blames the file, not the SDK", async ({ page }) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-eval-"));
+  const target = path.join(base, "Broken.sln");
+  fs.writeFileSync(target, "this file is not a solution\n");
+  // Even with a resolvable project SDK, an empty solution blames the file.
+  fs.copyFileSync(path.join(fixture, "global.json"), path.join(base, "global.json"));
+  try {
+    await openWorkspace(page, target);
+    await trustWorkspace(page);
+    await enterWorkspace(page);
+    const reason = page.getByTestId("eval-disabled-reason");
+    await expect(reason).toContainText("Broken.sln lists no projects");
+    await expect(reason).toContainText("not valid or is empty");
+    await expect(reason).not.toContainText("SDK");
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a workspace without global.json shows the host's reason, not a fixed SDK line", async ({
+  page,
+}) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-eval-"));
+  const project = path.join(base, "App.csproj");
+  fs.writeFileSync(
+    project,
+    '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n',
+  );
+  try {
+    await openWorkspace(page, project);
+    await trustWorkspace(page);
+    await enterWorkspace(page);
+    const reason = page.getByTestId("eval-disabled-reason");
+    await expect(reason).toContainText("No global.json at the workspace root");
+    await expect(reason).toContainText("fix or add global.json");
+    await expect(reason).not.toContainText("Host SDK 10 is never substituted");
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a first evaluation with an invalid TFM never claims a previous evaluation", async ({
+  page,
+}) => {
+  const { base, copy } = tempCopy("Order Desk invalid TFM");
+  const projectFiles = [
+    "src/OrderDesk.Cli/OrderDesk.Cli.csproj",
+    "src/OrderDesk.Core/OrderDesk.Core.csproj",
+    "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+  ];
+  try {
+    for (const file of projectFiles) {
+      const full = path.join(copy, file);
+      fs.writeFileSync(full, fs.readFileSync(full, "utf8").replaceAll("net8.0", "net99.0"));
+    }
+    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    await trustWorkspace(page);
+    await enterWorkspace(page);
+    await expect(page.getByTestId("eval-state")).toContainText("revision 1", {
+      timeout: 30_000,
+    });
+
+    // A dirty buffer blocks the "changed on disk" auto-evaluation so the revision-1 state stays visible.
+    await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+    await page.getByTestId("editor").click();
+    await page.keyboard.type("x");
+    await expect(page.getByTestId("dirty-marker")).toBeVisible();
+
+    fs.appendFileSync(path.join(copy, projectFiles[0]), "\n");
+    await expect(page.getByTestId("eval-stale")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("eval-stale")).toContainText("Nothing is current yet");
+    await expect(page.getByTestId("eval-stale")).not.toContainText("previous evaluation");
+    await expect(page.getByTestId("eval-state")).toContainText("revision 1");
+    await expect(page.getByTestId("eval-state")).toContainText("not current");
+    await expect(page.getByTestId("eval-state")).not.toContainText("stale");
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

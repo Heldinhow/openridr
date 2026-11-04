@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-- `scripts/openridr <caminho>`: valida uso/caminho e chama `open -a "${OPENRIDR_APP:-OpenRidr}" <caminho>` (reusa a instância aberta).
+- `scripts/openridr <caminho>`: valida uso/caminho/extensão (pasta ou `.sln`/`.slnx`/`.csproj`), imprime o bundle efetivo e chama `open -a "${OPENRIDR_APP:-OpenRidr}" <caminho>` (reusa a instância aberta).
 - "Abrir com" do Finder para `.sln`/`.slnx`/`.csproj` e pastas; arrastar pasta para o Dock.
 - No shell Tauri (`src-tauri/src/main.rs`): argv (`first_file_argument`, ignora `-psn_*`) e `RunEvent::Opened` (`path_from_url`, só `file://`) viram `PendingOpen` (último vence) + evento `openridr-open`; a UI chama `take_pending_open` (`src/App.tsx`, `openExternal`).
 - UI: com workspace aberto → diálogo de troca (`externalOpen`); sem workspace → setup/Trust; com prompt de Trust pendente → recusa com `external-open-error`; duas solutions na pasta → `external-open-candidates`.

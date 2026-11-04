@@ -351,6 +351,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const trusted = snapshot.trust.granted;
   const projectSdk = snapshot.sdk.project;
   const evaluation = snapshot.evaluation;
+  // "Previous evaluation" is only true once a second revision exists; a stale first model has nothing before it.
+  const hasEarlierEvaluation = evaluation.revision > 1;
+  const emptySolution = workspace.kind === "solution" && projects.length === 0;
   const evaluatedProjects = evaluation.projects;
   const showsEvaluatedTree =
     evaluation.state !== "idle" && evaluatedProjects.length > 0;
@@ -3850,8 +3853,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const evaluationStatus = showsEvaluatedTree
     ? {
         testId: "status-evaluation",
-        title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`,
-        text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`,
+        title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
+        text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
       }
     : { text: "Text outline · not evaluated" };
 
@@ -4285,15 +4288,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               role="status"
             >
               {evaluationStateLabel(evaluation.state)}
-              {evaluation.stale ? " · stale" : ""}
+              {evaluation.stale ? " · not current" : ""}
               {evaluation.revision > 0 ? ` · revision ${evaluation.revision}` : ""}
             </span>
             {selectedProject && <button onClick={() => setProjectDetailsOpen(!projectDetailsOpen)} aria-expanded={projectDetailsOpen}>Project details</button>}
           </div>
 
-          {!evaluationAvailable && trusted && (
+          {trusted && (emptySolution || !evaluationAvailable) && (
             <div className="tree-note" data-testid="eval-disabled-reason">
-              {projectSdk.state === "sdk_missing" ? (
+              {emptySolution ? (
+                <p>
+                  {workspace.name} lists no projects; the solution file is not valid or is empty.
+                  Evaluation, build and run need at least one project.
+                </p>
+              ) : projectSdk.state === "sdk_missing" ? (
                 <>
                   <p>
                     Project SDK {projectSdk.requestedVersion ?? "pinned by global.json"} is not
@@ -4320,15 +4328,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   </div>
                 </>
               ) : (
-                <p>Evaluation needs a resolved project SDK. Host SDK 10 is never substituted.</p>
+                <p>
+                  {projectSdk.message ?? "No project SDK is resolved."} Evaluation, build and run
+                  need a project SDK pinned by global.json; fix or add global.json.
+                </p>
               )}
             </div>
           )}
 
           {evaluation.staleReason && (
             <div className="notice warning eval-stale" role="status" data-testid="eval-stale">
-              <strong>Evaluation stale.</strong> {evaluation.staleReason} Values shown are from
-              the previous evaluation and are not current.
+              <strong>Evaluation stale.</strong> {evaluation.staleReason}{" "}
+              {hasEarlierEvaluation
+                ? "Values shown are from the previous evaluation and are not current."
+                : "Nothing is current yet; Re-evaluate to produce a current model."}
               <div className="actions">
                 <button
                   data-testid="eval-stale-run"
@@ -4860,7 +4873,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   <dt>State</dt>
                   <dd data-testid="eval-details-state">
                     {selectedProject.state === "ok" ? "Evaluated" : "Evaluation failed"}
-                    {evaluation.stale ? " · stale (previous evaluation)" : ""}
+                    {evaluation.stale
+                      ? hasEarlierEvaluation
+                        ? " · stale (previous evaluation)"
+                        : " · not current"
+                      : ""}
                   </dd>
                   <dt>Path</dt>
                   <dd>
@@ -4879,7 +4896,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   <dt>TargetPath</dt>
                   <dd data-testid="eval-target-path">
                     {selectedProject.targetPath
-                      ? evaluation.stale
+                      ? evaluation.stale && hasEarlierEvaluation
                         ? <>Previous evaluation (stale): <code className="detail-path" title={selectedProject.targetPath}>{selectedProject.targetPath}</code></>
                         : <code className="detail-path" title={selectedProject.targetPath}>{selectedProject.targetPath}</code>
                       : "Not available"}
