@@ -1001,11 +1001,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       : buildDisabledReason;
   const debugCurrentFrame =
     dap.frames.find((frame) => frame.id === dap.selectedFrameId) ?? dap.frames[0] ?? null;
-  const activeBreakpoints = active
-    ? dap.breakpoints
-        .filter((breakpoint) => breakpoint.path === active.path)
-        .map((breakpoint) => breakpoint.line)
+  const activeBreakpointEntries = active
+    ? dap.breakpoints.filter((breakpoint) => breakpoint.path === active.path)
     : [];
+  const activeBreakpoints = activeBreakpointEntries.map((breakpoint) => breakpoint.line);
+  const activeVerifiedBreakpoints = activeBreakpointEntries
+    .filter((breakpoint) => breakpoint.verified)
+    .map((breakpoint) => breakpoint.line);
   const debugCurrentLine =
     active && debugCurrentFrame?.path
       ? debugCurrentFrame.path.replace(/\\/g, "/").endsWith(`/${active.path}`)
@@ -4819,6 +4821,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   onCursor={noteCursor}
                   diagnostics={activeDiagnostics}
                   breakpoints={activeBreakpoints}
+                  verifiedBreakpoints={activeVerifiedBreakpoints}
                   currentLine={debugCurrentLine}
                   inlayText={debugInlay}
                   onHoverEvaluate={

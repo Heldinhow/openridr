@@ -37,9 +37,9 @@ breakpoint.
 
 ## Aceite
 
-- [ ] Breakpoint em linha em branco/comentário é aceito e marcado como sem código.
-- [ ] O tooltip explica que o debugger não vai parar ali.
-- [ ] Linha de código continua com a marca normal.
-- [ ] Não recusa, não move para a linha seguinte.
-- [ ] Pendência do comportamento do Rider registrada.
+- [x] Breakpoint em linha em branco/comentário é aceito e marcado como sem código.
+- [x] O tooltip explica que o debugger não vai parar ali.
+- [x] Linha de código continua com a marca normal.
+- [x] Não recusa, não move para a linha seguinte.
+- [x] Pendência do comportamento do Rider registrada.
 - [ ] Evidência no app real.

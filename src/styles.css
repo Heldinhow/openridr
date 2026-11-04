@@ -2703,6 +2703,8 @@ mark.search-hit {
 .cm-debug-gutter { width: 1.4rem; }
 .cm-debug-marker { width: 1.4rem; font-size: 0; }
 .cm-debug-breakpoint::before, .cm-debug-both::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: var(--error-solid); vertical-align: middle; }
+/* A breakpoint on a line without code is accepted but hollow: the adapter has not bound it. */
+.cm-debug-no-code::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--error-solid); opacity: 0.55; vertical-align: middle; }
 .cm-debug-current::before { content: "\25B6"; font-size: var(--fs-badge); color: #f2c55c; }
 .cm-debug-both::before { box-shadow: 0 0 0 2px #f2c55c66; }
 .cm-line-breakpoint { background: #6c2a2e66; }

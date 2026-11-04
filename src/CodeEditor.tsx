@@ -163,6 +163,8 @@ type Props = {
   diagnostics?: EditorDiagnostic[];
   /** 1-based breakpoint lines for this file. */
   breakpoints?: number[];
+  /** Breakpoint lines the debug adapter reported as bound; those lose the "no code" hint. */
+  verifiedBreakpoints?: number[];
   /** 1-based line of the current pause, when this file is the paused frame. */
   currentLine?: number | null;
   /** Run/test markers derived from document symbols; one per unambiguous line. */
@@ -245,6 +247,7 @@ class DebugMarker extends GutterMarker {
   constructor(
     private readonly text: string,
     private readonly kind: string,
+    private readonly title?: string,
   ) {
     super();
   }
@@ -254,12 +257,48 @@ class DebugMarker extends GutterMarker {
     span.className = `cm-debug-marker cm-debug-${this.kind}`;
     span.textContent = this.text;
     span.setAttribute("aria-hidden", "true");
+    if (this.title) span.title = this.title;
     return span;
   }
 }
 
+const noCodeHint = "No code on this line; the debugger will not stop here.";
+
+/** Lines the debugger cannot stop on: blank, comment-only or inside a block comment. */
+function noCodeLines(state: EditorState): Set<number> {
+  const lines = new Set<number>();
+  let inBlock = false;
+  for (let number = 1; number <= state.doc.lines; number++) {
+    let text = state.doc.line(number).text.trim();
+    if (inBlock) {
+      const end = text.indexOf("*/");
+      if (end < 0) {
+        lines.add(number);
+        continue;
+      }
+      inBlock = false;
+      text = text.slice(end + 2).trim();
+    }
+    if (text.startsWith("/*")) {
+      for (;;) {
+        const end = text.indexOf("*/", 2);
+        if (end < 0) {
+          inBlock = true;
+          text = "";
+          break;
+        }
+        text = text.slice(end + 2).trim();
+        if (!text.startsWith("/*")) break;
+      }
+    }
+    if (!text || text.startsWith("//")) lines.add(number);
+  }
+  return lines;
+}
+
 function makeDebugGutter(
   breakpointsRef: { current: number[] },
+  verifiedBreakpointsRef: { current: number[] },
   currentLineRef: { current: number | null },
   onToggleBreakpointRef: { current: ((line: number) => void) | undefined },
 ) {
@@ -267,8 +306,12 @@ function makeDebugGutter(
   const lineTint = EditorView.decorations.of((view) => {
     const marks = [];
     const current = currentLineRef.current;
+    const noCode = noCodeLines(view.state);
+    const verified = new Set(verifiedBreakpointsRef.current);
     for (const line of [...new Set(breakpointsRef.current)].sort((a, b) => a - b)) {
       if (line < 1 || line > view.state.doc.lines) continue;
+      // A breakpoint the adapter has not bound on a line without code stays quiet: no tint.
+      if (line !== current && noCode.has(line) && !verified.has(line)) continue;
       marks.push(Decoration.line({ class: line === current ? "cm-line-current" : "cm-line-breakpoint" }).range(view.state.doc.line(line).from));
     }
     if (current !== null && !breakpointsRef.current.includes(current) && current >= 1 && current <= view.state.doc.lines) {
@@ -284,19 +327,25 @@ function makeDebugGutter(
       const lines = new Set<number>(breakpointsRef.current);
       const current = currentLineRef.current;
       if (current !== null) lines.add(current);
+      const noCode = noCodeLines(view.state);
+      const verified = new Set(verifiedBreakpointsRef.current);
       for (const line of lines) {
         if (line < 1 || line > view.state.doc.lines) continue;
         const isBreakpoint = breakpointsRef.current.includes(line);
         const isCurrent = current === line;
+        const unbound = isBreakpoint && noCode.has(line) && !verified.has(line);
         const text = `${isBreakpoint ? "●" : " "}${isCurrent ? "▶" : " "}`;
         markers.push(
           new DebugMarker(
             text,
             isBreakpoint && isCurrent
               ? "both"
-              : isBreakpoint
-                ? "breakpoint"
-                : "current",
+              : unbound
+                ? "no-code"
+                : isBreakpoint
+                  ? "breakpoint"
+                  : "current",
+            unbound ? noCodeHint : undefined,
           ).range(view.state.doc.line(line).from),
         );
       }
@@ -577,6 +626,7 @@ export function CodeEditor({
   editor,
   diagnostics = [],
   breakpoints = [],
+  verifiedBreakpoints = [],
   currentLine = null,
   gutterActions = [],
   changedLines = [],
@@ -612,6 +662,7 @@ export function CodeEditor({
   const onCursorRef = useRef(onCursor);
   const onHoverEvaluateRef = useRef(onHoverEvaluate);
   const breakpointsRef = useRef<number[]>(breakpoints);
+  const verifiedBreakpointsRef = useRef<number[]>(verifiedBreakpoints);
   const currentLineRef = useRef<number | null>(currentLine);
   const gutterActionsRef = useRef<GutterAction[]>(gutterActions);
   const onToggleBreakpointRef = useRef(onToggleBreakpoint);
@@ -626,6 +677,7 @@ export function CodeEditor({
   const indentCompartment = useRef(new Compartment());
   const profileCompartment = useRef(new Compartment());
   breakpointsRef.current = breakpoints;
+  verifiedBreakpointsRef.current = verifiedBreakpoints;
   currentLineRef.current = currentLine;
   gutterActionsRef.current = gutterActions;
   onToggleBreakpointRef.current = onToggleBreakpoint;
@@ -920,6 +972,7 @@ export function CodeEditor({
         gutterCompartment.current.of(
           makeDebugGutter(
             breakpointsRef,
+            verifiedBreakpointsRef,
             currentLineRef,
             onToggleBreakpointRef,
           ),
@@ -1062,10 +1115,10 @@ export function CodeEditor({
     if (!instance) return;
     instance.dispatch({
       effects: gutterCompartment.current.reconfigure(
-        makeDebugGutter(breakpointsRef, currentLineRef, onToggleBreakpointRef),
+        makeDebugGutter(breakpointsRef, verifiedBreakpointsRef, currentLineRef, onToggleBreakpointRef),
       ),
     });
-  }, [breakpoints.join(","), currentLine]);
+  }, [breakpoints.join(","), verifiedBreakpoints.join(","), currentLine]);
 
   useEffect(() => {
     const instance = view.current;
