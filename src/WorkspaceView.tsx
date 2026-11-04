@@ -4014,7 +4014,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         <button
           data-testid="toolbar-run"
           className="toolbar-icon-button run-button"
-          aria-label={runRunning || runBuilding ? "Running" : "Run"}
+          aria-label={runRunning || runBuilding ? "Running" : "Run startup project"}
           aria-disabled={runAction.disabledReason !== null}
           onClick={() => runAction.execute()}
           title={
@@ -4474,6 +4474,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             <button
               className="save"
               data-testid="save-file"
+              aria-label="Save file"
               onClick={saveAction.execute}
               disabled={saveAction.disabledReason !== null || !active || !isDirty(active)}
               title={
@@ -5243,6 +5244,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           compact
           testId="tree-context-menu"
           itemPrefix="tree-menu"
+          label={treeMenu.target.kind === "project" ? "Project context menu" : undefined}
           x={treeMenu.x}
           y={treeMenu.y}
           items={treeMenuItems(treeMenu.target)}

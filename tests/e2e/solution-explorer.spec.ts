@@ -86,6 +86,7 @@ test("Restricted project menu blocks execution, offers Trust and edits the cspro
   await page.getByTestId("tree-project-OrderDesk.Cli").click({ button: "right" });
   const menu = page.getByTestId("tree-context-menu");
   await expect(menu).toBeVisible();
+  await expect(menu).toHaveAccessibleName("Project context menu");
   for (const id of ["build", "run", "debug", "reload", "unit-test"]) {
     await expect(page.getByTestId(`tree-menu-${id}`)).toBeDisabled();
   }

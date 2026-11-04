@@ -591,3 +591,10 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Zero projetos culpa o arquivo.** Quando `workspace.kind == "solution"` e o outline tem zero projetos, a nota da árvore diz que o arquivo não lista projetos e não é uma solução válida; não fala em SDK.
 - **Fallback usa a mensagem do host.** Para os demais estados de `projectSdk` (sem `global.json`, sem `version`, JSON inválido), a nota renderiza `projectSdk.message` e acrescenta a ação de corrigir/adicionar `global.json`, em vez da frase fixa sobre o SDK 10.
 - **"Avaliação anterior" exige revision > 1.** `hasEarlierEvaluation` é a única condição; com revision 1 o estado diz "not current" e o banner diz "Nothing is current yet", inclusive em `eval-target-path`. O `reloadReason` dos menus nunca afirmou avaliação anterior e continua igual.
+
+## 2026-11-04 — Nomes acessíveis desambiguados
+
+- **Rótulo visível não é nome acessível.** As três "Run" e as duas "Save" continuam iguais na tela; `aria-label`/`aria-label` em `th` carregam o contexto. Nada de `data-testid` mudou.
+- **Toolband e toolbar.** O botão do toolband vira "Run tool window" (sufixo em todos os tool windows, não só Run); a toolbar vira "Run startup project". O keymap usa "`título — grupo`" e cai no id quando o grupo é igual ao título (`run.start`), porque o grupo visível não muda.
+- **Settings e arquivo.** `settings-save` = "Save settings"; `save-file` = "Save file". O texto "Saving…" continua visível durante a gravação.
+- **Menu da árvore.** `EditorContextMenu` ganhou `label` opcional; só o alvo `project` passa "Project context menu". Root continua "Solution context menu" e editor continua "Editor context menu" — file/dir não foram renomeados nesta rodada.

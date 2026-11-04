@@ -559,6 +559,7 @@ export function SettingsDialog({
             type="button"
             className="primary"
             data-testid="settings-save"
+            aria-label="Save settings"
             disabled={saving || invalid !== null}
             onClick={() => void save()}
           >
