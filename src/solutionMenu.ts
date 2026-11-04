@@ -1,18 +1,22 @@
 import type { ContextMenuItem } from "./EditorContextMenu";
 
 // Builders for the Solution tree context menus. Only actions with a real backend are listed;
-// "Run Unit Test" stays visible but disabled, like in Rider. Gates arrive as ready-made reasons.
+// "Run Unit Test" exists only for test projects and runs their whole suite, like in Rider.
+// Gates arrive as ready-made reasons.
 export interface ProjectMenu {
   name: string;
   projectFile: string;
   trusted: boolean;
   /** Run/Debug only exist for console projects; a library is buildable but not executable. */
   executable: boolean;
+  /** Run Unit Test only exists for test projects; a library or console project never shows it. */
+  testProject: boolean;
   /** Why Reload Project (re-evaluation) cannot run, or null. */
   reloadReason: string | null;
   buildReason: string | null;
   runReason: string | null;
   debugReason: string | null;
+  unitTestReason: string | null;
   shortcuts: { build?: string; run?: string; debug?: string };
   onTrust: () => void;
   onNuGet: () => void;
@@ -20,6 +24,7 @@ export interface ProjectMenu {
   onBuild: () => void;
   onRun: () => void;
   onDebug: () => void;
+  onRunUnitTest: () => void;
   onEditFile: () => void;
   onFind: () => void;
   onCopyPath: () => void;
@@ -44,13 +49,15 @@ export function projectMenuItems(m: ProjectMenu): ContextMenuItem[] {
       { id: "debug", label: `Debug '${m.name}'`, shortcut: m.shortcuts.debug, disabledReason: m.debugReason, action: m.onDebug },
     );
   }
-  items.push(
-    {
+  if (m.testProject) {
+    items.push({
       id: "unit-test",
       label: "Run Unit Test",
-      disabledReason: "Not available from the Solution tree; use the Tests tool window.",
-      action: () => undefined,
-    },
+      disabledReason: m.unitTestReason,
+      action: m.onRunUnitTest,
+    });
+  }
+  items.push(
     {
       id: "edit",
       label: "Edit",

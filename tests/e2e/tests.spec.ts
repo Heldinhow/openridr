@@ -314,11 +314,28 @@ test("a project without a VSTest adapter is adapter-missing, not empty", async (
   }
 });
 
-test("real test run reports TRX outcomes, details, position, selected scope and infrastructure", async ({
+test("real test run reports TRX outcomes, details, position, next failure and Run Unit Test", async ({
   page,
 }) => {
   test.setTimeout(240_000);
   const { base, copy } = tempCopy("Order Desk run");
+  const orderTestsPath = path.join(copy, "tests/OrderDesk.Tests/OrderTests.cs");
+  fs.writeFileSync(
+    orderTestsPath,
+    fs.readFileSync(orderTestsPath, "utf8").replace(
+      /}\s*$/,
+      `
+    [Fact]
+    public void Second_deliberate_failure_for_next_failure()
+    {
+        var order = new Order("A-104", 42m);
+
+        Assert.Equal(44m, order.Total);
+    }
+}
+`,
+    ),
+  );
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
     await trustWorkspace(page);
@@ -333,7 +350,7 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
     await clickDiscover(page);
-    await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
+    await expect(page.getByTestId("tests-state")).toContainText("Discovered 5 tests", {
       timeout: 120_000,
     });
     // The discovery identity lives in the folded details, so read its text rather than its rendered text.
@@ -341,13 +358,22 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     const discoveryId = discoveryIdText.split(" ")[0];
     const discoveryRevision = discoveryIdText.match(/revision (\d+)/)?.[1];
 
-    await page.getByTestId("tests-run-all").click();
+    // Run Unit Test from the tree: visible only for a test project, runs its whole suite and
+    // switches to the Tests tab (G17).
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("tests-run-panel")).toHaveCount(0);
+    await page.getByTestId("tree-project-OrderDesk.Tests").click({ button: "right" });
+    await page.getByTestId("tree-menu-unit-test").click();
+    await expect(page.getByTestId("bottom-tab-tests")).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("tests-run-state")).toContainText("Run completed", {
       timeout: 120_000,
     });
+    await expect(page.getByTestId("tests-run-selection")).toHaveText(
+      "Selection: all discovered tests",
+    );
     await expect(page.getByTestId("tests-run-exit")).toHaveText("exit 1");
     await expect(page.getByTestId("tests-run-counts")).toContainText(
-      "4 results · 2 passed · 1 failed · 1 skipped · 0 not executed · 0 unknown",
+      "5 results · 2 passed · 2 failed · 1 skipped · 0 not executed · 0 unknown",
     );
     await expect(page.getByTestId("tests-run-id")).toContainText(/testrun:\d+:1/);
     await expect(page.getByTestId("tests-run-id")).toContainText(discoveryId);
@@ -366,7 +392,7 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await expect(page.getByTestId("tests-run-log")).toContainText("Test run for");
 
     const results = page.getByTestId("tests-run-results-list").locator("li");
-    await expect(results).toHaveCount(4);
+    await expect(results).toHaveCount(5);
     await expect.poll(() => results.first().evaluate((element) => {
       const panel = element.closest(".panel-body");
       if (!panel) return false;
@@ -414,6 +440,34 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
       passedRow.locator('[data-testid^="test-result-outcome-"]'),
     ).toHaveText("passed");
 
+    // G12: Next failure cycles only failed results, expands each one and follows its position.
+    const current = await discoveryState(page.request);
+    const failures = (
+      current.tests.run.results as {
+        outcome: string;
+        position: { path: string; line: number; character: number } | null;
+      }[]
+    )
+      .map((result, index) => ({ result, index }))
+      .filter(({ result }) => result.outcome === "failed");
+    expect(failures).toHaveLength(2);
+    const nextFailure = page.getByTestId("tests-next-failure");
+    await expect(nextFailure).toBeEnabled();
+    for (let step = 0; step < 3; step += 1) {
+      const failure = failures[step % failures.length];
+      await nextFailure.click();
+      const row = page.getByTestId(`test-result-${failure.index}`);
+      await expect(row.locator("details")).toHaveAttribute("open", "");
+      await expect(row.locator('[data-testid^="test-result-message-"]')).toBeVisible();
+      await expect(row).toBeInViewport();
+      if (failure.result.position) {
+        await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+          "data-cursor",
+          `${failure.result.position.line}:${failure.result.position.character}`,
+        );
+      }
+    }
+
     await page.screenshot({
       path: path.join(screenshots, "17-tests-run-all.png"),
       fullPage: false,
@@ -433,6 +487,12 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     );
     await expect(page.getByTestId("tests-run-id")).toContainText(/testrun:\d+:2/);
     await expect(page.getByTestId("tests-run-results-list").locator("li")).toHaveCount(1);
+    // A run with no failed results keeps Next failure disabled with its reason.
+    await expect(page.getByTestId("tests-next-failure")).toBeDisabled();
+    await expect(page.getByTestId("tests-next-failure")).toHaveAttribute(
+      "title",
+      /no failed results/,
+    );
 
     // Real infrastructure failure: the built test assembly is gone before --no-build.
     fs.rmSync(path.join(copy, "tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll"));

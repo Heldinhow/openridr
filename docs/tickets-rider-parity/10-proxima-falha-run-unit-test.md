@@ -38,9 +38,9 @@ não tem testes; num projeto de teste, o item roda todos os testes dele.
 
 ## Aceite
 
-- [ ] "Next failure" cicla as falhas, expande e navega para a origem quando existe.
-- [ ] Sem falhas, o botão está desabilitado com motivo.
-- [ ] "Run Unit Test" não aparece em projeto que não é de teste.
-- [ ] Em projeto de teste, "Run Unit Test" roda todos os testes do projeto.
-- [ ] Gates e erros do host aparecem com motivo.
+- [x] "Next failure" cicla as falhas, expande e navega para a origem quando existe.
+- [x] Sem falhas, o botão está desabilitado com motivo.
+- [x] "Run Unit Test" não aparece em projeto que não é de teste.
+- [x] Em projeto de teste, "Run Unit Test" roda todos os testes do projeto.
+- [x] Gates e erros do host aparecem com motivo.
 - [ ] Evidência no app real.

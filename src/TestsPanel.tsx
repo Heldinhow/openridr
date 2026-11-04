@@ -1,5 +1,5 @@
 import { Icon } from "./Icon";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Evaluation, TestItem, TestResult, TestRun, Tests, TestsDiscovery } from "./host/client";
 import {
   buildTestTree,
@@ -279,6 +279,32 @@ export function TestsPanel({
   if (run.discoveryId === discovery.discoveryId && run.discoveryRevision === discovery.revision) {
     for (const result of run.results) {
       if (result.testId) currentResults.set(result.testId, result);
+    }
+  }
+
+  // G12: only failed outcomes are cycled; a new run id resets the cursor to the first failure.
+  const failures = run.results
+    .map((result, index) => ({ result, index }))
+    .filter(({ result }) => result.outcome === "failed");
+  const [failureCursor, setFailureCursor] = useState(-1);
+  const resultRows = useRef(new Map<number, HTMLLIElement>());
+  useEffect(() => {
+    setFailureCursor(-1);
+  }, [run.runId]);
+
+  function nextFailure() {
+    if (failures.length === 0) return;
+    const cursor = (failureCursor + 1) % failures.length;
+    setFailureCursor(cursor);
+    const { result, index } = failures[cursor];
+    const row = resultRows.current.get(index);
+    row?.querySelector("details")?.setAttribute("open", "");
+    row?.scrollIntoView({ block: "nearest" });
+    if (result.position) {
+      onNavigate(result.position.path, {
+        line: result.position.line,
+        character: result.position.character,
+      });
     }
   }
 
@@ -749,6 +775,18 @@ export function TestsPanel({
                 ? "Selection: all discovered tests"
                 : `Selection: ${run.requestedCount} selected identit${run.requestedCount === 1 ? "y" : "ies"}`}
             </span>
+            <button
+              data-testid="tests-next-failure"
+              disabled={failures.length === 0}
+              onClick={nextFailure}
+              title={
+                failures.length === 0
+                  ? "The last run has no failed results to navigate."
+                  : `Expands the next failed result and opens its source position when one exists (${failures.length} failed in this run).`
+              }
+            >
+              Next failure
+            </button>
           </div>
           {run.stale && (
             <p className="warning" data-testid="tests-run-stale" role="status">
@@ -833,7 +871,14 @@ export function TestsPanel({
           {run.results.length > 0 && (
             <ul className="test-list" data-testid="tests-run-results-list" aria-label="Test results">
               {run.results.map((result, index) => (
-                <li key={`${run.runId}:${index}`} data-testid={`test-result-${index}`}>
+                <li
+                  key={`${run.runId}:${index}`}
+                  data-testid={`test-result-${index}`}
+                  ref={(element) => {
+                    if (element) resultRows.current.set(index, element);
+                    else resultRows.current.delete(index);
+                  }}
+                >
                   <span className={`tag ${outcomeTone(result)}`} data-testid={`test-result-outcome-${index}`}>
                     {result.outcome}
                   </span>{" "}

@@ -87,12 +87,24 @@ test("Restricted project menu blocks execution, offers Trust and edits the cspro
   const menu = page.getByTestId("tree-context-menu");
   await expect(menu).toBeVisible();
   await expect(menu).toHaveAccessibleName("Project context menu");
-  for (const id of ["build", "run", "debug", "reload", "unit-test"]) {
+  for (const id of ["build", "run", "debug", "reload"]) {
     await expect(page.getByTestId(`tree-menu-${id}`)).toBeDisabled();
   }
+  // A console project has no tests: the item is absent, not disabled.
+  await expect(page.getByTestId("tree-menu-unit-test")).toHaveCount(0);
   await expect(page.getByTestId("tree-menu-build")).toHaveAttribute("title", /Trust the workspace/);
   await expect(page.getByTestId("tree-menu-run")).toContainText("Run 'OrderDesk.Cli'");
   await expect(page.getByTestId("tree-menu-trust")).toBeVisible();
+  // A test project keeps the item, gated by the same trust reason as the Tests panel.
+  await page.keyboard.press("Escape");
+  await page.getByTestId("tree-project-OrderDesk.Tests").click({ button: "right" });
+  await expect(page.getByTestId("tree-menu-unit-test")).toBeDisabled();
+  await expect(page.getByTestId("tree-menu-unit-test")).toHaveAttribute(
+    "title",
+    /Trust the workspace/,
+  );
+  await page.keyboard.press("Escape");
+  await page.getByTestId("tree-project-OrderDesk.Cli").click({ button: "right" });
   // A project file is owned by the solution: no Rename/Delete from its menu.
   await expect(page.getByTestId("tree-menu-rename")).toHaveCount(0);
   await expect(page.getByTestId("tree-menu-delete")).toHaveCount(0);
@@ -239,7 +251,12 @@ test("trusted menu: console can run, library builds; folders show counts", async
   await expect(page.getByTestId("tree-menu-reload")).toBeEnabled();
   await expect(page.getByTestId("tree-menu-run")).toBeEnabled();
   await expect(page.getByTestId("tree-menu-debug")).toBeEnabled();
-  await expect(page.getByTestId("tree-menu-unit-test")).toBeDisabled();
+  // Neither a console project nor the library is a test project, so the item is absent.
+  await expect(page.getByTestId("tree-menu-unit-test")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("tree-project-OrderDesk.Tests").click({ button: "right" });
+  await expect(page.getByTestId("tree-menu-unit-test")).toBeEnabled();
 });
 
 test("folder menu keeps the existing actions and adds Show in Finder", async ({ page }) => {
