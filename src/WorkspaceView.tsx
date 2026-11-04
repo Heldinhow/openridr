@@ -198,7 +198,8 @@ type ActionList = {
 type Confirmation =
   | { kind: "tab"; path: string }
   | { kind: "workspace" }
-  | { kind: "window" };
+  | { kind: "window" }
+  | { kind: "quit" };
 
 type NavEntry = { path: string; line: number; character: number };
 
@@ -208,6 +209,8 @@ type Props = {
   recentSolutions: string[];
   // Path from Finder or the Dock; each request is a new object, so the same path can repeat.
   externalOpen: { path: string } | null;
+  // Cmd+Q or the app menu Quit; increments per request and is answered with the unsaved-changes dialog.
+  quitRequest: number;
   onOpenRecent: (path: string) => Promise<void>;
   onSnapshot: (snapshot: Snapshot) => void;
   onClosed: (snapshot: Snapshot) => void;
@@ -342,7 +345,7 @@ function restoreStateLabel(restore: Snapshot["restore"]) {
   }
 }
 
-export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, onOpenRecent, onSnapshot, onClosed }: Props) {
+export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, quitRequest, onOpenRecent, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
   const trusted = snapshot.trust.granted;
@@ -500,6 +503,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const activePathRef = useRef(activePath);
   activePathRef.current = activePath;
   const unsavedRef = useRef(false);
+  const handledQuitRequest = useRef(0);
   const writing = useRef(new Set<string>());
   const diskEpoch = useRef(new Map<string, number>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
@@ -1079,6 +1083,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       unlisten?.();
     };
   }, []);
+
+  useEffect(() => {
+    // Cmd+Q and the app menu Quit reach this view only when it owns the buffers.
+    if (!quitRequest || quitRequest === handledQuitRequest.current) return;
+    handledQuitRequest.current = quitRequest;
+    if (!unsavedRef.current) {
+      void quitApp();
+      return;
+    }
+    setConfirmError(null);
+    // A decision already on screen wins; a second prompt would stack two dialogs.
+    setConfirm((current) => current ?? { kind: "quit" });
+  }, [quitRequest]);
 
   useEffect(() => {
     // Send didOpen once per session for every open buffer. A restart creates a new session,
@@ -3400,6 +3417,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
+  async function quitApp() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("quit_app");
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: `Could not quit OpenRidr: ${messageOf(error)}`,
+      });
+    }
+  }
+
   async function confirmSave() {
     if (!confirm) return;
     setConfirmError(null);
@@ -3427,14 +3456,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     setConfirm(null);
     if (pending.kind === "workspace") {
       void closeWorkspace();
-    } else {
+    } else if (pending.kind === "window") {
       void destroyWindow();
+    } else {
+      void quitApp();
     }
   }
 
   function keepEditing() {
+    const quitting = confirm?.kind === "quit";
     setConfirm(null);
     setConfirmError(null);
+    if (quitting) focusEditor();
   }
 
   function discardConfirmed() {
@@ -3447,8 +3480,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       setMessage({ tone: "info", text: `Closed ${pending.path}; unsaved edits were discarded.` });
     } else if (pending.kind === "workspace") {
       void closeWorkspace();
-    } else {
+    } else if (pending.kind === "window") {
       void destroyWindow();
+    } else {
+      void quitApp();
     }
   }
 

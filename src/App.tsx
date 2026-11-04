@@ -20,6 +20,8 @@ export default function App() {
   const recentSolutions = recentProjects.map((project) => project.path);
   // Path from Finder or the Dock while a workspace is mounted; WorkspaceView applies it with its dirty-buffer guard.
   const [externalOpen, setExternalOpen] = useState<{ path: string } | null>(null);
+  // Increments on every Cmd+Q or app-menu Quit; WorkspaceView guards it with the unsaved-changes dialog.
+  const [quitRequest, setQuitRequest] = useState(0);
   // Same for the setup screen, which opens the path with its own form flow (candidates, errors, trust).
   const [setupOpen, setSetupOpen] = useState<{ path: string } | null>(null);
   // Only for a failed listener or invoke of the shell; open errors show where the open was started.
@@ -138,8 +140,30 @@ export default function App() {
   const openExternalRef = useRef(openExternal);
   openExternalRef.current = openExternal;
 
+  async function quitNow() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("quit_app");
+    } catch (error) {
+      setExternalError(`Could not quit OpenRidr: ${messageOf(error)}`);
+    }
+  }
+
+  function requestQuit() {
+    // Only the mounted workspace owns buffers; anywhere else there is nothing to save.
+    if (stage === "workspace" && snapshot?.workspace && !prompt) {
+      setQuitRequest((current) => current + 1);
+      return;
+    }
+    void quitNow();
+  }
+
+  const requestQuitRef = useRef(requestQuit);
+  requestQuitRef.current = requestQuit;
+
   useEffect(() => {
-    // Finder, the Dock and the command line hand paths over only in the desktop shell.
+    // Finder, the Dock and the command line hand paths over only in the desktop shell;
+    // Cmd+Q and the app menu Quit arrive here too, after the shell stopped the native quit.
     if (!window.__TAURI_INTERNALS__) return;
     let unmounted = false;
     let stop: (() => void) | undefined;
@@ -150,14 +174,23 @@ export default function App() {
         const path = await invoke<string | null>("take_pending_open");
         if (path) openExternalRef.current(path);
       };
-      const unlisten = await listen("openridr-open", () => void takePending());
+      const takeQuit = async () => {
+        if (await invoke<boolean>("take_pending_quit")) requestQuitRef.current();
+      };
+      const stopOpen = await listen("openridr-open", () => void takePending());
+      const stopQuit = await listen("openridr-quit", () => void takeQuit());
       if (unmounted) {
-        unlisten();
+        stopOpen();
+        stopQuit();
         return;
       }
-      stop = unlisten;
-      // A path that arrived before this listener (launch from Finder or argv) waits in the shell.
+      stop = () => {
+        stopOpen();
+        stopQuit();
+      };
+      // Requests that arrived before these listeners (launch from Finder or a quit during first paint) wait in the shell.
       await takePending();
+      await takeQuit();
     })().catch((caught) => setExternalError(messageOf(caught)));
     return () => {
       unmounted = true;
@@ -188,6 +221,7 @@ export default function App() {
           initialFile={pendingFile}
           recentSolutions={recentSolutions}
           externalOpen={externalOpen}
+          quitRequest={quitRequest}
           onOpenRecent={openRecent}
           onSnapshot={handleSnapshot}
           onClosed={handleClosed}

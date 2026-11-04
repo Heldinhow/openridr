@@ -1,17 +1,28 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use openridr_host::{Host, HostError};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager, State, Url};
+use tauri::menu::{Menu, MenuItemBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, Url};
 
 /// Event that tells the UI a path is waiting in `take_pending_open`.
 const OPEN_EVENT: &str = "openridr-open";
+/// Event that tells the UI the user asked to quit; the UI calls `quit_app` after its decision.
+const QUIT_EVENT: &str = "openridr-quit";
+const QUIT_MENU_ID: &str = "quit";
+/// Set once the UI approved the quit, so the `ExitRequested` it causes is let through.
+static QUITTING: AtomicBool = AtomicBool::new(false);
 
 /// Path handed over by Finder, the Dock or the command line until the UI takes it; the last one wins.
 #[derive(Default)]
 struct PendingOpen(Mutex<Option<String>>);
+
+/// A quit request that arrived before the UI listener was ready; the first taker handles it.
+#[derive(Default)]
+struct PendingQuit(AtomicBool);
 
 #[tauri::command]
 fn host_call(method: String, params: Value, host: State<'_, Host>) -> Result<Value, HostError> {
@@ -21,6 +32,18 @@ fn host_call(method: String, params: Value, host: State<'_, Host>) -> Result<Val
 #[tauri::command]
 fn take_pending_open(pending: State<'_, PendingOpen>) -> Option<String> {
     pending.0.lock().unwrap().take()
+}
+
+#[tauri::command]
+fn take_pending_quit(pending: State<'_, PendingQuit>) -> bool {
+    pending.0.swap(false, Ordering::SeqCst)
+}
+
+/// End of the quit flow: the UI already saved or discarded, so nothing may prevent the exit.
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    QUITTING.store(true, Ordering::SeqCst);
+    app.exit(0);
 }
 
 /// First argument that is not a flag. macOS adds `-psn_...` when the app starts from Finder.
@@ -45,11 +68,58 @@ fn offer_open(app: &AppHandle, path: String) {
     let _ = app.emit(OPEN_EVENT, ());
 }
 
+fn request_quit(app: &AppHandle) {
+    if QUITTING.load(Ordering::SeqCst) {
+        app.exit(0);
+        return;
+    }
+    app.state::<PendingQuit>().0.store(true, Ordering::SeqCst);
+    let _ = app.emit(QUIT_EVENT, ());
+}
+
+/// Tauri's default menu, with Quit replaced: the predefined item calls `terminate:` on
+/// NSApplication and never reaches the webview that owns the unsaved buffers.
+#[cfg(target_os = "macos")]
+fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    // On macOS the app submenu is first and the predefined Quit item is its last entry.
+    let app_menu = menu
+        .items()?
+        .into_iter()
+        .next()
+        .and_then(|item| item.as_submenu().cloned())
+        .expect("the default macOS menu starts with the app submenu");
+    let position = app_menu.items()?.len().saturating_sub(1);
+    let quit = MenuItemBuilder::with_id(QUIT_MENU_ID, "Quit OpenRidr")
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)?;
+    app_menu.remove_at(position)?;
+    app_menu.insert(&quit, position)?;
+    Ok(menu)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    Menu::default(app)
+}
+
 fn main() {
     tauri::Builder::default()
+        .menu(default_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == QUIT_MENU_ID {
+                request_quit(app);
+            }
+        })
         .manage(Host::new())
         .manage(PendingOpen::default())
-        .invoke_handler(tauri::generate_handler![host_call, take_pending_open])
+        .manage(PendingQuit::default())
+        .invoke_handler(tauri::generate_handler![
+            host_call,
+            take_pending_open,
+            take_pending_quit,
+            quit_app
+        ])
         .setup(|app| {
             if let Some(path) = first_file_argument(std::env::args()) {
                 offer_open(app.handle(), path);
@@ -58,15 +128,22 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("OpenRidr failed to start")
-        .run(|app, event| {
+        .run(|app, event| match event {
+            RunEvent::ExitRequested { api, .. } => {
+                // Ask only while the webview can still show the dialog; with no window left
+                // the app would stay alive with no way to close it.
+                if !QUITTING.load(Ordering::SeqCst) && app.get_webview_window("main").is_some() {
+                    api.prevent_exit();
+                    request_quit(app);
+                }
+            }
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = event {
+            RunEvent::Opened { urls } => {
                 for path in urls.iter().filter_map(path_from_url) {
                     offer_open(app, path);
                 }
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = (app, event);
+            _ => {}
         });
 }
 
