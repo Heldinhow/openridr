@@ -2,6 +2,31 @@
 
 Data: 04/11/2026. Branch `docs/rider-gaps`. Entregáveis: `RIDER-BEHAVIORS.md`, `GAPS-RIDER-RIDR.md` e este retro. Nenhuma correção de código foi feita.
 
+## Segunda rodada (04/11, ao vivo no Rider)
+
+Com Acessibilidade e Gravação de Tela concedidas:
+
+- **Funcionou:**
+  - Foco na janela (`focus-window`) e screenshots (`screenshot --app`, salvos em `.scratch/rider-gaps/`).
+  - Snapshots rasos e por região da árvore de acessibilidade, com refs qualificados.
+  - Leitura da barra de menus completa (File, Edit, View, Navigate, Code, Build, Run, Tests, Tools, Git, Window, Help). Os itens são legíveis mesmo com os menus fechados. Isso confirmou a existência de funções que o OpenRidr ainda não expõe.
+  - Leitura de `git status` no projeto do usuário, só leitura.
+- **Não funcionou:**
+  - Clique direito em itens da árvore (projeto, arquivo, pasta): erro `ELEMENT_NOT_FOUND` em `AXRole` ou `APP_UNRESPONSIVE`. Nenhum menu de contexto apareceu.
+  - Itens da barra de menus não são endereçáveis (`offscreen`, sem `ref_id`). Não há clique semântico nos menus do topo.
+  - `list-surfaces` falhou com `AXRole`.
+  - Clique semântico em botões da barra lateral: `POLICY_DENIED` (sem caminho semântico; o fallback físico exige `--headed`).
+  - Clique físico (`--headed`) no botão Tests: `APP_UNRESPONSIVE`, `delivered_unverified`. Nada abriu.
+  - Atalho ⌘⇧A (Find Action) e digitação: o atalho foi `delivered_unverified` e a janela não mudou. O `type` falhou por falta de argumento, então nenhum texto foi digitado.
+- **Efeitos colaterais possíveis (não confirmados):** os cliques físicos e o atalho podem ter chegado ao Rider sem efeito visível. Nada foi salvo, e não usei Shift+F10 (o Run do Rider). Confirmar visualmente o estado do Rider ao retomar.
+- **Projeto do usuário:**
+  - Não executei o projeto de bot (seu `Main` lê credenciais de ambiente e pode operar contra APIs reais). Sem Run, Debug ou teste de execução do app.
+  - Fontes intactas: `git status` mostra só arquivos de `bin/` e `obj/` modificados (já rastreados no repositório) e itens não rastreados (`.idea/`, `*.DotSettings.user`, `global.json`), que não foram criados por mim.
+  - O Rider está no modo Trial.
+- **Processo do Rider:** ativo (estado S, cerca de 5% de CPU). Não parece travado; a falha está na camada de acessibilidade e no foco.
+
+Com isso, as áreas que dependem de interação (Debug, Tests, Find in Files, Find Usages, aba Build) continuam sem comportamento verificado ao vivo nesta rodada. O que foi visto é a estrutura dos menus e a interface estática.
+
 ## O que foi verificado
 
 - **OpenRidr, na superfície web isolada** (`verify-openridr/web.sh`, UI 1520 e host 4417, cópia do OrderDesk):
@@ -21,7 +46,7 @@ Data: 04/11/2026. Branch `docs/rider-gaps`. Entregáveis: `RIDER-BEHAVIORS.md`, 
 
 ## O que NÃO foi verificado
 
-- **Rider, na UI:** nenhuma. O `agent-desktop` está sem Acessibilidade e sem Gravação de Tela. Todo comportamento de UI do Rider que está no doc vem de 29/10 ou é marcado "não verificado".
+- **Rider, na UI (primeira rodada):** nenhuma, por falta de permissão. Na segunda rodada, a estrutura dos menus e a interface estática foram lidas ao vivo. Comportamento de Debug, testes, Find e Build segue sem verificação (ver seção acima).
 - **Janela nativa do OpenRidr (Tauri):** não foi aberta. Os testes foram na superfície web, que usa a mesma UI mas não a janela nativa.
 - **Análise (csharp-ls):** "Install analysis" não foi acionado, porque baixa software de rede sem pedido explícito. Por isso Find Usages, Rename e code actions não foram testados de verdade.
 - **Build com erro:** não provocado, então os links `arquivo:linha` no Build output continuam sem verificação (G20).
