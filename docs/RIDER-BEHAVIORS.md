@@ -4,9 +4,51 @@ Data: 04/11/2026. Referência: JetBrains Rider 2026.2.3.1 (build RD-262.10968.17
 
 Este documento descreve comportamentos com as nossas palavras. Capturas, XML de keymap e strings copiadas ficam em `.scratch/rider-gaps/` (fora do git). Cada item traz a fonte; o que não foi visto nesta rodada está marcado **não verificado**.
 
+## Observação ao vivo com fixture (04/11, terceira rodada)
+
+Método: a solução de teste do usuário foi fechada sem salvar, e a cópia descartável do fixture OrderDesk foi aberta no Rider (confiança aceita só nessa cópia). Cliques por coordenada e itens de menu via System Events, com captura antes e depois de cada ação. Nada foi salvo em fontes do usuário. Capturas ficam em `.scratch/rider-gaps/`.
+
+**Solution (menus de contexto, observados):**
+- Solução: adicionar, gerenciar pacotes NuGet, descarregar e recarregar projetos, salvar como, Entity Framework Core, build da solução, executar várias aplicações, executar teste unitário (desabilitado sem teste selecionado), publicar, ações avançadas de build, histórico local, refatorar, inspecionar código, reformatar e limpar, editar, copiar caminho ou referência, abrir em, diagramas, ferramentas, gerenciar o SDK do .NET e propriedades.
+- Pasta da solução: adicionar, descarregar e recarregar, build dos projetos selecionados, ações avançadas, histórico local, refatorar, inspecionar, reformatar, editar, copiar caminho, abrir em, diagramas e ferramentas (sem propriedades).
+- Projeto: como a solução, mais descarregar e recarregar só o projeto, e propriedades (atalho ⌥↩).
+- Arquivo: adicionar, executar teste (desabilitado), histórico local, refatorar (⇧⌘R), inspecionar, reformatar, editar, copiar caminho, abrir em, diagramas e ferramentas.
+- Submenu Editar do arquivo: recortar, copiar, colar (desabilitado para arquivo somente leitura), excluir, renomear (⌘R, R), abrir o arquivo e abrir em painel lateral.
+- Submenu Abrir em: Finder, abrir no aplicativo associado, popup de caminho e terminal. Existe ação de mostrar no Finder.
+
+**Tests (executado no fixture):**
+- Menu Tests > executar todos os testes da solução: abre a janela Tests com a sessão "All tests from Solution", sem descoberta manual.
+- Janela: abas Explorer, a sessão e Continuous Testing; barra com executar, depurar, rerun e contadores (total, aprovados, falhos e ignorados).
+- Árvore agrupada por projeto, namespace e classe. Resultado por caso: aprovado, falho (com a mensagem da asserção), ignorado (com o motivo do atributo de skip).
+- Painel de detalhe: tempo, tipo da exceção, valores esperado e real, chip "Create breakpoint" e stack trace. A linha de arquivo:linha é um link; clicar abre o arquivo no editor na linha (verificado: cursor em 29).
+- Rerun dos que falharam (menu): sem mudança visível na árvore após cerca de 45 s. Não confirmado.
+- Parar uma sessão de debug de teste muda o resultado para "Inconclusive" (com a mensagem de saída com código 0 em outro teste), não para "Failed".
+
+**Debug (executado no fixture):**
+- Menu Tests > depurar teste unitário com o cursor no método: para no breakpoint da linha 29, com seta amarela.
+- Breakpoint de linha (menu Run > Toggle Breakpoint > Line Breakpoint, atalho F9): aparece como ponto vermelho com o trecho destacado. O submenu também oferece breakpoint temporário e ativar/desativar.
+- Barra da janela Debug: resume, parar, rerun, pausa, step over, step into, step out. Abas: Threads & Variables, Console, Debug Output, Parallel Stacks, Memory, Modules, Tasks.
+- Painéis: threads à esquerda, call stack no centro (com frames de código externo), variáveis à direita (objeto expansível: campos Id e Total), campo de avaliação de expressão.
+- Step over na linha da asserção entrou em código externo do xUnit: abriu o diálogo "External Sources" com progresso e Cancel, depois o arquivo de asserções em Reader Mode (somente leitura). Popup de "Non-user exception handled in external code" com Stop, Mute and Resume e Stack Trace Explorer.
+- Janela Monitoring abriu sozinha à direita durante o debug (CPU, GC e memória), com a tag "Predictive debugger" no editor.
+- O item Stop do menu Run não foi localizado com a sessão ativa; o botão de parar da janela Debug funcionou.
+
+**Run (executado no fixture):**
+- Menu Run > Run 'OrderDesk.Cli' (⌃F5): build com tooltip de "Build succeeded" e horário; aba Run com a linha do executável, a saída do programa e "Process finished with exit code 0". Monitoring passa a mostrar o processo.
+- Menu Run também tem: depurar (⌥F5), run com perfil, configurações de execução, parar (⇧F5), mostrar lista de execuções e histórico de testes.
+
+**Find (observado):**
+- Search Everywhere (menu Navigate): abas All, Classes, Files, Symbols, Actions e Text; opção de incluir itens fora da solução; filtro; prévia com "Open In Right Split". As dicas da tela inicial do editor mostram duplo Shift ou ⌘T para abrir.
+- Find in Files (⇧⌘F): campo com alternâncias de caixa, palavra inteira e regex; escopos Solution, Project, Directory e Scope; máscara de arquivo; "Open in Find Window".
+- Find Usages (menu Edit): ⇧F12 para encontrar usos, Find Usages Advanced (⌥⇧⌘F12), Show Usages (⌥⇧F12), destaque de usos no arquivo (⌥⇧F11) e navegação entre destaques. Execução não feita.
+
+**Experiência geral (observado):**
+- Barra de menus: File, Edit, View, Navigate, Code, Refactor, Build, Run, Tests, Tools, VCS, Window e Help.
+- Status bar: posição do cursor, Trial, indicadores de análise e de processo, encoding e indentação.
+
 ## Observação ao vivo (04/11, segunda rodada)
 
-Com Acessibilidade e Gravação de Tela concedidas, o Rider foi lido ao vivo (árvore de acessibilidade e screenshots em `.scratch/rider-gaps/`, fora do git). Solução de teste do usuário, 5 projetos, aberta sem alterações. Nada foi salvo; nenhum projeto de bot foi executado.
+Rodada parcial, superada pela terceira rodada acima (que cobre debug, testes, run e Find). Com Acessibilidade e Gravação de Tela concedidas, o Rider foi lido ao vivo (árvore de acessibilidade e screenshots em `.scratch/rider-gaps/`, fora do git). Solução de teste do usuário, 5 projetos, aberta sem alterações. Nada foi salvo; nenhum projeto de bot foi executado.
 
 - **Solution:** árvore com projetos (API, Application, Domain, Infrastructure, Tests), cada um com dependências e arquivos. A barra da Solution expõe ações de mostrar todos os arquivos, localizar o arquivo aberto (rotulado com ⌥F1), expandir o selecionado, recolher tudo, opções e ocultar. **Menu de contexto de projeto, pasta e arquivo: não abriu.** O clique direito na árvore falhou de forma consistente na camada de acessibilidade.
 - **Menus (lidos da barra de menus, sem executar):**
