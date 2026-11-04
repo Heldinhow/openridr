@@ -78,8 +78,8 @@ sozinho com o reporter `list`, em 2 execuções:
   então não é intermitência confirmada nesta máquina. Não comprovei se já falhava antes das
   mudanças desta branch.
 
-O teste pulado da rodada completa era este mesmo ambiente de `csharp-ls`; ele não ficou
-pulado nesta execução separada.
+Nesta execução separada, os dois testes de `find-usages` rodaram sem pular. Então o teste
+pulado da rodada completa não é deste arquivo, e continua não identificado.
 
 ## Bundle de debug e app real
 
