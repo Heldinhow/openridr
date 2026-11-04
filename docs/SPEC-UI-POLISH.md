@@ -1,6 +1,6 @@
 # SPEC: Polimento visual — ícones e tipografia
 
-Status: **proposta, aguardando OK do Helder.** Nenhum código de produto foi alterado. Diagnóstico e capturas: [evidence/ui-polish.md](evidence/ui-polish.md). Tickets: [tickets-ui-polish/](tickets-ui-polish/README.md). Contexto de design: `PRODUCT.md` e `DESIGN.md` na raiz (não alterados). Modo da superfície: **Operate** (escaneabilidade, consistência e expectativa nativa do macOS antes de expressão).
+Status: **decisões respondidas pelo Helder em 2026-11-04; em implementação.** Diagnóstico e capturas: [evidence/ui-polish.md](evidence/ui-polish.md). Tickets: [tickets-ui-polish/](tickets-ui-polish/README.md). Contexto de design: `PRODUCT.md` e `DESIGN.md` na raiz (não alterados). Modo da superfície: **Operate** (escaneabilidade, consistência e expectativa nativa do macOS antes de expressão).
 
 ## Problema
 
@@ -168,16 +168,16 @@ Esta execução foi headless e não pôde perguntar; estas são as premissas ass
 | D1 | Lucide como único conjunto de UI | Phosphor, Tabler | já é a origem do conjunto; menor mudança de identidade |
 | D2 | C# = glifo MDI neutro; sem hexágono nem logo VS | logo oficial | marca registrada; PRODUCT.md rejeita ícone colorido |
 | D3 | Ícones de arquivo neutros (`--muted`), não coloridos por tipo | cor por linguagem (estilo Rider/Material) | PRODUCT.md: cor só para estado |
-| D4 | Play e Debug continuam verdes | neutros | convenção Rider; **pergunta ao Helder** se quer neutros |
+| D4 | Play e Debug continuam verdes | neutros | convenção Rider; **RESPONDIDO: continuam verdes** |
 | D5 | Inter embutida, não SF | SF do sistema (mais nativo) | DESIGN.md pina Inter; embutir remove a variação entre máquinas. Trocar é só `--sans` |
-| D6 | JetBrains Mono padrão do editor, ligaduras off | manter `ui-monospace`; ligaduras on | familiar ao público Rider; ligaduras off por sobriedade. **Pergunta**: ligaduras on? |
-| D7 | `lucide-react` (dependência nova) | vendorizar SVGs | atualização e tree-shaking; **exige aprovação** |
+| D6 | JetBrains Mono padrão do editor, ligaduras off | manter `ui-monospace`; ligaduras on | familiar ao público Rider; ligaduras off por sobriedade. **RESPONDIDO: ligaduras desligadas** |
+| D7 | `lucide-react` (dependência nova) | vendorizar SVGs | atualização e tree-shaking. **APROVADO** (só `lucide-react`, `@fontsource-variable/inter`, `@fontsource-variable/jetbrains-mono`, via bun) |
 | D8 | `step*` (depuração) pode usar Codicons se Lucide não servir | só Lucide | evita desenhar ícone; mistura limitada e documentada |
-| D9 | Alvo 32×32 também nas toolbars compactas da árvore | manter 22 px | PRODUCT.md (Accessibility); pode aumentar a altura do cabeçalho |
+| D9 | Alvo 32×32 também nas toolbars compactas da árvore | manter 22 px | PRODUCT.md (Accessibility); **RESPONDIDO: o cabeçalho de 52 px pode crescer** para acomodar 32×32 |
 | D10 | Valores salvos de fonte do usuário não são migrados | forçar novo default | não mexer em preferência existente |
 | D11 | Sem consultoria jurídica sobre marcas; regra conservadora (nada de logo MS) | — | não há como verificar aqui |
 
-Perguntas abertas: D4, D6, D7 e se o cabeçalho de 52 px pode crescer para acomodar D9.
+Sem perguntas abertas: D4, D6, D7 e D9 respondidas pelo Helder (2026-11-04); D1–D3, D5, D8, D10, D11 seguem como assumidas.
 
 ## Plano de verificação
 
