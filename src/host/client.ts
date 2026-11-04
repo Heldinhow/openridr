@@ -463,6 +463,7 @@ export type ToolInstall = {
   plan: InstallPlan | null;
   log: string;
   logTruncated: boolean;
+  progress: { downloaded: number; total: number | null } | null;
   exit: number | null;
   termination: null | {
     requested: string;

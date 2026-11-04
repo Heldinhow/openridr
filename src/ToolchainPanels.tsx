@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { call, HostCallError, type Snapshot } from "./host/client";
+import { ToolDownloadStatus } from "./ToolDownloadStatus";
 
 function messageOf(error: unknown) {
   return error instanceof HostCallError ? error.message : String(error);
@@ -77,8 +78,8 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
         ? "An installation is already running."
         : null;
   const canCancel = tool.state === "planned" || tool.state === "downloading";
-  const canRetry =
-    (tool.state === "failed" || tool.state === "cancelled") && tool.revision > 0;
+  // A failed install gets its retry from ToolDownloadStatus; a cancelled one keeps the header button.
+  const canRetry = tool.state === "cancelled" && tool.revision > 0;
 
   async function run(action: () => Promise<Snapshot>) {
     setBusy(true);
@@ -166,12 +167,24 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
           solution.
         </p>
       )}
-      {tool.error && (
-        <p className="error" role="alert" data-testid="install-error">
-          {tool.error}
-        </p>
-      )}
-      {tool.note && (
+      <ToolDownloadStatus
+        testId="install"
+        tool="csharp-ls"
+        state={tool.state}
+        progress={tool.progress}
+        error={tool.error}
+        note={tool.note}
+        busy={busy}
+        retryDisabledReason={
+          !trusted
+            ? "Trust the workspace before retrying an installation."
+            : !plan
+              ? "Review the install plan before retrying."
+              : null
+        }
+        onRetry={() => void run(() => call<Snapshot>("tools.retry"))}
+      />
+      {!active && tool.state !== "failed" && tool.note && (
         <p className="muted" data-testid="install-note">
           {tool.note}
         </p>

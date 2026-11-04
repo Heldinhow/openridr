@@ -186,6 +186,15 @@ fn plan_id(plan: &Plan) -> String {
     format!("fnv1a64:{hash:016x}")
 }
 
+/// Test seam, enabled only with `OPENRIDR_ENABLE_PROBE=1`: a controlled installer stands in
+/// for the SDK muxer so an E2E can observe progress, failure and retry without NuGet.org.
+fn probe_muxer() -> Option<PathBuf> {
+    if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
+        return None;
+    }
+    std::env::var_os("OPENRIDR_TOOLS_MUXER").map(PathBuf::from)
+}
+
 /// Builds the plan from the detected runtimes and SDKs. `dotnet tool install` runs on any
 /// installed SDK; the launcher is verified against the .NET 10 runtime root.
 pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
@@ -204,15 +213,17 @@ pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
             json!({ "action": { "method": "sdk.redetect", "params": {} } }),
         ));
     };
-    let muxer = install
-        .root
-        .join(if cfg!(windows) { "dotnet.exe" } else { "dotnet" });
+    let muxer = probe_muxer().unwrap_or_else(|| {
+        install
+            .root
+            .join(if cfg!(windows) { "dotnet.exe" } else { "dotnet" })
+    });
     if !muxer.is_file() {
         return Err(HostError::new(
             "sdk_missing",
             format!(
-                "The .NET SDK root {} does not contain a .NET muxer.",
-                install.root.to_string_lossy()
+                "The install command {} does not exist.",
+                muxer.to_string_lossy()
             ),
         ));
     }
@@ -269,6 +280,14 @@ fn tool_install(installs: &[Install]) -> Option<&Install> {
         .filter_map(|install| Version::parse(&install.version).map(|version| (version, install)))
         .max_by(|(left, _), (right, _)| left.cmp(right))
         .map(|(_, install)| install)
+}
+
+/// NuGet scratch lives under the app home, next to staging, so observed bytes stay local.
+fn install_temp(staging: &str) -> PathBuf {
+    Path::new(staging)
+        .parent()
+        .map(|parent| parent.join("tmp"))
+        .unwrap_or_else(|| tool_root().join("tmp"))
 }
 
 /// Cheap, non-executable inspection used by the plan. It never runs the launcher.
@@ -399,6 +418,36 @@ fn sha256_file(path: &Path) -> Option<String> {
     )
 }
 
+/// Bytes currently on disk under `root`; symlinks are not followed. Progress only ever reports
+/// what the installer actually wrote, never an estimated percentage.
+fn directory_bytes(root: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(root) else {
+        return 0;
+    };
+    let mut total = 0;
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            total += directory_bytes(&entry.path());
+        } else if kind.is_file() {
+            if let Ok(meta) = entry.metadata() {
+                total += meta.len();
+            }
+        }
+    }
+    total
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    /// Bytes observed on disk during this attempt; NuGet reports no total, so it is never invented.
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolView {
@@ -409,6 +458,7 @@ pub struct ToolView {
     pub plan: Option<Plan>,
     pub log: String,
     pub log_truncated: bool,
+    pub progress: Option<Progress>,
     pub exit: Option<i32>,
     pub termination: Option<Termination>,
     pub process_id: Option<u64>,
@@ -439,6 +489,9 @@ struct Data {
     plan: Option<Plan>,
     confirmed_plan_id: Option<String>,
     log: LogBuffer,
+    progress: Option<Progress>,
+    progress_base: u64,
+    progress_peak: u64,
     exit: Option<i32>,
     termination: Option<Termination>,
     process_id: Option<u64>,
@@ -476,6 +529,9 @@ impl Tools {
                 plan: None,
                 confirmed_plan_id: None,
                 log: LogBuffer::default(),
+                progress: None,
+                progress_base: 0,
+                progress_peak: 0,
                 exit: None,
                 termination: None,
                 process_id: None,
@@ -523,6 +579,7 @@ impl Tools {
             plan: data.plan.clone(),
             log,
             log_truncated,
+            progress: data.progress.clone(),
             exit: data.exit,
             termination: data.termination.clone(),
             process_id: data.process_id,
@@ -573,6 +630,8 @@ impl Tools {
         if data.state == "downloading" {
             return;
         }
+        // A new plan starts from a clean message state; the previous attempt's error stays in its log.
+        data.error = None;
         let same_destination = data.destination == plan.destination;
         data.destination = plan.destination.clone();
         data.staging = plan.staging.clone();
@@ -646,6 +705,9 @@ impl Tools {
             data.state = "ready";
             data.reused = true;
             data.error = None;
+            data.progress = None;
+            data.progress_base = 0;
+            data.progress_peak = 0;
             data.sha256 = existing.sha256.clone();
             data.verified_version = existing.verified_version.clone();
             data.verified_output = existing.output.clone();
@@ -691,6 +753,16 @@ impl Tools {
                 format!("Could not create the neutral install directory: {error}"),
             )
         })?;
+        // Keep NuGet's scratch files under the app home so fetched bytes are observable and never
+        // land in the user's shared temp directory.
+        let temp = install_temp(&plan.staging);
+        fs::create_dir_all(&temp).map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not create the tool install temp directory: {error}"),
+            )
+        })?;
+        let progress_base = directory_bytes(&child_home()) + directory_bytes(&temp);
 
         let mut command = Command::new(&plan.argv[0]);
         command
@@ -699,6 +771,7 @@ impl Tools {
             // Isolated HOME pins the child to NuGet's default official source and keeps all
             // writes under the app home; user feed configuration is neither read nor logged.
             .env("HOME", &home)
+            .env("TMPDIR", &temp)
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_UI_LANGUAGE", "en")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
@@ -716,6 +789,7 @@ impl Tools {
                 data.state = "failed";
                 data.confirmed_plan_id = Some(plan.plan_id.clone());
                 data.plan = Some(plan);
+                data.progress = None;
                 data.error = Some(format!("Could not start dotnet tool install: {error}"));
                 data.note = Some(format!(
                     "Nothing was installed. The staging directory {} is not ready.",
@@ -752,8 +826,11 @@ impl Tools {
         data.verified_version = None;
         data.verified_output = None;
         data.error = None;
+        data.progress = None;
+        data.progress_base = progress_base;
+        data.progress_peak = 0;
         data.note = Some(
-            "dotnet tool install is running. The source reports no percentage; download and installation are one process."
+            "dotnet tool install reports no percentage; progress is measured from bytes it writes to its isolated NuGet cache and staging."
                 .to_string(),
         );
         data.workspace_id = Some(workspace_id);
@@ -838,6 +915,23 @@ impl Tools {
         data.exit = status.exit;
         data.termination = status.termination.clone();
         data.awaiting_decision = status.awaiting_decision;
+        if state == "downloading" {
+            let staging = PathBuf::from(&data.staging);
+            let temp = install_temp(&data.staging);
+            let observed = directory_bytes(&staging)
+                + directory_bytes(&child_home())
+                + directory_bytes(&temp);
+            let downloaded = observed
+                .saturating_sub(data.progress_base)
+                .max(data.progress_peak);
+            if downloaded > 0 {
+                data.progress_peak = downloaded;
+                data.progress = Some(Progress {
+                    downloaded,
+                    total: None,
+                });
+            }
+        }
         if status.state != "exited" {
             return;
         }
@@ -847,6 +941,7 @@ impl Tools {
             "downloading" => {
                 if data.cancel_requested || data.termination.is_some() {
                     data.state = "cancelled";
+                    data.progress = None;
                     data.note = Some(format!(
                         "Installation was cancelled; {} is partial and is not ready.",
                         data.staging
@@ -858,9 +953,15 @@ impl Tools {
                     return;
                 }
                 if status.exit != Some(0) {
+                    let source = data
+                        .plan
+                        .as_ref()
+                        .map(|plan| plan.source.url)
+                        .unwrap_or(NUGET_SOURCE);
                     data.state = "failed";
+                    data.progress = None;
                     data.error = Some(format!(
-                        "dotnet tool install exited with {}; nothing was promoted.",
+                        "dotnet tool install exited with {}; nothing was promoted or reported ready. Check the network connection to {source}, then use Try again; retrying starts from a clean staging directory. The log above shows what dotnet reported.",
                         status
                             .exit
                             .map(|code| code.to_string())
@@ -890,6 +991,7 @@ impl Tools {
                 let staging = PathBuf::from(&data.staging);
                 if let Err(error) = promote(&staging, &destination) {
                     data.state = "failed";
+                    data.progress = None;
                     data.error = Some(format!(
                         "Could not promote the installed tool to {}: {error}",
                         destination.to_string_lossy()
@@ -928,6 +1030,7 @@ impl Tools {
                     ));
                     let moved = fs::rename(&destination, &failed_dir).is_ok();
                     data.state = "failed";
+                    data.progress = None;
                     data.error = Some(format!(
                         "Verification failed: {}",
                         existing
@@ -956,6 +1059,7 @@ impl Tools {
                 data.verified_version = existing.verified_version.clone();
                 data.verified_output = existing.output.clone();
                 data.error = None;
+                data.progress = None;
                 data.note = Some(
                     "Executable and version verified. This proves the tool installation, not that the language server loads a solution."
                         .to_string(),
@@ -978,6 +1082,7 @@ impl Tools {
         let mut data = self.data.lock().unwrap();
         if data.state == "planned" {
             data.state = "cancelled";
+            data.progress = None;
             data.note = Some(
                 "Installation plan cancelled; no download and no process were started."
                     .to_string(),
@@ -1007,6 +1112,7 @@ impl Tools {
             data.awaiting_decision = status.state == "running";
         }
         data.state = "cancelled";
+        data.progress = None;
         data.finished_at = Some(now_ms());
         let (note, log) = if data.awaiting_decision {
             (
@@ -1051,6 +1157,7 @@ impl Tools {
         data.sealed = true;
         data.stale_reason = Some(reason.to_string());
         data.state = "cancelled";
+        data.progress = None;
         if let Some(status) = status {
             data.exit = status.exit;
             data.termination = status.termination.clone();

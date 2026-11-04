@@ -4,12 +4,13 @@
 
 **Blocked by:** 06 (reutiliza o mesmo componente de download: progresso, retry, sha256 e registro visível) e 12 (runtime/SDK separados).
 
-**Status:** ready-for-agent
+**Status:** implementação concluída — prova no app Tauri real pendente (`verify-openridr`).
 
-- [ ] A primeira abertura de projeto C# sem análise instalada expõe o plano de instalação (mantendo a revisão explícita).
-- [ ] Confirmado o plano, o download mostra progresso observado.
-- [ ] Falha de rede mostra erro acionável e botão de tentar de novo, sem exigir reabrir o workspace.
-- [ ] Instalação parcial nunca é marcada como pronta; retry recomeça do staging limpo.
-- [ ] Instalação verificada existente é reutilizada após confirmação, sem baixar de novo.
-- [ ] O fluxo não muda para quem já tem o csharp-ls instalado.
-- [ ] Teste de host com falha de rede simulada e prova no app real de progresso/erro/retry.
+- [x] A primeira abertura de projeto C# sem análise instalada expõe o plano de instalação (mantendo a revisão explícita).
+- [x] Confirmado o plano, o download mostra progresso observado.
+- [x] Falha de rede mostra erro acionável e botão de tentar de novo, sem exigir reabrir o workspace.
+- [x] Instalação parcial nunca é marcada como pronta; retry recomeça do staging limpo.
+- [x] Instalação verificada existente é reutilizada após confirmação, sem baixar de novo.
+- [x] O fluxo não muda para quem já tem o csharp-ls instalado.
+- [x] Teste de host com falha de rede simulada.
+- [ ] Prova no app real de progresso/erro/retry.

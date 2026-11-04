@@ -2592,6 +2592,113 @@ fn tools_install_is_real_verified_and_reused() {
     assert!(destination.join("csharp-ls").is_file());
 }
 
+#[cfg(unix)]
+#[test]
+fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let probe = tempfile::tempdir().unwrap();
+    let installer = probe.path().join("probe-installer");
+    // First run writes partial bytes, then fails like an unreachable NuGet source; the retry
+    // succeeds with a fake launcher so the whole retry path reaches verified/ready.
+    fs::write(
+        &installer,
+        r#"#!/bin/sh
+staging="$OPENRIDR_HOME/tools/csharp-ls/0.28.staging"
+mkdir -p "$staging"
+dd if=/dev/zero of="$staging/partial.bin" bs=1024 count=512 2>/dev/null
+sleep 2
+if [ -f "$OPENRIDR_HOME/probe-tools-failed" ]; then
+  printf '#!/bin/sh\necho "csharp-ls, version 0.28.0 (probe)"\n' > "$staging/csharp-ls"
+  chmod +x "$staging/csharp-ls"
+  exit 0
+fi
+touch "$OPENRIDR_HOME/probe-tools-failed"
+echo "error: Unable to load the service index for source https://api.nuget.org/v3/index.json." >&2
+exit 1
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let host = Host::new();
+    let workspace = temp_workspace(&["Tools.csproj"]);
+    open(&host, &workspace.path().join("Tools.csproj"));
+    grant(&host);
+
+    let planned = tool_plan(&host);
+    assert!(planned["plan"]["argv"][0]
+        .as_str()
+        .unwrap()
+        .ends_with("probe-installer"));
+    let plan_id = planned["plan"]["planId"].as_str().unwrap().to_string();
+    host.dispatch(
+        "tools.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .unwrap();
+
+    // Observed bytes, then a failure that never reports ready.
+    let mut saw_progress = false;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let failed = loop {
+        let tool = snapshot(&host)["tools"]["csharp-ls"].clone();
+        if tool["progress"]["downloaded"].as_u64().unwrap_or(0) > 0 {
+            saw_progress = true;
+        }
+        if tool["state"] == "failed" {
+            break tool;
+        }
+        assert!(Instant::now() < deadline, "install stuck: {}", tool["log"]);
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(saw_progress, "no progress was observed: {failed}");
+    assert_eq!(failed["state"], "failed");
+    assert_eq!(failed["sha256"], Value::Null);
+    assert_eq!(failed["verifiedVersion"], Value::Null);
+    assert!(!Path::new(failed["destination"].as_str().unwrap()).exists());
+    let error = failed["error"].as_str().unwrap();
+    assert!(error.contains("Try again"), "{error}");
+    assert!(error.contains("network"), "{error}");
+    let staging = PathBuf::from(failed["staging"].as_str().unwrap());
+    assert!(staging.join("partial.bin").is_file());
+    fs::write(staging.join("leftover"), "x").unwrap();
+
+    // The retry removes the partial staging before starting again, then reaches a verified ready.
+    host.dispatch("tools.retry", json!({})).unwrap();
+    assert!(
+        !staging.join("leftover").exists(),
+        "the retry reused the partial staging directory"
+    );
+    let done = wait_tool(&host, Duration::from_secs(30));
+    assert_eq!(done["state"], "ready", "{}", done["log"]);
+    assert_eq!(done["reused"], false);
+    assert_eq!(done["verifiedVersion"], "0.28.0");
+    assert_eq!(done["sha256"].as_str().unwrap().len(), 64);
+    assert!(!staging.exists());
+
+    // A verified installation is reused after confirmation and starts no process.
+    let replanned = tool_plan(&host);
+    assert_eq!(replanned["state"], "ready");
+    let processes = snapshot(&host)["processes"].as_array().unwrap().len();
+    let reused = host
+        .dispatch(
+            "tools.install",
+            json!({ "planId": replanned["plan"]["planId"], "confirm": true }),
+        )
+        .unwrap();
+    assert_eq!(reused["tools"]["csharp-ls"]["reused"], true);
+    assert_eq!(
+        snapshot(&host)["processes"].as_array().unwrap().len(),
+        processes
+    );
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent() {
