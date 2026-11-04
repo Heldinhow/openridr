@@ -34,6 +34,8 @@ Convenção para trabalho novo: `SPEC-<tema>.md`, tickets em `tickets-<tema>/NN-
 | Abrir do Finder/Dock/terminal | [SPEC-OPEN-WITH](SPEC-OPEN-WITH.md) | [tickets-open-with/](tickets-open-with/README.md) | [RETRO-OPEN-WITH](RETRO-OPEN-WITH.md) | [evidence/03-open-with](evidence/03-open-with.md) |
 | Release alfa (DMG) | [RELEASE-ALPHA](RELEASE-ALPHA.md) | — | [RETRO-ALPHA-RELEASE](RETRO-ALPHA-RELEASE.md) | — |
 
+Proposta pendente: [PROPOSAL-NETCOREDBG-EMBED](PROPOSAL-NETCOREDBG-EMBED.md) — embutir o netcoredbg 3.2.0-1092 (~3,4 MB no DMG); SDK .NET e csharp-ls ficam fora.
+
 Numeração de tickets **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta.
 
 ## Histórico (não use como estado atual)

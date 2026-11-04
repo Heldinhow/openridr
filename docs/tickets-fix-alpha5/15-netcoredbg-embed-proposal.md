@@ -4,10 +4,10 @@
 
 **Blocked by:** 06 (o comportamento e o tamanho do instalador precisam estar estabilizados).
 
-**Status:** ready-for-agent
+**Status:** proposta concluída — decisão pendente de Helder.
 
-- [ ] Tamanho medido do artefato oficial osx-arm64 3.2.0-1092 (3.39 MB) e impacto no DMG.
-- [ ] Custo de assinatura/notarização do binário embutido e de mantê-lo atualizado.
-- [ ] Alternativas comparadas: download no primeiro Debug (atual), embutir, instalar sob demanda com bundle de ferramentas.
-- [ ] Recomendação explícita e o que ficaria fora (SDK .NET jamais embutido).
-- [ ] Nenhum código de embed; nenhuma mudança de comportamento nesta rodada.
+- [x] Tamanho medido do artefato oficial osx-arm64 3.2.0-1092 (3.39 MB) e impacto no DMG.
+- [x] Custo de assinatura/notarização do binário embutido e de mantê-lo atualizado.
+- [x] Alternativas comparadas: download no primeiro Debug (atual), embutir, instalar sob demanda com bundle de ferramentas.
+- [x] Recomendação explícita e o que ficaria fora (SDK .NET jamais embutido).
+- [x] Nenhum código de embed; nenhuma mudança de comportamento nesta rodada.

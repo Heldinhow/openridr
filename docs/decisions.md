@@ -639,3 +639,10 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Reuso não mudou.** Uma instalação verificada continua sendo executada só após a confirmação e reutilizada sem download nem processo; `reused` e o SHA-256 continuam iguais.
 - **Seam de teste.** `OPENRIDR_TOOLS_MUXER`, habilitado apenas com `OPENRIDR_ENABLE_PROBE=1`, substitui o muxer do plano por um instalador controlado; o `planId` cobre o argv, então o teste passa pelo plano/confirmação reais e não toca a rede. Em produção a variável não existe.
 - **Limite.** "Downloaded" é o que o instalador já gravou em disco, não o contador da rede; o total é desconhecido e não é inventado. O download real de ~99 MB e o reuso são cobertos pelo teste de instalação real existente; a prova no app Tauri real fica para `verify-openridr`.
+
+## 2026-11-04 — Proposta: embutir o netcoredbg
+
+- **Só proposta, sem código.** `docs/PROPOSAL-NETCOREDBG-EMBED.md` mede o asset osx-arm64 3.2.0-1092 (3.389.504 bytes; árvore extraída 9.587.448 bytes) e compara download no primeiro Debug (atual), embutir e bundle de ferramentas sob demanda.
+- **Recomendação e custo.** Embutir o osx-arm64 no bundle, reassinado com Developer ID e coberto pela notarização; o DMG cresce ~3,4 MB e o app instalado ~9,14 MiB, e toda atualização do adaptador passa a exigir release do app.
+- **Fora.** SDK .NET nunca é embutido; csharp-ls continua baixado pelo usuário e o fluxo revisável do ticket 14 não muda.
+- **Decisão pendente de Helder.** Nenhum comportamento mudou nesta rodada; o download no primeiro Debug (decisão de 2026-11-01) continua sendo o que o código faz.
