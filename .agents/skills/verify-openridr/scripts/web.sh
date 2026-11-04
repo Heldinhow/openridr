@@ -5,7 +5,8 @@
 set -eu
 
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
-state=${VERIFY_OPENRIDR_STATE:-/tmp/verify-openridr}
+tmp=${TMPDIR:-/tmp}; tmp=${tmp%/}
+state=${VERIFY_OPENRIDR_STATE:-$tmp/verify-openridr-$(id -u)}
 host_port=${VERIFY_HOST_PORT:-4417}
 ui_port=${VERIFY_UI_PORT:-1520}
 export PATH="$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"
@@ -20,7 +21,9 @@ up)
       echo "web.sh: port $port is owned by another process; refusing to double-drive it" >&2; exit 1
     fi
   done
-  rm -rf "$state"; mkdir -p "$state/home" "$state/work"
+  # Rotate instead of deleting: the previous session's logs and fixture copy stay in .prev.
+  if [ -d "$state" ]; then rm -rf "$state.prev"; mv "$state" "$state.prev"; fi
+  mkdir -p "$state/home" "$state/work"
   cp -R "$repo/fixtures/OrderDesk" "$state/work/OrderDesk"
   find "$state/work" \( -name bin -o -name obj \) -type d -prune -exec rm -rf {} +
   (cd "$repo" && cargo build -q -p openridr-host-http)
@@ -38,13 +41,28 @@ up)
     sleep 0.5
   done
   echo "ready: UI http://127.0.0.1:$ui_port  host http://127.0.0.1:$host_port"
+  echo "state $state"
   echo "solution to open: $state/work/OrderDesk/OrderDesk.sln"
   echo "app home: $state/home"
   ;;
 down)
+  bad=0
   for name in ui host; do
-    if alive "$name"; then kill "$(cat "$state/$name.pid")"; fi
+    if alive "$name"; then
+      pid=$(cat "$state/$name.pid")
+      kill "$pid" 2>/dev/null || true
+      i=0
+      while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do i=$((i + 1)); sleep 0.25; done
+      rm -f "$state/$name.pid"
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "web.sh: $name (pid $pid) is still running" >&2
+        bad=1
+      fi
+    else
+      rm -f "$state/$name.pid"
+    fi
   done
+  [ "$bad" -eq 0 ] || exit 1
   echo "stopped (state kept in $state; evidence must be copied out before removing it)"
   ;;
 status)

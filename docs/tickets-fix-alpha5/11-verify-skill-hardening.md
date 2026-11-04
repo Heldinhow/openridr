@@ -4,14 +4,14 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** implementação concluída; scripts e docs provados nesta rodada (web e app real com a cópia sob teste). Captura de acessibilidade não verificada (permissões negadas).
 
-- [ ] `desktop.sh down` confere comando e liveness do PID, espera a morte, remove o pid e falha com exit não-zero listando instâncias restantes.
-- [ ] `desktop.sh up` confere que há exatamente uma instância depois do launch.
-- [ ] Estado padrão por usuário/sessão, impresso no output, com override por env; rotação em vez de `rm -rf`.
-- [ ] `doctor.sh` aceita bundle por argumento/`OPENRIDR_APP`, valida a versão contra `package.json` e diz qual caminho validou.
-- [ ] Linha do agent-desktop imprime `granted`/`denied` limpo, sem fragmento de JSON; checa também screen recording.
-- [ ] Docs de receitas dizem que `type`/`press` exigem `--headed` após `focus-window`; helper não aplica `--headed` a clique sem necessidade.
-- [ ] `features/` corrige `debug-consent-dialog` (não existe), o "diálogo de troca" inexistente e o status antigo de PERM_DENIED.
-- [ ] `verify-openridr` aponta para a skill `test-app-agent-desktop`.
-- [ ] `doctor.sh`, `web.sh up/status/down` e `desktop.sh up/down` executados nesta rodada como prova.
+- [x] `desktop.sh down` confere comando e liveness do PID, espera a morte, remove o pid e falha com exit não-zero listando instâncias restantes.
+- [x] `desktop.sh up` confere que há exatamente uma instância depois do launch.
+- [x] Estado padrão por usuário/sessão, impresso no output, com override por env; rotação em vez de `rm -rf`.
+- [x] `doctor.sh` aceita bundle por argumento/`OPENRIDR_APP`, valida a versão contra `package.json` e diz qual caminho validou.
+- [x] Linha do agent-desktop imprime `granted`/`denied` limpo, sem fragmento de JSON; checa também screen recording.
+- [x] Docs de receitas dizem que `type`/`press` exigem `--headed` após `focus-window`; helper não aplica `--headed` a clique sem necessidade.
+- [x] `features/` corrige `debug-consent-dialog` (não existe), o "diálogo de troca" inexistente e o status antigo de PERM_DENIED.
+- [x] `verify-openridr` aponta para a skill `test-app-agent-desktop`.
+- [x] `doctor.sh`, `web.sh up/status/down` e `desktop.sh up/down` executados nesta rodada como prova.

@@ -12,7 +12,7 @@ Antes de qualquer coisa: a tela precisa estar desbloqueada, e o app que roda o a
 ## Regras de segurança
 
 - Nunca `pkill`/`killall` por nome. Use o PID que você subiu, ou `osascript -e 'tell application "<caminho do .app>" to quit'`.
-- `OPENRIDR_HOME` sempre apontando para `/tmp/...`. Nunca para `~/Library/Application Support/OpenRidr`.
+- `OPENRIDR_HOME` sempre apontando para um diretório temporário (ex.: o `<state>` impresso por `verify-openridr`). Nunca para `~/Library/Application Support/OpenRidr`.
 - Antes de qualquer `--headed` (teclado, digitação): `agent-desktop focus-window --app OpenRidr`. O `--headed` move o foco e o cursor do usuário.
 - `--force` (ex.: Cmd+Q) só em teste isolado e com dado descartável.
 - Não clique em rótulo curto ("Close", "Save"): a busca por substring pega o primeiro que bater. Use correspondência exata (ver o helper).
@@ -22,9 +22,9 @@ Antes de qualquer coisa: a tela precisa estar desbloqueada, e o app que roda o a
 1. Snapshot pequeno para achar o que interessa: `agent-desktop snapshot --app OpenRidr -i --compact` (só interativos).
 2. Snapshot completo quando precisa do **valor** de um campo ou de `statictext` (ex.: texto do editor, "Ln 3, Col 1", "modified"): `agent-desktop snapshot --app OpenRidr` (sem `-i`).
 3. Refs são `@<snapshot_id>:eN` e valem só para o snapshot que os gerou. Pegue o ref de um snapshot novo a cada ação.
-4. Ações: `click @ref`, `focus @ref`, `right-click @ref`, `type @ref "texto"`, `set-value @ref "v"`.
+4. Ações: `click @ref`, `focus @ref`, `right-click @ref`, `type @ref "texto"`, `set-value @ref "v"`. (`type` e `press` só com `HEADED=1` e `focus-window --app OpenRidr` antes — ver Falhas conhecidas.)
 
-Helper mínimo (resolve o ref por role+nome num snapshot novo e age; `HEADED=1` adiciona `--headed`):
+Helper mínimo (resolve o ref por role+nome num snapshot novo e age; `HEADED=1` adiciona `--headed` só a `type`/`press`, não a `click`/`focus`):
 
 ```python
 #!/usr/bin/env python3
@@ -33,7 +33,7 @@ Helper mínimo (resolve o ref por role+nome num snapshot novo e age; `HEADED=1` 
 import json, os, subprocess, sys
 role, name, verb = sys.argv[1], sys.argv[2], sys.argv[3]
 arg = sys.argv[4] if len(sys.argv) > 4 else None
-extra = ["--headed"] if os.environ.get("HEADED") else []
+extra = ["--headed"] if os.environ.get("HEADED") and verb in ("type", "press") else []
 run = lambda c: (lambda p: (p.stdout + p.stderr).strip())(subprocess.run(c, capture_output=True, text=True))
 if role == "-" and verb == "press":
     print(run(["agent-desktop", "press", arg, "--app", "OpenRidr"] + extra)); sys.exit(0)
