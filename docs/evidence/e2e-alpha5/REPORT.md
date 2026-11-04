@@ -302,3 +302,5 @@ Spec: [`../SPEC-FIX-ALPHA5.md`](../SPEC-FIX-ALPHA5.md). Tickets: [`../../tickets
 - **Embutir o netcoredbg** não foi implementado por decisão explícita; só a proposta medida.
 
 Itens do relatório marcados N/T (hover, rename LSP, breakpoints, Finder "Abrir com", múltiplas janelas, redimensionamento analisado) continuam fora desta rodada e não são regressão.
+
+Correções da revisão final: `d0f56c1` (caminho promovido do adaptador e proteção do nó de projeto) e `226a3aa` (erros dos listeners do shell e rechecagem antes do save).

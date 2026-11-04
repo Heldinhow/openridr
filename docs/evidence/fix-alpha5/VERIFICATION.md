@@ -164,3 +164,4 @@ Revisão: o nó de projeto não oferece mais Rename/Delete, para não quebrar o 
 - Playwright, 12 specs tocadas (workspace, medium-editor-state, solution-explorer, debugger-install-ux, debugger, open-external, evaluation, settings, trust-sdk, sdk-prerequisites, tools-install-ux, install-plan): **73 passed, exit 0** (3.5 min).
 - `sh scripts/openridr-selfcheck.sh`: ok; `doctor.sh`, `web.sh up/status/down`, `desktop.sh up/down`: ok.
 - Bundle de debug reconstruído após as correções de revisão e revalidado no app real (menu de projeto sem Rename/Delete, caminho do adaptador no destino, versão impressa pelo `desktop.sh`).
+- Correções da revisão: `d0f56c1`, `226a3aa` (erros dos listeners do shell e rechecagem antes do save).

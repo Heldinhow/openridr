@@ -35,6 +35,12 @@ Onda: 2026-11-04, branch `fix/e2e-alpha5`. Fonte: `docs/evidence/e2e-alpha5/REPO
 - **Permissão de tela é pré-requisito de evidência**, não detalhe: peça antes e registre "sem captura" se não vier.
 - **Não empacote decisão de produto em ticket de bug.** O BUG-008 virou um requisito de transparência, não um diálogo novo.
 
+## Cobertura de teste (e o que ela não prova)
+
+- Cada correção ganhou um teste de regressão no seam mais alto disponível: host para regra de host, Playwright para UI, app real para o que só o shell mostra.
+- **Nem todo teste foi observado falhando antes da correção**: a reprodução "antes" vem do relatório exploratório (com passos e evidência) e, em alguns casos, do próprio app real nesta sessão. Onde o teste vermelho era viável e barato, ele foi feito; onde não, o teste novo fixa o comportamento e a prova "antes" é a do relatório. Isso vale registrar para não vender TDD retroativo.
+- As suítes tocadas passaram no HEAD final (73 e2e + host), mas a suíte inteira do repositório não foi rodada: há falhas conhecidas fora do escopo (`find-usages`, 2 em `run-configs`, 2 em `tests`, 1 de Rust).
+
 ## Pendências do Helder
 
 1. **Embutir o netcoredbg**: proposta medida em `docs/PROPOSAL-NETCOREDBG-EMBED.md` (3.39 MB compactado, 9.14 MiB extraído, DMG ~8.6 MiB). Falta o OK; nenhum código foi feito.
