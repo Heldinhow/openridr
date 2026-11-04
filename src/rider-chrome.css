@@ -106,7 +106,7 @@
 
 .process-panel h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-label);
 }
 
 .process-panel .process-toggle:hover {
