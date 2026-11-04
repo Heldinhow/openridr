@@ -171,7 +171,8 @@ pub struct SourceHash {
 }
 
 /// Hashes the saved sources of the startup project and its referenced projects at build
-/// start. A source that cannot be read keeps `None`, which run treats as changed.
+/// start. A source that cannot be read keeps `None`; the gate compares it with the current
+/// state, so a file absent at both moments counts as unchanged.
 pub fn capture_sources(
     root: &Path,
     startup: &str,
@@ -362,13 +363,12 @@ impl Build {
     }
 
     /// Saved sources whose content no longer matches the build start, by workspace path.
+    /// A source missing then and now is unchanged; one deleted after the build still counts.
     pub fn changed_sources(&self, root: &Path) -> Vec<String> {
         let data = self.data.lock().unwrap();
         data.sources
             .iter()
-            .filter(|source| {
-                source.hash.is_none() || source.hash != hash_file(&root.join(&source.path))
-            })
+            .filter(|source| source.hash != hash_file(&root.join(&source.path)))
             .map(|source| source.path.clone())
             .collect()
     }
@@ -1214,7 +1214,7 @@ mod tests {
     }
 
     #[test]
-    fn captured_sources_cover_the_startup_and_its_references_and_detect_a_saved_edit() {
+    fn captured_sources_detect_edits_and_deletes_but_not_a_file_that_never_existed() {
         let temp = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(temp.path()).unwrap();
         fs::create_dir_all(root.join("src/Cli")).unwrap();
@@ -1233,14 +1233,22 @@ mod tests {
             path: "src/Core/Core.csproj".to_string(),
         }];
         let mut core = evaluated("Core", "src/Core/Core.csproj", "library", None);
-        core.sources = vec!["src/Core/Order.cs".to_string()];
-        let sources = capture_sources(&root, "src/Cli/Cli.csproj", &[cli, core]);
+        core.sources = vec![
+            "src/Core/Order.cs".to_string(),
+            "src/Core/Removed.cs".to_string(),
+        ];
+        let projects = [cli, core];
+        let sources = capture_sources(&root, "src/Cli/Cli.csproj", &projects);
         assert_eq!(
             sources
                 .iter()
                 .map(|source| source.path.as_str())
                 .collect::<Vec<_>>(),
-            vec!["src/Cli/Program.cs", "src/Core/Order.cs"]
+            vec![
+                "src/Cli/Program.cs",
+                "src/Core/Order.cs",
+                "src/Core/Removed.cs"
+            ]
         );
 
         let build = Build::begin(Start {
@@ -1264,9 +1272,39 @@ mod tests {
             saved_note: None,
             solution: false,
         });
+        // Removed.cs was already missing when the build started and is still missing.
         assert!(build.changed_sources(&root).is_empty());
+
         fs::write(root.join("src/Core/Order.cs"), "class Order { int Id; }\n").unwrap();
         assert_eq!(build.changed_sources(&root), vec!["src/Core/Order.cs"]);
+
+        // A source present at build start and deleted afterwards still needs the rebuild.
+        fs::remove_file(root.join("src/Core/Order.cs")).unwrap();
+        assert_eq!(build.changed_sources(&root), vec!["src/Core/Order.cs"]);
+
+        // The implicit rebuild captures the deletion as absent, so the gate releases.
+        let rebuilt = Build::begin(Start {
+            revision: 2,
+            build_id: "build:1:2".to_string(),
+            evaluation_revision: 1,
+            sources: capture_sources(&root, "src/Cli/Cli.csproj", &projects),
+            project_name: "Cli".to_string(),
+            project_path: "src/Cli/Cli.csproj".to_string(),
+            project_kind: "console",
+            target_path: Some("/work/Cli.dll".to_string()),
+            configuration: "Debug".to_string(),
+            target_framework: None,
+            command: vec!["dotnet".to_string(), "build".to_string()],
+            cwd: root.clone(),
+            sdk_root: root.clone(),
+            sdk_version: "8.0.408".to_string(),
+            workspace_id: 1,
+            context_id: 1,
+            root: root.clone(),
+            saved_note: None,
+            solution: false,
+        });
+        assert!(rebuilt.changed_sources(&root).is_empty());
     }
 
     #[test]

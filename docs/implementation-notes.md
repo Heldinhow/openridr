@@ -770,3 +770,11 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **Verificado:** `bun run build`; `cargo check --workspace --all-targets`; `cargo check` e `cargo test --manifest-path src-tauri/Cargo.toml` (2/2); `bun run check`; `tests/e2e/workspace.spec.ts` 15/15 (Chrome sobre a ponte HTTP: diálogos de aba/workspace inalterados).
 - **Não verificado:** Cmd+Q, o item Quit do menu e o diálogo `quit` no app Tauri real; Playwright/Chrome não tem shell nativo e o caminho só é provável no bundle. Fica para o passo `verify-openridr`. Dock Quit e AppleScript `quit` continuam no `terminate:` nativo (limitação em `docs/decisions.md`).
 - **Nota:** a troca do item usa a posição do Quit no `Menu::default` do Tauri 2.12.5; se o Tauri mudar a ordem, o `expect` falha no boot em vez de deixar um Quit que descarta buffers.
+
+## Debug após mudança externa — ticket 02 (2026-11-04)
+
+- **Escopo:** `docs/tickets-fix-alpha5/02-debug-source-gate.md`.
+- **Correção no gate compartilhado:** `crates/host/src/build.rs` — `changed_sources` deixou de forçar `source.hash.is_none()` como alterado. `capture_sources` continua guardando `None` para arquivo ilegível; a comparação `Option` distingue ausente-antes-e-depois (igual), presente-e-apagado (muda) e modificado (muda). Run e Debug herdam a correção; nenhuma lógica foi duplicada na UI.
+- **Teste:** o teste unitário de `capture_sources`/`changed_sources` em `build.rs` foi estendido para fonte ausente antes e depois (gate limpo), escrita depois do build (bloqueia), remoção depois do build (bloqueia) e nova captura após o rebuild implícito (gate limpo).
+- **Verificado:** `cargo test -p openridr-host --lib` 201/201; `bun run check` ok. O hook de pre-commit roda o `check`.
+- **Não verificado:** build real de um workspace após apagar um `.cs` e `debug.start` iniciando a sessão (teste de integração com dotnet) e a prova no app Tauri real; ficam para `verify-openridr`.

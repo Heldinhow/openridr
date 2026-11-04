@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** implementação concluída — prova no app Tauri real pendente (`verify-openridr`).
 
-- [ ] Um arquivo ausente antes e depois do build não conta como "alterado desde o build".
-- [ ] Um arquivo que existia no build e foi apagado depois continua disparando o rebuild implícito (proteção preservada).
-- [ ] Um arquivo modificado depois do build continua bloqueando como hoje.
-- [ ] Teste de host cobre o caso criar → build → apagar → rebuild → gate liberado.
+- [x] Um arquivo ausente antes e depois do build não conta como "alterado desde o build".
+- [x] Um arquivo que existia no build e foi apagado depois continua disparando o rebuild implícito (proteção preservada).
+- [x] Um arquivo modificado depois do build continua bloqueando como hoje.
+- [x] Teste de host cobre o caso criar → build → apagar → rebuild → gate liberado.
 - [ ] Prova no app real: build verde após delete externo → Start debugging inicia.
