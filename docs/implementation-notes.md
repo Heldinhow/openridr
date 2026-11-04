@@ -786,3 +786,11 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **Testes:** `crates/host/tests/host.rs` — round-trip CRLF/LF/misto, UTF-16LE/BE com BOM (com emoji), UTF-8 com BOM, UTF-8 sem BOM, hash igual para CRLF e LF do mesmo texto, conflito com `currentContent` normalizado, e UTF-8 inválido/UTF-16 ímpar sem tocar no arquivo. E2E `tests/e2e/medium-editor-state.spec.ts` `b16` reescreve `Program.cs` (CRLF) e `Order.cs` (UTF-16LE com BOM) no copy temporário, edita/salva pela UI e confere os bytes no disco.
 - **Verificado:** `cargo test -p openridr-host --test host -- <5 filtros>` 5/5; `bun run check` ok; `bunx playwright test tests/e2e/medium-editor-state.spec.ts -g b16` 1/1.
 - **Não verificado:** prova no app Tauri real (fica para `verify-openridr`); arquivo com `\r` isolado é normalizado para `\n` e salvo como LF (sem requisito no ticket); UTF-16 sem BOM continua não suportado.
+
+## Recarga de buffer limpo — ticket 04 (2026-11-04)
+
+- **Escopo:** `docs/tickets-fix-alpha5/04-clean-buffer-reload.md`.
+- **UI:** `src/WorkspaceView.tsx` — novo intervalo de 1,5 s relê `activePathRef.current` por `checkDisk` quando `!document.hidden`; `checkDisk` ganhou um `Set` (`checkingDisk`) que evita `file.read` sobreposto por caminho. Nenhuma regra de conflito/limpeza foi duplicada: buffer limpo adota conteúdo/hash do disco, sujo ganha `conflict`, e o `diskEpoch` continua descartando resposta velha.
+- **Teste:** `tests/e2e/workspace.spec.ts` — teste novo em cópia temporária do `OrderDesk`: escrita externa em aba limpa atualiza o editor em ≤5 s sem `focus`, mantém `Ln 3` e `editor-revision` vazio; escrita externa em aba suja abre `conflict-banner` sem substituir o texto local.
+- **Verificado:** `bun run build`; `bun run check`; `bunx playwright test tests/e2e/workspace.spec.ts -g "reloads a clean buffer"` e a suíte `workspace.spec.ts`.
+- **Não verificado:** janela oculta (`document.hidden`) não é assertada no Playwright headless — o skip é por código, não por teste; prova no app Tauri real fica para `verify-openridr`.

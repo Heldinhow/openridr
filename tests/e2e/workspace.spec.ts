@@ -435,6 +435,44 @@ test("detects external changes on focus and tab activation without replacing the
   await expect(page.getByTestId(`tab-${programTab}`).getByTestId("dirty-marker")).toBeVisible();
 });
 
+test("reloads a clean buffer and flags a dirty one on an external write without focus", async ({
+  page,
+}) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-reload-"));
+  const copy = path.join(base, "OrderDesk");
+  fs.cpSync(fixture, copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  const disk = path.join(copy, programTab);
+  try {
+    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
+    await enterTextOnly(page);
+    await page.getByTestId(`tree-file-${programTab}`).click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+    await page.bringToFront();
+    // The poll only re-reads while the window is visible; no focus event is dispatched here.
+    await page.locator(".cm-line").nth(2).click();
+    await expect(page.getByTestId("status-cursor")).toContainText("Ln 3");
+
+    fs.writeFileSync(disk, `// poll disk version\n${originalProgram}`);
+    await expect(page.getByTestId("editor")).toContainText("poll disk version", {
+      timeout: 5_000,
+    });
+    await expect(page.getByTestId("editor-revision")).toHaveText("");
+    await expect(page.getByTestId("status-cursor")).toContainText("Ln 3");
+
+    // The same poll raises the existing conflict for a dirty buffer instead of overwriting it.
+    await replaceEditorText(page, "// local dirty version\n");
+    fs.writeFileSync(disk, "// second disk version\n");
+    await expect(page.getByTestId("conflict-banner")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("editor")).toContainText("local dirty version");
+    await expect(page.getByTestId("editor")).not.toContainText("second disk version");
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("prevents beforeunload only while a buffer is dirty", async ({ page }) => {
   await openWorkspace(page, solution);
   await enterTextOnly(page);

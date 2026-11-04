@@ -506,6 +506,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const handledQuitRequest = useRef(0);
   const writing = useRef(new Set<string>());
   const diskEpoch = useRef(new Map<string, number>());
+  const checkingDisk = useRef(new Set<string>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
   const seededRunConfigsFor = useRef<number | null>(null);
@@ -1051,6 +1052,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }, []);
 
   useEffect(() => {
+    // A visible window re-reads the active file so a clean buffer never shows stale text.
+    // A hidden window relies on the focus re-read instead of polling the disk.
+    // shortcut: re-reads the whole active file every 1.5 s; add a host file.hash if this shows in profiles.
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      const path = activePathRef.current;
+      if (path) void checkDisk(path);
+    }, 1500);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!unsavedRef.current) return;
       event.preventDefault();
@@ -1436,7 +1449,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     // Proactive read. A clean buffer is replaced by the disk text; a dirty one only raises a
     // conflict and is never overwritten. A read failure is reported and the buffer stays editable.
     if (writing.current.has(path) || !tabsRef.current.some((tab) => tab.path === path)) return;
+    // One read at a time per path; the poll must not stack requests while a read is in flight.
+    if (checkingDisk.current.has(path)) return;
     const epoch = diskEpoch.current.get(path) ?? 0;
+    checkingDisk.current.add(path);
     let file: { content: string; hash: string };
     try {
       file = await call<{ content: string; hash: string }>("file.read", { path });
@@ -1446,6 +1462,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         text: `Could not re-read ${path} from disk; your buffer is unchanged. ${messageOf(error)}`,
       });
       return;
+    } finally {
+      checkingDisk.current.delete(path);
     }
     if ((diskEpoch.current.get(path) ?? 0) !== epoch) return;
     setTabs((current) =>

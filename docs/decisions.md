@@ -558,3 +558,10 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Hash de conflito sobre texto normalizado.** `expected_hash` cobre o texto LF sem BOM; por isso é o mesmo entre leitura, reload e gravação, e um arquivo que só mudou de fim de linha não gera conflito falso. O `currentContent` do conflito também é o texto LF, então diff e buffer concordam.
 - **Encoding desconhecido continua erro.** Bytes que não são UTF-8/UTF-16 válidos devolvem `operation_failed` citando o encoding; a escrita revalida o arquivo atual antes de gravar e nunca substitui o original. UTF-16 sem BOM segue não suportado (seria adivinhação).
 - **Fora de escopo.** `settings`, `global.json`, `.sln` e `.csproj` lidos pela avaliação continuam `read_to_string` UTF-8: são arquivos do app/build, não buffers do editor.
+
+## 2026-11-04 — Buffer limpo recarrega do disco
+
+- **Poll da aba ativa, sem watcher.** O `checkDisk` já trocava buffer limpo pelo texto do disco e abria conflito para buffer sujo, mas só rodava em foco, troca de aba e reabertura. Um intervalo de 1,5 s em `WorkspaceView` chama o mesmo `checkDisk` para `activePathRef`, sem tocar em `workspace.state`. A janela oculta não relê (`document.hidden`); foco e troca de aba continuam iguais.
+- **Uma leitura por caminho.** Um `Set` de leituras em andamento impede que o poll empilhe `file.read`; o `diskEpoch` existente descarta resposta atrasada de uma escrita/save mais nova.
+- **Cursor preservado.** O `CodeEditor` já reaplica linha/coluna e não cria passo de undo quando o `value` muda por recarga limpa; nenhum estado novo de cursor foi criado para o poll.
+- **Custo.** Relê o arquivo ativo inteiro a cada 1,5 s; se aparecer em perfil, o próximo passo é um `file.hash` no host (`shortcut:` no código). Sem dependência nova.
