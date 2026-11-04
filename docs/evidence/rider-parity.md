@@ -9,9 +9,9 @@ Tickets 13–16 estão adiados e não foram verificados nesta rodada.
   em 118 testes dos specs ligados aos tickets 01–12.
 - **Falhas:** as 2 de `tests/e2e/run-configs.spec.ts` estão na lista de falhas conhecidas do
   HEAD (`AGENTS.md`). Não são causadas por esta onda.
-- **App Tauri real (superfície C, agent-desktop):** não verificado nesta rodada. A permissão
-  de Acessibilidade foi concedida; a de Gravação de Tela também. Falta gerar o bundle de
-  debug para testar a versão atual (ver "Pendências").
+- **App Tauri real (superfície C, agent-desktop):** não verificado. O bundle de debug foi
+  gerado, mas uma instância de OpenRidr de outro worktree está aberta e bloqueia o
+  `desktop.sh`. Permissões de Acessibilidade e Gravação de Tela estão concedidas.
 - Nenhum ticket foi marcado como verificado no app real.
 
 ## Como foi rodado
@@ -64,14 +64,41 @@ spec pulado.
 
 Os itens "Evidência no app real" marcados como pendentes nos tickets continuam abertos.
 
+## Find Usages com csharp-ls (ticket 01)
+
+`csharp-ls` já está no home de E2E (`tools/csharp-ls`). `tests/e2e/find-usages.spec.ts`, rodado
+sozinho com o reporter `list`, em 2 execuções:
+
+- "a blocked Find Usages runs once after Start analysis": **passou** nas duas. É a prova de
+  "Start analysis" do ticket 01: o aviso mostra "Start analysis", a ação leva a `Ready` ou
+  `Partial coverage`, e a consulta pendente roda.
+- "Find Usages lists the real references of Order and opens one": **falhou nas duas**, com
+  `lsp-state` em "Partial coverage" quando o teste espera "Ready" (timeout de 90 s). Não
+  investigado. O AGENTS.md lista `find-usages` como intermitente no HEAD; aqui falhou 2 de 2,
+  então não é intermitência confirmada nesta máquina. Não comprovei se já falhava antes das
+  mudanças desta branch.
+
+O teste pulado da rodada completa era este mesmo ambiente de `csharp-ls`; ele não ficou
+pulado nesta execução separada.
+
+## Bundle de debug e app real
+
+- Build: `bun run tauri build --debug --bundles app` concluiu (exit 0). Bundle em
+  `src-tauri/target/debug/bundle/macos/OpenRidr.app`. Não foi tocado `/Applications`.
+- **Bloqueio do aceite no app real:** `pgrep -x openridr` mostra uma instância já rodando (PID
+  58909, lançada por outro worktree, `openridr-ui-polish-cc`). O `desktop.sh up` recusa iniciar
+  outra para não dirigir a instância de outra pessoa. Não encerrei esse processo. Para seguir,
+  é preciso fechar essa instância.
+- Permissões: Acessibilidade `granted`; Gravação de Tela `granted` (checado depois da concessão).
+- O bundle de `/Applications` estava em alpha.4; o `package.json` está em alpha.6. O bundle novo
+  é da versão atual do checkout.
+
 ## Pendências
 
-1. **Bundle de debug para o app real.** Falta gerar `OpenRidr.app` da versão atual. O bundle em
-   `/Applications` está em alpha.4 e o `package.json` está em alpha.6, então testar o bundle
-   instalado não provaria a versão atual. Plano: `bun run tauri build --debug --bundles app` e
-   passar o caminho ao `desktop.sh up`. Não usar `app:install`, que substitui o app instalado.
-   Aguardando confirmação do Helder.
-2. **Gravação de Tela** foi concedida depois da rodada; ainda não houve screenshot.
-3. **Identificar o teste pulado** (rodar `--list` ou o reporter `list`) e, se for `find-usages`,
-   rodar com `csharp-ls` no home de E2E para cobrir "Start analysis" do ticket 01.
-4. **Falhas de `run-configs.spec.ts`** seguem como conhecidas; não foram investigadas aqui.
+1. **Aceite no app real (agent-desktop):** bloqueado pela instância aberta (PID 58909). Depois
+   de fechá-la: `desktop.sh up src-tauri/target/debug/bundle/macos/OpenRidr.app`, depois os
+   roteiros de cada ticket. Nada disso foi executado ainda.
+2. **verify-openridr, superfície B (navegador):** não executada. A ferramenta de navegador da
+   skill não está disponível nesta sessão.
+3. **Falhas conhecidas:** `run-configs.spec.ts` (2) e `find-usages` "Partial coverage" (1)
+   seguem sem investigação aqui.
