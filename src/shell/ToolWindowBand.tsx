@@ -25,7 +25,7 @@ export function ToolWindowBand({ slot, items, actions, activeId, open }: {
             type="button"
             className={`toolband-button ${pressed ? "active" : ""}`}
             data-testid={`toolband-${item.id}`}
-            aria-label={action?.title ?? item.title}
+            aria-label={`${action?.title ?? item.title} tool window`}
             aria-pressed={pressed}
             title={action?.title ?? item.title}
             onClick={() => action?.execute()}

@@ -16,7 +16,7 @@ Abrir qualquer projeto novo (feature 1) → diálogo `Trust "<nome>"?`; depois, 
 ## Driving it
 
 - **A**: `bunx playwright test tests/e2e/trust-prompt.spec.ts` (sobe o próprio host em 4318 com `OPENRIDR_TRUST_STORE=on` e `OPENRIDR_HOME` temporário; é a prova de decisão persistida). Complementares: `status-mode`, `trust-sdk`, `welcome` (menu ⋯).
-- **B** (provado em 2026-11-03): abrir o `.sln` (feature 1) → `browser.snapshot` mostra `trust-prompt-dialog` → `browser.capture` → `browser.click` em `button[data-testid="trust-prompt-trust"]`. Estado final: `cat /tmp/verify-openridr/home/trusted.json` contém `{"/private/tmp/verify-openridr/work/OrderDesk/OrderDesk.sln": "trusted"}`; `app.state` → `workspace.mode: "trusted"`, `trust.decision: "trusted"`, `trust.granted: true`; `status-mode` = "Trusted mode".
+- **B** (provado em 2026-11-03): abrir o `.sln` (feature 1) → `browser.snapshot` mostra `trust-prompt-dialog` → `browser.capture` → `browser.click` em `button[data-testid="trust-prompt-trust"]`. Estado final: `cat <state>/home/trusted.json` (o `<state>` é impresso pelo `web.sh up`) contém `{"<state>/work/OrderDesk/OrderDesk.sln": "trusted"}`; `app.state` → `workspace.mode: "trusted"`, `trust.decision: "trusted"`, `trust.granted: true`; `status-mode` = "Trusted mode".
 - **Regra de modelo** (rodar junto quando mexer em `crates/host/src/{lib,trusted}.rs`): `cargo test -p openridr-host --test trust_model` (sequências aleatórias fixas contra um modelo de referência; invariantes I1–I6 em `docs/VERIFICACAO-FORMAL.md`) e `cargo test -p openridr-host trusted`.
 - **C**: `desktop.sh up`; o prompt deve aparecer na janela; `agent-desktop find --role button --name "Trust project"` e `click`.
 

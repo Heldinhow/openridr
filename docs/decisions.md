@@ -538,3 +538,123 @@ Consequência: a UI não chama mais `build.start` no caminho de Run (`prepareAnd
 - **Sem entitlements.** O app não tem JIT próprio, não carrega dylib de terceiro e só dá `spawn` em `dotnet`/`csharp-ls`/`netcoredbg`; o WebContent do WKWebView é assinado pela Apple. Um entitlements plist só entraria se a notarização ou o runtime exigissem, com o mínimo necessário.
 - **Notarização explícita, não a do Tauri.** Nada de `APPLE_ID`/`APPLE_PASSWORD` no ambiente (o Tauri notarizaria por conta própria e o build passaria a depender de segredo). O fluxo é `xcrun notarytool submit --keychain-profile notary --wait` no `.app` zipado, `stapler staple` no `.app`, DMG refeito com `hdiutil` (o bundler de DMG refaz o `.app` e descartaria o ticket), DMG assinado, notarizado e grampeado.
 - **Consequência para o usuário.** A primeira abertura do DMG não exige mais `xattr` nem botão direito. O `bun run app:install` local continua ad-hoc; a diferença está documentada em [release-signing.md](release-signing.md) e [install-app.md](install-app.md).
+
+## 2026-11-04 — Quit pergunta antes de fechar
+
+- **Menu Quit próprio + `ExitRequested`.** O quit predefinido do Tauri chama `terminate:` no NSApplication e nunca chega à webview que guarda os buffers. O menu padrão é mantido e só o último item do submenu do app (o Quit predefinido) vira um `MenuItem` com id `quit` e Cmd+Q que emite `openridr-quit`; `RunEvent::ExitRequested`, enquanto a janela `main` existe, chama `prevent_exit` e repete o pedido. O diálogo de saída existente ganha o caso `quit` com os mesmos três botões (Save all / Keep editing / Discard and close app); só depois da resposta a UI chama `quit_app`, que marca `QUITTING` e encerra. Sem janela, o `ExitRequested` da última janela destruída segue direto, como hoje, e o botão Close continua no `onCloseRequested` + `destroy()` sem diálogo duplicado.
+- **AppleScript e Dock ficam de fora.** `osascript -e 'quit app "OpenRidr"'`, o Quit do Dock, logout e desligamento também chegam por `terminate:` nativo, fora do menu e do `ExitRequested`. Interceptá-los exigiria implementar `applicationShouldTerminate:` no delegate do NSApp via objc/unsafe; fica registrado como limitação conhecida, não como sucesso. A prova no app real cobre Cmd+Q e o item Quit do menu.
+- **Sem dependência nova.** `core:default` já cobre os comandos e o evento; nenhum plugin ou crate foi adicionado.
+
+## 2026-11-04 — Gate de fonte ausente
+
+- **Correção.** `Build::changed_sources` compara o hash capturado no início do build com o hash atual e não trata mais `None` como "alterado" por si só. Um `SourceHash.hash` ausente significa "arquivo não legível no início"; se o arquivo continua ausente, não há mudança. Um arquivo que existia e foi apagado depois continua contando como mudança (`Some` vs `None`) e dispara o rebuild implícito; esse rebuild captura `None` e a sessão passa a iniciar. Arquivo criado depois do build também conta (`None` vs `Some`).
+- **Por quê.** A avaliação não envelhece ao apagar `.cs` (`check_external_changes` só olha projeto/imports), então o caminho apagado continuava na lista de fontes. Com a regra antiga, todo build capturava `None` para ele e o gate nunca liberava — só um Re-evaluate curava. A regra nova mantém a proteção real (edição/apagamento depois do build) sem exigir reavaliação para um arquivo que já não existe.
+- **Alcance.** A mesma função serve Run e Debug; os dois passam a aceitar o build feito depois da remoção. Os comentários de `capture_sources` e `changed_sources` foram corrigidos.
+
+## 2026-11-04 — Encoding e fim de linha preservados
+
+- **Um só par decode/encode.** `crates/host/src/fsutil.rs` ganha `decode_text` e `TextFormat::encode`: detectam BOM (UTF-8 `EF BB BF`, UTF-16LE `FF FE`, UTF-16BE `FE FF`), decodificam com `String::from_utf8`/`String::from_utf16` estritos e guardam encoding + estilo de fim de linha. `file.read` e `file.write` usam o mesmo par para conteúdo e hash; não existe segunda cópia da regra.
+- **O editor trabalha em LF.** A leitura normaliza `\r\n` e `\r` para `\n`; a escrita reaplica o estilo detectado no arquivo atual. Arquivo misto vira CRLF (a primeira ocorrência de `\r\n` define o estilo), como no `SPEC-FIX-ALPHA5`.
+- **Hash de conflito sobre texto normalizado.** `expected_hash` cobre o texto LF sem BOM; por isso é o mesmo entre leitura, reload e gravação, e um arquivo que só mudou de fim de linha não gera conflito falso. O `currentContent` do conflito também é o texto LF, então diff e buffer concordam.
+- **Encoding desconhecido continua erro.** Bytes que não são UTF-8/UTF-16 válidos devolvem `operation_failed` citando o encoding; a escrita revalida o arquivo atual antes de gravar e nunca substitui o original. UTF-16 sem BOM segue não suportado (seria adivinhação).
+- **Fora de escopo.** `settings`, `global.json`, `.sln` e `.csproj` lidos pela avaliação continuam `read_to_string` UTF-8: são arquivos do app/build, não buffers do editor.
+
+## 2026-11-04 — Árvore fresca após mudanças externas
+
+- **Diretórios de fontes no watch.** `watch_paths` passa a incluir os diretórios dos `Compile` items avaliados e os diretórios de projeto, mais subdiretórios (até 256, sem `bin`/`obj`/dotfiles). O `check_external_changes` do poll de 400 ms compara o fingerprint deles; criar, renomear ou apagar um `.cs` marca a avaliação stale. Editar o conteúdo de um arquivo existente não muda a lista de entradas e continua não invalidando o modelo — o contrato de `is_evaluation_input` não mudou.
+- **Fingerprint de diretório é a lista de entradas, não o mtime.** O save do host é atômico (arquivo temporário + rename), então o mtime do diretório mudaria a cada save de fonte. O fingerprint de diretório é a lista ordenada de `.cs` e subdiretórios; o de arquivo continua mtime + tamanho.
+- **Fingerprint antes do MSBuild.** A lista observada é capturada no início da avaliação e mesclada (`merge_watched`) com os caminhos que só o novo modelo descobriu. Um arquivo criado enquanto o MSBuild roda continua vendo a diferença no próximo poll, em vez de ser mascarado por um `stat` tardio.
+- **Reavaliação automática com debounce.** A UI reusa o efeito que já reavaliava arquivos de projeto: 500 ms, uma execução por rajada, só com a janela visível, sem buffer sujo e sem build/restore/evaluation em andamento. Falha continua no caminho existente (mensagem + banner de stale com `eval-stale-run`), sem inventar árvore.
+- **Expansão preservada.** O efeito que semeava `expandableKeys` a cada revisão passa a semear só a primeira; reavaliações mantêm o que o usuário abriu ou fechou. `selectedProjectPath` já era mantido quando o caminho ainda existe, e o arquivo ativo continua nos tabs.
+- **Limite.** O cap de 256 diretórios por workspace pode deixar de fora uma árvore maior (`shortcut:` no código); nesse caso o banner de stale continua sendo o caminho manual.
+
+## 2026-11-04 — Buffer limpo recarrega do disco
+
+- **Poll da aba ativa, sem watcher.** O `checkDisk` já trocava buffer limpo pelo texto do disco e abria conflito para buffer sujo, mas só rodava em foco, troca de aba e reabertura. Um intervalo de 1,5 s em `WorkspaceView` chama o mesmo `checkDisk` para `activePathRef`, sem tocar em `workspace.state`. A janela oculta não relê (`document.hidden`); foco e troca de aba continuam iguais.
+- **Uma leitura por caminho.** Um `Set` de leituras em andamento impede que o poll empilhe `file.read`; o `diskEpoch` existente descarta resposta atrasada de uma escrita/save mais nova.
+- **Cursor preservado.** O `CodeEditor` já reaplica linha/coluna e não cria passo de undo quando o `value` muda por recarga limpa; nenhum estado novo de cursor foi criado para o poll.
+- **Custo.** Relê o arquivo ativo inteiro a cada 1,5 s; se aparecer em perfil, o próximo passo é um `file.hash` no host (`shortcut:` no código). Sem dependência nova.
+
+## 2026-11-04 — Debug baixa sozinho com transparência
+
+- **One-click continua.** Clicar Debug segue ativando a flag experimental da sessão e instalando/reusando o netcoredbg 3.2.0-1092 sem diálogo de confirmação (a decisão de 2026-11-01 permanece). O que muda é a evidência mostrada depois do clique.
+- **Progresso observado, nunca porcentagem.** A UI reusa `debug.progress` (bytes medidos; total do `Content-Length` ou do metadata) no componente pequeno `ToolDownloadStatus`, renderizado na aba Debug enquanto baixa/extrai/verifica. É esse componente que o ticket 14 pode reutilizar para o csharp-ls; nada foi abstraído além disso.
+- **Falha acionável.** `prepareAndDebug` passa a lançar `debug.error`/`debug.note` em vez da mensagem do gate, então o toast diz o que falhou. A mesma caixa mostra o erro e um `Try again` (`debug-install-retry`) que chama `debug.retry` direto, porque a falha é do download; depois do retry o botão Debug inicia a sessão. O host continua a autoridade: `debug.retry` exige trust e o plano confirmado inalterado; um plano mudado pede nova confirmação.
+- **SHA-256 antes de executar.** O pipeline existente (hash do arquivo baixado contra o SHA-256 da release, extração segura, `--version`, só então promoção) não mudou. Os testes de divergência provam que a divergência aborta sem promoção, e o teste novo de falha de rede prova o retry sem baixar de novo.
+- **Instalado é instalado, mesmo em host novo.** `Debugger::view` inspeciona o destino uma vez por processo (mede o SHA-256, não executa) e expõe `installed`/`installedBinary`/`installedSha256`. Settings/Workspace tools mostra origem, versão aprovada (ou verificada) e o SHA-256 do executável instalado. O plano deixa de dizer "stays blocked on this platform": com o binário presente e a flag desligada, o motivo nomeia a flag de sessão e diz que não há download a fazer.
+- **Limite.** Um host recém-iniciado não roda `--version` só para pintar a tela; até a sessão iniciar, a versão é a aprovada 3.2.0-1092. O checksum exibido é o do executável em disco; o SHA-256 da release é o do arquivo baixado, checado durante a instalação.
+
+## 2026-11-04 — Mensagens de abertura e avaliação
+
+- **BUG-007 não reproduzia.** As capturas do relatório abriram a alpha.4 instalada porque `scripts/openridr` sem `OPENRIDR_APP` chama `open -a OpenRidr`; no HEAD o argv já chega à UI e mostra a mensagem. O conserto é no launcher e na prova, não em código de app novo.
+- **Launcher valida antes de abrir.** `scripts/openridr` aceita pasta ou extensão `sln`/`slnx`/`csproj` (case-insensitive) e recusa o resto com a mesma orientação da tela de pasta vazia, sem chamar `open`; a linha `openridr: opening <bundle>` nomeia o bundle efetivo (`OPENRIDR_APP` ou `OpenRidr`).
+- **Zero projetos culpa o arquivo.** Quando `workspace.kind == "solution"` e o outline tem zero projetos, a nota da árvore diz que o arquivo não lista projetos e não é uma solução válida; não fala em SDK.
+- **Fallback usa a mensagem do host.** Para os demais estados de `projectSdk` (sem `global.json`, sem `version`, JSON inválido), a nota renderiza `projectSdk.message` e acrescenta a ação de corrigir/adicionar `global.json`, em vez da frase fixa sobre o SDK 10.
+- **"Avaliação anterior" exige revision > 1.** `hasEarlierEvaluation` é a única condição; com revision 1 o estado diz "not current" e o banner diz "Nothing is current yet", inclusive em `eval-target-path`. O `reloadReason` dos menus nunca afirmou avaliação anterior e continua igual.
+
+## 2026-11-04 — Nomes acessíveis desambiguados
+
+- **Rótulo visível não é nome acessível.** As três "Run" e as duas "Save" continuam iguais na tela; `aria-label`/`aria-label` em `th` carregam o contexto. Nada de `data-testid` mudou.
+- **Toolband e toolbar.** O botão do toolband vira "Run tool window" (sufixo em todos os tool windows, não só Run); a toolbar vira "Run startup project". O keymap usa "`título — grupo`" e cai no id quando o grupo é igual ao título (`run.start`), porque o grupo visível não muda.
+- **Settings e arquivo.** `settings-save` = "Save settings"; `save-file` = "Save file". O texto "Saving…" continua visível durante a gravação.
+- **Menu da árvore.** `EditorContextMenu` ganhou `label` opcional; só o alvo `project` passa "Project context menu". Root continua "Solution context menu" e editor continua "Editor context menu" — file/dir não foram renomeados nesta rodada.
+
+## 2026-11-04 — Operações de arquivo na árvore
+
+- **Três métodos e um resolvedor.** `file.create` (`path`, `content` opcional), `file.rename` (`from`/`to`) e `file.delete` (`path`) usam `resolve_path_in_workspace`; só o pai é canonicalizado, então o último componente pode ser um symlink e a operação renomeia/apaga o link, nunca o alvo. `must_exist` separa a origem existente do destino novo. `file.read`/`file.write` continuam no resolvedor antigo, que exige arquivo existente e segue symlinks dentro do workspace.
+- **Confinamento explícito.** Qualquer componente `..` é recusado antes de canonicalizar; pai ausente ou que não é pasta devolve `not_found`; pai canônico fora do workspace (inclusive via symlink) devolve `outside_workspace`; a raiz do workspace não pode ser renomeada/apagada. Criar ou renomear sobre um caminho existente devolve `already_exists` e nunca sobrescreve; mover uma pasta para dentro dela mesma devolve `path_not_allowed`.
+- **Apagar é permanente, com confirmação.** Não há Trash nem dependência nova: `file.delete` usa `remove_file`/`remove_dir_all` (pasta com conteúdo). A UI mostra o caminho, avisa que não pode ser desfeito e só chama o host depois do clique em Delete; Cancel fecha sem efeito.
+- **Stale sem avaliar nem buildar.** `mark_inputs_stale` reusa `is_evaluation_input` (a mesma lista do save) e, para pasta renomeada/apagada, marca como entrada de avaliação mesmo sem extensão conhecida. O motivo contém "changed on disk" para a reavaliação automática do ticket 05 rodar; a operação em si nunca executa MSBuild, restore ou build. Criar/renomear/apagar `.cs` não marca stale no host: o watch de diretórios do ticket 05 faz isso no poll seguinte.
+- **UI sem estado novo de buffer.** Itens `New File…`/`Rename…`/`Delete` no menu de projeto e de arquivo/pasta; um diálogo de nome (criar/renomear) e um de confirmação de delete, ambos com erro do host. Nome digitado não pode conter `/` nem `\`; o projeto usa a pasta do `.csproj` para criar e o próprio `.csproj` para renomear/apagar. Aba aberta do caminho antigo é preservada; salvar depois usa o erro existente de arquivo ausente/conflito.
+
+## 2026-11-04 — Instância única
+
+- **Dependência aprovada.** `tauri-plugin-single-instance` 2.5.5 entra em `src-tauri` e é registrado como o primeiro plugin do builder; é o único caminho novo, sem socket próprio.
+- **Segunda execução encaminha, não abre janela.** O plugin encerra o segundo processo e entrega `argv`/`cwd` ao primeiro; o callback foca a janela `main` e chama o mesmo `offer_open` do argv de inicialização, então o `.sln` passa pelo fluxo normal de `workspace.open` e pelo guard de buffer sujo da UI.
+- **Caminho relativo é resolvido na origem.** Um argv relativo é unido ao `cwd` da segunda execução antes de ser encaminhado, porque o primeiro processo tem outro `cwd`; o caminho de inicialização usa o mesmo helper.
+- **Escopo do lock é o identificador.** No macOS o plugin usa `/tmp/<identifier>_si.sock`, então a instância única vale para o identificador do bundle, não por `OPENRIDR_HOME`; duas cópias com homes diferentes não rodam ao mesmo tempo. `open -a`/Finder continuam no caminho LaunchServices de hoje; quando já existe instância, o evento chega por `RunEvent::Opened`.
+
+## 2026-11-04 — Runtime das ferramentas x SDK do projeto
+
+- **A análise exige runtime, não SDK.** `sdk::AnalysisRuntime` (antes `HostSdk`) é escolhido de `dotnet --list-runtimes`: `Microsoft.NETCore.App` 10.x estável, maior versão entre as raízes. O `sdk.host.version` do snapshot passa a ser essa versão de runtime; `sdk.host.sdkPath` fica nulo porque raiz de runtime não tem `sdk/`. A cópia/links do card são do ticket 13.
+- **Descoberta por raízes reais.** `discover_roots` cobre `DOTNET_ROOT`, `/usr/local/share/dotnet`, `/opt/homebrew/opt/dotnet` e seu `libexec`, `~/.dotnet`, cada SDK gerenciado no app home e **todas** as entradas do PATH. Cada candidato é resolvido pelo muxer (`canonicalize` do arquivo) e deduplicado pela raiz canônica; a primeira fonte vence (PATH repetido ou symlink não viram raízes extras).
+- **Root composto separa as origens.** Muxer, `host/fxr/10.x` e `shared/Microsoft.NETCore.App/10.x` vêm da raiz do runtime 10; `sdk/<versão do projeto>`, `packs`, `metadata`, `sdk-manifests` e `templates` continuam vindo da raiz do SDK do projeto. `check_versions` passa a recusar qualquer SDK listado além do fixado, em vez de comparar com um "SDK host".
+- **Instalar ≠ executar.** O plano do csharp-ls roda `dotnet tool install` com o maior SDK detectado (qualquer versão, inclusive o 8 do projeto); `dotnet_root` do plano e a verificação `--version` apontam para a raiz do runtime 10. Sem SDK nenhum o plano falha separado de "falta runtime"; sem runtime 10 o plano nem é produzido.
+- **SDK do projeto intacto.** `global.json`/TargetFramework, `rollForward`, versão resolvida e `sdkRoot` absoluto não mudaram; os gates de evaluation/restore/build/run/test continuam exigindo `project_sdk.state == "resolved"`.
+- **Limite.** Windows e macOS Intel seguem não executados; a prova de uma raiz só-runtime usa raízes falsas nos testes (`describe`/descoberta), enquanto a análise real desta máquina usa a raiz de runtime detectada.
+
+## 2026-11-04 — Pedido de pré-requisito por projeto
+
+- **Runtime ≠ SDK na tela.** Card, banner de boas-vindas, Settings e status bar chamam `sdk.host` de "Analysis runtime"/".NET 10 runtime"; o link e a mensagem vêm do host (`/download/dotnet/10.0`). Nenhum texto manda instalar SDK 10 para analisar.
+- **SDK do projeto cita a origem.** `sdk.project.globalJsonPath` + `requestedVersion` viram `global.json requests <versão>`; sem `global.json`/versão, a UI diz que o `TargetFramework` declarado decide e não resolve um SDK por conta própria. O link é o `instructionsUrl` do host (página de SDKs).
+- **A UI não recalcula regra.** Estados, versões, mensagens e URLs vêm do snapshot (`sdk.host`, `sdk.project`); a única composição local é juntar a origem à versão para exibição. Gates de restore/build/run/debug/test/analysis perdem o "host SDK is never substituted".
+- **Ajuda sem ambiente.** O texto do runtime manda instalar pela página e usar Redetect SDKs, sem `DOTNET_ROOT`, cópia manual de arquivo ou edição de projeto.
+- **Prova.** `tests/e2e/sdk-prerequisites.spec.ts`: OrderDesk 8.0.408 + runtime 10 sem banner; MissingSdk cita 8.0.999 e o link do SDK; runtime ausente (snapshot sobreposto, porque a máquina tem runtime real) mostra ".NET 10 runtime" e `/download/dotnet/10.0`.
+
+## 2026-11-04 — Download do csharp-ls com progresso e retry
+
+- **Plano revisável intacto.** A única via de instalação continua `dotnet tool install --tool-path <staging>` depois de `tools.plan` + `tools.install { confirm: true }`; nada de instalação global, e a limitação de assinatura do NuGet continua no plano e no log.
+- **Progresso é byte observado, nunca porcentagem.** `dotnet tool install` não informa total nem percentual. O host mede os bytes que o instalador escreveu no staging, no HOME isolado (cache NuGet) e no `TMPDIR` próprio do app (scratch do NuGet) e expõe `tools["csharp-ls"].progress = { downloaded, total: null }`; a UI reusa `ToolDownloadStatus` do ticket 06, sem fork. O pico por tentativa é monotônico e cada tentativa desconta o que já existia antes dela.
+- **Falha não vira pronto.** Exit diferente de 0 mantém `state: "failed"`, não promove o staging e não preenche `sha256`/`verifiedVersion`; o erro nomeia a fonte, manda verificar a rede, explica que o retry recomeça de staging limpo e aponta o log. A tentativa seguinte remove o staging antes de iniciar; a promoção/verificação continua sendo a única porta para `ready`.
+- **Reuso não mudou.** Uma instalação verificada continua sendo executada só após a confirmação e reutilizada sem download nem processo; `reused` e o SHA-256 continuam iguais.
+- **Seam de teste.** `OPENRIDR_TOOLS_MUXER`, habilitado apenas com `OPENRIDR_ENABLE_PROBE=1`, substitui o muxer do plano por um instalador controlado; o `planId` cobre o argv, então o teste passa pelo plano/confirmação reais e não toca a rede. Em produção a variável não existe.
+- **Limite.** "Downloaded" é o que o instalador já gravou em disco, não o contador da rede; o total é desconhecido e não é inventado. O download real de ~99 MB e o reuso são cobertos pelo teste de instalação real existente; a prova no app Tauri real fica para `verify-openridr`.
+
+## 2026-11-04 — Proposta: embutir o netcoredbg
+
+- **Só proposta, sem código.** `docs/PROPOSAL-NETCOREDBG-EMBED.md` mede o asset osx-arm64 3.2.0-1092 (3.389.504 bytes; árvore extraída 9.587.448 bytes) e compara download no primeiro Debug (atual), embutir e bundle de ferramentas sob demanda.
+- **Recomendação e custo.** Embutir o osx-arm64 no bundle, reassinado com Developer ID e coberto pela notarização; o DMG cresce ~3,4 MB e o app instalado ~9,14 MiB, e toda atualização do adaptador passa a exigir release do app.
+- **Fora.** SDK .NET nunca é embutido; csharp-ls continua baixado pelo usuário e o fluxo revisável do ticket 14 não muda.
+- **Decisão pendente de Helder.** Nenhum comportamento mudou nesta rodada; o download no primeiro Debug (decisão de 2026-11-01) continua sendo o que o código faz.
+
+## 2026-11-04 — netcoredbg embutido
+
+- **Pin versionado e verificado no build.** `vendor/netcoredbg/netcoredbg-osx-arm64-3.2.0-1092.zip` (3.389.504 bytes, SHA-256 `f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea`) entra no repositório. `scripts/vendor-netcoredbg.sh` compara o hash e falha o build quando diverge; a extração para `src-tauri/resources/netcoredbg/` é gerada e não versionada (só o `.entitlements` é rastreado).
+- **Assinatura e notarização.** O script reassina `libdbgshim.dylib` e `netcoredbg` com `APPLE_SIGNING_IDENTITY` quando presente (Developer ID + hardened runtime + timestamp) e ad-hoc `-` no build local. O binário aninhado entra na assinatura/notarização do app; o `bundle.resources` copia a árvore para `Contents/Resources/netcoredbg/` e o `THIRD-PARTY-NOTICES.md` para `Contents/Resources`.
+- **Entitlements mínimos, com prova.** Sem entitlements o adaptador hardened assinado falha ao iniciar o debuggee (timeout/`configurationDone` 0x80004005). Só `disable-library-validation` falha no `configurationDone`; só `allow-jit` morre (SIGSEGV). Com **`com.apple.security.cs.allow-jit` + `com.apple.security.cs.disable-library-validation`** uma sessão DAP real imprimiu a saída do debuggee. Nada além disso foi adicionado.
+- **Só osx-arm64.** A resolução embutida existe apenas em macOS arm64; Windows, Intel e Linux seguem sem bundle e sem asset substituto. `OPENRIDR_BUNDLED_NETCOREDBG` é override de diretório para testes, nunca usado pelo app.
+- **Bundle primeiro; tools como fallback.** `<exe>/../Resources/netcoredbg/netcoredbg` vence uma instalação antiga em `<app home>/tools/netcoredbg/3.2.0-1092`; `tauri dev` sem resources usa o fallback. O host continua verificando `--version` (3.2.0) antes de qualquer lançamento.
+- **Sem download no Debug.** Com o adaptador embutido, `view()` reporta `bundled: true`, estado `ready` (após a flag experimental), versão e SHA-256 do executável; a UI mostra "Bundled with OpenRidr" e esconde plano/progresso/retry. `debug.install` e `debug.retry` recusam com `invalid_state` ("netcoredbg is bundled with OpenRidr; there is nothing to download or install."); o pipeline de download antigo fica como caminho morto guardado.
+- **Licença.** `THIRD-PARTY-NOTICES.md` traz MIT do netcoredbg 3.2.0-1092 e dos componentes Roslyn/dbgshim/.NET, com bytes e SHA-256 do zip; `vendor/netcoredbg/LICENSE` preserva o texto upstream.
+- **csharp-ls intacto.** Plano revisável, download, progresso, retry e o runtime .NET 10 da análise não mudaram.
+- **Limite.** A prova no app Tauri real foi feita com home vazia (sem `tools/`) e com o DMG montado somente leitura; a medição real ficou em 5.671.389 → 10.454.440 bytes (DMG) e 14,68 → 23,85 MiB (app). Quarentena/translocation real e macOS Intel continuam não verificados. Ver `docs/evidence/embed-netcoredbg.md`.

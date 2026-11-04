@@ -120,6 +120,27 @@ pub fn destination() -> PathBuf {
     tool_root().join(VERSION)
 }
 
+/// Test-only override for the bundled adapter directory, using the same layout as
+/// `Contents/Resources/netcoredbg`. Never set by the app itself.
+pub const BUNDLED_OVERRIDE: &str = "OPENRIDR_BUNDLED_NETCOREDBG";
+
+fn bundled_root() -> Option<PathBuf> {
+    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return None;
+    }
+    if let Some(value) = std::env::var_os(BUNDLED_OVERRIDE) {
+        return Some(PathBuf::from(value));
+    }
+    // Contents/MacOS/openridr -> Contents/Resources/netcoredbg
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.parent()?.parent()?.join("Resources/netcoredbg"))
+}
+
+/// The adapter shipped inside the app bundle, if this ARM64 macOS build has one.
+pub fn bundled_binary() -> Option<PathBuf> {
+    find_executable(&bundled_root()?, binary_name("osx-arm64"))
+}
+
 pub fn staging() -> PathBuf {
     tool_root().join(format!("{VERSION}.staging"))
 }
@@ -537,8 +558,14 @@ pub fn plan(os: &str, arch: &str, experimental: bool) -> Plan {
     plan
 }
 
-/// The verified executable at the destination, wherever the archive placed it.
+/// The verified executable at the destination, wherever the archive placed it. A bundled
+/// adapter wins over an older per-user install.
 fn existing_binary(platform: &str) -> Option<PathBuf> {
+    if platform == "osx-arm64" {
+        if let Some(bundled) = bundled_binary() {
+            return Some(bundled);
+        }
+    }
     find_executable(&destination(), binary_name(platform))
 }
 
@@ -546,12 +573,13 @@ fn existing_binary(platform: &str) -> Option<PathBuf> {
 fn inspect_existing(platform: &str) -> Existing {
     let found = existing_binary(platform);
     let present = found.is_some();
+    let sha256 = found.as_ref().and_then(|binary| sha256_file(binary));
     let binary = found.unwrap_or_else(|| destination().join(binary_name(platform)));
     Existing {
         state: if present { "present" } else { "absent" },
         binary: binary.to_string_lossy().to_string(),
         verified_version: None,
-        sha256: None,
+        sha256,
         reason: Some(if present {
             "A netcoredbg executable already exists. Confirming reuses it only when --version verifies 3.2.0; otherwise a verified staging install replaces it."
                 .to_string()
@@ -635,6 +663,15 @@ fn verify_binary(binary: &Path) -> Existing {
     }
 }
 
+/// The Debug installer is retired for builds that ship the adapter; both entry points and the
+/// pipeline use this single refusal.
+pub fn bundled_refusal() -> HostError {
+    HostError::new(
+        "invalid_state",
+        "netcoredbg is bundled with OpenRidr; there is nothing to download or install.",
+    )
+}
+
 /// A verified adapter executable, the only thing that may be spawned for a DAP session.
 #[derive(Debug, Clone)]
 pub struct ReadyAdapter {
@@ -654,11 +691,16 @@ pub fn ready_adapter(os: &str, arch: &str, experimental: bool) -> HostResult<Rea
             format!("Debug was not started: {}", gate.message),
         ));
     }
-    let Some(binary) = existing_binary(&platform) else {
+    let bundled = if platform == "osx-arm64" {
+        bundled_binary()
+    } else {
+        None
+    };
+    let Some(binary) = bundled.clone().or_else(|| existing_binary(&platform)) else {
         return Err(HostError::with_details(
             "tool_missing",
             format!(
-                "Debug was not started: netcoredbg {VERSION} is not installed at {}.",
+                "Debug was not started: netcoredbg {VERSION} is not installed at {} and is not bundled with this app.",
                 destination().to_string_lossy()
             ),
             json!({ "action": { "method": "debug.plan", "params": {} } }),
@@ -666,16 +708,25 @@ pub fn ready_adapter(os: &str, arch: &str, experimental: bool) -> HostResult<Rea
     };
     let verified = verify_binary(&binary);
     if verified.state != "ready" {
+        let origin = if bundled.is_some() {
+            "the bundled netcoredbg"
+        } else {
+            "the installed netcoredbg"
+        };
         return Err(HostError::with_details(
             "tool_missing",
             format!(
-                "Debug was not started: the installed netcoredbg did not verify as {VERSION} ({}).",
+                "Debug was not started: {origin} did not verify as {VERSION} ({}).",
                 verified
                     .reason
                     .clone()
                     .unwrap_or_else(|| "no verified version".to_string())
             ),
-            json!({ "action": { "method": "debug.plan", "params": {} } }),
+            if bundled.is_some() {
+                json!({ "bundled": true })
+            } else {
+                json!({ "action": { "method": "debug.plan", "params": {} } })
+            },
         ));
     }
     Ok(ReadyAdapter {
@@ -698,6 +749,8 @@ pub struct Progress {
 #[serde(rename_all = "camelCase")]
 pub struct View {
     pub adapter_state: &'static str,
+    /// The adapter comes from `Contents/Resources/netcoredbg`, not a per-user download.
+    pub bundled: bool,
     pub adapter_message: String,
     pub apple_silicon_experimental: bool,
     pub version: &'static str,
@@ -734,6 +787,10 @@ pub struct View {
     pub stale_reason: Option<String>,
     pub staging_present: bool,
     pub destination_present: bool,
+    /// A netcoredbg executable exists at the destination, whether or not this session installed it.
+    pub installed: bool,
+    pub installed_binary: Option<String>,
+    pub installed_sha256: Option<String>,
     /// A worker thread is still winding down after a cancel or failure.
     pub busy: bool,
 }
@@ -760,6 +817,9 @@ struct Data {
     finished_at: Option<u64>,
     sealed: bool,
     stale_reason: Option<String>,
+    /// What the disk showed the last time it was inspected; `probed` keeps the 400 ms poll cheap.
+    installed: Option<Existing>,
+    probed: bool,
     /// A worker thread is still running (download/extract/verify), even after a cancel request.
     active: bool,
 }
@@ -794,6 +854,8 @@ impl Debugger {
                 finished_at: None,
                 sealed: false,
                 stale_reason: None,
+                installed: None,
+                probed: false,
                 active: false,
             }),
             cancel: AtomicBool::new(false),
@@ -802,7 +864,7 @@ impl Debugger {
 
     /// Full state for the snapshot. `experimental` is the session-scoped opt-in.
     pub fn view(&self, experimental: bool) -> View {
-        let data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap();
         let (os, arch) = (
             std::env::consts::OS.to_string(),
             std::env::consts::ARCH.to_string(),
@@ -810,13 +872,33 @@ impl Debugger {
         let forced = forced_platform();
         let (os, arch) = forced.clone().unwrap_or((os, arch));
         let platform = platform_key(&os, &arch).to_string();
+        // A fresh host has not inspected the disk: an adapter left by a previous run is still
+        // installed. Hashing once per process keeps the 400 ms snapshot poll cheap.
+        if !data.probed && data.revision == 0 {
+            data.probed = true;
+            data.installed = Some(inspect_existing(&platform));
+        }
         let controlled = controlled_asset();
         let gate = gate(&os, &arch, experimental, controlled.is_some());
+        let bundled = if platform == "osx-arm64" {
+            bundled_binary()
+        } else {
+            None
+        };
+        // `inspect_existing` hashes once per process; reuse it instead of hashing on every
+        // 400 ms snapshot.
+        let bundled_sha = bundled.as_ref().and_then(|binary| {
+            data.installed
+                .as_ref()
+                .filter(|existing| existing.binary == binary.to_string_lossy())
+                .and_then(|existing| existing.sha256.clone())
+                .or_else(|| sha256_file(binary))
+        });
         let asset = asset_view(&platform, controlled.as_ref());
         let install_state = data.state;
         // `adapterMessage` always describes the platform/adapter availability; the operation
         // detail lives in `note`, `error` and `log`.
-        let (state, message) = if matches!(
+        let (mut state, mut message) = if matches!(
             install_state,
             "not_checked" | "unavailable" | "experimental_disabled"
         ) {
@@ -824,6 +906,36 @@ impl Debugger {
         } else {
             (install_state, gate.message.clone())
         };
+        if let Some(binary) = &bundled {
+            if gate.installable {
+                state = "ready";
+                message = format!(
+                    "Bundled with OpenRidr: netcoredbg {VERSION} at {}{}. No download or install is needed; the session verifies --version before launching.",
+                    binary.display(),
+                    bundled_sha
+                        .as_ref()
+                        .map(|sha| format!(" · SHA-256 {sha}"))
+                        .unwrap_or_default()
+                );
+            } else {
+                message.push_str(&format!(
+                    " netcoredbg {VERSION} is bundled with OpenRidr at {}; the experimental opt-in is what still blocks Debug.",
+                    binary.display()
+                ));
+            }
+        }
+        let installed = data
+            .installed
+            .as_ref()
+            .filter(|existing| matches!(existing.state, "present" | "ready"));
+        if state != "ready" && bundled.is_none() {
+            if let Some(existing) = installed {
+                message.push_str(&format!(
+                    " An executable is already installed at {}; a session verifies --version before launching it.",
+                    existing.binary
+                ));
+            }
+        }
         let (log, log_truncated) = data.log.text();
         let gate_reason = if state == "ready" {
             Some(
@@ -839,6 +951,7 @@ impl Debugger {
             .unwrap_or("absent");
         View {
             adapter_state: state,
+            bundled: bundled.is_some(),
             adapter_message: message,
             apple_silicon_experimental: experimental,
             version: VERSION,
@@ -866,7 +979,7 @@ impl Debugger {
                         "The {VERSION} release publishes no asset for {os}/{arch}."
                     ))
                 }),
-            installable: gate.installable,
+            installable: gate.installable && bundled.is_none(),
             gate_reason,
             dap_proven: false,
             destination: data.destination.clone(),
@@ -874,8 +987,12 @@ impl Debugger {
             plan: data.plan.clone(),
             log,
             log_truncated,
-            progress: data.progress.clone(),
-            sha256: data.sha256.clone(),
+            progress: if bundled.is_some() {
+                None
+            } else {
+                data.progress.clone()
+            },
+            sha256: bundled_sha.clone().or_else(|| data.sha256.clone()),
             verified_version: data.verified_version.clone(),
             verified_output: data.verified_output.clone(),
             error: data.error.clone(),
@@ -898,6 +1015,13 @@ impl Debugger {
             stale_reason: data.stale_reason.clone(),
             staging_present: Path::new(&data.staging).is_dir(),
             destination_present: Path::new(&data.destination).is_dir(),
+            installed: bundled.is_some() || installed.is_some(),
+            installed_binary: bundled
+                .as_ref()
+                .map(|binary| binary.to_string_lossy().to_string())
+                .or_else(|| installed.map(|existing| existing.binary.clone())),
+            installed_sha256: bundled_sha
+                .or_else(|| installed.and_then(|existing| existing.sha256.clone())),
             busy: data.active,
         }
     }
@@ -911,7 +1035,9 @@ impl Debugger {
         data.destination = plan.destination.clone();
         data.staging = plan.staging.clone();
         data.platform = plan.platform.clone();
-        let on_disk = existing_binary(&plan.platform).and_then(|binary| sha256_file(&binary));
+        data.installed = Some(plan.existing.clone());
+        data.probed = true;
+        let on_disk = plan.existing.sha256.clone();
         let still_installed = data.state == "ready"
             && match (&data.sha256, &on_disk) {
                 (Some(known), Some(found)) => known == found,
@@ -929,9 +1055,33 @@ impl Debugger {
         data.progress = None;
         data.finished_at = None;
         data.note = Some(match &plan.blocked_reason {
-            Some(_) => "The plan is read-only and stays blocked on this platform; see the adapter reason and the plan's blocked field."
-                .to_string(),
+            Some(_) if plan.blocked_code == Some("experimental_required") => {
+                if plan.existing.state == "present" {
+                    format!(
+                        "The plan is read-only: an executable is already installed at {}; enabling the session-scoped experimental flag is what still blocks Debug, and the session then verifies --version before launching. No download is needed.",
+                        plan.existing.binary
+                    )
+                } else {
+                    "The plan is read-only; the session-scoped experimental flag still blocks installation and Debug. See the adapter reason and the plan's blocked field; nothing was downloaded."
+                        .to_string()
+                }
+            }
+            Some(_) => {
+                if plan.existing.state == "present" {
+                    format!(
+                        "The plan is read-only; an executable is already installed at {}. The platform gate in the adapter reason still blocks installation and Debug; nothing was downloaded.",
+                        plan.existing.binary
+                    )
+                } else {
+                    "The plan is read-only; the platform gate in the adapter reason and the plan's blocked field still blocks installation and Debug. Nothing was downloaded."
+                        .to_string()
+                }
+            }
             None if still_installed => "The verified installation remains ready; confirming the plan reuses it without downloading or overwriting.".to_string(),
+            None if plan.existing.state == "present" => format!(
+                "The plan did not download or execute anything. Confirming verifies the executable already installed at {} and reuses it without downloading; it installs only when that verification fails.",
+                plan.existing.binary
+            ),
             None => "The plan did not download or execute anything. Confirming downloads the official asset, verifies its hash and only then promotes it."
                 .to_string(),
         });
@@ -961,6 +1111,9 @@ impl Debugger {
         workspace_id: u64,
         context_id: u64,
     ) -> HostResult<Value> {
+        if bundled_binary().is_some() {
+            return Err(bundled_refusal());
+        }
         if let Some(reason) = &plan.blocked_reason {
             return Err(HostError::with_details(
                 plan.blocked_code.unwrap_or("unsupported_platform"),
@@ -1000,6 +1153,7 @@ impl Debugger {
             data.sha256 = existing.sha256.clone();
             data.verified_version = existing.verified_version.clone();
             data.verified_output = existing.reason.clone();
+            data.installed = Some(existing.clone());
             data.reused = true;
             data.error = None;
             data.workspace_id = Some(workspace_id);
@@ -1153,11 +1307,24 @@ impl Debugger {
             self.fail(&format!("Could not promote the verified tool: {error}"));
             return;
         }
+        // Promotion renamed the staging tree, so the verified path no longer exists; the
+        // recorded binary must come from the destination.
+        let Some(binary) =
+            find_executable(Path::new(&plan.destination), binary_name(&plan.platform))
+        else {
+            self.fail(
+                "The verified executable is missing after promotion; the destination is not ready.",
+            );
+            return;
+        };
+        let mut installed = verified.clone();
+        installed.binary = binary.to_string_lossy().to_string();
         let mut data = self.data.lock().unwrap();
         data.state = "ready";
-        data.sha256 = verified.sha256.clone();
-        data.verified_version = verified.verified_version.clone();
-        data.verified_output = verified.reason.clone();
+        data.sha256 = installed.sha256.clone();
+        data.verified_version = installed.verified_version.clone();
+        data.verified_output = installed.reason.clone();
+        data.installed = Some(installed.clone());
         data.progress = None;
         data.error = None;
         data.note = Some(
@@ -1165,11 +1332,11 @@ impl Debugger {
                 .to_string(),
         );
         data.finished_at = Some(now_ms());
-        if let Some(output) = &verified.reason {
-            data.log.push(format!("$ {} --version", verified.binary));
+        if let Some(output) = &installed.reason {
+            data.log.push(format!("$ {} --version", installed.binary));
             data.log.push(output.clone());
         }
-        if let Some(sha) = &verified.sha256 {
+        if let Some(sha) = &installed.sha256 {
             data.log.push(format!("executable sha256 {sha}"));
         }
         data.log.push(
@@ -1601,6 +1768,47 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+
+    static BUNDLE_ENV: Mutex<()> = Mutex::new(());
+
+    struct EnvScope {
+        key: &'static str,
+        old: Option<OsString>,
+    }
+
+    impl EnvScope {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let old = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, old }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let old = std::env::var_os(key);
+            std::env::remove_var(key);
+            Self { key, old }
+        }
+    }
+
+    impl Drop for EnvScope {
+        fn drop(&mut self) {
+            match &self.old {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn fake_adapter(dir: &Path, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(dir).unwrap();
+        let path = dir.join("netcoredbg");
+        fs::write(&path, body).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
 
     #[test]
     fn plan_lists_only_the_assets_published_by_the_official_release() {
@@ -1738,5 +1946,50 @@ mod tests {
                 .all(|part| matches!(part, Component::Normal(_) | Component::CurDir));
             assert!(!safe, "{name}");
         }
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
+    #[test]
+    fn bundled_resolution_prefers_the_override_and_falls_back_to_tools() {
+        let _guard = BUNDLE_ENV.lock().unwrap_or_else(|error| error.into_inner());
+        let bundle = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _bundle = EnvScope::set(BUNDLED_OVERRIDE, bundle.path());
+        let _home = EnvScope::set("OPENRIDR_HOME", home.path());
+        let _probe = EnvScope::remove("OPENRIDR_ENABLE_PROBE");
+
+        assert_eq!(bundled_binary(), None);
+        assert_eq!(existing_binary("osx-arm64"), None);
+        let bundled = fake_adapter(bundle.path(), "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n");
+        assert_eq!(bundled_binary(), Some(bundled.clone()));
+        assert_eq!(existing_binary("osx-arm64"), Some(bundled.clone()));
+
+        let installed = fake_adapter(&destination(), "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n");
+        assert_eq!(existing_binary("osx-arm64"), Some(bundled));
+        drop(_bundle);
+        let _no_bundle = EnvScope::remove(BUNDLED_OVERRIDE);
+        assert_eq!(existing_binary("osx-arm64"), Some(installed));
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
+    #[test]
+    fn ready_adapter_verifies_the_bundled_binary_before_launch() {
+        let _guard = BUNDLE_ENV.lock().unwrap_or_else(|error| error.into_inner());
+        let bundle = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let binary = fake_adapter(bundle.path(), "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n");
+        let _bundle = EnvScope::set(BUNDLED_OVERRIDE, bundle.path());
+        let _home = EnvScope::set("OPENRIDR_HOME", home.path());
+        let _probe = EnvScope::remove("OPENRIDR_ENABLE_PROBE");
+
+        let ready = ready_adapter("macos", "aarch64", true).unwrap();
+        assert_eq!(ready.binary, binary);
+        assert_eq!(ready.platform, "osx-arm64");
+        assert_eq!(ready.version, "3.2.0");
+
+        fs::write(&binary, "#!/bin/sh\nprintf 'NET Core debugger 3.1.1-1000\\n'\n").unwrap();
+        let refused = ready_adapter("macos", "aarch64", true).unwrap_err();
+        assert_eq!(refused.code, "tool_missing");
+        assert!(refused.message.contains("bundled netcoredbg did not verify"));
     }
 }

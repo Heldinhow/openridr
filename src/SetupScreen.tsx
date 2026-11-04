@@ -94,7 +94,7 @@ export function SetupScreen({
             recent={recent}
             busy={busy}
             rowErrors={rowErrors}
-            hostSdkMissing={snapshot?.sdk.host.state === "missing"}
+            runtimeMissing={snapshot?.sdk.host.state === "missing"}
             awaitingProcesses={(snapshot?.processes ?? []).filter((process) => process.awaitingDecision).length}
             onOpen={(path) => void open(path, path)}
             onPick={() => void pick()}

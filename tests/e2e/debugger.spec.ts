@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { revisionOf, settleRestore } from "./automatic";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -197,6 +198,66 @@ test("macOS arm64 requires the experimental flag and shows the real asset", asyn
   );
   await expect(page.getByTestId("toolbar-run")).toBeVisible();
   await expect(page.getByTestId("lsp-panel")).toBeVisible();
+});
+
+test("an installed adapter is reported and the plan names the session flag, not the platform", async ({
+  page,
+  request,
+}) => {
+  fs.rmSync(debugToolDir, { recursive: true, force: true });
+  await openWorkspace(page);
+  const firstPlan = await hostCall(request, "debug.plan");
+  expect(firstPlan.ok).toBe(true);
+  if (firstPlan.data.debug.platform !== "osx-arm64") {
+    test.skip(true, "the flag-off blocked plan is specific to macOS arm64");
+  }
+
+  // Seed the adapter location a previous session would have left behind. It is not executed:
+  // the plan and the tools row only inspect the disk.
+  const destination = path.join(debugToolDir, "3.2.0-1092");
+  fs.mkdirSync(destination, { recursive: true });
+  const binary = path.join(destination, "netcoredbg");
+  fs.writeFileSync(binary, "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1 (seeded E2E artifact)\\n'\n");
+  fs.chmodSync(binary, 0o755);
+  const checksum = crypto.createHash("sha256").update(fs.readFileSync(binary)).digest("hex");
+  const planned = await hostCall(request, "debug.plan");
+  expect(planned.ok, JSON.stringify(planned.error)).toBe(true);
+
+  // The setup screen does not poll; reviewing the plan refreshes the snapshot with the seeded
+  // adapter and the rebuilt plan.
+  await reveal(page.getByTestId("debug-plan-open"));
+  await page.getByTestId("debug-plan-open").click();
+  await expect(page.getByTestId("debug-plan")).toHaveAttribute("open", "");
+
+  // The tools row records origin, version and the measured executable checksum.
+  await reveal(page.getByTestId("debug-installed-adapter"));
+  await expect(page.getByTestId("debug-installed-adapter")).toBeVisible();
+  await expect(page.getByTestId("debug-installed-origin")).toContainText("Samsung/netcoredbg");
+  await expect(page.getByTestId("debug-installed-origin")).toContainText(
+    "https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092",
+  );
+  await expect(page.getByTestId("debug-installed-version")).toContainText("3.2.0-1092");
+  await expect(page.getByTestId("debug-installed-checksum")).toContainText(checksum);
+  await expect(page.getByTestId("debug-installed-binary")).toContainText(binary);
+
+  // The flag is still off, but the plan says the adapter is installed and names the flag as the
+  // remaining gate instead of claiming the platform blocks it.
+  await expect(page.getByTestId("debug-state")).toHaveText("Experimental · disabled");
+  await expect(page.getByTestId("debug-message")).toContainText("already installed");
+  await expect(page.getByTestId("debug-note")).toContainText("already installed");
+  await expect(page.getByTestId("debug-note")).not.toContainText("stays blocked");
+  await expect(page.getByTestId("debug-flag-note")).toContainText("session-scoped");
+  await expect(page.getByTestId("debug-plan-existing")).toContainText("A destination exists");
+  await page.screenshot({
+    path: path.join(screenshots, "13-debugger-installed.png"),
+    fullPage: true,
+  });
+  fs.writeFileSync(
+    path.join(logs, "13-debugger-installed.json"),
+    JSON.stringify({ plan: planned.data.debug.plan, checksum }, null, 2),
+  );
+
+  fs.rmSync(debugToolDir, { recursive: true, force: true });
 });
 
 test("host gates consent, trust and plan identity before any download", async ({ request }) => {

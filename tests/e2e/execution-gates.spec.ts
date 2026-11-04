@@ -51,7 +51,7 @@ test("a fully prepared workspace has no gate", () => {
 
 test("Build gates name their reason", () => {
   expect(buildDisabledReason(context({ trusted: false }))).toBe("Trust the workspace before building; nothing runs in Restricted mode.");
-  expect(buildDisabledReason(context({ sdk: "missing" }))).toBe("Resolve the project SDK before building; the host SDK is never substituted.");
+  expect(buildDisabledReason(context({ sdk: "missing" }))).toBe("Resolve the project SDK before building.");
   expect(buildDisabledReason(context({ evaluation: { state: "running" } }))).toBe("Wait for the evaluation to finish before building.");
   expect(buildDisabledReason(context({ evaluation: { stale: true } }))).toBe("The evaluated project model is stale; re-evaluate before building.");
   expect(buildDisabledReason(context({ evaluation: { state: "idle" } }))).toBe("Evaluate the project model before building; the build uses its TargetPath.");
@@ -69,7 +69,7 @@ test("Build gates name their reason", () => {
 
 test("Run gates name their reason and do not require a saved build", () => {
   expect(run(context({ trusted: false }))).toBe("Trust the workspace before running; nothing runs in Restricted mode.");
-  expect(run(context({ sdk: "missing" }))).toBe("Resolve the project SDK before running; the host SDK is never substituted.");
+  expect(run(context({ sdk: "missing" }))).toBe("Resolve the project SDK before running.");
   expect(run(context({ evaluation: { state: "running" } }))).toBe("Wait for the evaluation to finish before running.");
   expect(run(context({ evaluation: { stale: true } }))).toBe("The evaluated project model is stale; re-evaluate before running.");
   expect(run(context({ evaluation: { state: "idle" } }))).toBe("Evaluate the project model before running; Run needs its evaluated TargetPath.");
@@ -102,7 +102,7 @@ test("Debug gates name their reason and do not require a saved build", () => {
   expect(debugDisabledReason(context({ debug: { adapterState: "absent", adapterMessage: "missing launcher" } }))).toBeNull();
   expect(debugDisabledReason(context({ debug: { appleSiliconExperimental: false } }))).toBeNull();
   expect(debugDisabledReason(context({ debug: { appleSiliconExperimental: false, arch: "x64" } }))).toBeNull();
-  expect(debugDisabledReason(context({ sdk: "missing" }))).toBe("Resolve the project SDK before debugging; the host SDK is never substituted.");
+  expect(debugDisabledReason(context({ sdk: "missing" }))).toBe("Resolve the project SDK before debugging.");
   expect(debugDisabledReason(context({ evaluation: { state: "running" } }))).toBe("Wait for the evaluation to finish before debugging.");
   expect(debugDisabledReason(context({ evaluation: { stale: true } }))).toBe("The evaluated project model is stale; re-evaluate before debugging.");
   expect(debugDisabledReason(context({ evaluation: { state: "idle" } }))).toBe("Evaluate the project model before debugging; Debug needs its managed assembly.");

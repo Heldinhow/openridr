@@ -318,7 +318,7 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
         snap = await call<Snapshot>("debug.flag", { enabled: true, confirm: true });
         onSnapshot(snap);
       }
-      if (snap.debug.adapterState !== "ready") {
+      if (snap.debug.adapterState !== "ready" && !snap.debug.bundled) {
         // Reuses the verified executable when present; downloads the approved release otherwise.
         const planned = await call<Snapshot>("debug.plan");
         snap = await call<Snapshot>("debug.install", { planId: planned.debug.plan?.planId, confirm: true });
@@ -327,7 +327,14 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
           snap = await waitForHost((s) => !["downloading", "installing", "verifying"].includes(s.debug.adapterState));
         }
       }
-      if (snap.debug.adapterState !== "ready") throw new Error(snap.debug.gateReason ?? snap.debug.adapterMessage);
+      if (snap.debug.adapterState !== "ready") {
+        throw new Error(
+          snap.debug.error ??
+            snap.debug.note ??
+            snap.debug.gateReason ??
+            snap.debug.adapterMessage,
+        );
+      }
       onSnapshot(await call<Snapshot>("debug.start", debugStartParams(requested)));
       setMessage(null);
     } catch (error) {

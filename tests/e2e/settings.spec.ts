@@ -97,8 +97,18 @@ test("Settings opens from the bar and ⌘,, searches by name and explains the mi
     "Action", "Group / shortcut", "Actions",
   ]);
   await expect(page.getByTestId("keymap-row-run.start").getByRole("rowheader")).toHaveText("Run");
-  await expect(page.getByTestId("keymap-row-run.start").getByRole("button", { name: "Change shortcut for Run" })).toBeVisible();
-  await expect(page.getByTestId("keymap-row-run.start").getByRole("button", { name: "Reset shortcut for Run" })).toBeDisabled();
+  await expect(page.getByTestId("keymap-row-run.start").getByRole("rowheader")).toHaveAccessibleName(
+    "Run — run.start",
+  );
+  await expect(page.getByTestId("keymap-row-toolWindow.run").getByRole("rowheader")).toHaveAccessibleName(
+    "Run — Tool Windows",
+  );
+  await expect(page.getByTestId("keymap-row-run.start").getByRole("button", { name: "Change shortcut for Run — run.start" })).toBeVisible();
+  await expect(page.getByTestId("keymap-row-run.start").getByRole("button", { name: "Reset shortcut for Run — run.start" })).toBeDisabled();
+  // The toolbar, the tool band and the keymap all say "Run" visually; names stay distinct.
+  await expect(page.getByTestId("toolbar-run")).toHaveAccessibleName("Run startup project");
+  await expect(page.getByTestId("toolband-run")).toHaveAccessibleName("Run tool window");
+  await expect(page.getByTestId("settings-save")).toHaveAccessibleName("Save settings");
   if (process.env.OPENRIDR_SETTINGS_SCREENSHOT) {
     await page.screenshot({ path: process.env.OPENRIDR_SETTINGS_SCREENSHOT });
   }
@@ -132,6 +142,7 @@ test("editor font, size and indentation apply live, reflect in the status bar an
   await page.goto("/");
   await openTextOnly(page);
   await page.getByTestId(`tree-file-${programTab}`).click();
+  await expect(page.getByTestId("save-file")).toHaveAccessibleName("Save file");
   await openSettings(page);
   await selectPage(page, "editor");
 
@@ -274,7 +285,7 @@ test("Build lists detected SDKs with Redetect and Version Control shows the git 
   await openSettings(page);
   await selectPage(page, "build");
 
-  await expect(page.getByTestId("settings-sdk-list")).toContainText("Host SDK");
+  await expect(page.getByTestId("settings-sdk-list")).toContainText("Analysis runtime");
   await expect(page.getByTestId("settings-sdk-list")).toContainText("Project SDK");
   await expect(page.getByTestId("settings-analysis-host")).not.toBeEmpty();
   await expect(page.getByTestId("settings-host-root")).toBeAttached();

@@ -107,6 +107,35 @@ test("b14: a clean buffer reloads from disk and a dirty one keeps the conflict",
   await expect(page.getByTestId("editor")).not.toContainText("second-disk-version");
 });
 
+test("b16: saving preserves CRLF and UTF-16 encodings", async ({ page }) => {
+  const { copy, solution } = tempCopy("Order Desk encodings");
+  const crlfFile = path.join(copy, program);
+  const utf16File = path.join(copy, order);
+  fs.writeFileSync(crlfFile, "// crlf one\r\n// crlf two\r\n");
+  fs.writeFileSync(
+    utf16File,
+    Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from("// utf16 one\r\n// utf16 two\r\n", "utf16le"),
+    ]),
+  );
+  await openWorkspace(page, solution, false);
+
+  await replaceProgram(page, "// crlf saved\n");
+  expect(fs.readFileSync(crlfFile, "utf8")).toBe("// crlf saved\r\n");
+
+  await page.getByTestId(`tree-file-${order}`).click();
+  await expect(page.getByTestId("editor")).toContainText("// utf16 one");
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("// utf16 saved\n");
+  await page.keyboard.press("Meta+S");
+  await expect(page.getByTestId("app-log")).toContainText(`Saved ${order}`);
+  const saved = fs.readFileSync(utf16File);
+  expect([...saved.subarray(0, 2)]).toEqual([0xff, 0xfe]);
+  expect(saved.subarray(2).toString("utf16le")).toBe("// utf16 saved\r\n");
+});
+
 test("b15: small windows leave the editor visible and do not overflow", async ({ page }) => {
   const { solution } = tempCopy("Order Desk small");
   for (const viewport of [
@@ -163,10 +192,11 @@ test("b13: a missing project SDK says what to install and offers actions", async
   await page.getByTestId("workspace-tools-toggle").click();
 
   const reason = page.getByTestId("eval-disabled-reason");
-  await expect(reason).toContainText("8.0.999");
+  await expect(reason).toContainText("global.json requests 8.0.999");
   await expect(reason).toContainText("never installs");
+  await expect(reason).not.toContainText("SDK 10");
   const download = page.getByTestId("eval-sdk-download");
-  await expect(download).toHaveAttribute("href", /dotnet\.microsoft\.com/);
+  await expect(download).toHaveAttribute("href", "https://dotnet.microsoft.com/download/dotnet");
   await expect(page.getByTestId("eval-open-global-json")).toBeVisible();
 
   await page.getByTestId("eval-redetect").click();

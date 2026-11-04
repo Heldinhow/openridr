@@ -21,10 +21,13 @@ type Props = {
   compact?: boolean;
   testId?: string;
   itemPrefix?: string;
+  /** Accessible name when "Solution context menu" would be wrong; visible labels stay put. */
+  label?: string;
 };
 
 export function EditorContextMenu({
   x, y, items, onClose, compact = false, testId = "editor-context-menu", itemPrefix = "context-menu",
+  label,
 }: Props) {
   const menu = useRef<HTMLDivElement>(null);
   const [openSub, setOpenSub] = useState<string | null>(null);
@@ -124,7 +127,7 @@ export function EditorContextMenu({
       ref={menu}
       className={`editor-context-menu${items.some((item) => item.children) ? " has-submenu" : ""}`}
       role="menu"
-      aria-label={compact ? "Solution context menu" : "Editor context menu"}
+      aria-label={label ?? (compact ? "Solution context menu" : "Editor context menu")}
       data-testid={testId}
       tabIndex={-1}
       style={{

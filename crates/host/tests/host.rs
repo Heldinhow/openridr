@@ -264,6 +264,235 @@ fn save_reports_conflict_instead_of_overwriting_disk() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "my buffer\n");
 }
 
+fn utf16_bytes(text: &str, little_endian: bool) -> Vec<u8> {
+    let mut bytes = if little_endian {
+        vec![0xFF, 0xFE]
+    } else {
+        vec![0xFE, 0xFF]
+    };
+    for unit in text.encode_utf16() {
+        bytes.extend(if little_endian {
+            unit.to_le_bytes()
+        } else {
+            unit.to_be_bytes()
+        });
+    }
+    bytes
+}
+
+fn read_file(host: &Host, path: &str) -> Value {
+    host.dispatch("file.read", json!({ "path": path }))
+        .expect("file reads")
+}
+
+#[test]
+fn save_preserves_crlf_lf_and_mixed_line_endings() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let crlf = workspace.path().join("Crlf.cs");
+    let lf = workspace.path().join("Lf.cs");
+    let mixed = workspace.path().join("Mixed.cs");
+    fs::write(&crlf, "one\r\ntwo\r\n").unwrap();
+    fs::write(&lf, "one\ntwo\n").unwrap();
+    fs::write(&mixed, "one\r\ntwo\nthree\n").unwrap();
+
+    let read = read_file(&host, "Crlf.cs");
+    assert_eq!(read["content"], "one\ntwo\n");
+    let saved = host
+        .dispatch(
+            "file.write",
+            json!({
+                "path": "Crlf.cs",
+                "content": "one\ntwo\nthree\n",
+                "expected_hash": read["hash"]
+            }),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&crlf).unwrap(), b"one\r\ntwo\r\nthree\r\n");
+    assert_eq!(read_file(&host, "Crlf.cs")["hash"], saved["hash"]);
+
+    let read = read_file(&host, "Lf.cs");
+    assert_eq!(read["content"], "one\ntwo\n");
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "Lf.cs",
+            "content": "one\ntwo\nthree\n",
+            "expected_hash": read["hash"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(fs::read(&lf).unwrap(), b"one\ntwo\nthree\n");
+
+    // A mixed file keeps CRLF because the first CRLF found defines the style.
+    let read = read_file(&host, "Mixed.cs");
+    assert_eq!(read["content"], "one\ntwo\nthree\n");
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "Mixed.cs",
+            "content": "one\ntwo\nthree\nfour\n",
+            "expected_hash": read["hash"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(&mixed).unwrap(),
+        b"one\r\ntwo\r\nthree\r\nfour\r\n"
+    );
+}
+
+#[test]
+fn save_preserves_utf16_and_utf8_bom_encodings() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let text = "olá 🌎\r\nfim\r\n";
+    fs::write(workspace.path().join("Le.cs"), utf16_bytes(text, true)).unwrap();
+    fs::write(workspace.path().join("Be.cs"), utf16_bytes(text, false)).unwrap();
+    fs::write(
+        workspace.path().join("Bom.cs"),
+        [&[0xEF, 0xBB, 0xBF][..], b"a\r\nb\r\n"].concat(),
+    )
+    .unwrap();
+    fs::write(workspace.path().join("Plain.cs"), "a\nb\n").unwrap();
+
+    for (name, little_endian) in [("Le.cs", true), ("Be.cs", false)] {
+        let read = read_file(&host, name);
+        assert_eq!(read["content"], "olá 🌎\nfim\n");
+        let saved = host
+            .dispatch(
+                "file.write",
+                json!({
+                    "path": name,
+                    "content": "olá 🌎\nfim\nagain\n",
+                    "expected_hash": read["hash"]
+                }),
+            )
+            .unwrap();
+        let bytes = fs::read(workspace.path().join(name)).unwrap();
+        let bom = if little_endian {
+            [0xFF, 0xFE]
+        } else {
+            [0xFE, 0xFF]
+        };
+        assert_eq!(bytes[..2], bom);
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| {
+                if little_endian {
+                    u16::from_le_bytes([pair[0], pair[1]])
+                } else {
+                    u16::from_be_bytes([pair[0], pair[1]])
+                }
+            })
+            .collect();
+        assert_eq!(
+            String::from_utf16(&units).unwrap(),
+            "olá 🌎\r\nfim\r\nagain\r\n"
+        );
+        assert_eq!(read_file(&host, name)["hash"], saved["hash"]);
+    }
+
+    let read = read_file(&host, "Bom.cs");
+    assert_eq!(read["content"], "a\nb\n");
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "Bom.cs",
+            "content": "a\nb\nc\n",
+            "expected_hash": read["hash"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(workspace.path().join("Bom.cs")).unwrap(),
+        [&[0xEF, 0xBB, 0xBF][..], b"a\r\nb\r\nc\r\n"].concat()
+    );
+
+    // A plain UTF-8 file must not gain a BOM.
+    let read = read_file(&host, "Plain.cs");
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": "Plain.cs",
+            "content": "x\ny\n",
+            "expected_hash": read["hash"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(fs::read(workspace.path().join("Plain.cs")).unwrap(), b"x\ny\n");
+}
+
+#[test]
+fn conflict_hash_is_over_normalized_text() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let file = workspace.path().join("App.cs");
+    fs::write(&file, "one\r\ntwo\r\n").unwrap();
+    fs::write(workspace.path().join("Other.cs"), "one\ntwo\n").unwrap();
+
+    let crlf = read_file(&host, "App.cs");
+    let lf = read_file(&host, "Other.cs");
+    assert_eq!(crlf["hash"], lf["hash"]);
+
+    fs::write(&file, "one\r\ntwo\nthree\r\n").unwrap();
+    let current = read_file(&host, "App.cs");
+    let conflict = host
+        .dispatch(
+            "file.write",
+            json!({
+                "path": "App.cs",
+                "content": "my buffer\n",
+                "expected_hash": crlf["hash"]
+            }),
+        )
+        .expect_err("stale expected hash conflicts");
+    assert_eq!(conflict.code, "conflict");
+    let details = conflict.details.unwrap();
+    assert_eq!(details["currentContent"], "one\ntwo\nthree\n");
+    assert_eq!(details["currentHash"], current["hash"]);
+    assert_eq!(fs::read(&file).unwrap(), b"one\r\ntwo\nthree\r\n");
+}
+
+#[test]
+fn invalid_encodings_are_clear_errors_and_never_write() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let bad_utf8 = workspace.path().join("Bad.cs");
+    let bad_utf16 = workspace.path().join("Odd.cs");
+    fs::write(&bad_utf8, [0xC3, 0x28]).unwrap();
+    fs::write(&bad_utf16, [0xFF, 0xFE, 0x41]).unwrap();
+
+    let error = host
+        .dispatch("file.read", json!({ "path": "Bad.cs" }))
+        .expect_err("invalid UTF-8 fails");
+    assert_eq!(error.code, "operation_failed");
+    assert!(error.message.contains("UTF-8"), "{}", error.message);
+
+    let error = host
+        .dispatch(
+            "file.write",
+            json!({
+                "path": "Bad.cs",
+                "content": "x\n",
+                "expected_hash": "fnv1a64:0000000000000000"
+            }),
+        )
+        .expect_err("invalid UTF-8 fails before writing");
+    assert_eq!(error.code, "operation_failed");
+    assert_eq!(fs::read(&bad_utf8).unwrap(), [0xC3, 0x28]);
+
+    let error = host
+        .dispatch("file.read", json!({ "path": "Odd.cs" }))
+        .expect_err("odd UTF-16LE fails");
+    assert_eq!(error.code, "operation_failed");
+    assert!(error.message.contains("UTF-16LE"), "{}", error.message);
+}
+
 #[test]
 fn executable_methods_fail_before_trust_and_spawn_nothing() {
     let host = Host::new();
@@ -564,20 +793,18 @@ fn a_late_result_from_an_older_workspace_or_context_is_discarded() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks() {
-    // The fixture pins 8.0.408 and the host SDK is 10.x; any detected root may hold them (no machine-specific paths).
+fn sdk_inventory_reads_the_real_roots_and_reports_a_runtime_and_the_project_sdk() {
+    // The fixture pins 8.0.408; analysis needs the .NET 10 runtime, not an SDK 10. Any detected root may hold them (no machine-specific paths).
     let inventory = sdk::inventory();
     let versions: Vec<&str> = inventory
         .installs
         .iter()
         .map(|install| install.version.as_str())
         .collect();
-    for expected in ["10.0.100", "8.0.408"] {
-        assert!(
-            versions.contains(&expected),
-            "expected SDK {expected} in the real inventory, found {versions:?}"
-        );
-    }
+    assert!(
+        versions.contains(&"8.0.408"),
+        "expected SDK 8.0.408 in the real inventory, found {versions:?}"
+    );
     assert!(inventory
         .roots
         .iter()
@@ -587,13 +814,17 @@ fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks
         .iter()
         .all(|root| root.exit == Some(0) && root.error.is_none()));
 
-    let host_sdk = sdk::HostSdk::from_inventory(&inventory.installs);
-    assert_eq!(host_sdk.state, "found");
-    assert_eq!(host_sdk.version.as_deref(), Some("10.0.100"));
+    let runtime = sdk::AnalysisRuntime::from_runtimes(&inventory.runtimes);
+    assert_eq!(runtime.state, "found");
+    let runtime_version = runtime.version.as_deref().expect("runtime version");
+    assert!(runtime_version.starts_with("10."), "{runtime_version}");
 
     let host = Host::new();
     let opened = open(&host, &fixture());
-    assert_eq!(opened["sdk"]["host"]["version"], "10.0.100");
+    assert_eq!(
+        opened["sdk"]["host"]["version"].as_str(),
+        Some(runtime_version)
+    );
     assert_eq!(opened["sdk"]["project"]["state"], "not_inspected");
     assert_eq!(opened["sdk"]["project"]["requestedVersion"], "8.0.408");
     assert_eq!(opened["sdk"]["project"]["rollForward"], "disable");
@@ -607,8 +838,11 @@ fn sdk_inventory_reads_the_real_roots_and_reports_separate_host_and_project_sdks
     let project_root = trusted["sdk"]["project"]["root"].as_str().unwrap();
     assert!(Path::new(project_root).is_absolute(), "{project_root}");
     assert!(Path::new(project_root).join("sdk/8.0.408").is_dir(), "{project_root}");
-    // Host and project SDKs may live in one root (e.g. ~/.dotnet); the contract is the separate versions below.
-    assert_eq!(trusted["sdk"]["host"]["version"], "10.0.100");
+    // The runtime may live in any detected root; the contract is the resolved version below.
+    assert_eq!(
+        trusted["sdk"]["host"]["version"].as_str(),
+        Some(runtime_version)
+    );
 }
 
 #[cfg(target_os = "macos")]
@@ -1154,6 +1388,198 @@ fn revoking_trust_while_msbuild_runs_drops_the_late_result() {
     );
 }
 
+#[test]
+fn file_operations_create_rename_and_delete_inside_the_workspace() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+
+    let created = host
+        .dispatch(
+            "file.create",
+            json!({ "path": "Extra.cs", "content": "class Extra {}\n" }),
+        )
+        .unwrap();
+    assert_eq!(created["path"], "Extra.cs");
+    assert_eq!(
+        fs::read_to_string(workspace.path().join("Extra.cs")).unwrap(),
+        "class Extra {}\n"
+    );
+
+    // A second create never overwrites the existing file.
+    assert_eq!(
+        error_code(host.dispatch("file.create", json!({ "path": "Extra.cs" }))),
+        "already_exists"
+    );
+    assert_eq!(
+        fs::read_to_string(workspace.path().join("Extra.cs")).unwrap(),
+        "class Extra {}\n"
+    );
+
+    let renamed = host
+        .dispatch(
+            "file.rename",
+            json!({ "from": "Extra.cs", "to": "Renamed.cs" }),
+        )
+        .unwrap();
+    assert_eq!(renamed["from"], "Extra.cs");
+    assert_eq!(renamed["to"], "Renamed.cs");
+    assert!(!workspace.path().join("Extra.cs").exists());
+    assert_eq!(
+        fs::read_to_string(workspace.path().join("Renamed.cs")).unwrap(),
+        "class Extra {}\n"
+    );
+
+    // Folders move with their contents and delete recursively.
+    fs::create_dir(workspace.path().join("Folder")).unwrap();
+    host.dispatch("file.create", json!({ "path": "Folder/Inside.cs" }))
+        .unwrap();
+    let moved = host
+        .dispatch("file.rename", json!({ "from": "Folder", "to": "Moved" }))
+        .unwrap();
+    assert_eq!(moved["to"], "Moved");
+    assert!(workspace.path().join("Moved/Inside.cs").is_file());
+    let deleted_folder = host
+        .dispatch("file.delete", json!({ "path": "Moved" }))
+        .unwrap();
+    assert_eq!(deleted_folder["directory"], true);
+    assert!(!workspace.path().join("Moved").exists());
+
+    host.dispatch("file.delete", json!({ "path": "Renamed.cs" }))
+        .unwrap();
+    assert!(!workspace.path().join("Renamed.cs").exists());
+}
+
+#[test]
+fn file_operations_refuse_traversal_missing_parents_and_the_workspace_root() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["App.csproj"]);
+    open(&host, &workspace.path().join("App.csproj"));
+    let outside = tempfile::tempdir().unwrap();
+    let outside_file = outside.path().join("Elsewhere.cs");
+    let absolute_outside = outside_file.to_string_lossy().to_string();
+
+    for (method, params, expected) in [
+        (
+            "file.create",
+            json!({ "path": "../Escape.cs" }),
+            "outside_workspace",
+        ),
+        (
+            "file.create",
+            json!({ "path": absolute_outside.clone() }),
+            "outside_workspace",
+        ),
+        (
+            "file.create",
+            json!({ "path": "Missing/Extra.cs" }),
+            "not_found",
+        ),
+        (
+            "file.rename",
+            json!({ "from": "../App.cs", "to": "Moved.cs" }),
+            "outside_workspace",
+        ),
+        (
+            "file.rename",
+            json!({ "from": "App.cs", "to": "Missing/Moved.cs" }),
+            "not_found",
+        ),
+        (
+            "file.delete",
+            json!({ "path": "../App.cs" }),
+            "outside_workspace",
+        ),
+        (
+            "file.delete",
+            json!({ "path": absolute_outside.clone() }),
+            "outside_workspace",
+        ),
+        ("file.delete", json!({ "path": "Missing.cs" }), "not_found"),
+        ("file.delete", json!({ "path": "" }), "path_not_allowed"),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch(method, params)),
+            expected,
+            "{method} did not refuse the path"
+        );
+    }
+
+    assert!(!workspace.path().join("../Escape.cs").exists());
+    assert!(!outside_file.exists());
+    assert!(workspace.path().join("App.cs").is_file());
+
+    // Renaming over an existing path is refused instead of replacing it.
+    fs::write(workspace.path().join("Target.cs"), "target\n").unwrap();
+    assert_eq!(
+        error_code(host.dispatch(
+            "file.rename",
+            json!({ "from": "App.cs", "to": "Target.cs" })
+        )),
+        "already_exists"
+    );
+    assert_eq!(
+        fs::read_to_string(workspace.path().join("Target.cs")).unwrap(),
+        "target\n"
+    );
+
+    // A folder cannot be moved inside itself.
+    fs::create_dir_all(workspace.path().join("Folder/Inner")).unwrap();
+    assert_eq!(
+        error_code(host.dispatch(
+            "file.rename",
+            json!({ "from": "Folder", "to": "Folder/Inner/Deep" })
+        )),
+        "path_not_allowed"
+    );
+
+    // A symlinked directory inside the workspace must not become an escape hatch; deleting the
+    // link itself removes only the link.
+    #[cfg(unix)]
+    {
+        let secret = outside.path().join("Secret.cs");
+        fs::write(&secret, "secret\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), workspace.path().join("Link")).unwrap();
+        assert_eq!(
+            error_code(host.dispatch(
+                "file.create",
+                json!({ "path": "Link/Extra.cs" })
+            )),
+            "outside_workspace"
+        );
+        host.dispatch("file.delete", json!({ "path": "Link" }))
+            .unwrap();
+        assert!(!workspace.path().join("Link").exists());
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "secret\n");
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn file_operations_mark_the_evaluated_model_stale() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "OrderDesk file ops");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let first = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(first["evaluation"]["stale"], false);
+    let context_before = first["contextId"].as_u64().unwrap();
+
+    host.dispatch(
+        "file.create",
+        json!({ "path": "Directory.Build.props", "content": "<Project />\n" }),
+    )
+    .unwrap();
+    let stale = snapshot(&host);
+    assert_eq!(stale["evaluation"]["stale"], true);
+    assert!(stale["evaluation"]["staleReason"]
+        .as_str()
+        .unwrap()
+        .contains("was created"));
+    assert!(stale["contextId"].as_u64().unwrap() > context_before);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {
@@ -1241,6 +1667,70 @@ fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {
         .as_str()
         .unwrap()
         .contains("/bin/Release/net8.0/OrderDesk.Cli.dll"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn external_source_changes_make_the_evaluation_stale_and_reappear_in_the_evaluated_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "OrderDesk external sources");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let first = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(first["evaluation"]["stale"], false);
+    let core_sources = || {
+        let state = snapshot(&host);
+        state["evaluation"]["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|project| project["name"] == "OrderDesk.Core")
+            .unwrap()["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|source| source.as_str().unwrap().to_string())
+            .collect::<Vec<String>>()
+    };
+    assert!(core_sources().contains(&"src/OrderDesk.Core/Order.cs".to_string()));
+
+    // Creating a .cs externally flips the directory fingerprint and the next run lists it.
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(
+        copy.join("src/OrderDesk.Core/Extra.cs"),
+        "namespace OrderDesk.Core;\npublic static class Extra {}\n",
+    )
+    .unwrap();
+    let created = snapshot(&host);
+    assert_eq!(created["evaluation"]["stale"], true);
+    assert!(created["evaluation"]["staleReason"]
+        .as_str()
+        .unwrap()
+        .contains("src/OrderDesk.Core"));
+    let reevaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(reevaluated["evaluation"]["stale"], false);
+    assert!(core_sources().contains(&"src/OrderDesk.Core/Extra.cs".to_string()));
+
+    // Renaming and deleting are directory changes too.
+    std::thread::sleep(Duration::from_millis(20));
+    fs::rename(
+        copy.join("src/OrderDesk.Core/Extra.cs"),
+        copy.join("src/OrderDesk.Core/Renamed.cs"),
+    )
+    .unwrap();
+    assert_eq!(snapshot(&host)["evaluation"]["stale"], true);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    let renamed = core_sources();
+    assert!(renamed.contains(&"src/OrderDesk.Core/Renamed.cs".to_string()));
+    assert!(!renamed.contains(&"src/OrderDesk.Core/Extra.cs".to_string()));
+
+    std::thread::sleep(Duration::from_millis(20));
+    fs::remove_file(copy.join("src/OrderDesk.Core/Renamed.cs")).unwrap();
+    assert_eq!(snapshot(&host)["evaluation"]["stale"], true);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    assert!(!core_sources().contains(&"src/OrderDesk.Core/Renamed.cs".to_string()));
+    assert_eq!(snapshot(&host)["evaluation"]["stale"], false);
 }
 
 #[cfg(target_os = "macos")]
@@ -1810,16 +2300,16 @@ fn real_install(version: &str) -> sdk::Install {
         .unwrap_or_else(|| panic!("expected SDK {version} on this machine"))
 }
 
-fn host_install() -> sdk::Install {
-    let mut installs = sdk::inventory().installs;
-    installs.retain(|install| {
-        sdk::Version::parse(&install.version)
+fn runtime_10() -> sdk::RuntimeInstall {
+    let mut runtimes = sdk::inventory().runtimes;
+    runtimes.retain(|runtime| {
+        sdk::Version::parse(&runtime.version)
             .is_some_and(|version| version.major == 10 && version.prerelease.is_none())
     });
-    installs
+    runtimes
         .into_iter()
-        .max_by_key(|install| sdk::Version::parse(&install.version).unwrap())
-        .expect("a .NET 10 host SDK exists")
+        .max_by_key(|runtime| sdk::Version::parse(&runtime.version).unwrap())
+        .expect("a .NET 10 runtime exists")
 }
 
 fn tool_plan(host: &Host) -> Value {
@@ -2102,17 +2592,124 @@ fn tools_install_is_real_verified_and_reused() {
     assert!(destination.join("csharp-ls").is_file());
 }
 
+#[cfg(unix)]
+#[test]
+fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let probe = tempfile::tempdir().unwrap();
+    let installer = probe.path().join("probe-installer");
+    // First run writes partial bytes, then fails like an unreachable NuGet source; the retry
+    // succeeds with a fake launcher so the whole retry path reaches verified/ready.
+    fs::write(
+        &installer,
+        r#"#!/bin/sh
+staging="$OPENRIDR_HOME/tools/csharp-ls/0.28.staging"
+mkdir -p "$staging"
+dd if=/dev/zero of="$staging/partial.bin" bs=1024 count=512 2>/dev/null
+sleep 2
+if [ -f "$OPENRIDR_HOME/probe-tools-failed" ]; then
+  printf '#!/bin/sh\necho "csharp-ls, version 0.28.0 (probe)"\n' > "$staging/csharp-ls"
+  chmod +x "$staging/csharp-ls"
+  exit 0
+fi
+touch "$OPENRIDR_HOME/probe-tools-failed"
+echo "error: Unable to load the service index for source https://api.nuget.org/v3/index.json." >&2
+exit 1
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let host = Host::new();
+    let workspace = temp_workspace(&["Tools.csproj"]);
+    open(&host, &workspace.path().join("Tools.csproj"));
+    grant(&host);
+
+    let planned = tool_plan(&host);
+    assert!(planned["plan"]["argv"][0]
+        .as_str()
+        .unwrap()
+        .ends_with("probe-installer"));
+    let plan_id = planned["plan"]["planId"].as_str().unwrap().to_string();
+    host.dispatch(
+        "tools.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .unwrap();
+
+    // Observed bytes, then a failure that never reports ready.
+    let mut saw_progress = false;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let failed = loop {
+        let tool = snapshot(&host)["tools"]["csharp-ls"].clone();
+        if tool["progress"]["downloaded"].as_u64().unwrap_or(0) > 0 {
+            saw_progress = true;
+        }
+        if tool["state"] == "failed" {
+            break tool;
+        }
+        assert!(Instant::now() < deadline, "install stuck: {}", tool["log"]);
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(saw_progress, "no progress was observed: {failed}");
+    assert_eq!(failed["state"], "failed");
+    assert_eq!(failed["sha256"], Value::Null);
+    assert_eq!(failed["verifiedVersion"], Value::Null);
+    assert!(!Path::new(failed["destination"].as_str().unwrap()).exists());
+    let error = failed["error"].as_str().unwrap();
+    assert!(error.contains("Try again"), "{error}");
+    assert!(error.contains("network"), "{error}");
+    let staging = PathBuf::from(failed["staging"].as_str().unwrap());
+    assert!(staging.join("partial.bin").is_file());
+    fs::write(staging.join("leftover"), "x").unwrap();
+
+    // The retry removes the partial staging before starting again, then reaches a verified ready.
+    host.dispatch("tools.retry", json!({})).unwrap();
+    assert!(
+        !staging.join("leftover").exists(),
+        "the retry reused the partial staging directory"
+    );
+    let done = wait_tool(&host, Duration::from_secs(30));
+    assert_eq!(done["state"], "ready", "{}", done["log"]);
+    assert_eq!(done["reused"], false);
+    assert_eq!(done["verifiedVersion"], "0.28.0");
+    assert_eq!(done["sha256"].as_str().unwrap().len(), 64);
+    assert!(!staging.exists());
+
+    // A verified installation is reused after confirmation and starts no process.
+    let replanned = tool_plan(&host);
+    assert_eq!(replanned["state"], "ready");
+    let processes = snapshot(&host)["processes"].as_array().unwrap().len();
+    let reused = host
+        .dispatch(
+            "tools.install",
+            json!({ "planId": replanned["plan"]["planId"], "confirm": true }),
+        )
+        .unwrap();
+    assert_eq!(reused["tools"]["csharp-ls"]["reused"], true);
+    assert_eq!(
+        snapshot(&host)["processes"].as_array().unwrap().len(),
+        processes
+    );
+}
+
 #[cfg(target_os = "macos")]
 #[test]
-fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
+fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
 
-    let host = host_install();
+    let runtime = runtime_10();
     let project = real_install("8.0.408");
-    let first = hostroot::ensure(&host, &project).expect("the composite root is built");
+    let first = hostroot::ensure(&runtime.root, &project).expect("the composite root is built");
     assert!(first.rebuilt);
     assert!(!first.forced);
     assert!(Path::new(&first.path).starts_with(home.path()));
@@ -2131,13 +2728,14 @@ fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
         .unwrap();
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout).to_string();
-    assert!(text.contains("8.0.408"), "{text}");
-    assert!(
-        !text.contains(&host.version),
-        "the host SDK must stay out of sdk/ so MSBuildLocator cannot prefer it: {text}"
+    let sdks: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    assert_eq!(
+        sdks.len(),
+        1,
+        "the project SDK must be the only MSBuild SDK in sdk/: {text}"
     );
     assert!(
-        text.lines().next().unwrap_or_default().starts_with("8.0.408"),
+        sdks[0].starts_with("8.0.408"),
         "the project SDK must be the only MSBuild SDK: {text}"
     );
 
@@ -2160,7 +2758,7 @@ fn hostroot_composes_both_sdks_outside_the_repo_and_is_idempotent() {
     assert!(version.status.success());
     assert_eq!(String::from_utf8_lossy(&version.stdout).trim(), "8.0.408");
 
-    let second = hostroot::ensure(&host, &project).expect("the composite root is reused");
+    let second = hostroot::ensure(&runtime.root, &project).expect("the composite root is reused");
     assert!(!second.rebuilt);
     assert_eq!(first.path, second.path);
     assert_eq!(second.check, first.check);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { call, HostCallError, type Snapshot } from "./host/client";
+import { ToolDownloadStatus } from "./ToolDownloadStatus";
 
 function messageOf(error: unknown) {
   return error instanceof HostCallError ? error.message : String(error);
@@ -77,8 +78,8 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
         ? "An installation is already running."
         : null;
   const canCancel = tool.state === "planned" || tool.state === "downloading";
-  const canRetry =
-    (tool.state === "failed" || tool.state === "cancelled") && tool.revision > 0;
+  // A failed install gets its retry from ToolDownloadStatus; a cancelled one keeps the header button.
+  const canRetry = tool.state === "cancelled" && tool.revision > 0;
 
   async function run(action: () => Promise<Snapshot>) {
     setBusy(true);
@@ -166,12 +167,24 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
           solution.
         </p>
       )}
-      {tool.error && (
-        <p className="error" role="alert" data-testid="install-error">
-          {tool.error}
-        </p>
-      )}
-      {tool.note && (
+      <ToolDownloadStatus
+        testId="install"
+        tool="csharp-ls"
+        state={tool.state}
+        progress={tool.progress}
+        error={tool.error}
+        note={tool.note}
+        busy={busy}
+        retryDisabledReason={
+          !trusted
+            ? "Trust the workspace before retrying an installation."
+            : !plan
+              ? "Review the install plan before retrying."
+              : null
+        }
+        onRetry={() => void run(() => call<Snapshot>("tools.retry"))}
+      />
+      {!active && tool.state !== "failed" && tool.note && (
         <p className="muted" data-testid="install-note">
           {tool.note}
         </p>
@@ -329,29 +342,34 @@ export function DebugAdapterPanel({
   const plan = debug.plan;
   const trusted = snapshot.trust.granted;
   const active =
-    debug.busy || ["downloading", "installing", "verifying"].includes(debug.adapterState);
+    !debug.bundled &&
+    (debug.busy || ["downloading", "installing", "verifying"].includes(debug.adapterState));
   const appleSilicon = debug.os === "macos" && debug.arch === "aarch64";
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [debugPlanOpen, setDebugPlanOpen] = useState(false);
 
-  const installBlocker = !debug.installable
-    ? debug.adapterMessage
-    : !trusted
-      ? "Trust the workspace before installing a debug adapter; trust and installation are separate decisions."
-      : busy || active
-        ? "An install attempt is still running or winding down."
-        : !plan
-          ? "Review the exact install plan before confirming."
-          : plan.blockedReason
-            ? plan.blockedReason
-            : null;
+  const installBlocker = debug.bundled
+    ? null
+    : !debug.installable
+      ? debug.adapterMessage
+      : !trusted
+        ? "Trust the workspace before installing a debug adapter; trust and installation are separate decisions."
+        : busy || active
+          ? "An install attempt is still running or winding down."
+          : !plan
+            ? "Review the exact install plan before confirming."
+            : plan.blockedReason
+              ? plan.blockedReason
+              : null;
   const canCancel =
-    debug.adapterState === "planned" ||
-    debug.adapterState === "failed" ||
-    ["downloading", "installing", "verifying"].includes(debug.adapterState);
+    !debug.bundled &&
+    (debug.adapterState === "planned" ||
+      debug.adapterState === "failed" ||
+      ["downloading", "installing", "verifying"].includes(debug.adapterState));
   const canRetry =
+    !debug.bundled &&
     (debug.adapterState === "failed" || debug.adapterState === "cancelled") &&
     debug.revision > 0;
 
@@ -393,23 +411,27 @@ export function DebugAdapterPanel({
           data-testid="debug-state"
           role="status"
         >
-          {debugStateLabel(debug.adapterState)}
+          {debug.bundled && debug.adapterState === "ready"
+            ? "Bundled with OpenRidr — DAP not proven"
+            : debugStateLabel(debug.adapterState)}
         </span>
         <span className="muted" data-testid="debug-platform">
           {debug.os} / {debug.arch}
         </span>
         <span className="push" />
-        <button
-          data-testid="debug-plan-open"
-          disabled={busy}
-          onClick={() => {
-            setDebugPlanOpen(true);
-            void run(() => call<Snapshot>("debug.plan"));
-          }}
-          title="Shows the approved version, official source, platform asset, destination, operation, permissions, integrity and limits. It does not download or execute anything."
-        >
-          Review install plan
-        </button>
+        {!debug.bundled && (
+          <button
+            data-testid="debug-plan-open"
+            disabled={busy}
+            onClick={() => {
+              setDebugPlanOpen(true);
+              void run(() => call<Snapshot>("debug.plan"));
+            }}
+            title="Shows the approved version, official source, platform asset, destination, operation, permissions, integrity and limits. It does not download or execute anything."
+          >
+            Review install plan
+          </button>
+        )}
         {canCancel && (
           <button
             data-testid="debug-cancel"
@@ -450,6 +472,54 @@ export function DebugAdapterPanel({
           Source: <a href={debug.source.url} target="_blank" rel="noreferrer noopener">{debug.source.name}</a>{" "}
           · approved version {debug.version} · DAP proven by installation: {debug.dapProven ? "yes" : "no"}
         </p>
+        {debug.bundled && (
+          <dl className="restore-meta" data-testid="debug-bundled-adapter">
+            <dt>Origin</dt>
+            <dd data-testid="debug-bundled-origin">Bundled with OpenRidr</dd>
+            <dt>Version</dt>
+            <dd data-testid="debug-bundled-version">{debug.version}</dd>
+            <dt>Checksum</dt>
+            <dd data-testid="debug-bundled-checksum">
+              {debug.sha256 ? <code>{debug.sha256}</code> : "not measured"}
+              <span className="muted"> · SHA-256 of the embedded executable; --version is verified when a session starts.</span>
+            </dd>
+            <dt>Executable</dt>
+            <dd data-testid="debug-bundled-binary">
+              <code>{debug.installedBinary}</code>
+            </dd>
+          </dl>
+        )}
+        {debug.installed && !debug.bundled && (
+          <dl className="restore-meta" data-testid="debug-installed-adapter">
+            <dt>Installed origin</dt>
+            <dd data-testid="debug-installed-origin">
+              {debug.source.name} · <code>{debug.source.url}</code>
+            </dd>
+            <dt>Installed version</dt>
+            <dd data-testid="debug-installed-version">
+              {debug.verifiedVersion
+                ? `${debug.verifiedVersion} · verified with --version`
+                : `${debug.version} · approved; --version is verified when a session starts`}
+            </dd>
+            <dt>Installed checksum</dt>
+            <dd data-testid="debug-installed-checksum">
+              {debug.installedSha256 ? (
+                <code>{debug.installedSha256}</code>
+              ) : (
+                "not measured"
+              )}
+              <span className="muted">
+                {" "}
+                · SHA-256 of the installed executable; the archive hash is checked against the
+                release before execution.
+              </span>
+            </dd>
+            <dt>Executable</dt>
+            <dd data-testid="debug-installed-binary">
+              <code>{debug.installedBinary}</code>
+            </dd>
+          </dl>
+        )}
         <p className={debug.adapterState === "failed" ? "error" : "muted"} data-testid="debug-message">
           {debug.adapterMessage}
         </p>
@@ -475,14 +545,14 @@ export function DebugAdapterPanel({
           {message}
         </p>
       )}
-      {debug.progress && (
+      {!debug.bundled && debug.progress && (
         <p className="muted" data-testid="debug-progress">
           Downloaded {debug.progress.downloaded} of{" "}
           {debug.progress.total === null ? "an unknown total" : `${debug.progress.total}`} bytes
           (measured; no percentage)
         </p>
       )}
-      {debug.sha256 && (
+      {!debug.bundled && debug.sha256 && (
         <p className="muted" data-testid="debug-sha256">
           SHA-256 of the installed executable: <code>{debug.sha256}</code>
         </p>
@@ -505,9 +575,10 @@ export function DebugAdapterPanel({
             {debug.appleSiliconExperimental ? "experimental · enabled" : "experimental · disabled"}
           </span>
           <p className="muted" data-testid="debug-flag-note">
-            The opt-in is independent of trust and installation. It neither installs netcoredbg
-            nor proves compatibility. It only unlocks the install plan, which still requires trust
-            and an explicit confirmation.
+            The session-scoped experimental opt-in resets when the workspace opens or closes. It
+            {debug.bundled
+              ? " only unlocks the bundled adapter; nothing is downloaded."
+              : " neither installs netcoredbg nor proves compatibility. It only unlocks the install plan, which still requires trust and an explicit confirmation."}
           </p>
           <label className="check-row">
             <input
@@ -551,7 +622,7 @@ export function DebugAdapterPanel({
         </div>
       )}
 
-      {plan && (
+      {!debug.bundled && plan && (
         <details
           className="eval-log analysis-plan"
           data-testid="debug-plan"
@@ -693,7 +764,7 @@ export function lspStartBlocker(snapshot: Snapshot): string | null {
     : tool.state !== "ready"
       ? "Install and verify csharp-ls 0.28.0 first; the LSP never installs itself."
       : projectSdk.state !== "resolved"
-        ? "Resolve the project SDK before analysis; host SDK 10 is never substituted."
+        ? "Resolve the project SDK before analysis."
         : restore.state === "running"
           ? "A restore is running; analysis starts after it completes."
           : !restoreCurrent

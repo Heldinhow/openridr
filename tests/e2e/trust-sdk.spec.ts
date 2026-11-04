@@ -86,8 +86,8 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
 }) => {
   await openViaHost(page, solution);
 
-  await expect(page.getByTestId("sdk-host")).toContainText("SDK 10.0.100");
-  await expect(page.getByTestId("sdk-host")).toContainText("host analysis");
+  await expect(page.getByTestId("sdk-host")).toContainText(/.NET 10\.\d+\.\d+/);
+  await expect(page.getByTestId("sdk-host")).toContainText("runs the analysis tool");
   await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
   await expect(page.getByTestId("sdk-project")).toContainText("8.0.408");
   await expect(page.getByTestId("sdk-project")).toContainText("rollForward disable");
@@ -111,26 +111,29 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await trustViaHost(page);
   await expect(page.getByTestId("sdk-project")).toContainText("SDK 8.0.408");
   await expect(page.getByTestId("sdk-project")).toContainText("resolved after trust");
-  await expect(page.getByTestId("sdk-project")).not.toContainText("10.0.100");
   // Any detected root may satisfy global.json (~/.dotnet, app home or PATH); only the
-  // resolved version is the contract.
-  const trusted = (
+  // resolved version is the contract, and it is never the host runtime version.
+  const trustedState = (
     await (
       await request.post(`${host}/call`, {
         data: { method: "workspace.state", params: {} },
       })
     ).json()
-  ).data.sdk.project;
+  ).data;
+  const trusted = trustedState.sdk.project;
   expect(trusted.state).toBe("resolved");
   expect(trusted.resolvedVersion).toBe("8.0.408");
   expect(trusted.root).toBeTruthy();
+  await expect(page.getByTestId("sdk-project")).not.toContainText(
+    trustedState.sdk.host.version,
+  );
 
   await openWorkspace(page, solution);
   await trustWorkspace(page);
   await enterWorkspace(page);
   await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
   await expect(page.getByTestId("status-sdk")).toHaveText(
-    "Host SDK 10.0.100 · Project SDK 8.0.408",
+    /^Analysis runtime 10\.\d+\.\d+ · Project SDK 8\.0\.408$/,
   );
   await expect(page.getByTestId("eval-configuration")).toHaveAttribute("title", "MSBuild configuration for evaluation.");
   await expect(page.getByTestId("eval-tfm")).toHaveAttribute("title", "Target framework for evaluation.");
@@ -153,7 +156,7 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   }
   await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
   await expect(page.getByTestId("status-sdk")).toHaveText(
-    "Host SDK 10.0.100 · Project SDK not inspected",
+    /^Analysis runtime 10\.\d+\.\d+ · Project SDK not inspected$/,
   );
   await openTrustPopover(page);
   await expect(page.getByTestId("status-mode-popover")).toContainText("Project code will not run");
@@ -182,7 +185,7 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await reveal(page.getByTestId("close-workspace"));
   await page.getByTestId("close-workspace").click();
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
-  await expect(page.getByTestId("sdk-host")).toContainText("10.0.100");
+  await expect(page.getByTestId("sdk-host")).toContainText(/10\.\d+\.\d+/);
   await expect(page.getByTestId("sdk-project")).toContainText("Open a workspace");
 });
 
@@ -193,7 +196,7 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   const before = hashOf(missingGlobal);
 
   await openViaHost(page, missingProject);
-  await expect(page.getByTestId("sdk-host")).toContainText("SDK 10.0.100");
+  await expect(page.getByTestId("sdk-host")).toContainText(/.NET 10\.\d+\.\d+/);
 
   await openToolchain(page);
   await reveal(page.getByTestId("sdk-redetect"));
@@ -207,13 +210,13 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   await expect(page.getByTestId("sdk-project")).toContainText("rollForward disable");
   await expect(page.getByTestId("sdk-project")).not.toContainText("resolved after trust");
   await expect(
-    page.getByTestId("sdk-project").getByRole("link", { name: "Official .NET downloads" }),
+    page.getByTestId("sdk-project").getByRole("link", { name: "Official .NET SDK downloads" }),
   ).toBeVisible();
   const state = await request.post(`${host}/call`, {
     data: { method: "workspace.state", params: {} },
   });
   const stateBody = await state.json();
-  expect(stateBody.data.sdk.host.version).toBe("10.0.100");
+  expect(stateBody.data.sdk.host.version).toMatch(/^10\.\d+\.\d+$/);
   expect(stateBody.data.sdk.project.state).toBe("sdk_missing");
   expect(stateBody.data.sdk.project.resolvedVersion).toBeNull();
   await expect(page.getByTestId("sdk-open-global-json")).toBeVisible();

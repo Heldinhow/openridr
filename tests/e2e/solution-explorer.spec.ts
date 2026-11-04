@@ -86,12 +86,16 @@ test("Restricted project menu blocks execution, offers Trust and edits the cspro
   await page.getByTestId("tree-project-OrderDesk.Cli").click({ button: "right" });
   const menu = page.getByTestId("tree-context-menu");
   await expect(menu).toBeVisible();
+  await expect(menu).toHaveAccessibleName("Project context menu");
   for (const id of ["build", "run", "debug", "reload", "unit-test"]) {
     await expect(page.getByTestId(`tree-menu-${id}`)).toBeDisabled();
   }
   await expect(page.getByTestId("tree-menu-build")).toHaveAttribute("title", /Trust the workspace/);
   await expect(page.getByTestId("tree-menu-run")).toContainText("Run 'OrderDesk.Cli'");
   await expect(page.getByTestId("tree-menu-trust")).toBeVisible();
+  // A project file is owned by the solution: no Rename/Delete from its menu.
+  await expect(page.getByTestId("tree-menu-rename")).toHaveCount(0);
+  await expect(page.getByTestId("tree-menu-delete")).toHaveCount(0);
 
   await page.getByTestId("tree-menu-edit").hover();
   await expect(page.getByTestId("tree-menu-edit-file")).toContainText("Edit 'OrderDesk.Cli.csproj'");
@@ -102,6 +106,111 @@ test("Restricted project menu blocks execution, offers Trust and edits the cspro
   await page.getByTestId("tree-project-OrderDesk.Cli").click({ button: "right" });
   await page.getByTestId("tree-menu-trust").click();
   await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+});
+
+test("external create, rename and delete refresh the evaluated tree", async ({ page }) => {
+  test.setTimeout(180_000);
+  const root = tempCopy();
+  await open(page, root, true);
+  await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+  await page.getByTestId("tree-expand-all").click();
+  const order = page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs");
+  await expect(order).toBeVisible();
+
+  // Collapse and select Core; the automatic refresh must keep both.
+  await page.getByTestId("tree-project-OrderDesk.Core").click();
+  await expect(order).toHaveCount(0);
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+
+  // Create externally: the new .cs appears without clicking Re-evaluate.
+  fs.writeFileSync(
+    path.join(root, "src/OrderDesk.Cli/Extra.cs"),
+    "namespace OrderDesk.Cli;\npublic static class Extra {}\n",
+  );
+  await expect(page.getByTestId("tree-file-src/OrderDesk.Cli/Extra.cs")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(order).toHaveCount(0); // the collapsed state survived the refresh
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+
+  await page.getByTestId("tree-project-OrderDesk.Core").click();
+  await expect(order).toBeVisible();
+
+  // Rename externally: the old path goes and the new one arrives.
+  fs.renameSync(
+    path.join(root, "src/OrderDesk.Core/Order.cs"),
+    path.join(root, "src/OrderDesk.Core/Renamed.cs"),
+  );
+  await expect(page.getByTestId("tree-file-src/OrderDesk.Core/Renamed.cs")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(order).toHaveCount(0);
+
+  // Delete externally: the row disappears from the evaluated tree, which stays the model.
+  fs.rmSync(path.join(root, "src/OrderDesk.Core/Renamed.cs"));
+  await expect(page.getByTestId("tree-file-src/OrderDesk.Core/Renamed.cs")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toBeVisible();
+  await expect(page.getByTestId("eval-stale")).toHaveCount(0);
+});
+
+test("tree menu creates, renames and deletes files with confirmation", async ({ page }) => {
+  test.setTimeout(180_000);
+  const root = tempCopy();
+  await open(page, root, true);
+  await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+  await page.getByTestId("tree-expand-all").click();
+  await expect(page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs")).toBeVisible();
+
+  // Create an empty file from the project menu (its folder is the project directory).
+  await page.getByTestId("tree-project-OrderDesk.Core").click({ button: "right" });
+  await page.getByTestId("tree-menu-new-file").click();
+  await expect(page.getByTestId("tree-name-dialog")).toBeVisible();
+  await page.getByTestId("tree-name-input").fill("Extra.cs");
+  await page.getByTestId("tree-name-confirm").click();
+  const extra = page.getByTestId("tree-file-src/OrderDesk.Core/Extra.cs");
+  await expect(extra).toBeVisible({ timeout: 30_000 });
+  expect(fs.readFileSync(path.join(root, "src/OrderDesk.Core/Extra.cs"), "utf8")).toBe("");
+
+  // Open it from the tree: the empty buffer is a normal tab.
+  await extra.click();
+  await expect(page.getByTestId("tab-src/OrderDesk.Core/Extra.cs")).toBeVisible();
+
+  // Rename keeps the contents and the evaluated tree follows the new path.
+  const order = page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs");
+  await order.click({ button: "right" });
+  // Files keep the destructive actions the project menu refuses.
+  await expect(page.getByTestId("tree-menu-delete")).toBeVisible();
+  await page.getByTestId("tree-menu-rename").click();
+  await expect(page.getByTestId("tree-name-input")).toHaveValue("Order.cs");
+  await page.getByTestId("tree-name-input").fill("Renamed.cs");
+  await page.getByTestId("tree-name-confirm").click();
+  const renamed = page.getByTestId("tree-file-src/OrderDesk.Core/Renamed.cs");
+  await expect(renamed).toBeVisible({ timeout: 30_000 });
+  await expect(order).toHaveCount(0);
+  expect(fs.readFileSync(path.join(root, "src/OrderDesk.Core/Renamed.cs"), "utf8")).toContain(
+    "class Order",
+  );
+
+  // Delete asks first; cancelling keeps the file.
+  await renamed.click({ button: "right" });
+  await page.getByTestId("tree-menu-delete").click();
+  await expect(page.getByTestId("tree-delete-dialog")).toContainText("Delete file?");
+  await page.getByTestId("tree-delete-cancel").click();
+  await expect(renamed).toBeVisible();
+
+  await renamed.click({ button: "right" });
+  await page.getByTestId("tree-menu-delete").click();
+  await page.getByTestId("tree-delete-confirm").click();
+  await expect(renamed).toHaveCount(0, { timeout: 30_000 });
+  expect(fs.existsSync(path.join(root, "src/OrderDesk.Core/Renamed.cs"))).toBe(false);
 });
 
 test("trusted menu: console can run, library builds; folders show counts", async ({ page }) => {

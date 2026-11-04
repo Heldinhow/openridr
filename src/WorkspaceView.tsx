@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
 import {
   call,
   candidatesOf,
@@ -21,7 +21,7 @@ import { CodeEditor, type ChangedLine } from "./CodeEditor";
 import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
 import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
-import { ROOT_KEY, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
+import { ROOT_KEY, baseOf, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
 import { fileMenuItems, projectMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
@@ -198,7 +198,27 @@ type ActionList = {
 type Confirmation =
   | { kind: "tab"; path: string }
   | { kind: "workspace" }
-  | { kind: "window" };
+  | { kind: "window" }
+  | { kind: "quit" };
+
+// One prompt serves create and rename; `path` is the folder for create and the current path for
+// rename. The host remains the confinement authority; this only rejects names that carry a path.
+type NamePrompt = {
+  kind: "create" | "rename";
+  path: string;
+  value: string;
+  error: string | null;
+  busy: boolean;
+};
+
+type DeletePrompt = { path: string; directory: boolean; error: string | null; busy: boolean };
+
+function nameProblem(name: string): string | null {
+  if (!name) return "Enter a name.";
+  if (name === "." || name === "..") return "That is not a file or folder name.";
+  if (name.includes("/") || name.includes("\\")) return "Use a name without a path.";
+  return null;
+}
 
 type NavEntry = { path: string; line: number; character: number };
 
@@ -208,6 +228,8 @@ type Props = {
   recentSolutions: string[];
   // Path from Finder or the Dock; each request is a new object, so the same path can repeat.
   externalOpen: { path: string } | null;
+  // Cmd+Q or the app menu Quit; increments per request and is answered with the unsaved-changes dialog.
+  quitRequest: number;
   onOpenRecent: (path: string) => Promise<void>;
   onSnapshot: (snapshot: Snapshot) => void;
   onClosed: (snapshot: Snapshot) => void;
@@ -342,12 +364,15 @@ function restoreStateLabel(restore: Snapshot["restore"]) {
   }
 }
 
-export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, onOpenRecent, onSnapshot, onClosed }: Props) {
+export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, quitRequest, onOpenRecent, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
   const trusted = snapshot.trust.granted;
   const projectSdk = snapshot.sdk.project;
   const evaluation = snapshot.evaluation;
+  // "Previous evaluation" is only true once a second revision exists; a stale first model has nothing before it.
+  const hasEarlierEvaluation = evaluation.revision > 1;
+  const emptySolution = workspace.kind === "solution" && projects.length === 0;
   const evaluatedProjects = evaluation.projects;
   const showsEvaluatedTree =
     evaluation.state !== "idle" && evaluatedProjects.length > 0;
@@ -359,6 +384,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [externalCandidates, setExternalCandidates] = useState<{ path: string; candidates: Candidate[] } | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null);
+  const [deletePrompt, setDeletePrompt] = useState<DeletePrompt | null>(null);
   const [layout, setLayout] = useState<ShellLayout>(loadShellLayout);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [findActionOpen, setFindActionOpen] = useState(false);
@@ -500,8 +527,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const activePathRef = useRef(activePath);
   activePathRef.current = activePath;
   const unsavedRef = useRef(false);
+  const handledQuitRequest = useRef(0);
   const writing = useRef(new Set<string>());
   const diskEpoch = useRef(new Map<string, number>());
+  const checkingDisk = useRef(new Set<string>());
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
   const seededRunConfigsFor = useRef<number | null>(null);
@@ -526,6 +555,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => expandableKeys(null, projects));
+  const seededTreeExpansion = useRef(0);
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [treeSearchOpen, setTreeSearchOpen] = useState(false);
   const [treeFilter, setTreeFilter] = useState("");
@@ -760,7 +790,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const restoreDisabledReason = !trusted
     ? "Trust the workspace before restoring; nothing runs in Restricted mode."
     : projectSdk.state !== "resolved"
-      ? "Resolve the project SDK before restoring; the host SDK is never substituted."
+      ? "Resolve the project SDK before restoring."
       : restoring
         ? "A restore is already running."
         : null;
@@ -808,6 +838,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       : null;
   const { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore, selectRunConfig, commitRunConfigDialog } = useEvaluationFlow({
     snapshot, trusted, restoreAvailable, evaluationAvailable, runConfigsLoaded, activeNamedConfig, runConfigStore,
+    hasUnsavedBuffers: dirtyCount > 0,
     commitRunConfigs, onSnapshot, setMessage,
   });
   const evaluationBusy = evaluating || evaluation.state === "running";
@@ -839,7 +870,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const testsDisabledReason = !trusted
     ? "Trust the workspace before discovering tests; nothing runs in Restricted mode."
     : projectSdk.state !== "resolved"
-      ? "Resolve the project SDK before discovering tests; the host SDK is never substituted."
+      ? "Resolve the project SDK before discovering tests."
       : evaluation.state === "running"
         ? "Wait for the evaluation to finish before discovering tests."
         : evaluation.stale
@@ -1003,8 +1034,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   ]);
 
   useEffect(() => {
-    if (evaluation.revision === 0) return;
-    setExpanded(expandableKeys(evaluatedProjects, []));
+    if (evaluation.revision === 0) {
+      seededTreeExpansion.current = 0;
+      return;
+    }
+    // Seed the opened/closed state once; a re-evaluation (including the automatic one after an
+    // external change) keeps what the user collapsed or expanded.
+    if (seededTreeExpansion.current === 0) {
+      setExpanded(expandableKeys(evaluatedProjects, []));
+    }
+    seededTreeExpansion.current = evaluation.revision;
     setSelectedProjectPath((current) => {
       if (evaluatedProjects.some((project) => project.path === current)) {
         return current;
@@ -1047,6 +1086,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }, []);
 
   useEffect(() => {
+    // A visible window re-reads the active file so a clean buffer never shows stale text.
+    // A hidden window relies on the focus re-read instead of polling the disk.
+    // shortcut: re-reads the whole active file every 1.5 s; add a host file.hash if this shows in profiles.
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      const path = activePathRef.current;
+      if (path) void checkDisk(path);
+    }, 1500);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!unsavedRef.current) return;
       event.preventDefault();
@@ -1079,6 +1130,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       unlisten?.();
     };
   }, []);
+
+  useEffect(() => {
+    // Cmd+Q and the app menu Quit reach this view only when it owns the buffers.
+    if (!quitRequest || quitRequest === handledQuitRequest.current) return;
+    handledQuitRequest.current = quitRequest;
+    if (!unsavedRef.current) {
+      void quitApp();
+      return;
+    }
+    setConfirmError(null);
+    // A decision already on screen wins; a second prompt would stack two dialogs.
+    setConfirm((current) => current ?? { kind: "quit" });
+  }, [quitRequest]);
 
   useEffect(() => {
     // Send didOpen once per session for every open buffer. A restart creates a new session,
@@ -1419,7 +1483,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     // Proactive read. A clean buffer is replaced by the disk text; a dirty one only raises a
     // conflict and is never overwritten. A read failure is reported and the buffer stays editable.
     if (writing.current.has(path) || !tabsRef.current.some((tab) => tab.path === path)) return;
+    // One read at a time per path; the poll must not stack requests while a read is in flight.
+    if (checkingDisk.current.has(path)) return;
     const epoch = diskEpoch.current.get(path) ?? 0;
+    checkingDisk.current.add(path);
     let file: { content: string; hash: string };
     try {
       file = await call<{ content: string; hash: string }>("file.read", { path });
@@ -1429,6 +1496,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         text: `Could not re-read ${path} from disk; your buffer is unchanged. ${messageOf(error)}`,
       });
       return;
+    } finally {
+      checkingDisk.current.delete(path);
     }
     if ((diskEpoch.current.get(path) ?? 0) !== epoch) return;
     setTabs((current) =>
@@ -2503,17 +2572,97 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         setSelectedProjectPath(target.path);
         setProjectDetailsOpen(true);
       },
+      onNewFile: () => startCreateFile(target),
     });
+  }
+
+  function startCreateFile(target: TreeTarget) {
+    if (target.kind !== "project" && target.kind !== "dir") return;
+    const directory = target.kind === "project" ? dirOf(target.path) : target.path;
+    setNamePrompt({ kind: "create", path: directory, value: "", error: null, busy: false });
+  }
+
+  function startRename(target: TreeTarget) {
+    if (target.kind === "root") return;
+    setNamePrompt({
+      kind: "rename",
+      path: target.path,
+      value: baseOf(target.path),
+      error: null,
+      busy: false,
+    });
+  }
+
+  function requestDelete(target: TreeTarget) {
+    if (target.kind === "root") return;
+    setDeletePrompt({
+      path: target.path,
+      directory: target.kind === "dir",
+      error: null,
+      busy: false,
+    });
+  }
+
+  async function submitNamePrompt(event: FormEvent) {
+    event.preventDefault();
+    const prompt = namePrompt;
+    if (!prompt || prompt.busy) return;
+    const name = prompt.value.trim();
+    const problem = nameProblem(name);
+    if (problem) {
+      setNamePrompt({ ...prompt, error: problem });
+      return;
+    }
+    const directory = prompt.kind === "create" ? prompt.path : dirOf(prompt.path);
+    const to = directory ? `${directory}/${name}` : name;
+    if (prompt.kind === "rename" && to === prompt.path) {
+      setNamePrompt(null);
+      return;
+    }
+    setNamePrompt({ ...prompt, busy: true, error: null });
+    try {
+      if (prompt.kind === "create") {
+        await call("file.create", { path: to });
+        setMessage({ tone: "info", text: `Created ${to}.` });
+      } else {
+        await call("file.rename", { from: prompt.path, to });
+        setMessage({ tone: "info", text: `Renamed ${prompt.path} to ${to}.` });
+      }
+      setNamePrompt(null);
+    } catch (error) {
+      setNamePrompt((current) =>
+        current ? { ...current, busy: false, error: messageOf(error) } : current,
+      );
+    }
+  }
+
+  async function confirmDelete() {
+    const prompt = deletePrompt;
+    if (!prompt || prompt.busy) return;
+    setDeletePrompt({ ...prompt, busy: true, error: null });
+    try {
+      await call("file.delete", { path: prompt.path });
+      setMessage({ tone: "info", text: `Deleted ${prompt.path}.` });
+      setDeletePrompt(null);
+    } catch (error) {
+      setDeletePrompt((current) =>
+        current ? { ...current, busy: false, error: messageOf(error) } : current,
+      );
+    }
   }
 
   function treeMenuItems(target: TreeTarget): ContextMenuItem[] {
     if (target.kind === "project") return projectMenu(target);
     const path = target.kind === "root" ? "" : target.path;
+    const editable = target.kind === "file" || target.kind === "dir";
     return fileMenuItems({
       open: target.kind === "file" ? () => void openUserFile(target.path) : undefined,
       reload: target.kind === "root" ? { reason: reloadReason, run: () => void runEvaluation() } : undefined,
       onCopyPath: () => void copyPath(absolutePath(path)),
       onFind: () => openFindInFiles(path),
+      newFile: target.kind === "dir" ? () => startCreateFile(target) : undefined,
+      rename: editable ? () => startRename(target) : undefined,
+      delete: editable ? () => requestDelete(target) : undefined,
     });
   }
 
@@ -3400,6 +3549,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
+  async function quitApp() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("quit_app");
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: `Could not quit OpenRidr: ${messageOf(error)}`,
+      });
+    }
+  }
+
   async function confirmSave() {
     if (!confirm) return;
     setConfirmError(null);
@@ -3427,14 +3588,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     setConfirm(null);
     if (pending.kind === "workspace") {
       void closeWorkspace();
-    } else {
+    } else if (pending.kind === "window") {
       void destroyWindow();
+    } else {
+      void quitApp();
     }
   }
 
   function keepEditing() {
+    const quitting = confirm?.kind === "quit";
     setConfirm(null);
     setConfirmError(null);
+    if (quitting) focusEditor();
   }
 
   function discardConfirmed() {
@@ -3447,8 +3612,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       setMessage({ tone: "info", text: `Closed ${pending.path}; unsaved edits were discarded.` });
     } else if (pending.kind === "workspace") {
       void closeWorkspace();
-    } else {
+    } else if (pending.kind === "window") {
       void destroyWindow();
+    } else {
+      void quitApp();
     }
   }
 
@@ -3738,7 +3905,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
-  const sdkSummary = `Host SDK ${
+  const sdkSummary = `Analysis runtime ${
     snapshot.sdk.host.state === "found" ? snapshot.sdk.host.version : "missing"
   } · ${
     projectSdk.state === "resolved"
@@ -3787,8 +3954,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const evaluationStatus = showsEvaluatedTree
     ? {
         testId: "status-evaluation",
-        title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`,
-        text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · stale" : ""}`,
+        title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
+        text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
       }
     : { text: "Text outline · not evaluated" };
 
@@ -3948,7 +4115,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         <button
           data-testid="toolbar-run"
           className="toolbar-icon-button run-button"
-          aria-label={runRunning || runBuilding ? "Running" : "Run"}
+          aria-label={runRunning || runBuilding ? "Running" : "Run startup project"}
           aria-disabled={runAction.disabledReason !== null}
           onClick={() => runAction.execute()}
           title={
@@ -4222,20 +4389,26 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               role="status"
             >
               {evaluationStateLabel(evaluation.state)}
-              {evaluation.stale ? " · stale" : ""}
+              {evaluation.stale ? " · not current" : ""}
               {evaluation.revision > 0 ? ` · revision ${evaluation.revision}` : ""}
             </span>
             {selectedProject && <button onClick={() => setProjectDetailsOpen(!projectDetailsOpen)} aria-expanded={projectDetailsOpen}>Project details</button>}
           </div>
 
-          {!evaluationAvailable && trusted && (
+          {trusted && (emptySolution || !evaluationAvailable) && (
             <div className="tree-note" data-testid="eval-disabled-reason">
-              {projectSdk.state === "sdk_missing" ? (
+              {emptySolution ? (
+                <p>
+                  {workspace.name} lists no projects; the solution file is not valid or is empty.
+                  Evaluation, build and run need at least one project.
+                </p>
+              ) : projectSdk.state === "sdk_missing" ? (
                 <>
                   <p>
-                    Project SDK {projectSdk.requestedVersion ?? "pinned by global.json"} is not
-                    installed. OpenRidr detects SDKs but never installs one or substitutes the host
-                    SDK. Install that SDK (or change global.json) and redetect.
+                    {projectSdk.globalJsonPath ?? "global.json"} requests{" "}
+                    {projectSdk.requestedVersion ?? "a pinned SDK"}. OpenRidr detects SDKs but
+                    never installs one or substitutes the .NET 10 analysis runtime. Install that
+                    SDK (or change global.json) and redetect.
                   </p>
                   <div className="actions">
                     <button data-testid="eval-redetect" onClick={() => void redetectSdks()}>
@@ -4247,7 +4420,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                       target="_blank"
                       rel="noreferrer noopener"
                     >
-                      Official .NET downloads
+                      Official .NET SDK downloads
                     </a>
                     {projectSdk.globalJsonPath && (
                       <button data-testid="eval-open-global-json" onClick={openGlobalJson}>
@@ -4257,15 +4430,21 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   </div>
                 </>
               ) : (
-                <p>Evaluation needs a resolved project SDK. Host SDK 10 is never substituted.</p>
+                <p>
+                  {projectSdk.message ?? "No project SDK is resolved."} Evaluation, build and run
+                  need a project SDK from global.json or the declared TargetFramework; fix or add
+                  global.json.
+                </p>
               )}
             </div>
           )}
 
           {evaluation.staleReason && (
             <div className="notice warning eval-stale" role="status" data-testid="eval-stale">
-              <strong>Evaluation stale.</strong> {evaluation.staleReason} Values shown are from
-              the previous evaluation and are not current.
+              <strong>Evaluation stale.</strong> {evaluation.staleReason}{" "}
+              {hasEarlierEvaluation
+                ? "Values shown are from the previous evaluation and are not current."
+                : "Nothing is current yet; Re-evaluate to produce a current model."}
               <div className="actions">
                 <button
                   data-testid="eval-stale-run"
@@ -4398,6 +4577,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             <button
               className="save"
               data-testid="save-file"
+              aria-label="Save file"
               onClick={saveAction.execute}
               disabled={saveAction.disabledReason !== null || !active || !isDirty(active)}
               title={
@@ -4797,7 +4977,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   <dt>State</dt>
                   <dd data-testid="eval-details-state">
                     {selectedProject.state === "ok" ? "Evaluated" : "Evaluation failed"}
-                    {evaluation.stale ? " · stale (previous evaluation)" : ""}
+                    {evaluation.stale
+                      ? hasEarlierEvaluation
+                        ? " · stale (previous evaluation)"
+                        : " · not current"
+                      : ""}
                   </dd>
                   <dt>Path</dt>
                   <dd>
@@ -4816,7 +5000,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   <dt>TargetPath</dt>
                   <dd data-testid="eval-target-path">
                     {selectedProject.targetPath
-                      ? evaluation.stale
+                      ? evaluation.stale && hasEarlierEvaluation
                         ? <>Previous evaluation (stale): <code className="detail-path" title={selectedProject.targetPath}>{selectedProject.targetPath}</code></>
                         : <code className="detail-path" title={selectedProject.targetPath}>{selectedProject.targetPath}</code>
                       : "Not available"}
@@ -5089,6 +5273,110 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         />
       )}
 
+      {namePrompt && (
+        <div className="modal-backdrop">
+          <form
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tree-name-title"
+            data-testid="tree-name-dialog"
+            onSubmit={(event) => void submitNamePrompt(event)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setNamePrompt(null);
+              }
+            }}
+          >
+            <h2 id="tree-name-title">
+              {namePrompt.kind === "create" ? "New File" : "Rename"}
+            </h2>
+            <p className="muted">
+              {namePrompt.kind === "create"
+                ? `Create a file in ${namePrompt.path || "the workspace root"}.`
+                : `Rename ${namePrompt.path}.`}
+            </p>
+            <label className="rename-field">
+              Name
+              <input
+                data-testid="tree-name-input"
+                value={namePrompt.value}
+                autoFocus
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) =>
+                  setNamePrompt({ ...namePrompt, value: event.target.value, error: null })
+                }
+              />
+            </label>
+            {namePrompt.error && (
+              <p className="error" role="alert" data-testid="tree-name-error">
+                {namePrompt.error}
+              </p>
+            )}
+            <div className="actions">
+              <button
+                className="primary"
+                type="submit"
+                data-testid="tree-name-confirm"
+                disabled={namePrompt.busy}
+              >
+                {namePrompt.busy
+                  ? "Working…"
+                  : namePrompt.kind === "create"
+                    ? "Create"
+                    : "Rename"}
+              </button>
+              <button type="button" data-testid="tree-name-cancel" onClick={() => setNamePrompt(null)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {deletePrompt && (
+        <div className="modal-backdrop">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tree-delete-title"
+            data-testid="tree-delete-dialog"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setDeletePrompt(null);
+            }}
+          >
+            <h2 id="tree-delete-title">
+              Delete {deletePrompt.directory ? "folder" : "file"}?
+            </h2>
+            <p>
+              {deletePrompt.path} is removed from disk
+              {deletePrompt.directory ? " with everything inside it" : ""}. This cannot be
+              undone.
+            </p>
+            {deletePrompt.error && (
+              <p className="error" role="alert" data-testid="tree-delete-error">
+                {deletePrompt.error}
+              </p>
+            )}
+            <div className="actions">
+              <button autoFocus data-testid="tree-delete-cancel" onClick={() => setDeletePrompt(null)}>
+                Cancel
+              </button>
+              <button
+                className="primary"
+                data-testid="tree-delete-confirm"
+                disabled={deletePrompt.busy}
+                onClick={() => void confirmDelete()}
+              >
+                {deletePrompt.busy ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirm && (
         <div className="modal-backdrop">
           <div
@@ -5163,6 +5451,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           compact
           testId="tree-context-menu"
           itemPrefix="tree-menu"
+          label={treeMenu.target.kind === "project" ? "Project context menu" : undefined}
           x={treeMenu.x}
           y={treeMenu.y}
           items={treeMenuItems(treeMenu.target)}

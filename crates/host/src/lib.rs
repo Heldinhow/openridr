@@ -34,12 +34,13 @@ pub use restore::{RestoreView, GATED_METHODS as RESTORE_GATED_METHODS};
 
 use outline::build_outline;
 use process::Registry;
-use sdk::{GlobalJsonRequest, HostSdk, Inventory, ProjectSdk, SdkRoot};
+use sdk::{AnalysisRuntime, GlobalJsonRequest, Inventory, ProjectSdk, SdkRoot};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -328,7 +329,7 @@ struct TrustView {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SdkView {
-    host: HostSdk,
+    host: AnalysisRuntime,
     project: ProjectSdk,
     roots: Vec<SdkRoot>,
     inspected_at: Option<u64>,
@@ -682,6 +683,9 @@ impl Host {
             "processes.keep" => self.keep_process(params),
             "file.read" => self.read_file(params),
             "file.write" => self.write_file(params),
+            "file.create" => self.create_file(params),
+            "file.rename" => self.rename_path(params),
+            "file.delete" => self.delete_path(params),
             "settings.read" => settings::read(),
             "settings.write" => settings::write(&params),
             "runConfigs.read" => run_configs::read(&params),
@@ -854,7 +858,7 @@ impl Host {
         }
         let inventory = inner.inventory.as_ref().expect("inventory was initialized");
         let sdk = SdkView {
-            host: HostSdk::from_inventory(&inventory.installs),
+            host: AnalysisRuntime::from_runtimes(&inventory.runtimes),
             project: inner.project_sdk.clone(),
             roots: inventory.roots.clone(),
             inspected_at: Some(inventory.inspected_at),
@@ -1397,6 +1401,16 @@ impl Host {
         let workspace_file = workspace.path.clone();
         let root = workspace.root.clone();
         let plan = evaluation::plan_workspace(&workspace_file, &root, is_solution);
+        // Fingerprints are taken before MSBuild: an external change made while it runs must
+        // still look like a change after the new model is stored, not be masked by a late stat.
+        let previous_sources: Vec<String> = inner
+            .evaluation
+            .projects
+            .iter()
+            .flat_map(|project| project.sources.iter().cloned())
+            .collect();
+        let earlier_watch =
+            evaluation::watch_paths(&workspace_file, &root, &plan.projects, &previous_sources);
 
         let context = EvaluationContext {
             configuration: optional_str(&params, "configuration")
@@ -1550,7 +1564,14 @@ impl Host {
                 "Restore not requested for {unrestored} project(s); package dependencies and analysis are incomplete."
             ));
         }
-        let watched = evaluation::watch_paths(&workspace_file, &root, &plan.projects);
+        let sources: Vec<String> = projects
+            .iter()
+            .flat_map(|project| project.sources.iter().cloned())
+            .collect();
+        let watched = evaluation::merge_watched(
+            earlier_watch,
+            evaluation::watch_paths(&workspace_file, &root, &plan.projects, &sources),
+        );
 
         let mut inner = self.inner.lock().unwrap();
         accept_locked(&inner, token)?;
@@ -3129,9 +3150,7 @@ impl Host {
         }
         let mut inner = self.inner.lock().unwrap();
         inner.ensure_inventory();
-        let installs = &inner.inventory.as_ref().expect("inventory").installs;
-        let host = HostSdk::from_inventory(installs);
-        let plan = tools::plan(&host)?;
+        let plan = tools::plan(inner.inventory.as_ref().expect("inventory"))?;
         inner.tools.set_plan(plan);
         Ok(self.snapshot_value(&mut inner))
     }
@@ -3147,8 +3166,7 @@ impl Host {
         let plan_id = required_str(&params, "planId")?;
         let mut inner = self.inner.lock().unwrap();
         inner.ensure_inventory();
-        let host = HostSdk::from_inventory(&inner.inventory.as_ref().expect("inventory").installs);
-        let current = tools::plan(&host)?;
+        let current = tools::plan(inner.inventory.as_ref().expect("inventory"))?;
         if current.plan_id != plan_id {
             inner.tools.set_plan(current.clone());
             return Err(HostError::with_details(
@@ -3171,8 +3189,7 @@ impl Host {
         let token = self.require_trust("tools.retry")?;
         let mut inner = self.inner.lock().unwrap();
         inner.ensure_inventory();
-        let host = HostSdk::from_inventory(&inner.inventory.as_ref().expect("inventory").installs);
-        let current = tools::plan(&host)?;
+        let current = tools::plan(inner.inventory.as_ref().expect("inventory"))?;
         let Some(confirmed) = inner.tools.confirmed_plan_id() else {
             return Err(HostError::new(
                 "invalid_state",
@@ -3217,6 +3234,9 @@ impl Host {
 
     fn install_debugger(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("debug.install")?;
+        if debugger::bundled_binary().is_some() {
+            return Err(debugger::bundled_refusal());
+        }
         if params.get("confirm") != Some(&Value::Bool(true)) {
             return Err(HostError::new(
                 "confirmation_required",
@@ -3245,6 +3265,9 @@ impl Host {
 
     fn retry_debugger(&self) -> HostResult<Value> {
         let token = self.require_trust("debug.retry")?;
+        if debugger::bundled_binary().is_some() {
+            return Err(debugger::bundled_refusal());
+        }
         let mut inner = self.inner.lock().unwrap();
         let plan = debugger::plan(
             std::env::consts::OS,
@@ -4009,25 +4032,17 @@ impl Host {
             ));
         }
         let installs = &inner.inventory.as_ref().expect("inventory").installs;
-        let host_sdk = HostSdk::from_inventory(installs);
-        if host_sdk.state != "found" {
+        let runtime = AnalysisRuntime::from_runtimes(
+            &inner.inventory.as_ref().expect("inventory").runtimes,
+        );
+        if runtime.state != "found" {
             return Err(HostError::with_details(
                 "sdk_missing",
-                "Analysis was not started: the .NET 10 host SDK is missing. The project SDK is never substituted.",
+                "Analysis was not started: the .NET 10 runtime (Microsoft.NETCore.App) is missing. C# analysis needs that runtime; the project SDK is separate.",
                 json!({ "action": { "method": "sdk.redetect", "params": {} } }),
             ));
         }
-        let host_install = installs
-            .iter()
-            .find(|install| {
-                Some(&install.version) == host_sdk.version.as_ref()
-                    && Some(install.root.to_string_lossy().to_string())
-                        == host_sdk.root.clone()
-            })
-            .cloned()
-            .ok_or_else(|| {
-                HostError::new("sdk_missing", "The .NET 10 host SDK install could not be resolved.")
-            })?;
+        let runtime_root = PathBuf::from(runtime.root.clone().unwrap_or_default());
         let project_install = installs
             .iter()
             .find(|install| {
@@ -4071,7 +4086,7 @@ impl Host {
             token.context_id,
         );
 
-        let hostroot = match hostroot::ensure(&host_install, &project_install) {
+        let hostroot = match hostroot::ensure(&runtime_root, &project_install) {
             Ok(hostroot) => hostroot,
             Err(message) => {
                 let failed = lsp::Lsp::begin(
@@ -5714,11 +5729,14 @@ impl Host {
         let raw = required_str(&params, "path")?;
         let inner = self.inner.lock().unwrap();
         let (path, rel) = resolve_in_workspace(&inner, &raw)?;
-        let content = fs::read_to_string(&path).map_err(|error| {
+        let bytes = fs::read(&path).map_err(|error| {
             HostError::new(
                 "operation_failed",
-                format!("Could not read {rel} as UTF-8 text: {error}"),
+                format!("Could not read {rel}: {error}"),
             )
+        })?;
+        let (content, _) = fsutil::decode_text(&bytes).map_err(|error| {
+            HostError::new("operation_failed", format!("Could not read {rel}: {error}"))
         })?;
         let hash = content_hash(&content);
         Ok(json!({ "path": rel, "content": content, "hash": hash }))
@@ -5731,21 +5749,13 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let (path, rel) = resolve_in_workspace(&inner, &raw)?;
 
-        let current = fs::read_to_string(&path).map_err(|error| {
-            HostError::new(
-                "operation_failed",
-                format!("Could not read {rel} before saving: {error}"),
-            )
-        })?;
-        let current_hash = content_hash(&current);
-        if current_hash != expected_hash {
-            return Err(HostError::with_details(
-                "conflict",
-                format!("{rel} changed on disk since it was read; the buffer was not saved."),
-                json!({ "currentContent": current, "currentHash": current_hash }),
-            ));
+        let (current, format) = read_for_save(&path, &rel)?;
+        if content_hash(&current) != expected_hash {
+            return Err(save_conflict(&rel, &current));
         }
 
+        // The hash covers LF text, so it stays stable between read and save.
+        let content = fsutil::normalize_newlines(&content);
         let temp = path.with_file_name(format!(
             ".openridr-save-{}-{}",
             std::process::id(),
@@ -5754,11 +5764,27 @@ impl Host {
                 .map(|d| d.as_nanos())
                 .unwrap_or_default()
         ));
-        if let Err(error) = fs::write(&temp, content.as_bytes()) {
+        if let Err(error) = fs::write(&temp, format.encode(&content)) {
             return Err(HostError::new(
                 "operation_failed",
                 format!("Could not write {rel}: {error}"),
             ));
+        }
+        #[cfg(test)]
+        take_before_rename_hook();
+        // Look again right before replacing: narrows the window for another writer's save.
+        // shortcut: check-then-rename still has a tiny window; upgrade to an exclusive write if it matters.
+        let latest = read_for_save(&path, &rel);
+        let latest = match latest {
+            Ok((latest, _)) => latest,
+            Err(error) => {
+                let _ = fs::remove_file(&temp);
+                return Err(error);
+            }
+        };
+        if content_hash(&latest) != expected_hash {
+            let _ = fs::remove_file(&temp);
+            return Err(save_conflict(&rel, &latest));
         }
         if let Err(error) = fs::rename(&temp, &path) {
             let _ = fs::remove_file(&temp);
@@ -5767,21 +5793,122 @@ impl Host {
                 format!("Could not replace {rel}: {error}"),
             ));
         }
-        if is_evaluation_input(&rel)
-            && inner
-                .evaluation
-                .mark_stale(format!("{rel} was saved; the evaluated project model is stale."))
-        {
-            inner.context_seq += 1;
-            inner.nuget_plan = None;
-            stop_lsp_inner(
-                &mut inner,
-                "A project input changed; analysis stopped so it cannot report the previous context.",
-            );
-        }
+        mark_inputs_stale(
+            &mut inner,
+            &[rel.as_str()],
+            format!("{rel} was saved; the evaluated project model is stale."),
+            false,
+        );
         // A source save is shown as an obsolete build snapshot by the UI (buffer edit
         // time vs. build time); the host marks stale only when the evaluated context changes.
         Ok(json!({ "path": rel, "hash": content_hash(&content) }))
+    }
+
+    fn create_file(&self, params: Value) -> HostResult<Value> {
+        let raw = required_str(&params, "path")?;
+        let content = optional_str(&params, "content").unwrap_or_default();
+        let mut inner = self.inner.lock().unwrap();
+        let (path, rel) = resolve_new_in_workspace(&inner, &raw)?;
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(HostError::new(
+                    "already_exists",
+                    format!("{rel} already exists; nothing was overwritten."),
+                ));
+            }
+            Err(error) => {
+                return Err(HostError::new(
+                    "operation_failed",
+                    format!("Could not create {rel}: {error}"),
+                ));
+            }
+        };
+        if let Err(error) = file.write_all(content.as_bytes()) {
+            drop(file);
+            let _ = fs::remove_file(&path);
+            return Err(HostError::new(
+                "operation_failed",
+                format!("Could not write {rel}: {error}"),
+            ));
+        }
+        drop(file);
+        mark_inputs_stale(
+            &mut inner,
+            &[rel.as_str()],
+            format!("{rel} was created and changed on disk; re-evaluate the project model."),
+            false,
+        );
+        Ok(json!({ "path": rel }))
+    }
+
+    fn rename_path(&self, params: Value) -> HostResult<Value> {
+        let from_raw = required_str(&params, "from")?;
+        let to_raw = required_str(&params, "to")?;
+        let mut inner = self.inner.lock().unwrap();
+        let (from, from_rel) = resolve_existing_in_workspace(&inner, &from_raw)?;
+        let (to, to_rel) = resolve_new_in_workspace(&inner, &to_raw)?;
+        if fs::symlink_metadata(&to).is_ok() {
+            return Err(HostError::new(
+                "already_exists",
+                format!("{to_rel} already exists; nothing was overwritten."),
+            ));
+        }
+        if to.starts_with(&from) {
+            return Err(HostError::new(
+                "path_not_allowed",
+                format!("A folder cannot be moved inside itself: {from_rel} -> {to_rel}"),
+            ));
+        }
+        let directory = fs::symlink_metadata(&from)
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false);
+        fs::rename(&from, &to).map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not rename {from_rel} to {to_rel}: {error}"),
+            )
+        })?;
+        mark_inputs_stale(
+            &mut inner,
+            &[from_rel.as_str(), to_rel.as_str()],
+            format!(
+                "{from_rel} was renamed to {to_rel}; the workspace changed on disk, so re-evaluate the project model."
+            ),
+            directory,
+        );
+        Ok(json!({ "from": from_rel, "to": to_rel }))
+    }
+
+    fn delete_path(&self, params: Value) -> HostResult<Value> {
+        let raw = required_str(&params, "path")?;
+        let mut inner = self.inner.lock().unwrap();
+        let (path, rel) = resolve_existing_in_workspace(&inner, &raw)?;
+        let directory = fs::symlink_metadata(&path)
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false);
+        let result = if directory {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        result.map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not delete {rel}: {error}"),
+            )
+        })?;
+        mark_inputs_stale(
+            &mut inner,
+            &[rel.as_str()],
+            format!("{rel} was deleted; the workspace changed on disk, so re-evaluate the project model."),
+            directory,
+        );
+        Ok(json!({ "path": rel, "directory": directory }))
     }
 }
 
@@ -6496,6 +6623,22 @@ fn is_evaluation_input(rel: &str) -> bool {
         || lower == "global.json"
 }
 
+/// Marks the evaluated model stale when a file operation touched an evaluation input (or a
+/// whole folder). The operation itself never evaluates or builds; the freshness path does.
+fn mark_inputs_stale(inner: &mut Inner, inputs: &[&str], reason: String, force: bool) {
+    if !force && !inputs.iter().any(|rel| is_evaluation_input(rel)) {
+        return;
+    }
+    if inner.evaluation.mark_stale(reason) {
+        inner.context_seq += 1;
+        inner.nuget_plan = None;
+        stop_lsp_inner(
+            inner,
+            "A project input changed; analysis stopped so it cannot report the previous context.",
+        );
+    }
+}
+
 fn dotnet_exe() -> &'static str {
     if cfg!(windows) {
         "dotnet.exe"
@@ -6907,6 +7050,92 @@ fn definition_location(root: &Path, target: &lsp::DefinitionTarget) -> Option<Va
     }))
 }
 
+/// Resolves a create/rename target or a rename/delete source. Only the parent is canonicalized,
+/// so the last component may still be a symlink (the operation renames or deletes the link, never
+/// its target). `must_exist` distinguishes an existing source from a destination that may be new.
+fn resolve_path_in_workspace(
+    inner: &Inner,
+    raw: &str,
+    must_exist: bool,
+) -> HostResult<(PathBuf, String)> {
+    let workspace = inner
+        .workspace
+        .as_ref()
+        .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+    if raw.trim().is_empty() {
+        return Err(HostError::new("path_not_allowed", "File path is empty."));
+    }
+    let requested = Path::new(raw);
+    if requested
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        workspace.root.join(requested)
+    };
+    let name = candidate.file_name().ok_or_else(|| {
+        HostError::new(
+            "path_not_allowed",
+            format!("A file or folder name is required: {raw}"),
+        )
+    })?;
+    let parent = candidate.parent().ok_or_else(|| {
+        HostError::new(
+            "path_not_allowed",
+            format!("A file or folder name is required: {raw}"),
+        )
+    })?;
+    let parent = fs::canonicalize(parent).map_err(|_| {
+        HostError::new("not_found", format!("Folder not found: {raw}"))
+    })?;
+    if !parent.starts_with(&workspace.root) {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
+    if !parent.is_dir() {
+        return Err(HostError::new(
+            "not_found",
+            format!("Folder not found: {raw}"),
+        ));
+    }
+    let target = parent.join(name);
+    if target == workspace.root {
+        return Err(HostError::new(
+            "path_not_allowed",
+            "The workspace root cannot be renamed or deleted.",
+        ));
+    }
+    if must_exist && fs::symlink_metadata(&target).is_err() {
+        return Err(HostError::new(
+            "not_found",
+            format!("File or folder not found: {raw}"),
+        ));
+    }
+    let rel = target
+        .strip_prefix(&workspace.root)
+        .unwrap_or(&target)
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok((target, rel))
+}
+
+fn resolve_new_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
+    resolve_path_in_workspace(inner, raw, false)
+}
+
+fn resolve_existing_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
+    resolve_path_in_workspace(inner, raw, true)
+}
+
 fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
     let workspace = inner
         .workspace
@@ -6950,6 +7179,47 @@ fn content_hash(content: &str) -> String {
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("fnv1a64:{hash:016x}")
+}
+
+/// Reads a save destination and its encoding; both pre-save checks share this wording.
+fn read_for_save(path: &Path, rel: &str) -> HostResult<(String, fsutil::TextFormat)> {
+    let bytes = fs::read(path).map_err(|error| {
+        HostError::new(
+            "operation_failed",
+            format!("Could not read {rel} before saving: {error}"),
+        )
+    })?;
+    fsutil::decode_text(&bytes).map_err(|error| {
+        HostError::new(
+            "operation_failed",
+            format!("Could not read {rel} before saving: {error}"),
+        )
+    })
+}
+
+/// The conflict both pre-save checks report, carrying the text currently on disk.
+fn save_conflict(rel: &str, current: &str) -> HostError {
+    HostError::with_details(
+        "conflict",
+        format!("{rel} changed on disk since it was read; the buffer was not saved."),
+        json!({ "currentContent": current, "currentHash": content_hash(current) }),
+    )
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Lets a save test change the destination between the temp write and the pre-rename recheck.
+    static BEFORE_RENAME: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+fn take_before_rename_hook() {
+    BEFORE_RENAME.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().take() {
+            hook();
+        }
+    });
 }
 
 fn now_ms() -> u64 {
@@ -7700,5 +7970,51 @@ mod tests {
             .unwrap();
         assert_eq!(opened["workspace"]["kind"], "project");
         assert_eq!(opened["workspace"]["path"], project.to_str().unwrap());
+    }
+
+    #[test]
+    fn save_rechecks_the_destination_right_before_replacing_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\" />").unwrap();
+        let file = root.join("App.cs");
+        fs::write(&file, "original\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
+        let read = host.dispatch("file.read", json!({ "path": "App.cs" })).unwrap();
+
+        // Simulate another writer saving between the first check and the rename.
+        let external = file.clone();
+        BEFORE_RENAME.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                fs::write(&external, "external save\n").unwrap();
+            }));
+        });
+
+        let conflict = host
+            .dispatch(
+                "file.write",
+                json!({
+                    "path": "App.cs",
+                    "content": "my buffer\n",
+                    "expected_hash": read["hash"]
+                }),
+            )
+            .expect_err("the recheck sees the external save");
+        assert_eq!(conflict.code, "conflict");
+        let details = conflict.details.unwrap();
+        assert_eq!(details["currentContent"], "external save\n");
+        assert_eq!(details["currentHash"], content_hash("external save\n"));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "external save\n");
+        assert!(
+            fs::read_dir(&root).unwrap().all(|entry| !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".openridr-save-")),
+            "the temp file is removed on conflict"
+        );
     }
 }

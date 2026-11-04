@@ -2,11 +2,11 @@
 //!
 //! The language server itself targets .NET 10 while the project is pinned to SDK 8.0.408 by
 //! global.json. DOTNET_ROOT cannot point at either root alone: the 8 root lacks the 10 runtime
-//! and the 10 root lacks the pinned SDK. The host builds a private root of symlinks under the
+//! and the runtime root has no pinned SDK. The host builds a private root of symlinks under the
 //! app home (the muxer is a copy because it resolves its own real path) and never edits the
-//! SDK roots or global.json.
+//! SDK/runtime roots or global.json.
 
-use crate::sdk::{Install, Version};
+use crate::sdk::{parse_list_sdks, Install, Version};
 use crate::tools::app_home;
 use serde::Serialize;
 use std::fs;
@@ -36,15 +36,16 @@ pub fn forced_path() -> Option<PathBuf> {
     std::env::var_os("OPENRIDR_FORCE_HOSTROOT").map(PathBuf::from)
 }
 
-pub fn ensure(host: &Install, project: &Install) -> Result<HostRoot, String> {
+/// Builds the composite root from the .NET 10 runtime root and the resolved project SDK.
+pub fn ensure(runtime_root: &Path, project: &Install) -> Result<HostRoot, String> {
     if let Some(path) = forced_path() {
         return inspect_forced(&path, project);
     }
 
     let path = default_path();
-    let (inputs, plan) = describe(host, project)?;
+    let (inputs, plan) = describe(runtime_root, project)?;
     if marker_matches(&path, &inputs) {
-        let check = check_versions(&path, host, project)?;
+        let check = check_versions(&path, project)?;
         return Ok(HostRoot {
             path: path.to_string_lossy().to_string(),
             rebuilt: false,
@@ -65,7 +66,7 @@ pub fn ensure(host: &Install, project: &Install) -> Result<HostRoot, String> {
     })?;
     let mut log = Vec::new();
     compose(&build, &plan, &mut log)?;
-    check_versions(&build, host, project)?;
+    check_versions(&build, project)?;
     write_marker(&build, &inputs)?;
 
     let old = if path.exists() {
@@ -87,7 +88,7 @@ pub fn ensure(host: &Install, project: &Install) -> Result<HostRoot, String> {
     if let Some(old) = old {
         let _ = fs::remove_dir_all(old);
     }
-    let check = check_versions(&path, host, project)?;
+    let check = check_versions(&path, project)?;
     log.push(format!(
         "Composite host root activated at {}.",
         path.to_string_lossy()
@@ -140,17 +141,18 @@ fn inspect_forced(path: &Path, project: &Install) -> Result<HostRoot, String> {
     })
 }
 
+#[derive(Debug)]
 struct Plan {
     muxer: PathBuf,
     links: Vec<(String, PathBuf)>,
 }
 
-fn describe(host: &Install, project: &Install) -> Result<(Vec<String>, Plan), String> {
-    let muxer = host.root.join(muxer_name());
+fn describe(runtime_root: &Path, project: &Install) -> Result<(Vec<String>, Plan), String> {
+    let muxer = runtime_root.join(muxer_name());
     if !muxer.is_file() {
         return Err(format!(
-            "The analysis host SDK root {} has no .NET muxer.",
-            host.root.to_string_lossy()
+            "The .NET 10 runtime root {} has no .NET muxer.",
+            runtime_root.to_string_lossy()
         ));
     }
     if !project.sdk_dir().is_dir() {
@@ -159,16 +161,18 @@ fn describe(host: &Install, project: &Install) -> Result<(Vec<String>, Plan), St
             project.sdk_dir().to_string_lossy()
         ));
     }
-    let host_fxr = pick_runtime(&host.root.join("host/fxr"), 10)?
-        .ok_or_else(|| "The analysis host root has no host/fxr 10.x directory.".to_string())?;
-    let host_runtime = pick_runtime(&host.root.join("shared/Microsoft.NETCore.App"), 10)?
-        .ok_or_else(|| "The analysis host root has no Microsoft.NETCore.App 10.x runtime.".to_string())?;
+    let host_fxr = pick_runtime(&runtime_root.join("host/fxr"), 10)?
+        .ok_or_else(|| "The .NET 10 runtime root has no host/fxr 10.x directory.".to_string())?;
+    let host_runtime = pick_runtime(&runtime_root.join("shared/Microsoft.NETCore.App"), 10)?
+        .ok_or_else(|| {
+            "The .NET 10 runtime root has no Microsoft.NETCore.App 10.x runtime.".to_string()
+        })?;
     let worker_runtime = pick_runtime(
         &project.root.join("shared/Microsoft.NETCore.App"),
         8,
     )?
     .or_else(|| {
-        pick_runtime(&host.root.join("shared/Microsoft.NETCore.App"), 8)
+        pick_runtime(&runtime_root.join("shared/Microsoft.NETCore.App"), 8)
             .ok()
             .flatten()
     });
@@ -220,9 +224,7 @@ fn describe(host: &Install, project: &Install) -> Result<(Vec<String>, Plan), St
     }
     let inputs = vec![
         "layout=project-sdk-only-runtime10".to_string(),
-        format!("hostRoot={}", host.root.to_string_lossy()),
-        format!("hostVersion={}", host.version),
-        format!("hostSdk={}", host.sdk_dir().to_string_lossy()),
+        format!("runtimeRoot={}", runtime_root.to_string_lossy()),
         format!("projectRoot={}", project.root.to_string_lossy()),
         format!("projectVersion={}", project.version),
         format!("projectSdk={}", project.sdk_dir().to_string_lossy()),
@@ -321,21 +323,24 @@ fn write_marker(build: &Path, inputs: &[String]) -> Result<(), String> {
         .map_err(|error| format!("Could not write the host root marker: {error}"))
 }
 
-fn check_versions(path: &Path, host: &Install, project: &Install) -> Result<String, String> {
+fn check_versions(path: &Path, project: &Install) -> Result<String, String> {
     let sdks = run_list_sdks(path)?;
     let runtimes = run_list_runtimes(path)?;
-    if !sdks.contains(&project.version) {
+    let listed: Vec<String> = parse_list_sdks(&sdks)
+        .into_iter()
+        .map(|(version, _)| version)
+        .collect();
+    if !listed.iter().any(|version| version == &project.version) {
         return Err(format!(
             "The composite host root does not list project SDK {}: {}",
             project.version,
             sdks.trim()
         ));
     }
-    if project.version != host.version && sdks.contains(&host.version) {
+    if listed.iter().any(|version| version != &project.version) {
         return Err(format!(
-            "The composite host root lists host SDK {}; csharp-ls can register it as the MSBuild default instead of the pinned project SDK {}. Only the project SDK stays in sdk/.",
-            host.version,
-            project.version
+            "The composite host root lists SDKs {:?}; only the pinned project SDK {} may stay in sdk/ so csharp-ls cannot register another MSBuild default.",
+            listed, project.version
         ));
     }
     let host_runtime = runtimes.contains("10.");
@@ -496,5 +501,67 @@ mod tests {
             .unwrap()
             .ends_with("10.0.10"));
         assert!(pick_runtime(temp.path(), 9).unwrap().is_none());
+    }
+
+    fn fake_project(root: &Path, version: &str) -> Install {
+        fs::create_dir_all(root.join("sdk").join(version)).unwrap();
+        fs::create_dir_all(root.join("packs")).unwrap();
+        Install {
+            version: version.to_string(),
+            root: root.to_path_buf(),
+            path: root.join("sdk").to_string_lossy().to_string(),
+        }
+    }
+
+    #[test]
+    fn composite_takes_the_runtime_from_the_runtime_root_and_the_sdk_from_the_project() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = temp.path().join("runtime");
+        fs::create_dir_all(runtime.join("host/fxr/10.0.1")).unwrap();
+        fs::create_dir_all(runtime.join("shared/Microsoft.NETCore.App/10.0.1")).unwrap();
+        fs::write(runtime.join(muxer_name()), "").unwrap();
+        let project_root = temp.path().join("project");
+        let project = fake_project(&project_root, "8.0.408");
+        let project_sdk = project_root.join("sdk/8.0.408");
+
+        let (inputs, plan) = describe(&runtime, &project).unwrap();
+        assert_eq!(plan.muxer, runtime.join(muxer_name()));
+        assert!(inputs.contains(&format!("runtimeRoot={}", runtime.to_string_lossy())));
+        assert!(plan
+            .links
+            .contains(&("sdk/8.0.408".to_string(), project_sdk)));
+        assert!(plan.links.iter().any(|(relative, target)| {
+            relative == "host/fxr/10.0.1" && target == &runtime.join("host/fxr/10.0.1")
+        }));
+        assert!(plan.links.iter().any(|(relative, target)| {
+            relative == "shared/Microsoft.NETCore.App/10.0.1"
+                && target == &runtime.join("shared/Microsoft.NETCore.App/10.0.1")
+        }));
+        assert!(plan
+            .links
+            .contains(&("packs".to_string(), project_root.join("packs"))));
+    }
+
+    #[test]
+    fn describe_distinguishes_a_missing_runtime_from_a_missing_project_sdk() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = temp.path().join("runtime");
+        fs::create_dir_all(runtime.join("host/fxr/10.0.1")).unwrap();
+        fs::write(runtime.join(muxer_name()), "").unwrap();
+        let project = fake_project(&temp.path().join("project"), "8.0.408");
+
+        let error = describe(&runtime, &project).unwrap_err();
+        assert!(error.contains("Microsoft.NETCore.App 10"), "{error}");
+
+        let project_root = temp.path().join("empty-project");
+        fs::create_dir_all(&project_root).unwrap();
+        let missing = Install {
+            version: "8.0.408".to_string(),
+            root: project_root.clone(),
+            path: project_root.join("sdk").to_string_lossy().to_string(),
+        };
+        let error = describe(&runtime, &missing).unwrap_err();
+        assert!(error.contains("resolved project SDK path"), "{error}");
+        assert!(!error.contains("runtime"), "{error}");
     }
 }

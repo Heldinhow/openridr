@@ -1,6 +1,6 @@
 [package]
 name = "openridr"
-version = "0.3.0-alpha.5"
+version = "0.3.0-alpha.6"
 description = "OpenRidr desktop shell"
 edition = "2021"
 license = "MIT"
@@ -15,3 +15,5 @@ openridr-host = { path = "../crates/host" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
+# Approved dependency (ticket 10): one process per app identifier, argv forwarded to it.
+tauri-plugin-single-instance = "2.5.5"

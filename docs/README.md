@@ -33,6 +33,9 @@ Convenção para trabalho novo: `SPEC-<tema>.md`, tickets em `tickets-<tema>/NN-
 | Médios: editor/estado | [SPEC-MEDIUM-EDITOR-STATE](SPEC-MEDIUM-EDITOR-STATE.md) | [tickets-medium-editor/](tickets-medium-editor/README.md) | [RETRO-MEDIUM-EDITOR-STATE](RETRO-MEDIUM-EDITOR-STATE.md) | — |
 | Abrir do Finder/Dock/terminal | [SPEC-OPEN-WITH](SPEC-OPEN-WITH.md) | [tickets-open-with/](tickets-open-with/README.md) | [RETRO-OPEN-WITH](RETRO-OPEN-WITH.md) | [evidence/03-open-with](evidence/03-open-with.md) |
 | Release alfa (DMG) | [RELEASE-ALPHA](RELEASE-ALPHA.md) | — | [RETRO-ALPHA-RELEASE](RETRO-ALPHA-RELEASE.md) | — |
+| Correções do E2E alpha.5 + camada SDK | [SPEC-FIX-ALPHA5](SPEC-FIX-ALPHA5.md) | [tickets-fix-alpha5/](tickets-fix-alpha5/README.md) | [RETRO-FIX-ALPHA5](RETRO-FIX-ALPHA5.md) | [evidence/fix-alpha5/](evidence/fix-alpha5/VERIFICATION.md) |
+| netcoredbg embutido | [SPEC-EMBED-NETCOREDBG](SPEC-EMBED-NETCOREDBG.md) | [tickets-embed-netcoredbg/](tickets-embed-netcoredbg/) | [RETRO-EMBED-NETCOREDBG](RETRO-EMBED-NETCOREDBG.md) | [evidence/embed-netcoredbg.md](evidence/embed-netcoredbg.md) |
+Decisão: netcoredbg 3.2.0-1092 é embutido no bundle (ticket 01); SDK .NET e csharp-ls ficam fora. A prova no app/DMG real continua pendente.
 
 Numeração de tickets **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta.
 

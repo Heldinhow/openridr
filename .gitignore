@@ -3,6 +3,9 @@ dist/
 target/
 src-tauri/gen/
 src-tauri/target/
+src-tauri/resources/netcoredbg/*
+!src-tauri/resources/netcoredbg/netcoredbg.entitlements
+src-tauri/resources/netcoredbg.vendor-state
 test-results/
 playwright-report/
 .DS_Store

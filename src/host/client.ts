@@ -31,7 +31,8 @@ export type SdkRoot = {
   error: string | null;
 };
 
-export type HostSdk = {
+/** The .NET 10 runtime that executes csharp-ls; not the project SDK and not an SDK install. */
+export type AnalysisRuntime = {
   state: "found" | "missing";
   version: string | null;
   root: string | null;
@@ -462,6 +463,7 @@ export type ToolInstall = {
   plan: InstallPlan | null;
   log: string;
   logTruncated: boolean;
+  progress: { downloaded: number; total: number | null } | null;
   exit: number | null;
   termination: null | {
     requested: string;
@@ -548,6 +550,7 @@ export type DebugAdapter = {
     | "failed"
     | "experimental_disabled";
   adapterMessage: string;
+  bundled: boolean;
   appleSiliconExperimental: boolean;
   version: string;
   source: { name: string; url: string };
@@ -582,6 +585,9 @@ export type DebugAdapter = {
   staleReason: string | null;
   stagingPresent: boolean;
   destinationPresent: boolean;
+  installed: boolean;
+  installedBinary: string | null;
+  installedSha256: string | null;
   busy: boolean;
 };
 
@@ -1074,7 +1080,7 @@ export type Snapshot = {
     decision: "trusted" | "restricted" | null;
   };
   sdk: {
-    host: HostSdk;
+    host: AnalysisRuntime;
     project: ProjectSdk;
     roots: SdkRoot[];
     inspectedAt: number | null;

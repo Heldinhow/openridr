@@ -15,6 +15,14 @@ type PanelProps = {
   onChange: (keymap: Keymap) => Promise<string | null>;
 };
 
+/** Titles repeat across groups ("Run", "Save"); the group, or the id when it equals the
+ * title, keeps each row and its buttons distinct for screen readers. */
+function accessibleName(action: ResolvedAction) {
+  return action.group !== action.title
+    ? `${action.title} — ${action.group}`
+    : `${action.title} — ${action.id}`;
+}
+
 /** Profile, remap, reset and conflicts; shared by the Keymap dialog and the Settings page. */
 export function KeymapPanel({ actions, keymap, platform, onChange }: PanelProps) {
   const [capturing, setCapturing] = useState<string | null>(null);
@@ -93,7 +101,7 @@ export function KeymapPanel({ actions, keymap, platform, onChange }: PanelProps)
             key={action.id}
             data-testid={`keymap-row-${action.id}`}
           >
-            <th scope="row">{action.title}</th>
+            <th scope="row" aria-label={accessibleName(action)}>{action.title}</th>
             <td>
               <span className="keymap-group">{action.group === action.title ? "—" : action.group}</span>
               <span className="action-keys" data-testid={`keymap-shortcut-${action.id}`}>
@@ -116,7 +124,7 @@ export function KeymapPanel({ actions, keymap, platform, onChange }: PanelProps)
                 type="button"
                 data-testid={`keymap-change-${action.id}`}
                 aria-pressed={capturing === action.id}
-                aria-label={`${capturing === action.id ? "Choose shortcut for" : "Change shortcut for"} ${action.title}`}
+                aria-label={`${capturing === action.id ? "Choose shortcut for" : "Change shortcut for"} ${accessibleName(action)}`}
                 onClick={() => {
                   setError(null);
                   setCapturing(capturing === action.id ? null : action.id);
@@ -127,7 +135,7 @@ export function KeymapPanel({ actions, keymap, platform, onChange }: PanelProps)
               <button
                 type="button"
                 data-testid={`keymap-reset-${action.id}`}
-                aria-label={`Reset shortcut for ${action.title}`}
+                aria-label={`Reset shortcut for ${accessibleName(action)}`}
                 disabled={!keymap.overrides[action.id]}
                 onClick={() => reset(action.id)}
               >

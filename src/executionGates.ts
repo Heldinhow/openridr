@@ -21,7 +21,7 @@ export function buildDisabledReason(c: GateContext) {
   return !c.trusted
     ? "Trust the workspace before building; nothing runs in Restricted mode."
     : c.snapshot.sdk.project.state !== "resolved"
-      ? "Resolve the project SDK before building; the host SDK is never substituted."
+      ? "Resolve the project SDK before building."
       : evaluation.state === "running"
         ? "Wait for the evaluation to finish before building."
         : evaluation.stale
@@ -53,7 +53,7 @@ export function runAvailabilityReason(
   return !c.trusted
     ? "Trust the workspace before running; nothing runs in Restricted mode."
     : c.snapshot.sdk.project.state !== "resolved"
-      ? "Resolve the project SDK before running; the host SDK is never substituted."
+      ? "Resolve the project SDK before running."
       : evaluation.state === "running"
         ? "Wait for the evaluation to finish before running."
         : evaluation.stale
@@ -84,7 +84,7 @@ export function debugDisabledReason(c: GateContext) {
   return !c.trusted
     ? "Trust the workspace before debugging; nothing runs in Restricted mode."
     : c.snapshot.sdk.project.state !== "resolved"
-      ? "Resolve the project SDK before debugging; the host SDK is never substituted."
+      ? "Resolve the project SDK before debugging."
       : evaluation.state === "running"
         ? "Wait for the evaluation to finish before debugging."
         : evaluation.stale
