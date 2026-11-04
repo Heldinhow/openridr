@@ -34,9 +34,9 @@ inventar um modelo novo de persistência ou de keymap.
 
 ## Aceite
 
-- [ ] O aviso da configuração derivada tem "Duplicate to edit" e a cópia fica editável.
-- [ ] A configuração derivada continua somente leitura.
-- [ ] A Settings mostra os chords e a nota de que não são remapeáveis.
-- [ ] Um override por atalho único continua funcionando.
-- [ ] As duas decisões estão em `docs/decisions.md`.
+- [x] O aviso da configuração derivada tem "Duplicate to edit" e a cópia fica editável.
+- [x] A configuração derivada continua somente leitura.
+- [x] A Settings mostra os chords e a nota de que não são remapeáveis.
+- [x] Um override por atalho único continua funcionando.
+- [x] As duas decisões estão em `docs/decisions.md`.
 - [ ] Evidência no app real.

@@ -246,8 +246,17 @@ test("saved run configurations drive build and run, persist and validate their f
       .toBe("not-allowed");
 
     // Editing the default means duplicating it into a named configuration.
-    await page.getByTestId("run-config-duplicate").click();
+    await expect(page.getByTestId("run-config-duplicate-to-edit")).toBeVisible();
+    await page.getByTestId("run-config-duplicate-to-edit").click();
     await expect(page.getByTestId("run-config-name")).toBeEnabled();
+    await expect(page.getByTestId("run-config-name")).toHaveValue("Run OrderDesk.Cli copy");
+
+    // The derived entry itself stays read only after its copy was created.
+    await page.getByTestId("run-config-item-default").click();
+    await expect(page.getByTestId("run-config-default-note")).toBeVisible();
+    await expect(page.getByTestId("run-config-name")).toBeDisabled();
+    await expect(page.getByTestId("run-config-name")).toHaveValue("Run OrderDesk.Cli");
+    await page.getByTestId("run-config-duplicate-to-edit").click();
     await page.getByTestId("run-config-name").fill("F4 arguments");
     await page.getByTestId("run-config-args").fill("--first\ntwo words");
     await page.getByTestId("run-config-cwd").fill("src");
