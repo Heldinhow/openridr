@@ -1020,7 +1020,7 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **E2E ajustado:** as asserções de kind/TFM em `evaluation.spec.ts`, `workspace.spec.ts` e `zz-acceptance.spec.ts` passaram de texto para atributos; `evaluation.spec.ts` deixou de procurar "MSBuild evaluated" na árvore e passou a checar `status-evaluation`; `workspace.spec.ts` checa "Text outline · not evaluated" na status bar. `solution-explorer.spec.ts` cobre os grupos de Dependencies e `qa4-eval-failed.spec.ts` ganhou o aviso `tree-partial` e a classe de erro na status bar.
 - **Testes rodados:** `bun run check`; `bun run build`; `bun test tests/unit` (21/21); `cargo test -p openridr-host --lib` (235/235); filtros do parser/host: `cargo test -p openridr-host --lib -- outline::tests::symbol_kind` (9/9) e `cargo test -p openridr-host --lib -- symbol` (19/19). `cargo fmt --check`/`clippy -D warnings` seguem fora do `check`, como o `AGENTS.md` registra.
 - **Revisão própria (`fix`):** o glifo C# sem tipo de símbolo herdava `--muted` da regra genérica `.tree-row .icon`; ganhou regra própria. O scan de símbolo agora é refeito por revisão de avaliação (antes, conteúdo alterado com o mesmo conjunto de fontes ficava com badge velho). O parser só aceita palavra-chave em posição de declaração (string/expressão não pinta o arquivo) e não tem mais o teto silencioso de 2.000 linhas. O status de avaliação com erro/parcial voltou a ficar vermelho, e saiu código morto (`isGeneratedPath`, prop `project` do `FileIcon`).
-- **Não verificado:** Playwright/E2E completo e app Tauri real (agent-desktop) — portas 1420/4317 em uso por outra sessão, liberação pendente. Por isso não há captura nesta branch ainda; os specs alterados não foram executados. Não há fixture web/interfaces/enums/records/structs; a prova visual desses badges exige uma cópia temporária da fixture com arquivos criados na verificação.
+- **Verificado no app real (2026-11-04):** bundle debug deste worktree, `desktop.sh up` com `OPENRIDR_HOME` isolado. A árvore não tem chrome; status bar mostra `Evaluated · Debug · TFM not selected · revision 2` e o refresh; projetos Cli/Core/Tests com terminal/livro/frasco; Dependencies com Frameworks/Packages/Projects e refs; arquivos temporários `IWidget.cs`/`Kind.cs`/`Point.cs`/`Money.cs` produziram badges I/E/R/S e `Order.cs` C, com `Program.cs` mantendo C#; Show All listou `bin`/`obj` com `no index` atenuado. Capturas em `docs/evidence/solution-explorer-visual/`. E2E dos cinco specs tocados: **43/43 (exit 0)** nas portas 1440/4337 (solution-explorer 11, evaluation 7, workspace 16, ui-layout 7, zz-acceptance 2). `zz-acceptance` hardcoded 4317/home e precisou reavaliar após criar arquivo; corrigido.
 
 ## Dependencies agrupadas — ticket 04 (2026-11-04)
 
@@ -1039,9 +1039,10 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
   Test SDK dentro de Packages e ref dentro de Projects, sem os sufixos antigos).
 - **Rodado:** `bunx tsc --noEmit`, `bun run check`, `bun run build`, `bun test tests/unit` (21/21),
   `cargo test -p openridr-host --lib` (235/235) — host não mudou neste ticket.
-- **Não verificado:** E2E e app Tauri real (agent-desktop) continuam pendentes de liberação da porta; as
-  asserções novas de grupo não foram executadas. Não há fixture web nem projeto com interface/enum/record/
-  struct; a prova visual desses badges e do agrupamento com pacotes reais fica para a verificação.
+- **Verificado:** o app real e o E2E dos cinco specs (43/43) estão em
+  `docs/evidence/solution-explorer-visual.md`; a captura 03 mostra Packages/Projects e a 02 os grupos no
+  Cli. Permanecem não verificados no app o aviso `tree-partial`/erro (só E2E qa4) e um projeto web (sem
+  fixture).
 
 ## Revisão do provedor externo — 9 itens (2026-11-04)
 

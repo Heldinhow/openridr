@@ -21,7 +21,7 @@ Abrir e decidir o Trust (feature 3) → painel "Solution" à esquerda → clicar
 - Para provar a diferenciação: numa cópia da fixture, crie `IThing.cs` (interface), `Kind.cs` (enum), `Point.cs` (record) e `Money.cs` (struct), aguarde a avaliação e confira `data-symbol-kind`/o badge; um `.cs` só com top-level statements deve manter o glifo C# (sem `data-symbol-kind`).
 - **C**: `agent-desktop snapshot --app OpenRidr -i --compact`; a árvore aparece como itens de lista/botões com o nome visível ("Program.cs").
 
-Prova de que funciona: a árvore lista os 3 projetos (`OrderDesk.Cli`, `OrderDesk.Core`, `OrderDesk.Tests`) com 3 de 3 "Evaluated", o arquivo abre com o conteúdo real do disco, e salvar muda o arquivo no disco.
+Prova de que funciona: a árvore lista os 3 projetos (`OrderDesk.Cli`, `OrderDesk.Core`, `OrderDesk.Tests`) com 3 de 3 "Evaluated", o arquivo abre com o conteúdo real do disco, e salvar muda o arquivo no disco. Visual provado no app real em 2026-11-04 (capturas em `docs/evidence/solution-explorer-visual/`): grupos de Dependencies, badges I/E/R/S/C e `no index` atenuado.
 
 ## Gotchas
 
