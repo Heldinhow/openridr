@@ -1,0 +1,365 @@
+- window: OpenRidr
+- webarea: OpenRidr [focused]
+e1 button: Back
+e2 button: Forward [disabled]
+e3 group: 
+- disclosure: Project: OrderDesk.sln. Open recent solutions.
+- statictext: OrderDes
+- statictext: k.sln
+e4 button: Not a git repository [disabled]
+e5 button: Build
+e6 group: 
+- disclosure: Run configuration: Run OrderDesk.Cli. Run and Debug use it.
+- statictext: Run OrderDe
+- statictext: sk.Cli
+- group: Startup project for Build, Run and Debug; saved per solution.
+e7 combobox: Startup project
+e8 button: Run startup project
+e9 button: Debug
+e10 group: 
+- disclosure: Workspace actions
+- statictext: ⋮
+e11 button: Search Everywhere
+e12 button: Open Settings
+- group: Right tool windows
+e13 switch: Workspace tools
+e14 button: Monitoring [disabled]
+e15 button: AI Assistant [disabled]
+e16 button: Database [disabled]
+- complementary: Workspace tools
+- statictext: Workspace tools
+e17 button: Close workspace tools
+- group: Restore [offscreen]
+- statictext: Restore
+- statictext: Restore succeeded · exit 0
+- statictext: Scope: Solution · OrderDesk.sln
+e18 button: Restore again [offscreen]
+e19 button: Reload evaluated model [offscreen]
+e20 list:  [offscreen]
+- statictext: Target
+- statictext: <tmp>/verify-openridr-501-desktop/work/OrderDesk/OrderDesk.sln
+- statictext: Command
+- statictext: ~/.dotnet/dotnet restore <tmp>/verify-openridr-501-desktop/work/OrderDesk/OrderDesk.sln -nologo -v:minimal
+- statictext: Working directory
+- statictext: <tmp>/verify-openridr-501-desktop/work/OrderDesk
+- statictext: Project SDK
+- statictext: 8.0.408 · ~/.dotnet
+- statictext: 3 projects report restored assets.
+e21 group:  [offscreen]
+- disclosure: Restore log · stdout/stderr
+- statictext: Restore log · stdout/stderr
+- group: Debug adapter [offscreen]
+- statictext: Debug adapter · 3.2.0-1092
+- statictext: Experimental · disabled
+- statictext: macos / aarch64
+- statictext: netcoredbg-osx-arm64.zip · available
+- statictext: Source: 
+e22 link: Samsung/netcoredbg (official GitHub release) [offscreen]
+- statictext: Samsung/netcoredbg (official GitHub release)
+- statictext: · approved version 3.2.0-1092 · DAP proven by installation: no
+e23 list:  [offscreen]
+- statictext: Origin
+- statictext: Bundled with OpenRidr
+- statictext: Version
+- statictext: 3.2.0-1092
+- statictext: Checksum
+- statictext: 0fc1423f6260d7562970ef6104041039f6ffe20805fe2091294953c1752b4fba · SHA-256 of the embedded executable; --version is verified when a session starts.
+- statictext: Executable
+- statictext: ~/Projetos/openridr-rider-parity/src-tauri/target/debug/bundle/macos/OpenRidr.app/Contents/Resources/netcoredbg/netcoredbg
+- statictext: Apple Silicon debugger: experimental · disabled. The official 3.2.0-1092 osx-arm64 asset exists, but it is community supported (The official release publishes this macOS arm64 build as community supported (upstream README: "may not work as expected"); OpenRidr has no verified compatible adapter or DAP evidence for it (ticket 14).) so installation stays refused until you enable the experimental flag. Debug is blocked. netcoredbg 3.2.0-1092 is bundled with OpenRidr at ~/Projetos/openridr-rider-parity/src-tauri/target/debug/bundle/macos/OpenRidr.app/Contents/Resources/netcoredbg/netcoredbg; the experimental opt-in is what still blocks Debug.
+- statictext: DAP launch is implemented (ticket 14). A verified executable or a successful install is still not proof that a session will succeed; the Debug tab reports the real adapter messages, exit code, processes and preserved logs.
+- statictext: Apple Silicon debugger
+- statictext: experimental · disabled
+- statictext: The session-scoped experimental opt-in resets when the workspace opens or closes. It only unlocks the bundled adapter; nothing is downloaded.
+e24 checkbox: I understand the experimental flag does not install or prove the adapter
+- statictext: I understand the experimental flag does not install or prove the adapter
+e25 button: Enable experimental flag [disabled,offscreen]
+- group: Tool installation
+- statictext: Analysis tool · 0.28.0
+- statictext: Ready
+e26 button: Review install plan [offscreen]
+- statictext: Executable and version verified. This does not prove that the language server loads a solution.
+- statictext: Executable and version verified. This proves the tool installation, not that the language server loads a solution.
+- statictext: SHA-256 of the installed launcher: 0bcd0dbc79b426667961f35bc5d319325e7a6added5d221b30c37cdc3f3e882c
+- statictext: csharp-ls, 0.28.0 (Klebiškis)+72671fc7fa810c158864e72485db68e8b9b25c3d
+- statictext: Install attempt 1 · exit 0
+e27 group:  [expanded]
+- disclosure: Install plan details
+- statictext: Install plan details
+e28 list: 
+- statictext: Tool
+- statictext: csharp-ls 0.28.0
+- statictext: Source
+- statictext: NuGet.org · https://api.nuget.org/v3/index.json
+- statictext: https://www.nuget.org/packages/csharp-ls/0.28.0
+- statictext: Platform
+- statictext: macos / aarch64
+- statictext: Destination
+- statictext: <tmp>/verify-openridr-501-desktop/home/tools/csharp-ls/0.28
+- statictext: Staging
+- statictext: <tmp>/verify-openridr-501-desktop/home/tools/csharp-ls/0.28.staging
+- statictext: Command
+- statictext: ~/.dotnet/dotnet tool install csharp-ls --version 0.28.0 --tool-path <tmp>/verify-openridr-501-desktop/home/tools/csharp-ls/0.28.staging
+- statictext: Working directory
+- statictext: <tmp>/openridr-neutral
+- statictext: Permissions
+e29 list: 
+- group: 
+- unknown: 
+- statictext: network: https://api.nuget.org/v3/index.json (NuGet.org over HTTPS; the child runs with an isolated HOME and its default NuGet source)
+- group: 
+- unknown: 
+- statictext: write: <tmp>/verify-openridr-501-desktop/home/tools/csharp-ls
+- group: 
+- unknown: 
+- statictext: write: <tmp>/verify-openridr-501-desktop/home/toolhome (isolated HOME, NuGet cache and first-run files)
+- group: 
+- unknown: 
+- statictext: no global tool install (`--tool-path` only), no elevation, no system SDK install, no repository changes
+- statictext: Integrity
+- statictext: dotnet tool install reports "Skipping NuGet package signature verification." OpenRidr records the SHA-256 of the installed launcher and the exact --version output; it does not claim a verified package signature or an official package hash.
+- statictext: Existing
+- statictext: No launcher at the destination.
+e30 button: Reuse verified installation
+e31 group: 
+- disclosure: Install log · stdout/stderr
+- statictext: Install log · stdout/stderr
+- group: Analysis
+- statictext: Analysis · csharp-ls
+- statictext: Ready
+- statictext: session 1 · info log
+e32 button: Restart analysis
+e33 button: Stop analysis
+e34 button: Verbose log
+- statictext: Capabilities: completion · definition · rename (prepare) · code actions · workspace symbols · references · document symbols · diagnostics (pull advertised) · semantic tokens
+- statictext: Diagnostics: 2 publications · 0 items
+- statictext: process 4 · pid 60721 · exit not observed
+- statictext: DOTNET_ROOT <tmp>/verify-openridr-501-desktop/home/hostroot · rebuilt this start
+e35 group:  [offscreen]
+- disclosure: LSP log · server/stdout/stderr
+- statictext: LSP log · server/stdout/stderr
+- group: ▸ Processes · 4 [offscreen]
+- heading: ▸ Processes · 4
+e36 button: ▸ Processes · 4 [offscreen]
+- toolbar: Left tool windows
+e37 switch: Solution Explorer tool window
+e38 switch: Commit tool window
+- toolbar: Bottom tool windows
+e39 switch: Build tool window
+e40 switch: Run tool window
+e41 switch: Problems tool window
+e42 switch: Debug tool window
+e43 switch: Terminal tool window
+e44 switch: Tests tool window
+e45 switch: Git tool window
+e46 switch: NuGet tool window
+- navigation: Solution explorer
+- statictext: Solution
+- statictext: MSBuild evaluated
+e47 switch: Show All Files
+e48 switch: Search in tree
+e49 button: Select opened file
+e50 button: Expand all
+e51 button: Collapse all
+e52 combobox: Options [readonly]
+e53 button: Hide Solution
+e54 button: Re-evaluate
+- statictext: Evaluated · revision 2
+e55 button: Project details
+e56 button: OrderDesk · 3 projects [expanded]
+e57 button: src · 2 projects [expanded]
+e58 button: OrderDesk.Cli · console · net8.0 [expanded]
+e59 button: Dependencies
+e60 button: bin · no index
+e61 button: obj · no index
+e62 button: Program.cs
+e63 button: OrderDesk.Core · library · net8.0 [expanded]
+e64 button: bin · no index
+e65 button: obj · no index
+e66 button: Order.cs
+e67 button: tests · 1 project [expanded]
+e68 button: OrderDesk.Tests · test · net8.0 [expanded]
+e69 button: Dependencies
+e70 button: bin · no index
+e71 button: obj · no index
+e72 button: OrderTests.cs
+e73 button: .gitignore · no index
+e74 button: global.json · no index
+- splitter: Solution explorer width
+- group: Editor
+- tablist: Open files
+e75 radiobutton: Program.cs
+e76 button: Close Program.cs
+e77 radiobutton: OrderTests.cs
+e78 button: Close OrderTests.cs
+e79 button: Rename symbol…
+e80 button: Code actions…
+e81 button: Save file [disabled]
+- statictext: OrderDesk.Tests / OrderTests.cs / net8.0
+- tabpanel: OrderTests.cs
+- statictext: 
+e82 textfield: Editor
+using Xunit;
+
+namespace OrderDesk.Tests;
+
+public sealed class OrderTests
+{
+    [Fact]
+    public void Id_is_preserved()
+    {
+        var order = new Order("A-104", 42m);
+
+        Assert.Equal("A-104", order.Id);
+    }
+
+    [Fact]
+    public void Total_is_preserved()
+    {
+        var order = new Order("A-104", 42m);
+
+        Assert.Equal(42m, order.Total);
+    }
+
+    [Fact]
+    public void Deliberate_failure_for_runner_evidence()
+    {
+        var order = new Order("A-104", 42m);
+
+        Assert.Equal(43m, order.Total);
+    }
+
+    [Fact(Skip = "Fixture evidence: skipped on purpose until the fixture changes.")]
+    public void Skipped_until_fixture_changes()
+    {
+    }
+}
+
+
+- statictext: using OrderDesk.Core;
+- statictext: using Xunit;
+- statictext: namespace OrderDesk.Tests;
+- statictext: public sealed class OrderTests
+- statictext: {
+- statictext:     [Fact]
+- statictext: public void Id_is_preserved()
+- statictext:     {
+- statictext: var order = new Order("A-104", 42m);
+- statictext:         Assert.Equal("A-104", order.Id);
+- statictext:     }
+- statictext:     [Fact]
+- statictext: public void Total_is_preserved()
+- statictext:     {
+- statictext: var order = new Order("A-104", 42m);
+- statictext:         Assert.Equal(42m, order.Total);
+- statictext:     }
+- statictext:     [Fact]
+- statictext: public void Deliberate_failure_for_runner_evidence()
+- statictext:     {
+- statictext: var order = new Order("A-104", 42m);
+- statictext:         Assert.Equal(43m, order.Total);
+- statictext:     }
+- statictext:     [Fact(Skip = "Fixture evidence: skipped on purpose until the fixture changes.")]
+- statictext: public void Skipped_until_fixture_changes()
+- statictext:     {
+- statictext:     }
+- statictext: }
+- status: Ctrl+Space: completion · Cmd+B: go to definition · Shift+F6: rename · Shift+F12: find usages · Option+Enter: code actions
+- statictext: Ctrl+Space: completion · Cmd+B: go to definition · Shift+F6: rename · Shift+F12: find usages · Option+Enter: code actions
+- splitter: Output panel height
+- group: Bottom panel
+- tablist: Output panels
+e83 radiobutton: Build
+e84 radiobutton: Run
+e85 radiobutton: Problems
+e86 radiobutton: Debug
+e87 radiobutton: Terminal
+e88 radiobutton: Tests
+e89 radiobutton: Git
+e90 radiobutton: NuGet
+e91 button: Hide tool window
+- tabpanel: Tests
+- statictext: Test project
+e92 combobox: Test project
+- statictext: TFM
+e93 combobox: TFM
+e94 button: Refresh tests
+e95 button: Run all
+e96 button: Run selected [disabled]
+e97 button: Debug selected [disabled]
+e98 button: Rerun failed [disabled]
+- statictext: Discovered 4 tests · exit 0
+e99 group:  [offscreen]
+- disclosure: Discovery details
+- statictext: Discovery details
+- statictext: 4 tests · 0 selected ·
+- statictext: discovery:1:1 · revision 1
+- statictext: Filter
+e100 textfield: Filter
+- group: Discovered tests
+e101 button: OrderDesk.Tests 4 [expanded]
+e102 button: OrderTests 4 [expanded]
+- group: OrderDesk.Tests.OrderTests.Id_is_preserved
+e103 checkbox: OrderDesk.Tests.OrderTests.Id_is_preserved · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected
+- statictext: not run
+- group: OrderDesk.Tests.OrderTests.Id_is_preserved
+- statictext: OrderDesk.Tests.OrderTests.Id_is_preserved
+- statictext: display name: OrderDesk.Tests.OrderTests.Id_is_preserved
+- statictext: · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest
+- group: OrderDesk.Tests.OrderTests.Total_is_preserved
+e104 checkbox: OrderDesk.Tests.OrderTests.Total_is_preserved · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected
+- statictext: not run
+- group: OrderDesk.Tests.OrderTests.Total_is_preserved
+- statictext: OrderDesk.Tests.OrderTests.Total_is_preserved
+- statictext: display name: OrderDesk.Tests.OrderTests.Total_is_preserved
+- statictext: · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest
+- group: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+e105 checkbox: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected
+- statictext: not run
+- group: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+- statictext: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+- statictext: display name: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+- statictext: · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest
+- group: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
+e106 checkbox: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected
+- statictext: not run
+- group: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
+- statictext: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
+- statictext: display name: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
+- statictext: · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest
+- statictext:   OrderDesk.Core -> <tmp>/verify-openridr-501-desktop/work/OrderDesk/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll
+  OrderDesk.Tests -> <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll
+Test run for <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+The following Tests are available:
+    OrderDesk.Tests.OrderTests.Id_is_preserved
+    OrderDesk.Tests.OrderTests.Total_is_preserved
+    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
+  OrderDesk.Tests -> <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll
+Test run for <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+The following Tests are available:
+    OrderDesk.Tests.OrderTests.Id_is_preserved
+    OrderDesk.Tests.OrderTests.Total_is_preserved
+    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
+- statictext: OrderDesk.sln
+- statictext: OrderDesk.Tests > OrderTests.cs
+e107 combobox: Trusted mode [readonly]
+- statictext: Analysis runtime 10.0.14 · Project SDK 8.0.408
+- statictext: Evaluated · Configuration Debug · TFM not selected · revision 2
+- statictext: Analysis: Ready
+- statictext: Keymap: Rider (macOS)
+- statictext: UTF-8
+- statictext: 4 spaces
+- statictext: Ln 11, Col 30
+e108 menu: Solution context menu
+e109 menuitem: Copy Path [focused,selected]
+e110 menuitem: Find in Files…
+e111 menuitem: Show in Finder
+e112 menuitem: New File…
+e113 menuitem: Rename…
+e114 menuitem: Delete
+e115 button: Close
+e116 button: Full Screen
+e117 button: Minimize
+- statictext: OpenRidr

@@ -1,3 +1,4 @@
+import { profileTitle, type ProfileId } from "../actions/keymap";
 import type { Snapshot } from "../host/client";
 import { StatusMode } from "./StatusMode";
 
@@ -10,7 +11,7 @@ type RestoreStatus = {
   onRetry: (() => void) | null;
 };
 
-export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent }: {
+export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile }: {
   workspace: { name: string; path: string };
   snapshot: Snapshot;
   onSnapshot: (snapshot: Snapshot) => void;
@@ -24,6 +25,7 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
   breadcrumb: string;
   cursor: string;
   indent: { label: string; title: string };
+  keymapProfile: ProfileId;
 }) {
   return (
     <footer className="status">
@@ -90,7 +92,7 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
         </button>
       )}
       <span className="push" data-testid="status-keymap">
-        Keymap: IntelliJ / Rider
+        Keymap: {profileTitle(keymapProfile)}
       </span>
       <span data-testid="status-encoding" title="UTF-8 is the only encoding OpenRidr reads and writes; nothing is detected.">
         UTF-8

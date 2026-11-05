@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { revisionOf, settleRestore } from "./automatic";
+import { clickDiscover, revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -109,7 +109,7 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
 
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });
@@ -128,7 +128,11 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
     await expect(page.getByTestId("tests-exit")).toHaveText("exit 0");
     await expect(page.getByTestId("tests-discovery-id")).toContainText(/discovery:\d+:\d+/);
     await expect(page.getByTestId("tests-counts")).toContainText("4 tests · 0 selected");
-    await expect(page.getByTestId("tests-counts")).toContainText(/discovery:\d+:1 · revision 1/);
+    await expect(page.getByTestId("tests-counts")).toContainText(/discovery:\d+:\d+ · revision \d+/);
+    const discoveredRevision = Number(
+      (await page.getByTestId("tests-counts").textContent())?.match(/revision (\d+)/)?.[1] ?? 0,
+    );
+    expect(discoveredRevision).toBeGreaterThan(0);
     await expect(page.getByTestId("tests-log")).toContainText(
       "The following Tests are available:",
     );
@@ -176,13 +180,15 @@ test("real VSTest discovery lists four identified tests and blocks a stale selec
 
     // Rediscovery uses the saved code and clears the stale block; the dirty buffer stays
     // dirty and is a ticket-17 concern, not a reason to keep the list unusable.
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });
     await expect(page.getByTestId("tests-stale")).toHaveCount(0);
     await expect(page.getByTestId("test-checkbox-0")).toBeEnabled();
-    await expect(page.getByTestId("tests-counts")).toContainText("revision 2");
+    await expect(page.getByTestId("tests-counts")).toContainText(
+      `revision ${discoveredRevision + 1}`,
+    );
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -207,7 +213,7 @@ test("a test-project compile error is published in Problems during discovery", a
     await page.getByTestId("bottom-tab-tests").click();
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovery failed", {
       timeout: 120_000,
     });
@@ -248,7 +254,7 @@ test("an MTP project shows the exact message and runs no VSTest command", async 
     await restoreAndReload(page);
 
     await page.getByTestId("bottom-tab-tests").click();
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-mtp-message")).toHaveText(
       "Microsoft.Testing.Platform is not supported in this version. Use the terminal.",
     );
@@ -284,7 +290,7 @@ test("a project without a VSTest adapter is adapter-missing, not empty", async (
     await restoreAndReload(page);
 
     await page.getByTestId("bottom-tab-tests").click();
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("No VSTest adapter");
     await expect(page.getByTestId("tests-guidance")).toContainText("Microsoft.NET.Test.Sdk");
     await expect(page.getByTestId("tests-guidance")).toContainText(
@@ -308,11 +314,28 @@ test("a project without a VSTest adapter is adapter-missing, not empty", async (
   }
 });
 
-test("real test run reports TRX outcomes, details, position, selected scope and infrastructure", async ({
+test("real test run reports TRX outcomes, details, position, next failure and Run Unit Test", async ({
   page,
 }) => {
   test.setTimeout(240_000);
   const { base, copy } = tempCopy("Order Desk run");
+  const orderTestsPath = path.join(copy, "tests/OrderDesk.Tests/OrderTests.cs");
+  fs.writeFileSync(
+    orderTestsPath,
+    fs.readFileSync(orderTestsPath, "utf8").replace(
+      /}\s*$/,
+      `
+    [Fact]
+    public void Second_deliberate_failure_for_next_failure()
+    {
+        var order = new Order("A-104", 42m);
+
+        Assert.Equal(44m, order.Total);
+    }
+}
+`,
+    ),
+  );
   try {
     await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
     await trustWorkspace(page);
@@ -326,8 +349,8 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     );
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
-    await page.getByTestId("tests-discover").click();
-    await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
+    await clickDiscover(page);
+    await expect(page.getByTestId("tests-state")).toContainText("Discovered 5 tests", {
       timeout: 120_000,
     });
     // The discovery identity lives in the folded details, so read its text rather than its rendered text.
@@ -335,13 +358,22 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     const discoveryId = discoveryIdText.split(" ")[0];
     const discoveryRevision = discoveryIdText.match(/revision (\d+)/)?.[1];
 
-    await page.getByTestId("tests-run-all").click();
+    // Run Unit Test from the tree: visible only for a test project, runs its whole suite and
+    // switches to the Tests tab (G17).
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("tests-run-panel")).toHaveCount(0);
+    await page.getByTestId("tree-project-OrderDesk.Tests").click({ button: "right" });
+    await page.getByTestId("tree-menu-unit-test").click();
+    await expect(page.getByTestId("bottom-tab-tests")).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("tests-run-state")).toContainText("Run completed", {
       timeout: 120_000,
     });
+    await expect(page.getByTestId("tests-run-selection")).toHaveText(
+      "Selection: all discovered tests",
+    );
     await expect(page.getByTestId("tests-run-exit")).toHaveText("exit 1");
     await expect(page.getByTestId("tests-run-counts")).toContainText(
-      "4 results · 2 passed · 1 failed · 1 skipped · 0 not executed · 0 unknown",
+      "5 results · 2 passed · 2 failed · 1 skipped · 0 not executed · 0 unknown",
     );
     await expect(page.getByTestId("tests-run-id")).toContainText(/testrun:\d+:1/);
     await expect(page.getByTestId("tests-run-id")).toContainText(discoveryId);
@@ -360,7 +392,7 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await expect(page.getByTestId("tests-run-log")).toContainText("Test run for");
 
     const results = page.getByTestId("tests-run-results-list").locator("li");
-    await expect(results).toHaveCount(4);
+    await expect(results).toHaveCount(5);
     await expect.poll(() => results.first().evaluate((element) => {
       const panel = element.closest(".panel-body");
       if (!panel) return false;
@@ -386,8 +418,14 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await expect(
       failedRow.locator('[data-testid^="test-result-stack-"]'),
     ).toContainText("OrderTests.cs:line 29");
-    await failedRow.getByRole("button", { name: "Open source position" }).click();
+    const sourceLink = failedRow.locator('[data-testid^="test-result-navigate-"]');
+    await expect(sourceLink).toHaveText("tests/OrderDesk.Tests/OrderTests.cs:29");
+    await sourceLink.click();
     await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", "28:0");
+    await expect(page.getByTestId("editor")).toBeFocused();
+    await page.keyboard.press("Meta+f");
+    await expect(page.locator(".cm-search")).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(
       page.getByTestId("tab-tests/OrderDesk.Tests/OrderTests.cs"),
     ).toBeVisible();
@@ -401,6 +439,34 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     await expect(
       passedRow.locator('[data-testid^="test-result-outcome-"]'),
     ).toHaveText("passed");
+
+    // G12: Next failure cycles only failed results, expands each one and follows its position.
+    const current = await discoveryState(page.request);
+    const failures = (
+      current.tests.run.results as {
+        outcome: string;
+        position: { path: string; line: number; character: number } | null;
+      }[]
+    )
+      .map((result, index) => ({ result, index }))
+      .filter(({ result }) => result.outcome === "failed");
+    expect(failures).toHaveLength(2);
+    const nextFailure = page.getByTestId("tests-next-failure");
+    await expect(nextFailure).toBeEnabled();
+    for (let step = 0; step < 3; step += 1) {
+      const failure = failures[step % failures.length];
+      await nextFailure.click();
+      const row = page.getByTestId(`test-result-${failure.index}`);
+      await expect(row.locator("details")).toHaveAttribute("open", "");
+      await expect(row.locator('[data-testid^="test-result-message-"]')).toBeVisible();
+      await expect(row).toBeInViewport();
+      if (failure.result.position) {
+        await expect(page.getByTestId("editor-shell")).toHaveAttribute(
+          "data-cursor",
+          `${failure.result.position.line}:${failure.result.position.character}`,
+        );
+      }
+    }
 
     await page.screenshot({
       path: path.join(screenshots, "17-tests-run-all.png"),
@@ -421,6 +487,12 @@ test("real test run reports TRX outcomes, details, position, selected scope and 
     );
     await expect(page.getByTestId("tests-run-id")).toContainText(/testrun:\d+:2/);
     await expect(page.getByTestId("tests-run-results-list").locator("li")).toHaveCount(1);
+    // A run with no failed results keeps Next failure disabled with its reason.
+    await expect(page.getByTestId("tests-next-failure")).toBeDisabled();
+    await expect(page.getByTestId("tests-next-failure")).toHaveAttribute(
+      "title",
+      /no failed results/,
+    );
 
     // Real infrastructure failure: the built test assembly is gone before --no-build.
     fs.rmSync(path.join(copy, "tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll"));
@@ -488,7 +560,7 @@ public sealed class LongTests
     await page.getByTestId("bottom-tab-tests").click();
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 5 tests", {
       timeout: 120_000,
     });

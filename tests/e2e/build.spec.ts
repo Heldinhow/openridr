@@ -128,6 +128,15 @@ test("a real build reports its raw log, fails on a compile error and navigates t
     await expect(page.getByTestId("build-problems-count")).toContainText("1 build problem");
     await page.screenshot({ path: path.join(screenshots, "11-build-failed.png") });
 
+    // The location span is host-made; the UI only turns it into a button. Clicking opens the
+    // saved file at the exact position the log reported.
+    const logLink = page.getByTestId("build-log").getByRole("button").first();
+    await expect(logLink).toContainText("src/OrderDesk.Cli/Program.cs(");
+    const linkPosition = await logLink.getAttribute("data-position");
+    expect(linkPosition).toMatch(/^\d+:\d+$/);
+    await logLink.click();
+    await expect(page.getByTestId("editor-shell")).toHaveAttribute("data-cursor", linkPosition!);
+
     // Problems keeps Build · dotnet separate and navigates to the real position.
     await page.getByTestId("bottom-tab-problems").click();
     await expect(page.getByTestId("build-problems")).toBeVisible();

@@ -13,7 +13,7 @@ async function openTextOnly(page: Page) {
   await expect(page.getByTestId("tree")).toBeVisible();
 }
 
-/** ⌘T is gone from the Rider profile; Search Everywhere opens on two clean Shift taps. */
+/** Search Everywhere opens on two clean Shift taps or the ⌘T binding. */
 async function openSearch(page: Page) {
   await page.keyboard.press("Shift");
   await page.keyboard.press("Shift");

@@ -1,0 +1,310 @@
+- window: OpenRidr
+- webarea: OpenRidr [focused]
+e1 button: Back
+e2 button: Forward [disabled]
+e3 group: 
+- disclosure: Project: OrderDesk.sln. Open recent solutions. val=false
+- statictext: OrderDes val=OrderDes
+- statictext: k.sln val=k.sln
+e4 button: Not a git repository [disabled]
+e5 button: Build
+e6 group: 
+- disclosure: Run configuration: Run OrderDesk.Cli. Run and Debug use it. val=false
+- statictext: Run OrderDe val=Run OrderDe
+- statictext: sk.Cli val=sk.Cli
+- group: Startup project for Build, Run and Debug; saved per solution.
+e7 combobox: Startup project val=OrderDesk.Cli [readonly]
+e8 button: Run startup project
+e9 button: Debug
+e10 group: 
+- disclosure: Workspace actions val=false
+- statictext: ⋮ val=⋮
+e11 button: Search Everywhere
+e12 button: Open Settings
+- group: Right tool windows
+e13 switch: Workspace tools val=0
+e14 button: Monitoring [disabled]
+e15 button: AI Assistant [disabled]
+e16 button: Database [disabled]
+- toolbar: Left tool windows
+e17 switch: Solution Explorer tool window val=1 [checked]
+e18 switch: Commit tool window val=0
+- toolbar: Bottom tool windows
+e19 switch: Build tool window val=0
+e20 switch: Run tool window val=0
+e21 switch: Problems tool window val=0
+e22 switch: Debug tool window val=0
+e23 switch: Terminal tool window val=0
+e24 switch: Tests tool window val=1 [checked]
+e25 switch: Git tool window val=0
+e26 switch: NuGet tool window val=0
+- navigation: Solution explorer
+- statictext: Solution val=Solution
+- statictext: MSBuild evaluated val=MSBuild evaluated
+e27 switch: Show All Files val=0
+e28 switch: Search in tree val=0
+e29 button: Select opened file
+e30 button: Expand all
+e31 button: Collapse all
+e32 combobox: Options [readonly]
+e33 button: Hide Solution
+e34 button: Re-evaluate
+- statictext: Evaluated · revision 2 val=Evaluated · revision 2
+e35 button: Project details
+e36 button: OrderDesk · 3 projects [expanded]
+e37 button: src · 2 projects [expanded]
+e38 button: OrderDesk.Cli · console · net8.0 [expanded]
+e39 button: Dependencies
+e40 button: Program.cs
+e41 button: OrderDesk.Core · library · net8.0 [expanded]
+e42 button: Order.cs
+e43 button: tests · 1 project [expanded]
+e44 button: OrderDesk.Tests · test · net8.0 [expanded]
+e45 button: Dependencies
+e46 button: OrderTests.cs
+- splitter: Solution explorer width val=361
+- group: Editor
+- tablist: Open files
+e47 radiobutton: OrderTests.cs val=true [checked,selected]
+e48 button: Close OrderTests.cs
+e49 button: Rename symbol… [disabled]
+e50 button: Code actions… [disabled]
+e51 button: Save file [disabled]
+- statictext: OrderDesk.Tests / OrderTests.cs / net8.0 val=OrderDesk.Tests / OrderTests.cs / net8.0
+- tabpanel: OrderTests.cs
+e52 textfield: Editor val=using OrderDesk.Core;
+using Xunit;
+
+namespace OrderDesk.Tests;
+
+public sealed class OrderTests
+{
+    [Fact]
+    public void Id_is_preserved()
+    {
+        var order = new Order("A-104", 42m);
+
+        Assert.Equal("A-104", order.Id);
+    }
+
+    [Fact]
+    public void Total_is_preserved()
+    {
+        var order = new Order("A-104", 42m);
+
+        Assert.Equal(42m, order.Total);
+    }
+
+    [Fact]
+    public void Deliberate_failure_for_runner_evidence()
+    {
+        var order = new Order("A-104", 42m);
+
+        Assert.Equal(43m, order.Total);
+    }
+
+    [Fact(Skip = "Fixture evidence: skipped on purpose until the fixture changes.")]
+    public void Skipped_until_fixture_changes()
+    {
+    }
+}
+
+ [focused]
+- statictext: using OrderDesk.Core; val=using OrderDesk.Core; [offscreen]
+- statictext: using Xunit; val=using Xunit; [offscreen]
+- statictext: namespace OrderDesk.Tests; val=namespace OrderDesk.Tests; [offscreen]
+- statictext: public sealed class OrderTests val=public sealed class OrderTests [offscreen]
+- statictext: { val={ [offscreen]
+- statictext:     [Fact] val=    [Fact] [offscreen]
+- statictext: public void Id_is_preserved() val=public void Id_is_preserved() [offscreen]
+- statictext:     { val=    { [offscreen]
+- statictext: var order = new Order("A-104", 42m); val=var order = new Order("A-104", 42m); [offscreen]
+- statictext:         Assert.Equal("A-104", order.Id); val=        Assert.Equal("A-104", order.Id); [offscreen]
+- statictext:     } val=    } [offscreen]
+- statictext:     [Fact] val=    [Fact]
+- statictext: public void Total_is_preserved() val=public void Total_is_preserved()
+- statictext:     { val=    {
+- statictext: var order = new Order("A-104", 42m); val=var order = new Order("A-104", 42m);
+- statictext:         Assert.Equal(42m, order.Total); val=        Assert.Equal(42m, order.Total);
+- statictext:     } val=    }
+- statictext:     [Fact] val=    [Fact]
+- statictext: public void Deliberate_failure_for_runner_evidence() val=public void Deliberate_failure_for_runner_evidence()
+- statictext:     { val=    {
+- statictext: var order = new Order("A-104", 42m); val=var order = new Order("A-104", 42m);
+- statictext:         Assert.Equal(43m, order.Total); val=        Assert.Equal(43m, order.Total);
+- statictext:     } val=    }
+- statictext:     [Fact(Skip = "Fixture evidence: skipped on purpose until the fixture changes.")] val=    [Fact(Skip = "Fixture evidence: skipped on purpose until the fixture changes.")]
+- statictext: public void Skipped_until_fixture_changes() val=public void Skipped_until_fixture_changes()
+- statictext:     { val=    {
+- statictext:     } val=    }
+- statictext: } val=}
+- status: Ctrl+Space: completion · Cmd+B: go to definition · Shift+F6: rename · Shift+F12: find usages · Option+Enter: code actions
+- statictext: Ctrl+Space: completion · Cmd+B: go to definition · Shift+F6: rename · Shift+F12: find usages · Option+Enter: code actions val=Ctrl+Space: completion · Cmd+B: go to definition · Shift+F6: rename · Shift+F12: find usages · Option+Enter: code actions
+- splitter: Output panel height val=364
+- group: Bottom panel
+- tablist: Output panels
+e53 radiobutton: Build val=false
+e54 radiobutton: Run val=false
+e55 radiobutton: Problems val=false
+e56 radiobutton: Debug val=false
+e57 radiobutton: Terminal val=false
+e58 radiobutton: Tests val=true [checked,selected]
+e59 radiobutton: Git val=false
+e60 radiobutton: NuGet val=false
+e61 button: Hide tool window
+- tabpanel: Tests
+- statictext: Test project val=Test project
+e62 combobox: Test project val=OrderDesk.Tests [readonly]
+- statictext: TFM val=TFM
+e63 combobox: TFM val=Not selected [readonly]
+e64 button: Refresh tests
+e65 button: Run all
+e66 button: Run selected [disabled]
+e67 button: Debug selected [disabled]
+e68 button: Rerun failed
+- statictext: Discovered 4 tests · exit 0 val=Discovered 4 tests · exit 0
+e69 group:  [offscreen]
+- disclosure: Discovery details val=false [offscreen]
+- statictext: Discovery details val=Discovery details [offscreen]
+- statictext: 4 tests · 0 selected · val=4 tests · 0 selected · [offscreen]
+- statictext: discovery:1:1 · revision 1 val=discovery:1:1 · revision 1 [offscreen]
+- statictext: Filter val=Filter [offscreen]
+e70 textfield: Filter [offscreen]
+- group: Discovered tests [offscreen]
+e71 button: OrderDesk.Tests 4 [expanded,offscreen]
+e72 button: OrderTests 4 [expanded,offscreen]
+- group: OrderDesk.Tests.OrderTests.Id_is_preserved val=passed OrderDesk.Tests.OrderTests.Id_is_preserved display name:OrderDesk.Tests.OrderTests.Id_is_preserved ·tests/OrderDesk.Tests/OrderDesk.Tests.csproj·TFM not selected·vstest [offscreen]
+e73 checkbox: OrderDesk.Tests.OrderTests.Id_is_preserved · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected val=0 [offscreen]
+- statictext: passed val=passed [offscreen]
+- group: OrderDesk.Tests.OrderTests.Id_is_preserved [offscreen]
+- statictext: OrderDesk.Tests.OrderTests.Id_is_preserved val=OrderDesk.Tests.OrderTests.Id_is_preserved [offscreen]
+- statictext: display name: OrderDesk.Tests.OrderTests.Id_is_preserved val=display name: OrderDesk.Tests.OrderTests.Id_is_preserved [offscreen]
+- statictext: · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest val=· tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest [offscreen]
+- group: OrderDesk.Tests.OrderTests.Total_is_preserved val=passed OrderDesk.Tests.OrderTests.Total_is_preserved display name:OrderDesk.Tests.OrderTests.Total_is_preserved ·tests/OrderDesk.Tests/OrderDesk.Tests.csproj·TFM not selected·vstest [offscreen]
+e74 checkbox: OrderDesk.Tests.OrderTests.Total_is_preserved · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected val=0 [offscreen]
+- statictext: passed val=passed [offscreen]
+- group: OrderDesk.Tests.OrderTests.Total_is_preserved [offscreen]
+- statictext: OrderDesk.Tests.OrderTests.Total_is_preserved val=OrderDesk.Tests.OrderTests.Total_is_preserved [offscreen]
+- statictext: display name: OrderDesk.Tests.OrderTests.Total_is_preserved val=display name: OrderDesk.Tests.OrderTests.Total_is_preserved [offscreen]
+- statictext: · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest val=· tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest [offscreen]
+- group: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence val=failed OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence display name:OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence ·tests/OrderDesk.Tests/OrderDesk.Tests.csproj·TFM not selected·vstest [offscreen]
+e75 checkbox: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected val=0 [offscreen]
+- statictext: failed val=failed [offscreen]
+- group: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [offscreen]
+- statictext: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence val=OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [offscreen]
+- statictext: display name: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence val=display name: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [offscreen]
+- statictext: · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest val=· tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest [offscreen]
+- group: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes val=skipped OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes display name:OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes ·tests/OrderDesk.Tests/OrderDesk.Tests.csproj·TFM not selected·vstest [offscreen]
+e76 checkbox: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected val=0 [offscreen]
+- statictext: skipped val=skipped [offscreen]
+- group: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [offscreen]
+- statictext: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes val=OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [offscreen]
+- statictext: display name: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes val=display name: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [offscreen]
+- statictext: · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest val=· tests/OrderDesk.Tests/OrderDesk.Tests.csproj · TFM not selected · vstest [offscreen]
+- statictext:   OrderDesk.Core -> <tmp>/verify-openridr-501-desktop/work/OrderDesk/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll
+  OrderDesk.Tests -> <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll
+Test run for <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+The following Tests are available:
+    OrderDesk.Tests.OrderTests.Id_is_preserved
+    OrderDesk.Tests.OrderTests.Total_is_preserved
+    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes val=  OrderDesk.Core -> <tmp>/verify-openridr-501-desktop/work/OrderDesk/src/OrderDesk.Core/bin/Debug/net8.0/OrderDesk.Core.dll
+  OrderDesk.Tests -> <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll
+Test run for <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+The following Tests are available:
+    OrderDesk.Tests.OrderTests.Id_is_preserved
+    OrderDesk.Tests.OrderTests.Total_is_preserved
+    OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+    OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [offscreen]
+- group: Test run
+- statictext: Run completed · 4 results · exit 1 val=Run completed · 4 results · exit 1
+- statictext: testrun:1:1 · discovery:1:1 · discovery revision 1 · run revision 1 · context 2 val=testrun:1:1 · discovery:1:1 · discovery revision 1 · run revision 1 · context 2
+- statictext: Selection: all discovered tests val=Selection: all discovered tests
+e77 button: Next failure
+- statictext: 4 results · 2 passed · 1 failed · 1 skipped · 0 not executed · 0 unknown val=4 results · 2 passed · 1 failed · 1 skipped · 0 not executed · 0 unknown
+e78 group: 
+- disclosure: Test run details val=false
+- statictext: Test run details val=Test run details
+- group: Test results
+- statictext: passed val=passed
+- statictext: OrderDesk.Tests.OrderTests.Total_is_preserved val=OrderDesk.Tests.OrderTests.Total_is_preserved
+- statictext: 0 ms · source Passed val=0 ms · source Passed
+e79 group: 
+- disclosure: Details val=false
+- statictext: Details val=Details
+- statictext: skipped val=skipped
+- statictext: OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes val=OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes
+- statictext: 1 ms · source NotExecuted val=1 ms · source NotExecuted
+e80 group: 
+- disclosure: Details val=false
+- statictext: Details val=Details
+- statictext: passed val=passed
+- statictext: OrderDesk.Tests.OrderTests.Id_is_preserved val=OrderDesk.Tests.OrderTests.Id_is_preserved
+- statictext: 0 ms · source Passed val=0 ms · source Passed
+e81 group: 
+- disclosure: Details val=false
+- statictext: Details val=Details
+- statictext: failed val=failed
+- statictext: OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence val=OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence
+- statictext: 5 ms · source Failed val=5 ms · source Failed
+e82 group:  [expanded]
+- disclosure: Details val=true [expanded]
+- statictext: Details val=Details
+- statictext: Assert.Equal() Failure: Values differ
+Expected: 43
+Actual:   42 val=Assert.Equal() Failure: Values differ
+Expected: 43
+Actual:   42
+- statictext: Stack trace val=Stack trace
+- statictext:    at OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence() in <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/OrderTests.cs:line 29
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr) val=   at OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence() in <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/OrderTests.cs:line 29
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+e83 button: tests/OrderDesk.Tests/OrderTests.cs:29
+- statictext: Test run for <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.06]     OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [SKIP]
+[stderr] [xUnit.net 00:00:00.08]     OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [FAIL]
+  Skipped OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [1 ms]
+  Failed OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [5 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 43
+Actual:   42
+  Stack Trace:
+     at OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence() in <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/OrderTests.cs:line 29
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+Results File: <tmp>/verify-openridr-501-desktop/home/test-results/1-1-1793836194377-55288/openridr.trx
+Failed!  - Failed:     1, Passed:     2, Skipped:     1, Total:     4, Duration: 14 ms - OrderDesk.Tests.dll (net8.0) val=Test run for <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/bin/Debug/net8.0/OrderDesk.Tests.dll (.NETCoreApp,Version=v8.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.06]     OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [SKIP]
+[stderr] [xUnit.net 00:00:00.08]     OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [FAIL]
+  Skipped OrderDesk.Tests.OrderTests.Skipped_until_fixture_changes [1 ms]
+  Failed OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence [5 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 43
+Actual:   42
+  Stack Trace:
+     at OrderDesk.Tests.OrderTests.Deliberate_failure_for_runner_evidence() in <tmp>/verify-openridr-501-desktop/work/OrderDesk/tests/OrderDesk.Tests/OrderTests.cs:line 29
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+Results File: <tmp>/verify-openridr-501-desktop/home/test-results/1-1-1793836194377-55288/openridr.trx
+Failed!  - Failed:     1, Passed:     2, Skipped:     1, Total:     4, Duration: 14 ms - OrderDesk.Tests.dll (net8.0)
+- statictext: OrderDesk.sln val=OrderDesk.sln
+- statictext: OrderDesk.Tests > OrderTests.cs val=OrderDesk.Tests > OrderTests.cs
+e84 combobox: Trusted mode [readonly]
+- statictext: Analysis runtime 10.0.14 · Project SDK 8.0.408 val=Analysis runtime 10.0.14 · Project SDK 8.0.408
+- statictext: Evaluated · Configuration Debug · TFM not selected · revision 2 val=Evaluated · Configuration Debug · TFM not selected · revision 2
+- statictext: Analysis: not installed  val=Analysis: not installed 
+e85 button: Install analysis
+- statictext: Keymap: Rider (macOS) val=Keymap: Rider (macOS)
+- statictext: UTF-8 val=UTF-8
+- statictext: 4 spaces val=4 spaces
+- statictext: Ln 29, Col 1 val=Ln 29, Col 1
+e86 button: Close
+e87 button: Full Screen
+e88 button: Minimize
+- statictext: OpenRidr val=OpenRidr

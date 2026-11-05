@@ -552,7 +552,15 @@ export function RunConfigDialog({
             {derived && (
               <p className="hint" data-testid="run-config-default-note">
                 This default configuration is derived from the current evaluation and is
-                read only. Duplicate it to edit a named copy.
+                read only. Duplicate it to edit a named copy.{" "}
+                <button
+                  type="button"
+                  data-testid="run-config-duplicate-to-edit"
+                  disabled={busy}
+                  onClick={duplicate}
+                >
+                  Duplicate to edit
+                </button>
               </p>
             )}
             {field(

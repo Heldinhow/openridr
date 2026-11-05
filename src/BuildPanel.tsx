@@ -1,4 +1,5 @@
-import type { Build, Evaluation, Run } from "./host/client";
+import { Fragment } from "react";
+import type { Build, BuildLogLink, Evaluation, Run } from "./host/client";
 
 type Props = {
   build: Build;
@@ -23,6 +24,7 @@ type Props = {
   restoreDisabledReason: string | null;
   onRestore: () => void;
   obsolete: boolean;
+  onNavigate: (path: string, position: { line: number; character: number }) => void;
 };
 
 export function buildStateLabel(build: Build) {
@@ -75,6 +77,51 @@ export function timeLabel(value: number | null) {
   return value === null ? "unknown" : new Date(value).toLocaleString();
 }
 
+/** Renders the raw log, replacing only the spans the host marked as navigable. The log is
+ * never reparsed here: an unknown line is plain text by construction. */
+function buildLogContent(
+  log: string,
+  links: BuildLogLink[],
+  onNavigate: Props["onNavigate"],
+) {
+  if (!log) return "No output yet.";
+  const byLine = new Map(links.map((link) => [link.line, link]));
+  const lines = log.split("\n");
+  return lines.map((line, index) => {
+    const link = byLine.get(index);
+    const newline = index < lines.length - 1 ? "\n" : "";
+    if (!link) {
+      return (
+        <Fragment key={index}>
+          {line}
+          {newline}
+        </Fragment>
+      );
+    }
+    const chars = Array.from(line);
+    const start = Math.min(link.start, chars.length);
+    const end = Math.min(Math.max(link.end, start), chars.length);
+    return (
+      <Fragment key={index}>
+        {chars.slice(0, start).join("")}
+        <button
+          type="button"
+          className="link-button"
+          data-testid={`build-log-link-${index}`}
+          data-position={`${link.position.line}:${link.position.character}`}
+          data-path={link.path}
+          title={`Open ${link.path}:${link.position.line + 1}:${link.position.character + 1}`}
+          onClick={() => onNavigate(link.path, link.position)}
+        >
+          {chars.slice(start, end).join("")}
+        </button>
+        {chars.slice(end).join("")}
+        {newline}
+      </Fragment>
+    );
+  });
+}
+
 export function BuildPanel({
   build,
   run,
@@ -98,6 +145,7 @@ export function BuildPanel({
   restoreDisabledReason,
   onRestore,
   obsolete,
+  onNavigate,
 }: Props) {
   const candidates = evaluation.projects.filter(
     (project) => project.kind === "console" && project.state === "ok" && project.targetPath,
@@ -404,7 +452,7 @@ export function BuildPanel({
             </p>
           )}
           <pre className="eval-pre build-log" data-testid="build-log">
-            {build.log || "No output yet."}
+            {buildLogContent(build.log, build.logLinks, onNavigate)}
           </pre>
           {build.logTruncated && (
             <p className="muted" data-testid="build-log-truncated">

@@ -22,7 +22,7 @@ import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
 import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
 import { ROOT_KEY, baseOf, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
-import { fileMenuItems, projectMenuItems } from "./solutionMenu";
+import { fileMenuItems, projectMenuItems, solutionMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
   gutterActionAt,
@@ -222,6 +222,14 @@ function nameProblem(name: string): string | null {
 
 type NavEntry = { path: string; line: number; character: number };
 
+type NoticeAction = { label: string; onClick: () => void };
+type Notice = { tone: "info" | "error"; text: string; action?: NoticeAction };
+type PendingAnalysisAction = {
+  kind: "findUsages" | "rename" | "codeActions";
+  position: { line: number; character: number };
+};
+type AutoDiscoveryError = { boundary: string; message: string };
+
 type Props = {
   snapshot: Snapshot;
   initialFile: string | null;
@@ -378,7 +386,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     evaluation.state !== "idle" && evaluatedProjects.length > 0;
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<Notice | null>(null);
   const [trustError, setTrustError] = useState<string | null>(null);
   // Ambiguous external open with the workspace mounted: the user picks the solution from these buttons.
   const [externalCandidates, setExternalCandidates] = useState<{ path: string; candidates: Candidate[] } | null>(null);
@@ -400,6 +408,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [quickListOpen, setQuickListOpen] = useState(false);
   const [testProjectPath, setTestProjectPath] = useState("");
   const [testSelected, setTestSelected] = useState<Set<string>>(new Set());
+  const [testAutoDiscoveryError, setTestAutoDiscoveryError] =
+    useState<AutoDiscoveryError | null>(null);
+  const testDiscoveryAutoStarted = useRef<string | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [gitStatusError, setGitStatusError] = useState<string | null>(null);
   const [gitIntent, setGitIntent] = useState<GitIntent | null>(null);
@@ -554,6 +565,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [installPlanRequest, setInstallPlanRequest] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(() => expandableKeys(null, projects));
   const seededTreeExpansion = useRef(0);
   const [showAllFiles, setShowAllFiles] = useState(false);
@@ -695,6 +707,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const workspaceIdRef = useRef(workspace.id);
   workspaceIdRef.current = workspace.id;
   const analysisAutoStarted = useRef<string | null>(null);
+  const pendingAnalysisAction = useRef<PendingAnalysisAction | null>(null);
   async function startAnalysis(automatic = false) {
     try {
       onSnapshot(await call<Snapshot>("lsp.start"));
@@ -715,6 +728,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     void startAnalysis(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot, workspace.id]);
+  useEffect(() => {
+    // One blocked analysis action waits for the next active session and runs once against the
+    // current render, so stale gates from the blocked render cannot re-arm it.
+    if (!lspActive || pendingAnalysisAction.current === null) return;
+    const pending = pendingAnalysisAction.current;
+    pendingAnalysisAction.current = null;
+    if (pending.kind === "findUsages") void requestFindUsages(pending.position);
+    else if (pending.kind === "rename") requestRename(pending.position);
+    else void requestCodeActions(pending.position);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lspActive]);
   const toolState = snapshot.tools["csharp-ls"].state;
   const analysisStatus = !trusted
     ? null
@@ -770,6 +794,26 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             : editPreview
               ? "Finish or cancel the current preview first."
               : null;
+  // One notice shape for Find Usages, Rename and code actions. The gate only offers a way
+  // forward when analysis is what blocks the action; trust and capability blocks stay plain.
+  function analysisNotice(label: string, reason: string, pending: PendingAnalysisAction): Notice {
+    let action: NoticeAction | undefined;
+    if (trusted && active && !lspActive) {
+      if (toolState !== "ready") {
+        action = {
+          label: "Install analysis",
+          onClick: () => {
+            setToolsOpen(true);
+            setInstallPlanRequest((count) => count + 1);
+          },
+        };
+      } else if (lspStartBlocker(snapshot) === null) {
+        action = { label: "Start analysis", onClick: () => void startAnalysis() };
+      }
+      if (action) pendingAnalysisAction.current = pending;
+    }
+    return { tone: "error", text: `${label} unavailable: ${reason}`, action };
+  }
   const goToDefinitionDisabledReason = !active
     ? "Open a file to go to a declaration."
     : !trusted
@@ -893,6 +937,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   useEffect(() => {
     setTestSelected(new Set());
   }, [testDiscoveryKey]);
+  const testDiscoveryBoundary = `${workspace.id}:${snapshot.contextId}:${restore.revision}:${testProjectPath}`;
+  useEffect(() => {
+    // One automatic discovery per workspace/context/restore boundary and selected test project;
+    // the ref keeps renders, edits and panel openings from launching it again. A running restore
+    // has no revision yet and the host would reject discovery for missing assets.
+    if (!testProjectPath || testsDisabledReason !== null || restoring) return;
+    if (testDiscoveryAutoStarted.current === testDiscoveryBoundary) return;
+    testDiscoveryAutoStarted.current = testDiscoveryBoundary;
+    void startTestDiscovery(testProjectPath, testDiscoveryBoundary);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testDiscoveryBoundary, testsDisabledReason, restoring]);
   const testProject = testCandidates.find((project) => project.path === testProjectPath) ?? null;
   const testRunBlocked = testRunBlockedReason({
     disabledReason: testsDisabledReason,
@@ -946,11 +1001,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       : buildDisabledReason;
   const debugCurrentFrame =
     dap.frames.find((frame) => frame.id === dap.selectedFrameId) ?? dap.frames[0] ?? null;
-  const activeBreakpoints = active
-    ? dap.breakpoints
-        .filter((breakpoint) => breakpoint.path === active.path)
-        .map((breakpoint) => breakpoint.line)
+  const activeBreakpointEntries = active
+    ? dap.breakpoints.filter((breakpoint) => breakpoint.path === active.path)
     : [];
+  const activeBreakpoints = activeBreakpointEntries.map((breakpoint) => breakpoint.line);
+  const activeVerifiedBreakpoints = activeBreakpointEntries
+    .filter((breakpoint) => breakpoint.verified)
+    .map((breakpoint) => breakpoint.line);
   const debugCurrentLine =
     active && debugCurrentFrame?.path
       ? debugCurrentFrame.path.replace(/\\/g, "/").endsWith(`/${active.path}`)
@@ -1615,7 +1672,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   function requestRename(position = cursorRef.current) {
     if (!active) return;
     if (renameDisabledReason) {
-      setMessage({ tone: "error", text: `Rename unavailable: ${renameDisabledReason}` });
+      setMessage(analysisNotice("Rename", renameDisabledReason, { kind: "rename", position }));
       return;
     }
     renameSeq.current += 1;
@@ -1681,10 +1738,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
+  async function revealInFinder(path: string) {
+    try {
+      await call("workspace.reveal", { path });
+    } catch (error) {
+      setMessage({ tone: "error", text: `Show in Finder failed: ${messageOf(error)}` });
+    }
+  }
+
   async function requestCodeActions(position = cursorRef.current) {
     if (!active) return;
     if (codeActionsDisabledReason) {
-      setMessage({ tone: "error", text: `Code actions unavailable: ${codeActionsDisabledReason}` });
+      setMessage(
+        analysisNotice("Code actions", codeActionsDisabledReason, { kind: "codeActions", position }),
+      );
       return;
     }
     const sourcePath = active.path;
@@ -1800,7 +1867,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   async function requestFindUsages(position = cursorRef.current) {
     if (!active) return;
     if (findUsagesDisabledReason) {
-      setMessage({ tone: "error", text: `Find Usages unavailable: ${findUsagesDisabledReason}` });
+      setMessage(
+        analysisNotice("Find Usages", findUsagesDisabledReason, { kind: "findUsages", position }),
+      );
       return;
     }
     const sourcePath = active.path;
@@ -2554,10 +2623,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       projectFile: baseName(target.path),
       trusted,
       executable: (project?.kind ?? outline?.kind) === "console",
+      testProject: (project?.kind ?? outline?.kind) === "test",
       reloadReason,
       buildReason: reasons.build,
       runReason: reasons.run,
       debugReason: reasons.debug,
+      unitTestReason: testsDisabledReason,
       shortcuts: { build: shortcutOf("build.start"), run: shortcutOf("run.start"), debug: shortcutOf("debug.start") },
       onTrust: () => void grantTrust(),
       onNuGet: () => setBottomTab("nuget"),
@@ -2565,9 +2636,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       onBuild: () => config && requestBuild(config),
       onRun: () => config && requestRun(config),
       onDebug: () => config && void prepareAndDebug(config),
+      onRunUnitTest: () => void startTestRun(target.path, "all", []),
       onEditFile: () => void openUserFile(target.path),
       onFind: () => openFindInFiles(dirOf(target.path)),
       onCopyPath: () => void copyPath(absolutePath(target.path)),
+      onReveal: () => void revealInFinder(target.path),
       onProperties: () => {
         setSelectedProjectPath(target.path);
         setProjectDetailsOpen(true);
@@ -2654,12 +2727,26 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   function treeMenuItems(target: TreeTarget): ContextMenuItem[] {
     if (target.kind === "project") return projectMenu(target);
     const path = target.kind === "root" ? "" : target.path;
+    if (target.kind === "root") {
+      return solutionMenuItems({
+        buildReason: buildSolutionDisabledReason,
+        restoreReason: restoreDisabledReason,
+        reloadReason,
+        buildShortcut: shortcutOf("build.solution"),
+        onBuild: requestBuildSolution,
+        onRestore: () => void startRestore("restore.start"),
+        onReload: () => void runEvaluation(),
+        onCopyPath: () => void copyPath(absolutePath("")),
+        onFind: () => openFindInFiles(""),
+        onReveal: () => void revealInFinder(""),
+      });
+    }
     const editable = target.kind === "file" || target.kind === "dir";
     return fileMenuItems({
       open: target.kind === "file" ? () => void openUserFile(target.path) : undefined,
-      reload: target.kind === "root" ? { reason: reloadReason, run: () => void runEvaluation() } : undefined,
       onCopyPath: () => void copyPath(absolutePath(path)),
       onFind: () => openFindInFiles(path),
+      onReveal: () => void revealInFinder(path),
       newFile: target.kind === "dir" ? () => startCreateFile(target) : undefined,
       rename: editable ? () => startRename(target) : undefined,
       delete: editable ? () => requestDelete(target) : undefined,
@@ -2674,8 +2761,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     { id: "show-all", label: showAllFiles ? "Hide All Files" : "Show All Files", action: () => setShowAllFiles((current) => !current), separatorBefore: true },
   ];
 
-  async function startTestDiscovery(project: string) {
-    setBottomTab("tests");
+  async function startTestDiscovery(project: string, automaticBoundary: string | null = null) {
+    const automatic = automaticBoundary !== null;
+    if (!automatic) {
+      // A manual discovery belongs to the same boundary; the automatic effect must not repeat it.
+      testDiscoveryAutoStarted.current = testDiscoveryBoundary;
+      setBottomTab("tests");
+    }
+    setTestAutoDiscoveryError(null);
     try {
       onSnapshot(
         await call<Snapshot>("tests.discover", {
@@ -2683,8 +2776,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           targetFramework: evaluation.context.targetFramework,
         }),
       );
-      setMessage(null);
+      if (!automatic) setMessage(null);
     } catch (error) {
+      if (automaticBoundary !== null) {
+        setTestAutoDiscoveryError({ boundary: automaticBoundary, message: messageOf(error) });
+        return;
+      }
       setMessage({ tone: "error", text: `Test discovery could not start: ${messageOf(error)}` });
       if (error instanceof HostCallError && error.code === "restore_required") {
         setBottomTab("tests");
@@ -2849,16 +2946,34 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     (editor?.querySelector<HTMLElement>(".cm-content") ?? editor)?.focus();
   }
 
+  // Opening another file remounts the editor; focusing before that lands on the old one or nothing.
+  // WebKit commits that remount later than a timer, so retry per frame. Focus on the document or on the
+  // control that started the navigation (a panel row) is ours to move. A modal dialog, the terminal or a
+  // text field keeps the focus it has. The editor is not a stop: the first try may still land on the old one.
+  function focusEditorWhenMounted(frames: number) {
+    const active = document.activeElement;
+    const keeps =
+      active !== null &&
+      active !== document.body &&
+      (active.closest('[role="dialog"][aria-modal="true"], [data-testid="terminal-panel"]') !== null ||
+        active.matches("input, textarea, select"));
+    if (keeps) return;
+    focusEditor();
+    if (frames > 0) window.requestAnimationFrame(() => focusEditorWhenMounted(frames - 1));
+  }
+
+  function focusEditorAfterOpen(open: () => Promise<unknown>) {
+    void open().finally(() => focusEditorWhenMounted(15));
+  }
+
   function openSearchFile(path: string) {
     setFindActionOpen(false);
-    focusEditor();
-    void openUserFile(path);
+    focusEditorAfterOpen(() => openUserFile(path));
   }
 
   function openSearchLocation(path: string, line: number, character: number) {
     setFindActionOpen(false);
-    focusEditor();
-    void navigateTo(path, { line, character });
+    focusEditorAfterOpen(() => navigateTo(path, { line, character }));
   }
 
   function openKeymap() {
@@ -3775,7 +3890,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       )}
 
       <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
-      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
+      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} planRequest={installPlanRequest} />
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
 
       {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}
@@ -3818,6 +3933,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             restoreDisabledReason={restoreDisabledReason}
             onRestore={() => void startRestore("restore.start")}
             obsolete={buildObsolete}
+            onNavigate={(path, position) => void navigateTo(path, position)}
           />
         );
       case "problems":
@@ -3867,6 +3983,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             evaluation={evaluation}
             editedAt={editedAt}
             disabledReason={testsDisabledReason}
+            autoDiscoveryError={
+              testAutoDiscoveryError?.boundary === testDiscoveryBoundary
+                ? testAutoDiscoveryError.message
+                : null
+            }
             projectPath={testProjectPath}
             onProjectChange={setTestProjectPath}
             selected={testSelected}
@@ -3881,7 +4002,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               void startTestRun(project, selection, testIds)
             }
             onRunCancel={() => void cancelTestRun()}
-            onNavigate={(path, position) => void navigateTo(path, position)}
+            onNavigate={(path, position) =>
+              focusEditorAfterOpen(() => navigateTo(path, position))
+            }
           />
         );
       case "git":
@@ -3992,6 +4115,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const debugStartAction = requireAction(actionById, "debug.start");
   const stopAction = requireAction(actionById, "run.stop");
   const searchAction = requireAction(actionById, "search.everywhere");
+  const searchHint =
+    searchAction.shortcutTexts.length > 0
+      ? `${searchAction.shortcutTexts.join(" or ")} or Double Shift`
+      : "Double Shift";
   const settingsAction = requireAction(actionById, "settings.open");
   const findActionAction = requireAction(actionById, "view.findAction");
   const keymapAction = requireAction(actionById, "view.keymap");
@@ -4201,7 +4328,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           data-testid="toolbar-search"
           disabled={Boolean(searchAction.disabledReason)}
           aria-label={searchAction.title}
-          title={searchAction.disabledReason ?? (searchAction.shortcutTexts.join(" or ") || "Double Shift")}
+          title={searchAction.disabledReason ?? searchHint}
           onClick={searchAction.execute}
         >
           <Icon name="search" />
@@ -4245,6 +4372,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           data-testid="app-log"
         >
           {message.text}
+          {message.action && (
+            <button
+              type="button"
+              className="notice-action"
+              data-testid="notice-action"
+              onClick={() => {
+                const action = message.action;
+                setMessage(null);
+                action?.onClick();
+              }}
+            >
+              {message.action.label}
+            </button>
+          )}
           <button className="notice-dismiss" aria-label="Dismiss notification" onClick={() => setMessage(null)}>×</button>
         </div>
       )}
@@ -4665,10 +4806,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   onChange={(value) => updateContent(active.path, value)}
                   onSave={() => void save()}
                   onDefinition={(location) =>
-                    void navigateTo(location.path, {
-                      line: location.line,
-                      character: location.character,
-                    })
+                    focusEditorAfterOpen(() =>
+                      navigateTo(location.path, {
+                        line: location.line,
+                        character: location.character,
+                      }),
+                    )
                   }
                   onRename={(position) => requestRename(position)}
                   onRenameSubmit={submitRenameInline}
@@ -4693,6 +4836,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   onCursor={noteCursor}
                   diagnostics={activeDiagnostics}
                   breakpoints={activeBreakpoints}
+                  verifiedBreakpoints={activeVerifiedBreakpoints}
                   currentLine={debugCurrentLine}
                   inlayText={debugInlay}
                   onHoverEvaluate={
@@ -4718,7 +4862,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   className="rename-preview find-usages editor-popup"
                   response={findUsages.response}
                   snippets={findUsages.snippets}
-                  onNavigate={(path, position) => void navigateTo(path, position)}
+                  onNavigate={(path, position) =>
+                    focusEditorAfterOpen(() => navigateTo(path, position))
+                  }
                   onClose={() => {
                     findUsagesSeq.current += 1;
                     setFindUsages(null);
@@ -4950,7 +5096,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               <h1>Your code, in focus.</h1>
               <p className="muted">Open a file from the solution explorer to start editing.</p>
               <dl className="shortcut-list">
-                <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd></dd>
+                <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd> <span className="muted">or Double Shift</span></dd>
                 <dt>Save file</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘S" : "Ctrl+S"}</kbd></dd>
                 <dt>Go to definition</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘B" : "Ctrl+B"}</kbd></dd>
                 <dt>Rename symbol</dt><dd><kbd>Shift+F6</kbd></dd>
@@ -5115,8 +5261,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           }}
           onNavigate={(path, line, character) => {
             setFindInFiles(null);
-            focusEditor();
-            void navigateTo(path, { line, character });
+            focusEditorAfterOpen(() => navigateTo(path, { line, character }));
           }}
         />
       )}
@@ -5126,8 +5271,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           files={recentFiles}
           onOpen={(path) => {
             setRecentFilesOpen(false);
-            focusEditor();
-            void openUserFile(path);
+            focusEditorAfterOpen(() => openUserFile(path));
           }}
           onClose={() => {
             setRecentFilesOpen(false);
@@ -5188,6 +5332,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             : `${settings.editor.indentSize} spaces`,
           title: "Indentation comes from Settings (Editor). No per-file detection is claimed.",
         }}
+        keymapProfile={settings.keymap.profile}
       />
 
       {buildDecision && (

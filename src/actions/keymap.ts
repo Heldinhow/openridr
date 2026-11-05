@@ -140,6 +140,15 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
     shortcut("tab", { control: true, shift: true }),
   ]),
   "toolWindow.hideActive": both([shortcut("escape", { shift: true })]),
+  // ⌘1..⌘8 follow the band order in `shell/toolWindows.ts`; Git and NuGet stay unmapped.
+  "toolWindow.solution": both([shortcut("1", { primary: true })]),
+  "toolWindow.commit": both([shortcut("2", { primary: true })]),
+  "toolWindow.build": both([shortcut("3", { primary: true })]),
+  "toolWindow.run": both([shortcut("4", { primary: true })]),
+  "toolWindow.problems": both([shortcut("5", { primary: true })]),
+  "toolWindow.debug": both([shortcut("6", { primary: true })]),
+  "toolWindow.terminal": both([shortcut("7", { primary: true })]),
+  "toolWindow.tests": both([shortcut("8", { primary: true })]),
   "build.start": both([shortcut("f9", { primary: true })]),
   "build.solution": both([shortcut("f9", { primary: true, shift: true })]),
   "run.start": {
@@ -180,10 +189,8 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
   },
   "code.contextActions": both([shortcut("enter", { alt: true })]),
   "code.rename": both([shortcut("f6", { shift: true })]),
-  "search.everywhere": {
-    "rider-macos": binding([]),
-    intellij: binding([]),
-  },
+  // Double Shift is a gesture handled in WorkspaceView; ⌘T is the remappable binding.
+  "search.everywhere": both([shortcut("t", { primary: true })]),
   "search.file": {
     "rider-macos": binding([shortcut("o", { primary: true, shift: true })]),
     intellij: binding([shortcut("o", { primary: true })]),

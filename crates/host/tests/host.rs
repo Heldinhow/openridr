@@ -2568,6 +2568,10 @@ fn tools_install_is_real_verified_and_reused() {
     let destination = PathBuf::from(finished["destination"].as_str().unwrap());
     let staging = PathBuf::from(finished["staging"].as_str().unwrap());
     assert!(destination.join("csharp-ls").is_file());
+    // The plan was built while the launcher was absent; after the verified install it must say so.
+    let after = snapshot(&host)["tools"]["csharp-ls"]["plan"]["existing"].clone();
+    assert_eq!(after["state"], "present", "the plan kept the pre-install state: {after}");
+    assert_eq!(after["sha256"], json!(sha), "the plan does not describe the verified launcher");
     assert!(!staging.exists());
     assert!(destination.starts_with(home.path()));
     let processes_before = snapshot(&host)["processes"].as_array().unwrap().len();
@@ -3527,6 +3531,26 @@ fn build_reports_the_exact_command_raw_log_exit_and_real_problems() {
     assert!(problem["code"].as_str().unwrap().starts_with("CS"));
     assert!(problem["raw"].as_str().unwrap().contains("error CS"));
     assert_eq!(problem["buildId"], failed["buildId"]);
+    // The log carries a host-made span for the same location; the UI only renders it.
+    let link = &failed["logLinks"][0];
+    assert_eq!(link["path"], "Honest.cs");
+    assert_eq!(link["position"]["line"], problem["position"]["line"]);
+    assert_eq!(link["position"]["character"], problem["position"]["character"]);
+    let link_line = link["line"].as_u64().unwrap() as usize;
+    let log_line = failed["log"].as_str().unwrap().lines().nth(link_line).unwrap();
+    let start = link["start"].as_u64().unwrap() as usize;
+    let end = link["end"].as_u64().unwrap() as usize;
+    let span: String = log_line.chars().skip(start).take(end - start).collect();
+    assert_eq!(
+        span,
+        format!(
+            "{}({},{})",
+            source.to_string_lossy(),
+            problem["position"]["line"].as_u64().unwrap() + 1,
+            problem["position"]["character"].as_u64().unwrap() + 1
+        ),
+        "{log_line}"
+    );
     // Build problems live in the build snapshot, never merged into the LSP store.
     let state = snapshot(&host);
     assert_eq!(state["diagnostics"]["snapshots"], json!([]));

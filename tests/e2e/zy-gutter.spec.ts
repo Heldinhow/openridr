@@ -2,12 +2,13 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { revisionOf, settleRestore } from "./automatic";
+import { clickDiscover, revisionOf, settleRestore } from "./automatic";
 import { host } from "./environment";
 
-// Order coupling: the host is shared and its discovery/run counters are global, and tests.spec.ts asserts the first
-// ones (`discovery:N:1`, `testrun:N:1`). This spec runs a discovery and a run, so it is named `zy-` to sort after
-// tests/testsuite and before zz-acceptance (which must stay last). Do not rename it earlier in the alphabet.
+// Order coupling: the host is shared and its discovery/run counters are global, and the
+// per-ticket suites assume an early discovery/run sequence. This spec runs a discovery and a
+// run, so it is named `zy-` to sort after tests/testsuite and before zz-acceptance (which must
+// stay last). Do not rename it earlier in the alphabet.
 // Gutter Run/Test (D-09): a real click on the test gutter runs that one test and shows its result.
 // Needs a csharp-ls already installed in the E2E home (document symbols match the discovered tests); it never installs.
 // The Run gutter is not covered: OrderDesk.Cli uses top-level statements, so there is no `Main` symbol to mark.
@@ -40,7 +41,7 @@ test("the test gutter runs one test from the editor and reports its result", asy
     await expect.poll(() => revisionOf(page), { timeout: 30_000 }).toBeGreaterThan(before);
     await expect(page.getByTestId("eval-state")).not.toContainText("stale");
     await expect(page.getByTestId("tests-discover")).toBeEnabled();
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", { timeout: 120_000 });
 
     // Analysis already started by itself; restart it after the TFM re-evaluation, otherwise the session is stale for the new context.

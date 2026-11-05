@@ -154,6 +154,21 @@ impl Plan {
     pub fn to_json(&self) -> Value {
         serde_json::to_value(self).unwrap()
     }
+
+    /// A verified install or reuse changes what the destination holds; the plan must say so.
+    fn record_verified(&mut self, verified: &Existing) {
+        self.existing = Existing {
+            state: "present",
+            binary: verified.binary.clone(),
+            verified_version: verified.verified_version.clone(),
+            output: verified.output.clone(),
+            sha256: verified.sha256.clone(),
+            reason: Some(
+                "Verified by the last confirmed install; confirming reuses it while it stays valid."
+                    .to_string(),
+            ),
+        };
+    }
 }
 
 fn material(plan: &Plan) -> Vec<String> {
@@ -697,6 +712,8 @@ impl Tools {
         if existing.state == "ready" {
             let destination = plan.destination.clone();
             let staging = plan.staging.clone();
+            let mut plan = plan;
+            plan.record_verified(&existing);
             let mut data = self.data.lock().unwrap();
             data.plan = Some(plan);
             data.confirmed_plan_id = None;
@@ -1055,6 +1072,9 @@ impl Tools {
                 }
 
                 data.state = "ready";
+                if let Some(plan) = data.plan.as_mut() {
+                    plan.record_verified(&existing);
+                }
                 data.sha256 = existing.sha256.clone();
                 data.verified_version = existing.verified_version.clone();
                 data.verified_output = existing.output.clone();

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { revisionOf, settleRestore } from "./automatic";
+import { clickDiscover, revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -62,7 +62,7 @@ test("a grouped tree filters without losing selection and rerun failed uses the 
     await page.getByTestId("bottom-tab-tests").click();
     await page.getByTestId("tests-tfm").selectOption("net8.0");
     await waitForEvaluation(page, 3);
-    await page.getByTestId("tests-discover").click();
+    await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", {
       timeout: 120_000,
     });

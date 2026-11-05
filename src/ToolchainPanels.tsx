@@ -55,7 +55,7 @@ type Props = {
   onChange: (snapshot: Snapshot) => void;
 };
 
-export function ToolInstaller({ snapshot, onChange }: Props) {
+export function ToolInstaller({ snapshot, onChange, planRequest = 0 }: Props & { planRequest?: number }) {
   const tool = snapshot.tools["csharp-ls"];
   const plan = tool.plan;
   const trusted = snapshot.trust.granted;
@@ -69,6 +69,16 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
   useEffect(() => {
     if (reviews > 0) planRef.current?.scrollIntoView({ block: "start" });
   }, [reviews]);
+  // An analysis gate outside this panel asks for the same reviewable plan; it never installs.
+  useEffect(() => {
+    if (planRequest === 0) return;
+    setPlanOpen(true);
+    if (activeStates.includes(tool.state)) return;
+    void run(() => call<Snapshot>("tools.plan", { tool: "csharp-ls" })).then(() =>
+      setReviews((count) => count + 1),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planRequest]);
 
   const disabledReason = !trusted
     ? "Trust the workspace before installing a tool; trust and installation are separate decisions."

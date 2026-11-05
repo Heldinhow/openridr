@@ -46,6 +46,11 @@ impl LogBuffer {
         }
         (text.trim_end().to_string(), self.dropped > 0)
     }
+
+    /// Lines already removed from the front of the buffer; `text()` reports them in a notice.
+    pub fn dropped(&self) -> usize {
+        self.dropped
+    }
 }
 
 /// Streams one pipe line by line. The caller runs this on its own thread so a full pipe can

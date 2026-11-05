@@ -60,6 +60,8 @@ export function KeymapPanel({ actions, keymap, platform, onChange }: PanelProps)
     void apply({ ...keymap, overrides });
   }
 
+  const chords = actions.filter((action) => action.chordLabels.length > 0);
+
   return (
     <>
       <p className="muted">
@@ -84,6 +86,24 @@ export function KeymapPanel({ actions, keymap, platform, onChange }: PanelProps)
       <p className="muted" data-testid="keymap-active-profile">
         Active profile: {profileTitle(keymap.profile)}
       </p>
+      <p className="muted" data-testid="keymap-gestures">
+        Double Shift always opens Search Everywhere.
+      </p>
+      {chords.length > 0 && (
+        <div className="muted" data-testid="keymap-chords">
+          <p>
+            These two-key chords are fixed and cannot be remapped; setting a single
+            shortcut in the table still overrides the action's key.
+          </p>
+          <ul>
+            {chords.map((action) => (
+              <li key={action.id} data-testid={`keymap-chord-${action.id}`}>
+                {action.chordLabels.join(" ")} — {action.title}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {error && (
         <p className="error" role="alert" data-testid="keymap-error">
           {error}

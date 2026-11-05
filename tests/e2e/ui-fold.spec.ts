@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { clickDiscover } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -36,7 +37,7 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 1440, height: 900
       await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => undefined);
       await openTrusted(page);
       await page.getByTestId("bottom-tab-tests").click();
-      await page.getByTestId("tests-discover").click();
+      await clickDiscover(page);
       await expect(page.getByTestId("tests-state")).toContainText("Discovered 4 tests", { timeout: 120_000 });
       await inFirstFold(page, "tests-items");
       await inFirstFold(page, "tests-counts");
