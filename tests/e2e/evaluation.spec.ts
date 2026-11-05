@@ -77,18 +77,29 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-tfms", "net8.0");
   await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute("data-project-kind", "library");
   await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toHaveAttribute("data-project-kind", "test");
-  // Dependencies is a tree node (closed by default) whose children are the real references.
+  // Dependencies is a tree node (closed by default); its groups are closed until opened.
   const cliDeps = page.getByTestId("tree-deps-OrderDesk.Cli");
   await expect(cliDeps).toHaveAttribute("aria-expanded", "false");
   await cliDeps.click();
   await expect(cliDeps).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByTestId("tree")).toContainText(/OrderDesk\.Core\s*· project/);
+  await expect(page.getByTestId("tree-deps-group-OrderDesk.Cli-frameworks")).toBeVisible();
+  await expect(page.getByTestId("tree-deps-group-OrderDesk.Cli-packages")).toHaveCount(0); // Cli has no packages
+  const cliProjects = page.getByTestId("tree-deps-group-OrderDesk.Cli-projects");
+  await expect(cliProjects).toHaveAttribute("aria-expanded", "false");
+  await cliProjects.click();
+  const coreRef = page.getByTestId("tree-ref-OrderDesk.Cli-OrderDesk.Core");
+  await expect(coreRef).toContainText("OrderDesk.Core");
+  await expect(coreRef).not.toContainText("· project");
   await cliDeps.click();
   await page.getByTestId("tree-deps-OrderDesk.Tests").click();
+  await page.getByTestId("tree-deps-group-OrderDesk.Tests-packages").click();
   if (process.env.OPENRIDR_EVALUATION_SCREENSHOT) {
     await page.screenshot({ path: process.env.OPENRIDR_EVALUATION_SCREENSHOT });
   }
-  await expect(page.getByTestId("tree")).toContainText(/Microsoft\.NET\.Test\.Sdk 17\.11\.1\s*· package/);
+  const testSdk = page.getByTestId("tree-package-OrderDesk.Tests-Microsoft.NET.Test.Sdk");
+  await expect(testSdk).toContainText("Microsoft.NET.Test.Sdk");
+  await expect(testSdk).toContainText("17.11.1");
+  await expect(testSdk).not.toContainText("· package");
   await expect(page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs")).toBeVisible();
   await expect(page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs")).toBeVisible();
   await expect(page.getByTestId("tree-file-tests/OrderDesk.Tests/OrderTests.cs")).toBeVisible();

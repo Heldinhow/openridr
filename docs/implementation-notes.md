@@ -1020,3 +1020,24 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **E2E ajustado:** as asserções de kind/TFM em `evaluation.spec.ts`, `workspace.spec.ts` e `zz-acceptance.spec.ts` passaram de texto para atributos; `evaluation.spec.ts` deixou de procurar "MSBuild evaluated" na árvore e passou a checar `status-evaluation`; `workspace.spec.ts` checa "Text outline · not evaluated" na status bar. `solution-explorer.spec.ts` não mudou (texto `· project`/`· package` preservado).
 - **Testes rodados:** `bun run check`; `bun run build`; `bun test tests/unit` (10/10); `cargo test -p openridr-host --lib outline` (8/8, inclui web e parser); `cargo test -p openridr-host --lib workspace_symbol_kinds_scans_only_workspace_sources` (1/1). `cargo fmt --check`/`clippy -D warnings` seguem fora do `check`, como o `AGENTS.md` registra.
 - **Não verificado:** Playwright/E2E completo e app Tauri real (agent-desktop) — portas 1420/4317 em uso por outra sessão, liberação pendente. Por isso não há captura nesta branch ainda; os specs alterados não foram executados. Não há fixture web/interfaces/enums/records/structs; a prova visual desses badges exige uma cópia temporária da fixture com arquivos criados na verificação.
+
+## Dependencies agrupadas — ticket 04 (2026-11-04)
+
+- **Escopo:** `docs/tickets-solution-explorer-visual/04-dependencies-agrupadas.md` e D5 da spec visual.
+  Substitui o item de lista plana do aceite de `docs/SPEC-SOLUTION-EXPLORER.md`; a decisão 10 daquele doc
+  (sem dependência nova, testids preservados) continua.
+- **Código:** `src/solutionNodes.ts` ganhou `DependencyGroup`/`depGroupKey`; `src/SolutionTree.tsx` renderiza
+  `Frameworks`, `Packages` e `Projects` como nós expansíveis (só grupos não vazios), todos fechados por
+  padrão; `expandableKeys(..., deps: true)` abre Dependencies + os três grupos. Frameworks continua vindo de
+  `frameworkRows`; Projects usa `ProjectIcon` do projeto referenciado; Packages mostra nome + versão.
+  Os sufixos `· project`/`· package` saíram; os specs passaram a mirar `tree-ref-*`/`tree-package-*`.
+- **Testids:** novo `tree-deps-group-<projeto>-{frameworks|packages|projects}`; preservados
+  `tree-deps-<projeto>`, `tree-framework-*`, `tree-package-*`, `tree-ref-*`.
+- **Testes ajustados:** `tests/e2e/solution-explorer.spec.ts` (estrutura no outline/Restricted: Frameworks e
+  Projects no Cli, Packages ausente, framework e ref abrindo) e `tests/e2e/evaluation.spec.ts` (pacote do
+  Test SDK dentro de Packages e ref dentro de Projects, sem os sufixos antigos).
+- **Rodado:** `bunx tsc --noEmit`, `bun run check`, `bun run build`, `bun test tests/unit` (10/10),
+  `cargo test -p openridr-host --lib` (227/227) — host não mudou neste ticket.
+- **Não verificado:** E2E e app Tauri real (agent-desktop) continuam pendentes de liberação da porta; as
+  asserções novas de grupo não foram executadas. Não há fixture web nem projeto com interface/enum/record/
+  struct; a prova visual desses badges e do agrupamento com pacotes reais fica para a verificação.

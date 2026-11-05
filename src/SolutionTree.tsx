@@ -4,7 +4,8 @@ import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlinePro
 import { Icon } from "./Icon";
 import { ProjectIcon } from "./icons/ProjectIcon";
 import {
-  ROOT_KEY, baseOf, countLabel, depsKey, dirKey, dirOf, folderKey, nestSources, type SourceNode,
+  ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, nestSources,
+  type DependencyGroup, type SourceNode,
 } from "./solutionNodes";
 import { fileKind, frameworkRows, projectKindOf, symbolKindOf, type ProjectKind, type SymbolKind } from "./solutionVisuals";
 import { TreeRow } from "./TreeRow";
@@ -63,7 +64,17 @@ export function expandableKeys(evaluated: EvaluationProject[] | null, outline: O
   for (const view of toViews(evaluated, outline)) {
     keys.add(view.path);
     if (view.folder) keys.add(folderKey(view.folder));
-    if (deps) keys.add(depsKey(view.path));
+    if (deps) {
+      const kind = projectKindOf(view.kind, view.textKind);
+      const frameworks = frameworkRows(view.tfms, kind);
+      const hasDeps = frameworks.length > 0 || view.packages.length > 0 || view.refs.length > 0;
+      if (hasDeps) {
+        keys.add(depsKey(view.path));
+        if (frameworks.length > 0) keys.add(depGroupKey(view.path, "frameworks"));
+        if (view.packages.length > 0) keys.add(depGroupKey(view.path, "packages"));
+        if (view.refs.length > 0) keys.add(depGroupKey(view.path, "projects"));
+      }
+    }
     for (const node of nestSources(view.path, view.sources)) collectDirs(node, keys);
   }
   return keys;
@@ -235,6 +246,23 @@ export function SolutionTree(p: Props) {
     const kind = projectKindOf(view.kind, view.textKind);
     const frameworks = frameworkRows(view.tfms, kind);
     const hasDeps = view.refs.length > 0 || view.packages.length > 0 || frameworks.length > 0;
+    const groupRow = (group: DependencyGroup, name: string, icon: ReactNode, items: ReactNode[]) => {
+      if (items.length === 0) return null;
+      const key = depGroupKey(view.path, group);
+      return (
+        <>
+          <TreeRow
+            level={level + 2}
+            open={p.expanded.has(key)}
+            icon={icon}
+            name={name}
+            testId={`tree-deps-group-${view.name}-${group}`}
+            onClick={() => p.onToggle(key)}
+          />
+          {p.expanded.has(key) && items}
+        </>
+      );
+    };
     return (
       <div key={view.path}>
         <TreeRow
@@ -281,50 +309,62 @@ export function SolutionTree(p: Props) {
                 />
                 {p.expanded.has(depsKey(view.path)) && (
                   <>
-                    {frameworks.map((framework) => (
-                      <TreeRow
-                        key={`fw:${framework}`}
-                        level={level + 2}
-                        icon={<Icon name="layers" className="tint-framework" />}
-                        name={framework}
-                        testId={`tree-framework-${view.name}-${framework}`}
-                        suffix={<span className="tag">· framework</span>}
-                        onClick={() => undefined}
-                      />
-                    ))}
-                    {view.packages.map((pkg) => (
-                      <TreeRow
-                        key={`pkg:${pkg.name}`}
-                        level={level + 2}
-                        icon={<Icon name="package" className="tint-package" />}
-                        name={pkg.name}
-                        testId={`tree-package-${view.name}-${pkg.name}`}
-                        suffix={
-                          <>
-                            <span className="tag">{pkg.version ? ` ${pkg.version}` : " (version unknown)"}</span>
-                            <span className="tag">· package</span>
-                          </>
-                        }
-                        onClick={() => undefined}
-                      />
-                    ))}
-                    {view.refs.map((ref) => {
-                      const target = views.find((candidate) => candidate.name === ref);
-                      const refKind: ProjectKind = target
-                        ? projectKindOf(target.kind, target.textKind)
-                        : "unknown";
-                      return (
+                    {groupRow(
+                      "frameworks",
+                      "Frameworks",
+                      <Icon name="layers" className="tint-framework" />,
+                      frameworks.map((framework) => (
                         <TreeRow
-                          key={`ref:${ref}`}
-                          level={level + 2}
-                          icon={<ProjectIcon kind={refKind} />}
-                          name={ref}
-                          testId={`tree-ref-${view.name}-${ref}`}
-                          suffix={<span className="tag">· project</span>}
+                          key={`fw:${framework}`}
+                          level={level + 3}
+                          icon={<Icon name="layers" className="tint-framework" />}
+                          name={framework}
+                          testId={`tree-framework-${view.name}-${framework}`}
                           onClick={() => undefined}
                         />
-                      );
-                    })}
+                      )),
+                    )}
+                    {groupRow(
+                      "packages",
+                      "Packages",
+                      <Icon name="package" className="tint-package" />,
+                      view.packages.map((pkg) => (
+                        <TreeRow
+                          key={`pkg:${pkg.name}`}
+                          level={level + 3}
+                          icon={<Icon name="package" className="tint-package" />}
+                          name={pkg.name}
+                          testId={`tree-package-${view.name}-${pkg.name}`}
+                          suffix={
+                            <span className="tag">
+                              {pkg.version ? ` ${pkg.version}` : " (version unknown)"}
+                            </span>
+                          }
+                          onClick={() => undefined}
+                        />
+                      )),
+                    )}
+                    {groupRow(
+                      "projects",
+                      "Projects",
+                      <Icon name="solutionFolder" className="tint-solution-folder" />,
+                      view.refs.map((ref) => {
+                        const target = views.find((candidate) => candidate.name === ref);
+                        const refKind: ProjectKind = target
+                          ? projectKindOf(target.kind, target.textKind)
+                          : "unknown";
+                        return (
+                          <TreeRow
+                            key={`ref:${ref}`}
+                            level={level + 3}
+                            icon={<ProjectIcon kind={refKind} />}
+                            name={ref}
+                            testId={`tree-ref-${view.name}-${ref}`}
+                            onClick={() => undefined}
+                          />
+                        );
+                      }),
+                    )}
                   </>
                 )}
               </>

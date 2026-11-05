@@ -2,6 +2,9 @@
 export const ROOT_KEY = "solution:root";
 export const folderKey = (folder: string) => `solution:folder:${folder}`;
 export const depsKey = (project: string) => `solution:deps:${project}`;
+export type DependencyGroup = "frameworks" | "packages" | "projects";
+export const depGroupKey = (project: string, group: DependencyGroup) =>
+  `solution:deps:${project}:${group}`;
 export const dirKey = (dir: string) => `solution:dir:${dir}`;
 
 export const dirOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
