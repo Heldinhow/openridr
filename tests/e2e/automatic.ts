@@ -32,6 +32,14 @@ async function discoverySnapshot(page: Page) {
 /** Clicks Discover and waits for the new host revision to settle: an automatic discovery may
  * already be current, so the old "Discovered" text is not proof that this click finished. */
 export async function clickDiscover(page: Page) {
+  // A source write can trigger an automatic re-evaluation; discovery over the stale model would
+  // return the old test list at the same revision. Wait for the model before clicking.
+  await expect(page.getByTestId("eval-state")).not.toContainText("Evaluating");
+  await expect(page.getByTestId("eval-state")).not.toContainText("not current");
+  await expect
+    .poll(async () => (await discoverySnapshot(page)).state, { timeout: 180_000 })
+    .not.toBe("discovering");
+  await expect(page.getByTestId("tests-discover")).toBeEnabled({ timeout: 120_000 });
   const before = (await discoverySnapshot(page)).revision;
   await page.getByTestId("tests-discover").click();
   await expect
