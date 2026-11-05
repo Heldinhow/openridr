@@ -42,6 +42,20 @@ test("a file opened from Search Everywhere leaves the editor focused", async ({ 
   await expect(page.locator(".cm-search")).toBeVisible();
 });
 
+test("Enter on a Search Everywhere file leaves the editor focused", async ({ page }) => {
+  await openRestricted(page);
+  await openSearch(page);
+  await page.getByTestId("search-tab-files").click();
+  await page.getByTestId("find-action-input").fill("Order.cs");
+  await expect(page.locator('[data-testid^="search-item-"]').filter({ hasText: order }).first()).toBeVisible();
+  await page.getByTestId("find-action-input").press("Enter");
+
+  await expect(page.getByTestId(`tab-${order}`)).toBeVisible();
+  await expect(page.getByTestId("editor")).toBeFocused();
+  await page.keyboard.press("Meta+f");
+  await expect(page.locator(".cm-search")).toBeVisible();
+});
+
 test("a Search Everywhere location leaves the editor focused", async ({ page }) => {
   await openRestricted(page);
   await openSearch(page);
