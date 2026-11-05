@@ -1,4 +1,3 @@
-import { Icon } from "../Icon";
 
 export type WelcomeView = "projects" | "toolchain";
 
@@ -13,7 +12,7 @@ export function WelcomeNav({ view, onView }: Props) {
   return (
     <nav className="welcome-nav" aria-label="Welcome">
       <div className="welcome-logo">
-        <span className="welcome-mark"><Icon name="code" /></span>
+        <span className="welcome-mark"><img src="/app-icon.png" alt="" /></span>
         <div><strong>OpenRidr</strong><span className="muted">C# workspace</span></div>
       </div>
       {items.map((item) => (
