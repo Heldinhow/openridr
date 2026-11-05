@@ -39,8 +39,9 @@ Spec: [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md). Tickets:
   `decisions.md`; reverter é remover `icon={<ProjectIcon/>}` de `projectRows`.
 - Tema claro segue não distribuído e não verificado; os hex claros do T3 Code ficam em 3–4:1 (mínimo de
   ícone), abaixo dos 4,5:1 dos antigos tokens claros.
-- Captura no app real (agent-desktop) pendente de liberação; E2E prova a árvore no Chrome, não o WebKit do
-  Tauri.
+- Descrição acessível do símbolo não é exposta pelo WKWebView (a árvore mostra `button: Program.cs` sem
+  `description`), então ela só tem prova no Chromium. Foco por teclado no app real continua fora do alcance
+  do agent-desktop.
 
 ## Resultado
 
@@ -49,7 +50,11 @@ Spec: [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md). Tickets:
 - Regressão: `solution-explorer`, `native-context-menu`, `ui-layout` 21/21; `medium-nav-layout` +
   `workspace` 20/21 (a falha é o app home compartilhado, acima).
 - Evidência: [evidence/solution-file-icons.md](evidence/solution-file-icons.md) e
-  `docs/evidence/solution-file-icons/*.png`.
+  `docs/evidence/solution-file-icons/*.png` (E2E) + `desktop-0*.png` (app real).
+- App real: build desta branch (`tauri build --debug --bundles app`), `OPENRIDR_HOME` isolado, cópia da
+  fixture com Dockerfile/json/md/gitignore, Restricted. Árvore com pastas só de chevron e guias, glifos por
+  tipo, hexágono com selo de tipo, seleção com contorno e Show all files conferidos na janela; app fechado
+  com `desktop.sh down` e `pgrep -x openridr` vazio.
 
 ## Correções da revisão (GPT-6.1 Terra)
 

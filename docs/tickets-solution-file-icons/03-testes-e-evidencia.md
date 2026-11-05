@@ -1,6 +1,6 @@
 # 03 — Testes e evidência
 
-Status: unitário e E2E feitos; captura no app real aguarda liberação do orquestrador
+Status: unitário, E2E e app real feitos
 Spec: [aceite 4–8](../SPEC-SOLUTION-FILE-ICONS.md)
 
 ## Mudança
@@ -21,5 +21,6 @@ E2E sempre nas portas próprias desta sessão (`OPENRIDR_E2E_UI_PORT=1490`,
 
 ## Evidência
 
-`docs/evidence/solution-file-icons/` (antes/depois). O app real (agent-desktop) fica pendente até o
-orquestrador liberar a sessão que está usando o app instalado.
+`docs/evidence/solution-file-icons/`: `depois-*.png` (E2E, antes = capturas de
+`solution-explorer-visual/` no commit base) e `desktop-0*.png` (app real, build desta branch com
+`OPENRIDR_HOME` isolado e cópia da fixture com Dockerfile/json/md/gitignore).
