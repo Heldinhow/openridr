@@ -739,3 +739,10 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **Status bar** usa `evaluationStatusView`: `Evaluating…`/`Evaluation failed` aparecem antes de haver projeto, o `not current` vem antes do revision, a classe `error` volta e o `Partial workspace` (`tree-partial`) reaparece discreto ali, não na árvore.
 - **Pacotes** têm chave `name@version` (+ TFM quando existir) e são deduplicados antes de renderizar.
 - **Testes:** parser/symbol no host (9/9 e 18/18), unit no Bun (21/21) e cargo lib (235/235). E2E/app seguem pendentes de liberação.
+
+## 2026-11-04 — Confinamento de arquivos: negação por forma antes do stat, canônica depois
+
+- **Duas checagens, nesta ordem, em todo resolvedor de caminho do host** (`resolve_in_root`, `resolve_path_in_workspace`, `resolve_reveal_in_workspace`, `workspace.tree`, `nuget::resolve_project`): primeiro `fsutil::stays_inside` normaliza `.`/`..` **sem tocar no disco** e recusa por forma com `outside_workspace`; depois, sobre o caminho já canonicalizado, `canonical.starts_with(root)` barra symlink (componente final ou intermediário) que resolva para fora. A checagem léxica não substitui a canônica.
+- **Motivo:** canonicalizar antes de decidir fazia um escape **inexistente** responder `not_found` e um **existente** `outside_workspace` — um oráculo de existência do filesystem para `file.read`, que não pede trust, e negação não fail-closed (o host `stat`ava o caminho de fuga antes de decidir). Não houve escape de leitura/escrita em nenhum vetor testado; o defeito era de contrato e observabilidade.
+- **`not_found` volta a significar só "não existe dentro do workspace".** Um caminho que escapa, exista ou não, é sempre `outside_workspace`.
+- Prova e matriz de vetores: `docs/evidence/file-access-confinement.md`.
