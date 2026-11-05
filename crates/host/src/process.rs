@@ -306,6 +306,15 @@ impl Registry {
         self.status(id)
     }
 
+    pub fn stop_remaining_group(&mut self, id: u64) {
+        #[cfg(unix)]
+        if let Some(entry) = self.entries.iter().find(|entry| entry.id == id) {
+            unsafe { libc::kill(-(entry.pid as i32), libc::SIGTERM); }
+        }
+        #[cfg(not(unix))]
+        let _ = id;
+    }
+
     fn wait_until_exited(&mut self, index: usize, limit: Duration) {
         let deadline = Instant::now() + limit;
         while Instant::now() < deadline {
@@ -519,6 +528,31 @@ pub fn probe_command(kind: &str) -> io::Result<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_group_after_leader_exits() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join("child-pid");
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg("sleep 60 & echo $! > \"$1\"; exit 0").arg("sh").arg(&marker);
+        let mut registry = Registry::new();
+        let process = registry.spawn("lsp:csharp-ls", 1, command).unwrap();
+        let id = process["id"].as_u64().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while registry.status(id).unwrap().state != "exited" && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let pid: u32 = std::fs::read_to_string(&marker).unwrap().trim().parse().unwrap();
+        registry.stop_remaining_group(id);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while process_alive(pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let alive = process_alive(pid);
+        if alive { unsafe { libc::kill(pid as i32, libc::SIGKILL); } }
+        assert!(!alive, "child process survived its leader");
+    }
 
     #[test]
     fn a_signal_number_is_reported_by_its_name() {

@@ -112,6 +112,14 @@ pub struct Host {
     inner: Mutex<Inner>,
 }
 
+impl Drop for Host {
+    fn drop(&mut self) {
+        if let Ok(inner) = self.inner.get_mut() {
+            stop_services(inner, "The host is shutting down.");
+        }
+    }
+}
+
 /// Identifies the executable context an operation started in. A result carrying an older
 /// token is stale and must not be written into current state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -6318,6 +6326,7 @@ fn stop_lsp_inner(inner: &mut Inner, reason: &str) {
         if status.as_ref().is_some_and(|status| status.state != "exited") {
             status = inner.processes.lock().unwrap().terminate_status(process_id);
         }
+        inner.processes.lock().unwrap().stop_remaining_group(process_id);
         if let Some(status) = status {
             lsp.observe_termination(&status);
         }
@@ -7472,6 +7481,27 @@ fn workspace_symbol_items(list: &lsp::WorkspaceSymbolList, root: &Path) -> (Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_host_stops_its_language_server() {
+        let host = Host::new();
+        let pid;
+        {
+            let mut inner = host.inner.lock().unwrap();
+            let mut command = Command::new("/bin/sleep");
+            command.arg("60");
+            let child = inner.processes.lock().unwrap().spawn_piped("lsp:csharp-ls", 1, command).unwrap();
+            pid = child.pid;
+            let server = lsp::Lsp::begin(1, 1, 1, "", false, false, "", None, vec![], "".into(), false, "partial", None);
+            server.attach(child.id, child.pid, child.stdin, lsp::spawn_killer(child.pid));
+            inner.lsp = Some(server);
+        }
+        drop(host);
+        let still_alive = process::process_alive(pid);
+        if still_alive { process::kill_group(pid, true); }
+        assert!(!still_alive, "language server survived host shutdown");
+    }
 
     #[test]
     fn reveal_resolves_inside_the_workspace_only() {

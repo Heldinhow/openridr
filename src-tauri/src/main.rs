@@ -42,7 +42,8 @@ fn take_pending_quit(pending: State<'_, PendingQuit>) -> bool {
 
 /// End of the quit flow: the UI already saved or discarded, so nothing may prevent the exit.
 #[tauri::command]
-fn quit_app(app: AppHandle) {
+fn quit_app(app: AppHandle, host: State<'_, Host>) {
+    let _ = host.dispatch("workspace.close", Value::Null);
     QUITTING.store(true, Ordering::SeqCst);
     app.exit(0);
 }

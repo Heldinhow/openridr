@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 import { e2eHome, frontend, host, hostPort } from "./tests/e2e/environment";
 
 export default defineConfig({
+  globalTeardown: "./tests/e2e/global-teardown.ts",
   testDir: "./tests/e2e",
   fullyParallel: false,
   workers: 1,
