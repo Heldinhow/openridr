@@ -5243,6 +5243,14 @@ impl Host {
     /// The workspace root is cloned under the lock; file I/O happens after the lock is released.
     /// `known` carries the mtime the UI cached, so unchanged files are stat'ed but never read.
     fn workspace_symbol_kinds(&self, params: &Value) -> HostResult<Value> {
+        self.workspace_symbol_kinds_with(params, |path| fs::read_to_string(path).ok())
+    }
+
+    fn workspace_symbol_kinds_with(
+        &self,
+        params: &Value,
+        read: impl Fn(&Path) -> Option<String>,
+    ) -> HostResult<Value> {
         let paths = params.get("paths").and_then(Value::as_array).ok_or_else(|| {
             HostError::new("invalid_state", "workspace.symbolKinds requires a paths array.")
         })?;
@@ -5279,13 +5287,10 @@ impl Host {
             }
             // A file too large to scan is still an answer (kind null) so the UI caches the miss.
             let kind = if metadata.len() <= 256 * 1024 {
-                match fs::read_to_string(&path) {
-                    Ok(text) => {
-                        let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
-                        outline::symbol_kind(&text, stem).map(|kind| Value::String(kind.to_string()))
-                    }
-                    Err(_) => None,
-                }
+                read(&path).and_then(|text| {
+                    let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
+                    outline::symbol_kind(&text, stem).map(|kind| Value::String(kind.to_string()))
+                })
             } else {
                 None
             };
@@ -7524,6 +7529,25 @@ mod tests {
         assert_eq!(names, vec![("bin", true), (".gitignore", true), ("App.csproj", false)]);
         let outside = host.dispatch("workspace.tree", json!({ "dir": ".." })).unwrap_err();
         assert_eq!(outside.code, "outside_workspace");
+    }
+
+    #[test]
+    fn workspace_symbol_kinds_reads_files_after_releasing_the_host_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Widget.cs"), "public sealed class Widget {}\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let result = host
+            .workspace_symbol_kinds_with(&json!({ "paths": ["Widget.cs"] }), |path| {
+                // If the method still held `inner.lock()`, the same-thread try_lock would fail.
+                assert!(host.inner.try_lock().is_ok(), "host lock must be free during file I/O");
+                fs::read_to_string(path).ok()
+            })
+            .unwrap();
+        assert_eq!(result["entries"][0]["kind"], "class");
     }
 
     #[test]

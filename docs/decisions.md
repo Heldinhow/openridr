@@ -738,4 +738,4 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **Parser** passa a exigir palavra-chave minúscula em posição/forma de declaração e ignora strings (verbatim/raw/char), comentários e BOM; stem com ponto (`Foo.Designer.cs`) casa `Foo`.
 - **Status bar** usa `evaluationStatusView`: `Evaluating…`/`Evaluation failed` aparecem antes de haver projeto, o `not current` vem antes do revision, a classe `error` volta e o `Partial workspace` (`tree-partial`) reaparece discreto ali, não na árvore.
 - **Pacotes** têm chave `name@version` (+ TFM quando existir) e são deduplicados antes de renderizar.
-- **Testes:** parser/symbol no host (9/9 e 18/18), unit no Bun (21/21) e cargo lib (234/234). E2E/app seguem pendentes de liberação.
+- **Testes:** parser/symbol no host (9/9 e 18/18), unit no Bun (21/21) e cargo lib (235/235). E2E/app seguem pendentes de liberação.
