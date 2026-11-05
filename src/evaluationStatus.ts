@@ -40,8 +40,8 @@ export function evaluationStatusView(evaluation: Snapshot["evaluation"]): Evalua
     testId: "status-evaluation",
     tone: evaluation.state === "failed" || evaluation.state === "partial" ? "error" : undefined,
     title: `${label} · ${evaluation.context.configuration} · TFM ${tfm} · revision ${evaluation.revision}${stale}`,
-    // Stale comes first so the ellipsis cannot cut it before the revision.
-    text: `${label}${stale} · Configuration ${evaluation.context.configuration} · TFM ${tfm} · revision ${evaluation.revision}`,
+    // Stale comes first so the ellipsis cannot cut it before the revision; the title keeps the long form.
+    text: `${label}${stale} · ${evaluation.context.configuration} · TFM ${tfm} · revision ${evaluation.revision}`,
   };
 }
 

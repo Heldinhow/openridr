@@ -48,7 +48,7 @@ describe("evaluationStatusView", () => {
 
   test("stale is written before the revision so the ellipsis cannot cut it", () => {
     const view = evaluationStatusView(evaluation({ state: "ok", stale: true, revision: 4 }));
-    expect(view.text.startsWith("Evaluated · not current · Configuration Debug")).toBe(true);
+    expect(view.text.startsWith("Evaluated · not current · Debug")).toBe(true);
     expect(view.text.indexOf("not current") < view.text.indexOf("revision 4")).toBe(true);
     expect(view.title.endsWith("revision 4 · not current")).toBe(true);
   });
