@@ -121,3 +121,18 @@ test("replace all keeps working and the counter follows the new text", async ({ 
   await page.keyboard.press("Meta+z");
   await expect(count).toHaveText("1 of 3");
 });
+
+test("Enter in the Find field moves to the next match and updates the counter", async ({ page }) => {
+  await openOrder(page);
+  const panel = await openFind(page);
+  const count = page.getByTestId("editor-find-count");
+  const search = panel.locator('input[name="search"]');
+
+  await search.pressSequentially("Order");
+  await expect(count).toHaveText("1 of 3");
+  // The first Enter selects the match after the caret, the second moves on to the next one.
+  await search.press("Enter");
+  await expect(count).toHaveText("1 of 3");
+  await search.press("Enter");
+  await expect(count).toHaveText("2 of 3");
+});

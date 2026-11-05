@@ -63,3 +63,25 @@ Esta retro foi escrita à mão. A skill `/retro` não estava disponível nesta s
 2. Investigar Enter no Find, o drawer desatualizado e o duplo Shift pelo driver.
 3. Investigar a falha de `find-usages` "Partial coverage" no `main`, separada desta branch.
 4. Identificar o teste pulado da rodada completa de Playwright.
+
+## Rodada de correções (2026-11-04, tarde)
+
+- **Foco após Enter (ticket 07):** só aparecia no WKWebView. Causa: `focusEditorAfterOpen` focava
+  com `setTimeout(0)`, antes do remount do editor. Regra final: retentar por frame (até 15 frames)
+  **enquanto o foco não estiver num diálogo modal, no terminal ou em campo de texto**. Não para ao
+  achar o editor, porque o primeiro disparo pode cair no editor antigo. Versões anteriores falharam:
+  (a) retentar só com foco em `document.body` não cobria o foco do painel de origem (Find Usages,
+  Problems); (b) retentar até o editor ter foco roubava o foco do ⌘E e quebrou um teste que passava.
+- **Limite:** no Chromium o editor já foca sozinho após a navegação, então o teste de teclado do
+  Find Usages não discrimina a regressão. A prova que discrimina é o app real, ainda pendente.
+- **Guarda de ⌘E após Enter:** teste novo no Search Everywhere. Passa com a regra final.
+- **Drawer desatualizado:** o campo "Existing" lia o plano gerado antes da instalação. Lição: campo
+  de estado no painel deve ler o estado vivo, não o snapshot da revisão.
+- **Spec desatualizado:** o cancel-inert contava processos de descoberta (`tests:`), que são
+  automáticos desde o ticket 03. Filtro corrigido no teste, não no produto.
+- **Instabilidade:** 5 specs falharam só na rodada completa e passaram isoladamente. Não é regressão
+  comprovada, mas é estado compartilhado entre specs; fica como pendência.
+- **Driver:** duplo Shift, tooltips nativos e coordenadas de gutter não são alcançáveis de forma
+  confiável com `agent-desktop`. Breakpoint pelo teclado (⌘F8) funcionou; hover não.
+- **Verificação:** o WebKit do Playwright não está instalado; a prova de WebKit é o app real, antes e
+  depois, com `agent-desktop`.
