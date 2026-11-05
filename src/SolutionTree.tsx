@@ -332,8 +332,12 @@ export function SolutionTree(p: Props) {
     // Dependencies, its groups and the leaves name the project they belong to: their menu is the
     // project menu, so no row of the tree is left without one.
     const projectTarget: TreeTarget = { kind: "project", path: view.path, name: view.name };
-    const projectMenu = (position: MenuPosition, row: HTMLElement) =>
+    // A dependency row acts on its owner project, and opening its menu selects that project so
+    // the menu, the details inspector and the build/dev actions never name two different owners.
+    const projectMenu = (position: MenuPosition, row: HTMLElement) => {
+      p.onSelectProject(view.path);
       p.onMenu(position, projectTarget, row);
+    };
     const groupRow = (group: DependencyGroup, name: string, icon: ReactNode, items: ReactNode[]) => {
       if (items.length === 0) return null;
       const key = depGroupKey(view.path, group);
