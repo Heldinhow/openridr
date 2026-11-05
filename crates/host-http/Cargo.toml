@@ -1,6 +1,6 @@
 [package]
 name = "openridr-host-http"
-version = "0.3.0-alpha.6"
+version = "0.3.0-alpha.7"
 edition = "2021"
 license = "MIT"
 description = "Development-only HTTP bridge for the OpenRidr host (never shipped)"

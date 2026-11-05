@@ -2393,7 +2393,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openridr"
-version = "0.3.0-alpha.6"
+version = "0.3.0-alpha.7"
 dependencies = [
  "openridr-host",
  "serde",
@@ -2405,7 +2405,7 @@ dependencies = [
 
 [[package]]
 name = "openridr-host"
-version = "0.3.0-alpha.6"
+version = "0.3.0-alpha.7"
 dependencies = [
  "libc",
  "portable-pty",

@@ -1,6 +1,6 @@
 [package]
 name = "openridr"
-version = "0.3.0-alpha.6"
+version = "0.3.0-alpha.7"
 description = "OpenRidr desktop shell"
 edition = "2021"
 license = "MIT"
