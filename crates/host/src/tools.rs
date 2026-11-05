@@ -762,8 +762,21 @@ impl Tools {
         context_id: u64,
         processes: Arc<Mutex<Registry>>,
     ) -> HostResult<Value> {
-        if persisted_installation_valid(Path::new(&plan.destination)) ||
-            (probe_muxer().is_some() && Path::new(&plan.destination).join(binary_name()).is_file()) {
+        let destination = Path::new(&plan.destination);
+        let binary = destination.join(binary_name());
+        // A launcher left by an older app version may be valid without the integrity record.
+        // Verify it once and adopt it instead of downloading the same tool again. An invalid
+        // launcher is never adopted: the verified package download below replaces it.
+        if !persisted_installation_valid(destination) && binary.is_file() {
+            let existing = verify_installed(destination, Path::new(&plan.dotnet_root));
+            if existing.state == "ready" {
+                if let Some(sha) = &existing.sha256 {
+                    let _ = record_installation(destination, sha);
+                }
+            }
+        }
+        if persisted_installation_valid(destination) ||
+            (probe_muxer().is_some() && binary.is_file()) {
             return self.begin_install_worker(plan, workspace_id, context_id, &mut processes.lock().unwrap(), None);
         }
         let attempt = {
@@ -1278,7 +1291,15 @@ impl Tools {
                 data.cancel_requested = true;
                 data.state = "cancelled";
                 data.progress = None;
+                data.note = Some(format!(
+                    "Installation was cancelled before the download finished; {} is not ready.",
+                    data.staging
+                ));
                 data.finished_at = Some(now_ms());
+                data.log.push(
+                    "Installation cancelled before the download finished; no partial result is reported as ready."
+                        .to_string(),
+                );
                 return Ok(());
             }
             return Err(HostError::new(

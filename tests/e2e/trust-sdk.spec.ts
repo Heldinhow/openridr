@@ -93,20 +93,6 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await expect(page.getByTestId("sdk-project")).toContainText("rollForward disable");
   await expect(page.getByTestId("sdk-tfms")).toHaveText("net8.0 declared · not evaluated");
   await expect(page.getByTestId("sdk-debug-adapter")).toContainText("netcoredbg");
-  await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
-    "osx-arm64 asset exists",
-  );
-  await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
-    "installation stays refused until you enable the experimental flag",
-  );
-  if (process.arch === "arm64") {
-    await expect(page.getByTestId("sdk-apple-silicon")).toContainText(
-      "experimental · disabled",
-    );
-    await expect(page.getByTestId("debug-flag-note")).toContainText(
-      "neither installs netcoredbg nor proves compatibility",
-    );
-  }
 
   await trustViaHost(page);
   await expect(page.getByTestId("sdk-project")).toContainText("SDK 8.0.408");

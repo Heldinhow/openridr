@@ -1091,6 +1091,60 @@ fn nuget_update_requires_confirmation_and_a_current_plan_before_any_process() {
 }
 
 #[test]
+fn nuget_batch_plans_each_item_and_requires_confirmation_and_the_current_plan() {
+    let host = Host::new();
+    open(&host, &fixture().join("OrderDesk.sln"));
+    host.dispatch("trust.grant", json!({})).unwrap();
+    let project = "tests/OrderDesk.Tests/OrderDesk.Tests.csproj";
+    let planned = host
+        .dispatch(
+            "nuget.planBatch",
+            json!({ "items": [
+                {
+                    "project": project,
+                    "id": "xunit",
+                    "version": "2.9.3",
+                    "fromVersion": "2.9.2",
+                    "targetFramework": "net8.0"
+                },
+                {
+                    "project": project,
+                    "id": "xunit.runner.visualstudio",
+                    "version": "4.0.1",
+                    "fromVersion": "2.8.2",
+                    "targetFramework": "net8.0"
+                }
+            ] }),
+        )
+        .unwrap();
+    assert_eq!(planned["count"], 2);
+    assert_eq!(planned["items"].as_array().unwrap().len(), 2);
+    assert!(planned["items"][0]["command"]
+        .as_str()
+        .unwrap()
+        .contains("add tests/OrderDesk.Tests/OrderDesk.Tests.csproj package xunit"));
+    assert!(planned["items"][1]["command"]
+        .as_str()
+        .unwrap()
+        .contains("package xunit.runner.visualstudio"));
+    assert_eq!(snapshot(&host)["processes"], json!([]));
+
+    let plan_id = planned["planId"].as_str().unwrap();
+    assert_eq!(
+        error_code(host.dispatch("nuget.applyBatch", json!({ "planId": plan_id }))),
+        "confirmation_required"
+    );
+    let stale = host
+        .dispatch(
+            "nuget.applyBatch",
+            json!({ "planId": "stale-batch", "confirm": true }),
+        )
+        .expect_err("a replaced batch never runs");
+    assert_eq!(stale.code, "nuget_stale_plan");
+    assert_eq!(snapshot(&host)["processes"], json!([]));
+}
+
+#[test]
 fn closing_a_trusted_workspace_clears_trust_and_the_executable_context() {
     let host = Host::new();
     let workspace = temp_workspace(&["Close.csproj"]);
@@ -2966,6 +3020,132 @@ fn tools_install_is_real_verified_and_reused() {
 
 #[cfg(unix)]
 #[test]
+fn setup_starts_before_trust_without_running_project_code() {
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let adapter = temp.path().join("netcoredbg");
+    fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
+    fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
+    let installer = temp.path().join("installer");
+    fs::write(&installer, "#!/bin/sh\nsleep 2\nexit 1\n").unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", temp.path().join("home"));
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
+    let host = Host::new();
+    let workspace = temp_workspace(&["Tools.csproj"]);
+    open(&host, &workspace.path().join("Tools.csproj"));
+    let setup = host.dispatch("setup.start", json!({})).unwrap();
+    assert_eq!(setup["trust"]["granted"], false);
+    assert_eq!(setup["tools"]["csharp-ls"]["state"], "downloading");
+    assert_eq!(error_code(host.dispatch("build.start", json!({}))), "trust_required");
+    assert_eq!(error_code(host.dispatch("lsp.start", json!({}))), "trust_required");
+    host.dispatch("workspace.close", json!({})).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_reuses_the_verified_installation_and_never_asks_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let adapter = temp.path().join("netcoredbg");
+    fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
+    fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
+    let installer = temp.path().join("installer");
+    fs::write(
+        &installer,
+        r#"#!/bin/sh
+echo run >> "$OPENRIDR_HOME/installer-runs"
+staging="$OPENRIDR_HOME/tools/csharp-ls/0.28.staging"
+mkdir -p "$staging"
+printf '#!/bin/sh
+printf "csharp-ls, version 0.28.0\n"
+' > "$staging/csharp-ls"
+chmod +x "$staging/csharp-ls"
+exit 0
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let home = temp.path().join("home");
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
+    let host = Host::new();
+    let workspace = temp_workspace(&["Setup.csproj"]);
+    let opened = open(&host, &workspace.path().join("Setup.csproj"));
+    assert_eq!(opened["setup"]["state"], "idle");
+    host.dispatch("setup.start", json!({})).unwrap();
+
+    let mut ready = false;
+    for _ in 0..400 {
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        if state["setup"]["state"] == "ready" {
+            assert_eq!(state["tools"]["csharp-ls"]["state"], "ready");
+            assert_eq!(state["debug"]["adapterState"], "ready");
+            assert_eq!(state["trust"]["granted"], false);
+            ready = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(ready, "setup did not reach ready");
+    let runs = fs::read_to_string(home.join("installer-runs")).unwrap();
+    assert_eq!(runs.lines().count(), 1);
+
+    // Second opening: the launcher and integrity record are reused, with no installer run.
+    host.dispatch("workspace.close", json!({})).unwrap();
+    open(&host, &workspace.path().join("Setup.csproj"));
+    let again = host.dispatch("setup.start", json!({})).unwrap();
+    assert_eq!(again["setup"]["state"], "ready");
+    assert_eq!(again["tools"]["csharp-ls"]["reused"], true);
+    assert_eq!(again["tools"]["csharp-ls"]["state"], "ready");
+    let runs = fs::read_to_string(home.join("installer-runs")).unwrap();
+    assert_eq!(runs.lines().count(), 1, "the installer must not run again");
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let empty = temp.path().join("no-adapter");
+    fs::create_dir_all(&empty).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", temp.path().join("home"));
+    let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", &empty);
+    let installer = temp.path().join("installer");
+    fs::write(&installer, "#!/bin/sh\nexit 1\n").unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let host = Host::new();
+    let workspace = temp_workspace(&["Setup.csproj"]);
+    open(&host, &workspace.path().join("Setup.csproj"));
+    host.dispatch("setup.start", json!({})).unwrap();
+    let mut failed = None;
+    for _ in 0..200 {
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        if state["setup"]["state"] == "failed" {
+            failed = Some(state);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let failed = failed.expect("setup did not fail");
+    assert!(failed["setup"]["error"]
+        .as_str()
+        .unwrap()
+        .contains("debug adapter"));
+    assert_eq!(failed["trust"]["granted"], false);
+}
+
+#[cfg(unix)]
+#[test]
 fn tools_download_does_not_block_host_calls() {
     use std::os::unix::fs::PermissionsExt;
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -3510,6 +3690,12 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let installer = home.path().join("slow-installer");
+    fs::write(&installer, "#!/bin/sh\nsleep 30\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let host = Host::new();
     let workspace = temp_workspace(&["CancelInstall.csproj"]);
     open(&host, &workspace.path().join("CancelInstall.csproj"));
@@ -3524,6 +3710,17 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
         json!({ "planId": plan_id, "confirm": true }),
     )
     .unwrap();
+    // The download is async: wait for the controlled installer process before cancelling it.
+    let mut started = false;
+    for _ in 0..200 {
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        if state["tools"]["csharp-ls"]["processId"].is_number() {
+            started = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(started, "the install process did not start");
     let cancelled = host.dispatch("tools.cancel", json!({})).unwrap();
     let tool = &cancelled["tools"]["csharp-ls"];
     assert_eq!(tool["state"], "cancelled");

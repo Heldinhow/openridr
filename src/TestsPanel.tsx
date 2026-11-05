@@ -1,12 +1,13 @@
 import { Icon } from "./Icon";
 import { useEffect, useRef, useState } from "react";
-import type { Evaluation, TestItem, TestResult, TestRun, Tests, TestsDiscovery } from "./host/client";
+import { call, messageOf, type Evaluation, type TestItem, type TestResult, type TestRun, type Tests, type TestsDiscovery } from "./host/client";
 import {
   buildTestTree,
   filterTestTree,
   testCount,
   type TestGroup,
   type TestLeaf,
+  type TreeNode,
 } from "./testTree";
 
 type Props = {
@@ -272,6 +273,10 @@ export function TestsPanel({
   const rerunBlocked = rerunFailedReason({ disabledReason, discovery, run, editedAt });
   const [filter, setFilter] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [exported, setExported] = useState<{ path: string; bytes: number } | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const tree = buildTestTree(items);
   const visibleTree = filterTestTree(tree, filter);
   const visibleCount = visibleTree.reduce((total, group) => total + testCount(group), 0);
@@ -327,13 +332,64 @@ export function TestsPanel({
     });
   }
 
+  function groupKeys(nodes: TreeNode[]): string[] {
+    return nodes.flatMap((node) =>
+      node.kind === "group" ? [node.key, ...groupKeys(node.children)] : [],
+    );
+  }
+
+  function leavesOf(node: TreeNode): TestLeaf[] {
+    return node.kind === "test" ? [node] : node.children.flatMap(leavesOf);
+  }
+
+  function nodeTotals(node: TreeNode) {
+    const totals = { passed: 0, failed: 0, skipped: 0, other: 0, notRun: 0, total: 0 };
+    for (const leaf of leavesOf(node)) {
+      totals.total += 1;
+      const result = currentResults.get(leaf.item.id);
+      if (result?.outcome === "passed") totals.passed += 1;
+      else if (result?.outcome === "failed") totals.failed += 1;
+      else if (result?.outcome === "skipped" || result?.outcome === "notExecuted") totals.skipped += 1;
+      else if (result) totals.other += 1;
+      else totals.notRun += 1;
+    }
+    return totals;
+  }
+
+  function groupTone(node: TreeNode) {
+    const totals = nodeTotals(node);
+    if (totals.failed > 0) return "error";
+    if (totals.total > 0 && totals.passed === totals.total) return "success";
+    return "";
+  }
+
+  async function exportResults() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      setExported(
+        await call<{ path: string; bytes: number }>("tests.export"),
+      );
+    } catch (error) {
+      setExportError(messageOf(error));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function renderLeaf(leaf: TestLeaf) {
     const item = leaf.item;
     const index = leaf.index;
     const status = testStatus(item.id);
     return (
       <ul className="test-list test-tree-leaf" key={leaf.key}>
-        <li data-testid={`test-item-${index}`} title={item.fullyQualifiedName}>
+        <li
+          data-testid={`test-item-${index}`}
+          title={item.fullyQualifiedName}
+          className={selectedKey === leaf.key ? "selected" : undefined}
+          aria-selected={selectedKey === leaf.key}
+          onClick={() => setSelectedKey(leaf.key)}
+        >
           <label>
             <input
               type="checkbox"
@@ -382,20 +438,38 @@ export function TestsPanel({
     }
     const folding = filter.trim() === "";
     const isCollapsed = folding && collapsed.has(group.key);
+    const totals = nodeTotals(group);
     return (
-      <div className="test-group" key={group.key} data-depth={depth}>
+      <div
+        className={`test-group${selectedKey === group.key ? " selected" : ""}`}
+        key={group.key}
+        data-depth={depth}
+      >
         <button
           type="button"
           className="test-group-title"
           aria-expanded={!isCollapsed}
+          aria-selected={selectedKey === group.key}
           title={group.tooltip}
-          onClick={() => toggleGroup(group.key)}
+          onClick={() => {
+            setSelectedKey(group.key);
+            toggleGroup(group.key);
+          }}
         >
           <span aria-hidden="true" className={`test-group-chevron ${isCollapsed ? "" : "open"}`}>
             <Icon name="chevron" />
           </span>
           <span className="test-group-name">{group.title}</span>
-          <span className="muted">{testCount(group)}</span>
+          <span
+            className={`tag ${groupTone(group)}`}
+            data-testid={`test-group-status-${group.key}`}
+            title="Outcome aggregated from the last run of each test under this node."
+          >
+            {totals.failed > 0 ? `${totals.failed} failed` : totals.passed > 0 ? `${totals.passed} passed` : "not run"}
+          </span>
+          <span className="muted">
+            {testCount(group)} test{testCount(group) === 1 ? "" : "s"}
+          </span>
         </button>
         {!isCollapsed && (
           <div className="test-group-body">
@@ -408,8 +482,182 @@ export function TestsPanel({
     );
   }
 
+  function findNode(nodes: TreeNode[], key: string): TreeNode | null {
+    for (const node of nodes) {
+      if (node.key === key) return node;
+      if (node.kind === "group") {
+        const found = findNode(node.children, key);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function renderDetail() {
+    if (!selectedKey) {
+      return (
+        <aside className="tests-detail" data-testid="tests-detail">
+          <p className="muted">Select a test or group to see its last result and duration.</p>
+        </aside>
+      );
+    }
+    const node = findNode(tree, selectedKey);
+    if (!node) {
+      return (
+        <aside className="tests-detail" data-testid="tests-detail">
+          <p className="muted">The selected test is not in the current tree.</p>
+        </aside>
+      );
+    }
+    if (node.kind === "group") {
+      const totals = nodeTotals(node);
+      return (
+        <aside className="tests-detail" data-testid="tests-detail">
+          <h3 data-testid="tests-detail-name">{node.title}</h3>
+          <p className="menu-note">{node.tooltip}</p>
+          <p className="muted" data-testid="tests-detail-counts">
+            {totals.total} test{totals.total === 1 ? "" : "s"} · {totals.passed} passed ·{" "}
+            {totals.failed} failed · {totals.skipped} skipped · {totals.other} unknown ·{" "}
+            {totals.notRun} not run
+          </p>
+        </aside>
+      );
+    }
+    const result = currentResults.get(node.item.id);
+    const status = testStatus(node.item.id);
+    return (
+      <aside className="tests-detail" data-testid="tests-detail">
+        <h3 data-testid="tests-detail-name">{node.item.fullyQualifiedName}</h3>
+        <dl className="restore-meta">
+          <dt>Status</dt>
+          <dd data-testid="tests-detail-status">{status.text}</dd>
+          <dt>Duration</dt>
+          <dd data-testid="tests-detail-duration">
+            {result ? resultDuration(result) : "not run"}
+          </dd>
+          <dt>Project</dt>
+          <dd>{node.item.project}</dd>
+          <dt>TFM</dt>
+          <dd>{node.item.tfm ?? "TFM not selected"}</dd>
+          <dt>Source</dt>
+          <dd>
+            <code>{node.item.source}</code>
+          </dd>
+        </dl>
+        {result?.message && (
+          <pre className="eval-pre" data-testid="tests-detail-message">
+            {result.message}
+          </pre>
+        )}
+        {result?.stackTrace && (
+          <pre className="eval-pre" data-testid="tests-detail-stack">
+            {result.stackTrace}
+          </pre>
+        )}
+        {result?.position && (
+          <button
+            className="link-button"
+            data-testid="tests-detail-navigate"
+            onClick={() =>
+              result.position &&
+              onNavigate(result.position.path, {
+                line: result.position.line,
+                character: result.position.character,
+              })
+            }
+          >
+            {result.position.path}:{result.position.line + 1}
+          </button>
+        )}
+      </aside>
+    );
+  }
+
   return (
     <div className="build-panel" data-testid="tests-panel">
+      <div className="tests-tabs" role="tablist" aria-label="Test views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected="true"
+          className="tab-label active"
+          data-testid="tests-tab-explorer"
+        >
+          Explorer
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected="false"
+          disabled
+          data-testid="tests-tab-continuous"
+          title="Continuous Testing needs a file watcher and an isolated test session the host does not provide yet."
+        >
+          Continuous Testing
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected="false"
+          disabled
+          data-testid="tests-tab-coverage"
+          title="Coverage needs a collector and a coverage report model the host does not provide yet."
+        >
+          Coverage
+        </button>
+      </div>
+
+      <div className="tests-toolbar" role="toolbar" aria-label="Test actions">
+        <span className="tag success" data-testid="tests-count-passed" title="Passed in the last run of this discovery">
+          ✓ {run.counts.passed}
+        </span>
+        <span className="tag error" data-testid="tests-count-failed" title="Failed in the last run of this discovery">
+          ✗ {run.counts.failed}
+        </span>
+        <span className="tag" data-testid="tests-count-skipped" title="Skipped or not executed in the last run">
+          – {run.counts.skipped + run.counts.notExecuted}
+        </span>
+        <span className="tag" data-testid="tests-count-not-run" title="No result in the last run of this discovery">
+          ? {run.revision === 0 ? items.length : Math.max(0, items.length - run.counts.matched)}
+        </span>
+        <span className="push" />
+        <button
+          type="button"
+          data-testid="tests-expand-all"
+          onClick={() => setCollapsed(new Set())}
+          title="Expands every group in the tree."
+        >
+          <Icon name="expandAll" /> Expand all
+        </button>
+        <button
+          type="button"
+          data-testid="tests-collapse-all"
+          onClick={() => setCollapsed(new Set(groupKeys(tree)))}
+          title="Collapses every group; the tree and selection stay the same."
+        >
+          <Icon name="collapseAll" /> Collapse all
+        </button>
+        <button
+          type="button"
+          data-testid="tests-export"
+          disabled={exporting || (discovery.revision === 0 && run.revision === 0)}
+          onClick={() => void exportResults()}
+          title="Writes the current discovery and the last run to a JSON file in the OpenRidr app home."
+        >
+          <Icon name="text" /> {exporting ? "Exporting…" : "Export"}
+        </button>
+        {exported && (
+          <span className="muted" data-testid="tests-export-path" title={exported.path}>
+            Exported {exported.bytes} bytes to <code>{exported.path}</code>
+          </span>
+        )}
+        {exportError && (
+          <span className="error" role="alert" data-testid="tests-export-error">
+            {exportError}
+          </span>
+        )}
+      </div>
+
       <div className="build-controls">
         <label className="eval-field">
           <span>Test project</span>
@@ -734,8 +982,11 @@ export function TestsPanel({
             </p>
           )}
           {items.length > 0 && visibleCount > 0 && (
-            <div className="test-tree" data-testid="tests-items" aria-label="Discovered tests">
-              {visibleTree.map((group) => renderGroup(group, 0))}
+            <div className="tests-split">
+              <div className="test-tree" data-testid="tests-items" aria-label="Discovered tests">
+                {visibleTree.map((group) => renderGroup(group, 0))}
+              </div>
+              {renderDetail()}
             </div>
           )}
           {selected.size > 0 && stale && (

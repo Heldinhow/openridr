@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort } from "./environment";
+import { hostPort, seedVerifiedTools } from "./environment";
 
 // A fresh app home proves the missing-analysis gate: nothing is installed here, and the plan the
 // notice asks for is inert until the explicit confirmation in the tools panel.
@@ -17,8 +17,14 @@ test.describe.configure({ mode: "serial", timeout: 240_000 });
 
 test.beforeAll(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-analysis-gate-"));
+  const bundled = seedVerifiedTools(home);
   server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on" },
+    env: {
+      ...process.env,
+      OPENRIDR_HOME: home,
+      OPENRIDR_TRUST_STORE: "on",
+      OPENRIDR_BUNDLED_NETCOREDBG: bundled,
+    },
     stdio: "ignore",
   });
   await expect
@@ -92,47 +98,32 @@ test("Restricted mode keeps the trust gate and offers no analysis install", asyn
   }
 });
 
-test("Find Usages, Rename and code actions share the actionable install gate", async ({
-  page,
-  request,
-}) => {
+test("the tool drawer is diagnosis, not an install gate", async ({ page }) => {
   const copy = tempSolution();
   try {
     await useIsolatedHost(page);
     await openWorkspace(page, copy.solution);
     await trustAndEnter(page);
     await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+    // Setup completed before the trust prompt; the workspace never opened half-installed.
+    await expect(page.getByTestId("setup-gate")).toHaveCount(0);
+    await page.getByTestId("workspace-tools-toggle").click();
+    await expect(page.getByTestId("install-panel")).toBeVisible();
+    await expect(page.getByTestId("install-state")).toHaveText("Ready");
+    await expect(page.getByTestId("install-plan-open")).toHaveCount(0);
+    await expect(page.getByTestId("install-confirm")).toHaveCount(0);
+    await expect(page.getByTestId("install-reinstall")).toBeVisible();
+
+    // Restricted mode keeps the trust gate; it never offers an analysis install instead.
+    await page.getByTestId("status-mode").click();
+    await page.getByTestId("trust-revoke").click();
     await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
-    await expect(page.getByTestId("editor")).toContainText("OrderDesk.Core");
-
-    for (const [keys, label] of [
-      ["Shift+F12", "Find Usages unavailable:"],
-      ["Shift+F6", "Rename unavailable:"],
-      ["Alt+Enter", "Code actions unavailable:"],
-    ] as const) {
-      await page.getByTestId("editor").click();
-      await page.keyboard.press(keys);
-      await expect(page.getByTestId("app-log")).toContainText(label);
-      await expect(page.getByTestId("notice-action")).toHaveText("Install analysis");
-    }
-
-    // The action opens the tools panel and requests the exact plan; it never confirms or downloads.
     await page.getByTestId("editor").click();
     await page.keyboard.press("Shift+F12");
-    await page.getByTestId("notice-action").click();
-    await expect(page.getByTestId("workspace-tools")).toBeVisible();
-    await expect(page.getByTestId("install-plan")).toBeVisible();
-    await expect(page.getByTestId("install-state")).toHaveText("Plan ready — nothing downloaded yet");
-    await expect(page.getByTestId("install-confirm")).toBeVisible();
-    await expect(page.getByTestId("install-progress")).toHaveCount(0);
-
-    const response = await request.post(`${base}/call`, {
-      data: { method: "workspace.state", params: {} },
-    });
-    const tool = (await response.json()).data.tools["csharp-ls"];
-    expect(tool.state).toBe("planned");
-    expect(tool.processId).toBeNull();
-    expect(tool.progress).toBeNull();
+    await expect(page.getByTestId("app-log")).toContainText(
+      "Find Usages unavailable: Trust the workspace before finding usages",
+    );
+    await expect(page.getByTestId("notice-action")).toHaveCount(0);
   } finally {
     fs.rmSync(copy.root, { recursive: true, force: true });
   }

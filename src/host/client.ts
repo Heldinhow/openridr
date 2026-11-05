@@ -502,6 +502,16 @@ export type ToolInstall = {
   destinationPresent: boolean;
 };
 
+export type Setup = {
+  state: "idle" | "running" | "ready" | "failed" | "blocked";
+  error: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  attempt: number;
+  reinstallAvailable: boolean;
+  runtime: AnalysisRuntime;
+};
+
 /** netcoredbg asset as published by the approved official release. Only assets actually
  * present in the release metadata are listed; `availability` never implies DAP support. */
 export type DebugAsset = {
@@ -1107,6 +1117,7 @@ export type Snapshot = {
   tests: Tests;
   dap: Dap;
   tools: { "csharp-ls": ToolInstall };
+  setup: Setup;
   lsp: Lsp;
   diagnostics: Diagnostics;
 };

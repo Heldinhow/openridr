@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 import { e2eHome, frontend, host, hostPort } from "./tests/e2e/environment";
 
 export default defineConfig({
+  globalSetup: "./tests/e2e/global-setup.ts",
   globalTeardown: "./tests/e2e/global-teardown.ts",
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -40,7 +41,7 @@ export default defineConfig({
       // OPENRIDR_TRUST_STORE=off: specs reopen the same fixture and expect Restricted mode each time.
       // OPENRIDR_SESSION_STORE=off: the shared host must not restore tabs saved by an earlier spec;
       // medium-editor-session.spec.ts starts its own host with the store on.
-      env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome, OPENRIDR_TRUST_STORE: "off", OPENRIDR_SESSION_STORE: "off" },
+      env: { OPENRIDR_ENABLE_PROBE: "1", OPENRIDR_HOME: e2eHome, OPENRIDR_TRUST_STORE: "off", OPENRIDR_SESSION_STORE: "off", OPENRIDR_BUNDLED_NETCOREDBG: `${e2eHome}/bundled` },
     },
     {
       command: "bun run dev --config vite.e2e.config.ts",

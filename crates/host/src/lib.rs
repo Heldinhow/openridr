@@ -160,6 +160,10 @@ struct Inner {
     tools: Arc<tools::Tools>,
     debugger: Arc<debugger::Debugger>,
     debugger_experimental: bool,
+    setup_error: Option<String>,
+    setup_attempt: u64,
+    setup_started_at: Option<u64>,
+    setup_finished_at: Option<u64>,
     lsp: Option<Arc<lsp::Lsp>>,
     lsp_seq: u64,
     lsp_verbose: bool,
@@ -167,6 +171,8 @@ struct Inner {
     action_seq: u64,
     nuget_seq: u64,
     nuget_plan: Option<nuget::Plan>,
+    nuget_batch: Option<Vec<nuget::Plan>>,
+    nuget_batch_id: Option<String>,
     diagnostics: diagnostics::Store,
 }
 
@@ -362,8 +368,24 @@ struct Snapshot {
     tests: test_discovery::TestsView,
     dap: dap::DapView,
     tools: Value,
+    setup: SetupView,
     lsp: lsp::LspView,
     diagnostics: Value,
+}
+
+/// Setup runs before trust and before the workspace becomes usable: both fixed tools must be
+/// installed and verified. Only `ready` unlocks the workspace; `failed` (or `blocked` by a
+/// missing runtime) keeps the setup screen with the error and a retry.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupView {
+    state: &'static str,
+    error: Option<String>,
+    started_at: Option<u64>,
+    finished_at: Option<u64>,
+    attempt: u64,
+    reinstall_available: bool,
+    runtime: sdk::AnalysisRuntime,
 }
 
 impl Default for Host {
@@ -404,6 +426,10 @@ impl Host {
                 tools: Arc::new(tools::Tools::new()),
                 debugger: Arc::new(debugger::Debugger::new()),
                 debugger_experimental: false,
+                setup_error: None,
+                setup_attempt: 0,
+                setup_started_at: None,
+                setup_finished_at: None,
                 lsp: None,
                 lsp_seq: 0,
                 lsp_verbose: false,
@@ -411,6 +437,8 @@ impl Host {
                 action_seq: 0,
                 nuget_seq: 0,
                 nuget_plan: None,
+                nuget_batch: None,
+                nuget_batch_id: None,
                 diagnostics: diagnostics::Store::new(),
             }),
         }
@@ -462,6 +490,9 @@ impl Host {
         if method == "tests.run_cancel" {
             return self.cancel_test_run();
         }
+        if method == "tests.export" {
+            return self.export_tests();
+        }
         if method == "terminal.read" {
             return self.read_terminal(params);
         }
@@ -479,6 +510,12 @@ impl Host {
         }
         if method == "tools.plan" {
             return self.plan_tool(params);
+        }
+        if method == "setup.start" {
+            return self.start_setup();
+        }
+        if method == "setup.reinstall" {
+            return self.reinstall_setup();
         }
         if method == "tools.install" {
             return self.install_tool(params);
@@ -660,6 +697,18 @@ impl Host {
         }
         if method == "nuget.applyUpdate" {
             return self.nuget_apply_update(params);
+        }
+        if method == "nuget.search" {
+            return self.nuget_search(params);
+        }
+        if method == "nuget.listSolution" {
+            return self.nuget_list_solution(params);
+        }
+        if method == "nuget.planBatch" {
+            return self.nuget_plan_batch(params);
+        }
+        if method == "nuget.applyBatch" {
+            return self.nuget_apply_batch(params);
         }
         if method == "nuget.probe" {
             return self.nuget_probe(params);
@@ -925,6 +974,61 @@ impl Host {
         );
         let mut tests_view = inner.tests.view();
         tests_view.run = inner.test_run.view();
+        let tools_view = inner.tools.view();
+        let debug_view = inner.debugger.view(inner.debugger_experimental);
+        let setup_active = matches!(
+            tools_view.state,
+            "downloading" | "installing" | "verifying"
+        );
+        let runtime = sdk.host.clone();
+        let setup_ready = inner.workspace.is_some()
+            && runtime.state == "found"
+            && tools_view.state == "ready"
+            && debug_view.adapter_state == "ready"
+            && inner.setup_error.is_none();
+        let setup_failed = inner.workspace.is_some()
+            && !setup_active
+            && !setup_ready
+            && (matches!(tools_view.state, "failed" | "cancelled") || inner.setup_error.is_some());
+        let setup_state = if inner.workspace.is_none() {
+            "idle"
+        } else if setup_ready {
+            "ready"
+        } else if setup_failed {
+            "failed"
+        } else if setup_active {
+            "running"
+        } else if runtime.state != "found" {
+            "blocked"
+        } else {
+            "idle"
+        };
+        if setup_state == "ready" && inner.setup_finished_at.is_none() {
+            inner.setup_finished_at = Some(now_ms());
+        }
+        let setup_error = if setup_state == "failed" {
+            inner
+                .setup_error
+                .clone()
+                .or_else(|| tools_view.error.clone())
+                .or_else(|| {
+                    (debug_view.adapter_state != "ready")
+                        .then(|| debug_view.adapter_message.clone())
+                })
+        } else if setup_state == "blocked" {
+            runtime.message.clone()
+        } else {
+            None
+        };
+        let setup = SetupView {
+            state: setup_state,
+            error: setup_error,
+            started_at: inner.setup_started_at,
+            finished_at: inner.setup_finished_at,
+            attempt: inner.setup_attempt,
+            reinstall_available: tools_view.state == "ready" && !setup_active,
+            runtime,
+        };
         Snapshot {
             context_id: inner.context_seq,
             app: AppInfo {
@@ -957,7 +1061,7 @@ impl Host {
                     .and_then(|decision| decision.revoked_at),
             },
             sdk,
-            debug: inner.debugger.view(inner.debugger_experimental),
+            debug: debug_view,
             evaluation: inner.evaluation.clone(),
             processes: inner.processes.lock().unwrap().views(),
             restore: inner.restore.view(),
@@ -966,7 +1070,8 @@ impl Host {
             terminal: inner.terminal.view(),
             tests: tests_view,
             dap: inner.dap.view(),
-            tools: json!({ tools::TOOL: inner.tools.view() }),
+            tools: json!({ tools::TOOL: tools_view }),
+            setup,
             lsp: lsp_view,
             diagnostics: serde_json::to_value(diagnostics_view).expect("diagnostics serialize"),
         }
@@ -1037,6 +1142,8 @@ impl Host {
         inner.workspace_seq += 1;
         inner.context_seq += 1;
         inner.nuget_plan = None;
+        inner.nuget_batch = None;
+        inner.nuget_batch_id = None;
         workspace.id = inner.workspace_seq;
         let request = global_json_request(&workspace.outline);
         inner.project_sdk = ProjectSdk::not_inspected(request.as_ref());
@@ -1044,6 +1151,10 @@ impl Host {
         inner.trusted = false;
         inner.debugger_experimental = false;
         inner.trust_decision = None;
+        inner.setup_error = None;
+        inner.setup_attempt = 0;
+        inner.setup_started_at = None;
+        inner.setup_finished_at = None;
         inner.evaluation = evaluation;
         inner.restore = Arc::new(restore::Restore::idle());
         inner.build = Arc::new(build::Build::idle());
@@ -1103,9 +1214,15 @@ impl Host {
         inner.trusted = false;
         inner.debugger_experimental = false;
         inner.trust_decision = None;
+        inner.setup_error = None;
+        inner.setup_attempt = 0;
+        inner.setup_started_at = None;
+        inner.setup_finished_at = None;
         inner.workspace_seq += 1;
         inner.context_seq += 1;
         inner.nuget_plan = None;
+        inner.nuget_batch = None;
+        inner.nuget_batch_id = None;
         inner.project_sdk = ProjectSdk::no_workspace();
         inner.evaluation = Evaluation::idle();
         inner.build = Arc::new(build::Build::idle());
@@ -1200,6 +1317,8 @@ impl Host {
         inner.trusted = false;
         inner.context_seq += 1;
         inner.nuget_plan = None;
+        inner.nuget_batch = None;
+        inner.nuget_batch_id = None;
         if let Some(decision) = inner.trust_decision.as_mut() {
             decision.revoked_at = Some(now_ms());
         }
@@ -1250,6 +1369,8 @@ impl Host {
         inner.inventory = Some(sdk::inventory());
         inner.context_seq += 1;
         inner.nuget_plan = None;
+        inner.nuget_batch = None;
+        inner.nuget_batch_id = None;
         if inner.workspace.is_some() {
             if inner.trusted {
                 let project = inspect_project_sdk(&inner);
@@ -2494,6 +2615,61 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
+    /// Writes the current discovery and the last run as JSON in the app home. It reports the
+    /// real path and never touches the workspace; no process is started.
+    fn export_tests(&self) -> HostResult<Value> {
+        let inner = self.inner.lock().unwrap();
+        let tests = inner.tests.view();
+        let discovery = tests.discovery;
+        let run = tests.run;
+        if discovery.revision == 0 && run.revision == 0 {
+            return Err(HostError::new(
+                "invalid_state",
+                "No test discovery or run result exists to export.",
+            ));
+        }
+        let discovery_revision = discovery.revision;
+        let run_revision = run.revision;
+        let identity = run
+            .run_id
+            .clone()
+            .or_else(|| discovery.discovery_id.clone())
+            .unwrap_or_else(|| format!("revision-{discovery_revision}-{run_revision}"));
+        let safe: String = identity
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .collect();
+        let directory = tools::app_home().join("exports");
+        fs::create_dir_all(&directory).map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not create the export directory: {error}"),
+            )
+        })?;
+        let path = directory.join(format!("tests-{safe}.json"));
+        let payload = json!({
+            "exportedAt": now_ms(),
+            "project": discovery.project,
+            "targetFramework": discovery.target_framework,
+            "discovery": discovery,
+            "run": run,
+        });
+        let bytes = serde_json::to_vec_pretty(&payload).expect("test export serializes");
+        fs::write(&path, &bytes).map_err(|error| {
+            HostError::new(
+                "operation_failed",
+                format!("Could not write the test export: {error}"),
+            )
+        })?;
+        Ok(json!({
+            "path": path.to_string_lossy(),
+            "bytes": bytes.len(),
+            "identity": identity,
+            "discoveryRevision": discovery_revision,
+            "runRevision": run_revision,
+        }))
+    }
+
     /// Launches the evaluated TargetPath. When no saved build can launch it, the same
     /// `build.start` pipeline runs first, the record shows `building`, and the snapshot finishes
     /// the launch. Restore stays explicit. `allow_build = false` is the completion path: the
@@ -3149,6 +3325,72 @@ impl Host {
         if let Some(status) = &status {
             inner.terminal.complete(status);
         }
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn start_setup(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.begin_setup()?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    /// Removes only the app-home installation and runs the same verified installation again.
+    /// It never touches the workspace and is refused while analysis is using the launcher.
+    fn reinstall_setup(&self) -> HostResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        let workspace_id = inner
+            .workspace
+            .as_ref()
+            .ok_or_else(|| HostError::new("invalid_state", "Open a workspace before setup."))?
+            .id;
+        if let Some(lsp) = inner.lsp.as_ref() {
+            if matches!(
+                lsp.state(),
+                "starting" | "loading" | "ready" | "partial" | "awaiting_diagnostics"
+            ) {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "Stop analysis before reinstalling csharp-ls; the running language server uses that launcher.",
+                ));
+            }
+        }
+        if matches!(
+            inner.tools.view().state,
+            "downloading" | "installing" | "verifying"
+        ) {
+            return Err(HostError::new(
+                "invalid_state",
+                "An installation is already running.",
+            ));
+        }
+        inner.ensure_inventory();
+        let runtime = sdk::AnalysisRuntime::from_runtimes(
+            &inner.inventory.as_ref().expect("inventory").runtimes,
+        );
+        if runtime.state != "found" {
+            return Err(HostError::with_details(
+                "sdk_missing",
+                runtime
+                    .message
+                    .unwrap_or_else(|| "The .NET 10 runtime is required.".to_string()),
+                json!({ "action": { "method": "sdk.redetect", "params": {} } }),
+            ));
+        }
+        let _ = fs::remove_dir_all(tools::destination());
+        let _ = fs::remove_dir_all(tools::staging());
+        let _ = fs::remove_dir_all(tools::staging().parent().unwrap_or(&tools::tool_root()).join("tmp"));
+        inner.setup_error = None;
+        inner.setup_finished_at = None;
+        inner.setup_started_at = Some(now_ms());
+        inner.setup_attempt += 1;
+        let plan = tools::plan(inner.inventory.as_ref().expect("inventory"))?;
+        let tools = inner.tools.clone();
+        tools.begin_install(
+            plan,
+            workspace_id,
+            inner.context_seq,
+            inner.processes.clone(),
+        )?;
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -5455,6 +5697,8 @@ impl Host {
         if let Some(tfm) = target_framework.as_deref() {
             nuget::validate_tfm(tfm)?;
         }
+        let prerelease = params.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
+        let source = optional_str(&params, "source").filter(|source| !source.trim().is_empty());
         let (root, project, display, sdk) = {
             let inner = self.inner.lock().unwrap();
             accept_locked(&inner, token)?;
@@ -5479,6 +5723,8 @@ impl Host {
             &muxer,
             &sdk_root,
             &sdk_version,
+            prerelease,
+            source.as_deref(),
         );
         Ok(serde_json::to_value(listing).expect("nuget listing serializes"))
     }
@@ -5491,6 +5737,7 @@ impl Host {
         let version = required_str(&params, "version")?;
         let from_version = optional_str(&params, "fromVersion");
         let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        let install = params.get("install").and_then(Value::as_bool).unwrap_or(false);
         let (root, project, display, sdk, seq) = {
             let mut inner = self.inner.lock().unwrap();
             accept_locked(&inner, token)?;
@@ -5525,6 +5772,7 @@ impl Host {
             target_framework,
             muxer,
             sdk_root,
+            install,
         })?;
         let mut inner = self.inner.lock().unwrap();
         accept_locked(&inner, token)?;
@@ -5560,12 +5808,16 @@ impl Host {
                 })?;
             if plan.workspace_id != token.workspace_id || plan.context_id != token.context_id {
                 inner.nuget_plan = None;
+        inner.nuget_batch = None;
+        inner.nuget_batch_id = None;
                 return Err(HostError::new(
                     "nuget_stale_plan",
                     "The workspace or context changed after the plan; no command was run.",
                 ));
             }
             inner.nuget_plan = None;
+        inner.nuget_batch = None;
+        inner.nuget_batch_id = None;
             plan
         };
         let result = nuget::apply(&plan)?;
@@ -5610,8 +5862,282 @@ impl Host {
             cpm,
             empty,
             sources_failed,
+            params.get("prerelease").and_then(Value::as_bool).unwrap_or(false),
+            optional_str(&params, "source").as_deref(),
         );
         Ok(serde_json::to_value(listing).expect("nuget probe serializes"))
+    }
+
+    /// Discover reads only the selected HTTP v3 source; installation still uses the project's
+    /// configured sources through the same confirmed plan gates.
+    fn nuget_search(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.search")?;
+        let source = required_str(&params, "source")?;
+        let query = optional_str(&params, "query").unwrap_or_default();
+        let prerelease = params.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
+        let take = params
+            .get("take")
+            .and_then(Value::as_u64)
+            .unwrap_or(30) as usize;
+        {
+            let inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+        }
+        let result = nuget::search(&source, &query, prerelease, take);
+        Ok(serde_json::to_value(result).expect("nuget search serializes"))
+    }
+
+    /// Solution scope aggregates one real listing per project. A failed project is reported as
+    /// incomplete; the others are not hidden and no package data is invented.
+    fn nuget_list_solution(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.listSolution")?;
+        let raw_projects = params
+            .get("projects")
+            .and_then(Value::as_array)
+            .ok_or_else(|| HostError::new("invalid_state", "projects must be an array of paths."))?;
+        if raw_projects.is_empty() {
+            return Err(HostError::new(
+                "invalid_state",
+                "No project was provided for the solution listing.",
+            ));
+        }
+        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        if let Some(tfm) = target_framework.as_deref() {
+            nuget::validate_tfm(tfm)?;
+        }
+        let prerelease = params.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
+        let source = optional_str(&params, "source").filter(|source| !source.trim().is_empty());
+        let (root, sdk, projects) = {
+            let inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+            let mut projects = Vec::new();
+            for raw in raw_projects {
+                let raw = raw.as_str().ok_or_else(|| {
+                    HostError::new("invalid_state", "A project path was not a string.")
+                })?;
+                projects.push(nuget::resolve_project(&workspace.root, raw)?);
+            }
+            (workspace.root.clone(), inner.project_sdk.clone(), projects)
+        };
+        let (muxer, sdk_root, sdk_version) = project_muxer(&sdk)?;
+        let mut listings = Vec::new();
+        for (project, display) in &projects {
+            listings.push(nuget::list(
+                &root,
+                project,
+                display,
+                target_framework.as_deref(),
+                &muxer,
+                &sdk_root,
+                &sdk_version,
+                prerelease,
+                source.as_deref(),
+            ));
+        }
+        let total_packages: usize = listings.iter().map(|listing| listing.total_packages).sum();
+        let outdated_count: usize = listings.iter().map(|listing| listing.outdated_count).sum();
+        let failed = listings.iter().filter(|listing| listing.state == "failed").count();
+        let partial = listings.iter().filter(|listing| listing.state == "partial").count();
+        let state = if failed == listings.len() {
+            "failed"
+        } else if failed > 0 || partial > 0 {
+            "partial"
+        } else {
+            "ok"
+        };
+        let message = if state == "ok" {
+            None
+        } else {
+            Some(format!(
+                "{failed} of {} project listings failed and {partial} were partial; the aggregate is incomplete.",
+                listings.len()
+            ))
+        };
+        Ok(json!({
+            "state": state,
+            "message": message,
+            "targetFramework": target_framework,
+            "prerelease": prerelease,
+            "selectedSource": source,
+            "projects": listings,
+            "totalPackages": total_packages,
+            "outdatedCount": outdated_count,
+        }))
+    }
+
+    /// A batch is still data: every item is revalidated through `make_plan`, and nothing runs
+    /// until `nuget.applyBatch` receives confirm:true and the current batch id.
+    fn nuget_plan_batch(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.planBatch")?;
+        let items = params
+            .get("items")
+            .and_then(Value::as_array)
+            .ok_or_else(|| HostError::new("invalid_state", "items must be an array of updates."))?;
+        if items.is_empty() {
+            return Err(HostError::new("invalid_state", "No package update was selected."));
+        }
+        if items.len() > 50 {
+            return Err(HostError::new(
+                "invalid_state",
+                "A batch update is limited to 50 package updates.",
+            ));
+        }
+        let (root, sdk) = {
+            let inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+            (workspace.root.clone(), inner.project_sdk.clone())
+        };
+        let (muxer, sdk_root, _) = project_muxer(&sdk)?;
+        let mut batch = Vec::new();
+        let mut seq = {
+            let inner = self.inner.lock().unwrap();
+            inner.nuget_seq
+        };
+        for item in items {
+            let raw_project = item
+                .get("project")
+                .and_then(Value::as_str)
+                .ok_or_else(|| HostError::new("invalid_state", "An update has no project."))?;
+            let package = item
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| HostError::new("invalid_state", "An update has no package id."))?;
+            let version = item
+                .get("version")
+                .and_then(Value::as_str)
+                .ok_or_else(|| HostError::new("invalid_state", "An update has no version."))?;
+            let from_version = item.get("fromVersion").and_then(Value::as_str);
+            let target_framework = item
+                .get("targetFramework")
+                .and_then(Value::as_str)
+                .filter(|tfm| !tfm.is_empty());
+            let (project, display) = nuget::resolve_project(&root, raw_project)?;
+            seq += 1;
+            let id = nuget::plan_id(seq, token.context_id, &display, package, version);
+            batch.push(nuget::make_plan(nuget::PlanRequest {
+                id,
+                workspace_id: token.workspace_id,
+                context_id: token.context_id,
+                root: root.clone(),
+                project,
+                project_display: display,
+                package: package.to_string(),
+                from_version: from_version.map(str::to_string),
+                version: version.to_string(),
+                target_framework: target_framework.map(str::to_string),
+                muxer: muxer.clone(),
+                sdk_root: sdk_root.clone(),
+                install: false,
+            })?);
+        }
+        let plan_id = format!("nuget-batch-{}-{}", token.context_id, seq);
+        let views: Vec<Value> = batch.iter().map(nuget::plan_view).collect();
+        let mut inner = self.inner.lock().unwrap();
+        accept_locked(&inner, token)?;
+        inner.nuget_seq = seq;
+        inner.nuget_plan = None;
+        inner.nuget_batch = Some(batch);
+        inner.nuget_batch_id = Some(plan_id.clone());
+        Ok(json!({ "planId": plan_id, "count": views.len(), "items": views }))
+    }
+
+    /// Confirmed batch: each package gets its own `dotnet add`, failures are reported per
+    /// package, and one explicit restore per project follows. Failures are never masked.
+    fn nuget_apply_batch(&self, params: Value) -> HostResult<Value> {
+        let token = self.require_trust("nuget.applyBatch")?;
+        if params.get("confirm").and_then(Value::as_bool) != Some(true) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "nuget.applyBatch requires confirm:true; no command was run.",
+            ));
+        }
+        let plan_id = required_str(&params, "planId")?;
+        let batch = {
+            let mut inner = self.inner.lock().unwrap();
+            accept_locked(&inner, token)?;
+            if inner.nuget_batch_id.as_deref() != Some(plan_id.as_str()) {
+                return Err(HostError::new(
+                    "nuget_stale_plan",
+                    "The batch plan is not current; create a new plan. No command was run.",
+                ));
+            }
+            inner.nuget_batch_id = None;
+            inner.nuget_batch.take().ok_or_else(|| {
+                HostError::new(
+                    "nuget_stale_plan",
+                    "The batch plan is not current; create a new plan. No command was run.",
+                )
+            })?
+        };
+        let mut items = Vec::new();
+        let mut updated = 0;
+        let mut failed = 0;
+        for plan in &batch {
+            match nuget::apply(plan) {
+                Ok(result) => {
+                    updated += 1;
+                    items.push(json!({
+                        "state": "ok",
+                        "project": result.project,
+                        "package": result.package,
+                        "fromVersion": result.from_version,
+                        "version": result.version,
+                        "exit": result.exit,
+                        "command": result.command,
+                        "message": null,
+                        "log": result.log,
+                    }));
+                }
+                Err(error) => {
+                    failed += 1;
+                    items.push(json!({
+                        "state": "failed",
+                        "project": plan.project_display,
+                        "package": plan.package,
+                        "fromVersion": plan.from_version,
+                        "version": plan.version,
+                        "exit": null,
+                        "command": nuget::plan_view(plan)["command"],
+                        "message": error.message,
+                        "log": "",
+                    }));
+                }
+            }
+        }
+        let mut restored: Vec<String> = Vec::new();
+        let mut restores = Vec::new();
+        for plan in &batch {
+            if restored.iter().any(|path| path == &plan.project_display) {
+                continue;
+            }
+            restored.push(plan.project_display.clone());
+            restores.push(serde_json::to_value(nuget::restore(plan)).expect("restore serializes"));
+        }
+        let restore_failed = restores
+            .iter()
+            .any(|restore| restore.get("state").and_then(Value::as_str) != Some("ok"));
+        let state = if updated > 0 && failed == 0 && !restore_failed {
+            "ok"
+        } else if updated > 0 {
+            "partial"
+        } else {
+            "failed"
+        };
+        Ok(json!({
+            "state": state,
+            "updated": updated,
+            "failed": failed,
+            "items": items,
+            "restores": restores,
+        }))
     }
 
     /// Workspace symbols come from the live analysis session only. Unavailability and trust
@@ -6035,6 +6561,73 @@ impl Inner {
         if self.inventory.is_none() {
             self.inventory = Some(sdk::inventory());
         }
+    }
+
+    /// Fixed tools are project setup, not a user decision: verify/install both without trust.
+    /// A failure is recorded and surfaced by the snapshot instead of making `workspace.open`
+    /// fail; the setup screen owns retry.
+    fn begin_setup(&mut self) -> HostResult<()> {
+        let workspace_id = self
+            .workspace
+            .as_ref()
+            .ok_or_else(|| HostError::new("invalid_state", "Open a workspace before setup."))?
+            .id;
+        self.setup_error = None;
+        self.setup_attempt += 1;
+        if self.setup_started_at.is_none() {
+            self.setup_started_at = Some(now_ms());
+        }
+        self.setup_finished_at = None;
+        self.ensure_inventory();
+        let runtime = AnalysisRuntime::from_runtimes(
+            &self.inventory.as_ref().expect("inventory").runtimes,
+        );
+        if runtime.state != "found" {
+            self.setup_error = runtime.message.clone();
+            return Ok(());
+        }
+        if debugger::bundled_binary().is_some() {
+            // The adapter ships with the app; it is enabled by default, with no experimental
+            // consent. The flag still exists as the platform gate for non-bundled installs.
+            self.debugger_experimental = true;
+        }
+        if let Err(error) = debugger::ready_adapter(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            self.debugger_experimental,
+        ) {
+            self.setup_error = Some(format!(
+                "The debug adapter is not available: {}",
+                error.message
+            ));
+        }
+        let plan = match tools::plan(self.inventory.as_ref().expect("inventory")) {
+            Ok(plan) => plan,
+            Err(error) => {
+                if self.setup_error.is_none() {
+                    self.setup_error = Some(error.message);
+                }
+                return Ok(());
+            }
+        };
+        let tools = self.tools.clone();
+        if matches!(
+            tools.view().state,
+            "downloading" | "installing" | "verifying"
+        ) {
+            return Ok(());
+        }
+        if let Err(error) = tools.begin_install(
+            plan,
+            workspace_id,
+            self.context_seq,
+            self.processes.clone(),
+        ) {
+            if error.code != "invalid_state" && self.setup_error.is_none() {
+                self.setup_error = Some(error.message);
+            }
+        }
+        Ok(())
     }
 
     fn sync_tools(&mut self) {
@@ -6751,6 +7344,8 @@ fn mark_inputs_stale(inner: &mut Inner, inputs: &[&str], reason: String, force: 
     if inner.evaluation.mark_stale(reason) {
         inner.context_seq += 1;
         inner.nuget_plan = None;
+        inner.nuget_batch = None;
+        inner.nuget_batch_id = None;
         stop_lsp_inner(
             inner,
             "A project input changed; analysis stopped so it cannot report the previous context.",

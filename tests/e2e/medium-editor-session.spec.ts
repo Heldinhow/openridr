@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort } from "./environment";
+import { hostPort, seedVerifiedTools } from "./environment";
 
 // The shared E2E host runs with OPENRIDR_SESSION_STORE=off so specs cannot restore each other's
 // tabs. Session persistence needs its own host, like trust-prompt.spec.ts does for trust.
@@ -18,8 +18,9 @@ test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 test.beforeAll(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-session-home-"));
+  const bundled = seedVerifiedTools(home);
   server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on" },
+    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on", OPENRIDR_BUNDLED_NETCOREDBG: bundled },
     stdio: "ignore",
   });
   await expect

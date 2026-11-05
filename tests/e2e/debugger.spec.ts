@@ -1,6 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { revisionOf, settleRestore } from "./automatic";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -55,209 +54,31 @@ test.beforeAll(() => {
   fs.mkdirSync(logs, { recursive: true });
 });
 
-test("macOS arm64 requires the experimental flag and shows the real asset", async ({
+test("the bundled adapter is ready after setup and the drawer is diagnostic", async ({
   page,
   request,
 }) => {
   fs.rmSync(debugToolDir, { recursive: true, force: true });
-  await openWorkspace(page);
-
-  const planned = await hostCall(request, "debug.plan");
-  expect(planned.ok).toBe(true);
-  const debug = planned.data.debug;
-  if (debug.platform !== "osx-arm64") {
-    test.skip(true, "this blocked outcome is specific to macOS arm64");
-  }
-
-  // The card states the approved version, the official source, the real asset and the limit.
-  await expect(page.getByTestId("debug-state")).toHaveText("Experimental · disabled");
-  await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
-    "netcoredbg-osx-arm64.zip · available",
-  );
-  await expect(page.getByTestId("debug-source")).toContainText("approved version 3.2.0-1092");
-  await expect(page.getByTestId("debug-source")).toContainText("Samsung/netcoredbg");
-  await expect(page.getByTestId("debug-source")).toContainText("DAP proven by installation: no");
-  await expect(page.getByTestId("debug-message")).toContainText(
-    "The official 3.2.0-1092 osx-arm64 asset exists",
-  );
-  await expect(page.getByTestId("debug-message")).toContainText("community supported");
-  await expect(page.getByTestId("debug-message")).toContainText(
-    "installation stays refused until you enable the experimental flag",
-  );
-  await expect(page.getByTestId("debug-dap")).toContainText("DAP launch is implemented");
-  await expect(page.getByTestId("debug-flag-note")).toContainText(
-    "neither installs netcoredbg nor proves compatibility",
-  );
-  await expect(page.getByTestId("debug-install")).toHaveCount(0);
-  await expect(page.getByTestId("debug-disabled-reason")).toContainText(
-    "installation stays refused until you enable the experimental flag",
-  );
-
-  // Plan details carry every material field and the blocked reason.
-  await reveal(page.getByTestId("debug-plan-open"));
-  await page.getByTestId("debug-plan-open").click();
-  await expect(page.getByTestId("debug-plan")).toBeVisible();
-  await expect(page.getByTestId("debug-plan")).toHaveAttribute("open", "");
-  await expect(page.getByTestId("debug-install")).toBeVisible();
-  await expect(page.getByTestId("debug-plan-tool")).toContainText("netcoredbg 3.2.0-1092");
-  await expect(page.getByTestId("debug-plan-source")).toContainText(
-    "https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092",
-  );
-  await expect(page.getByTestId("debug-plan-asset")).toContainText(
-    "netcoredbg-osx-arm64.zip",
-  );
-  await expect(page.getByTestId("debug-plan-asset")).toContainText(
-    "f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea",
-  );
-  await expect(page.getByTestId("debug-plan-destination")).toContainText(
-    "tools/netcoredbg/3.2.0-1092",
-  );
-  await expect(page.getByTestId("debug-plan-permissions")).toContainText("no elevation");
-  await expect(page.getByTestId("debug-plan-integrity")).toContainText(
-    "no code signature or notarization",
-  );
-  await expect(page.getByTestId("debug-plan-limits")).toContainText("progress is reported only as bytes");
-  await expect(page.getByTestId("debug-plan-blocked")).toContainText(
-    "installation stays refused until you enable the experimental flag",
-  );
-  expect(
-    await page.getByTestId("debug-install").evaluate((button) => getComputedStyle(button).color),
-  ).not.toBe("rgb(84, 138, 247)");
-  await page.screenshot({ path: path.join(screenshots, "13-debugger-plan.png"), fullPage: true });
-  fs.writeFileSync(
-    path.join(logs, "13-debugger-plan.json"),
-    JSON.stringify({ platform: debug.platform, plan: debug.plan }, null, 2),
-  );
-
-  // No install is offered while the flag is off; the plan stays blocked.
-  await expect(page.getByTestId("debug-install")).toBeDisabled();
-  expect(fs.existsSync(debugToolDir)).toBe(false);
-
-  // Flag off is a hard gate even with trust and a valid plan.
-  expect((await hostCall(request, "trust.grant", { remember: false })).ok).toBe(true);
-  await page.reload();
+  await hostCall(request, "workspace.open", { path: fixture });
+  const setup = await hostCall(request, "setup.start");
+  expect(setup.ok, JSON.stringify(setup.error)).toBe(true);
+  await page.goto("/");
   await openToolchain(page);
-  const beforeFlag = await hostCall(request, "debug.install", {
-    planId: debug.plan.planId,
-    confirm: true,
-  });
-  expect(beforeFlag.ok).toBe(false);
-  expect(beforeFlag.error.code).toBe("experimental_required");
-  expect(beforeFlag.error.message).toContain("Nothing was downloaded");
-  expect(fs.existsSync(debugToolDir)).toBe(false);
-  fs.writeFileSync(
-    path.join(logs, "13-debugger-refused.json"),
-    JSON.stringify({ error: beforeFlag.error }, null, 2),
-  );
+  await reveal(page.getByTestId("sdk-debug-adapter"));
+  await expect(page.getByTestId("sdk-debug-adapter")).toBeVisible();
 
-  // Explicit, separate experimental opt-in: acknowledged by checkbox, then enabled.
-  await reveal(page.getByTestId("debug-flag-checkbox"));
-  await page.getByTestId("debug-flag-checkbox").check();
-  await expect(page.getByTestId("debug-flag-enable")).toBeEnabled();
-  await page.getByTestId("debug-flag-enable").click();
-  await expect(page.getByTestId("sdk-apple-silicon")).toContainText("experimental · enabled");
-  await expect(page.getByTestId("debug-state")).toHaveText("Plan ready — nothing downloaded yet");
-  await expect(page.getByTestId("debug-message")).toContainText(
-    "available with explicit consent",
-  );
-  await expect(page.getByTestId("debug-flag-note")).toContainText(
-    "neither installs netcoredbg nor proves compatibility",
-  );
-  // The replanned consent is for the official asset and is now installable; this test does not
-  // download (the real install evidence comes from the host flow in the real app home).
-  await expect(page.getByTestId("debug-install")).toBeEnabled();
-  await expect(page.getByTestId("debug-plan-blocked")).toHaveCount(0);
-  expect(fs.existsSync(debugToolDir)).toBe(false);
-  await reveal(page.getByTestId("debug-plan-open"));
-  await page.getByTestId("debug-plan-open").click();
-  await expect(page.getByTestId("debug-plan")).toHaveAttribute("open", "");
-  await expect(page.getByTestId("debug-install")).toBeVisible();
-  await expect(page.getByTestId("debug-plan-asset")).toContainText(
-    "netcoredbg-osx-arm64.zip",
-  );
-  await expect(page.getByTestId("debug-plan-integrity")).toContainText(
-    "f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea",
-  );
-  await page.screenshot({ path: path.join(screenshots, "13-debugger-flag.png"), fullPage: true });
-
-  // Analysis, Run and the editor stay available: the debugger limit does not block them.
-  // Opening the workspace again resets trust and the session flag, so trust and the flag are set once more.
-  await page.getByTestId("welcome-nav-projects").click();
-  await page.getByTestId("workspace-path-input").fill(fixture);
-  await page.getByTestId("workspace-open").click();
-  await page.getByTestId("trust-prompt-trust").click();
-  expect((await hostCall(request, "debug.flag", { enabled: true, confirm: true })).ok).toBe(true);
-  await page.getByTestId("workspace-tools-toggle").click();
-  await expect(page.getByTestId("tree")).toBeVisible();
-  await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
-  // The adapter is still absent, but that no longer blocks Debug: clicking installs it.
-  await expect(page.getByTestId("toolbar-debug")).toBeEnabled();
-  await expect(page.getByTestId("toolbar-debug")).toHaveAttribute(
-    "title",
-    /enabling the experimental flag and reusing or installing the approved adapter/,
-  );
-  await expect(page.getByTestId("toolbar-run")).toBeVisible();
-  await expect(page.getByTestId("lsp-panel")).toBeVisible();
-});
-
-test("an installed adapter is reported and the plan names the session flag, not the platform", async ({
-  page,
-  request,
-}) => {
-  fs.rmSync(debugToolDir, { recursive: true, force: true });
-  await openWorkspace(page);
-  const firstPlan = await hostCall(request, "debug.plan");
-  expect(firstPlan.ok).toBe(true);
-  if (firstPlan.data.debug.platform !== "osx-arm64") {
-    test.skip(true, "the flag-off blocked plan is specific to macOS arm64");
-  }
-
-  // Seed the adapter location a previous session would have left behind. It is not executed:
-  // the plan and the tools row only inspect the disk.
-  const destination = path.join(debugToolDir, "3.2.0-1092");
-  fs.mkdirSync(destination, { recursive: true });
-  const binary = path.join(destination, "netcoredbg");
-  fs.writeFileSync(binary, "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1 (seeded E2E artifact)\\n'\n");
-  fs.chmodSync(binary, 0o755);
-  const checksum = crypto.createHash("sha256").update(fs.readFileSync(binary)).digest("hex");
-  const planned = await hostCall(request, "debug.plan");
-  expect(planned.ok, JSON.stringify(planned.error)).toBe(true);
-
-  // The setup screen does not poll; reviewing the plan refreshes the snapshot with the seeded
-  // adapter and the rebuilt plan.
-  await reveal(page.getByTestId("debug-plan-open"));
-  await page.getByTestId("debug-plan-open").click();
-  await expect(page.getByTestId("debug-plan")).toHaveAttribute("open", "");
-
-  // The tools row records origin, version and the measured executable checksum.
-  await reveal(page.getByTestId("debug-installed-adapter"));
-  await expect(page.getByTestId("debug-installed-adapter")).toBeVisible();
-  await expect(page.getByTestId("debug-installed-origin")).toContainText("Samsung/netcoredbg");
-  await expect(page.getByTestId("debug-installed-origin")).toContainText(
-    "https://github.com/Samsung/netcoredbg/releases/tag/3.2.0-1092",
-  );
-  await expect(page.getByTestId("debug-installed-version")).toContainText("3.2.0-1092");
-  await expect(page.getByTestId("debug-installed-checksum")).toContainText(checksum);
-  await expect(page.getByTestId("debug-installed-binary")).toContainText(binary);
-
-  // The flag is still off, but the plan says the adapter is installed and names the flag as the
-  // remaining gate instead of claiming the platform blocks it.
-  await expect(page.getByTestId("debug-state")).toHaveText("Experimental · disabled");
-  await expect(page.getByTestId("debug-message")).toContainText("already installed");
-  await expect(page.getByTestId("debug-note")).toContainText("already installed");
-  await expect(page.getByTestId("debug-note")).not.toContainText("stays blocked");
-  await expect(page.getByTestId("debug-flag-note")).toContainText("session-scoped");
-  await expect(page.getByTestId("debug-plan-existing")).toContainText("A destination exists");
-  await page.screenshot({
-    path: path.join(screenshots, "13-debugger-installed.png"),
-    fullPage: true,
-  });
-  fs.writeFileSync(
-    path.join(logs, "13-debugger-installed.json"),
-    JSON.stringify({ plan: planned.data.debug.plan, checksum }, null, 2),
-  );
-
-  fs.rmSync(debugToolDir, { recursive: true, force: true });
+  // The bundled adapter is part of setup: no experimental checkbox, no consent, no plan gate.
+  await expect(page.getByTestId("debug-state")).toContainText("Bundled with OpenRidr");
+  await expect(page.getByTestId("debug-bundled-origin")).toHaveText("Bundled with OpenRidr");
+  await expect(page.getByTestId("debug-bundled-version")).toHaveText("3.2.0-1092");
+  await expect(page.getByTestId("debug-bundled-checksum")).toContainText("SHA-256");
+  await expect(page.getByTestId("debug-bundled-binary")).toContainText("netcoredbg");
+  await expect(page.getByTestId("debug-message")).toContainText("Bundled with OpenRidr");
+  await expect(page.getByTestId("debug-plan-open")).toHaveCount(0);
+  await expect(page.getByTestId("debug-install")).toHaveCount(0);
+  await expect(page.getByTestId("debug-flag-checkbox")).toHaveCount(0);
+  await expect(page.getByTestId("sdk-apple-silicon")).toHaveCount(0);
+  expect((await hostCall(request, "workspace.state")).data.setup.state).toBe("ready");
 });
 
 test("host gates consent, trust and plan identity before any download", async ({ request }) => {

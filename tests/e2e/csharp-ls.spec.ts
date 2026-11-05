@@ -121,9 +121,14 @@ async function waitToolState(
 async function ensureTool(page: Page, request: APIRequestContext) {
   const snapshot = await hostState(request);
   if (snapshot.tools["csharp-ls"].state === "ready") return;
-  await page.getByTestId("install-plan-open").click();
-  await expect(page.getByTestId("install-plan")).toBeVisible();
-  await page.getByTestId("install-confirm").click();
+  // Setup owns the fixed tools now; this is the same verified, trust-free path the gate uses.
+  await page.evaluate(async () => {
+    await fetch("/__host/call", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method: "setup.start", params: {} }),
+    });
+  });
   await waitToolState(request, "ready");
 }
 
@@ -140,162 +145,6 @@ async function holdAnalysisStopped(page: Page, request: APIRequestContext) {
 test.afterEach(async ({ request }) => {
   await hostCall(request, "lsp.stop").catch(() => {});
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
-});
-
-test("the trust prompt and install plan communicate state before any confirmation", async ({
-  page,
-}) => {
-  await openWorkspace(page, fixture);
-  await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible();
-  await expect(page.getByTestId("trust-prompt-trust")).toBeEnabled();
-  await trustWorkspace(page);
-  await enterWorkspace(page);
-  await page.getByTestId("install-plan-open").click();
-  const plan = page.getByTestId("install-plan");
-  await expect(plan).toBeVisible();
-  await expect(plan).toHaveAttribute("open", "");
-  for (const field of [
-    "install-tool",
-    "install-source",
-    "install-platform",
-    "install-destination",
-    "install-staging",
-    "install-command",
-    "install-cwd",
-    "install-permissions",
-    "install-integrity",
-    "install-existing",
-  ]) {
-    await expect(page.getByTestId(field)).toBeVisible();
-  }
-  await expect(plan.getByTestId("install-confirm")).toBeVisible();
-});
-
-test("install plan is exact, cancel is inert, and the real install reaches verifying", async ({
-  page,
-  request,
-}) => {
-  const { base, copy } = tempCopy("Order Desk tools");
-  try {
-    const initial = await hostState(request);
-    const appHome = initial.app.appHome as string;
-    const isolated = appHome === e2eHome;
-    if (isolated) {
-      // This E2E host owns this app home; start from an absent tool.
-      fs.rmSync(path.join(appHome, "tools/csharp-ls"), { recursive: true, force: true });
-    } else {
-      test.info().annotations.push({
-        type: "warning",
-        description: `E2E host uses ${appHome}; an existing verified tool is reused instead of a fresh install.`,
-      });
-    }
-
-    await openWorkspace(page, path.join(copy, "OrderDesk.sln"));
-    const workspaceId = (await hostState(request)).workspace.id;
-    await trustWorkspace(page);
-    await enterWorkspace(page);
-
-    await page.getByTestId("install-plan-open").click();
-    await expect(page.getByTestId("install-plan")).toBeVisible();
-    await expect(page.getByTestId("install-tool")).toContainText("csharp-ls 0.28.0");
-    await expect(page.getByTestId("install-source")).toContainText("NuGet.org");
-    await expect(page.getByTestId("install-source")).toContainText(
-      "https://api.nuget.org/v3/index.json",
-    );
-    await expect(page.getByTestId("install-platform")).toContainText("macos");
-    await expect(page.getByTestId("install-platform")).toContainText("aarch64");
-    await expect(page.getByTestId("install-destination")).toContainText(
-      "/tools/csharp-ls/0.28",
-    );
-    await expect(page.getByTestId("install-command")).toContainText(
-      "tool install csharp-ls --version 0.28.0 --tool-path",
-    );
-    await expect(page.getByTestId("install-command")).toContainText("0.28.staging");
-    await expect(page.getByTestId("install-permissions")).toContainText(
-      "no global tool install",
-    );
-    await expect(page.getByTestId("install-integrity")).toContainText(
-      "Skipping NuGet package signature verification",
-    );
-
-    const plan = (await hostState(request)).tools["csharp-ls"].plan;
-    expect(plan.argv).toHaveLength(8);
-    expect(plan.argv.at(-1)).toContain("0.28.staging");
-
-    const readyBefore = (await hostState(request)).tools["csharp-ls"].state === "ready";
-    if (!isolated && readyBefore) {
-      // A host reusing the real app home already has the verified tool; prove reuse only.
-      await expect(page.getByTestId("install-state")).toContainText("Ready");
-      await page.getByTestId("install-confirm").click();
-      await expect(page.getByTestId("install-log")).toContainText("reused", {
-        timeout: 20_000,
-      });
-      return;
-    }
-
-    if (isolated) {
-      await page.getByTestId("install-cancel").click();
-      await expect(page.getByTestId("install-state")).toContainText("Cancelled");
-      expect(fs.existsSync(plan.destination), "cancel created a tool directory").toBe(false);
-      expect(fs.existsSync(plan.staging), "cancel created a staging directory").toBe(false);
-      // Other specs leave exited processes in the shared registry; cancel must create none
-      // for this workspace. The automatic restore after Trust and the automatic test discovery
-      // (ticket 03) are their own processes and are not counted.
-      expect(
-        (await hostState(request)).processes.filter(
-          (process: { workspaceId: number; kind: string }) =>
-            process.workspaceId === workspaceId &&
-            !process.kind.startsWith("restore:") &&
-            !process.kind.startsWith("tests:"),
-        ),
-      ).toEqual([]);
-      await page.getByTestId("install-plan-open").click();
-      await expect(page.getByTestId("install-plan")).toBeVisible();
-    }
-
-    const seen = new Set<string>();
-    await page.getByTestId("install-confirm").click();
-    await waitToolState(request, "ready", seen);
-    expect([...seen], `states observed: ${[...seen].join(", ")}`).toContain("verifying");
-    expect(seen).toContain("downloading");
-    expect(seen).toContain("installing");
-
-    await expect(page.getByTestId("install-state")).toContainText("Ready");
-    await expect(page.getByTestId("install-ready")).toContainText("Executable and version verified");
-    await expect(page.getByTestId("install-sha256")).toContainText(/[0-9a-f]{64}/);
-    await expect(page.getByTestId("install-verified")).toContainText("csharp-ls, 0.28.0");
-    // The plan was reviewed before the install; its Existing row must now describe the verified launcher.
-    await expect(page.getByTestId("install-existing")).not.toContainText("No launcher at the destination");
-    await expect(page.getByTestId("install-existing")).toContainText(/verified/i);
-    expect(fs.existsSync(path.join(plan.destination, "csharp-ls"))).toBe(true);
-    expect(fs.existsSync(plan.staging)).toBe(false);
-
-    await page.getByText("Install log · stdout/stderr").click();
-    await expect(page.getByTestId("install-log")).toContainText(
-      "Tool 'csharp-ls' (version '0.28.0') was successfully installed",
-    );
-    await expect(page.getByTestId("install-log")).toContainText(
-      "Skipping NuGet package signature verification",
-    );
-    fs.mkdirSync(screenshots, { recursive: true });
-    await page.screenshot({
-      path: path.join(screenshots, "05-csharp-ls-install.png"),
-      fullPage: false,
-    });
-
-    // A valid installation is reused, never overwritten.
-    await page.getByTestId("install-plan-open").click();
-    await expect(page.getByTestId("install-state")).toContainText("Ready");
-    await page.getByTestId("install-confirm").click();
-    await expect(page.getByTestId("install-log")).toContainText("reused", {
-      timeout: 20_000,
-    });
-    const afterReuse = (await hostState(request)).tools["csharp-ls"];
-    expect(afterReuse.reused).toBe(true);
-    expect(afterReuse.sha256).toBe((await hostState(request)).tools["csharp-ls"].sha256);
-  } finally {
-    fs.rmSync(base, { recursive: true, force: true });
-  }
 });
 
 test("problems navigate real diagnostics by revision and keep stale items", async ({

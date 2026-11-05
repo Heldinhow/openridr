@@ -5,9 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { hostPort } from "./environment";
 
-// The shared E2E host talks to NuGet.org. This spec starts its own host with the test-only
-// installer seam: a script that writes observed bytes, fails once like an unreachable source,
-// then succeeds on retry. Nothing touches the network or the real app home.
+// A fresh app home proves the mandatory setup: the first attempt fails like an unreachable
+// source, retry installs and verifies, and the trust prompt appears only after setup is done.
 const port = hostPort + 5;
 const fixture = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
 let home: string;
@@ -26,7 +25,7 @@ mkdir -p "$staging"
 dd if=/dev/zero of="$staging/partial.bin" bs=1024 count=512 2>/dev/null
 sleep 2
 if [ -f "$OPENRIDR_HOME/probe-tools-failed" ]; then
-  printf '#!/bin/sh\\necho "csharp-ls, version 0.28.0 (probe)"\\n' > "$staging/csharp-ls"
+  printf '#!/bin/sh\\nprintf "csharp-ls, version 0.28.0 (probe)\\\\n"\\n' > "$staging/csharp-ls"
   chmod +x "$staging/csharp-ls"
   exit 0
 fi
@@ -36,6 +35,11 @@ exit 1
 `,
   );
   fs.chmodSync(installer, 0o755);
+  const bundled = path.join(home, "bundled");
+  fs.mkdirSync(bundled, { recursive: true });
+  const adapter = path.join(bundled, "netcoredbg");
+  fs.writeFileSync(adapter, "#!/bin/sh\nprintf 'netcoredbg 3.2.0-1092\\n'\n");
+  fs.chmodSync(adapter, 0o755);
   server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
     env: {
       ...process.env,
@@ -43,6 +47,7 @@ exit 1
       OPENRIDR_TRUST_STORE: "on",
       OPENRIDR_ENABLE_PROBE: "1",
       OPENRIDR_TOOLS_MUXER: installer,
+      OPENRIDR_BUNDLED_NETCOREDBG: bundled,
     },
     stdio: "ignore",
   });
@@ -65,44 +70,55 @@ async function useIsolatedHost(page: Page) {
   });
 }
 
-test("the csharp-ls install shows progress, a network error and a working retry", async ({
-  page,
-}) => {
-  await useIsolatedHost(page);
+async function openWorkspace(page: Page) {
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(fixture);
   await page.getByTestId("workspace-open").click();
+}
+
+test("setup blocks the workspace, reports the failure and retries without a plan", async ({
+  page,
+}) => {
+  await useIsolatedHost(page);
+  await openWorkspace(page);
+
+  // Setup runs before trust: no trust prompt and no workspace while the tool is not ready.
+  await expect(page.getByTestId("setup-gate")).toBeVisible();
+  await expect(page.getByTestId("trust-prompt-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("tree")).toHaveCount(0);
+  await expect(page.getByTestId("setup-gate-progress")).toContainText("Downloaded", {
+    timeout: 15_000,
+  });
+  await expect(page.getByTestId("setup-gate-progress")).toContainText("no percentage");
+
+  // The failed attempt is never reported ready and names the network plus Retry setup.
+  await expect(page.getByTestId("setup-gate-state")).toHaveText("Setup failed", {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("setup-gate-error")).toContainText("network");
+  await expect(page.getByTestId("setup-gate-retry")).toBeEnabled();
+
+  // Retry re-enters the install without reopening the workspace, then reaches verified ready.
+  await page.getByTestId("setup-gate-retry").click();
+  await expect(page.getByTestId("setup-gate-progress")).toContainText("Downloaded", {
+    timeout: 15_000,
+  });
+  // Ready unlocks trust immediately; the gate unmounts instead of waiting to show "Ready".
+  await expect(page.getByTestId("trust-prompt-dialog")).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByTestId("setup-gate")).toHaveCount(0);
+});
+
+test("a second opening reuses the verified tools and never shows the gate", async ({ page }) => {
+  await useIsolatedHost(page);
+  await openWorkspace(page);
+  // The host verified the installation in the previous test; the trust prompt is the next step.
+  await page.getByTestId("trust-prompt-dialog").waitFor({ timeout: 15_000 });
+  await expect(page.getByTestId("setup-gate")).toHaveCount(0);
   await page.getByTestId("trust-prompt-trust").click();
   await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
-
-  // The first C# project without analysis offers the plan; review and confirmation are explicit.
   await page.getByTestId("workspace-tools-toggle").click();
-  await expect(page.getByTestId("install-panel")).toBeVisible();
-  await page.getByTestId("install-plan-open").click();
-  await expect(page.getByTestId("install-plan")).toBeVisible();
-  await page.getByTestId("install-confirm").click();
-
-  // Bytes are observed while the installer runs; no percentage is invented.
-  await expect(page.getByTestId("install-state")).toHaveText("Downloading…");
-  await expect(page.getByTestId("install-progress")).toContainText("downloaded", {
-    timeout: 15_000,
-  });
-  await expect(page.getByTestId("install-progress")).toContainText("no percentage");
-
-  // The failed attempt is never reported ready and names the network plus Try again.
-  await expect(page.getByTestId("install-state")).toHaveText("Failed", { timeout: 30_000 });
-  await expect(page.getByTestId("install-error")).toContainText("network");
-  await expect(page.getByTestId("install-error")).toContainText("Try again");
-  await expect(page.getByTestId("install-retry")).toBeEnabled();
-  await expect(page.getByTestId("install-ready")).toHaveCount(0);
-
-  // Retry re-enters the download without reopening the workspace, then reaches verified ready.
-  await page.getByTestId("install-retry").click();
-  await expect(page.getByTestId("install-progress")).toContainText("downloaded", {
-    timeout: 15_000,
-  });
-  await expect(page.getByTestId("install-ready")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("install-state")).toHaveText("Ready");
-  await expect(page.getByTestId("install-error")).toHaveCount(0);
-  await expect(page.getByTestId("install-retry")).toHaveCount(0);
+  await expect(page.getByTestId("install-plan-open")).toHaveCount(0);
+  await expect(page.getByTestId("install-confirm")).toHaveCount(0);
+  await expect(page.getByTestId("install-reinstall")).toBeVisible();
 });

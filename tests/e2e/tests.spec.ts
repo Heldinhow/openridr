@@ -375,6 +375,39 @@ test("real test run reports TRX outcomes, details, position, next failure and Ru
     await expect(page.getByTestId("tests-run-counts")).toContainText(
       "5 results · 2 passed · 2 failed · 1 skipped · 0 not executed · 0 unknown",
     );
+    // Explorer parity: counters, aggregated node state, a per-selection detail panel,
+    // expand/collapse all and a real export path.
+    await expect(page.getByTestId("tests-count-passed")).toHaveText("✓ 2");
+    await expect(page.getByTestId("tests-count-failed")).toHaveText("✗ 2");
+    await expect(page.getByTestId("tests-count-skipped")).toHaveText("– 1");
+    await expect(page.getByTestId("tests-tab-explorer")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("tests-tab-continuous")).toBeDisabled();
+    await expect(page.getByTestId("tests-tab-continuous")).toHaveAttribute(
+      "title",
+      /does not provide yet/,
+    );
+    await page.getByTestId("test-item-0").click();
+    await expect(page.getByTestId("tests-detail")).toBeVisible();
+    await expect(page.getByTestId("tests-detail-name")).toContainText(
+      "OrderDesk.Tests.OrderTests",
+    );
+    await expect(page.getByTestId("tests-detail-status")).not.toHaveText("not run");
+    await expect(page.getByTestId("tests-detail-duration")).toHaveText(/ms|duration unknown/);
+
+    await page.getByTestId("tests-collapse-all").click();
+    await expect(page.getByTestId("test-item-0")).toHaveCount(0);
+    await page.getByTestId("tests-expand-all").click();
+    await expect(page.getByTestId("test-item-0")).toBeVisible();
+
+    await page.getByTestId("tests-export").click();
+    await expect(page.getByTestId("tests-export-path")).toContainText("tests-", {
+      timeout: 15_000,
+    });
+    const exported = (await page.getByTestId("tests-export-path").textContent()) ?? "";
+    expect(exported).toMatch(/Exported \d+ bytes to .*tests-.*\.json/);
+    const exportedPath = /to (\/.*\.json)$/.exec(exported)?.[1];
+    expect(exportedPath && fs.existsSync(exportedPath), "the export file exists").toBe(true);
+
     await expect(page.getByTestId("tests-run-id")).toContainText(/testrun:\d+:1/);
     await expect(page.getByTestId("tests-run-id")).toContainText(discoveryId);
     await expect(page.getByTestId("tests-run-id")).toContainText(
@@ -393,6 +426,7 @@ test("real test run reports TRX outcomes, details, position, next failure and Ru
 
     const results = page.getByTestId("tests-run-results-list").locator("li");
     await expect(results).toHaveCount(5);
+    await results.first().scrollIntoViewIfNeeded();
     await expect.poll(() => results.first().evaluate((element) => {
       const panel = element.closest(".panel-body");
       if (!panel) return false;

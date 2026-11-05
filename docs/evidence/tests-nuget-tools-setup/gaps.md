@@ -23,6 +23,6 @@ Levantamento estático em 2026-11-05, antes da implementação. As referências 
 - Falta um gate de setup obrigatório antes do workspace utilizável, com instalação/verificação automática, erro e retry, reutilização entre projetos/aberturas e inicialização automática da análise. O drawer precisa virar diagnóstico/reinstalação, sem consentimento experimental ou plano obrigatório.
 - A dependência de trust precisa ser conciliada com a ordem de abertura sem enfraquecer o modelo de segurança. A ausência do runtime .NET 10 precisa ter explicação e link adequados; o SDK do projeto continua resolvido sem instalação forçada.
 
-## Evidência pendente
+## Evidência
 
-Capturas antes/depois do OpenRidr e testes de primeira e segunda abertura no app desktop real, com `OPENRIDR_HOME` isolado e cópia de OrderDesk. Nenhuma captura das referências proprietárias deve ser copiada ao repositório.
+Capturas antes/depois, primeira/segunda abertura e limitações em `desktop.md`. Nenhuma captura das referências proprietárias foi copiada ao repositório.

@@ -444,6 +444,17 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .setup-screen .brand .icon { color: var(--accent); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .setup-screen { height: 100%; }
+.setup-gate-body { display: grid; gap: 12px; width: 100%; max-width: 960px; margin: 0 auto; padding: 40px 32px 56px; overflow-y: auto; }
+.setup-gate-body h1 { margin: 0; font-size: 22px; }
+.setup-gate-steps { display: grid; gap: 8px; margin: 4px 0; padding: 0; list-style: none; counter-reset: step; }
+.setup-gate-steps li { display: grid; gap: 2px; padding: 10px 12px 10px 40px; counter-increment: step; position: relative; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--raised); }
+.setup-gate-steps li::before { content: counter(step); position: absolute; left: 12px; top: 10px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-surface-strong); color: var(--fg); font-size: var(--fs-meta); }
+.setup-gate-steps li > strong { font-size: var(--fs-label); }
+.setup-gate-steps li > .menu-note, .setup-gate-steps li > .muted { display: block; }
+.setup-gate-steps li[data-state="ready"] { border-color: color-mix(in srgb, var(--success) 40%, var(--line)); }
+.setup-gate-steps li[data-state="failed"] { border-color: color-mix(in srgb, var(--error) 50%, var(--line)); }
+.setup-gate-body .actions { margin-top: 4px; }
+.setup-gate-body .eval-log { margin-top: 4px; }
 .welcome-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 224px 1fr; }
 .welcome-nav { display: flex; flex-direction: column; gap: 4px; padding: 20px 12px; border-right: 1px solid var(--line); background: var(--bg); }
 .welcome-logo { display: flex; align-items: center; gap: 12px; padding: 0 8px 20px; }
@@ -2571,6 +2582,17 @@ mark.search-hit {
 .nuget-update { display: grid; gap: 4px; padding: 6px 8px; background: var(--panel); border-radius: 3px; }
 .nuget-restore { display: grid; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
 .nuget-command { margin: 0; padding: 6px; overflow-x: auto; background: var(--bg); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.nuget-mode { display: inline-flex; gap: 2px; }
+.nuget-mode button { min-height: var(--control-h); border-radius: var(--r-md); color: var(--muted); background: transparent; }
+.nuget-mode button.active { color: var(--fg); background: var(--accent-surface); }
+.nuget-search-field input { min-width: 220px; }
+.nuget-project-section { display: grid; gap: 6px; }
+.nuget-project-section > h3 { margin: 6px 0 0; font-size: var(--fs-label); }
+.nuget-batch-bar { border-top: 1px solid var(--line-internal); padding-top: 4px; }
+.nuget-command-list { max-height: 12rem; overflow: auto; }
+.nuget-command-list code { overflow-wrap: anywhere; }
+.nuget-description { display: block; max-width: 520px; white-space: normal; }
+.nuget-assets summary { color: var(--muted); cursor: pointer; }
 
 /* F7: gutter Run/Test, inline rename, editor context menu and Find Usages. */
 .cm-action-gutter {
@@ -3099,6 +3121,20 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .build-panel[data-testid="tests-panel"] > [data-testid="tests-counts"] { flex: 0 0 auto; margin: 0 0 0 10px; padding: 0; }
 .build-panel[data-testid="tests-panel"] > .tests-filter-row { flex: 1 1 240px; margin: 0; }
 .build-panel[data-testid="tests-panel"] > .tests-filter-row > span:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.tests-tabs { display: flex; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tests-tabs .tab-label { min-height: var(--control-h); padding: 0 10px; border-radius: var(--r-md) var(--r-md) 0 0; color: var(--muted); background: transparent; }
+.tests-tabs .tab-label.active { color: var(--fg); background: var(--raised); }
+.tests-tabs .tab-label:disabled { opacity: 0.5; }
+.tests-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line-internal); }
+.tests-toolbar button { display: inline-flex; align-items: center; gap: 4px; }
+.tests-toolbar > .muted[data-testid="tests-export-path"] { flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tests-split { display: flex; align-items: flex-start; gap: 0; min-height: 0; }
+.tests-split > .test-tree { flex: 1 1 auto; min-width: 0; }
+.tests-detail { flex: 0 0 320px; align-self: stretch; border-left: 1px solid var(--line-internal); padding: 6px 12px; max-height: 24rem; overflow: auto; font-size: var(--fs-meta); }
+.tests-detail h3 { margin: 4px 0; font-size: var(--fs-label); overflow-wrap: anywhere; }
+.tests-detail .eval-pre { max-height: 8rem; }
+.test-list li.selected, .test-group.selected > .test-group-title { background: var(--accent-surface); }
+.build-panel[data-testid="tests-panel"] > .tests-split { flex: 1 1 100%; }
 .test-list[data-testid="tests-run-results-list"] li { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; min-height: var(--control-h); }
 .test-list[data-testid="tests-run-results-list"] li > details { margin-left: auto; font-size: var(--fs-meta); color: var(--muted); }
 .test-list[data-testid="tests-run-results-list"] li > details[open] { flex: 1 1 100%; }

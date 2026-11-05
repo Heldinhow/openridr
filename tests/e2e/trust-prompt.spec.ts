@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort } from "./environment";
+import { hostPort, seedVerifiedTools } from "./environment";
 
 // The shared E2E host runs with OPENRIDR_TRUST_STORE=off (every open asks). This spec needs the real
 // per-project store, so it starts its own host on an isolated OPENRIDR_HOME and points the UI at it.
@@ -16,8 +16,9 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-trust-home-"));
+  const bundled = seedVerifiedTools(home);
   server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on" },
+    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on", OPENRIDR_BUNDLED_NETCOREDBG: bundled },
     stdio: "ignore",
   });
   await expect.poll(async () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false), {

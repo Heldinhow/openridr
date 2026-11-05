@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort } from "./environment";
+import { hostPort, seedVerifiedTools } from "./environment";
 
 // The welcome lists what the host stored, so this spec runs its own host with a real, isolated
 // OPENRIDR_HOME (recent.json + trusted.json) and points the UI at it, like trust-prompt.spec.ts.
@@ -17,8 +17,9 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-welcome-home-"));
+  const bundled = seedVerifiedTools(home);
   server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on" },
+    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on", OPENRIDR_BUNDLED_NETCOREDBG: bundled },
     stdio: "ignore",
   });
   await expect.poll(async () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false), {
