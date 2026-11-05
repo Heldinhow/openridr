@@ -6231,7 +6231,7 @@ impl Host {
         for project in &updated_projects {
             let allowed = {
                 let inner = self.inner.lock().unwrap();
-                inner.trusted && accept_locked(&inner, token).is_ok()
+                restore_allowed(&inner, token)
             };
             if !allowed {
                 restores.push(json!({
@@ -7324,6 +7324,10 @@ fn trust_key(params: &Value, must_exist: bool) -> HostResult<String> {
 /// Shared by an explicit grant and by opening an already-trusted path.
 /// Host-side setup answer, not just a UI state: every executable gate and trust grant asks
 /// this before releasing the workspace. The test seam is the only bypass.
+fn restore_allowed(inner: &Inner, token: ContextToken) -> bool {
+    inner.trusted && accept_locked(inner, token).is_ok()
+}
+
 fn is_setup_ready(inner: &Inner) -> bool {
     if inner.setup_override {
         return true;
@@ -9126,5 +9130,24 @@ mod tests {
                 .starts_with(".openridr-save-")),
             "the temp file is removed on conflict"
         );
+    }
+
+    #[test]
+    fn a_batch_restore_is_refused_after_trust_is_revoked() {
+        let host = Host::default();
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        host.allow_setup_for_tests();
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let token = host.context_token().unwrap();
+        {
+            let inner = host.inner.lock().unwrap();
+            assert!(restore_allowed(&inner, token));
+        }
+        host.dispatch("trust.revoke", json!({})).unwrap();
+        let inner = host.inner.lock().unwrap();
+        assert!(!restore_allowed(&inner, token));
     }
 }
