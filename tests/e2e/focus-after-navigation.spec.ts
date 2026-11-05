@@ -56,6 +56,23 @@ test("Enter on a Search Everywhere file leaves the editor focused", async ({ pag
   await expect(page.locator(".cm-search")).toBeVisible();
 });
 
+test("Recent Files opened right after a Search Everywhere Enter keeps the focus in its dialog", async ({ page }) => {
+  await openRestricted(page);
+  await openSearch(page);
+  await page.getByTestId("search-tab-files").click();
+  await page.getByTestId("find-action-input").fill("Order.cs");
+  await expect(page.locator('[data-testid^="search-item-"]').filter({ hasText: order }).first()).toBeVisible();
+  await page.getByTestId("find-action-input").press("Enter");
+  // Recent Files needs the opened file in the history, so wait for the tab, not for the editor focus.
+  await expect(page.getByTestId(`tab-${order}`)).toBeVisible();
+  await page.keyboard.press("Meta+e");
+
+  await expect(page.getByTestId("recent-files-dialog")).toBeVisible();
+  await expect(page.getByTestId("recent-files")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("recent-files-dialog")).toHaveCount(0);
+});
+
 test("a Search Everywhere location leaves the editor focused", async ({ page }) => {
   await openRestricted(page);
   await openSearch(page);

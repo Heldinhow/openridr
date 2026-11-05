@@ -2947,16 +2947,23 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   // Opening another file remounts the editor; focusing before that lands on the old one or nothing.
-  // WebKit commits that remount later than a timer, so retry per frame while focus is on the document
-  // (the element that had it was removed). Any other focused control keeps it.
+  // WebKit commits that remount later than a timer, so retry per frame. Focus on the document or on the
+  // control that started the navigation (a panel row) is ours to move. A modal dialog, the terminal or a
+  // text field keeps the focus it has. The editor is not a stop: the first try may still land on the old one.
   function focusEditorWhenMounted(frames: number) {
-    if ((document.activeElement ?? document.body) !== document.body) return;
+    const active = document.activeElement;
+    const keeps =
+      active !== null &&
+      active !== document.body &&
+      (active.closest('[role="dialog"][aria-modal="true"], [data-testid="terminal-panel"]') !== null ||
+        active.matches("input, textarea, select"));
+    if (keeps) return;
     focusEditor();
     if (frames > 0) window.requestAnimationFrame(() => focusEditorWhenMounted(frames - 1));
   }
 
   function focusEditorAfterOpen(open: () => Promise<unknown>) {
-    void open().finally(() => focusEditorWhenMounted(30));
+    void open().finally(() => focusEditorWhenMounted(15));
   }
 
   function openSearchFile(path: string) {
