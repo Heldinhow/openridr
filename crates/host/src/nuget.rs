@@ -151,25 +151,15 @@ struct Exec {
     spawn_error: Option<String>,
 }
 
-/// Canonicalizes a project path and rejects anything outside the workspace.
+/// Canonicalizes a project path and rejects anything outside the workspace. The containment step is
+/// the host's single implementation (`crate::confine_raw`), so an absolute path whose prefix is a
+/// symlink or differs in case is accepted, while a symlink that carries the path outside is refused
+/// whether or not the project file exists.
 pub fn resolve_project(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
     if raw.trim().is_empty() {
         return Err(HostError::new("path_not_allowed", "Project path is empty."));
     }
-    let requested = Path::new(raw);
-    let candidate = if requested.is_absolute() {
-        requested.to_path_buf()
-    } else {
-        root.join(requested)
-    };
-    let canonical = fs::canonicalize(&candidate)
-        .map_err(|_| HostError::new("not_found", format!("Project not found: {raw}")))?;
-    if !canonical.starts_with(root) {
-        return Err(HostError::new(
-            "outside_workspace",
-            format!("Path is outside the workspace: {raw}"),
-        ));
-    }
+    let canonical = crate::confine_raw(root, raw, "Project not found")?;
     if !canonical.is_file()
         || canonical
             .extension()
@@ -1228,6 +1218,45 @@ mod tests {
   </ItemGroup>
 </Project>
 "#;
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_project_refuses_a_missing_project_under_an_escaping_symlink() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("ws");
+        fs::create_dir_all(&root).unwrap();
+        let outside = outer.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+        fs::write(root.join("App.csproj"), PROJECT).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("Link")).unwrap();
+
+        let (path, rel) = resolve_project(&root, "App.csproj").unwrap();
+        assert_eq!(path, root.join("App.csproj"));
+        assert_eq!(rel, "App.csproj");
+
+        // The project does not exist, but the symlink carries the path outside: the refusal must say
+        // outside, exactly as it does when the file exists there.
+        let error = resolve_project(&root, "Link/missing.csproj").unwrap_err();
+        assert_eq!(error.code, "outside_workspace");
+        fs::write(outside.join("There.csproj"), PROJECT).unwrap();
+        let error = resolve_project(&root, "Link/There.csproj").unwrap_err();
+        assert_eq!(error.code, "outside_workspace");
+        let error = resolve_project(&root, "missing.csproj").unwrap_err();
+        assert_eq!(error.code, "not_found");
+
+        // A dangling link exists but points nowhere provable: refused the same way whether or not
+        // the target exists outside.
+        std::os::unix::fs::symlink(outside.join("Missing.csproj"), root.join("Dangling.csproj"))
+            .unwrap();
+        fs::write(outside.join("There.csproj"), PROJECT).unwrap();
+        std::os::unix::fs::symlink(outside.join("There.csproj"), root.join("DanglingThere.csproj"))
+            .unwrap();
+        for project in ["Dangling.csproj", "DanglingThere.csproj"] {
+            let error = resolve_project(&root, project).unwrap_err();
+            assert_eq!(error.code, "outside_workspace", "{project}");
+        }
+    }
 
     #[test]
     fn parser_reads_resolved_version_and_requested_version_fields() {

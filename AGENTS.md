@@ -50,7 +50,9 @@ Rust: os pacotes se chamam `openridr-host` e `openridr-host-http` (não `host`).
 
 ### Falhas conhecidas (não são suas)
 
-Presentes no HEAD sem mudanças: E2E `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts`; Rust `file_access_is_confined_to_the_workspace` (e, sem restore, `evaluation_returns_the_real_msbuild_model_for_every_project`). Qualquer outra falha é sua: investigue. Detalhes em `docs/RETRO-DEVFLOW-2026-11-02.md`.
+Presentes no HEAD sem mudanças: E2E `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts`. Qualquer outra falha é sua: investigue. Detalhes em `docs/RETRO-DEVFLOW-2026-11-02.md`.
+
+Os dois testes Rust que falhavam no `main` (`file_access_is_confined_to_the_workspace` e `evaluation_returns_the_real_msbuild_model_for_every_project`) foram corrigidos: causa, classificação e prova em `docs/evidence/file-access-confinement.md`. Se algum dos dois voltar a falhar, é regressão sua.
 
 ## .NET SDK 8.0.408
 
