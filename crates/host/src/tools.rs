@@ -508,8 +508,29 @@ fn persisted_installation_valid(destination: &Path) -> bool {
         && lines.next().is_none()
 }
 
-/// Bytes currently on disk under `root`; symlinks are not followed. Progress only ever reports
-/// what the installer actually wrote, never an estimated percentage.
+/// Bytes currently on disk under `root`; symlinks are not followed.
+/// Progress may be published from bytes on disk only while the install is still fetching and no
+/// measured download owns the number. `dotnet tool install` writes several copies of the same
+/// package, so its disk writes are not a download and never replace `Content-Length` progress.
+fn observes_disk_bytes(state: &str, measured: bool) -> bool {
+    state == "downloading" && !measured
+}
+
+fn observed_bytes(roots: &[PathBuf]) -> u64 {
+    // A root inside another root would count the same files twice; only the outermost stay.
+    let mut outermost: Vec<&PathBuf> = Vec::new();
+    for root in roots {
+        if roots
+            .iter()
+            .any(|other| other != root && root.starts_with(other) && root.as_path() != other.as_path())
+        {
+            continue;
+        }
+        outermost.push(root);
+    }
+    outermost.iter().map(|root| directory_bytes(root)).sum()
+}
+
 fn directory_bytes(root: &Path) -> u64 {
     let Ok(entries) = fs::read_dir(root) else {
         return 0;
@@ -533,8 +554,11 @@ fn directory_bytes(root: &Path) -> u64 {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
-    /// Bytes observed on disk during this attempt; NuGet reports no total, so it is never invented.
+    /// Bytes of the pinned package actually read, or, when no download was measured, bytes
+    /// observed on disk. Copies written by NuGet to its cache and its staging directory are the
+    /// same bytes, so they are never summed into this number.
     pub downloaded: u64,
+    /// `Content-Length` of the pinned package when the download measured it; never invented.
     pub total: Option<u64>,
 }
 
@@ -580,6 +604,10 @@ struct Data {
     confirmed_plan_id: Option<String>,
     log: LogBuffer,
     progress: Option<Progress>,
+    /// True while `progress` is the measured package download. The disk observation must not
+    /// overwrite it: NuGet writes several copies of the same bytes (verified feed, package
+    /// cache, extracted content), so summing directories reports a size that is not a download.
+    progress_measured: bool,
     progress_base: u64,
     progress_peak: u64,
     exit: Option<i32>,
@@ -622,6 +650,7 @@ impl Tools {
                 confirmed_plan_id: None,
                 log: LogBuffer::default(),
                 progress: None,
+                progress_measured: false,
                 progress_base: 0,
                 progress_peak: 0,
                 exit: None,
@@ -835,6 +864,7 @@ impl Tools {
             data.finished_at = None;
             data.process_id = None;
             data.progress = None;
+            data.progress_measured = false;
             data.error = None;
             data.sealed = false;
             data.cancel_requested = false;
@@ -867,6 +897,7 @@ impl Tools {
                         let mut data = tools.data.lock().unwrap();
                         if data.cancel_requested || data.sealed || data.revision != attempt { return false; }
                         data.progress = Some(Progress { downloaded, total });
+                        data.progress_measured = total.is_some();
                         true
                     }).map(Some)
                 })
@@ -945,6 +976,7 @@ impl Tools {
             data.reused = true;
             data.error = None;
             data.progress = None;
+            data.progress_measured = false;
             data.progress_base = 0;
             data.progress_peak = 0;
             data.sha256 = existing.sha256.clone();
@@ -1096,13 +1128,22 @@ impl Tools {
         data.verified_version = None;
         data.verified_output = None;
         data.error = None;
-        data.progress = None;
-        data.progress_base = progress_base;
-        data.progress_peak = 0;
-        data.note = Some(
+        if !data.progress_measured {
+            // No measured download (the debug probe installer): observe bytes only from here.
+            data.progress = None;
+            data.progress_base = progress_base;
+            data.progress_peak = 0;
+        }
+        data.note = Some(if data.progress_measured {
+            // The package is already downloaded and verified; `dotnet tool install` writes
+            // several copies of it, so its disk writes are not a download to report.
+            "The pinned csharp-ls package is verified; installing it into the app home with \
+             dotnet tool install."
+                .to_string()
+        } else {
             "dotnet tool install reports no percentage; progress is measured from bytes it writes to its isolated NuGet cache and staging."
-                .to_string(),
-        );
+                .to_string()
+        });
         data.workspace_id = Some(workspace_id);
         data.context_id = Some(context_id);
         data.started_at = Some(now_ms());
@@ -1186,12 +1227,15 @@ impl Tools {
         data.exit = status.exit;
         data.termination = status.termination.clone();
         data.awaiting_decision = status.awaiting_decision;
-        if state == "downloading" {
-            let staging = PathBuf::from(&data.staging);
-            let temp = install_temp(&data.staging);
-            let observed = directory_bytes(&staging)
-                + directory_bytes(&child_home())
-                + directory_bytes(&temp);
+        if observes_disk_bytes(state, data.progress_measured) {
+            // Only the probe path reaches here without a measured download; the observed bytes
+            // are de-duplicated by root so a nested directory is never counted twice.
+            let roots = [
+                PathBuf::from(&data.staging),
+                child_home(),
+                install_temp(&data.staging),
+            ];
+            let observed = observed_bytes(&roots);
             let downloaded = observed
                 .saturating_sub(data.progress_base)
                 .max(data.progress_peak);
@@ -1643,6 +1687,36 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         assert!(store_verified_package(temp.path(), b"modified", expected).is_err());
         assert!(!temp.path().join("verified-feed").exists());
+    }
+
+    #[test]
+    fn observed_bytes_never_counts_a_nested_root_twice() {
+        // The installer writes the same bytes to its verified feed, to NUGET_PACKAGES and to
+        // staging; a root inside another root is the same file counted again.
+        let temp = tempfile::tempdir().unwrap();
+        let staging = temp.path().join("0.28.staging");
+        let temp_dir = temp.path().join("tmp");
+        fs::create_dir_all(staging.join("inner")).unwrap();
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(staging.join("launcher"), vec![0u8; 1000]).unwrap();
+        fs::write(staging.join("inner/package.nupkg"), vec![0u8; 4000]).unwrap();
+        fs::write(temp_dir.join("scratch.bin"), vec![0u8; 500]).unwrap();
+
+        assert_eq!(directory_bytes(&staging), 5000);
+        // The old sum of every directory reported 5000 + 5000 + 500 bytes for 5500 real bytes.
+        assert_eq!(
+            observed_bytes(&[staging.clone(), temp_dir.clone(), staging.join("inner")]),
+            5500
+        );
+        assert_eq!(observed_bytes(&[]), 0);
+    }
+
+    #[test]
+    fn a_measured_download_owns_the_progress_number() {
+        assert!(observes_disk_bytes("downloading", false));
+        assert!(!observes_disk_bytes("downloading", true));
+        assert!(!observes_disk_bytes("installing", false));
+        assert!(!observes_disk_bytes("ready", false));
     }
 
     #[test]
