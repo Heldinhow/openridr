@@ -244,6 +244,11 @@ fn file_access_is_confined_to_the_workspace() {
             "LinkDir/outside.txt",
             "sub/Link.cs",
             "sub/LinkDir/outside.txt",
+            // Missing targets behind the same symlinks: the refusal must not change to `not_found`,
+            // which would tell the caller what exists outside the workspace.
+            "LinkDir/missing.txt",
+            "LinkDir/deep/missing.txt",
+            "sub/LinkDir/deep/missing.txt",
         ] {
             assert_eq!(
                 error_code(host.dispatch("file.read", json!({ "path": escape }))),
@@ -352,6 +357,29 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
             "outside_workspace"
         );
         assert_eq!(entry_names(&outside), vec!["outside.txt", "ws"]);
+        // The parent does not exist, but the symlink still carries the path outside.
+        for path in ["LinkDir/sub/created.txt", "LinkDir/sub/deep/created.txt"] {
+            assert_eq!(
+                error_code(host.dispatch(
+                    "file.create",
+                    json!({ "path": path, "content": "x" })
+                )),
+                "outside_workspace",
+                "expected a create of {path} to be rejected"
+            );
+        }
+        assert_eq!(
+            error_code(host.dispatch(
+                "file.rename",
+                json!({ "from": "App.cs", "to": "LinkDir/sub/moved.cs" })
+            )),
+            "outside_workspace"
+        );
+        assert_eq!(
+            error_code(host.dispatch("file.delete", json!({ "path": "LinkDir/sub/missing.cs" }))),
+            "outside_workspace"
+        );
+        assert_eq!(entry_names(&outside), vec!["outside.txt", "ws"]);
         // Deleting the link itself is inside the workspace and must not follow it.
         host.dispatch("file.delete", json!({ "path": "LinkDir" }))
             .expect("a symlink inside the workspace can be deleted");
@@ -366,6 +394,68 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
         .expect("a file inside the workspace is renamed");
     host.dispatch("file.delete", json!({ "path": "Renamed.cs" }))
         .expect("a file inside the workspace is deleted");
+}
+
+/// The UI hands the host absolute paths whenever `workspaceRelative` cannot strip the prefix
+/// (`src/solutionNodes.ts`): a stack trace, a build log or a DAP frame from a tool that spells the
+/// folder differently. Containment must be decided by the canonical path, not by the text, or a
+/// save through `/tmp/...` would be refused for a workspace canonicalized to `/private/tmp/...`.
+#[cfg(unix)]
+#[test]
+fn absolute_paths_reach_the_workspace_through_a_symlinked_prefix() {
+    let (_outer, root, outside) = nested_workspace();
+    // `outside/alias` points at the workspace, so the textual prefix differs from the canonical
+    // root while the target is the very same file.
+    std::os::unix::fs::symlink(&root, outside.join("alias")).unwrap();
+    let host = Host::new();
+    open(&host, &root.join("App.csproj"));
+
+    let via_alias = outside.join("alias/App.cs");
+    let read = host
+        .dispatch("file.read", json!({ "path": text(&via_alias) }))
+        .expect("an absolute path inside the workspace opens through a symlinked prefix");
+    assert!(read["content"].as_str().unwrap().contains("class C"));
+    assert_eq!(read["path"], "App.cs");
+
+    let hash = read["hash"].as_str().unwrap().to_string();
+    host.dispatch(
+        "file.write",
+        json!({ "path": text(&via_alias), "content": "class Alias {}\n", "expected_hash": hash }),
+    )
+    .expect("a save through a symlinked prefix lands inside the workspace");
+    assert_eq!(fs::read_to_string(root.join("App.cs")).unwrap(), "class Alias {}\n");
+
+    // Creating through the alias is inside the workspace too, and the parent exists.
+    host.dispatch(
+        "file.create",
+        json!({ "path": text(&outside.join("alias/New.cs")), "content": "class N {}\n" }),
+    )
+    .expect("a create through a symlinked prefix lands inside the workspace");
+    assert!(root.join("New.cs").is_file());
+
+    // Absolute paths that really are outside stay refused, existing or not.
+    for escape in [
+        text(&outside.join("outside.txt")),
+        text(&outside.join("missing.txt")),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("file.read", json!({ "path": escape }))),
+            "outside_workspace",
+            "expected {escape} to be rejected"
+        );
+    }
+
+    // macOS APFS ignores case by default: when the disk resolves either spelling, so must the host.
+    #[cfg(target_os = "macos")]
+    {
+        let shouted = PathBuf::from(root.to_string_lossy().to_uppercase());
+        if fs::canonicalize(&shouted).ok().as_deref() == Some(root.as_path()) {
+            let read = host
+                .dispatch("file.read", json!({ "path": text(&shouted.join("App.cs")) }))
+                .expect("a case-different spelling of the workspace opens");
+            assert!(read["content"].as_str().unwrap().contains("class Alias"));
+        }
+    }
 }
 
 #[test]
@@ -399,7 +489,7 @@ fn the_directory_listing_refuses_escapes_by_shape() {
     {
         std::os::unix::fs::symlink(&outside, root.join("LinkDir")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("sub/LinkDir")).unwrap();
-        for dir in ["LinkDir", "sub/LinkDir"] {
+        for dir in ["LinkDir", "sub/LinkDir", "LinkDir/missing", "sub/LinkDir/deep/missing"] {
             assert_eq!(
                 error_code(host.dispatch("workspace.tree", json!({ "dir": dir }))),
                 "outside_workspace",

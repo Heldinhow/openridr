@@ -198,11 +198,53 @@ pub(crate) fn normalize_lexically(path: &Path) -> PathBuf {
 }
 
 /// Whether `candidate` stays inside `root` by shape, before any filesystem call. Every resolver
-/// checks this first and canonicalizes second: this check refuses an escaping path whether or not
-/// it exists (fail closed, and the answer never reveals what lives outside the workspace), and the
-/// canonical check afterwards is what stops a symlink inside the root from resolving outside it.
+/// checks this first for a relative path and canonicalizes second: this check refuses an escaping
+/// path whether or not it exists, and the canonical step afterwards is what stops a symlink inside
+/// the root from resolving outside it (which a text comparison cannot see).
 pub(crate) fn stays_inside(root: &Path, candidate: &Path) -> bool {
     normalize_lexically(candidate).starts_with(normalize_lexically(root))
+}
+
+/// Why a confined path was refused. Each frontier turns this into its own `HostError`, so the
+/// wording stays specific (`File not found`, `Folder not found`, `Project not found`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ConfineError {
+    /// The path, or the deepest existing ancestor of it, resolves outside the root.
+    Outside,
+    /// Nothing at the path, and every existing ancestor resolves inside the root.
+    Missing,
+}
+
+/// Whether the deepest existing ancestor of `candidate` — the path itself when it exists — resolves
+/// inside `root`. Deciding on the nearest *existing* ancestor is what stops a symlink that carries a
+/// missing target outside from hiding behind `not_found`.
+fn existing_ancestor_resolves_inside(root: &Path, candidate: &Path) -> bool {
+    let mut probe = candidate;
+    loop {
+        if let Ok(canonical) = fs::canonicalize(probe) {
+            return canonical.starts_with(root);
+        }
+        match probe.parent() {
+            Some(parent) if parent != probe => probe = parent,
+            // Nothing above the path exists, so containment cannot be proven: refuse.
+            _ => return false,
+        }
+    }
+}
+
+/// The canonical form of a candidate that already passed `stays_inside` (when it applies).
+///
+/// A target that does not exist is `Missing` only after its nearest existing ancestor was proven to
+/// be inside the root; when that ancestor resolves outside (a symlink pointing out, with any number
+/// of missing components after it) the answer is `Outside`, the same as for an existing target.
+/// That is what keeps the refusal independent of what exists outside the workspace.
+pub(crate) fn canonical_confined(root: &Path, candidate: &Path) -> Result<PathBuf, ConfineError> {
+    match fs::canonicalize(candidate) {
+        Ok(canonical) if canonical.starts_with(root) => Ok(canonical),
+        Ok(_) => Err(ConfineError::Outside),
+        Err(_) if existing_ancestor_resolves_inside(root, candidate) => Err(ConfineError::Missing),
+        Err(_) => Err(ConfineError::Outside),
+    }
 }
 
 #[cfg(test)]
@@ -224,6 +266,46 @@ mod tests {
         assert!(!stays_inside(root, Path::new("/nope/../../etc/missing")));
         assert_eq!(normalize_lexically(Path::new("/../../etc/hosts")), Path::new("/etc/hosts"));
         assert_eq!(normalize_lexically(Path::new("/a/./b/../c")), Path::new("/a/c"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_target_under_an_escaping_symlink_is_outside_not_missing() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("ws");
+        fs::create_dir_all(&root).unwrap();
+        let outside = outer.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(root.join("App.cs"), "class C {}\n").unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("Link")).unwrap();
+
+        assert_eq!(
+            canonical_confined(&root, &root.join("App.cs")).unwrap(),
+            root.join("App.cs")
+        );
+        // Existing escape and missing escape answer alike: no existence oracle.
+        assert_eq!(
+            canonical_confined(&root, &root.join("Link")),
+            Err(ConfineError::Outside)
+        );
+        assert_eq!(
+            canonical_confined(&root, &root.join("Link/missing.txt")),
+            Err(ConfineError::Outside)
+        );
+        assert_eq!(
+            canonical_confined(&root, &root.join("Link/deep/missing.txt")),
+            Err(ConfineError::Outside)
+        );
+        // Missing inside the workspace stays missing.
+        assert_eq!(
+            canonical_confined(&root, &root.join("missing.txt")),
+            Err(ConfineError::Missing)
+        );
+        assert_eq!(
+            canonical_confined(&root, &root.join("missing/deep.txt")),
+            Err(ConfineError::Missing)
+        );
     }
 
     #[test]

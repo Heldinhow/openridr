@@ -138,3 +138,87 @@ exit=0
 - App Tauri real e Playwright/E2E: outra sessão estava usando o app (1420/4317) e a tarefa proibia abrir Vite/tauri; a UI nunca precisou mudar para essa correção (o contrato dos erros é o mesmo `outside_workspace`). Nenhum `data-testid` tocado.
 - Windows e macOS Intel: só o alvo macOS ARM64 foi executado. A normalização léxica trata `Prefix`/`RootDir` de forma genérica, mas não há evidência de execução nesses alvos.
 - TOCTOU entre a resolução e o I/O: `file.write` já tinha uma rechecagem antes do `rename` e um comentário explícito sobre a janela restante; esta correção não a fecha nem a amplia (um atacante local trocando um diretório do workspace entre a checagem e a escrita continua fora de escopo).
+
+## Rodada 2 (revisão da Sonnet sobre `ca85e47`)
+
+Dois achados da revisão, ambos reproduzidos antes de corrigir. Nenhum era escape: são o mesmo defeito de contrato (resposta dependente de estado fora do workspace) e uma **regressão funcional** que a rodada 1 introduziu.
+
+### Achado 1 — oráculo de existência através de symlink com alvo **inexistente**
+
+`canonical_confined` da rodada 1 checava o caminho inteiro: quando o alvo não existia, `fs::canonicalize` falhava e a resposta era `not_found` **mesmo quando o symlink que carrega o caminho apontava para fora**. Com `LinkDir -> <fora>`:
+
+| Vetor | Rodada 1 | Rodada 2 |
+|---|---|---|
+| `file.read LinkDir/etc/hosts` (existe) | `outside_workspace` | `outside_workspace` |
+| `file.read LinkDir/missing.txt` | **`not_found`** | `outside_workspace` |
+| `file.create LinkDir/sub/created.txt` (pai não existe) | **`not_found`** | `outside_workspace` |
+| `file.delete LinkDir/sub/missing.cs` | **`not_found`** | `outside_workspace` |
+| `workspace.tree LinkDir/missing` | **`not_found`** | `outside_workspace` |
+| `nuget` `Link/missing.csproj` | **`not_found`** | `outside_workspace` |
+
+Correção: `fsutil::canonical_confined` (agora o único ponto de decisão) canonicaliza o **ancestral existente mais profundo** quando o alvo não existe (`existing_ancestor_resolves_inside`). Fora da raiz → `Outside`; todo ancestral dentro → `Missing` e só então `not_found`. `Missing` passa a significar exatamente "nada aqui, e toda a ascendência está dentro do workspace".
+
+### Achado 2 — caminho absoluto com prefixo não canônico era recusado (regressão da rodada 1)
+
+A checagem léxica da rodada 1 comparava o texto: com a raiz canônica `/private/var/.../ws`, um pedido absoluto `/var/.../ws/App.cs` era recusado — podia ser o mesmo arquivo. Mesmo risco em APFS case-insensitive (`~/projetos` × `~/Projetos`).
+
+Isso não é hipótese: `workspaceRelative` (`src/solutionNodes.ts:15`) só remove o prefixo **textualmente** e devolve o caminho absoluto intacto quando o prefixo não casa. É o que a UI já faz com frame de DAP (`DebugPanel.tsx:303` → `navigateTo`), posição de stack trace de teste (`TestsPanel.tsx:938`), build log clicável e Find Usages — e `tests/e2e/medium-debug-paths.spec.ts` fixa esse contrato ("an absolute path outside the workspace is unchanged").
+
+Correção: a checagem léxica vale **só para entrada relativa** (`Shape::Joined`); para entrada absoluta (`Shape::Absolute`) a contenção é decidida pela canonicalização, que é fail-closed (ancestral fora → `Outside`, exista ou não o alvo). O caminho canônico resultante é o que o host devolve como `path`, então a UI continua recebendo o relativo.
+
+### Um helper, cinco fronteiras
+
+`crates/host/src/lib.rs`: `confine` (contrato), `confine_error` (código + redação), `confine_raw` (caminho absoluto ou relativo, usado também pelo NuGet), `shape_of` e `workspace_relative` (cálculo do path relativo, antes repetido em quatro lugares). `crates/host/src/fsutil.rs`: `normalize_lexically`, `stays_inside`, `ConfineError`, `canonical_confined`.
+
+| Fronteira | Uso |
+|---|---|
+| `resolve_in_root` — `file.read`, `file.write`, LSP, `debug.*`, `workspace.symbolKinds` | `confine_raw` + `is_file` |
+| `resolve_path_in_workspace` — `file.create`, `file.rename`, `file.delete` | `confine` no **pai** (a última componente nunca é resolvida: a operação age no link) + `is_dir` |
+| `resolve_reveal_in_workspace` — `file.reveal` | `confine` (raiz permitida quando o path é vazio) |
+| `workspace.tree` | `confine` + `is_dir`, com redação própria |
+| `nuget::resolve_project` | `crate::confine_raw` + extensão `.csproj` |
+
+### Testes que falham antes
+
+Verificado revertendo **só o produto** para `ca85e47` e mantendo os testes:
+
+```
+test the_directory_listing_refuses_escapes_by_shape ... FAILED
+  expected the listing of LinkDir/missing to be rejected: left "not_found" right "outside_workspace"
+test file_operations_refuse_escapes_and_leave_the_outside_untouched ... FAILED
+  expected a create of LinkDir/sub/created.txt to be rejected: left "not_found" ...
+test absolute_paths_reach_the_workspace_through_a_symlinked_prefix ... FAILED
+test file_access_is_confined_to_the_workspace ... FAILED
+  expected LinkDir/missing.txt to be rejected: left "not_found" ...
+test result: FAILED. 1 passed; 4 failed
+```
+
+Casos novos: `canonical_confined` unitário (`fsutil.rs`, o mesmo alvo existente/inexistente atrás do symlink, e `missing` dentro do workspace continuando `Missing`), `resolve_project_refuses_a_missing_project_under_an_escaping_symlink` (`nuget.rs`), as três fronteiras de integração acima e `absolute_paths_reach_the_workspace_through_a_symlinked_prefix` (leitura, save e create por prefixo symlinkado, escapes absolutos ainda recusados e, em macOS case-insensitive, o caminho com outra caixa).
+
+### Depois (rodada 2)
+
+```
+$ cargo test --workspace --no-fail-fast
+unittests src/lib.rs ......... 238 passed; 0 failed
+tests/debugger.rs ............ 14 passed; 0 failed
+tests/host.rs ................ 83 passed; 0 failed
+tests/test_discovery.rs ...... 9 passed; 0 failed
+tests/test_run.rs ............ 5 passed; 0 failed
+tests/trust_model.rs ......... 1 passed; 0 failed
+host-http main, doc-tests .... 0 passed; 0 failed
+
+$ bun run check   # tsc --noEmit + cargo check --workspace --all-targets
+exit=0
+```
+
+`tests/debugger.rs` passou em paralelo nesta execução (a instabilidade citada não apareceu); não precisou de `--test-threads=1`.
+
+### E2E (Chrome headless, portas 1470/4367)
+
+`medium-debug-paths`, `build`, `find-usages`, `focus-after-navigation`, `tests`:
+
+```
+23 passed, 1 failed  (find-usages.spec.ts:73 "a blocked Find Usages runs once after Start analysis")
+```
+
+`find-usages` isolado: 2 falhas (`Partial coverage` em `lsp-state`; "This document is not open in the analysis session"). **Base `ca85e47`, mesmo comando e mesmas portas: exatamente as mesmas 2 falhas** — é a falha pré-existente/intermitente já registrada em `docs/RETRO-DEVFLOW-2026-11-02.md`, de estado do csharp-ls, não de confinamento. Os fluxos que abrem arquivo por caminho absoluto (build clicável, stack trace de teste, Find Usages que navega, foco após navegação) passaram. `PLAYWRIGHT_CHANNEL=chromium` não roda nesta máquina (binário do Chromium não baixado; instalar software estava fora do escopo), então usei o `channel: "chrome"` que é o padrão do repo.

@@ -5224,17 +5224,16 @@ impl Host {
         let root = self.workspace_root()?;
         let raw = params.get("dir").and_then(Value::as_str).unwrap_or("");
         let candidate = root.join(raw);
-        // Shape first, then the canonical check: a folder outside the workspace is refused whether
-        // or not it exists, and a symlinked folder cannot be listed through.
-        if !fsutil::stays_inside(&root, &candidate) {
-            return Err(HostError::new(
+        let dir = confine(&root, &candidate, shape_of(raw)).map_err(|error| match error {
+            fsutil::ConfineError::Outside => HostError::new(
                 "outside_workspace",
                 format!("Not a folder inside the workspace: {raw}"),
-            ));
-        }
-        let dir = fs::canonicalize(&candidate)
-            .map_err(|_| HostError::new("not_found", format!("Folder not found: {raw}")))?;
-        if !dir.starts_with(&root) || !dir.is_dir() {
+            ),
+            fsutil::ConfineError::Missing => {
+                HostError::new("not_found", format!("Folder not found: {raw}"))
+            }
+        })?;
+        if !dir.is_dir() {
             return Err(HostError::new(
                 "outside_workspace",
                 format!("Not a folder inside the workspace: {raw}"),
@@ -7203,24 +7202,10 @@ fn resolve_path_in_workspace(
             format!("A file or folder name is required: {raw}"),
         )
     })?;
-    // Same order as `resolve_in_root`: refuse an escaping path by shape (it may not exist yet;
-    // the operation must not stat outside the workspace to find out), then canonicalize the parent
-    // so a symlinked folder cannot carry the target outside the workspace.
-    if !fsutil::stays_inside(&workspace.root, parent) {
-        return Err(HostError::new(
-            "outside_workspace",
-            format!("Path is outside the workspace: {raw}"),
-        ));
-    }
-    let parent = fs::canonicalize(parent).map_err(|_| {
-        HostError::new("not_found", format!("Folder not found: {raw}"))
-    })?;
-    if !parent.starts_with(&workspace.root) {
-        return Err(HostError::new(
-            "outside_workspace",
-            format!("Path is outside the workspace: {raw}"),
-        ));
-    }
+    // The shared contract: a joined path that normalizes outside is refused by shape, then the
+    // canonical step decides containment (and sees through a symlinked folder).
+    let parent = confine(&workspace.root, parent, shape_of(raw))
+        .map_err(|error| confine_error(error, raw, "Folder not found"))?;
     if !parent.is_dir() {
         return Err(HostError::new(
             "not_found",
@@ -7240,11 +7225,7 @@ fn resolve_path_in_workspace(
             format!("File or folder not found: {raw}"),
         ));
     }
-    let rel = target
-        .strip_prefix(&workspace.root)
-        .unwrap_or(&target)
-        .to_string_lossy()
-        .replace('\\', "/");
+    let rel = workspace_relative(&workspace.root, &target);
     Ok((target, rel))
 }
 
@@ -7267,26 +7248,9 @@ fn resolve_reveal_in_workspace(root: &Path, raw: &str) -> HostResult<(PathBuf, S
     } else {
         root.join(requested)
     };
-    if !fsutil::stays_inside(root, &candidate) {
-        return Err(HostError::new(
-            "outside_workspace",
-            format!("Path is outside the workspace: {raw}"),
-        ));
-    }
-    let canonical = fs::canonicalize(&candidate)
-        .map_err(|_| HostError::new("not_found", format!("File or folder not found: {raw}")))?;
-    if !canonical.starts_with(root) {
-        return Err(HostError::new(
-            "outside_workspace",
-            format!("Path is outside the workspace: {raw}"),
-        ));
-    }
-    let rel = canonical
-        .strip_prefix(root)
-        .unwrap_or(&canonical)
-        .to_string_lossy()
-        .replace('\\', "/");
-    Ok((canonical, rel))
+    let canonical = confine(root, &candidate, shape_of(raw))
+        .map_err(|error| confine_error(error, raw, "File or folder not found"))?;
+    Ok((canonical.clone(), workspace_relative(root, &canonical)))
 }
 
 fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String)> {
@@ -7303,42 +7267,78 @@ fn resolve_in_root(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
     if raw.trim().is_empty() {
         return Err(HostError::new("path_not_allowed", "File path is empty."));
     }
-    let requested = Path::new(raw);
-    let candidate = if requested.is_absolute() {
-        requested.to_path_buf()
-    } else {
-        root.join(requested)
-    };
-    // Deny by shape before touching the disk: an escape attempt is refused whether or not its
-    // target exists, so the answer never depends on what lives outside the workspace.
-    if !fsutil::stays_inside(root, &candidate) {
-        return Err(HostError::new(
-            "outside_workspace",
-            format!("Path is outside the workspace: {raw}"),
-        ));
-    }
-    let canonical = fs::canonicalize(&candidate)
-        .map_err(|_| HostError::new("not_found", format!("File not found: {raw}")))?;
-    // Second check, after the stat: a symlink inside the workspace (or any component of the path)
-    // that points outside resolves outside and is refused here.
-    if !canonical.starts_with(root) {
-        return Err(HostError::new(
-            "outside_workspace",
-            format!("Path is outside the workspace: {raw}"),
-        ));
-    }
+    let canonical = confine_raw(root, raw, "File not found")?;
     if !canonical.is_file() {
         return Err(HostError::new(
             "path_not_allowed",
             format!("Not a file: {raw}"),
         ));
     }
-    let rel = canonical
-        .strip_prefix(root)
-        .unwrap_or(&canonical)
+    Ok((canonical.clone(), workspace_relative(root, &canonical)))
+}
+
+/// Which textual comparison a frontier can make before touching the disk.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    /// The candidate was built by joining a relative path onto the root, so a path that normalizes
+    /// outside is refused with no I/O at all.
+    Joined,
+    /// The caller passed an absolute path. Its prefix may be a symlink or differ in case
+    /// (`/tmp/ws` and `/private/tmp/ws` are the same folder), so containment is decided by
+    /// canonicalization only — which never reveals whether something exists outside.
+    Absolute,
+}
+
+fn shape_of(raw: &str) -> Shape {
+    if Path::new(raw).is_absolute() {
+        Shape::Absolute
+    } else {
+        Shape::Joined
+    }
+}
+
+/// The confinement contract, implemented once for every frontier (`file.*`, analysis,
+/// `workspace.tree`, `file.reveal`, NuGet):
+/// 1. a joined relative path that normalizes outside the root is refused by shape, before any I/O;
+/// 2. the nearest **existing** ancestor must canonicalize inside the root, so a symlink that carries
+///    the path outside is refused the same way whether or not the target exists (no existence
+///    oracle: `LinkDir/etc/hosts` and `LinkDir/missing` answer alike);
+/// 3. the target itself is canonicalized and checked again.
+fn confine(root: &Path, candidate: &Path, shape: Shape) -> Result<PathBuf, fsutil::ConfineError> {
+    if shape == Shape::Joined && !fsutil::stays_inside(root, candidate) {
+        return Err(fsutil::ConfineError::Outside);
+    }
+    fsutil::canonical_confined(root, candidate)
+}
+
+fn confine_error(error: fsutil::ConfineError, raw: &str, missing: &str) -> HostError {
+    match error {
+        fsutil::ConfineError::Outside => HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ),
+        fsutil::ConfineError::Missing => HostError::new("not_found", format!("{missing}: {raw}")),
+    }
+}
+
+/// Resolves a caller path (absolute or relative) against the workspace root; used by the NuGet
+/// plan too, so every frontier shares one implementation of the contract above.
+pub(crate) fn confine_raw(root: &Path, raw: &str, missing: &str) -> HostResult<PathBuf> {
+    let requested = Path::new(raw);
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        root.join(requested)
+    };
+    confine(root, &candidate, shape_of(raw)).map_err(|error| confine_error(error, raw, missing))
+}
+
+/// The workspace-relative display path (`/`-separated) every snapshot and UI answer uses.
+fn workspace_relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
         .to_string_lossy()
-        .replace('\\', "/");
-    Ok((canonical, rel))
+        .replace('\\', "/")
 }
 
 fn modified_ms(metadata: &fs::Metadata) -> u64 {
