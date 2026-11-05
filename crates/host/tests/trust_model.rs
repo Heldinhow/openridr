@@ -176,6 +176,10 @@ fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
             let expected = model.apply(op);
             let result = call(&host, op, &paths);
             assert_eq!(result.is_ok(), expected.is_some(), "accept/refuse of {op:?}: {context}");
+            if matches!(op, Op::Open(_)) && result.is_ok() {
+                // The property under test is trust, not the tool setup gate.
+                host.allow_setup_for_tests();
+            }
             check(&host, &model, &paths, home.path(), &context);
             // A restart (new Host, same home) keeps only what was persisted: reopening the open path
             // is trusted exactly when the stored decision says trusted.

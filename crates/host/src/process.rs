@@ -309,7 +309,11 @@ impl Registry {
     pub fn stop_remaining_group(&mut self, id: u64) {
         #[cfg(unix)]
         if let Some(entry) = self.entries.iter().find(|entry| entry.id == id) {
-            unsafe { libc::kill(-(entry.pid as i32), libc::SIGTERM); }
+            // A reaped leader's pgid can be recycled by a new process group. Only signal while
+            // the leader still exists; otherwise refuse to guess which group is ours.
+            if process_alive(entry.pid) {
+                unsafe { libc::kill(-(entry.pid as i32), libc::SIGTERM); }
+            }
         }
         #[cfg(not(unix))]
         let _ = id;
@@ -457,6 +461,10 @@ pub fn signal_name(signal: i32) -> String {
 /// be delivered (already gone or not permitted).
 #[cfg(unix)]
 pub(crate) fn kill_group(pid: u32, hard: bool) -> bool {
+    if !process_alive(pid) {
+        // Never signal a negative pid after its leader was reaped: that pid may be reused.
+        return false;
+    }
     let signal = if hard { libc::SIGKILL } else { libc::SIGTERM };
     let group = unsafe { libc::kill(-(pid as i32), signal) };
     if group == 0 {
@@ -531,27 +539,28 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn cleanup_group_after_leader_exits() {
+    fn never_signals_a_reaped_leader_group() {
         let temp = tempfile::tempdir().unwrap();
         let marker = temp.path().join("child-pid");
         let mut command = Command::new("/bin/sh");
-        command.arg("-c").arg("sleep 60 & echo $! > \"$1\"; exit 0").arg("sh").arg(&marker);
+        command.arg("-c").arg("sleep 60 & echo $! > \"$1\"").arg("sh").arg(&marker);
         let mut registry = Registry::new();
         let process = registry.spawn("lsp:csharp-ls", 1, command).unwrap();
         let id = process["id"].as_u64().unwrap();
+        let leader = process["pid"].as_u64().unwrap() as u32;
         let deadline = Instant::now() + Duration::from_secs(5);
-        while registry.status(id).unwrap().state != "exited" && Instant::now() < deadline {
+        while !marker.exists() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
         let pid: u32 = std::fs::read_to_string(&marker).unwrap().trim().parse().unwrap();
-        registry.stop_remaining_group(id);
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while process_alive(pid) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(20));
+        // Wait until the leader is reaped; the child may still be alive.
+        while registry.status(id).unwrap().state != "exited" && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
         }
-        let alive = process_alive(pid);
-        if alive { unsafe { libc::kill(pid as i32, libc::SIGKILL); } }
-        assert!(!alive, "child process survived its leader");
+        assert!(!process_alive(leader));
+        registry.stop_remaining_group(id);
+        // The guard must not send a signal to the recycled pgid; the test kills its own child.
+        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
     }
 
     #[test]

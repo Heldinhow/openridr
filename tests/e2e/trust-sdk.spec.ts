@@ -51,6 +51,16 @@ async function openWorkspace(page: Page, target: string) {
 // The Toolchain cards are only readable without the Trust prompt: open (and optionally trust) through the host, then load.
 async function openViaHost(page: Page, target: string) {
   await page.request.post(`${host}/call`, { data: { method: "workspace.open", params: { path: target } } });
+  // Opening through the host API bypasses the UI gate; run the same setup before trust.
+  await page.request.post(`${host}/call`, { data: { method: "setup.start", params: {} } });
+  await expect
+    .poll(async () => {
+      const response = await page.request.post(`${host}/call`, {
+        data: { method: "workspace.state", params: {} },
+      });
+      return (await response.json()).data.setup.state;
+    }, { timeout: 120_000 })
+    .toBe("ready");
   await page.goto("/");
 }
 

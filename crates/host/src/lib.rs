@@ -164,6 +164,8 @@ struct Inner {
     setup_attempt: u64,
     setup_started_at: Option<u64>,
     setup_finished_at: Option<u64>,
+    /// Test-only seam for host tests that need trust without installing real tools.
+    setup_override: bool,
     lsp: Option<Arc<lsp::Lsp>>,
     lsp_seq: u64,
     lsp_verbose: bool,
@@ -430,6 +432,7 @@ impl Host {
                 setup_attempt: 0,
                 setup_started_at: None,
                 setup_finished_at: None,
+                setup_override: false,
                 lsp: None,
                 lsp_seq: 0,
                 lsp_verbose: false,
@@ -771,6 +774,12 @@ impl Host {
                 format!("{method} requires workspace trust; no process was started."),
             ));
         }
+        if !is_setup_ready(&inner) {
+            return Err(HostError::new(
+                "setup_required",
+                format!("{method} requires the verified tool setup; no process was started."),
+            ));
+        }
         let workspace = inner.workspace.as_ref().ok_or_else(|| {
             HostError::new("invalid_state", "No workspace is open.")
         })?;
@@ -981,11 +990,12 @@ impl Host {
             "downloading" | "installing" | "verifying"
         );
         let runtime = sdk.host.clone();
-        let setup_ready = inner.workspace.is_some()
-            && runtime.state == "found"
-            && tools_view.state == "ready"
-            && debug_view.adapter_state == "ready"
-            && inner.setup_error.is_none();
+        let setup_ready = is_setup_ready(inner)
+            || (inner.workspace.is_some()
+                && runtime.state == "found"
+                && tools_view.state == "ready"
+                && debug_view.adapter_state == "ready"
+                && inner.setup_error.is_none());
         let setup_failed = inner.workspace.is_some()
             && !setup_active
             && !setup_ready
@@ -1077,6 +1087,18 @@ impl Host {
         }
     }
 
+    /// Test-only: host tests exercise trust/execution gates without downloading real tools.
+    /// It is not reachable from `dispatch`, so the UI and HTTP bridge cannot bypass setup.
+    #[doc(hidden)]
+    pub fn allow_setup_for_tests(&self) {
+        self.inner.lock().unwrap().setup_override = true;
+    }
+
+    #[doc(hidden)]
+    pub fn deny_setup_for_tests(&self) {
+        self.inner.lock().unwrap().setup_override = false;
+    }
+
     fn open_workspace(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
         if raw.trim().is_empty() {
@@ -1155,6 +1177,7 @@ impl Host {
         inner.setup_attempt = 0;
         inner.setup_started_at = None;
         inner.setup_finished_at = None;
+        inner.setup_override = false;
         inner.evaluation = evaluation;
         inner.restore = Arc::new(restore::Restore::idle());
         inner.build = Arc::new(build::Build::idle());
@@ -1218,6 +1241,7 @@ impl Host {
         inner.setup_attempt = 0;
         inner.setup_started_at = None;
         inner.setup_finished_at = None;
+        inner.setup_override = false;
         inner.workspace_seq += 1;
         inner.context_seq += 1;
         inner.nuget_plan = None;
@@ -1251,6 +1275,12 @@ impl Host {
                 "Open a workspace before trusting it.",
             ));
         };
+        if !is_setup_ready(inner) {
+            return Err(HostError::new(
+                "setup_required",
+                "Trust requires the verified tool setup; finish or retry the project setup first.",
+            ));
+        }
         if remember {
             trusted::set(&path, trusted::TRUSTED)?;
         }
@@ -3376,9 +3406,9 @@ impl Host {
                 json!({ "action": { "method": "sdk.redetect", "params": {} } }),
             ));
         }
-        let _ = fs::remove_dir_all(tools::destination());
+        // Keep the existing destination until the new staging copy verifies. A failed
+        // download leaves the previous verified tool usable instead of locking every project.
         let _ = fs::remove_dir_all(tools::staging());
-        let _ = fs::remove_dir_all(tools::staging().parent().unwrap_or(&tools::tool_root()).join("tmp"));
         inner.setup_error = None;
         inner.setup_finished_at = None;
         inner.setup_started_at = Some(now_ms());
@@ -3390,6 +3420,7 @@ impl Host {
             workspace_id,
             inner.context_seq,
             inner.processes.clone(),
+            true,
         )?;
         Ok(self.snapshot_value(&mut inner))
     }
@@ -3435,6 +3466,7 @@ impl Host {
             token.workspace_id,
             token.context_id,
             inner.processes.clone(),
+            false,
         )?;
         Ok(self.snapshot_value(&mut inner))
     }
@@ -3464,6 +3496,7 @@ impl Host {
             token.workspace_id,
             token.context_id,
             inner.processes.clone(),
+            false,
         )?;
         Ok(self.snapshot_value(&mut inner))
     }
@@ -5773,6 +5806,7 @@ impl Host {
             muxer,
             sdk_root,
             install,
+            defer_cpm: false,
         })?;
         let mut inner = self.inner.lock().unwrap();
         accept_locked(&inner, token)?;
@@ -5873,15 +5907,41 @@ impl Host {
     fn nuget_search(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("nuget.search")?;
         let source = required_str(&params, "source")?;
+        let raw_project = required_str(&params, "project")?;
         let query = optional_str(&params, "query").unwrap_or_default();
         let prerelease = params.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
         let take = params
             .get("take")
             .and_then(Value::as_u64)
             .unwrap_or(30) as usize;
-        {
+        let (root, sdk) = {
             let inner = self.inner.lock().unwrap();
             accept_locked(&inner, token)?;
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+            nuget::resolve_project(&workspace.root, &raw_project)?;
+            (workspace.root.clone(), inner.project_sdk.clone())
+        };
+        let (muxer, sdk_root, _) = project_muxer(&sdk)?;
+        let configured = nuget::configured_sources(&root, &muxer, &sdk_root);
+        if configured.state != "ok" {
+            return Err(HostError::new(
+                "source_unavailable",
+                configured
+                    .message
+                    .unwrap_or_else(|| "The configured NuGet sources are unknown.".to_string()),
+            ));
+        }
+        if !nuget::source_matches(&source, &configured.items) {
+            return Err(HostError::new(
+                "source_not_allowed",
+                "Discover only accepts a source configured for this project; no request was made.",
+            ));
+        }
+        if let Err(error) = nuget::validate_source_arg(&source) {
+            return Err(HostError::new("source_not_allowed", error));
         }
         let result = nuget::search(&source, &query, prerelease, take);
         Ok(serde_json::to_value(result).expect("nuget search serializes"))
@@ -6036,6 +6096,7 @@ impl Host {
                 muxer: muxer.clone(),
                 sdk_root: sdk_root.clone(),
                 install: false,
+                defer_cpm: true,
             })?);
         }
         let plan_id = format!("nuget-batch-{}-{}", token.context_id, seq);
@@ -6080,10 +6141,37 @@ impl Host {
         let mut items = Vec::new();
         let mut updated = 0;
         let mut failed = 0;
-        for plan in &batch {
+        let mut updated_projects: Vec<String> = Vec::new();
+        for (index, plan) in batch.iter().enumerate() {
+            // Trust is rechecked before every executable item: a concurrent revoke or a
+            // workspace/context switch must not run the rest of the batch.
+            let allowed = {
+                let inner = self.inner.lock().unwrap();
+                inner.trusted && accept_locked(&inner, token).is_ok()
+            };
+            if !allowed {
+                for remaining in &batch[index..] {
+                    failed += 1;
+                    items.push(json!({
+                        "state": "failed",
+                        "project": remaining.project_display,
+                        "package": remaining.package,
+                        "fromVersion": remaining.from_version,
+                        "version": remaining.version,
+                        "exit": null,
+                        "command": nuget::plan_view(remaining)["command"],
+                        "message": "Trust was revoked or the workspace changed before this item; no command was run.",
+                        "log": "",
+                    }));
+                }
+                break;
+            }
             match nuget::apply(plan) {
-                Ok(result) => {
+                Ok(result) if result.state == "ok" => {
                     updated += 1;
+                    if !updated_projects.iter().any(|project| project == &result.project) {
+                        updated_projects.push(result.project.clone());
+                    }
                     items.push(json!({
                         "state": "ok",
                         "project": result.project,
@@ -6093,6 +6181,20 @@ impl Host {
                         "exit": result.exit,
                         "command": result.command,
                         "message": null,
+                        "log": result.log,
+                    }));
+                }
+                Ok(result) => {
+                    failed += 1;
+                    items.push(json!({
+                        "state": "failed",
+                        "project": result.project,
+                        "package": result.package,
+                        "fromVersion": result.from_version,
+                        "version": result.version,
+                        "exit": result.exit,
+                        "command": result.command,
+                        "message": result.message.unwrap_or_else(|| "dotnet add failed.".to_string()),
                         "log": result.log,
                     }));
                 }
@@ -6112,13 +6214,14 @@ impl Host {
                 }
             }
         }
-        let mut restored: Vec<String> = Vec::new();
         let mut restores = Vec::new();
-        for plan in &batch {
-            if restored.iter().any(|path| path == &plan.project_display) {
+        for project in &updated_projects {
+            let Some(plan) = batch
+                .iter()
+                .find(|plan| &plan.project_display == project)
+            else {
                 continue;
-            }
-            restored.push(plan.project_display.clone());
+            };
             restores.push(serde_json::to_value(nuget::restore(plan)).expect("restore serializes"));
         }
         let restore_failed = restores
@@ -6622,6 +6725,7 @@ impl Inner {
             workspace_id,
             self.context_seq,
             self.processes.clone(),
+            false,
         ) {
             if error.code != "invalid_state" && self.setup_error.is_none() {
                 self.setup_error = Some(error.message);
@@ -7191,6 +7295,29 @@ fn trust_key(params: &Value, must_exist: bool) -> HostResult<String> {
 }
 
 /// Shared by an explicit grant and by opening an already-trusted path.
+/// Host-side setup answer, not just a UI state: every executable gate and trust grant asks
+/// this before releasing the workspace. The test seam is the only bypass.
+fn is_setup_ready(inner: &Inner) -> bool {
+    if inner.setup_override {
+        return true;
+    }
+    if inner.workspace.is_none() || inner.setup_error.is_some() {
+        return false;
+    }
+    let Some(inventory) = inner.inventory.as_ref() else {
+        return false;
+    };
+    if AnalysisRuntime::from_runtimes(&inventory.runtimes).state != "found" {
+        return false;
+    }
+    inner.tools.still_ready()
+        && inner
+            .debugger
+            .view(inner.debugger_experimental)
+            .adapter_state
+            == "ready"
+}
+
 fn apply_trust(inner: &mut Inner, workspace_id: u64) {
     inner.ensure_inventory();
     inner.trusted = true;
@@ -8357,6 +8484,7 @@ mod tests {
         let host = Host::default();
         host.dispatch("workspace.open", json!({ "path": project }))
             .unwrap();
+        host.allow_setup_for_tests();
 
         let untrusted = host
             .dispatch("lsp.workspaceSymbol", json!({ "query": "Order" }))
@@ -8385,6 +8513,7 @@ mod tests {
         let host = Host::default();
         host.dispatch("workspace.open", json!({ "path": project }))
             .unwrap();
+        host.allow_setup_for_tests();
 
         let references = json!({ "path": "Program.cs", "line": 0, "character": 16 });
         let symbols = json!({ "path": "Program.cs" });

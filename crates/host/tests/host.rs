@@ -31,8 +31,11 @@ fn temp_workspace(projects: &[&str]) -> tempfile::TempDir {
 }
 
 fn open(host: &Host, path: &Path) -> Value {
-    host.dispatch("workspace.open", json!({ "path": path }))
-        .expect("workspace opens")
+    let opened = host
+        .dispatch("workspace.open", json!({ "path": path }))
+        .expect("workspace opens");
+    host.allow_setup_for_tests();
+    opened
 }
 
 fn error_code(result: Result<Value, openridr_host::HostError>) -> String {
@@ -1088,6 +1091,148 @@ fn nuget_update_requires_confirmation_and_a_current_plan_before_any_process() {
         .expect_err("an unknown plan never runs");
     assert_eq!(stale.code, "nuget_stale_plan");
     assert_eq!(snapshot(&host)["processes"], json!([]));
+}
+
+#[test]
+fn trust_and_executable_methods_are_refused_until_setup_is_ready() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["Gate.csproj"]);
+    host.dispatch(
+        "workspace.open",
+        json!({ "path": workspace.path().join("Gate.csproj") }),
+    )
+    .unwrap();
+    assert_eq!(
+        error_code(host.dispatch("trust.grant", json!({}))),
+        "setup_required"
+    );
+    assert_eq!(
+        error_code(host.dispatch(
+            "trust.set",
+            json!({ "path": workspace.path().join("Gate.csproj"), "decision": "trusted" }),
+        )),
+        "setup_required"
+    );
+
+    // A remembered/direct trust still cannot run anything while setup is not ready.
+    host.allow_setup_for_tests();
+    host.dispatch("trust.grant", json!({})).unwrap();
+    host.deny_setup_for_tests();
+    for method in ["build.start", "restore.start", "tests.discover", "lsp.start"] {
+        assert_eq!(
+            error_code(host.dispatch(method, json!({}))),
+            "setup_required",
+            "{method}"
+        );
+    }
+    assert_eq!(snapshot(&host)["processes"], json!([]));
+}
+
+#[test]
+fn a_cpm_item_fails_alone_instead_of_blocking_the_batch_plan() {
+    let host = Host::new();
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk cpm batch");
+    fs::write(
+        copy.join("Directory.Packages.props"),
+        "<Project><PropertyGroup><ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally></PropertyGroup></Project>",
+    )
+    .unwrap();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let planned = host
+        .dispatch(
+            "nuget.planBatch",
+            json!({ "items": [{
+                "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+                "id": "xunit",
+                "version": "2.9.3",
+                "fromVersion": "2.9.2",
+                "targetFramework": "net8.0"
+            }] }),
+        )
+        .expect("CPM is deferred to the item, not the batch plan");
+    assert_eq!(planned["count"], 1);
+    let applied = host
+        .dispatch(
+            "nuget.applyBatch",
+            json!({ "planId": planned["planId"], "confirm": true }),
+        )
+        .unwrap();
+    assert_eq!(applied["state"], "failed");
+    assert_eq!(applied["failed"], 1);
+    assert_eq!(applied["items"][0]["state"], "failed");
+    assert!(applied["items"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Central Package Management"));
+    assert_eq!(applied["restores"], json!([]));
+}
+
+#[test]
+fn discover_only_accepts_a_configured_https_source() {
+    let host = Host::new();
+    open(&host, &fixture().join("OrderDesk.sln"));
+    grant(&host);
+    let rejected = host
+        .dispatch(
+            "nuget.search",
+            json!({
+                "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+                "source": "https://evil.example/v3/index.json",
+                "query": "xunit"
+            }),
+        )
+        .expect_err("an unconfigured source is refused before any request");
+    assert_eq!(rejected.code, "source_not_allowed");
+    let plain = host
+        .dispatch(
+            "nuget.search",
+            json!({
+                "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+                "source": "http://127.0.0.1:1/v3/index.json",
+                "query": "xunit"
+            }),
+        )
+        .expect_err("plain HTTP is refused");
+    assert_eq!(plain.code, "source_not_allowed");
+}
+
+#[test]
+fn a_failed_dotnet_add_is_counted_as_failed_in_the_batch() {
+    let host = Host::new();
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk broken batch");
+    let project = copy.join("tests/OrderDesk.Tests/OrderDesk.Tests.csproj");
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let planned = host
+        .dispatch(
+            "nuget.planBatch",
+            json!({ "items": [{
+                "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+                "id": "xunit",
+                "version": "2.9.3",
+                "fromVersion": "2.9.2",
+                "targetFramework": "net8.0"
+            }] }),
+        )
+        .unwrap();
+    // Keep the PackageReference readable for revalidation but make MSBuild reject the file.
+    let broken = fs::read_to_string(&project).unwrap().replace("</Project>", "");
+    fs::write(&project, broken).unwrap();
+    let applied = host
+        .dispatch(
+            "nuget.applyBatch",
+            json!({ "planId": planned["planId"], "confirm": true }),
+        )
+        .unwrap();
+    assert_eq!(applied["state"], "failed");
+    assert_eq!(applied["failed"], 1);
+    assert_eq!(applied["updated"], 0);
+    assert_eq!(applied["items"][0]["state"], "failed");
+    assert!(applied["items"][0]["message"].is_string());
+    assert_eq!(applied["restores"], json!([]));
 }
 
 #[test]
@@ -3036,7 +3181,7 @@ fn setup_starts_before_trust_without_running_project_code() {
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = Host::new();
     let workspace = temp_workspace(&["Tools.csproj"]);
-    open(&host, &workspace.path().join("Tools.csproj"));
+    host.dispatch("workspace.open", json!({ "path": workspace.path().join("Tools.csproj") })).unwrap();
     let setup = host.dispatch("setup.start", json!({})).unwrap();
     assert_eq!(setup["trust"]["granted"], false);
     assert_eq!(setup["tools"]["csharp-ls"]["state"], "downloading");
@@ -3077,7 +3222,7 @@ exit 0
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = Host::new();
     let workspace = temp_workspace(&["Setup.csproj"]);
-    let opened = open(&host, &workspace.path().join("Setup.csproj"));
+    let opened = host.dispatch("workspace.open", json!({ "path": workspace.path().join("Setup.csproj") })).unwrap();
     assert_eq!(opened["setup"]["state"], "idle");
     host.dispatch("setup.start", json!({})).unwrap();
 
@@ -3099,7 +3244,7 @@ exit 0
 
     // Second opening: the launcher and integrity record are reused, with no installer run.
     host.dispatch("workspace.close", json!({})).unwrap();
-    open(&host, &workspace.path().join("Setup.csproj"));
+    host.dispatch("workspace.open", json!({ "path": workspace.path().join("Setup.csproj") })).unwrap();
     let again = host.dispatch("setup.start", json!({})).unwrap();
     assert_eq!(again["setup"]["state"], "ready");
     assert_eq!(again["tools"]["csharp-ls"]["reused"], true);
@@ -3125,7 +3270,7 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let host = Host::new();
     let workspace = temp_workspace(&["Setup.csproj"]);
-    open(&host, &workspace.path().join("Setup.csproj"));
+    host.dispatch("workspace.open", json!({ "path": workspace.path().join("Setup.csproj") })).unwrap();
     host.dispatch("setup.start", json!({})).unwrap();
     let mut failed = None;
     for _ in 0..200 {
@@ -3142,6 +3287,85 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
         .unwrap()
         .contains("debug adapter"));
     assert_eq!(failed["trust"]["granted"], false);
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_reinstall_keeps_the_previous_verified_tool_ready() {
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let adapter = temp.path().join("netcoredbg");
+    fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
+    fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
+    let installer = temp.path().join("installer");
+    fs::write(
+        &installer,
+        r#"#!/bin/sh
+echo run >> "$OPENRIDR_HOME/installer-runs"
+if [ -f "$OPENRIDR_HOME/already-installed" ]; then
+  echo "deliberate reinstall failure" >&2
+  exit 1
+fi
+staging="$OPENRIDR_HOME/tools/csharp-ls/0.28.staging"
+mkdir -p "$staging"
+printf '#!/bin/sh\nprintf "csharp-ls, version 0.28.0\n"\n' > "$staging/csharp-ls"
+chmod +x "$staging/csharp-ls"
+touch "$OPENRIDR_HOME/already-installed"
+exit 0
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let home = temp.path().join("home");
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
+    let host = Host::new();
+    let workspace = temp_workspace(&["Reinstall.csproj"]);
+    host.dispatch(
+        "workspace.open",
+        json!({ "path": workspace.path().join("Reinstall.csproj") }),
+    )
+    .unwrap();
+    host.dispatch("setup.start", json!({})).unwrap();
+    let mut ready = None;
+    for _ in 0..400 {
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        if state["setup"]["state"] == "ready" {
+            ready = Some(state);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let ready = ready.expect("first setup did not reach ready");
+    let launcher = home.join("tools/csharp-ls/0.28/csharp-ls");
+    let before = fs::read_to_string(&launcher).unwrap();
+    let sha = ready["tools"]["csharp-ls"]["sha256"].clone();
+
+    let started = host.dispatch("setup.reinstall", json!({})).unwrap();
+    assert_eq!(started["setup"]["state"], "running");
+    let mut failed = false;
+    for _ in 0..400 {
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        let tool = &state["tools"]["csharp-ls"];
+        if tool["note"]
+            .as_str()
+            .is_some_and(|note| note.contains("previous verified installation was kept"))
+        {
+            assert_eq!(tool["state"], "ready");
+            assert_eq!(state["setup"]["state"], "ready");
+            assert_eq!(fs::read_to_string(&launcher).unwrap(), before);
+            assert_eq!(tool["sha256"], sha);
+            failed = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(failed, "reinstall did not report the kept previous installation");
+    let runs = fs::read_to_string(home.join("installer-runs")).unwrap();
+    assert_eq!(runs.lines().count(), 2, "the reinstall attempted exactly once");
 }
 
 #[cfg(unix)]
@@ -3250,11 +3474,11 @@ exit 1
 
     // The retry removes the partial staging before starting again, then reaches a verified ready.
     host.dispatch("tools.retry", json!({})).unwrap();
+    let done = wait_tool(&host, Duration::from_secs(30));
     assert!(
         !staging.join("leftover").exists(),
         "the retry reused the partial staging directory"
     );
-    let done = wait_tool(&host, Duration::from_secs(30));
     assert_eq!(done["state"], "ready", "{}", done["log"]);
     assert_eq!(done["reused"], false);
     assert_eq!(done["verifiedVersion"], "0.28.0");
@@ -3626,6 +3850,12 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    // Probe seam: the stub is executable proof for the LSP path; no package is downloaded.
+    let noop = temp.path().join("noop-installer");
+    fs::write(&noop, "#!/bin/sh\nexit 1\n").unwrap();
+    fs::set_permissions(&noop, fs::Permissions::from_mode(0o755)).unwrap();
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &noop);
     // The stub stands in for csharp-ls, so the contract does not depend on the real server or the machine's SDKs.
     let destination = home.join("tools/csharp-ls/0.28");
     fs::create_dir_all(&destination).unwrap();
