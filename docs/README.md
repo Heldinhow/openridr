@@ -32,7 +32,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md`, tickets em `tickets-<tema>/NN-
 | Médios: debug/run/build | [SPEC-MEDIUM-DEBUG](SPEC-MEDIUM-DEBUG.md) | [tickets-medium-debug/](tickets-medium-debug/README.md) | [RETRO-MEDIUM-DEBUG](RETRO-MEDIUM-DEBUG.md) | — |
 | Médios: editor/estado | [SPEC-MEDIUM-EDITOR-STATE](SPEC-MEDIUM-EDITOR-STATE.md) | [tickets-medium-editor/](tickets-medium-editor/README.md) | [RETRO-MEDIUM-EDITOR-STATE](RETRO-MEDIUM-EDITOR-STATE.md) | — |
 | Abrir do Finder/Dock/terminal | [SPEC-OPEN-WITH](SPEC-OPEN-WITH.md) | [tickets-open-with/](tickets-open-with/README.md) | [RETRO-OPEN-WITH](RETRO-OPEN-WITH.md) | [evidence/03-open-with](evidence/03-open-with.md) |
-| Release alfa (DMG) | [RELEASE-ALPHA](RELEASE-ALPHA.md) | — | [RETRO-ALPHA-RELEASE](RETRO-ALPHA-RELEASE.md) | — |
+| Release alfa (DMG) | [RELEASE-ALPHA](RELEASE-ALPHA.md) | — | [RETRO-ALPHA-RELEASE](RETRO-ALPHA-RELEASE.md) | [evidence/release-alpha7.md](evidence/release-alpha7.md) |
 | Correções do E2E alpha.5 + camada SDK | [SPEC-FIX-ALPHA5](SPEC-FIX-ALPHA5.md) | [tickets-fix-alpha5/](tickets-fix-alpha5/README.md) | [RETRO-FIX-ALPHA5](RETRO-FIX-ALPHA5.md) | [evidence/fix-alpha5/](evidence/fix-alpha5/VERIFICATION.md) |
 | netcoredbg embutido | [SPEC-EMBED-NETCOREDBG](SPEC-EMBED-NETCOREDBG.md) | [tickets-embed-netcoredbg/](tickets-embed-netcoredbg/) | [RETRO-EMBED-NETCOREDBG](RETRO-EMBED-NETCOREDBG.md) | [evidence/embed-netcoredbg.md](evidence/embed-netcoredbg.md) |
 | Polimento visual (ícones Lucide, fontes embutidas, escala) | [SPEC-UI-POLISH](SPEC-UI-POLISH.md) | [tickets-ui-polish/](tickets-ui-polish/README.md) (01–06) | [RETRO-UI-POLISH](RETRO-UI-POLISH.md) | [evidence/ui-polish.md](evidence/ui-polish.md), `evidence/ui-polish/depois-*.png` |
