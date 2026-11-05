@@ -855,3 +855,9 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **trust.set na welcome:** decisão para caminho sem workspace é intencional (não inicia processo); ao abrir, o host aplica a decisão armazenada mas `require_trust` ainda exige setup ready. Teste de host cobre isso.
 - **PGID:** o líder só é reaped depois de TERM/KILL e da limpeza do grupo; o comentário `ponytail:` em `finish_group` registra o risco teórico de reuso de PGID se o desenho mudar para reaper antes.
 - **BaseIntermediateOutputPath:** `Directory.Build.props`/`targets` encontrados na árvore (busca textual) ou propriedade expandida marcam `assets.state="unsupported"`; o painel mostra “implícitos indisponíveis”, nunca uma lista vazia.
+
+## 2026-11-05 — Rodada 5: ferramentas são globais ao workspace
+
+- Trocar/fechar workspace não sela mais a instalação de csharp-ls. O estado e o staging pertencem ao app home, não ao projeto; a instalação termina sozinha (ou faz rollback) e a próxima abertura reutiliza. `stop_services` continua parando somente análise/debug do workspace.
+- O único caminho que sela ferramentas é o shutdown do `Host` (fim do app), para não deixar processo de instalação órfão. O teste `a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies` troca de workspace durante `verifying` (depois do swap), exige `ready` com uma launcher existente e prova que `setup.start` seguinte reutiliza em vez de apagar.
+- Isso substitui a decisão anterior de que "toda fronteira de workspace para uma instalação real"; ferramentas não pertencem ao contexto do workspace.
