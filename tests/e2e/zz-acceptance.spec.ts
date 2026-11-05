@@ -7,7 +7,7 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { clickDiscover, revisionOf } from "./automatic";
+import { clickDiscover, openProjectDetails, revisionOf } from "./automatic";
 import os from "node:os";
 import path from "node:path";
 import { openTrustPopover, reveal } from "./disclosures";
@@ -294,7 +294,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await expect(page.getByTestId("tree")).not.toContainText("/bin/");
     await expect(page.getByTestId("tree")).not.toContainText("/obj/");
     await page.getByTestId("tree-project-OrderDesk.Cli").click();
-    await page.getByRole("button", { name: "Project details" }).click();
+    await openProjectDetails(page);
     await expect(page.getByTestId("eval-details")).toBeVisible();
     await expect(page.getByTestId("eval-target-path")).toContainText(
       "src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",

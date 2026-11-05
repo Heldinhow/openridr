@@ -1,8 +1,15 @@
 import { profileTitle, type ProfileId } from "../actions/keymap";
 import type { Snapshot } from "../host/client";
+import { Icon } from "../Icon";
 import { StatusMode } from "./StatusMode";
 
-type EvaluationStatus = { text: string; title?: string; testId?: string };
+type EvaluationStatus = {
+  text: string;
+  title?: string;
+  testId?: string;
+  /** The single action that produces a current model; null hides the affordance. */
+  reevaluate: { label: string; disabledReason: string | null; onClick: () => void } | null;
+};
 
 type RestoreStatus = {
   state: "idle" | "running" | "ok" | "failed" | "cancelled";
@@ -47,8 +54,23 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
           )}
         </span>
       )}
+      {evaluation.reevaluate && (
+        <button
+          type="button"
+          className="status-evaluation-action"
+          data-testid="eval-run"
+          aria-label={evaluation.reevaluate.label}
+          title={evaluation.reevaluate.disabledReason ?? evaluation.reevaluate.label}
+          disabled={evaluation.reevaluate.disabledReason !== null}
+          onClick={evaluation.reevaluate.onClick}
+        >
+          <Icon name="refresh" />
+        </button>
+      )}
       {evaluation.testId ? (
-        <span data-testid={evaluation.testId} title={evaluation.title}>{evaluation.text}</span>
+        <span data-testid={evaluation.testId} title={evaluation.title}>
+          <span data-testid="eval-state" role="status">{evaluation.text}</span>
+        </span>
       ) : (
         <span>{evaluation.text}</span>
       )}

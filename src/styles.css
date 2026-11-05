@@ -786,15 +786,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   padding-top: 4px;
 }
 
-.eval-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 6px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-}
-
 .eval-field {
   display: flex;
   flex-direction: column;
@@ -812,11 +803,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   border-radius: 3px;
   padding: 2px 4px;
   max-width: 140px;
-}
-
-.eval-controls button {
-  font-size: var(--fs-meta);
-  padding: 3px 8px;
 }
 
 .eval-stale {
@@ -892,14 +878,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   color: var(--muted);
   font-size: var(--fs-meta);
   overflow-wrap: anywhere;
-}
-
-.tree-footnote {
-  margin: 0;
-  padding: 10px 12px;
-  color: var(--muted);
-  font-size: var(--fs-meta);
-  border-top: 1px solid var(--line);
 }
 
 .editor-pane {
@@ -2685,10 +2663,6 @@ mark.search-hit {
 .side .panel-title .tag, .tree-row .tag { border: 0; background: transparent; padding: 0; color: var(--muted); font-size: var(--fs-meta); }
 .tree-row .tag::before { content: none; }
 .tree-row .tag.warning { color: var(--warning); }
-.side .eval-controls { display: flex; align-items: center; gap: 6px; padding: 0 10px 6px; flex-wrap: wrap; }
-.side .eval-controls button { padding: 1px 8px; font-size: var(--fs-meta); background: transparent; border-color: transparent; color: var(--muted); }
-.side .eval-controls button:hover:not(:disabled) { background: var(--accent-surface-strong); border-color: transparent; color: var(--fg); }
-.side .eval-controls .tag { border: 0; background: transparent; color: var(--muted); font-size: var(--fs-badge); }
 .tree-row { border-radius: var(--r-md); border-color: transparent; background: transparent; min-height: 28px; box-shadow: none; font-weight: 500; }
 .tree-row:hover { background: var(--accent-surface); border-color: transparent; }
 .tree-row.selected { background: var(--select); border-color: transparent; box-shadow: none; }
@@ -2826,11 +2800,6 @@ label.run-config-field > :not(span:first-child):not(input):not(select):not(texta
 .tree-node-refs::before { content: "\25B8  \2699  "; }
 .tree-node-packages::before { content: "\25B8  \1F4E6  "; }
 
-/* Evaluation controls are quiet link-style actions in the Solution header, like Rider's toolbar strip. */
-.eval-controls { gap: 10px; }
-.eval-controls > button { background: transparent; border-color: transparent; padding: 2px 4px; color: var(--accent); }
-.eval-controls > button:hover:not(:disabled) { background: var(--accent-surface-strong); }
-
 .search-box { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 10px; background: transparent; border-radius: 6px; color: var(--muted); }
 .search-box input { flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; outline: 0; color: var(--fg); font: inherit; }
 .search-box:focus-within { background: var(--panel); outline: 1px solid var(--accent); }
@@ -2846,9 +2815,11 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .inspection-summary { display: inline-flex; gap: 8px; align-items: center; margin-left: auto; padding: 0 8px; font-size: var(--fs-meta); }
 .insp-error { color: var(--error); }
 .insp-warning { color: var(--warning); }
-/* Evaluation controls: compact icon row; text stays in the accessible name. */
-.side .eval-controls { gap: 6px; padding: 2px 12px; }
-.side .eval-controls button { min-height: 22px; padding: 0 6px; font-size: var(--fs-badge); background: transparent; border-color: transparent; color: var(--muted); }
+/* Evaluation controls: one icon action in the status bar; the model state is text, never a tree node. */
+.status-evaluation-action { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 22px; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--muted); }
+.status-evaluation-action .icon { width: 14px; height: 14px; }
+.status-evaluation-action:hover:not(:disabled) { background: var(--accent-surface-strong); color: var(--fg); }
+.status-evaluation-action:disabled { background: transparent; border: 0; opacity: 0.5; }
 
 /* Tools window (restore, adapter, installer, LSP, processes) lives in the bottom panel, not over the editor. */
 .workspace-tools-body { display: grid; gap: 8px; padding: 8px 12px; align-content: start; min-width: 0; }
@@ -2928,9 +2899,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tree-note.error { color: var(--error); }
 .explorer-tools button { width: 32px; height: 32px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; box-shadow: none; }
 .explorer-tools .icon { width: 16px; height: 16px; }
-.tree-footnote { border-top: 1px solid var(--line-internal); font-size: var(--fs-meta); }
 .side { display: flex; flex-direction: column; }
-.side .tree-footnote { margin-top: auto; }
 .tree-name { flex: 0 1 auto; min-width: 10ch; }
 .tree-row .tag { flex: 0 8 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Project rows are two layers: name on top, kind · TFM · restore state below, aligned under the name.
@@ -3195,10 +3164,7 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 
 /* ui-shape polish — Solution Explorer: header and evaluation strip stay pinned, the tree scrolls under them. */
 .side > .tree { flex: 1 1 0; min-height: 0; overflow: auto; }
-.side > .panel-title, .side > .eval-controls { flex: none; }
-.side > .eval-controls { gap: 2px 4px; padding: 4px 6px 6px; border-bottom: 1px solid var(--line-internal); }
-.side .eval-controls .tag { order: -1; flex: 1 0 100%; padding: 0 8px; font-size: var(--fs-meta); }
-.side .eval-controls button { min-height: 28px; padding: 0 8px; font-size: var(--fs-meta); border-radius: var(--r-md); }
+.side > .panel-title { flex: none; }
 .tree-folder { color: var(--muted); font-size: var(--fs-meta); font-weight: 500; padding-top: 8px; padding-bottom: 2px; }
 
 /* ui-shape polish — toolbar menus: raised surface, 28px items with 6px radius, a note sits under its label instead of running into it. */

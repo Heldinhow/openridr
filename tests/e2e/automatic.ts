@@ -9,6 +9,12 @@ export async function settleRestore(page: Page) {
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
 }
 
+// Project details live in the Solution ⋮ menu; the inspector itself is unchanged.
+export async function openProjectDetails(page: Page) {
+  await page.getByTestId("tree-more").click();
+  await page.getByTestId("tree-more-details").click();
+}
+
 // Automatic restore and evaluation add revisions on their own, so waits are "at least revision N".
 export async function revisionOf(page: Page) {
   const text = (await page.getByTestId("eval-state").textContent()) ?? "";

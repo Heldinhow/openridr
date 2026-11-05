@@ -109,7 +109,7 @@ test("opens the fixture asking for a Trust decision, with Restricted mode availa
 
   await enterTextOnly(page);
   await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
-  await expect(page.getByTestId("tree")).toContainText("Text outline · not evaluated");
+  await expect(page.getByTestId("status-evaluation")).toContainText("Text outline · not evaluated");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
   await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
