@@ -1164,11 +1164,6 @@ export function NuGetPanel({
                   {selectedUpdates.size} selected for update
                 </span>
               </div>
-              <div className="build-controls nuget-batch-bar">
-                <span className="menu-note" data-testid="nuget-selected-count">
-                  {selectedUpdates.size} selected for update
-                </span>
-              </div>
 
               {activeListing && (
                 <div className="nuget-logs">
