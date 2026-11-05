@@ -56,6 +56,20 @@ do T3 Code (`csharp #9d6afb`, `json #ffa359`, `markdown #5ecc71`, `docker #69b1f
 Escuro ≥ 4,5:1 (o `--icon-git` no `--raised` fica em 4,43:1); claro ≥ 3:1, o mínimo de WCAG 1.4.11 para
 ícone (não é texto). Os valores claros não foram vistos no app.
 
+**D6.1 — Glifos de dois tons também precisam de 3:1.** Documento, texto e a base da baleia desenham o
+corpo da página em `opacity: .75` sobre o token cheio, senão o cinza a 50% caía para **2,95:1** sobre
+`--panel`. Com .75 o corpo mede 5,31:1 (`--panel`), 5,13:1 (`--raised`), 5,07:1 (hover), 4,92:1
+(`no index` âmbar) e 3,86:1 na linha atual focada (`--select`) no escuro. No claro a transparência perde
+demais (`#84848a` a .75 = 2,34:1 em branco), então lá o corpo vai a `opacity: 1` (3,72:1 sobre branco) via
+`prefers-color-scheme: light`, dentro do mesmo bloco `@supports` dos tokens — não distribuído e **não
+verificado**. Um teste de E2E lê os tokens, a opacidade e os fundos do CSS real e exige ≥ 3:1 em todos;
+números em [evidence/solution-file-icons.md](evidence/solution-file-icons.md).
+
+**D6.2 — O tipo do símbolo também é acessível.** O selo de 9 px é `aria-hidden`; o tipo vai como
+`aria-describedby` num nó `.sr-only` **fora** do `<button>` da linha, então o nome acessível continua sendo
+só o nome do arquivo ("Order.cs") e a descrição é "C# class". E2E verifica `toHaveAccessibleDescription`
+e que o nome não muda.
+
 **D7 — Mapeamento por nome antes de extensão.** `Dockerfile`, `docker-compose*.yml`, `*.DotSettings*`,
 `.gitignore`/`.gitattributes`/`.gitmodules`, `.editorconfig`, `global.json`/`appsettings*.json` são
 resolvidos por nome; o resto por extensão, sem ler conteúdo. `fileKind` continua devolvendo o tipo,
@@ -85,12 +99,15 @@ resolvidos por nome; o resto por extensão, sem ler conteúdo. `fileKind` contin
 2. Nome de pasta e nome de arquivo alinham (slot de ícone vazio preservado) e cada nível ≥ 1 desenha um
    `.tree-guide` por ancestral.
 3. `.cs` mostra o hexágono; com símbolo conhecido, o selo de letra sobrepõe no canto e a linha mantém
-   `data-symbol-kind` e `title` com o tipo.
+   `data-symbol-kind`, `title` com o tipo e a descrição acessível "C# class" (sem duplicar o nome).
 4. `.json`, `.md`, `Dockerfile`, `docker-compose*.yml`, `.csproj`, `.DotSettings.user`, `.yml`, `.xml`,
    `.sh`, `.gitignore` e desconhecido recebem os glifos da tabela; teste unitário cobre nome e extensão.
 5. Linha atual/selecionada com contorno `--accent` arredondado, sem mudar altura.
-6. Nenhuma dependência nova; `bun run check`, `bun run test:unit` e o E2E novo nas portas 1490/4387 passam.
-7. Origem e licença de cada glifo registradas em `decisions.md` e `THIRD-PARTY-NOTICES.md`.
+6. Nenhuma dependência nova; `bun run check`, `bun run test:unit` e o E2E novo nas portas 1490/4387 passam,
+   incluindo o piso de 3:1 do corpo dos glifos de dois tons.
+7. Origem e licença de cada glifo registradas em `decisions.md` e `THIRD-PARTY-NOTICES.md`, com o
+   copyright do T3 Code literal ("Copyright (c) 2026 T3 Tools Inc."), o NOTICE do `@pierre/trees`, a origem
+   exata (pacote, versão, `dist/builtInIcons.js`) e a lista de modificações dos SVGs.
 8. Captura antes/depois em `docs/evidence/solution-file-icons/`; app real (agent-desktop) quando o
    orquestrador liberar — até lá, "não verificado".
 

@@ -39,6 +39,7 @@ export function FileIcon({ path, symbolKind }: { path: string; symbolKind?: Symb
       <span
         className="file-icon tint-csharp"
         data-icon={glyph}
+        aria-hidden="true"
         title={symbolKind ? `C# ${SYMBOL_LABEL[symbolKind]}` : "C# file"}
       >
         <CSharpGlyph />

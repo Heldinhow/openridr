@@ -886,3 +886,19 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
   `json #ffa359`, `markdown #5ecc71`, `docker #69b1ff`, `doc/text #adadb1`, `git #d5512f` — contraste medido
   ≥ 4,5:1 sobre `--panel`. O tema claro usa os pares do T3 Code e fica ≥ 3:1 (mínimo de WCAG 1.4.11 para
   ícone, não texto); ele não é distribuído e continua **não verificado**.
+
+## 2026-11-05 — Revisão dos ícones: licença literal, tipo acessível e piso de 3:1
+
+- **Licença:** o aviso MIT do T3 Code mantém o copyright literal do repositório ("Copyright (c) 2026 T3 Tools
+  Inc."); o `@pierre/trees` lista pacote/versão/arquivo de origem, o texto Apache-2.0, o `NOTICE.md` do
+  pacote e o que foi modificado nos SVGs (sprite removido, classes e `opacity` próprias, cores fixas →
+  `currentColor`). Onde há obrigação de atribuição, o texto é literal, não parafraseado.
+- **Acessibilidade do tipo de símbolo:** o selo de 9 px é decorativo (`aria-hidden`); o tipo vai numa
+  descrição (`aria-describedby` + `.sr-only`) renderizada **fora** do `<button>` da linha. Dentro do botão o
+  texto do nó entraria também no nome acessível (o E2E mostrou "Order.cs C# class"); fora, o nome continua
+  sendo só o arquivo e a descrição lê "C# class".
+- **Contraste de glifo de dois tons:** ícone é gráfico não textual (WCAG 1.4.11), então a opacidade do corpo
+  da página entra no orçamento de contraste. `.5` deixava o documento cinza em 2,95:1 no `--panel`; `.75`
+  mede ≥ 3,86:1 (pior caso, linha atual focada em `--select`) e 5,31:1 no painel. No tema claro a
+  transparência reprovaria (2,34:1), então lá o corpo usa `opacity: 1` (3,72:1 sobre branco) — tema não
+  distribuído, não verificado. O piso de 3:1 virou teste E2E que lê os tokens do CSS real.

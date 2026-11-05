@@ -3,6 +3,7 @@ import { FileIcon } from "./FileIcon";
 import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
 import { ProjectIcon } from "./icons/ProjectIcon";
+import { SYMBOL_LABEL } from "./icons/SymbolMark";
 import {
   ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, nestSources,
   visibleSourceFiles, type DependencyGroup, type SourceNode,
@@ -254,16 +255,18 @@ export function SolutionTree(p: Props) {
 
   function fileRow(path: string, level: number, noIndex = false) {
     const kind = fileKind(path);
+    const symbol = symbolKinds[path];
     return (
       <TreeRow
         key={path}
         level={level}
-        icon={<FileIcon path={path} symbolKind={symbolKinds[path]} />}
+        icon={<FileIcon path={path} symbolKind={symbol} />}
         name={baseOf(path)}
+        description={symbol ? `C# ${SYMBOL_LABEL[symbol]}` : undefined}
         noIndex={noIndex}
         testId={`tree-file-${path}`}
         fileKind={kind}
-        symbolKind={symbolKinds[path]}
+        symbolKind={symbol}
         current={p.activePath === path}
         selected={p.activePath === path}
         title={path}

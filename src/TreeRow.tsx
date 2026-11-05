@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Icon } from "./Icon";
 
 /** Viewport position a context menu opens at. Rows compute it for the mouse and the keyboard. */
@@ -11,6 +11,8 @@ type Props = {
   /** Omit for rows that are only a chevron and a name (folders, SPEC-SOLUTION-FILE-ICONS D3). */
   icon?: ReactNode;
   name: string;
+  /** Accessible description read after the name, for information the row only shows as a glyph. */
+  description?: string;
   /** Dim text after the name, e.g. "· 2 projects". */
   suffix?: ReactNode;
   selected?: boolean;
@@ -41,10 +43,14 @@ export const ROW_PADDING = 8;
  * back to "Reload / Share… / Services" (see nativeMenu.ts for the app-wide guard).
  */
 export function TreeRow({
-  level, open, icon, name, suffix, selected, current, noIndex, testId, title,
+  level, open, icon, name, description, suffix, selected, current, noIndex, testId, title,
   fileKind, projectKind, projectTfms, symbolKind, onClick, onMenu, children,
 }: Props) {
+  // The description lives outside the row: `aria-describedby` then adds it to the description
+  // without its text also becoming part of the button's accessible name.
+  const descriptionId = useId();
   return (
+    <>
     <button
       type="button"
       className={`tree-row sol-row${selected ? " selected" : ""}${noIndex ? " no-index" : ""}`}
@@ -57,6 +63,7 @@ export function TreeRow({
       data-symbol-kind={symbolKind}
       aria-expanded={open}
       aria-current={current ? "page" : selected ? "true" : undefined}
+      aria-describedby={description ? descriptionId : undefined}
       title={title}
       onClick={onClick}
       onContextMenu={(event) => {
@@ -92,5 +99,11 @@ export function TreeRow({
       {suffix}
       {children}
     </button>
+    {description && (
+      <span id={descriptionId} className="sr-only">
+        {description}
+      </span>
+    )}
+    </>
   );
 }

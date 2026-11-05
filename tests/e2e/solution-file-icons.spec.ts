@@ -34,6 +34,18 @@ async function open(page: Page, root: string) {
   await page.getByTestId("tree-expand-all").click();
 }
 
+test("a C# row exposes its symbol kind to assistive tech without changing the name", async ({ page }) => {
+  await open(page, tempCopy());
+  const row = page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs");
+  await expect(row).toBeVisible();
+  // The kind is only a 9px mark on screen; the row carries it as a description, so the name is still
+  // the file name and no second node repeats it.
+  await expect(row).toHaveAccessibleDescription("C# class");
+  await expect(row).toHaveAccessibleName(/Order\.cs$/);
+  await expect(row.locator("[data-icon]")).toHaveAttribute("aria-hidden", "true");
+  await expect(row.locator(".symbol-mark")).toHaveAttribute("aria-hidden", "true");
+});
+
 /** Evidence is opt-in: `OPENRIDR_FILE_ICONS_EVIDENCE=docs/evidence/solution-file-icons`. */
 async function shot(page: Page, name: string) {
   const dir = process.env.OPENRIDR_FILE_ICONS_EVIDENCE;
@@ -99,6 +111,51 @@ test("folders are chevron and name only, with an indent guide per ancestor", asy
   await expect(page.getByTestId("tree-dir-.idea").locator(".tree-guide")).toHaveCount(1);
   await expect(page.getByTestId("tree-dir-src/OrderDesk.Core/bin").locator(".tree-guide")).toHaveCount(2);
   await shot(page, "depois-pastas-e-guia");
+});
+
+test("the two-tone document body keeps WCAG 1.4.11 contrast on every row background", async ({ page }) => {
+  await open(page, tempCopy());
+  await page.getByTestId("tree-show-all").click();
+  const row = page.getByTestId("tree-file-OrderDesk.sln.DotSettings.user");
+  await expect(row).toBeVisible();
+  // Everything comes from the shipped CSS: the glyph token, the body opacity and the row backgrounds.
+  const ratios = await row.evaluate((el) => {
+    // Tokens are `#rrggbb`; a computed color is `rgb(r, g, b)`.
+    const toRgb = (value: string) =>
+      value.trim().startsWith("#")
+        ? [1, 3, 5].map((i) => Number.parseInt(value.trim().slice(i, i + 2), 16))
+        : value.replace(/[^0-9.,]/g, "").split(",").slice(0, 3).map(Number);
+    const channel = (c: number) => {
+      const v = c / 255;
+      return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = ([r, g, b]: number[]) =>
+      0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    const contrast = (a: number[], b: number[]) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    const root = getComputedStyle(document.documentElement);
+    const token = (name: string) => toRgb(root.getPropertyValue(name));
+    const opacity = Number(getComputedStyle(el.querySelector(".glyph-page")!).opacity);
+    const fill = toRgb(getComputedStyle(el.querySelector(".file-icon")!).color);
+    const over = (background: number[]) =>
+      contrast(
+        [0, 1, 2].map((i) => opacity * fill[i] + (1 - opacity) * background[i]),
+        background,
+      );
+    return {
+      opacity,
+      panel: over(token("--panel")),
+      raised: over(token("--raised")),
+      select: over(token("--select")),
+    };
+  });
+  expect(ratios.opacity).toBeGreaterThan(0.5);
+  expect(ratios.panel).toBeGreaterThanOrEqual(3);
+  expect(ratios.raised).toBeGreaterThanOrEqual(3);
+  expect(ratios.select).toBeGreaterThanOrEqual(3);
+  await shot(page, "depois-contraste");
 });
 
 test("the current row is an accent outline, not a filled block", async ({ page }) => {

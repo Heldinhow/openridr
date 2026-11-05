@@ -11,6 +11,8 @@ Spec: [aceite 4–8](../SPEC-SOLUTION-FILE-ICONS.md)
   verifica glifo por `[data-icon]`, pasta sem `<svg>`, contagem de `.tree-guide` por nível e contorno da
   linha atual.
 - `tests/unit/solutionVisuals.test.ts`: mapeamento nome/extensão → kind → glifo.
+- Ticket 04 acrescentou a descrição acessível do tipo de símbolo e a medição de contraste do corpo dos
+  glifos de dois tons (WCAG 1.4.11), os dois com teste no mesmo spec.
 
 ## Portas
 

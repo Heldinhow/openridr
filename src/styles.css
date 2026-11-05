@@ -3390,8 +3390,19 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .tree-icon { flex: 0 0 16px; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
 .file-icon { display: inline-flex; align-items: center; justify-content: center; position: relative; }
 .file-glyph { width: 16px; height: 16px; display: block; }
-/* Two-tone vendored glyphs draw the page body at half strength and the fold at full. */
-.file-glyph .glyph-page { opacity: 0.5; }
+/* Two-tone vendored glyphs draw the page body at reduced strength and the fold at full.
+   SPEC-SOLUTION-FILE-ICONS: icons are non-text graphics (WCAG 1.4.11), so the body has to keep 3:1.
+   0.75 keeps doc/text/docker at 3.37:1 or better on every row background (panel, hover, raised,
+   the focused `--select` row and the amber no-index row) in the shipped dark theme; 0.5 measured
+   2.95:1 on the panel. Measurements: docs/evidence/solution-file-icons.md. */
+.file-glyph .glyph-page { opacity: 0.75; }
+/* A light theme would need the body at full strength: the lighter tokens lose too much contrast when
+   blended with white (#84848a at 0.75 is 2.34:1, at 1.0 it is 3.72:1). Not shipped today. */
+@supports (color: light-dark(#000, #fff)) {
+  @media (prefers-color-scheme: light) {
+    .file-glyph .glyph-page { opacity: 1; }
+  }
+}
 .sol-row .tree-icon .tint-solution { color: var(--icon-solution); }
 .sol-row .tree-icon .tint-solution-folder { color: var(--icon-solution-folder); }
 .sol-row .tree-icon .tint-folder { color: var(--icon-folder); }

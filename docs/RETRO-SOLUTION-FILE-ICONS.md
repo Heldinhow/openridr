@@ -50,3 +50,15 @@ Spec: [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md). Tickets:
   `workspace` 20/21 (a falha é o app home compartilhado, acima).
 - Evidência: [evidence/solution-file-icons.md](evidence/solution-file-icons.md) e
   `docs/evidence/solution-file-icons/*.png`.
+
+## Correções da revisão (GPT-6.1 Terra)
+
+- **Licença:** parafrasear copyright ("T3 Code contributors") é erro, não estilo; o texto do LICENSE é
+  literal. O `NOTICE.md` do `@pierre/trees` não estava no aviso, e "paths copiados sem modificação" era
+  falso (sprite, classes, opacidade e `currentColor` mudaram). Licença pede lista explícita de modificações.
+- **Acessibilidade:** `aria-hidden` no selo deixava o tipo só visual. O primeiro `aria-describedby` apontava
+  para um nó `.sr-only` **dentro** do `<button>` e o texto entrou no nome acessível ("Order.cs C# class") —
+  o próprio E2E pegou. A descrição precisa ser irmã do botão.
+- **Contraste:** opacidade de glifo é cor efetiva; `.5` no cinza dava 2,95:1 (reprova 1.4.11). Medir o
+  *pior fundo* importa: a linha atual focada (`--select`) é pior que o painel, e o tema claro reprova com
+  qualquer transparência. O piso virou teste que lê os tokens do CSS real — não uma tabela no doc.
