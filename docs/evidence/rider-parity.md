@@ -128,8 +128,32 @@ Capturas e textos de árvore de acessibilidade das rodadas anteriores (`00`–`1
   (`find-usages` "a blocked Find Usages runs once": "csharp-ls did not answer the references request
   within 5 seconds" numa execução; passou na outra). Instabilidade de LSP, não de foco.
 
-## Pendente de app real (aguardando liberação da sessão do desktop)
 
-- Item 1 no app: Enter em linha do Find Usages (ou Problems/Tests) deve deixar o foco no editor e ⌘F
-  abrir o Find; ⌘E logo após Enter deve manter o foco no diálogo. Não rodado (app em uso pela outra
-  sessão).
+## Prova no app real: foco por teclado (build 0.3.0-alpha.6 de `11a92bc`/`42460d8`)
+
+Bundle debug rebuildado a partir do HEAD; home e cópia da fixture isolados em `<tmp>`. Teclado com
+`press --headed` depois de `focus-window`; foco lido pelo `focused` do snapshot de acessibilidade.
+
+- **Build, Enter em erro CS0029 (Order.cs 15:25):** o erro foi criado só na cópia da fixture. Enter
+  abriu `Order.cs` e o foco foi para `textfield Editor`. **Passou.**
+- **Problems, Enter na linha CS0029:** Enter abriu o arquivo no mesmo ponto e o foco foi para o
+  editor. **Passou.**
+- **Go to Definition no mesmo arquivo (⌘B em `total`, Order.cs 8:19):** foi para 5:37 e o foco
+  ficou no editor. Precisou instalar csharp-ls no home isolado (sem análise, ⌘B não navega: "Definition
+  unavailable: Analysis is not running"). **Passou.**
+- **⌘E logo após ⌘B:** diálogo "Recent Files" com foco em `group` dentro dele; Escape devolveu o foco
+  ao editor. **Passou.**
+- **⌘E logo após Enter no Search Everywhere ("Order.cs"):** foco no editor após Enter; ⌘E abriu
+  "Recent Files" com o foco no diálogo; Escape devolveu ao editor. **Passou.** (É o caso da guarda
+  E2E `focus-after-navigation`.)
+- **Tests, Enter no botão de localização da falha:** **não verificado.** A run terminou com 2
+  passed, 1 failed, 1 skipped, mas o botão de localização fica dentro do disclosure "Details" da
+  linha, que não tem ref no accessibility tree. Não há como acioná-lo com `agent-desktop` sem o ref.
+- **Find Usages, Enter:** **não verificado** neste app (não foi a pedido desta rodada).
+- **csharp-ls (drawer):** "Install analysis" → "Review install plan" → "Confirm and install" no home
+  isolado. Destino `<tmp>/home/tools/csharp-ls/0.28`. Depois da instalação o drawer mostra
+  "Existing: A destination exists…" (verificado), não "No launcher" — a correção do host
+  (`record_verified`) aparece no app real.
+
+Estado ao final: app fechado com `desktop.sh down`; `pgrep -x openridr` vazio; porta 1420 livre.
+Build falhou de propósito na cópia (erro CS0029) e a cópia foi revertida antes dos testes de teste.
