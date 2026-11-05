@@ -2668,7 +2668,10 @@ impl Host {
     /// Writes the current discovery and the last run as JSON in the app home. It reports the
     /// real path and never touches the workspace; no process is started.
     fn export_tests(&self) -> HostResult<Value> {
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
+        // An exit the registry already observed must reach the file: exporting what the last
+        // snapshot saw would write a finished run as still running.
+        inner.sync_test_run();
         // The same composed view the snapshot serves: discovery plus the real last run.
         let tests = inner.tests_view();
         let discovery = tests.discovery;

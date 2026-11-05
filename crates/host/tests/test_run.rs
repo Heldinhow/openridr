@@ -450,6 +450,49 @@ fn export_carries_the_discovery_and_the_real_last_run() {
     assert!(!file_run["command"].as_array().unwrap().is_empty());
 }
 
+/// The export must observe the process it reports: a run that exited after the last snapshot is
+/// still `running` in the stored state, and writing that state to the file would be a lie.
+#[cfg(target_os = "macos")]
+#[test]
+fn export_observes_a_finished_run_without_an_intervening_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk export sync");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    prepare(&host, Some("net8.0"));
+    discover_fixture(&host);
+    host.dispatch(
+        "tests.run",
+        json!({
+            "project": DISCOVER,
+            "targetFramework": "net8.0",
+            "selection": "all",
+        }),
+    )
+    .unwrap();
+    // Wait for the run to be observed as running, then let the process finish without asking the
+    // host for a snapshot: nothing but the export itself may notice the exit.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let run = snapshot(&host)["tests"]["run"].clone();
+        if run["state"] == "running" && run["processId"].is_u64() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "test run never started: {run}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_secs(20));
+
+    let exported = host.dispatch("tests.export", json!({})).unwrap();
+    let payload: Value =
+        serde_json::from_slice(&fs::read(exported["path"].as_str().unwrap()).unwrap()).unwrap();
+    assert_eq!(payload["run"]["state"], "completed", "{}", payload["run"]);
+    assert_eq!(payload["run"]["counts"]["total"], 4);
+    assert_eq!(payload["run"]["results"].as_array().unwrap().len(), 4);
+    assert_eq!(payload["run"]["exit"], 1);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn duplicate_display_names_are_one_ambiguous_identity_never_a_selected_run() {
