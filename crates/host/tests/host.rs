@@ -2950,6 +2950,18 @@ fn tools_install_is_real_verified_and_reused() {
         processes_before
     );
     assert!(destination.join("csharp-ls").is_file());
+
+    let reopened = Host::new();
+    open(&reopened, &workspace.path().join("Install.csproj"));
+    grant(&reopened);
+    let reopened_plan = tool_plan(&reopened);
+    let reopened_install = reopened.dispatch(
+        "tools.install",
+        json!({ "planId": reopened_plan["plan"]["planId"], "confirm": true }),
+    ).unwrap();
+    assert_eq!(reopened_install["tools"]["csharp-ls"]["reused"], true);
+    assert_eq!(reopened_install["tools"]["csharp-ls"]["sha256"], sha);
+    assert!(snapshot(&reopened)["processes"].as_array().unwrap().is_empty());
 }
 
 #[cfg(unix)]

@@ -11,8 +11,9 @@ use crate::process::{ProcessStatus, Registry, Termination};
 use crate::sdk::{AnalysisRuntime, Install, Inventory, Version};
 use serde::Serialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -22,7 +23,49 @@ pub const TOOL: &str = "csharp-ls";
 pub const VERSION: &str = "0.28.0";
 pub const NUGET_SOURCE: &str = "https://api.nuget.org/v3/index.json";
 pub const NUGET_PACKAGE: &str = "https://www.nuget.org/packages/csharp-ls/0.28.0";
-const SIGNATURE_LIMITATION: &str = "dotnet tool install reports \"Skipping NuGet package signature verification.\" OpenRidr records the SHA-256 of the installed launcher and the exact --version output; it does not claim a verified package signature or an official package hash.";
+const PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.28.0/csharp-ls.0.28.0.nupkg";
+const PACKAGE_SHA512: &str = "a138b9c8f9de9dd6343e9b0d0c8f4d51637bba7e38606b7c2b08b1d91e8eefa39f12123057f6625f425812b4361e52841bd2856704ec127ff50144ce05170a99";
+const PACKAGE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+fn verify_package_hash(bytes: &[u8], expected: &str) -> Result<(), String> {
+    let actual = format!("{:x}", Sha512::digest(bytes));
+    if actual == expected {
+        Ok(())
+    } else {
+        Err("csharp-ls package SHA-512 mismatch; installation aborted. Retry the setup.".to_string())
+    }
+}
+
+fn store_verified_package(temp: &Path, bytes: &[u8], expected: &str) -> Result<(PathBuf, PathBuf), String> {
+    verify_package_hash(bytes, expected)?;
+    let feed = temp.join("verified-feed");
+    if feed.exists() {
+        fs::remove_dir_all(&feed).map_err(|error| error.to_string())?;
+    }
+    fs::create_dir_all(&feed).map_err(|error| error.to_string())?;
+    fs::write(feed.join("csharp-ls.0.28.0.nupkg"), bytes).map_err(|error| error.to_string())?;
+    let config = temp.join("offline.nuget.config");
+    fs::write(&config, "<configuration><packageSources><clear /></packageSources></configuration>")
+        .map_err(|error| error.to_string())?;
+    Ok((feed, config))
+}
+
+fn prepare_local_package(temp: &Path) -> Result<(PathBuf, PathBuf), String> {
+    let response = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .get(PACKAGE_URL)
+        .call()
+        .map_err(|error| format!("Could not download csharp-ls: {error}"))?;
+    let mut bytes = Vec::new();
+    response.into_reader().take(PACKAGE_MAX_BYTES + 1).read_to_end(&mut bytes)
+        .map_err(|error| format!("Could not read csharp-ls package: {error}"))?;
+    if bytes.len() as u64 > PACKAGE_MAX_BYTES {
+        return Err("csharp-ls package exceeds the size limit".to_string());
+    }
+    store_verified_package(temp, &bytes, PACKAGE_SHA512)
+}
+const SIGNATURE_LIMITATION: &str = "The NuGet package is checked against the pinned SHA-512 before local installation. dotnet reports skipping package signature verification. The installed launcher SHA-256 and version are recorded separately.";
 
 /// App-scoped root. Tests and isolated E2E runs override it with `OPENRIDR_HOME`.
 pub fn app_home() -> PathBuf {
@@ -271,7 +314,7 @@ pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
         ],
         cwd: neutral_cwd().to_string_lossy().to_string(),
         permissions: vec![
-            format!("network: {NUGET_SOURCE} (NuGet.org over HTTPS; the child runs with an isolated HOME and its default NuGet source)"),
+            format!("network: {PACKAGE_URL} (NuGet.org over HTTPS; the installer uses only the verified local package)"),
             format!("write: {}", tool_root().to_string_lossy()),
             format!(
                 "write: {} (isolated HOME, NuGet cache and first-run files)",
@@ -431,6 +474,23 @@ fn sha256_file(path: &Path) -> Option<String> {
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>(),
     )
+}
+
+fn record_installation(destination: &Path, launcher_hash: &str) -> std::io::Result<()> {
+    fs::write(destination.join(".openridr-integrity"), format!("{PACKAGE_SHA512}\n{launcher_hash}\n"))
+}
+
+fn persisted_installation_valid(destination: &Path) -> bool {
+    let Ok(record) = fs::read_to_string(destination.join(".openridr-integrity")) else {
+        return false;
+    };
+    let mut lines = record.lines();
+    let package = lines.next();
+    let launcher = lines.next();
+    package == Some(PACKAGE_SHA512)
+        && launcher.is_some()
+        && launcher == sha256_file(&destination.join(binary_name())).as_deref()
+        && lines.next().is_none()
 }
 
 /// Bytes currently on disk under `root`; symlinks are not followed. Progress only ever reports
@@ -705,11 +765,13 @@ impl Tools {
         }
         // Confirmation is the executable step: only now is the existing launcher run (read-only
         // `--version`) to decide reuse versus replacement. A valid tool is never overwritten.
-        let existing = verify_installed(
-            Path::new(&plan.destination),
-            Path::new(&plan.dotnet_root),
-        );
-        if existing.state == "ready" {
+        let can_reuse = persisted_installation_valid(Path::new(&plan.destination)) || probe_muxer().is_some();
+        let existing = if can_reuse {
+            verify_installed(Path::new(&plan.destination), Path::new(&plan.dotnet_root))
+        } else {
+            inspect_existing(Path::new(&plan.destination))
+        };
+        if can_reuse && existing.state == "ready" {
             let destination = plan.destination.clone();
             let staging = plan.staging.clone();
             let mut plan = plan;
@@ -781,6 +843,12 @@ impl Tools {
         })?;
         let progress_base = directory_bytes(&child_home()) + directory_bytes(&temp);
 
+        let local_package = if probe_muxer().is_some() {
+            None
+        } else {
+            Some(prepare_local_package(&temp).map_err(|error| HostError::new("operation_failed", error))?)
+        };
+
         let mut command = Command::new(&plan.argv[0]);
         command
             .args(&plan.argv[1..])
@@ -797,6 +865,10 @@ impl Tools {
             .env_remove("DOTNET_CLI_HOME")
             .env_remove("NUGET_PACKAGES")
             .env_remove("NUGET_HTTP_CACHE_PATH");
+        if let Some((feed, config)) = local_package {
+            command.arg("--add-source").arg(feed).arg("--configfile").arg(config).arg("--no-cache")
+                .env("NUGET_PACKAGES", temp.join("packages"));
+        }
 
         let piped = match processes.spawn_piped("tools:csharp-ls", workspace_id, command) {
             Ok(piped) => piped,
@@ -1071,6 +1143,19 @@ impl Tools {
                     return;
                 }
 
+                if let Some(sha) = &existing.sha256 {
+                    if let Err(error) = record_installation(&destination, sha) {
+                        data.state = "failed";
+                        data.error = Some(format!("Could not save installation integrity: {error}"));
+                        data.finished_at = Some(now_ms());
+                        return;
+                    }
+                } else {
+                    data.state = "failed";
+                    data.error = Some("Could not hash the installed launcher.".to_string());
+                    data.finished_at = Some(now_ms());
+                    return;
+                }
                 data.state = "ready";
                 if let Some(plan) = data.plan.as_mut() {
                     plan.record_verified(&existing);
@@ -1244,6 +1329,28 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::sdk::RuntimeInstall;
+
+    #[test]
+    fn package_hash_must_match_exactly() {
+        let expected = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
+        assert!(verify_package_hash(b"abc", expected).is_ok());
+        assert!(verify_package_hash(b"modified", expected).is_err());
+        let temp = tempfile::tempdir().unwrap();
+        assert!(store_verified_package(temp.path(), b"modified", expected).is_err());
+        assert!(!temp.path().join("verified-feed").exists());
+    }
+
+    #[test]
+    fn persisted_installation_detects_launcher_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let launcher = directory.path().join(binary_name());
+        fs::write(&launcher, b"verified launcher").unwrap();
+        assert!(!persisted_installation_valid(directory.path()));
+        record_installation(directory.path(), &sha256_file(&launcher).unwrap()).unwrap();
+        assert!(persisted_installation_valid(directory.path()));
+        fs::write(&launcher, b"modified launcher").unwrap();
+        assert!(!persisted_installation_valid(directory.path()));
+    }
 
     fn inventory() -> (tempfile::TempDir, Inventory) {
         let temp = tempfile::tempdir().unwrap();
