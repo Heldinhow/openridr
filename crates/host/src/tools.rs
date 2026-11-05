@@ -251,11 +251,18 @@ fn plan_id(plan: &Plan) -> String {
 
 /// Test seam, enabled only with `OPENRIDR_ENABLE_PROBE=1`: a controlled installer stands in
 /// for the SDK muxer so an E2E can observe progress, failure and retry without NuGet.org.
+#[cfg(debug_assertions)]
 fn probe_muxer() -> Option<PathBuf> {
     if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
         return None;
     }
     std::env::var_os("OPENRIDR_TOOLS_MUXER").map(PathBuf::from)
+}
+
+#[cfg(not(debug_assertions))]
+fn probe_muxer() -> Option<PathBuf> {
+    // Release builds never let an environment variable replace the verified package feed.
+    None
 }
 
 /// Builds the plan from the detected runtimes and SDKs. `dotnet tool install` runs on any
@@ -997,6 +1004,12 @@ impl Tools {
         })?;
         let progress_base = directory_bytes(&child_home()) + directory_bytes(&temp);
 
+        if local_package.is_none() && probe_muxer().is_none() {
+            return Err(HostError::new(
+                "operation_failed",
+                "Refusing to run dotnet tool install without the verified local package feed and its SHA-512; the previous installation was not touched.",
+            ));
+        }
         let mut command = Command::new(&plan.argv[0]);
         command
             .args(&plan.argv[1..])
@@ -1540,7 +1553,33 @@ fn promote(staging: &Path, destination: &Path) -> Result<(), String> {
     if !staging.is_dir() {
         return Err("the staging directory does not exist".to_string());
     }
-    let backup = if destination.exists() {
+    if !destination.exists() {
+        return fs::rename(staging, destination)
+            .map_err(|error| format!("could not move staging into place: {error}"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let from = CString::new(staging.as_os_str().as_bytes())
+            .map_err(|_| "the staging path is not valid".to_string())?;
+        let to = CString::new(destination.as_os_str().as_bytes())
+            .map_err(|_| "the destination path is not valid".to_string())?;
+        // One atomic swap: at every instant either the old or the new directory is at the
+        // destination. A failed swap leaves the previous installation untouched.
+        let swapped = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_SWAP) };
+        if swapped != 0 {
+            return Err(format!(
+                "could not atomically swap the installation: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        // staging now holds the previous directory; it is no longer needed.
+        let _ = fs::remove_dir_all(staging);
+        return Ok(());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
         let backup = PathBuf::from(format!(
             "{}.old-{}-{}",
             destination.to_string_lossy(),
@@ -1549,20 +1588,13 @@ fn promote(staging: &Path, destination: &Path) -> Result<(), String> {
         ));
         fs::rename(destination, &backup)
             .map_err(|error| format!("could not move the previous destination aside: {error}"))?;
-        Some(backup)
-    } else {
-        None
-    };
-    if let Err(error) = fs::rename(staging, destination) {
-        if let Some(backup) = &backup {
-            let _ = fs::rename(backup, destination);
+        if let Err(error) = fs::rename(staging, destination) {
+            let _ = fs::rename(&backup, destination);
+            return Err(format!("could not move staging into place: {error}"));
         }
-        return Err(format!("could not move staging into place: {error}"));
-    }
-    if let Some(backup) = backup {
         let _ = fs::remove_dir_all(backup);
+        Ok(())
     }
-    Ok(())
 }
 
 fn now_ms() -> u64 {
@@ -1699,5 +1731,89 @@ mod tests {
         cleanup_stale_downloads(&current);
         assert!(current.exists());
         assert!(!stale.exists());
+    }
+
+    #[test]
+    fn the_worker_refuses_an_install_without_the_verified_package_feed() {
+        std::env::remove_var("OPENRIDR_ENABLE_PROBE");
+        let temp = tempfile::tempdir().unwrap();
+        let plan = Plan {
+            tool: TOOL,
+            version: VERSION,
+            package: TOOL,
+            source: Source {
+                name: "NuGet.org",
+                url: NUGET_SOURCE,
+                package_url: NUGET_PACKAGE,
+            },
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            destination: temp.path().join("destination").to_string_lossy().to_string(),
+            staging: temp.path().join("staging").to_string_lossy().to_string(),
+            dotnet_root: "/tmp".to_string(),
+            argv: vec!["dotnet".to_string(), "tool".to_string(), "install".to_string()],
+            cwd: temp.path().to_string_lossy().to_string(),
+            permissions: vec![],
+            integrity: "",
+            existing: inspect_existing(&temp.path().join("destination")),
+            plan_id: "test-plan".to_string(),
+        };
+        let tools = std::sync::Arc::new(Tools::new());
+        let mut processes = Registry::new();
+        let error = tools
+            .begin_install_worker(plan, 1, 1, &mut processes, None, false)
+            .expect_err("without local_package the worker must refuse");
+        assert!(error.message.contains("verified local package"), "{}", error.message);
+        assert!(processes.views().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn promote_swaps_the_new_directory_without_a_missing_installation_window() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("0.28");
+        let staging = temp.path().join("0.28.staging");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(destination.join("old"), "old").unwrap();
+        fs::write(staging.join("new"), "new").unwrap();
+        promote(&staging, &destination).unwrap();
+        assert!(destination.join("new").is_file());
+        assert!(!destination.join("old").exists());
+        assert!(!staging.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_atomic_swap_keeps_the_previous_destination() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("tools");
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("0.28");
+        let staging = root.join("0.28.staging");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(destination.join("old"), "old").unwrap();
+        fs::write(staging.join("new"), "new").unwrap();
+        let permissions = fs::metadata(&root).unwrap().permissions();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = promote(&staging, &destination);
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert!(destination.join("old").is_file());
+        assert!(!destination.join("new").exists());
+        let _ = permissions;
+    }
+
+    #[test]
+    fn promote_failure_keeps_the_previous_destination() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("0.28");
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(destination.join("old"), "old").unwrap();
+        let missing = temp.path().join("missing-staging");
+        assert!(promote(&missing, &destination).is_err());
+        assert!(destination.join("old").is_file());
     }
 }
