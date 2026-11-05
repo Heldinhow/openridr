@@ -2947,12 +2947,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   // Opening another file remounts the editor; focusing before that lands on the old one or nothing.
-  // WebKit commits that remount later than a timer, so retry per frame until the new editor has focus.
+  // WebKit commits that remount later than a timer, so retry per frame while focus is on the document
+  // (the element that had it was removed). Any other focused control keeps it.
   function focusEditorWhenMounted(frames: number) {
+    if ((document.activeElement ?? document.body) !== document.body) return;
     focusEditor();
-    const focused = document.activeElement?.closest<HTMLElement>('[data-testid="editor"]');
-    if (focused?.querySelector(".cm-content") === document.activeElement || frames <= 0) return;
-    window.requestAnimationFrame(() => focusEditorWhenMounted(frames - 1));
+    if (frames > 0) window.requestAnimationFrame(() => focusEditorWhenMounted(frames - 1));
   }
 
   function focusEditorAfterOpen(open: () => Promise<unknown>) {
