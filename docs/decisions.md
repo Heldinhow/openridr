@@ -739,3 +739,25 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **Status bar** usa `evaluationStatusView`: `Evaluating…`/`Evaluation failed` aparecem antes de haver projeto, o `not current` vem antes do revision, a classe `error` volta e o `Partial workspace` (`tree-partial`) reaparece discreto ali, não na árvore.
 - **Pacotes** têm chave `name@version` (+ TFM quando existir) e são deduplicados antes de renderizar.
 - **Testes:** parser/symbol no host (9/9 e 18/18), unit no Bun (21/21) e cargo lib (235/235). E2E/app seguem pendentes de liberação.
+
+## 2026-11-05 — Menu de contexto: um dono por linha e guard contra o menu do WebKit
+
+- **Contexto.** Aceitação da alpha.7, ticket 05: `AXShowMenu` em linha de pasta/arquivo abria o menu do
+  WebKit. Reprodução no app real mostrou duas causas: (a) linhas sem `onContextMenu` — solution folder,
+  `Dependencies`, grupos e folhas de dependência; (b) `Shift+F10`/tecla de menu nunca abriram nada,
+  porque o WebKit não os converte em `contextmenu`. Fora da árvore, toolbar/abas/status bar mostravam o
+  menu de navegador do WKWebView.
+- **Forma.** `TreeRow` é o único dono da decisão: sempre `preventDefault` no `contextmenu`, trata
+  `Shift+F10`/`ContextMenu` no teclado e entrega uma **posição** (`MenuPosition`) para quem desenha o
+  menu. `TreeTarget` ganhou `solution-folder`; `Dependencies`, grupos, framework, pacote e referência
+  abrem o menu do **projeto dono** (mesma escolha do Rider: são comandos do projeto). A pasta do `.sln`
+  reaproveita os comandos da solução sem `Copy Path`/`Show in Finder`, porque a pasta pode ser virtual.
+- **Guard.** `src/nativeMenu.ts` instala um listener de `contextmenu` no documento, **só em produção**
+  (`import.meta.env.PROD`): cancela tudo que não é `input`/`textarea`/`[contenteditable]`. Em
+  desenvolvimento o menu do WebKit fica, porque é o caminho para "Inspect Element" no webview. Sem
+  dependência nova e sem swizzle nativo.
+- **Nomes acessíveis.** Os menus da árvore agora dizem de que linha são (`File`/`Folder`/`Solution folder`
+  context menu); projeto e raiz mantêm `Project`/`Solution context menu`. Nenhum `data-testid` mudou.
+- **Prova.** E2E novo (`native-context-menu.spec.ts`, vermelho antes/verde depois), unit do guard, e app
+  real antes/depois em `docs/evidence/native-context-menu.md`. Windows/Intel e o DMG desta correção não
+  rodaram.

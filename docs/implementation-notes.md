@@ -1053,3 +1053,32 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **Pacotes (item 7):** `packageKey`/`dedupePackages` em `solutionVisuals.ts`; chave `name@version` (TFM opcional) e dedupe antes de renderizar. Testes em `tests/unit/solutionVisuals.test.ts`.
 - **Código morto (item 8):** `isGeneratedPath` e a prop `project` do `FileIcon` já haviam sido removidas; não há referência no diff.
 - **Comandos/contagens:** `cargo test -p openridr-host --lib -- outline::tests::symbol_kind` → 9 passed; `cargo test -p openridr-host --lib -- symbol` → 18 passed; `bun test tests/unit` → 21 passed; `cargo test -p openridr-host --lib` → 234 passed. E2E e app real seguem não executados por falta de liberação; o que depende deles fica “não verificado”.
+
+## Menu de contexto da árvore e guard do menu nativo (2026-11-05)
+
+- **`TreeRow`** publica `onMenu?: (position: MenuPosition) => void` (tipo exportado do próprio arquivo) e
+  é o único lugar que cancela o `contextmenu`. Ele trata `Shift+F10` e a tecla `ContextMenu` no
+  `onKeyDown` e abre o menu no retângulo da linha (WebKit não sintetiza `contextmenu` para teclado). Uma
+  linha sem `onMenu` continua cancelando o evento — o pior caso vira "nenhum menu", nunca "menu do
+  navegador".
+- **`SolutionTree.tsx`** entrega `p.onMenu(position, target)` em toda linha. Novos alvos: `solution-folder`
+  (pasta do `.sln`, testid `tree-folder-*`) e, para `Dependencies`/grupos/`tree-framework-*`/
+  `tree-package-*`/`tree-ref-*`, o `{ kind: "project" }` do projeto dono.
+- **`WorkspaceView.tsx`**: `openTreeMenu(position, target)` e `closeTreeMenu()` (devolve o foco à linha
+  quando ela ainda é o `activeElement`, o que importa para `Shift+F10`), `treeMenuLabel()` com os nomes
+  acessíveis `File`/`Folder`/`Solution folder`/`Project context menu` (raiz continua o default
+  `Solution context menu`; `File`/`Folder` como `Solution context menu` era herança confusa) e
+  `solutionFolderMenuItems` em `solutionMenu.ts` (solução sem `copy-path`/`reveal`).
+- **`src/nativeMenu.ts`**: `keepsNativeContextMenu(target)` (campo de texto = `input`, `textarea`,
+  `[contenteditable]`) e `installNativeContextMenuGuard(doc, enabled)`; `main.tsx` chama com
+  `document` e `import.meta.env.PROD`. Em produção a UI não mostra mais `Reload`/`Share…`/`Services` do
+  WebKit em nenhuma área; o campo de texto mantém o menu de edição do sistema. Em `tauri dev` o menu
+  fica (Inspect Element).
+- **Testes**: `tests/e2e/native-context-menu.spec.ts` (novo; cobre cancelamento do evento, mouse em
+  pasta de solução/raiz/`Dependencies`/grupo/framework/pacote/referência, teclado com `Shift+F10` e
+  `ContextMenu` e foco de volta) e `tests/unit/nativeMenu.test.ts` (novo). Rodados em 2026-11-05 nas
+  portas 1460/4357: E2E 1/1 (vermelho com `git stash push -- src`), `solution-explorer` +
+  `medium-nav-find-in-files` 16/16, `bun test tests/unit` 25/25, `bunx tsc --noEmit` limpo.
+- **Contratos preservados**: nenhum `data-testid` novo/renomeado; o menu da árvore continua
+  `tree-context-menu` com itens `tree-menu-*`. Evidência no app real em
+  `docs/evidence/native-context-menu.md`; não verificado: Windows, macOS Intel e o DMG desta correção.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import {
   call,
   candidatesOf,
@@ -21,8 +21,9 @@ import { CodeEditor, type ChangedLine } from "./CodeEditor";
 import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
 import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
+import type { MenuPosition } from "./TreeRow";
 import { ROOT_KEY, baseOf, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
-import { fileMenuItems, projectMenuItems, solutionMenuItems } from "./solutionMenu";
+import { fileMenuItems, projectMenuItems, solutionFolderMenuItems, solutionMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
   gutterActionAt,
@@ -558,6 +559,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [treeSearchOpen, setTreeSearchOpen] = useState(false);
   const [treeFilter, setTreeFilter] = useState("");
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; target: TreeTarget } | null>(null);
+  // A keyboard-opened menu gives the focus back to its row on close; a mouse one has no owner.
+  const treeMenuReturnFocus = useRef<HTMLElement | null>(null);
   const [editPreview, setEditPreview] = useState<EditPreview | null>(null);
   const editPreviewRef = useRef<EditPreview | null>(null);
   editPreviewRef.current = editPreview;
@@ -2558,9 +2561,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     setSelectedProjectPath(owner?.path ?? null);
   }
 
-  function openTreeMenu(event: ReactMouseEvent, target: TreeTarget) {
-    event.preventDefault();
-    setTreeMenu({ x: event.clientX, y: event.clientY, target });
+  function openTreeMenu(position: MenuPosition, target: TreeTarget) {
+    const active = document.activeElement;
+    treeMenuReturnFocus.current =
+      active instanceof HTMLElement && active.classList.contains("tree-row") ? active : null;
+    setTreeMenu({ x: position.x, y: position.y, target });
+  }
+
+  function closeTreeMenu() {
+    setTreeMenu(null);
+    treeMenuReturnFocus.current?.focus();
+    treeMenuReturnFocus.current = null;
   }
 
   const reloadReason =
@@ -2642,7 +2653,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   function startRename(target: TreeTarget) {
-    if (target.kind === "root") return;
+    if (target.kind === "root" || target.kind === "solution-folder") return;
     setNamePrompt({
       kind: "rename",
       path: target.path,
@@ -2653,7 +2664,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   function requestDelete(target: TreeTarget) {
-    if (target.kind === "root") return;
+    if (target.kind === "root" || target.kind === "solution-folder") return;
     setDeletePrompt({
       path: target.path,
       directory: target.kind === "dir",
@@ -2710,8 +2721,31 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
+  /** The accessible name says which row the menu belongs to; the visible labels stay put. */
+  function treeMenuLabel(target: TreeTarget): string | undefined {
+    if (target.kind === "project") return "Project context menu";
+    if (target.kind === "file") return "File context menu";
+    if (target.kind === "dir") return "Folder context menu";
+    if (target.kind === "solution-folder") return "Solution folder context menu";
+    return undefined;
+  }
+
   function treeMenuItems(target: TreeTarget): ContextMenuItem[] {
     if (target.kind === "project") return projectMenu(target);
+    if (target.kind === "solution-folder") {
+      return solutionFolderMenuItems({
+        buildReason: buildSolutionDisabledReason,
+        restoreReason: restoreDisabledReason,
+        reloadReason,
+        buildShortcut: shortcutOf("build.solution"),
+        onBuild: requestBuildSolution,
+        onRestore: () => void startRestore("restore.start"),
+        onReload: () => void runEvaluation(),
+        onCopyPath: () => void copyPath(absolutePath("")),
+        onFind: () => openFindInFiles(""),
+        onReveal: () => void revealInFinder(""),
+      });
+    }
     const path = target.kind === "root" ? "" : target.path;
     if (target.kind === "root") {
       return solutionMenuItems({
@@ -5544,11 +5578,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           compact
           testId="tree-context-menu"
           itemPrefix="tree-menu"
-          label={treeMenu.target.kind === "project" ? "Project context menu" : undefined}
+          label={treeMenuLabel(treeMenu.target)}
           x={treeMenu.x}
           y={treeMenu.y}
           items={treeMenuItems(treeMenu.target)}
-          onClose={() => setTreeMenu(null)}
+          onClose={closeTreeMenu}
         />
       )}
 

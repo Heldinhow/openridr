@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileIcon } from "./FileIcon";
 import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
@@ -11,10 +11,12 @@ import {
   dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, symbolKindOf,
   type ProjectKind, type SymbolKind,
 } from "./solutionVisuals";
-import { TreeRow } from "./TreeRow";
+import { TreeRow, type MenuPosition } from "./TreeRow";
 
 export type TreeTarget =
   | { kind: "root" }
+  /** A .sln folder: it groups projects, so its commands are the solution's. */
+  | { kind: "solution-folder"; name: string }
   | { kind: "project"; path: string; name: string }
   | { kind: "file"; path: string }
   | { kind: "dir"; path: string };
@@ -106,7 +108,7 @@ type Props = {
   evaluationRevision: number;
   showAll: boolean;
   filter: string;
-  onMenu: (event: MouseEvent, target: TreeTarget) => void;
+  onMenu: (position: MenuPosition, target: TreeTarget) => void;
 };
 
 export function SolutionTree(p: Props) {
@@ -264,7 +266,7 @@ export function SolutionTree(p: Props) {
         selected={p.activePath === path}
         title={path}
         onClick={() => p.onOpenFile(path)}
-        onContextMenu={(event) => p.onMenu(event, { kind: "file", path })}
+        onMenu={(position) => p.onMenu(position, { kind: "file", path })}
       />
     );
   }
@@ -283,7 +285,7 @@ export function SolutionTree(p: Props) {
           name={node.name}
           testId={`tree-dir-${node.path}`}
           onClick={() => p.onToggle(dirKey(node.path))}
-          onContextMenu={(event) => p.onMenu(event, { kind: "dir", path: node.path })}
+          onMenu={(position) => p.onMenu(position, { kind: "dir", path: node.path })}
         />,
         ...(open(dirKey(node.path)) ? children : []),
       ];
@@ -308,7 +310,7 @@ export function SolutionTree(p: Props) {
             p.onToggle(key);
             void ensureDir(entry.path);
           }}
-          onContextMenu={(event) => p.onMenu(event, { kind: "dir", path: entry.path })}
+          onMenu={(position) => p.onMenu(position, { kind: "dir", path: entry.path })}
         />,
         ...(open(key) ? diskRows(entry.path, level + 1, () => false) : []),
       ];
@@ -323,6 +325,10 @@ export function SolutionTree(p: Props) {
     const kind = projectKindOf(view.kind, view.textKind);
     const frameworks = frameworkRows(view.tfms, kind);
     const hasDeps = view.refs.length > 0 || view.packages.length > 0 || frameworks.length > 0;
+    // Dependencies, its groups and the leaves name the project they belong to: their menu is the
+    // project menu, so no row of the tree is left without one.
+    const projectTarget: TreeTarget = { kind: "project", path: view.path, name: view.name };
+    const projectMenu = (position: MenuPosition) => p.onMenu(position, projectTarget);
     const groupRow = (group: DependencyGroup, name: string, icon: ReactNode, items: ReactNode[]) => {
       if (items.length === 0) return null;
       const key = depGroupKey(view.path, group);
@@ -335,6 +341,7 @@ export function SolutionTree(p: Props) {
             name={name}
             testId={`tree-deps-group-${view.name}-${group}`}
             onClick={() => p.onToggle(key)}
+            onMenu={projectMenu}
           />
           {p.expanded.has(key) && items}
         </>
@@ -356,9 +363,9 @@ export function SolutionTree(p: Props) {
             p.onToggle(view.path);
             p.onSelectProject(view.path);
           }}
-          onContextMenu={(event) => {
+          onMenu={(position) => {
             p.onSelectProject(view.path);
-            p.onMenu(event, { kind: "project", path: view.path, name: view.name });
+            p.onMenu(position, projectTarget);
           }}
           suffix={
             <>
@@ -383,6 +390,7 @@ export function SolutionTree(p: Props) {
                   name="Dependencies"
                   testId={`tree-deps-${view.name}`}
                   onClick={() => p.onToggle(depsKey(view.path))}
+                  onMenu={projectMenu}
                 />
                 {p.expanded.has(depsKey(view.path)) && (
                   <>
@@ -398,6 +406,7 @@ export function SolutionTree(p: Props) {
                           name={framework}
                           testId={`tree-framework-${view.name}-${framework}`}
                           onClick={() => undefined}
+                          onMenu={projectMenu}
                         />
                       )),
                     )}
@@ -418,6 +427,7 @@ export function SolutionTree(p: Props) {
                             </span>
                           }
                           onClick={() => undefined}
+                          onMenu={projectMenu}
                         />
                       )),
                     )}
@@ -438,6 +448,7 @@ export function SolutionTree(p: Props) {
                             name={ref}
                             testId={`tree-ref-${view.name}-${ref}`}
                             onClick={() => undefined}
+                            onMenu={projectMenu}
                           />
                         );
                       }),
@@ -472,7 +483,7 @@ export function SolutionTree(p: Props) {
         testId="tree-root"
         suffix={<span className="tag tree-count">· {countLabel(views.length, "project")}</span>}
         onClick={() => p.onToggle(ROOT_KEY)}
-        onContextMenu={(event) => p.onMenu(event, { kind: "root" })}
+        onMenu={(position) => p.onMenu(position, { kind: "root" })}
       />
       {rootOpen && (
         <>
@@ -490,6 +501,7 @@ export function SolutionTree(p: Props) {
                     testId={`tree-folder-${folder}`}
                     suffix={<span className="tag tree-count">· {countLabel(items.length, "project")}</span>}
                     onClick={() => p.onToggle(folderKey(folder))}
+                    onMenu={(position) => p.onMenu(position, { kind: "solution-folder", name: folder })}
                   />
                 )}
                 {(!folder || open(folderKey(folder))) && rows}

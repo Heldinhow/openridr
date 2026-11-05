@@ -83,6 +83,14 @@ export function projectMenuItems(m: ProjectMenu): ContextMenuItem[] {
   return items;
 }
 
+/** A solution folder groups projects, so its commands are the solution's; the path actions that
+ *  would point at a directory the .sln may not have are left out. */
+export function solutionFolderMenuItems(
+  m: Parameters<typeof solutionMenuItems>[0],
+): ContextMenuItem[] {
+  return solutionMenuItems(m).filter((item) => item.id !== "copy-path" && item.id !== "reveal");
+}
+
 export function fileMenuItems(m: {
   open?: () => void;
   onCopyPath: () => void;
