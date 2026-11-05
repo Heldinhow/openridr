@@ -152,3 +152,56 @@ fechada ao fim (`desktop.sh down` → `stopped`, `pgrep` vazio).
 | WKWebView lendo `aria-live` do painel de detalhe | a região aparece nomeada na árvore; a *anúncio* do leitor de tela não foi observado (nenhum leitor instalado) |
 | Reinstall de ferramentas pela UI | baixaria os 21,6 MB de novo; o caminho de download foi exercitado com home vazio |
 | Percentual com servidor sem `Content-Length` | não exercitado; cai no texto "(measured; no percentage)" |
+
+## Revisão 2 (GPT-6.1 Terra) — quatro achados
+
+Revisão bloqueante sobre o commit `0a75249`. Cada achado com o "falha antes" medido.
+
+### R1 (alta) — a avaliação atual manda no seletor de TFM
+
+O seletor lia `discovery.targetFramework` antes da avaliação: descobrir em `net8.0` e reavaliar em `net9.0`
+deixava o seletor em `net8.0` enquanto o host já rodava no TFM novo. A decisão saiu do componente para
+`src/testScope.ts` (`testPanelFramework`): contexto avaliado primeiro, e só então o **único** TFM do próprio
+projeto selecionado. E2E `D3b` (projeto de dois TFMs): descobre em `net8.0`, troca para `netstandard2.0` —
+antes `Received: "net8.0"`, depois `netstandard2.0`. Unit `tests/unit/testScope.test.ts` fixa as quatro regras.
+
+### R3 (média) — export observa o processo antes de gravar
+
+`export_tests` lia o estado sem `sync_test_run()`: um run que já saiu depois do último snapshot ia para o JSON
+como `running`. Agora sincroniza antes de compor a vista. Teste
+`export_observes_a_finished_run_without_an_intervening_snapshot`: espera o run ficar `running`, deixa o
+processo terminar **sem** nenhum snapshot e exporta — antes o arquivo dizia `running`, depois `completed` com
+`counts.total 4`, 4 resultados e `exit 1`.
+
+### R2 (média) — download medido é dono do progresso mesmo sem `Content-Length`
+
+Só `total.is_some()` marcava a medição como dona; sem o cabeçalho o instalador voltava a somar as cópias do
+`.nupkg` em disco. Agora qualquer byte lido do socket é medição (`progress_measured = true`), com `total`
+nulo quando o servidor não informa tamanho. Para exercitar o fluxo real do instalador sem NuGet.org, builds de
+debug aceitam `OPENRIDR_TOOLS_PACKAGE_URL` + `OPENRIDR_TOOLS_PACKAGE_SHA512` (mesmo formato de seam do
+`OPENRIDR_TOOLS_MUXER`; release continua no pin compilado) e o download verificado roda mesmo com o instalador
+de probe. Teste de fronteira `a_download_without_content_length_keeps_the_measured_bytes`: servidor TCP local
+sem `Content-Length`, instalador falso que grava 400 KiB de cópias antes de falhar. Antes: `downloaded`
+409.600 (as cópias); depois: 102.400 (o pacote), `total: null`.
+
+### R4 (baixa) — fallback só do TFM do próprio projeto
+
+O fallback usava `evaluation.availableTfms` (o TFM da solução inteira) mesmo quando o projeto selecionado não
+declara TFM nenhum. `testPanelFramework` recebe `projectTfms` do projeto selecionado; projeto sem TFM devolve
+`null` (o seletor mostra "Not selected", honestamente). A expressão antiga reprovava as duas regras:
+
+```
+$ bun run /tmp/old-rule.test.mts
+D1 expected net9.0, got: net8.0 FAIL
+D4 expected null, got: net8.0 FAIL
+```
+
+## Testes (revisão 2)
+
+| Tipo | Comando | Resultado |
+|---|---|---|
+| Rust host | `cargo test -p openridr-host` | 393 passed (lib 263, host 98, debugger 14, discovery 10, run 7, trust 1) |
+| Unit TS | `bun test tests/unit` | 33 passed |
+| E2E | `acceptance-fixes` (5 specs, inclui D3b) | 5 passed |
+| E2E | `tests testsuite tests-auto-discovery nuget` | 15 passed, 1 falha pré-existente (`tests-filter-count`) |
+| E2E | `solution-explorer solution-file-icons ui-layout evaluation tools-install-ux setup-gate-layout` | 34 passed |

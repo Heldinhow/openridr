@@ -1227,3 +1227,19 @@ branch em [evidence/acceptance-fixes.md](evidence/acceptance-fixes.md). Diagnost
 - **Não verificado:** Windows/Intel; anúncio de leitor de tela real (`aria-live`); Reinstall pela UI.
 - Observação de dívida encontrada no caminho: `testsuite.spec.ts:51` espera `tests-filter-count`, `data-testid`
   que não existe em `src/` (nem em `60e784f`) — falha pré-existente do HEAD.
+
+### Revisão 2 dos D1…D6 (2026-11-05)
+
+- **TFM do painel (`src/testScope.ts`).** A prioridade do seletor saiu do componente: `testPanelFramework`
+  usa o contexto avaliado e, sem seleção, apenas o único TFM do **próprio** projeto selecionado. Antes a
+  descoberta vinha primeiro (descobrir em net8.0 e mover o modelo para net9.0 deixava o seletor em net8.0) e o
+  fallback usava o TFM da solução inteira mesmo para um projeto sem TFM.
+- **Export sincroniza o run.** `export_tests` chama `sync_test_run()` antes de compor a vista; sem isso um run
+  que já tinha saído era gravado como `running`. Teste de fronteira sem snapshot intermediário.
+- **Download medido sem `Content-Length`.** `progress_measured` passa a ser verdadeiro para qualquer byte lido
+  do socket; seams de debug `OPENRIDR_TOOLS_PACKAGE_URL`/`_SHA512` permitem exercitar o download verificado
+  contra um servidor local (release mantém o pin compilado) e o teste de fronteira usa um servidor sem
+  `Content-Length` mais um instalador que grava cópias em disco.
+- Testes: cargo host 393, unit 33, E2E `acceptance-fixes` 5, `tests/testsuite/tests-auto-discovery/nuget` 15
+  (+1 falha pré-existente), `solution-explorer/solution-file-icons/ui-layout/evaluation/tools-install-ux/
+  setup-gate-layout` 34.

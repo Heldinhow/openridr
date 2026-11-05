@@ -41,3 +41,25 @@ verificação final. Evidência: [evidence/acceptance-fixes.md](evidence/accepta
   erro visível em corrida. Candidato a esperar `evaluation.state === "ok" && !stale` antes de disparar.
 - `aria-live` no painel de detalhe não foi observado com leitor de tela real; a região nomeada aparece na árvore
   AX do WKWebView, o anúncio não foi medido.
+
+## Revisão 2 (GPT-6.1 Terra)
+
+Quatro achados, todos reais:
+
+- **Prioridade do TFM.** O erro foi meu: depois de corrigir a descoberta para nomear o TFM, coloquei
+  `discovery.targetFramework` na frente da avaliação atual e o resultado passou a sobrepor a escolha viva. A
+  regra "quem opera é a avaliação" agora mora em `src/testScope.ts`, com teste unitário e um E2E de dois TFMs
+  que reprova a expressão antiga (`Received: "net8.0"`). Lição: quando uma tela mostra "onde estou", a fonte é
+  o contexto atual, não o último resultado persistido.
+- **Medição só com `Content-Length`.** Marcar `progress_measured` a partir de `total.is_some()` deixou o
+  caminho "sem total" exatamente no bug que eu queria matar. O teste de fronteira só foi honesto depois de
+  destravar o download verificado no fluxo do instalador (seam de URL+SHA em debug); a primeira versão do teste
+  passava em 0,08 s porque o worker rejeitava o pacote redirecionado no recheck de hash — teste verde pelo
+  motivo errado é pior que teste vermelho.
+- **Export sem sync.** O `run` só sai de `running` dentro de `sync_test_run()`, chamado pelo snapshot. O export
+  tinha o mesmo buraco por outro ângulo: escrevia o estado que o último snapshot viu.
+- **Fallback global.** `availableTfms` é uma propriedade da solução; usá-la para um projeto que não declara TFM
+  inventa escopo.
+
+Dívida que continua: `tests-filter-count` (falha pré-existente do HEAD) e a corrida descoberta-automática ×
+reavaliação pós-restore.
