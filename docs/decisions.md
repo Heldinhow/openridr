@@ -861,3 +861,28 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - Trocar/fechar workspace não sela mais a instalação de csharp-ls. O estado e o staging pertencem ao app home, não ao projeto; a instalação termina sozinha (ou faz rollback) e a próxima abertura reutiliza. `stop_services` continua parando somente análise/debug do workspace.
 - O único caminho que sela ferramentas é o shutdown do `Host` (fim do app), para não deixar processo de instalação órfão. O teste `a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies` troca de workspace durante `verifying` (depois do swap), exige `ready` com uma launcher existente e prova que `setup.start` seguinte reutiliza em vez de apagar.
 - Isso substitui a decisão anterior de que "toda fronteira de workspace para uma instalação real"; ferramentas não pertencem ao contexto do workspace.
+
+## 2026-11-05 — Ícones da Solution Explorer vêm do T3 Code (MIT) e do @pierre/trees (Apache-2.0)
+
+- **Origem de cada glifo.** `.cs` = hexágono `C#` do Simple Icons (CC0), copiado do sprite do T3 Code;
+  documento genérico (`.sln`, `.slnx`, `.csproj`, `*.DotSettings[.user]`, desconhecido), `json`, `markdown`,
+  `docker`, `yml`, `text` e `git` = símbolos vendorizados de `@pierre/trees` 1.0.0-beta.6 (Apache-2.0) em
+  `src/icons/fileGlyphs.tsx`; `.xml`/`.props`/`.razor`/`.resx`/config/script continuam no Lucide (ISC) que já
+  era dependência. Pares de cor claro/escuro e a lógica nome→extensão seguem o T3 Code (MIT). O pacote
+  `@pierre/trees` **não** entra como dependência (é beta). Textos de licença e atribuição:
+  `THIRD-PARTY-NOTICES.md`; mapa completo: `docs/SPEC-SOLUTION-FILE-ICONS.md`.
+- **`.cs` usa o hexágono como padrão.** O selo de tipo do PR #23 (`C`/`I`/`E`/`R`/`S`) deixa de ser o ícone
+  principal e passa a ser um selo de 9 px sobreposto no canto inferior direito, com `title` do tipo e o
+  `data-symbol-kind` da linha. A informação não se perde; o arquivo passa a ser reconhecido como C# de
+  relance. Substitui o D8 de `SPEC-SOLUTION-EXPLORER-VISUAL` (badge no lugar do glifo C#), não o D7 (o
+  contrato `workspace.symbolKinds` continua igual).
+- **Pasta é chevron e nome.** Pastas de fonte, pastas do `.sln` e Show all files não desenham ícone de
+  pasta; o slot de 16 px fica vazio para o nome alinhar com o de arquivo. Projetos e a raiz mantêm o glifo
+  semântico (tipo de projeto/solução), porque na referência essas linhas são pastas e aqui são projetos.
+  Nenhum `data-testid` muda.
+- **Guia e seleção.** Cada nível ≥ 1 desenha uma linha de 1 px (`--line`) na coluna do chevron do ancestral;
+  a linha atual/selecionada ganha contorno `--accent` com `box-shadow: inset` (não muda altura nem reflow).
+- **Paleta = T3 Code.** Escuro usa os hex do T3 Code (tema da captura de referência): `csharp #9d6afb`,
+  `json #ffa359`, `markdown #5ecc71`, `docker #69b1ff`, `doc/text #adadb1`, `git #d5512f` — contraste medido
+  ≥ 4,5:1 sobre `--panel`. O tema claro usa os pares do T3 Code e fica ≥ 3:1 (mínimo de WCAG 1.4.11 para
+  ícone, não texto); ele não é distribuído e continua **não verificado**.

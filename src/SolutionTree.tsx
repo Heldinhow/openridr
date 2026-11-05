@@ -253,14 +253,12 @@ export function SolutionTree(p: Props) {
   }
 
   function fileRow(path: string, level: number, noIndex = false) {
-    const owner = views.find((view) => view.path === path);
-    const projectKind = owner ? projectKindOf(owner.kind, owner.textKind) : undefined;
     const kind = fileKind(path);
     return (
       <TreeRow
         key={path}
         level={level}
-        icon={<FileIcon path={path} projectKind={projectKind} symbolKind={symbolKinds[path]} />}
+        icon={<FileIcon path={path} symbolKind={symbolKinds[path]} />}
         name={baseOf(path)}
         noIndex={noIndex}
         testId={`tree-file-${path}`}
@@ -285,7 +283,6 @@ export function SolutionTree(p: Props) {
           key={node.path}
           level={level}
           open={open(dirKey(node.path))}
-          icon={<Icon name="folder" className="tint-folder" />}
           name={node.name}
           testId={`tree-dir-${node.path}`}
           onClick={() => p.onToggle(dirKey(node.path))}
@@ -306,7 +303,6 @@ export function SolutionTree(p: Props) {
           key={entry.path}
           level={level}
           open={open(key)}
-          icon={<Icon name="folder" className="tint-folder" />}
           name={entry.name}
           noIndex={entry.hidden}
           testId={`tree-dir-${entry.path}`}
@@ -501,7 +497,6 @@ export function SolutionTree(p: Props) {
                   <TreeRow
                     level={1}
                     open={open(folderKey(folder))}
-                    icon={<Icon name="solutionFolder" className="tint-solution-folder" />}
                     name={folder}
                     testId={`tree-folder-${folder}`}
                     suffix={<span className="tag tree-count">· {countLabel(items.length, "project")}</span>}

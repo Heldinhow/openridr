@@ -56,7 +56,8 @@ SOFTWARE.
 
 ## Lucide (lucide-react 1.68.0) — ISC, and MIT for icons derived from Feather
 
-All UI icons except the C# glyph are drawn by `lucide-react`, bundled into the app's JavaScript.
+All UI icons except the file-tree glyphs listed below are drawn by `lucide-react`, bundled into the app's
+JavaScript.
 
 ```text
 ISC License
@@ -104,12 +105,53 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Material Design Icons `language-csharp` — Apache-2.0
+## File tree glyphs from `@pierre/trees` 1.0.0-beta.6 — Apache-2.0
 
-`src/icons/CSharpIcon.tsx` contains the `language-csharp` glyph from Material Design Icons by the
-Pictogrammers group (https://github.com/Templarian/MaterialDesign), redistributed under the Apache License 2.0
-(icons are Apache-2.0; the MDI code license is MIT). It is plain "C#" lettering. OpenRidr does not use the
-Microsoft C#, .NET or Visual Studio logos.
+`src/icons/fileGlyphs.tsx` vendors seven symbols from `@pierre/trees` (npm, Apache-2.0), the icon set the
+T3 Code file tree renders: `file-tree-icon-file` (`DocGlyph`), `file-tree-builtin-json` (`JsonGlyph`),
+`file-tree-builtin-markdown` (`MarkdownGlyph`), `file-tree-builtin-docker` (`DockerGlyph`),
+`file-tree-builtin-yml` (`YamlGlyph`), `file-tree-builtin-text` (`TextGlyph`) and
+`file-tree-builtin-git` (`GitGlyph`). The paths are copied unmodified; only the `<symbol>`/sprite wrapper
+is dropped and the `bg`/`fg` classes became one local class. The package itself is **not** a dependency of
+OpenRidr.
+
+## Simple Icons `c-sharp` — CC0 1.0
+
+`src/icons/fileGlyphs.tsx` (`CSharpGlyph`) contains the Simple Icons `c-sharp` mark
+(https://github.com/simple-icons/simple-icons, CC0 1.0 Universal), taken verbatim from the icon sprite the
+T3 Code file tree ships. It is the hexagonal C# logo used as the `.cs` file icon. Simple Icons asks for
+attribution but does not require it; this notice and the link above are the attribution. Microsoft, C#
+and .NET are trademarks of Microsoft Corporation; OpenRidr is not affiliated with Microsoft.
+
+## T3 Code (`pingdotgg/t3code`) — MIT
+
+Two things were adapted from the T3 Code repository (MIT): the file-name/extension → icon resolution
+logic in `src/solutionVisuals.ts` (`BY_NAME`, `Dockerfile`/`docker-compose`/`DotSettings`/`appsettings`
+rules) and the per-kind color pairs in `src/styles.css` (`--icon-csharp`, `--icon-json`,
+`--icon-markdown`, `--icon-docker`, `--icon-doc`, `--icon-git`, dark and light). No component, stylesheet or
+asset of the T3 Code app is copied.
+
+Copyright (c) T3 Code contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Apache License 2.0 (the `@pierre/trees` glyphs above)
 
 ```text
                                  Apache License

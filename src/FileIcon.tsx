@@ -1,43 +1,54 @@
+import type { ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
-import { CSharpIcon } from "./icons/CSharpIcon";
-import { ProjectIcon } from "./icons/ProjectIcon";
-import { SymbolIcon } from "./icons/SymbolIcon";
-import { fileKind, type FileKind, type ProjectKind, type SymbolKind } from "./solutionVisuals";
+import {
+  CSharpGlyph, DockerGlyph, DocGlyph, GitGlyph, JsonGlyph, MarkdownGlyph, TextGlyph, YamlGlyph,
+} from "./icons/fileGlyphs";
+import { SYMBOL_LABEL, SymbolMark } from "./icons/SymbolMark";
+import { fileGlyph, fileKind, type FileGlyph, type SymbolKind } from "./solutionVisuals";
 
-const GLYPH: Partial<Record<FileKind, IconName>> = {
-  solution: "solution",
-  props: "code",
-  json: "braces",
+/** Vendored SVGs (see THIRD-PARTY-NOTICES); shared elements are immutable, so they live here. */
+const CUSTOM: Partial<Record<FileGlyph, ReactNode>> = {
+  doc: <DocGlyph />,
+  json: <JsonGlyph />,
+  markdown: <MarkdownGlyph />,
+  docker: <DockerGlyph />,
+  yaml: <YamlGlyph />,
+  text: <TextGlyph />,
+  git: <GitGlyph />,
+};
+
+/** Kinds the bundled Lucide set already draws well. */
+const LUCIDE: Partial<Record<FileGlyph, IconName>> = {
   xml: "code",
   razor: "code",
   resource: "package",
-  markdown: "text",
-  text: "text",
-  yaml: "runconfig",
   config: "settings",
   script: "terminal",
-  file: "file",
 };
 
-/** Type glyph for a path; color is a token (`--icon-*`) applied by the `tint-*` class. */
-export function FileIcon({
-  path,
-  projectKind = "unknown",
-  symbolKind,
-}: {
-  path: string;
-  projectKind?: ProjectKind;
-  symbolKind?: SymbolKind;
-}) {
-  if (symbolKind) return <SymbolIcon kind={symbolKind} />;
-  const kind = fileKind(path);
-  if (kind === "csharp") {
+/**
+ * Type glyph for a path; color is a token (`--icon-*`) applied by the `tint-*` class.
+ *
+ * A `.cs` file is always the `C#` hexagon (SPEC-SOLUTION-FILE-ICONS D2); a known symbol kind is a
+ * small corner mark plus the tooltip, never a replacement for the file type.
+ */
+export function FileIcon({ path, symbolKind }: { path: string; symbolKind?: SymbolKind }) {
+  const glyph = fileGlyph(fileKind(path));
+  if (glyph === "csharp") {
     return (
-      <span className="file-icon tint-csharp" aria-hidden="true">
-        <CSharpIcon />
+      <span
+        className="file-icon tint-csharp"
+        data-icon={glyph}
+        title={symbolKind ? `C# ${SYMBOL_LABEL[symbolKind]}` : "C# file"}
+      >
+        <CSharpGlyph />
+        {symbolKind && <SymbolMark kind={symbolKind} />}
       </span>
     );
   }
-  if (kind === "project") return <ProjectIcon kind={projectKind} />;
-  return <Icon name={GLYPH[kind] ?? "file"} className={`tint-${kind}`} />;
+  return (
+    <span className={`file-icon tint-${glyph}`} data-icon={glyph} aria-hidden="true">
+      {CUSTOM[glyph] ?? <Icon name={LUCIDE[glyph] ?? "file"} />}
+    </span>
+  );
 }
