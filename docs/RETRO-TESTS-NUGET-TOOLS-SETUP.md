@@ -22,3 +22,13 @@
 - Windows, macOS Intel e runtime .NET 10 ausente no app real.
 - Confirmação real de update em lote e de install descoberto; escopo Solução no app real.
 - Debug de teste, Continuous Testing, cobertura e sessão "All tests from Solution" continuam fora do host.
+
+## Rodada de revisão (2026-11-05, segunda)
+
+- **Lote de update**: o erro real estava no caminho `Ok(UpdateResult{state:"failed"})`, que parecia sucesso; o teste com csproj malformado (dotnet add sai ≠0) fixa o comportamento, e CPM passou a falhar por item. Restore só roda nos projetos atualizados, trust é rechecado por item e `download-N` é limpo.
+- **Setup**: o gate passou para `require_trust`/`grant_locked`; a UI não é mais a única barreira. O seam de teste `allow_setup_for_tests` é público mas `#[doc(hidden)]`, inalcançável pelo dispatch/HTTP. Launcher sem integridade não é mais adotado; reinstall usa staging e preserva a instalação anterior em falha.
+- **Assets**: a leitura antiga de `autoReferenced` em `targets` era fictícia; agora vem de `project.frameworks.dependencies`/`downloadDependencies`, com testes que restauram netstandard2.0 e net8.0+RID de verdade.
+- **Discover**: fonte e `@id` passam por validação de HTTPS/host público, redirects desligados e fonte precisa estar configurada; `dotnet list --source` usa a mesma checagem.
+- **Saída**: fechar a janela/⌘Q fecha o workspace antes do exit; `kill(-pid)` só acontece com líder vivo, evitando pgid reciclado. `pgrep -x` vazio nas duas saídas.
+- **Visual**: a árvore de Tests ficou à esquerda com detalhe à direita, barra vertical e aba de sessão; NuGet trocou a tabela por seções recolhíveis com checkbox geral, badge e barra vertical. `All tests from Solution` não foi rotulado assim porque o host continua por projeto/TFM.
+- **Lição**: testes de UI antigos que codificavam plano/flag precisam ser reescritos quando o produto muda de fluxo; o gate de setup quebrou o teste de propriedade de trust e os testes de LSP — usar o seam de setup explicitamente, never esconder a condição no helper de UI.
