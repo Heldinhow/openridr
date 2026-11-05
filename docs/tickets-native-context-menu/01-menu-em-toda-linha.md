@@ -53,6 +53,7 @@ lugar nenhum, e toolbar/abas/status bar mostravam o menu de navegador do WKWebVi
 - [x] Campo de texto e terminal mantêm o menu do sistema (no terminal, `Paste` cola no shell).
 - [x] Com a linha focada, `Shift+F10`/tecla de menu abrem o menu dela mesmo quando o keymap mapeia a
       tecla (perfil IntelliJ); fora da árvore o atalho do keymap continua valendo.
-- [x] Ao fechar, o foco volta para a linha que abriu o menu (teclado e mouse).
+- [x] Ao fechar, o foco volta para a linha que abriu o menu (teclado e mouse) **quando o menu ainda o
+      tem**; ação que abre e foca diálogo/painel/editor mantém o foco do alvo.
 - [x] Nenhuma dependência nova; `data-testid` preservados.
 - [ ] Windows/macOS Intel: não executado (o guard é JS e não depende da plataforma).

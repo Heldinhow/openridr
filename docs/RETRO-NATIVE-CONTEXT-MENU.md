@@ -48,6 +48,16 @@
 - **"Add Project…" na solution folder.** A ação adiciona na raiz da solução; oferecê-la numa pasta é
   prometer o que ela não faz. Menos é mais: o menu da pasta tem só o que é dela.
 
+## Re-check de foco
+
+Devolver o foco à linha em **todo** fechamento parecia inofensivo e não roubava nada nas ações de hoje,
+porque o React aplica o `autoFocus` do diálogo no commit — depois do handler do clique. Mas isso era
+sorte de ordenação, não contrato: bastava uma ação chamar `focus()` dentro do próprio handler para a
+linha roubar o foco. Agora o código pergunta antes ("o menu ainda tem o foco?") em vez de confiar na
+ordem. E o teste mede o foco de cada ação, não só "o menu fechou".
+Achado colateral honesto: `Open` pela árvore não leva o foco ao editor — é a convenção do app, já
+testada em `focus-after-navigation.spec.ts`; registrar em vez de "consertar" sem decisão.
+
 ## Incidente operacional (vale mais que o código)
 
 `git stash` é **global ao repositório**, e este repo tem worktrees de vários agentes rodando em

@@ -782,3 +782,16 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **Operação.** `git stash` é global ao repositório e este repo tem várias worktrees: para provar
   "falha antes", copie o arquivo para `/tmp` e restaure, nunca use `stash` (um pop puxou o stash de
   outra sessão e trouxe conflitos Rust para este worktree).
+
+## 2026-11-05 — Foco ao fechar o menu da árvore (re-check da revisão)
+
+- **Quem devolve o foco é o menu, e só enquanto ele o segura.** `closeTreeMenu` só chama
+  `row.focus()` quando o `document.activeElement` ainda está no próprio menu (ou é o `body`). Uma ação
+  que abre diálogo/painel e foca o campo (rename, new file, delete, Find in Files) ou o editor mantém o
+  foco: o React aplica `autoFocus` no commit, depois do handler do clique, então o campo sempre vence —
+  e um `focus()` síncrono dentro de uma ação futura também não seria roubado.
+- **Abrir arquivo pela árvore mantém o foco na árvore**, inclusive pelo menu (`Open`). É a convenção
+  já testada em `focus-after-navigation.spec.ts` ("a plain tree click keeps the focus in the tree");
+  mover o foco para o editor nesse caminho seria mudar produto, não este ticket.
+- **Clicar fora mira onde o usuário clicou.** Se o alvo é focável (editor), ele fica com o foco; a linha
+  recupera o foco quando nada mais o tomou (Esc, clique em área não focável).

@@ -2568,9 +2568,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   function closeTreeMenu() {
-    setTreeMenu(null);
-    treeMenuReturnFocus.current?.focus();
+    const row = treeMenuReturnFocus.current;
     treeMenuReturnFocus.current = null;
+    setTreeMenu(null);
+    if (!row) return;
+    // An action that already owns the focus (the editor, a dialog field, a panel) keeps it: the row
+    // only takes the focus back while the menu itself still holds it — Esc, a click outside, or an
+    // action that focuses nothing. A dialog opened by the action focuses its field on commit, after
+    // this call, and wins on its own.
+    const active = document.activeElement;
+    const menuHoldsFocus =
+      !(active instanceof HTMLElement) ||
+      active === document.body ||
+      active.closest(".editor-context-menu") !== null;
+    if (menuHoldsFocus && row.isConnected) row.focus();
   }
 
   const reloadReason =

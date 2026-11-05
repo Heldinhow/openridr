@@ -30,8 +30,13 @@ do WKWebView — "Reload" num app de produção é sempre defeito.
    de menu** (`ContextMenu`), além da ação de acessibilidade (que chega como `contextmenu`).
 2. `TreeRow` é o único lugar que decide sobre o menu: ele cancela o `contextmenu` em **toda** linha,
    mesmo numa linha sem menu (defesa em profundidade), e entrega a posição de abertura (mouse ou retângulo
-   da linha) **e a própria linha** para quem a desenha. O menu devolve o foco à linha que o abriu — no
-   mouse também, porque o WKWebView não move o foco no clique direito.
+   da linha) **e a própria linha** para quem a desenha. O menu devolve o foco à linha que o abriu
+   enquanto o próprio menu o segura (Esc, clique fora, ação que não foca nada) — no mouse também,
+   porque o WKWebView não move o foco no clique direito. Uma ação que abre e foca o próprio alvo
+   (diálogo de rename/new file, confirmação de delete, campo do Find in Files, editor) **mantém** o
+   foco: o menu nunca o rouba.
+   Abrir arquivo pela árvore (clique ou menu) mantém o foco na árvore — convenção já coberta por
+   `focus-after-navigation.spec.ts`; só os caminhos de busca/painel movem o foco para o editor.
 3. **Precedência de teclado.** Com o foco numa `.tree-row`, `Shift+F10` e a tecla de menu abrem o menu
    da linha e não o atalho do keymap (no perfil IntelliJ, macOS, `Shift+F10` é Run All Tests; no Rider
    Windows, Run). Fora da árvore o keymap vale normalmente. O handler global (`WorkspaceView`, capture)

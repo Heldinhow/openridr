@@ -1098,3 +1098,11 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
   `actions` 24/24, `bun test tests/unit` 26/26, `bunx tsc --noEmit` e `bun run check` limpos. No app real:
   terminal com Cut/Copy/Paste e `Paste` executando `echo MENU_PASTE_OK`, perfil IntelliJ abrindo o menu
   na linha e rodando a suíte no editor, foco voltando para a linha clicada com o mouse.
+- **Foco do menu da árvore (re-check).** `closeTreeMenu` guarda a linha mas só a foca quando
+  `document.activeElement` ainda está em `.editor-context-menu` (ou é o `body`): diálogo do rename/new
+  file, confirmação de delete, campo do Find in Files e o editor mantêm o foco que a própria ação abriu.
+  E2E novo no mesmo spec mede o foco depois de `Open` (linha), `Rename…`/`New File…` (`tree-name-input`),
+  `Delete` (`tree-delete-cancel`), `Find in Files…` (`find-in-files-input`) e depois de `Esc` (linha).
+  No app real: `Rename…` deixa `Name` com `states:["focused"]` (captura 22) e `Esc` (enviado por
+  `osascript` `key code 53`, porque `press escape` do agent-desktop vira `AXCancel`) devolve o foco à
+  linha que abriu (captura 23).

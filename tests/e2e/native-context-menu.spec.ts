@@ -109,6 +109,51 @@ test("every row opens the app menu and cancels the native one", async ({ page })
   await expect(page.getByTestId("tree-project-OrderDesk.Core")).toBeFocused();
 });
 
+test("an action keeps the focus it opens, Escape returns it to the row", async ({ page }) => {
+  test.setTimeout(180_000);
+  await open(page, tempCopy());
+  const file = page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs");
+
+  // Opening from the tree keeps the focus in the tree, like a plain row click
+  // (focus-after-navigation.spec.ts): the menu does not move the focus into the editor.
+  await file.click({ button: "right" });
+  await page.getByTestId("tree-menu-open").click();
+  await expect(page.getByTestId("tab-src/OrderDesk.Cli/Program.cs")).toBeVisible();
+  await expect(file).toBeFocused();
+
+  // A dialog opened by an action focuses its own field and keeps it; the row must not take it back.
+  await file.click({ button: "right" });
+  await page.getByTestId("tree-menu-rename").click();
+  await expect(page.getByTestId("tree-name-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("tree-project-OrderDesk.Core").click({ button: "right" });
+  await page.getByTestId("tree-menu-new-file").click();
+  await expect(page.getByTestId("tree-name-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  await file.click({ button: "right" });
+  await page.getByTestId("tree-menu-delete").click();
+  await expect(page.getByTestId("tree-delete-cancel")).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  // Same for a panel the action focuses.
+  await file.click({ button: "right" });
+  await page.getByTestId("tree-menu-find").click();
+  await expect(page.getByTestId("find-in-files-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  // Escape on a menu with no action still gives the row its focus, from mouse and from keyboard.
+  await file.click({ button: "right" });
+  await expect(page.getByTestId("tree-context-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(file).toBeFocused();
+  await page.keyboard.press("Shift+F10");
+  await expect(page.getByTestId("tree-context-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(file).toBeFocused();
+});
+
 test("IntelliJ profile: a tree row keeps Shift+F10, outside the tree the keymap runs", async ({ page }) => {
   test.setTimeout(180_000);
   // IntelliJ maps Shift+F10 to Run All Tests on macOS; the tree must win while a row has the focus.

@@ -80,14 +80,40 @@ Profile ▸ IntelliJ ▸ Save settings, com `settings.json` do home confirmando 
 | 4. foco volta para a linha clicada | foco em `Program.cs` → clique direito físico em `Order.cs` (WKWebView não move o foco no clique) → fecha o menu → `Order.cs` é a linha com `states: ["focused"]`; `Program.cs` sem `focused` | — (estado de acessibilidade) |
 | 5. solution folder sem `Add Project…` | menu da linha `src · 2 projects` = Build Solution, Restore Solution, Reload Solution, Find in Files… | `05-after-folder-app-menu.png` |
 
+## Re-check de foco (29ª rodada)
+
+O fechamento do menu devolve o foco à linha **enquanto o menu o segura**; ação que foca o próprio alvo
+mantém. Medido no E2E (Chromium, `tests/e2e/native-context-menu.spec.ts`, testid do elemento com foco
+logo depois da ação):
+
+| Ação do menu | Foco depois | Observação |
+|---|---|---|
+| `Open` (arquivo) | a linha da árvore | abrir pela árvore mantém o foco na árvore, como no clique simples (`focus-after-navigation.spec.ts`); o editor não é focado por esse caminho |
+| `Rename…` | `tree-name-input` | diálogo foca o campo no commit e vence a linha |
+| `New File…` (projeto) | `tree-name-input` | idem |
+| `Delete` | `tree-delete-cancel` | idem |
+| `Find in Files…` | `find-in-files-input` | painel foca o campo |
+| `Esc` (sem ação) | a linha | também depois de abrir o menu pelo mouse |
+
+No app real (mesmo bundle, `OPENRIDR_HOME` isolado):
+
+| Caso | Prova | Captura |
+|---|---|---|
+| menu → `Rename…` | diálogo `Rename` com o campo `Name` em `states: ["focused"]` — a linha não roubou | `22-after-rename-keeps-dialog-focus.png` |
+| menu → `Open` | linha `Program.cs` continua com `states: ["focused"]`; o editor não é tocado nesse caminho | — (estado de acessibilidade) |
+| `Esc` fecha o menu | linha `Order.cs` (a que abriu) fica com `states: ["focused"]` | `23-after-escape-returns-focus-to-row.png` |
+
+`Esc` é enviado no app real por `osascript -e 'tell application "System Events" to key code 53'`
+(o `press escape` do agent-desktop vira `AXCancel` e não fecha o menu React).
+
 ## Testes automatizados
 
 Portas próprias (1460 UI / 4357 host), fixture em cópia temporária, `dotnet` 8.0.408 no PATH.
 
 | Passo | Comando | Antes (HEAD) | Depois |
 |---|---|---|---|
-| E2E novo | `OPENRIDR_E2E_UI_PORT=1460 OPENRIDR_E2E_HOST_PORT=4357 bunx playwright test tests/e2e/native-context-menu.spec.ts` | **1 failed** — `tree-folder-src` não cancela o `contextmenu` (`expect(cancelled).toBe(true)` recebeu `false`) | **2 passed** (8,7 s) |
-| Regressão árvore/busca/atalhos | idem, `solution-explorer`, `medium-nav-find-in-files`, `actions` + o spec novo | — | **24 passed** (1,1 min) |
+| E2E novo | `OPENRIDR_E2E_UI_PORT=1460 OPENRIDR_E2E_HOST_PORT=4357 bunx playwright test tests/e2e/native-context-menu.spec.ts` | **1 failed** — `tree-folder-src` não cancela o `contextmenu` (`expect(cancelled).toBe(true)` recebeu `false`) | **3 passed** (9,1 s) |
+| Regressão árvore/busca/atalhos/foco | idem, `solution-explorer`, `medium-nav-find-in-files`, `actions`, `focus-after-navigation` + o spec novo | — | **31 passed** (1,0 min) |
 | Unit | `bun test tests/unit` | `.xterm` e `contenteditable="false"`: **3 failed** com o `nativeMenu.ts` do commit anterior | **26 passed** (5 do guard) |
 | Tipos/build | `bunx tsc --noEmit`, `bun run check` | — | sem erros |
 
