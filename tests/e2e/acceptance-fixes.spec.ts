@@ -171,3 +171,80 @@ test("D6: the status bar, the test details and the discovery details are named r
   await expect(details).toHaveAttribute("aria-live", "polite");
   await expect.poll(() => revisionOf(page)).toBeGreaterThan(0);
 });
+
+test("D3b: the current evaluation wins over the TFM of an earlier discovery", async ({ page }) => {
+  test.setTimeout(300_000);
+  // One test project with two TFMs: the discovery runs on net8.0, then the model is re-evaluated
+  // on netstandard2.0. The selector follows the model; the old discovery cannot hold it back.
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-acc-multi-"));
+  const root = path.join(base, "MultiScope");
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "global.json"),
+    '{"sdk":{"version":"8.0.408","rollForward":"disable"}}\n',
+  );
+  fs.writeFileSync(
+    path.join(root, "MultiScope.csproj"),
+    `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+</Project>
+`,
+  );
+  fs.writeFileSync(
+    path.join(root, "ScopeTests.cs"),
+    "using Xunit;\nnamespace MultiScope;\npublic sealed class ScopeTests { [Fact] public void One() { } }\n",
+  );
+
+  await page.goto("/");
+  await page.getByTestId("workspace-path-input").fill(path.join(root, "MultiScope.csproj"));
+  await page.getByTestId("workspace-open").click();
+  await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.post(`${host}/call`, {
+          data: { method: "workspace.state", params: {} },
+        });
+        const state = (await response.json()).data;
+        return state.restore.state === "ok" && state.evaluation.state === "ok" && !state.evaluation.stale
+          ? "ready"
+          : `${state.restore.state}:${state.evaluation.state}:${state.evaluation.stale}`;
+      },
+      { timeout: 180_000 },
+    )
+    .toBe("ready");
+
+  await page.getByTestId("bottom-tab-tests").click();
+  await page.getByTestId("tests-tfm").selectOption("net8.0");
+  await expect.poll(() => revisionOf(page)).toBeGreaterThan(0);
+  await clickDiscover(page);
+  await expect(page.getByTestId("tests-state")).toContainText("Discovered", { timeout: 180_000 });
+  const discovered = await page.request.post(`${host}/call`, {
+    data: { method: "workspace.state", params: {} },
+  });
+  expect((await discovered.json()).data.tests.discovery.targetFramework).toBe("net8.0");
+
+  // The model moves to the other TFM: the panel must show the model's TFM, not the discovery's.
+  await page.getByTestId("tests-tfm").selectOption("netstandard2.0");
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.post(`${host}/call`, {
+          data: { method: "workspace.state", params: {} },
+        });
+        return (await response.json()).data.evaluation.context.targetFramework;
+      },
+      { timeout: 180_000 },
+    )
+    .toBe("netstandard2.0");
+  await expect(page.getByTestId("tests-tfm")).toHaveValue("netstandard2.0");
+});

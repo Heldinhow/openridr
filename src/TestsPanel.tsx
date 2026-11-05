@@ -1,6 +1,7 @@
 import { Icon } from "./Icon";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { call, messageOf, type Evaluation, type TestItem, type TestResult, type TestRun, type Tests, type TestsDiscovery } from "./host/client";
+import { testPanelFramework } from "./testScope";
 import {
   buildTestTree,
   filterTestTree,
@@ -248,13 +249,13 @@ export function TestsPanel({
     !evaluation.availableTfms.includes(evaluation.context.targetFramework)
       ? [evaluation.context.targetFramework, ...evaluation.availableTfms]
       : evaluation.availableTfms;
-  // The TFM this panel operates on: the discovery's own scope once it exists, otherwise the
-  // evaluated selection. A solution whose projects declare a single framework has exactly one
-  // possible TFM, so it is named instead of showing "Not selected" next to every test.
-  const tfmValue =
-    discovery.targetFramework ??
-    evaluation.context.targetFramework ??
-    (evaluation.availableTfms.length === 1 ? evaluation.availableTfms[0] : null);
+  // The TFM this panel operates on follows the current evaluation, never an earlier discovery: a
+  // discovery on net8.0 must not survive a move to net9.0. With no explicit selection, only the
+  // selected test project's own single TFM is named instead of "Not selected".
+  const tfmValue = testPanelFramework({
+    contextFramework: evaluation.context.targetFramework,
+    projectTfms: selectedProject?.tfms ?? [],
+  });
   const terminalFailure = [
     "failed",
     "cancelled",
