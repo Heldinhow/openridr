@@ -3457,6 +3457,85 @@ exit 0
 
 #[cfg(unix)]
 #[test]
+fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies() {
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let adapter = temp.path().join("netcoredbg");
+    fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
+    fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
+    let installer = temp.path().join("installer");
+    fs::write(
+        &installer,
+        r#"#!/bin/sh
+staging="$OPENRIDR_HOME/tools/csharp-ls/0.28.staging"
+mkdir -p "$staging"
+printf '#!/bin/sh\nprintf "csharp-ls, version 0.28.0\n"\n' > "$staging/csharp-ls"
+chmod +x "$staging/csharp-ls"
+exit 0
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let home = temp.path().join("home");
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
+    let host = Host::new();
+    let workspace = temp_workspace(&["Tools.csproj"]);
+    let other = temp_workspace(&["Other.csproj"]);
+    let project = workspace.path().join("Tools.csproj");
+    host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+    host.dispatch("setup.start", json!({})).unwrap();
+    let mut ready = false;
+    for _ in 0..400 {
+        if host.dispatch("workspace.state", json!({})).unwrap()["setup"]["state"] == "ready" {
+            ready = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(ready, "initial setup did not become ready");
+    let launcher = home.join("tools/csharp-ls/0.28/csharp-ls");
+    assert!(launcher.is_file());
+
+    host.dispatch("setup.reinstall", json!({})).unwrap();
+    let mut swapped = false;
+    for _ in 0..400 {
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        if state["tools"]["csharp-ls"]["state"] == "verifying" {
+            swapped = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(swapped, "reinstall never reached the post-swap verification");
+    // Tools are global: switching workspaces while verifying must not seal or delete either copy.
+    host.dispatch("workspace.open", json!({ "path": other.path().join("Other.csproj") }))
+        .unwrap();
+    let mut ready_after_switch = false;
+    for _ in 0..400 {
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        if state["tools"]["csharp-ls"]["state"] == "ready" {
+            assert!(launcher.is_file(), "neither the new nor the previous launcher survived");
+            ready_after_switch = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(ready_after_switch, "reinstall did not finish after the workspace switch");
+    // A subsequent setup attempt reuses the good installation instead of deleting it.
+    host.dispatch("setup.start", json!({})).unwrap();
+    assert_eq!(
+        host.dispatch("workspace.state", json!({})).unwrap()["tools"]["csharp-ls"]["state"],
+        "ready"
+    );
+    assert!(launcher.is_file());
+}
+
+#[cfg(unix)]
+#[test]
 fn tools_download_does_not_block_host_calls() {
     use std::os::unix::fs::PermissionsExt;
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -3478,8 +3557,22 @@ fn tools_download_does_not_block_host_calls() {
     assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "downloading");
     assert!(start.elapsed() < Duration::from_millis(700), "download blocked host dispatch");
     host.dispatch("workspace.close", json!({})).unwrap();
-    std::thread::sleep(Duration::from_millis(1700));
-    assert!(snapshot(&host)["processes"].as_array().unwrap().is_empty(), "a cancelled download started an installer");
+    // Tools are global: closing the workspace must not seal this install. The delayed worker
+    // proceeds, runs the (failing) controlled installer, and lands in failed, not cancelled.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let state = snapshot(&host)["tools"]["csharp-ls"]["state"].clone();
+        if state == "failed" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "global install did not finish: {state}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let processes = snapshot(&host)["processes"].as_array().unwrap().clone();
+    assert!(
+        processes.iter().any(|process| process["state"] == "exited"),
+        "the workspace close sealed the global install instead of letting it finish"
+    );
 }
 
 #[cfg(unix)]

@@ -113,6 +113,12 @@ impl Drop for Host {
     fn drop(&mut self) {
         if let Ok(inner) = self.inner.get_mut() {
             stop_services(inner, "The host is shutting down.");
+            let tools = inner.tools.clone();
+            tools.seal(
+                "The host is shutting down.",
+                None,
+                &mut inner.processes.lock().unwrap(),
+            );
         }
     }
 }
@@ -7075,12 +7081,11 @@ fn stop_lsp_inner(inner: &mut Inner, reason: &str) {
     }
 }
 
-/// Every workspace boundary stops analysis and a real installation. A tool that was already
-/// ready stays ready: it lives in the app home, not in the workspace.
+/// Every workspace boundary stops analysis. Tools are global to the app home and deliberately
+/// continue across a workspace switch; sealing here used to cancel a Reinstall after its swap
+/// and leave the old installation only in staging. The host shutdown path seals them.
 fn stop_services(inner: &mut Inner, reason: &str) {
     stop_lsp_inner(inner, reason);
-    let tools = inner.tools.clone();
-    tools.seal(reason, None, &mut inner.processes.lock().unwrap());
     inner.debugger.seal(reason);
     stop_debug(inner, reason, true);
 }
