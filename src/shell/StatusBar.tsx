@@ -1,5 +1,6 @@
 import { profileTitle, type ProfileId } from "../actions/keymap";
 import type { Snapshot } from "../host/client";
+import type { PartialWorkspaceStatus } from "../evaluationStatus";
 import { Icon } from "../Icon";
 import { StatusMode } from "./StatusMode";
 
@@ -20,12 +21,14 @@ type RestoreStatus = {
   onRetry: (() => void) | null;
 };
 
-export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile }: {
+export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, partial, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile }: {
   workspace: { name: string; path: string };
   snapshot: Snapshot;
   onSnapshot: (snapshot: Snapshot) => void;
   sdkSummary: string;
   evaluation: EvaluationStatus;
+  /** Incomplete evaluated context; the old tree footnote now lives here. */
+  partial: PartialWorkspaceStatus | null;
   restore: RestoreStatus;
   dirtyCount: number;
   diagnostics: { errors: number; warnings: number; onOpen: () => void };
@@ -75,10 +78,21 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
           title={evaluation.title}
           className={evaluation.tone === "error" ? "error" : undefined}
         >
-          <span data-testid="eval-state" role="status">{evaluation.text}</span>
+          <span
+            data-testid="eval-state"
+            role="status"
+            className={evaluation.tone === "error" ? "error" : undefined}
+          >
+            {evaluation.text}
+          </span>
         </span>
       ) : (
         <span>{evaluation.text}</span>
+      )}
+      {partial && (
+        <span className="status-partial" data-testid="tree-partial" title={partial.title}>
+          {partial.text}
+        </span>
       )}
       {analysis && (
         <span data-testid="status-analysis">

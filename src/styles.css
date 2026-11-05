@@ -3340,3 +3340,4 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 
 .sol-row.no-index .tree-name { color: var(--muted); }
 .sol-row.no-index .tree-icon { opacity: 0.6; }
+.status-partial { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--warning); }

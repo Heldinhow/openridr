@@ -101,6 +101,23 @@ export function frameworkRows(tfms: string[], kind: ProjectKind): string[] {
     .filter((label): label is string => label !== null);
 }
 
+export type PackageRefLike = { name: string; version: string | null };
+
+/** One row per name@version (plus TFM when a caller has one); packages never share a React key. */
+export function packageKey(pkg: PackageRefLike, tfm?: string | null): string {
+  return `${pkg.name}@${pkg.version ?? "unknown"}${tfm ? `:${tfm}` : ""}`;
+}
+
+export function dedupePackages(packages: PackageRefLike[]): PackageRefLike[] {
+  const seen = new Set<string>();
+  return packages.filter((pkg) => {
+    const key = packageKey(pkg);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 const SYMBOL_KINDS: SymbolKind[] = ["class", "interface", "enum", "record", "struct"];
 
 /** Guard for the host answer: only the five declared kinds reach the badge. */

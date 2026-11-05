@@ -43,6 +43,7 @@ import {
 import { TestsQuickList } from "./TestsQuickList";
 import { ProcessPanel } from "./ProcessPanel";
 import { collectDiagnostics, problemCounts, samePath } from "./diagnosticMarks";
+import { partialWorkspaceStatus, evaluationStatusView } from "./evaluationStatus";
 import { DebugAdapterPanel, LspPanel, ToolInstaller, lspStartBlocker, lspStateLabel } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
@@ -339,21 +340,6 @@ function evaluatedProjectFor(path: string, projects: EvaluationProject[]) {
     const dir = project.path.replace(/\/[^/]+$/, "");
     return path === project.path || path.startsWith(`${dir}/`);
   });
-}
-
-function evaluationStateLabel(state: Snapshot["evaluation"]["state"]) {
-  switch (state) {
-    case "running":
-      return "Evaluating…";
-    case "ok":
-      return "Evaluated";
-    case "partial":
-      return "Evaluated with errors";
-    case "failed":
-      return "Evaluation failed";
-    default:
-      return "Not evaluated";
-  }
 }
 
 function restoreStateLabel(restore: Snapshot["restore"]) {
@@ -4059,14 +4045,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     breadcrumbProject && breadcrumbProject !== workspace.name ? breadcrumbProject : null,
     active ? baseName(active.path) : null,
   ].filter((part): part is string => Boolean(part)).join(" > ");
-  const evaluationStatus = showsEvaluatedTree
-    ? {
-        testId: "status-evaluation",
-        tone: evaluation.state === "failed" || evaluation.state === "partial" ? ("error" as const) : undefined,
-        title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
-        text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
-      }
-    : { testId: "status-evaluation", title: "Text outline · not evaluated", text: "Text outline · not evaluated" };
+  const evaluationStatus = evaluationStatusView(evaluation);
+  const partialWorkspace = showsEvaluatedTree ? partialWorkspaceStatus(evaluatedProjects) : null;
   const evaluationRun = {
     label: evaluation.revision > 0 ? "Re-evaluate project model" : "Evaluate project model",
     disabledReason: !evaluationAvailable
@@ -5267,6 +5247,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         onSnapshot={onSnapshot}
         sdkSummary={sdkSummary}
         evaluation={{ ...evaluationStatus, reevaluate: evaluationRun }}
+        partial={partialWorkspace}
         restore={{
           state: restore.state,
           label: restoreStateLabel(restore),

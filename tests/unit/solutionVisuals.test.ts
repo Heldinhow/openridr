@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  dedupePackages,
   fileKind,
   frameworkName,
   frameworkRows,
+  packageKey,
   projectKindOf,
   symbolKindOf,
 } from "../../src/solutionVisuals";
@@ -80,5 +82,30 @@ describe("symbolKindOf", () => {
     expect(symbolKindOf("namespace")).toBeUndefined();
     expect(symbolKindOf(null)).toBeUndefined();
     expect(symbolKindOf(3)).toBeUndefined();
+  });
+});
+
+describe("packageKey", () => {
+  test("versions and TFMs never share a row key", () => {
+    expect(packageKey({ name: "xunit", version: "2.9.2" })).toBe("xunit@2.9.2");
+    expect(packageKey({ name: "xunit", version: "2.9.2" })).not.toBe(
+      packageKey({ name: "xunit", version: "2.8.2" }),
+    );
+    expect(packageKey({ name: "xunit", version: "2.9.2" }, "net8.0")).toBe("xunit@2.9.2:net8.0");
+    expect(packageKey({ name: "xunit", version: null })).toBe("xunit@unknown");
+  });
+
+  test("duplicate package versions are collapsed, different versions are kept", () => {
+    const packages = [
+      { name: "xunit", version: "2.9.2" },
+      { name: "xunit", version: "2.9.2" },
+      { name: "xunit", version: "2.8.2" },
+      { name: "coverlet.collector", version: null },
+    ];
+    expect(dedupePackages(packages)).toEqual([
+      { name: "xunit", version: "2.9.2" },
+      { name: "xunit", version: "2.8.2" },
+      { name: "coverlet.collector", version: null },
+    ]);
   });
 });

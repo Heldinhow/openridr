@@ -7,5 +7,10 @@ declare module "bun:test" {
     toBe(expected: unknown): void;
     toEqual(expected: unknown): void;
     toBeUndefined(): void;
+    not: {
+      toBe(expected: unknown): void;
+      toEqual(expected: unknown): void;
+      toBeUndefined(): void;
+    };
   };
 }
