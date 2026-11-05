@@ -50,18 +50,23 @@ fn store_verified_package(temp: &Path, bytes: &[u8], expected: &str) -> Result<(
     Ok((feed, config))
 }
 
-fn prepare_local_package(temp: &Path) -> Result<(PathBuf, PathBuf), String> {
+fn prepare_local_package(temp: &Path, progress: impl Fn(u64, Option<u64>) -> bool) -> Result<(PathBuf, PathBuf), String> {
     let response = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .get(PACKAGE_URL)
         .call()
         .map_err(|error| format!("Could not download csharp-ls: {error}"))?;
+    let total = response.header("Content-Length").and_then(|value| value.parse().ok());
+    let mut reader = response.into_reader().take(PACKAGE_MAX_BYTES + 1);
     let mut bytes = Vec::new();
-    response.into_reader().take(PACKAGE_MAX_BYTES + 1).read_to_end(&mut bytes)
-        .map_err(|error| format!("Could not read csharp-ls package: {error}"))?;
-    if bytes.len() as u64 > PACKAGE_MAX_BYTES {
-        return Err("csharp-ls package exceeds the size limit".to_string());
+    let mut chunk = [0; 65536];
+    loop {
+        let count = reader.read(&mut chunk).map_err(|error| format!("Could not read csharp-ls package: {error}"))?;
+        if count == 0 { break; }
+        bytes.extend_from_slice(&chunk[..count]);
+        if bytes.len() as u64 > PACKAGE_MAX_BYTES { return Err("csharp-ls package exceeds the size limit".to_string()); }
+        if !progress(bytes.len() as u64, total) { return Err("Installation cancelled.".to_string()); }
     }
     store_verified_package(temp, &bytes, PACKAGE_SHA512)
 }
@@ -755,7 +760,84 @@ impl Tools {
         plan: Plan,
         workspace_id: u64,
         context_id: u64,
+        processes: Arc<Mutex<Registry>>,
+    ) -> HostResult<Value> {
+        if persisted_installation_valid(Path::new(&plan.destination)) ||
+            (probe_muxer().is_some() && Path::new(&plan.destination).join(binary_name()).is_file()) {
+            return self.begin_install_worker(plan, workspace_id, context_id, &mut processes.lock().unwrap(), None);
+        }
+        let attempt = {
+            let mut data = self.data.lock().unwrap();
+            if matches!(data.state, "downloading" | "installing" | "verifying") && !data.sealed {
+                return Err(HostError::new("invalid_state", "An installation is already running."));
+            }
+            data.revision += 1;
+            data.state = "downloading";
+            data.plan = Some(plan.clone());
+            data.confirmed_plan_id = Some(plan.plan_id.clone());
+            data.destination = plan.destination.clone();
+            data.staging = plan.staging.clone();
+            data.workspace_id = Some(workspace_id);
+            data.context_id = Some(context_id);
+            data.started_at = Some(now_ms());
+            data.finished_at = None;
+            data.process_id = None;
+            data.progress = None;
+            data.error = None;
+            data.sealed = false;
+            data.cancel_requested = false;
+            data.note = Some("Downloading and verifying the pinned csharp-ls package.".into());
+            data.revision
+        };
+        let tools = Arc::clone(self);
+        std::thread::spawn(move || {
+            let temp = install_temp(&plan.staging).join(format!("download-{attempt}"));
+            let package = if probe_muxer().is_some() {
+                if let Ok(delay) = std::env::var("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS") {
+                    if let Ok(milliseconds) = delay.parse::<u64>() {
+                        std::thread::sleep(std::time::Duration::from_millis(milliseconds.min(5_000)));
+                    }
+                }
+                Ok(None)
+            } else {
+                fs::create_dir_all(&temp).map_err(|error| error.to_string()).and_then(|_| {
+                    prepare_local_package(&temp, |downloaded, total| {
+                        let mut data = tools.data.lock().unwrap();
+                        if data.cancel_requested || data.sealed || data.revision != attempt { return false; }
+                        data.progress = Some(Progress { downloaded, total });
+                        true
+                    }).map(Some)
+                })
+            };
+            let mut registry = processes.lock().unwrap();
+            {
+                let data = tools.data.lock().unwrap();
+                if data.sealed || data.cancel_requested || data.revision != attempt {
+                    let _ = fs::remove_dir_all(&temp);
+                    return;
+                }
+            }
+            let result = package.map_err(|error| HostError::new("operation_failed", error))
+                .and_then(|package| tools.begin_install_worker(plan, workspace_id, context_id, &mut registry, package));
+            if let Err(error) = result {
+                let mut data = tools.data.lock().unwrap();
+                if !data.sealed && data.revision == attempt {
+                    data.state = "failed";
+                    data.error = Some(error.message);
+                    data.finished_at = Some(now_ms());
+                }
+            }
+        });
+        Ok(json!({"spawned": true}))
+    }
+
+    fn begin_install_worker(
+        self: &Arc<Self>,
+        plan: Plan,
+        workspace_id: u64,
+        context_id: u64,
         processes: &mut Registry,
+        local_package: Option<(PathBuf, PathBuf)>,
     ) -> HostResult<Value> {
         if let Some(process_id) = self.running_process_id() {
             return Err(HostError::new(
@@ -842,12 +924,6 @@ impl Tools {
             )
         })?;
         let progress_base = directory_bytes(&child_home()) + directory_bytes(&temp);
-
-        let local_package = if probe_muxer().is_some() {
-            None
-        } else {
-            Some(prepare_local_package(&temp).map_err(|error| HostError::new("operation_failed", error))?)
-        };
 
         let mut command = Command::new(&plan.argv[0]);
         command
@@ -1198,6 +1274,13 @@ impl Tools {
             return Ok(());
         }
         let Some(process_id) = data.process_id else {
+            if data.state == "downloading" {
+                data.cancel_requested = true;
+                data.state = "cancelled";
+                data.progress = None;
+                data.finished_at = Some(now_ms());
+                return Ok(());
+            }
             return Err(HostError::new(
                 "invalid_state",
                 "No installation plan or running installation to cancel.",

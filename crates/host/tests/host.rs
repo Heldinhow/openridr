@@ -2966,6 +2966,33 @@ fn tools_install_is_real_verified_and_reused() {
 
 #[cfg(unix)]
 #[test]
+fn tools_download_does_not_block_host_calls() {
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let installer = home.path().join("installer");
+    fs::write(&installer, "#!/bin/sh\nexit 1\n").unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let _delay = EnvVar::set("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS", "1500");
+    let host = Host::new();
+    let workspace = temp_workspace(&["Tools.csproj"]);
+    open(&host, &workspace.path().join("Tools.csproj"));
+    grant(&host);
+    let plan = tool_plan(&host);
+    let start = Instant::now();
+    host.dispatch("tools.install", json!({"planId": plan["plan"]["planId"], "confirm": true})).unwrap();
+    assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "downloading");
+    assert!(start.elapsed() < Duration::from_millis(700), "download blocked host dispatch");
+    host.dispatch("workspace.close", json!({})).unwrap();
+    std::thread::sleep(Duration::from_millis(1700));
+    assert!(snapshot(&host)["processes"].as_array().unwrap().is_empty(), "a cancelled download started an installer");
+}
+
+#[cfg(unix)]
+#[test]
 fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging() {
     use std::os::unix::fs::PermissionsExt;
 

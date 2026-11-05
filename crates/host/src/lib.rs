@@ -3192,7 +3192,7 @@ impl Host {
             current,
             token.workspace_id,
             token.context_id,
-            &mut inner.processes.lock().unwrap(),
+            inner.processes.clone(),
         )?;
         Ok(self.snapshot_value(&mut inner))
     }
@@ -3221,7 +3221,7 @@ impl Host {
             current,
             token.workspace_id,
             token.context_id,
-            &mut inner.processes.lock().unwrap(),
+            inner.processes.clone(),
         )?;
         Ok(self.snapshot_value(&mut inner))
     }
