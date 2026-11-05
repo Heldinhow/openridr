@@ -810,6 +810,22 @@ fn assets_target_tfm(target: &str) -> String {
     head.to_string()
 }
 
+fn inherited_base_intermediate(project: &Path) -> bool {
+    let mut current = project.parent();
+    while let Some(directory) = current {
+        for name in ["Directory.Build.props", "Directory.Build.targets"] {
+            let path = directory.join(name);
+            if let Ok(text) = fs::read_to_string(&path) {
+                if text.contains("<BaseIntermediateOutputPath") {
+                    return true;
+                }
+            }
+        }
+        current = directory.parent();
+    }
+    false
+}
+
 /// Reads the restore graph that MSBuild already wrote. It never restores: a missing or
 /// unreadable assets file is reported as unavailable, not guessed from the project file.
 ///
@@ -821,23 +837,23 @@ fn assets_target_tfm(target: &str) -> String {
 pub fn read_assets(project: &Path, target_framework: Option<&str>) -> Assets {
     let project_text = fs::read_to_string(project).unwrap_or_default();
     let property = xml_property(&project_text, "BaseIntermediateOutputPath");
-    if let Some(value) = property.as_deref() {
-        if value.contains('$') {
-            return Assets {
-                state: "unsupported",
-                message: Some(
-                    "Implicit and transitive packages are unavailable: BaseIntermediateOutputPath is inherited or expanded by MSBuild, so obj/project.assets.json is outside the default path."
-                        .to_string(),
-                ),
-                path: project
-                    .parent()
-                    .map(|parent| parent.join("obj/project.assets.json"))
-                    .unwrap_or_else(|| project.join("obj/project.assets.json"))
-                    .to_string_lossy()
+    let inherited = inherited_base_intermediate(project);
+    let expanded = property.as_deref().is_some_and(|value| value.contains('$'));
+    if inherited || expanded {
+        return Assets {
+            state: "unsupported",
+            message: Some(
+                "Implicit and transitive packages are unavailable: BaseIntermediateOutputPath is inherited or expanded by MSBuild (Directory.Build.props/targets or a property), so obj/project.assets.json is outside the default path."
                     .to_string(),
-                frameworks: Vec::new(),
-            };
-        }
+            ),
+            path: project
+                .parent()
+                .map(|parent| parent.join("obj/project.assets.json"))
+                .unwrap_or_else(|| project.join("obj/project.assets.json"))
+                .to_string_lossy()
+                .to_string(),
+            frameworks: Vec::new(),
+        };
     }
     let intermediate = property
         .as_deref()
@@ -1318,6 +1334,9 @@ fn url_host(url: &str) -> Option<&str> {
 
 fn private_host(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return private_ip(ip);
+    }
     if host == "localhost"
         || host.ends_with(".localhost")
         || host.ends_with(".local")
@@ -1369,18 +1388,38 @@ pub fn validate_source_arg(source: &str) -> Result<(), String> {
 fn private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
+            let octets = ip.octets();
             ip.is_loopback()
                 || ip.is_private()
                 || ip.is_link_local()
                 || ip.is_unspecified()
                 || ip.is_broadcast()
-                || (ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1]))
+                || ip.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
         }
         IpAddr::V6(ip) => {
+            // Mapped/compatible IPv4 and the NAT64 well-known prefix embed an IPv4 address
+            // that must be classified as IPv4, not as a public IPv6 literal.
+            if let Some(v4) = ip.to_ipv4() {
+                return private_ip(IpAddr::V4(v4));
+            }
+            let segments = ip.segments();
+            if segments[..6] == [0x0064, 0xff9b, 0, 0, 0, 0] {
+                let v4 = std::net::Ipv4Addr::new(
+                    (segments[6] >> 8) as u8,
+                    segments[6] as u8,
+                    (segments[7] >> 8) as u8,
+                    segments[7] as u8,
+                );
+                return private_ip(IpAddr::V4(v4));
+            }
             ip.is_loopback()
                 || ip.is_unspecified()
-                || (ip.segments()[0] & 0xfe00) == 0xfc00
-                || (ip.segments()[0] & 0xffc0) == 0xfe80
+                || ip.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
         }
     }
 }
@@ -2519,6 +2558,17 @@ mod tests {
             "https://192.168.1.2/v3/index.json",
             "https://169.254.1.2/v3/index.json",
             "https://[::1]/v3/index.json",
+            "https://[::ffff:127.0.0.1]/v3/index.json",
+            "https://[::ffff:10.0.0.1]/v3/index.json",
+            "https://[::127.0.0.1]/v3/index.json",
+            "https://[64:ff9b::7f00:1]/v3/index.json",
+            "https://[64:ff9b::10.0.0.1]/v3/index.json",
+            "https://0.0.0.0/v3/index.json",
+            "https://100.64.0.1/v3/index.json",
+            "https://198.18.0.1/v3/index.json",
+            "https://224.0.0.1/v3/index.json",
+            "https://[fc00::1]/v3/index.json",
+            "https://[fe80::1]/v3/index.json",
             "https://nuget.local/v3/index.json",
         ] {
             assert!(validate_source_arg(source).is_err(), "{source}");
@@ -2531,6 +2581,23 @@ mod tests {
         let unsafe_search = search("http://127.0.0.1:1/v3/index.json", "xunit", false, 5);
         assert_eq!(unsafe_search.state, "failed");
         assert!(unsafe_search.message.unwrap().contains("HTTPS"));
+    }
+
+    #[test]
+    fn an_inherited_base_intermediate_props_file_marks_assets_unsupported() {
+        let root = tempfile::tempdir().unwrap();
+        let project_dir = root.path().join("src/App");
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(
+            root.path().join("Directory.Build.props"),
+            "<Project><PropertyGroup><BaseIntermediateOutputPath>artifacts/obj/</BaseIntermediateOutputPath></PropertyGroup></Project>",
+        )
+        .unwrap();
+        let project = project_dir.join("App.csproj");
+        fs::write(&project, "<Project />").unwrap();
+        let assets = read_assets(&project, Some("net8.0"));
+        assert_eq!(assets.state, "unsupported");
+        assert!(assets.message.unwrap().contains("BaseIntermediateOutputPath"));
     }
 
     #[test]
