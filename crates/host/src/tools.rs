@@ -854,6 +854,7 @@ impl Tools {
                 }
             }
             let package = if probe_muxer().is_some() {
+                #[cfg(debug_assertions)]
                 if let Ok(delay) = std::env::var("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS") {
                     if let Ok(milliseconds) = delay.parse::<u64>() {
                         std::thread::sleep(std::time::Duration::from_millis(milliseconds.min(5_000)));
@@ -1009,6 +1010,24 @@ impl Tools {
                 "operation_failed",
                 "Refusing to run dotnet tool install without the verified local package feed and its SHA-512; the previous installation was not touched.",
             ));
+        }
+        if let Some((feed, _config)) = &local_package {
+            let package_path = feed.join("csharp-ls.0.28.0.nupkg");
+            let bytes = fs::read(&package_path).map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!(
+                        "Could not re-read the staged csharp-ls package {}: {error}",
+                        package_path.to_string_lossy()
+                    ),
+                )
+            })?;
+            verify_package_hash(&bytes, PACKAGE_SHA512).map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!("{error} No dotnet tool install was started."),
+                )
+            })?;
         }
         let mut command = Command::new(&plan.argv[0]);
         command
@@ -1245,28 +1264,23 @@ impl Tools {
                 }
                 let destination = PathBuf::from(&data.destination);
                 let staging = PathBuf::from(&data.staging);
-                if data.force {
-                    let staged = verify_installed(&staging, Path::new(&data.runtime_root));
-                    if staged.state != "ready" {
-                        data.state = "failed";
-                        data.progress = None;
-                        data.error = Some(format!(
-                            "Reinstall verification failed: {}",
-                            staged
-                                .reason
-                                .clone()
-                                .unwrap_or_else(|| "no verified version".to_string())
-                        ));
-                        data.note = Some(
-                            "The previous installation was kept; the new staging directory is not ready."
-                                .to_string(),
-                        );
-                        let _ = fs::remove_dir_all(&staging);
-                        data.finished_at = Some(now_ms());
-                        cleanup_download(&mut data);
-                        restore_previous(&mut data);
-                        return;
-                    }
+                // Verify the new copy and write its integrity record BEFORE the swap. A bad
+                // package or an unwritable record never touches the working installation.
+                if let Err(error) =
+                    verify_staged_installation(&staging, Path::new(&data.runtime_root))
+                {
+                    data.state = "failed";
+                    data.progress = None;
+                    data.error = Some(format!("Verification failed before promotion: {error}"));
+                    data.note = Some(
+                        "The previous installation was kept; the new staging directory is not ready."
+                            .to_string(),
+                    );
+                    let _ = fs::remove_dir_all(&staging);
+                    data.finished_at = Some(now_ms());
+                    cleanup_download(&mut data);
+                    restore_previous(&mut data);
+                    return;
                 }
                 if let Err(error) = promote(&staging, &destination) {
                     data.state = "failed";
@@ -1302,16 +1316,12 @@ impl Tools {
                 ));
                 let existing = verify_installed(&destination, Path::new(&data.runtime_root));
                 if existing.state != "ready" {
-                    let failed_dir = PathBuf::from(format!(
-                        "{}.failed-{}",
-                        destination.to_string_lossy(),
-                        now_ms()
-                    ));
-                    let moved = fs::rename(&destination, &failed_dir).is_ok();
+                    let staging = PathBuf::from(&data.staging);
+                    let recovered = rollback_promotion(&staging, &destination);
                     data.state = "failed";
                     data.progress = None;
                     data.error = Some(format!(
-                        "Verification failed: {}",
+                        "Verification after promotion failed: {}",
                         existing
                             .reason
                             .clone()
@@ -1320,35 +1330,23 @@ impl Tools {
                     if let Some(output) = &existing.output {
                         data.log.push(output.clone());
                     }
-                    data.note = Some(if moved {
-                        format!(
-                            "The unverified installation was moved to {} and is not ready.",
-                            failed_dir.to_string_lossy()
-                        )
+                    data.note = Some(if recovered {
+                        "The new installation failed verification; the previous verified installation was restored."
+                            .to_string()
                     } else {
                         "The unverified destination was left in place and is not ready."
                             .to_string()
                     });
                     data.finished_at = Some(now_ms());
                     cleanup_download(&mut data);
-                    if data.force {
+                    if recovered {
                         restore_previous(&mut data);
                     }
                     return;
                 }
-
-                if let Some(sha) = &existing.sha256 {
-                    if let Err(error) = record_installation(&destination, sha) {
-                        data.state = "failed";
-                        data.error = Some(format!("Could not save installation integrity: {error}"));
-                        data.finished_at = Some(now_ms());
-                        return;
-                    }
-                } else {
-                    data.state = "failed";
-                    data.error = Some("Could not hash the installed launcher.".to_string());
-                    data.finished_at = Some(now_ms());
-                    return;
+                let staging = PathBuf::from(&data.staging);
+                if staging.is_dir() {
+                    let _ = fs::remove_dir_all(&staging);
                 }
                 data.state = "ready";
                 if let Some(plan) = data.plan.as_mut() {
@@ -1549,6 +1547,34 @@ fn restore_previous(data: &mut Data) -> bool {
     true
 }
 
+fn verify_staged_installation(staging: &Path, runtime_root: &Path) -> Result<Existing, String> {
+    let existing = verify_installed(staging, runtime_root);
+    if existing.state != "ready" {
+        return Err(existing
+            .reason
+            .unwrap_or_else(|| "the staged launcher did not verify".to_string()));
+    }
+    let Some(sha) = existing.sha256.as_deref() else {
+        return Err("could not hash the staged launcher".to_string());
+    };
+    record_installation(staging, sha)
+        .map_err(|error| format!("could not save the staged integrity record: {error}"))?;
+    Ok(existing)
+}
+
+/// After a successful swap, `staging` holds the previous directory. A failed post-swap check
+/// swaps it back; the new directory ends in staging and is removed.
+fn rollback_promotion(staging: &Path, destination: &Path) -> bool {
+    if !staging.is_dir() {
+        return false;
+    }
+    if promote(staging, destination).is_err() {
+        return false;
+    }
+    let _ = fs::remove_dir_all(staging);
+    true
+}
+
 fn promote(staging: &Path, destination: &Path) -> Result<(), String> {
     if !staging.is_dir() {
         return Err("the staging directory does not exist".to_string());
@@ -1574,8 +1600,8 @@ fn promote(staging: &Path, destination: &Path) -> Result<(), String> {
                 std::io::Error::last_os_error()
             ));
         }
-        // staging now holds the previous directory; it is no longer needed.
-        let _ = fs::remove_dir_all(staging);
+        // staging now holds the previous directory; the caller keeps it until post-swap
+        // verification succeeds (or swaps it back on failure).
         return Ok(());
     }
     #[cfg(not(target_os = "macos"))]
@@ -1780,7 +1806,8 @@ mod tests {
         promote(&staging, &destination).unwrap();
         assert!(destination.join("new").is_file());
         assert!(!destination.join("old").exists());
-        assert!(!staging.exists());
+        // The previous directory stays in staging until post-swap verification succeeds.
+        assert!(staging.join("old").is_file());
     }
 
     #[cfg(unix)]
@@ -1815,5 +1842,100 @@ mod tests {
         let missing = temp.path().join("missing-staging");
         assert!(promote(&missing, &destination).is_err());
         assert!(destination.join("old").is_file());
+    }
+
+    fn worker_test_plan(temp: &Path) -> Plan {
+        Plan {
+            tool: TOOL,
+            version: VERSION,
+            package: TOOL,
+            source: Source {
+                name: "NuGet.org",
+                url: NUGET_SOURCE,
+                package_url: NUGET_PACKAGE,
+            },
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            destination: temp.join("destination").to_string_lossy().to_string(),
+            staging: temp.join("staging").to_string_lossy().to_string(),
+            dotnet_root: "/tmp".to_string(),
+            argv: vec!["dotnet".to_string(), "tool".to_string(), "install".to_string()],
+            cwd: temp.to_string_lossy().to_string(),
+            permissions: vec![],
+            integrity: "",
+            existing: inspect_existing(&temp.join("destination")),
+            plan_id: "test-plan".to_string(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_worker_rechecks_the_package_hash_before_installing() {
+        std::env::remove_var("OPENRIDR_ENABLE_PROBE");
+        let temp = tempfile::tempdir().unwrap();
+        let feed = temp.path().join("feed");
+        fs::create_dir_all(&feed).unwrap();
+        fs::write(feed.join("csharp-ls.0.28.0.nupkg"), b"not the pinned package").unwrap();
+        let config = temp.path().join("offline.config");
+        fs::write(&config, "<configuration />").unwrap();
+        let tools = std::sync::Arc::new(Tools::new());
+        let mut processes = Registry::new();
+        let error = tools
+            .begin_install_worker(
+                worker_test_plan(temp.path()),
+                1,
+                1,
+                &mut processes,
+                Some((feed, config)),
+                false,
+            )
+            .expect_err("a wrong package hash must stop before dotnet is spawned");
+        assert!(error.message.contains("SHA-512 mismatch"), "{}", error.message);
+        assert!(processes.views().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staged_verification_writes_integrity_and_a_write_failure_keeps_the_old_copy() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let staging = temp.path().join("staging");
+        fs::create_dir_all(&staging).unwrap();
+        let launcher = staging.join(binary_name());
+        fs::write(&launcher, "#!/bin/sh\nprintf 'csharp-ls, version 0.28.0\n'\n").unwrap();
+        fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
+        let existing = verify_staged_installation(&staging, Path::new("/tmp")).unwrap();
+        assert_eq!(existing.state, "ready");
+        assert!(staging.join(".openridr-integrity").is_file());
+
+        // A read-only staging directory cannot receive the integrity record.
+        let unwritable = temp.path().join("unwritable");
+        fs::create_dir_all(&unwritable).unwrap();
+        let launcher = unwritable.join(binary_name());
+        fs::write(&launcher, "#!/bin/sh\nprintf 'csharp-ls, version 0.28.0\n'\n").unwrap();
+        fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&unwritable, fs::Permissions::from_mode(0o555)).unwrap();
+        let error = verify_staged_installation(&unwritable, Path::new("/tmp")).unwrap_err();
+        fs::set_permissions(&unwritable, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(error.contains("integrity"), "{error}");
+        assert!(!unwritable.join(".openridr-integrity").exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rollback_after_a_failed_post_swap_check_restores_the_previous_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("0.28");
+        let staging = temp.path().join("0.28.staging");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(destination.join("old"), "old").unwrap();
+        fs::write(staging.join("new"), "new").unwrap();
+        promote(&staging, &destination).unwrap();
+        assert!(destination.join("new").is_file());
+        assert!(rollback_promotion(&staging, &destination));
+        assert!(destination.join("old").is_file());
+        assert!(!destination.join("new").exists());
+        assert!(!staging.exists());
     }
 }
