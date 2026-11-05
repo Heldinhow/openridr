@@ -1,6 +1,6 @@
 # 01 — Tirar o chrome de avaliação da árvore
 
-Status: ready-for-agent
+Status: implemented — verificação visual/E2E pendente de liberação da porta
 Spec: [D1, D2, D3](../SPEC-SOLUTION-EXPLORER-VISUAL.md)
 
 ## Problema

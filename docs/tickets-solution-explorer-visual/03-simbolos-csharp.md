@@ -1,6 +1,6 @@
 # 03 — Tipo de símbolo C# por arquivo
 
-Status: ready-for-agent
+Status: implemented — verificação visual/E2E pendente de liberação da porta
 Spec: [D7](../SPEC-SOLUTION-EXPLORER-VISUAL.md)
 
 ## Mudança

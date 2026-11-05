@@ -11,6 +11,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | o wrapper TS de um método | `grep -n 'build.start' src/host/client.ts` (tipos do snapshot também estão ali) |
 | um atalho/ação | `src/actions/keymap.ts` (teclas) e `src/actions/registry.ts` (ações) |
 | um termo do domínio | [GLOSSARY.md](../GLOSSARY.md) |
+| a cor/ícone de um projeto ou arquivo | `src/solutionVisuals.ts` (tipo) e `--icon-*` em `src/styles.css` (cor) |
 | uma decisão ("por quê?") | `grep -n '^## ' docs/decisions.md \| grep -i <tema>`; entradas "Substituída" já vêm marcadas |
 | como um ticket foi feito | `grep -n '^## ' docs/implementation-notes.md \| grep -i <tema>` |
 | o spec de uma feature | tabela "Feature → docs" em [README.md](README.md) |
@@ -24,6 +25,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | **`WorkspaceView.tsx`** (~5.200 linhas) | **um único componente** que monta o workspace: abas, editor, painéis, diálogos, atalhos globais. Começa em `export function WorkspaceView`. Antes dele só há helpers puros. Fluxos já extraídos: `useExecutionFlow.ts`, `useEvaluationFlow.ts`, `useRunConfigs.ts` |
 | **`CodeEditor.tsx`** (~1.200) | CodeMirror: gutter, breakpoints, marcas de diagnóstico, completion, rename |
 | `SolutionTree.tsx`, `TreeRow.tsx`, `solutionNodes.ts`, `solutionMenu.ts` | Solution Explorer (modelo dos nós, menu de contexto) |
+| `solutionVisuals.ts`, `FileIcon.tsx`, `icons/` | tipo visual de projeto/arquivo/símbolo (ícone + token `--icon-*`); cores em `styles.css` |
 | `shell/` | tool windows (faixas), barra de status, modo Restricted/Trusted |
 | `actions/` | keymap, registro de ações, Search Everywhere (`FindAction`), diálogo de Keymap |
 | `useExecutionFlow.ts`, `executionGates.ts`, `executionCommands.ts` | Build/Run/Debug: fluxo, gates (por que está desabilitado) e comandos |
@@ -41,7 +43,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 
 | Módulo | Responsabilidade |
 |---|---|
-| `evaluation.rs`, `outline.rs`, `sdk.rs`, `hostroot.rs` | avaliação MSBuild, outline de texto, inventário de SDKs, `DOTNET_ROOT` do csharp-ls |
+| `evaluation.rs`, `outline.rs`, `sdk.rs`, `hostroot.rs` | avaliação MSBuild, outline de texto e scan de tipo C# (`workspace.symbolKinds`), inventário de SDKs, `DOTNET_ROOT` do csharp-ls |
 | `restore.rs`, `build.rs`, `run.rs`, `run_configs.rs` | restore explícito, build, run, configurações salvas |
 | `lsp.rs`, `diagnostics.rs` | cliente LSP (csharp-ls), snapshots de diagnóstico |
 | `dap.rs`, `debugger.rs` | cliente DAP; instalação/gates do netcoredbg |

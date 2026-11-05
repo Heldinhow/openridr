@@ -1,6 +1,6 @@
 # 02 — Tokens e ícones por tipo
 
-Status: ready-for-agent
+Status: implemented — verificação visual/E2E pendente de liberação da porta
 Spec: [D4–D6, D8, D9](../SPEC-SOLUTION-EXPLORER-VISUAL.md)
 
 ## Mudança
