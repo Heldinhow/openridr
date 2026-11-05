@@ -731,3 +731,11 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **Prova.** `tests/e2e/solution-explorer.spec.ts` cobre a estrutura em texto (Frameworks/Projects no Cli,
   Packages ausente) e `tests/e2e/evaluation.spec.ts` cobre pacote e referência no modelo avaliado. E2E e app
   real seguem pendentes da liberação da porta; sem captura, o que não rodou fica "não verificado".
+
+## 2026-11-04 — Revisão externa do Solution Explorer: parser, status e cache
+
+- **`workspace.symbolKinds` muda de `{ kinds, scanned }` para `{ entries, scanned, skipped, truncated }`** com `known` (mtime em ms) no request. A UI pede só arquivos visíveis, em lotes de 128, mescla respostas e poda paths removidos; o host faz `stat` e só lê o que mudou. O root é clonado e o lock do host é solto antes do I/O. Motivo: 256 arquivos em silêncio e re-scan a cada arquivo novo piscavam/ficavam sem badge; ver a revisão do provedor externo (9 itens) em `docs/implementation-notes.md`.
+- **Parser** passa a exigir palavra-chave minúscula em posição/forma de declaração e ignora strings (verbatim/raw/char), comentários e BOM; stem com ponto (`Foo.Designer.cs`) casa `Foo`.
+- **Status bar** usa `evaluationStatusView`: `Evaluating…`/`Evaluation failed` aparecem antes de haver projeto, o `not current` vem antes do revision, a classe `error` volta e o `Partial workspace` (`tree-partial`) reaparece discreto ali, não na árvore.
+- **Pacotes** têm chave `name@version` (+ TFM quando existir) e são deduplicados antes de renderizar.
+- **Testes:** parser/symbol no host (9/9 e 18/18), unit no Bun (21/21) e cargo lib (234/234). E2E/app seguem pendentes de liberação.

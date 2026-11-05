@@ -7,9 +7,10 @@ Spec: [D7](../SPEC-SOLUTION-EXPLORER-VISUAL.md)
 
 - `crates/host/src/outline.rs`: parser conservador `symbol_kind(text, stem) -> Option<&'static str>`.
 - `crates/host/src/lib.rs`: dispatch `workspace.symbolKinds` + `workspace_symbol_kinds` (read-only, sem trust,
-  confinado ao workspace, 256 arquivos, 256 KB por arquivo).
-- `src/SolutionTree.tsx`: busca uma vez por conjunto de fontes, cacheia no estado, passa `symbolKind` ao
-  `FileIcon`; erro/limite cai no glifo C#.
+  confinado ao workspace, 256 arquivos/256 KB por chamada, `known` por mtime e `truncated` explícito).
+  O root é clonado e o lock é solto antes do I/O.
+- `src/SolutionTree.tsx`: pede só fontes visíveis (projeto/pastas abertas), em lotes de 128, cacheia
+  `kind`+mtime, mescla sem zerar e passa `symbolKind` ao `FileIcon`; erro/limite cai no glifo C#.
 - `src/host/client.ts`: tipos do método (não é snapshot).
 
 ## Testes
