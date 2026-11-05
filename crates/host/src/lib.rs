@@ -595,6 +595,9 @@ impl Host {
         if method == "workspace.tree" {
             return self.workspace_tree(&params);
         }
+        if method == "workspace.symbolKinds" {
+            return self.workspace_symbol_kinds(&params);
+        }
         if method == "search.text" {
             return self.search_text(params);
         }
@@ -5234,6 +5237,40 @@ impl Host {
         Ok(json!({ "dir": raw, "entries": entries }))
     }
 
+    /// Read-only C# type-kind scan for Solution Explorer badges. No trust, no compile, no LSP:
+    /// it reads at most 256 `.cs` files of at most 256 KB inside the workspace and ignores the rest.
+    fn workspace_symbol_kinds(&self, params: &Value) -> HostResult<Value> {
+        let paths = params.get("paths").and_then(Value::as_array).ok_or_else(|| {
+            HostError::new("invalid_state", "workspace.symbolKinds requires a paths array.")
+        })?;
+        let inner = self.inner.lock().unwrap();
+        let mut kinds = serde_json::Map::new();
+        let mut scanned = 0;
+        for raw in paths.iter().filter_map(Value::as_str).take(256) {
+            if !raw.to_ascii_lowercase().ends_with(".cs") {
+                continue;
+            }
+            let Ok((path, rel)) = resolve_in_workspace(&inner, raw) else {
+                continue;
+            };
+            let Ok(metadata) = fs::metadata(&path) else {
+                continue;
+            };
+            if metadata.len() > 256 * 1024 {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
+            if let Some(kind) = outline::symbol_kind(&text, stem) {
+                kinds.insert(rel, Value::String(kind.to_string()));
+            }
+            scanned += 1;
+        }
+        Ok(json!({ "kinds": kinds, "scanned": scanned }))
+    }
+
     fn search_text(&self, params: Value) -> HostResult<Value> {
         let query = required_str(&params, "query")?;
         if query.is_empty() {
@@ -7443,6 +7480,33 @@ mod tests {
         assert_eq!(names, vec![("bin", true), (".gitignore", true), ("App.csproj", false)]);
         let outside = host.dispatch("workspace.tree", json!({ "dir": ".." })).unwrap_err();
         assert_eq!(outside.code, "outside_workspace");
+    }
+
+    #[test]
+    fn workspace_symbol_kinds_scans_only_workspace_sources() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Widget.cs"), "namespace App;\npublic sealed class Widget {}\n").unwrap();
+        fs::write(root.join("IRepo.cs"), "public interface IRepo {}\n").unwrap();
+        fs::write(root.join("notes.txt"), "class NotACsharpFile {}\n").unwrap();
+        let outside = root.parent().unwrap().join("Outside.cs");
+        fs::write(&outside, "public class Outside {}\n").unwrap();
+
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let result = host.dispatch(
+            "workspace.symbolKinds",
+            json!({ "paths": ["Widget.cs", "IRepo.cs", "notes.txt", "../Outside.cs", "Missing.cs"] }),
+        )
+        .unwrap();
+        assert_eq!(result["kinds"]["Widget.cs"], "class");
+        assert_eq!(result["kinds"]["IRepo.cs"], "interface");
+        assert!(result["kinds"].get("notes.txt").is_none());
+        assert!(result["kinds"].get("../Outside.cs").is_none());
+        assert!(result["kinds"].get("Missing.cs").is_none());
+        assert_eq!(result["scanned"], 2);
     }
 
     #[test]
