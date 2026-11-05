@@ -41,7 +41,7 @@ Todas as capturas em `docs/evidence/native-context-menu/`.
 
 | Linha / alvo | Ação | Resultado | Captura |
 |---|---|---|---|
-| pasta de solução `src · 2 projects` | AXShowMenu | `Solution folder context menu` — Build Solution, Restore, Reload, Find in Files, Add Project (disabled) | `05-after-folder-app-menu.png` |
+| pasta de solução `src · 2 projects` | AXShowMenu | `Solution folder context menu` — Build Solution, Restore, Reload, Find in Files (sem `Copy Path`/`Show in Finder`/`Add Project…`) | `05-after-folder-app-menu.png` |
 | `Dependencies` (Cli) | AXShowMenu | `Project context menu` | `06-after-dependencies-project-menu.png` |
 | grupo `Frameworks` (Cli) | AXShowMenu | `Project context menu` | `07-after-frameworks-group-project-menu.png` |
 | folha `Microsoft.NETCore.App (net8.0)` | AXShowMenu | `Project context menu` | `08-after-framework-leaf-project-menu.png` |
@@ -65,20 +65,41 @@ depois, Dependencies: {title: "Project context menu", items: Manage NuGet Packag
 depois, toolbar Build: {surfaces: []}   (right-click devolve ACTION_FAILED porque nenhum menu abriu)
 ```
 
+## Revisão (itens 1, 2, 4 e 5)
+
+Depois de `dabe1fc`, três correções pedidas na revisão foram provadas no app real (mesmo bundle de
+produção, `OPENRIDR_HOME` isolado, perfil de keymap trocado pela própria UI: Settings ▸ Keymap ▸
+Profile ▸ IntelliJ ▸ Save settings, com `settings.json` do home confirmando `"profile": "intellij"`).
+
+| Item | Prova | Captura |
+|---|---|---|
+| 1. terminal mantém o menu do sistema | clique direito físico no corpo do terminal (`/bin/zsh` rodando) abre o menu com `Cut`/`Copy`/`Paste`; `Copy` desabilitado sem seleção, `Paste` habilitado | `18-after-terminal-native-menu.png` |
+| 1. colar funciona | `printf 'echo MENU_PASTE_OK' \| pbcopy`, clique direito → `Paste` → o texto entra no prompt e o `Return` executa: `$ echo MENU_PASTE_OK` / `MENU_PASTE_OK` | `19-after-terminal-paste.png` |
+| 2. linha da árvore ganha de `Shift+F10` | perfil IntelliJ (onde `Shift+F10` = Run All Tests): foco na linha `Program.cs` + `Shift+F10` abre `File context menu` (não roda testes) | `20-after-intellij-shift-f10-row-menu.png` |
+| 2. fora da árvore o keymap vale | no editor, `Shift+F10` com o mesmo perfil: nenhuma superfície de menu e a tool window **Tests** fica ativa com a execução concluída (`4 results · 2 passed · 1 failed · 1 skipped`) | `21-after-intellij-shift-f10-editor-runs-tests.png` |
+| 4. foco volta para a linha clicada | foco em `Program.cs` → clique direito físico em `Order.cs` (WKWebView não move o foco no clique) → fecha o menu → `Order.cs` é a linha com `states: ["focused"]`; `Program.cs` sem `focused` | — (estado de acessibilidade) |
+| 5. solution folder sem `Add Project…` | menu da linha `src · 2 projects` = Build Solution, Restore Solution, Reload Solution, Find in Files… | `05-after-folder-app-menu.png` |
+
 ## Testes automatizados
 
 Portas próprias (1460 UI / 4357 host), fixture em cópia temporária, `dotnet` 8.0.408 no PATH.
 
 | Passo | Comando | Antes (HEAD) | Depois |
 |---|---|---|---|
-| E2E novo | `OPENRIDR_E2E_UI_PORT=1460 OPENRIDR_E2E_HOST_PORT=4357 bunx playwright test tests/e2e/native-context-menu.spec.ts` | **1 failed** — `tree-folder-src` não cancela o `contextmenu` (`expect(cancelled).toBe(true)` recebeu `false`) | **1 passed** (4,0 s) |
-| Regressão árvore/busca | idem, `solution-explorer.spec.ts medium-nav-find-in-files.spec.ts` | — | **16 passed** (45,7 s) |
-| Run final (tree commitada) | idem, os três specs juntos | — | **17 passed** (1,1 min) |
-| Unit | `bun test tests/unit` | — | **25 passed** (4 novos) |
-| Tipos | `bunx tsc --noEmit` | — | sem erros |
+| E2E novo | `OPENRIDR_E2E_UI_PORT=1460 OPENRIDR_E2E_HOST_PORT=4357 bunx playwright test tests/e2e/native-context-menu.spec.ts` | **1 failed** — `tree-folder-src` não cancela o `contextmenu` (`expect(cancelled).toBe(true)` recebeu `false`) | **2 passed** (8,7 s) |
+| Regressão árvore/busca/atalhos | idem, `solution-explorer`, `medium-nav-find-in-files`, `actions` + o spec novo | — | **24 passed** (1,1 min) |
+| Unit | `bun test tests/unit` | `.xterm` e `contenteditable="false"`: **3 failed** com o `nativeMenu.ts` do commit anterior | **26 passed** (5 do guard) |
+| Tipos/build | `bunx tsc --noEmit`, `bun run check` | — | sem erros |
+
+Os itens da revisão também têm E2E que falha antes: com o `WorkspaceView.tsx` anterior, o teste do
+perfil IntelliJ falha (o `Shift+F10` na linha não abre menu, o keymap roda testes) e a asserção
+`tree-menu-add-project` do menu da solution folder recebe `1` em vez de `0`. O teste do `.xterm` e o do
+`contenteditable="false"` falham com o `nativeMenu.ts` anterior.
 
 O "antes" do E2E foi rodado com `git stash push -- src` (só o código de produto voltou ao HEAD; o spec
-novo ficou) e depois `git stash pop`. A primeira asserção do spec — a que falha antes — não mudou
+novo ficou) e depois `git stash pop`. Na revisão isso passou a ser feito por cópia do arquivo para
+`/tmp` e restauração, porque `git stash` é global ao repositório e outra worktree empurrou um stash no
+meio (ver `RETRO-NATIVE-CONTEXT-MENU.md`). A primeira asserção do spec — a que falha antes — não mudou
 depois; as asserções de nome acessível (`File`/`Solution folder` context menu) entraram junto com o
 `treeMenuLabel` e foram verificadas no run final, já no commit.
 

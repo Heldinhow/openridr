@@ -24,7 +24,7 @@ type Props = {
   symbolKind?: string;
   onClick: () => void;
   /** Opens the row's menu; a row without one still cancels the browser menu. */
-  onMenu?: (position: MenuPosition) => void;
+  onMenu?: (position: MenuPosition, row: HTMLElement) => void;
   children?: ReactNode;
 };
 
@@ -39,10 +39,6 @@ export function TreeRow({
   level, open, icon, name, suffix, selected, current, noIndex, testId, title,
   fileKind, projectKind, projectTfms, symbolKind, onClick, onMenu, children,
 }: Props) {
-  function menuAt(position: MenuPosition) {
-    onMenu?.(position);
-  }
-
   return (
     <button
       type="button"
@@ -59,7 +55,9 @@ export function TreeRow({
       onClick={onClick}
       onContextMenu={(event) => {
         event.preventDefault();
-        menuAt({ x: event.clientX, y: event.clientY });
+        // WKWebView does not move the focus on a right-click, so the row itself is what the menu
+        // hands the focus back to when it closes.
+        onMenu?.({ x: event.clientX, y: event.clientY }, event.currentTarget);
       }}
       onKeyDown={(event) => {
         // WebKit turns neither Shift+F10 nor the menu key into a contextmenu event, so the row
@@ -67,7 +65,7 @@ export function TreeRow({
         if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
         event.preventDefault();
         const rect = event.currentTarget.getBoundingClientRect();
-        menuAt({ x: rect.left + 16, y: rect.bottom - 4 });
+        onMenu?.({ x: rect.left + 16, y: rect.bottom - 4 }, event.currentTarget);
       }}
     >
       <span className={`tree-chevron${open ? " open" : ""}${open === undefined ? " leaf" : ""}`} aria-hidden="true">

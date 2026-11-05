@@ -559,7 +559,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [treeSearchOpen, setTreeSearchOpen] = useState(false);
   const [treeFilter, setTreeFilter] = useState("");
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; target: TreeTarget } | null>(null);
-  // A keyboard-opened menu gives the focus back to its row on close; a mouse one has no owner.
+  // The menu hands the focus back to the row that opened it: WKWebView does not move the focus on a
+  // right-click, so the focused element at open time may be an older row.
   const treeMenuReturnFocus = useRef<HTMLElement | null>(null);
   const [editPreview, setEditPreview] = useState<EditPreview | null>(null);
   const editPreviewRef = useRef<EditPreview | null>(null);
@@ -2561,10 +2562,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     setSelectedProjectPath(owner?.path ?? null);
   }
 
-  function openTreeMenu(position: MenuPosition, target: TreeTarget) {
-    const active = document.activeElement;
-    treeMenuReturnFocus.current =
-      active instanceof HTMLElement && active.classList.contains("tree-row") ? active : null;
+  function openTreeMenu(position: MenuPosition, target: TreeTarget, row: HTMLElement) {
+    treeMenuReturnFocus.current = row;
     setTreeMenu({ x: position.x, y: position.y, target });
   }
 
@@ -3591,6 +3590,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       const textField =
         Boolean(target?.closest("input, textarea, select")) ||
         Boolean(target?.isContentEditable && !inEditor);
+      // A focused tree row owns Shift+F10 and the menu key: they open its context menu, exactly like
+      // a right-click, and never the keymap action behind them (IntelliJ maps Shift+F10 to Run All
+      // Tests, Windows Rider to Run). Returning without preventDefault lets the row's handler run.
+      if (
+        target?.closest(".tree-row") &&
+        (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+      ) {
+        // This Shift+key is not the first tap of a double-Shift, so it must not arm one.
+        shiftTap.current = null;
+        lastShift.current = null;
+        return;
+      }
       if (event.key === "Shift") {
         if (textField) {
           lastShift.current = null;

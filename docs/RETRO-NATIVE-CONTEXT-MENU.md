@@ -25,6 +25,39 @@
   que aconteceu ao usar o primeiro script de "fechar menu". Fechar menu nativo é clique fora, nunca
   clicar num item.
 
+## Revisão (o que a primeira rodada errou)
+
+- **"Nenhuma área fora de campo de texto" era regra errada.** O terminal não é área de texto: o xterm
+  trata o `contextmenu` no próprio elemento só para mover o foco para o `textarea` escondido, e deixa o
+  menu nativo fazer Copiar/Colar. O guard cancelava o único jeito de copiar de um shell. A exceção agora
+  se chama "onde o menu do sistema **é** a funcionalidade" (campo de texto, `.xterm`) e tem teste.
+  Generalizar demais uma defesa é tão errado quanto não tê-la — a pergunta certa não é "é texto?", é
+  "quem implementa este menu?".
+- **`[contenteditable]` não é `contenteditable`.** O atributo com `="false"` casava com o seletor e
+  deixava passar o menu do navegador; o teste unit com DOM falso fixou a semântica
+  (`:not([contenteditable="false"])`).
+- **O keymap global roda em capture.** Minha linha interceptava `Shift+F10`/tecla de menu, mas o
+  handler do `WorkspaceView` roda **antes** (capture) e, no perfil IntelliJ, `Shift+F10` é Run All
+  Tests. Regra que ficou: com o foco numa `.tree-row` o evento volta para a linha *antes* de casar
+  atalho; fora da árvore o keymap manda. Teste cobre os dois lados, e no app real o `Shift+F10` no
+  editor rodou a suíte de verdade.
+- **Foco no mouse não é o foco do teclado.** Guardar `document.activeElement` funciona para
+  `Shift+F10` e falha no clique direito, porque o WKWebView não move o foco ao clicar. Agora quem
+  desenha a linha é dono do foco: `onMenu(position, row)` e o menu devolve o foco a `row`, nos dois
+  caminhos.
+- **"Add Project…" na solution folder.** A ação adiciona na raiz da solução; oferecê-la numa pasta é
+  prometer o que ela não faz. Menos é mais: o menu da pasta tem só o que é dela.
+
+## Incidente operacional (vale mais que o código)
+
+`git stash` é **global ao repositório**, e este repo tem worktrees de vários agentes rodando em
+paralelo. Um `git stash push` meu virou `stash@{1}` porque outra sessão empurrou o dela para
+`stash@{0}` no meio do caminho; o `git stash pop` seguinte puxou o stash **dela** e deixou quatro
+arquivos Rust em conflito (`UU`) no meu worktree. Saída: `git checkout HEAD --` nos arquivos alheios,
+recuperar o meu WIP por `git stash show -p` + `git apply` (sem `pop`), conferir e dropar só o meu.
+Lição: neste repositório, provar "vermelho antes" com `cp` de arquivo para `/tmp` e restauração, nunca
+com `stash`.
+
 ## Custo/benefício
 
 - O guard global é 12 linhas e uma condição (`import.meta.env.PROD`). A alternativa nativa (desligar o

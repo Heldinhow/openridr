@@ -1082,3 +1082,19 @@ Capturas antes/depois em `docs/evidence/ui-shape-polish/{before,after}/` (1440×
 - **Contratos preservados**: nenhum `data-testid` novo/renomeado; o menu da árvore continua
   `tree-context-menu` com itens `tree-menu-*`. Evidência no app real em
   `docs/evidence/native-context-menu.md`; não verificado: Windows, macOS Intel e o DMG desta correção.
+
+- **Revisão (2026-11-05).** `src/nativeMenu.ts` exclui também `.xterm` (o xterm 6 só move o foco para
+  o `textarea` escondido e deixa Copiar/Colar no menu do sistema) e usa
+  `[contenteditable]:not([contenteditable="false"])`; `tests/unit/nativeMenu.test.ts` passou a montar
+  uma cadeia de elementos falsa (com `closest` que entende tag, `.classe`, `[attr]`, `[attr="v"]` e
+  `:not()`) para fixar a semântica de DOM. O handler global de teclado do `WorkspaceView` devolve
+  `Shift+F10`/tecla de menu à `.tree-row` focada antes de casar atalho (IntelliJ macOS = Run All Tests;
+  Rider Windows = Run) e não arma o duplo-Shift; `TreeRow` passa a linha em `onMenu(position, row)` e o
+  menu devolve o foco a ela (o clique direito não move o foco no WKWebView). `solutionFolderMenuItems`
+  perde `Add Project…` (adiciona na raiz, não na pasta). E2E do perfil IntelliJ em
+  `tests/e2e/native-context-menu.spec.ts` (o spec grava `settings.json` do home do E2E e restaura `{}`
+  no `afterEach`). Rodados em 2026-11-05: spec novo 2/2 (vermelho antes: menu da pasta com Add Project e
+  `Shift+F10` engolido pelo keymap), junto com `solution-explorer`, `medium-nav-find-in-files` e
+  `actions` 24/24, `bun test tests/unit` 26/26, `bunx tsc --noEmit` e `bun run check` limpos. No app real:
+  terminal com Cut/Copy/Paste e `Paste` executando `echo MENU_PASTE_OK`, perfil IntelliJ abrindo o menu
+  na linha e rodando a suíte no editor, foco voltando para a linha clicada com o mouse.

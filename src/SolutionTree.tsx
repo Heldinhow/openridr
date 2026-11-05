@@ -108,7 +108,7 @@ type Props = {
   evaluationRevision: number;
   showAll: boolean;
   filter: string;
-  onMenu: (position: MenuPosition, target: TreeTarget) => void;
+  onMenu: (position: MenuPosition, target: TreeTarget, row: HTMLElement) => void;
 };
 
 export function SolutionTree(p: Props) {
@@ -248,6 +248,10 @@ export function SolutionTree(p: Props) {
 
   const open = (key: string) => (filter ? true : p.expanded.has(key));
 
+  function rowMenu(target: TreeTarget) {
+    return (position: MenuPosition, row: HTMLElement) => p.onMenu(position, target, row);
+  }
+
   function fileRow(path: string, level: number, noIndex = false) {
     const owner = views.find((view) => view.path === path);
     const projectKind = owner ? projectKindOf(owner.kind, owner.textKind) : undefined;
@@ -266,7 +270,7 @@ export function SolutionTree(p: Props) {
         selected={p.activePath === path}
         title={path}
         onClick={() => p.onOpenFile(path)}
-        onMenu={(position) => p.onMenu(position, { kind: "file", path })}
+        onMenu={rowMenu({ kind: "file", path })}
       />
     );
   }
@@ -285,7 +289,7 @@ export function SolutionTree(p: Props) {
           name={node.name}
           testId={`tree-dir-${node.path}`}
           onClick={() => p.onToggle(dirKey(node.path))}
-          onMenu={(position) => p.onMenu(position, { kind: "dir", path: node.path })}
+          onMenu={rowMenu({ kind: "dir", path: node.path })}
         />,
         ...(open(dirKey(node.path)) ? children : []),
       ];
@@ -310,7 +314,7 @@ export function SolutionTree(p: Props) {
             p.onToggle(key);
             void ensureDir(entry.path);
           }}
-          onMenu={(position) => p.onMenu(position, { kind: "dir", path: entry.path })}
+          onMenu={rowMenu({ kind: "dir", path: entry.path })}
         />,
         ...(open(key) ? diskRows(entry.path, level + 1, () => false) : []),
       ];
@@ -328,7 +332,8 @@ export function SolutionTree(p: Props) {
     // Dependencies, its groups and the leaves name the project they belong to: their menu is the
     // project menu, so no row of the tree is left without one.
     const projectTarget: TreeTarget = { kind: "project", path: view.path, name: view.name };
-    const projectMenu = (position: MenuPosition) => p.onMenu(position, projectTarget);
+    const projectMenu = (position: MenuPosition, row: HTMLElement) =>
+      p.onMenu(position, projectTarget, row);
     const groupRow = (group: DependencyGroup, name: string, icon: ReactNode, items: ReactNode[]) => {
       if (items.length === 0) return null;
       const key = depGroupKey(view.path, group);
@@ -363,9 +368,9 @@ export function SolutionTree(p: Props) {
             p.onToggle(view.path);
             p.onSelectProject(view.path);
           }}
-          onMenu={(position) => {
+          onMenu={(position, row) => {
             p.onSelectProject(view.path);
-            p.onMenu(position, projectTarget);
+            p.onMenu(position, projectTarget, row);
           }}
           suffix={
             <>
@@ -483,7 +488,7 @@ export function SolutionTree(p: Props) {
         testId="tree-root"
         suffix={<span className="tag tree-count">· {countLabel(views.length, "project")}</span>}
         onClick={() => p.onToggle(ROOT_KEY)}
-        onMenu={(position) => p.onMenu(position, { kind: "root" })}
+        onMenu={rowMenu({ kind: "root" })}
       />
       {rootOpen && (
         <>
@@ -501,7 +506,7 @@ export function SolutionTree(p: Props) {
                     testId={`tree-folder-${folder}`}
                     suffix={<span className="tag tree-count">· {countLabel(items.length, "project")}</span>}
                     onClick={() => p.onToggle(folderKey(folder))}
-                    onMenu={(position) => p.onMenu(position, { kind: "solution-folder", name: folder })}
+                    onMenu={rowMenu({ kind: "solution-folder", name: folder })}
                   />
                 )}
                 {(!folder || open(folderKey(folder))) && rows}

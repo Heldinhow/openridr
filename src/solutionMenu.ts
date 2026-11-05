@@ -83,12 +83,17 @@ export function projectMenuItems(m: ProjectMenu): ContextMenuItem[] {
   return items;
 }
 
-/** A solution folder groups projects, so its commands are the solution's; the path actions that
- *  would point at a directory the .sln may not have are left out. */
+/**
+ * A solution folder groups projects, so its commands are the solution's. Path actions are left out
+ * because the .sln may not have that directory, and "Add Project…" is left out because it would add
+ * to the solution root, not to this folder.
+ */
 export function solutionFolderMenuItems(
   m: Parameters<typeof solutionMenuItems>[0],
 ): ContextMenuItem[] {
-  return solutionMenuItems(m).filter((item) => item.id !== "copy-path" && item.id !== "reveal");
+  return solutionMenuItems(m).filter(
+    (item) => !["copy-path", "reveal", "add-project"].includes(item.id),
+  );
 }
 
 export function fileMenuItems(m: {

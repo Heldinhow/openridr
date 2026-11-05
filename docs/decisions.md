@@ -761,3 +761,24 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **Prova.** E2E novo (`native-context-menu.spec.ts`, vermelho antes/verde depois), unit do guard, e app
   real antes/depois em `docs/evidence/native-context-menu.md`. Windows/Intel e o DMG desta correção não
   rodaram.
+
+## 2026-11-05 — Revisão do menu de contexto: terminal, precedência de teclado e dono do foco
+
+- **Terminal é exceção do guard.** O xterm trata `contextmenu` só para focar o `textarea` escondido e
+  deixa Copiar/Colar no menu do sistema; cancelar ali removia a única forma de copiar de um shell.
+  A lista de exceções passa a ser "onde o menu do sistema é a funcionalidade": `input`, `textarea`,
+  `[contenteditable]:not([contenteditable="false"])` e `.xterm`. `contenteditable="false"` deixou de
+  passar por acidente do seletor.
+- **`Shift+F10` e tecla de menu pertencem à linha focada.** O handler global do `WorkspaceView` roda em
+  capture e casa atalhos do keymap primeiro (IntelliJ macOS: `Shift+F10` = Run All Tests; Rider Windows:
+  Run). Nova regra: se o alvo está em `.tree-row`, esses dois gestos abrem o menu da linha e o evento
+  segue para ela; fora da árvore o keymap vale. O `Shift+F10` que não é menu também não arma o
+  duplo-Shift.
+- **Quem abre o menu é dono do foco.** `onMenu` passa a receber também a linha (`row`), e o menu devolve
+  o foco a ela ao fechar — o clique direito não move o foco no WKWebView, então `document.activeElement`
+  devolvia uma linha antiga.
+- **Solution folder sem `Add Project…`.** A ação adiciona na raiz da solução, não na pasta; o menu da
+  pasta fica com Build/Restore/Reload/Find in Files.
+- **Operação.** `git stash` é global ao repositório e este repo tem várias worktrees: para provar
+  "falha antes", copie o arquivo para `/tmp` e restaure, nunca use `stash` (um pop puxou o stash de
+  outra sessão e trouxe conflitos Rust para este worktree).

@@ -1,15 +1,19 @@
 // A WebKit/WKWebView contextmenu event that nobody handles ends in the browser's own menu:
 // "Reload", "Share…", "Services". In a shipped IDE that menu is a browser affordance, never a
-// product one, so production prevents it everywhere except text entry, where the OS edit menu
-// (cut/copy/paste, spelling, substitutions) is still what a user expects.
+// product one, so production prevents it everywhere except where the OS menu is the real feature:
+//
+// - text entry (input/textarea/contenteditable), where cut/copy/paste and spelling live;
+// - the terminal (`.xterm`), whose own contextmenu handler only puts the focus on its hidden
+//   textarea and leaves the menu (Copy/Paste, i.e. Copiar/Colar) to the system. Cancelling it there
+//   would remove the only way to copy out of a shell.
+// `contenteditable="false"` is not editable and stays cancelled.
+const NATIVE_MENU_TARGETS = 'input, textarea, .xterm, [contenteditable]:not([contenteditable="false"])';
 
-const TEXT_ENTRY = "input, textarea, [contenteditable]";
-
-/** True when the target is text entry, i.e. the native edit menu may stay. */
+/** True when the target keeps the native OS menu. */
 export function keepsNativeContextMenu(target: EventTarget | null): boolean {
   const element = target as Element | null;
   if (!element || typeof element.closest !== "function") return false;
-  return element.closest(TEXT_ENTRY) !== null;
+  return element.closest(NATIVE_MENU_TARGETS) !== null;
 }
 
 /**

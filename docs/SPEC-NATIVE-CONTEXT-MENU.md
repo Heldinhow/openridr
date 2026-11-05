@@ -30,18 +30,24 @@ do WKWebView — "Reload" num app de produção é sempre defeito.
    de menu** (`ContextMenu`), além da ação de acessibilidade (que chega como `contextmenu`).
 2. `TreeRow` é o único lugar que decide sobre o menu: ele cancela o `contextmenu` em **toda** linha,
    mesmo numa linha sem menu (defesa em profundidade), e entrega a posição de abertura (mouse ou retângulo
-   da linha) para quem a desenha.
-3. Em build de produção o menu nativo do WebKit não aparece em nenhum lugar que não seja campo de
-   texto (`input`, `textarea`, `[contenteditable]`), onde o menu de edição do sistema continua igual.
-   Em desenvolvimento ele fica: é o caminho para "Inspect Element" no webview.
-4. Nenhuma dependência nova; nenhum `data-testid` renomeado ou removido.
+   da linha) **e a própria linha** para quem a desenha. O menu devolve o foco à linha que o abriu — no
+   mouse também, porque o WKWebView não move o foco no clique direito.
+3. **Precedência de teclado.** Com o foco numa `.tree-row`, `Shift+F10` e a tecla de menu abrem o menu
+   da linha e não o atalho do keymap (no perfil IntelliJ, macOS, `Shift+F10` é Run All Tests; no Rider
+   Windows, Run). Fora da árvore o keymap vale normalmente. O handler global (`WorkspaceView`, capture)
+   devolve o evento para a linha antes de casar atalho ou acorde.
+4. Em build de produção o menu nativo do WebKit não aparece em nenhum lugar que não seja **campo de
+   texto** (`input`, `textarea`, `[contenteditable]` — exceto `contenteditable="false"`) ou o
+   **terminal** (`.xterm`), onde o menu do sistema é a funcionalidade: é dele que saem Copiar/Colar do
+   shell. Em desenvolvimento ele fica em toda parte: é o caminho para "Inspect Element" no webview.
+5. Nenhuma dependência nova; nenhum `data-testid` renomeado ou removido.
 
 ## Menus por tipo de linha
 
 | Linha | Menu | Nome acessível |
 |---|---|---|
 | raiz da solução | `solutionMenuItems` | `Solution context menu` (default) |
-| solution folder (`.sln`) | `solutionFolderMenuItems` — comandos da solução sem `Copy Path`/`Show in Finder` (a pasta pode não existir no disco) | `Solution folder context menu` |
+| solution folder (`.sln`) | `solutionFolderMenuItems` — comandos da solução sem `Copy Path`/`Show in Finder` (a pasta pode não existir no disco) nem `Add Project…` (ele adiciona na raiz, não na pasta) | `Solution folder context menu` |
 | projeto | `projectMenuItems` | `Project context menu` |
 | pasta de código / disco | `fileMenuItems` (com `New File…`, `Rename…`, `Delete`) | `Folder context menu` |
 | arquivo | `fileMenuItems` | `File context menu` |
@@ -54,8 +60,8 @@ do projeto. `Edit`/ficha de propriedades continuam vindo do projeto.
 ## Fora de escopo
 
 - Menu próprio por pacote (ex.: "abrir no nuget.org") e por framework: não há ação de host para isso.
-- Menu de contexto do editor/terminal: já existiam e não mudam (o do editor é do app; o do terminal,
-  que é um `textarea`, segue o do sistema).
+- Menu de contexto do editor: já existia e não muda (é do app). O do terminal é o do sistema, por
+  desenho (Copiar/Colar do shell).
 - Windows/Linux: o guard é JS e vale para qualquer webview; só o macOS ARM64 foi executado.
 
 ## Prova

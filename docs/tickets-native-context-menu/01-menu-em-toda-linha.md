@@ -27,6 +27,11 @@ lugar nenhum, e toolbar/abas/status bar mostravam o menu de navegador do WKWebVi
   instala com `import.meta.env.PROD` — produção cancela o `contextmenu` em tudo que não é campo de
   texto; desenvolvimento mantém (Inspect Element no webview).
 - Nenhum `data-testid` novo, renomeado ou removido; nenhuma dependência nova.
+- **Revisão:** o guard global também deixa passar o **terminal** (`.xterm`: é dele que saem
+  Copiar/Colar) e ignora `contenteditable="false"`; com o foco numa `.tree-row`, `Shift+F10`/tecla de
+  menu abrem o menu da linha antes do keymap (IntelliJ = Run All Tests); `onMenu(position, row)` dá o
+  foco de volta à linha que abriu o menu, inclusive no clique direito; a solution folder perde
+  `Add Project…`.
 
 ## Testes
 
@@ -45,6 +50,9 @@ lugar nenhum, e toolbar/abas/status bar mostravam o menu de navegador do WKWebVi
       solução, projeto, pasta de código, arquivo, `Dependencies`, grupos e folhas de dependência.
 - [x] Em produção nenhuma área fora de campo de texto mostra menu do WebKit (toolbar provada; guard
       cobre o resto).
-- [x] Campo de texto mantém o menu de edição do sistema.
+- [x] Campo de texto e terminal mantêm o menu do sistema (no terminal, `Paste` cola no shell).
+- [x] Com a linha focada, `Shift+F10`/tecla de menu abrem o menu dela mesmo quando o keymap mapeia a
+      tecla (perfil IntelliJ); fora da árvore o atalho do keymap continua valendo.
+- [x] Ao fechar, o foco volta para a linha que abriu o menu (teclado e mouse).
 - [x] Nenhuma dependência nova; `data-testid` preservados.
 - [ ] Windows/macOS Intel: não executado (o guard é JS e não depende da plataforma).
