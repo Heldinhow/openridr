@@ -3,7 +3,7 @@
 App real: `src-tauri/target/release/bundle/macos/OpenRidr.app` (build desta branch, assinatura ad-hoc),
 executado com `OPENRIDR_HOME=/tmp/openridr-desktop-home` e uma cópia de `fixtures/OrderDesk` em
 `/tmp/openridr-desktop-work/OrderDesk`. Nada foi instalado no sistema; o csharp-ls foi baixado para
-o home isolado. Capturas em `docs/evidence/tests-nuget-tools-setup/`.
+o home isolado. Capturas em `docs/evidence/tests-nuget-tools-setup/`. O diretório home foi substituído por `~` nas imagens para não publicar caminho pessoal.
 
 | Captura | O que prova |
 |---|---|
