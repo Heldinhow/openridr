@@ -29,8 +29,13 @@ bunx playwright test tests/e2e/solution-explorer.spec.ts tests/e2e/evaluation.sp
   tests/e2e/workspace.spec.ts tests/e2e/ui-layout.spec.ts tests/e2e/zz-acceptance.spec.ts --reporter=list
 ```
 
-Resultado final: **43 passed, 0 failed, exit 0** (2,1 min). `zz-acceptance` sozinho: 2/2.
+Resultado antes do merge: **43 passed, 0 failed, exit 0** (2,1 min). `zz-acceptance` sozinho: 2/2.
 Specs: solution-explorer 11, evaluation 7, workspace 16, ui-layout 7, zz-acceptance 2.
+
+Após o merge do `origin/main` (merge `19ccb6d`, PR #22), a mesma suíte foi repetida com
+`focus-after-navigation.spec.ts`: **49 passed, 0 failed, exit 0** (2,3 min), incluindo os 7 testes de
+foco (`focusEditorWhenMounted` preservado). `cargo test -p openridr-host`: 79 passed e a falha conhecida
+`file_access_is_confined_to_the_workspace` (baseline do main). `bun run check`/`build` OK; `bun test` 21/21.
 
 ## O que foi verificado no app real
 

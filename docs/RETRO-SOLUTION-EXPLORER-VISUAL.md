@@ -38,5 +38,8 @@
 
 - `bun run check`/`build` OK; `bun test` 21/21; `cargo test -p openridr-host --lib` 235/235.
 - E2E dos cinco specs tocados: **43/43 (exit 0)** nas portas 1440/4337.
+- Após o merge do main (`19ccb6d`), E2E dos seis specs (inclui `focus-after-navigation`): **49/49
+  (exit 0)**; `cargo test -p openridr-host`: 79 passed + a falha conhecida
+  `file_access_is_confined_to_the_workspace`.
 - App real: árvore sem chrome, projetos coloridos, Dependencies agrupadas, badges I/E/R/S/C e
   `no index` esmaecido; capturas em `docs/evidence/solution-explorer-visual/`.
