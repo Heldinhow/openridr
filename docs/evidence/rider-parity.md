@@ -156,4 +156,4 @@ Bundle debug rebuildado a partir do HEAD; home e cópia da fixture isolados em `
   (`record_verified`) aparece no app real.
 
 Estado ao final: app fechado com `desktop.sh down`; `pgrep -x openridr` vazio; porta 1420 livre.
-Build falhou de propósito na cópia (erro CS0029) e a cópia foi revertida antes dos testes de teste.
+Build falhou de propósito na cópia (erro CS0029) e a cópia foi revertida antes da run de Tests.
