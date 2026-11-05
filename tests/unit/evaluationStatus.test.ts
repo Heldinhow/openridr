@@ -46,6 +46,22 @@ describe("evaluationStatusView", () => {
     expect(evaluationStatusView(evaluation({ state: "partial" })).tone).toBe("error");
   });
 
+  test("a single-TFM model names its framework instead of 'not selected'", () => {
+    const single = evaluation({
+      state: "ok",
+      revision: 5,
+      context: { configuration: "Debug", targetFramework: null },
+    });
+    expect(evaluationStatusView(single).text).toBe("Evaluated · Debug · TFM net8.0 · revision 5");
+    // More than one declared framework keeps the honest "not selected" until one is chosen.
+    const multi = evaluation({
+      state: "ok",
+      context: { configuration: "Debug", targetFramework: null },
+      availableTfms: ["net8.0", "netstandard2.0"],
+    });
+    expect(evaluationStatusView(multi).text.includes("TFM not selected")).toBe(true);
+  });
+
   test("stale is written before the revision so the ellipsis cannot cut it", () => {
     const view = evaluationStatusView(evaluation({ state: "ok", stale: true, revision: 4 }));
     expect(view.text.startsWith("Evaluated · not current · Debug")).toBe(true);

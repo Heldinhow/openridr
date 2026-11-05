@@ -34,7 +34,10 @@ export function evaluationStatusView(evaluation: Snapshot["evaluation"]): Evalua
     };
   }
   const label = evaluationStateLabel(evaluation.state);
-  const tfm = evaluation.context.targetFramework ?? "not selected";
+  // "not selected" is what the user chose; a model with a single declared TFM has a real one.
+  const tfm =
+    evaluation.context.targetFramework ??
+    (evaluation.availableTfms.length === 1 ? evaluation.availableTfms[0] : "not selected");
   const stale = evaluation.stale ? " · not current" : "";
   return {
     testId: "status-evaluation",

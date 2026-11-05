@@ -92,7 +92,9 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
               <span className="muted" data-testid="setup-gate-progress">
                 Downloaded {progress.downloaded} of{" "}
                 {progress.total === null ? "an unknown total" : `${progress.total}`} bytes
-                (measured; no percentage)
+                {progress.total === null || progress.total === 0
+                  ? " (measured; no percentage)"
+                  : ` (${Math.min(100, Math.floor((progress.downloaded / progress.total) * 100))}%)`}
               </span>
             )}
             {tool.state === "ready" && (
