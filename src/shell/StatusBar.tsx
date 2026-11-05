@@ -40,7 +40,10 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
   keymapProfile: ProfileId;
 }) {
   return (
-    <footer className="status">
+    // The status bar lives inside the app's main region, where `<footer>` alone has no landmark
+    // role: the explicit role is what puts it (and its cursor/analysis/toolchain text) in the
+    // accessibility tree as a named region.
+    <footer className="status" role="contentinfo" aria-label="Status bar">
       <span data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
       <span data-testid="status-breadcrumb" title={breadcrumb}>{breadcrumb}</span>
       <StatusMode snapshot={snapshot} onSnapshot={onSnapshot} />

@@ -370,7 +370,7 @@ export function BuildPanel({
 
       {build.revision > 0 && (
         <>
-          <details className="build-context-details">
+          <details className="build-context-details" aria-label="Build details">
             <summary>Build details</summary>
             <dl className="restore-meta build-meta">
             {build.buildId && (
