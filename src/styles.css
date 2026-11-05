@@ -2593,6 +2593,33 @@ mark.search-hit {
 .nuget-command-list code { overflow-wrap: anywhere; }
 .nuget-description { display: block; max-width: 520px; white-space: normal; }
 .nuget-assets summary { color: var(--muted); cursor: pointer; }
+.nuget-body { display: flex; align-items: stretch; flex: 1 1 auto; min-height: 0; }
+.nuget-actions { display: flex; flex-direction: column; gap: 2px; flex: 0 0 74px; padding: 4px; border-right: 1px solid var(--line-internal); background: var(--bg); }
+.nuget-actions button { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 42px; padding: 3px 2px; border-radius: var(--r-md); box-shadow: none; background: transparent; color: var(--muted); font-size: 10px; }
+.nuget-actions button:hover:not(:disabled) { background: var(--accent-surface); color: var(--fg); }
+.nuget-actions button:disabled { opacity: 0.45; }
+.nuget-actions .icon { width: 14px; height: 14px; }
+.nuget-content { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; padding-left: 4px; }
+.nuget-section { display: flex; flex-direction: column; gap: 2px; }
+.nuget-section-head { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-bottom: 1px solid var(--line-internal); }
+.nuget-section-title { min-height: var(--control-h); padding: 0 6px; border: 0; background: transparent; box-shadow: none; color: var(--fg); font-weight: 600; text-align: left; }
+.nuget-section-title:hover:not(:disabled) { background: transparent; color: var(--accent); }
+.nuget-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent-surface-strong); color: var(--muted); font-size: var(--fs-meta); }
+.nuget-list { display: flex; flex-direction: column; gap: 1px; padding: 2px 4px 4px; }
+.nuget-framework { display: flex; flex-direction: column; gap: 1px; }
+.nuget-framework-label { margin: 4px 0 0; color: var(--muted); font-size: var(--fs-meta); }
+.nuget-project-label { margin: 6px 0 0; color: var(--fg); font-size: var(--fs-label); font-weight: 600; }
+.nuget-row { display: grid; grid-template-columns: 16px 18px minmax(0, 1fr) auto auto auto; align-items: center; gap: 6px; min-height: 28px; padding: 2px 6px; border-radius: var(--r-md); }
+.nuget-row:hover { background: var(--accent-surface); }
+.nuget-row .icon { color: var(--muted); }
+.nuget-update-row { grid-template-columns: 16px 18px minmax(0, 1fr) auto auto; }
+.nuget-package-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.nuget-current { color: var(--muted); font-weight: 400; }
+.nuget-new-version { color: var(--success); font-weight: 600; white-space: nowrap; }
+.nuget-row-meta, .nuget-row-source { color: var(--muted); font-size: var(--fs-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nuget-row-source { max-width: 220px; }
+.nuget-row button { min-height: 24px; padding: 0 8px; box-shadow: none; }
+.nuget-update-row input[type="checkbox"] { margin: 0; }
 
 /* F7: gutter Run/Test, inline rename, editor context menu and Find Usages. */
 .cm-action-gutter {
@@ -3128,6 +3155,19 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tests-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line-internal); }
 .tests-toolbar button { display: inline-flex; align-items: center; gap: 4px; }
 .tests-toolbar > .muted[data-testid="tests-export-path"] { flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tests-body { display: flex; align-items: stretch; flex: 1 1 100%; min-height: 0; border-top: 1px solid var(--line-internal); }
+.tests-actions { display: flex; flex-direction: column; gap: 2px; flex: 0 0 74px; padding: 4px; border-right: 1px solid var(--line-internal); background: var(--bg); }
+.tests-actions button { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 42px; padding: 3px 2px; border-radius: var(--r-md); box-shadow: none; background: transparent; color: var(--muted); font-size: 10px; }
+.tests-actions button:hover:not(:disabled) { background: var(--accent-surface); color: var(--fg); }
+.tests-actions button:disabled { opacity: 0.45; }
+.tests-actions .icon { width: 14px; height: 14px; }
+.tests-content { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; padding: 0 4px 4px; overflow: auto; }
+.tests-content > .test-tree { flex: 1 1 auto; }
+.tests-side { display: flex; flex-direction: column; flex: 0 0 340px; min-width: 0; border-left: 1px solid var(--line-internal); overflow: auto; }
+.tests-side > .tests-detail { flex: 0 0 auto; border-left: 0; max-height: none; }
+.tests-side > [data-testid="tests-run-panel"] { flex: 0 0 auto; }
+.tests-side .tests-run-results, .tests-side [data-testid="tests-run-results-list"] { max-height: 10rem; overflow: auto; }
+.tests-session-view { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .tests-split { display: flex; align-items: flex-start; gap: 0; min-height: 0; }
 .tests-split > .test-tree { flex: 1 1 auto; min-width: 0; }
 .tests-detail { flex: 0 0 320px; align-self: stretch; border-left: 1px solid var(--line-internal); padding: 6px 12px; max-height: 24rem; overflow: auto; font-size: var(--fs-meta); }

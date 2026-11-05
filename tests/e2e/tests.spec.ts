@@ -408,6 +408,24 @@ test("real test run reports TRX outcomes, details, position, next failure and Ru
     const exportedPath = /to (\/.*\.json)$/.exec(exported)?.[1];
     expect(exportedPath && fs.existsSync(exportedPath), "the export file exists").toBe(true);
 
+    // The tree stays a tree after the run, with aggregate state and a selected detail.
+    await expect(page.getByTestId("tests-items")).toBeVisible();
+    await expect(page.getByTestId("tests-tab-session")).toContainText(
+      "All tests from OrderDesk.Tests",
+    );
+    await expect(page.getByTestId("tests-detail-name")).toContainText(
+      "OrderDesk.Tests.OrderTests",
+    );
+    await expect(page.getByTestId("tests-detail-status")).toHaveText("passed");
+    const actions = page.getByTestId("tests-panel").locator("nav.tests-actions");
+    const actionBox = await actions.boundingBox();
+    expect(actionBox && actionBox.width < 100).toBe(true);
+    await page.getByTestId("tests-tab-session").click();
+    await expect(page.getByTestId("tests-tab-session")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("tests-run-panel")).toBeVisible();
+    await page.getByTestId("tests-tab-explorer").click();
+    await expect(page.getByTestId("tests-items")).toBeVisible();
+
     await expect(page.getByTestId("tests-run-id")).toContainText(/testrun:\d+:1/);
     await expect(page.getByTestId("tests-run-id")).toContainText(discoveryId);
     await expect(page.getByTestId("tests-run-id")).toContainText(

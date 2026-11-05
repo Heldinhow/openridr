@@ -57,6 +57,22 @@ test("NuGet groups installed and outdated packages by TFM with current, latest a
   await expect(page.getByTestId("nuget-latest-net8.0-Newtonsoft.Json")).toHaveText("13.0.3");
   await expect(page.getByTestId("nuget-source-net8.0-Newtonsoft.Json")).toHaveText("nuget.org (probe)");
   await expect(page.getByTestId("nuget-summary")).toContainText("1 outdated");
+  await expect(page.getByTestId("nuget-updates-section")).toContainText(
+    "Packages to Update in OrderDesk.Cli: 1",
+  );
+  await expect(page.getByTestId("nuget-installed-section")).toContainText(
+    "Installed Packages in OrderDesk.Cli",
+  );
+  await expect(page.getByTestId("nuget-implicit-section")).toContainText(
+    "Implicitly Installed Packages in OrderDesk.Cli",
+  );
+  await expect(page.getByTestId("nuget-select-all")).toBeVisible();
+  await expect(page.getByTestId("nuget-batch-update")).toBeVisible();
+  await expect(page.getByTestId("nuget-action-restore")).toBeVisible();
+  await expect(page.getByTestId("nuget-action-refresh")).toBeVisible();
+  await expect(page.getByTestId("nuget-action-sort")).toBeVisible();
+  await expect(page.getByTestId("nuget-action-settings")).toBeDisabled();
+
   await expect(page.getByTestId("nuget-update-net8.0-Newtonsoft.Json")).toBeEnabled();
   // A package with no newer version has no update action.
   await expect(page.getByTestId("nuget-update-net8.0-Serilog")).toHaveCount(0);

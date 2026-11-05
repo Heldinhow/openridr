@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Icon } from "./Icon";
 import { call, messageOf, type OutlineProject } from "./host/client";
 
 export type NuGetPackage = {
@@ -241,6 +242,10 @@ export function NuGetPanel({
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [installPlan, setInstallPlan] = useState<{ plan: NuGetPlan; itemId: string } | null>(null);
+  const [sortByName, setSortByName] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(true);
+  const [installedOpen, setInstalledOpen] = useState(true);
+  const [implicitOpen, setImplicitOpen] = useState(false);
 
   useEffect(() => {
     setSelected((current) =>
@@ -269,7 +274,6 @@ export function NuGetPanel({
     setBusy(true);
     setError(null);
     setNotice(null);
-    setBatchResult(null);
     setSelectedUpdates(new Map());
     try {
       if (scope === "solution") {
@@ -395,7 +399,13 @@ export function NuGetPanel({
     setBatchResult(null);
     setNotice(null);
     try {
-      const items = [...selectedUpdates.values()].map(({ key: _key, projectName: _name, ...item }) => item);
+      const items = [...selectedUpdates.values()].map((item) => ({
+        project: item.project,
+        id: item.package,
+        version: item.version,
+        fromVersion: item.fromVersion,
+        targetFramework: item.targetFramework,
+      }));
       setBatchPlan(await call<NuGetBatchPlan>("nuget.planBatch", { items }));
     } catch (caught) {
       setBatchError(messageOf(caught));
@@ -444,6 +454,7 @@ export function NuGetPanel({
     try {
       setSearch(
         await call<NuGetSearch>("nuget.search", {
+          project: selected,
           source,
           query: searchQuery,
           prerelease,
@@ -500,6 +511,25 @@ export function NuGetPanel({
   const aggregateState = scope === "solution" ? solution?.state : listing?.state;
   const solutionListings = solution?.projects ?? [];
   const renderListings = scope === "solution" ? solutionListings : listing ? [listing] : [];
+  const scopeLabel = scope === "solution" ? "Solution" : activeListing?.projectName ?? "Project";
+  const updateRows = renderListings.flatMap((item) =>
+    item.frameworks.flatMap((framework) =>
+      framework.packages
+        .filter((pkg) => pkg.outdated && pkg.latestVersion)
+        .map((pkg) => ({ item, framework, pkg })),
+    ),
+  );
+  const allUpdateKeys = updateRows.map(
+    ({ item, framework, pkg }) => `${item.project}|${framework.framework}|${pkg.id}`,
+  );
+  const allUpdatesSelected =
+    allUpdateKeys.length > 0 && allUpdateKeys.every((key) => selectedUpdates.has(key));
+  const installedCount = renderListings.reduce((total, item) => total + item.totalPackages, 0);
+  const implicitRows = renderListings.flatMap((item) =>
+    item.assets.frameworks.flatMap((assets) =>
+      assets.implicit.map((pkg) => ({ item, assets, pkg })),
+    ),
+  );
 
   return (
     <div className="nuget-panel" data-testid="nuget-panel">
@@ -519,6 +549,57 @@ export function NuGetPanel({
         ))}
       </div>
 
+      <div className="nuget-body">
+        <nav className="nuget-actions" aria-label="NuGet actions">
+          <button
+            type="button"
+            data-testid="nuget-action-restore"
+            disabled={restoreRunning || !selected}
+            onClick={() => onRestore(selected)}
+            title={
+              restoreRunning
+                ? "A restore is already running."
+                : "Runs the explicit restore for the selected project."
+            }
+            aria-label="Restore project"
+          >
+            <Icon name="refresh" />
+            <span>Restore</span>
+          </button>
+          <button
+            type="button"
+            data-testid="nuget-action-refresh"
+            disabled={busy}
+            onClick={() => void load()}
+            title="Reads the package listing again."
+            aria-label="Refresh packages"
+          >
+            <Icon name="refresh" />
+            <span>Refresh</span>
+          </button>
+          <button
+            type="button"
+            data-testid="nuget-action-sort"
+            aria-pressed={sortByName}
+            onClick={() => setSortByName((sort) => !sort)}
+            title="Sort package rows by id."
+            aria-label="Sort packages by name"
+          >
+            <Icon name="layers" />
+            <span>Sort</span>
+          </button>
+          <button
+            type="button"
+            data-testid="nuget-action-settings"
+            disabled
+            title="NuGet source configuration lives in the project's NuGet.config; editing it is not implemented."
+            aria-label="NuGet settings (configuration editing unavailable)"
+          >
+            <Icon name="settings" />
+            <span>Settings</span>
+          </button>
+        </nav>
+        <div className="nuget-content">
       {tab === "packages" && (
         <>
           <div className="build-controls">
@@ -775,6 +856,15 @@ export function NuGetPanel({
                       }${activeListing?.truncated ? " · list truncated at the declared limit" : ""}`
                   : "Not all package data was read; this is not an all-up-to-date result."}
               </p>
+              {batchResult && (
+                <p className="hint" role="status" data-testid="nuget-batch-summary">
+                  Batch update: {batchResult.updated} updated · {batchResult.failed} failed ·{" "}
+                  {batchResult.restores.length} restore command(s)
+                  {batchResult.restores.map(
+                    (restore) => ` · restore ${restore.state}`,
+                  )}
+                </p>
+              )}
               <p className="menu-note" data-testid="nuget-sources">
                 Enabled configured sources: {sources ?? (activeListing?.sources.state === "ok" ? "none" : "unknown")}. Package origin is not reported.{" "}
                 {activeListing?.sources.state !== "ok"
@@ -821,188 +911,256 @@ export function NuGetPanel({
                 </p>
               )}
 
-              {renderListings.map((item) => (
-                <section
-                  className="nuget-project-section"
-                  data-testid={`nuget-project-section-${item.projectName}`}
-                  key={item.project}
-                  aria-labelledby={`nuget-project-title-${item.projectName}`}
-                >
-                  {scope === "solution" && (
-                    <h3 id={`nuget-project-title-${item.projectName}`}>
-                      {item.projectName} · {item.totalPackages} package
-                      {item.totalPackages === 1 ? "" : "s"} · {item.outdatedCount} outdated
-                    </h3>
-                  )}
-                  {item.state !== "ok" && (
-                    <p className="error" role="status">
-                      {item.message ?? "This project's package data is incomplete."}
-                    </p>
-                  )}
-                  {item.frameworks.map((framework) => (
-                    <section
-                      className="nuget-framework"
-                      data-testid={`nuget-tfm-${framework.framework}`}
-                      key={`${item.project}:${framework.framework}`}
-                      aria-labelledby={`nuget-tfm-title-${framework.framework}`}
+              {updateRows.length > 0 && (
+                <section className="nuget-section" data-testid="nuget-updates-section">
+                  <div className="nuget-section-head">
+                    <input
+                      type="checkbox"
+                      data-testid="nuget-select-all"
+                      aria-label={`Select all ${updateRows.length} updates`}
+                      checked={allUpdatesSelected}
+                      disabled={updateBlocked !== null}
+                      onChange={() => {
+                        if (allUpdatesSelected) {
+                          setSelectedUpdates(new Map());
+                        } else {
+                          setSelectedUpdates(
+                            new Map(
+                              updateRows.map(({ item, framework, pkg }) => {
+                                const key = `${item.project}|${framework.framework}|${pkg.id}`;
+                                return [
+                                  key,
+                                  {
+                                    key,
+                                    projectName: item.projectName,
+                                    project: item.project,
+                                    package: pkg.id,
+                                    fromVersion: pkg.requested ?? pkg.resolved,
+                                    version: pkg.latestVersion ?? "",
+                                    targetFramework: framework.framework,
+                                  },
+                                ];
+                              }),
+                            ),
+                          );
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="nuget-section-title"
+                      aria-expanded={updatesOpen}
+                      data-testid="nuget-updates-toggle"
+                      onClick={() => setUpdatesOpen((open) => !open)}
                     >
-                      <h3 id={`nuget-tfm-title-${framework.framework}`}>
-                        Target framework {framework.framework}
-                      </h3>
-                      <div className="nuget-table-wrap">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th scope="col" aria-label="Select for batch update" />
-                              <th scope="col">Package</th>
-                              <th scope="col">Current</th>
-                              <th scope="col">Latest</th>
-                              <th scope="col">Configured sources</th>
-                              <th scope="col">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {framework.packages.length === 0 && (
-                              <tr>
-                                <td colSpan={6} className="menu-note">
-                                  No packages are referenced for this TFM.
-                                </td>
-                              </tr>
+                      Packages to Update in {scopeLabel}: {updateRows.length}
+                    </button>
+                    <span className="push" />
+                    <button
+                      type="button"
+                      data-testid="nuget-batch-update"
+                      disabled={selectedUpdates.size === 0 || updateBlocked !== null}
+                      onClick={() => void planBatch()}
+                      title={
+                        updateBlocked ??
+                        "Plans each selected package with its own command; one restore per project follows after confirmation."
+                      }
+                    >
+                      Update
+                    </button>
+                  </div>
+                  {updatesOpen && (
+                    <div className="nuget-list">
+                      {updateRows.map(({ item, framework, pkg }) => {
+                        const key = `${item.project}|${framework.framework}|${pkg.id}`;
+                        const reason = busy ? "Reading packages…" : updateBlocked;
+                        const suffix = scope === "solution" ? `-${item.projectName}` : "";
+                        return (
+                          <div
+                            className="nuget-row nuget-update-row"
+                            data-testid={`nuget-update-package-${framework.framework}-${pkg.id}${suffix}`}
+                            key={key}
+                          >
+                            <input
+                              type="checkbox"
+                              data-testid={`nuget-select-${framework.framework}-${pkg.id}${suffix}`}
+                              aria-label={`Select ${pkg.id} for the batch update`}
+                              checked={selectedUpdates.has(key)}
+                              disabled={reason !== null}
+                              onChange={() =>
+                                toggleUpdate({
+                                  key,
+                                  projectName: item.projectName,
+                                  project: item.project,
+                                  package: pkg.id,
+                                  fromVersion: pkg.requested ?? pkg.resolved,
+                                  version: pkg.latestVersion ?? "",
+                                  targetFramework: framework.framework,
+                                })
+                              }
+                            />
+                            <Icon name="package" />
+                            <span className="nuget-package-name">
+                              {pkg.id} <span className="nuget-current">• {versionText(pkg)}</span>
+                            </span>
+                            <span
+                              className="nuget-new-version"
+                              data-testid={`nuget-latest-${framework.framework}-${pkg.id}${suffix}`}
+                            >
+                              {pkg.latestVersion}
+                            </span>
+                            <span
+                              className="nuget-row-source sr-only"
+                              data-testid={`nuget-source-${framework.framework}-${pkg.id}${suffix}`}
+                              title={sourceTitle}
+                            >
+                              {sources ?? "unknown"}
+                            </span>
+                            <button
+                              type="button"
+                              data-testid={`nuget-update-${framework.framework}-${pkg.id}${suffix}`}
+                              aria-label={`Update ${pkg.id} from ${versionText(pkg)} to ${pkg.latestVersion}`}
+                              title={reason ?? `Plan an update of ${pkg.id} to ${pkg.latestVersion}`}
+                              disabled={reason !== null}
+                              onClick={() => void requestPlan(pkg, framework.framework, item.project)}
+                            >
+                              Update…
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {installedCount > 0 && (
+                <section className="nuget-section" data-testid="nuget-installed-section">
+                  <div className="nuget-section-head">
+                    <button
+                      type="button"
+                      className="nuget-section-title"
+                      aria-expanded={installedOpen}
+                      data-testid="nuget-installed-toggle"
+                      onClick={() => setInstalledOpen((open) => !open)}
+                    >
+                      Installed Packages in {scopeLabel}: {installedCount}
+                    </button>
+                    <span className="nuget-badge">{installedCount}</span>
+                  </div>
+                  {installedOpen && (
+                    <div className="nuget-list">
+                      {renderListings.map((item) =>
+                        item.frameworks.map((framework) => (
+                          <div
+                            className="nuget-framework"
+                            data-testid={`nuget-tfm-${framework.framework}`}
+                            key={`${item.project}:${framework.framework}`}
+                          >
+                            {scope === "solution" && (
+                              <p className="nuget-project-label">{item.projectName}</p>
                             )}
-                            {framework.packages.map((pkg) => {
-                              const reason = busy ? "Reading packages…" : updateBlocked;
-                              const key = `${item.project}|${framework.framework}|${pkg.id}`;
-                              const picked = selectedUpdates.has(key);
-                              return (
-                                <tr
-                                  key={pkg.id}
-                                  data-testid={`nuget-package-${framework.framework}-${pkg.id}`}
+                            <p className="nuget-framework-label">Target framework {framework.framework}</p>
+                            {framework.packages.length === 0 && (
+                              <p className="menu-note">No packages are referenced for this TFM.</p>
+                            )}
+                            {[...framework.packages]
+                              .sort((left, right) =>
+                                sortByName ? left.id.localeCompare(right.id) : 0,
+                              )
+                              .map((pkg) => (
+                                <div
+                                  className="nuget-row"
+                                  data-testid={`nuget-package-${framework.framework}-${pkg.id}${
+                                    scope === "solution" ? `-${item.projectName}` : ""
+                                  }`}
+                                  key={`${item.project}:${framework.framework}:${pkg.id}`}
                                   aria-current={pkg.outdated ? "true" : undefined}
                                 >
-                                  <td>
-                                    {pkg.outdated && (
-                                      <input
-                                        type="checkbox"
-                                        data-testid={`nuget-select-${framework.framework}-${pkg.id}`}
-                                        aria-label={`Select ${pkg.id} for the batch update`}
-                                        checked={picked}
-                                        disabled={reason !== null}
-                                        onChange={() =>
-                                          toggleUpdate({
-                                            key,
-                                            projectName: item.projectName,
-                                            project: item.project,
-                                            package: pkg.id,
-                                            fromVersion: pkg.requested ?? pkg.resolved,
-                                            version: pkg.latestVersion ?? "",
-                                            targetFramework: framework.framework,
-                                          })
-                                        }
-                                      />
-                                    )}
-                                  </td>
-                                  <th scope="row">{pkg.id}</th>
-                                  <td>{versionText(pkg)}</td>
-                                  <td data-testid={`nuget-latest-${framework.framework}-${pkg.id}`}>
-                                    {pkg.outdated ? pkg.latestVersion : "—"}
-                                  </td>
-                                  <td
-                                    className="menu-note"
-                                    data-testid={`nuget-source-${framework.framework}-${pkg.id}`}
-                                    title={sourceTitle}
-                                  >
-                                    {pkg.outdated ? (sources ?? "unknown") : ""}
-                                  </td>
-                                  <td>
-                                    {pkg.outdated ? (
-                                      <button
-                                        type="button"
-                                        data-testid={`nuget-update-${framework.framework}-${pkg.id}`}
-                                        aria-label={`Update ${pkg.id} from ${versionText(pkg)} to ${pkg.latestVersion}`}
-                                        title={reason ?? `Plan an update of ${pkg.id} to ${pkg.latestVersion}`}
-                                        disabled={reason !== null}
-                                        onClick={() => void requestPlan(pkg, framework.framework, item.project)}
-                                      >
-                                        Update…
-                                      </button>
-                                    ) : (
-                                      <span className="menu-note">Current</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                      <details
-                        className="nuget-assets"
-                        data-testid={`nuget-assets-${item.projectName}-${framework.framework}`}
-                      >
-                        <summary>
-                          Implicit and transitive packages ·{" "}
-                          {item.assets.state === "ok" ? "from project.assets.json" : item.assets.state}
-                        </summary>
+                                  <Icon name="package" />
+                                  <span className="nuget-package-name">
+                                    {pkg.id} <span className="nuget-current">• {versionText(pkg)}</span>
+                                  </span>
+                                  {pkg.outdated && (
+                                    <span className="nuget-new-version">{pkg.latestVersion}</span>
+                                  )}
+                                </div>
+                              ))}
+                          </div>
+                        )),
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <section className="nuget-section" data-testid="nuget-implicit-section">
+                <div className="nuget-section-head">
+                  <button
+                    type="button"
+                    className="nuget-section-title"
+                    aria-expanded={implicitOpen}
+                    data-testid="nuget-implicit-toggle"
+                    onClick={() => setImplicitOpen((open) => !open)}
+                  >
+                    Implicitly Installed Packages in {scopeLabel}: {implicitRows.length}
+                  </button>
+                  <span className="nuget-badge">{implicitRows.length}</span>
+                </div>
+                {implicitOpen && (
+                  <div className="nuget-list">
+                    {renderListings.map((item) => (
+                      <div key={item.project}>
                         {item.assets.state !== "ok" && (
                           <p className="menu-note">{item.assets.message}</p>
                         )}
-                        {item.assets.state === "ok" && (
-                          <>
-                            <p className="menu-note" data-testid="nuget-assets-path">
-                              <code>{item.assets.path}</code>
+                        {item.assets.frameworks.map((assets) => (
+                          <div key={`${item.project}:${assets.framework}`}>
+                            <p className="nuget-framework-label">
+                              {item.projectName} · {assets.framework}
                             </p>
-                            {item.assets.frameworks
-                              .filter((assets) => assets.framework === framework.framework)
-                              .map((assets) => (
-                                <div key={assets.framework}>
-                                  <p className="menu-note" data-testid="nuget-implicit">
-                                    Implicitly installed ({assets.implicit.length}):
-                                  </p>
-                                  <ul className="plain-list">
-                                    {assets.implicit.map((pkg) => (
-                                      <li key={pkg.id}>
-                                        {pkg.id} {pkg.version ?? ""}
-                                      </li>
-                                    ))}
-                                    {assets.implicit.length === 0 && <li>none reported</li>}
-                                  </ul>
-                                  <p className="menu-note" data-testid="nuget-transitive">
-                                    Transitive ({assets.transitive.length}):
-                                  </p>
-                                  <ul className="plain-list">
-                                    {assets.transitive.map((pkg) => (
-                                      <li key={pkg.id}>
-                                        {pkg.id} {pkg.version ?? ""}
-                                      </li>
-                                    ))}
-                                    {assets.transitive.length === 0 && <li>none reported</li>}
-                                  </ul>
-                                </div>
+                            <p className="menu-note" data-testid="nuget-implicit">
+                              Implicitly installed ({assets.implicit.length}):
+                            </p>
+                            <ul className="plain-list">
+                              {assets.implicit.map((pkg) => (
+                                <li key={pkg.id}>
+                                  <Icon name="package" /> {pkg.id} {pkg.version ?? ""}
+                                </li>
                               ))}
-                          </>
+                              {assets.implicit.length === 0 && <li>none reported</li>}
+                            </ul>
+                            <p className="menu-note" data-testid="nuget-transitive">
+                              Transitive ({assets.transitive.length}):
+                            </p>
+                            <ul className="plain-list">
+                              {assets.transitive.map((pkg) => (
+                                <li key={pkg.id}>
+                                  <Icon name="package" /> {pkg.id} {pkg.version ?? ""}
+                                </li>
+                              ))}
+                              {assets.transitive.length === 0 && <li>none reported</li>}
+                            </ul>
+                          </div>
+                        ))}
+                        {item.assets.state === "ok" && item.assets.frameworks.length === 0 && (
+                          <p className="menu-note">No implicit packages are reported for this project.</p>
                         )}
-                      </details>
-                    </section>
-                  ))}
-                </section>
-              ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
 
               <div className="build-controls nuget-batch-bar">
                 <span className="menu-note" data-testid="nuget-selected-count">
                   {selectedUpdates.size} selected for update
                 </span>
-                <button
-                  type="button"
-                  data-testid="nuget-batch-update"
-                  disabled={selectedUpdates.size === 0 || updateBlocked !== null}
-                  onClick={() => void planBatch()}
-                  title={
-                    updateBlocked ??
-                    "Plans each selected package with its own command; one restore per project follows after confirmation."
-                  }
-                >
-                  Update selected
-                </button>
+              </div>
+              <div className="build-controls nuget-batch-bar">
+                <span className="menu-note" data-testid="nuget-selected-count">
+                  {selectedUpdates.size} selected for update
+                </span>
               </div>
 
               {activeListing && (
@@ -1096,6 +1254,9 @@ export function NuGetPanel({
           {renderListings.length === 0 && <p className="hint">No package listing has been read.</p>}
         </section>
       )}
+
+        </div>
+      </div>
 
       {update && (
         <section className="nuget-update" data-testid="nuget-update-state" aria-label="Update result">
