@@ -141,6 +141,9 @@ impl Entry {
     /// grandchildren, escalate to KILL if the group survives, then release the leader.
     #[cfg(unix)]
     fn finish_group(&mut self) {
+        // ponytail: the leader is still a zombie here, so the kernel cannot reuse its pid/pgid;
+        // this closes the practical race. A future design that reaps before group cleanup would
+        // need an ownership token, because pgid reuse after reap is theoretically possible.
         let pgid = self.pid;
         if pgid == 0 || self.killer.is_some() {
             return;
