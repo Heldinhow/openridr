@@ -284,49 +284,23 @@ fn walk(dir: &Path, root: &Path, files: &mut Vec<String>) {
 }
 
 /// Conservative C# type kind for a source file: text scan only, never a compiler.
-/// Comments and attributes are skipped; `record class`/`record struct` count as record; the
-/// declaration named after the file stem wins over an earlier one. `None` means no evidence.
+/// Strings and comments are replaced before scanning; `record class`/`record struct` count as
+/// record; the declaration named after the file stem (or its part before the first dot) wins over
+/// an earlier one. `None` means no evidence.
 pub fn symbol_kind(text: &str, stem: &str) -> Option<&'static str> {
     const KEYWORDS: [&str; 5] = ["class", "interface", "enum", "record", "struct"];
-    // A type keyword only counts in declaration position (line start or after a modifier);
-    // `var s = "class NotAType"` must not paint the file as a class.
+    // A type keyword only counts in declaration position (line start or after a modifier).
     const MODIFIERS: [&str; 14] = [
         "public", "private", "protected", "internal", "abstract", "sealed", "static", "partial",
         "readonly", "ref", "file", "unsafe", "new", "fixed",
     ];
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let code = code_only(text);
+    let base_stem = stem.split('.').next().unwrap_or(stem);
     let mut first: Option<&'static str> = None;
-    let mut in_block_comment = false;
-    for raw in text.lines() {
-        // Strip line and block comments before scanning; a declaration inside `/* */` is not evidence.
-        let chars: Vec<char> = raw.chars().collect();
-        let mut line = String::with_capacity(raw.len());
-        let mut index = 0;
-        while index < chars.len() {
-            if in_block_comment {
-                if chars[index] == '*' && chars.get(index + 1) == Some(&'/') {
-                    in_block_comment = false;
-                    index += 2;
-                } else {
-                    index += 1;
-                }
-                continue;
-            }
-            if chars[index] == '/' && chars.get(index + 1) == Some(&'/') {
-                break;
-            }
-            if chars[index] == '/' && chars.get(index + 1) == Some(&'*') {
-                in_block_comment = true;
-                index += 2;
-                continue;
-            }
-            line.push(chars[index]);
-            index += 1;
-        }
-        let trimmed = line.trim();
-        if trimmed.is_empty()
-            || trimmed.starts_with('[')
-            || trimmed.to_ascii_lowercase().starts_with("where ")
-        {
+    for raw in code.lines() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.to_ascii_lowercase().starts_with("where ") {
             continue;
         }
         let tokens: Vec<&str> = trimmed
@@ -335,8 +309,8 @@ pub fn symbol_kind(text: &str, stem: &str) -> Option<&'static str> {
             .collect();
         let mut index = 0;
         while index < tokens.len() {
-            let keyword = tokens[index].to_ascii_lowercase();
-            let Some(kind) = KEYWORDS.iter().copied().find(|candidate| *candidate == keyword) else {
+            // Keywords are lowercase in C#; `Enum.Parse` and a property named `Class` are not types.
+            let Some(kind) = KEYWORDS.iter().copied().find(|candidate| *candidate == tokens[index]) else {
                 index += 1;
                 continue;
             };
@@ -360,7 +334,19 @@ pub fn symbol_kind(text: &str, stem: &str) -> Option<&'static str> {
                 index += 1;
                 continue;
             };
-            if name == stem {
+            // `record.ToString()` has a name-shaped token but is a member access, not a declaration.
+            let offset = name.as_ptr() as usize - trimmed.as_ptr() as usize;
+            let member_access = offset > 0 && trimmed[..offset].trim_end().ends_with('.');
+            let after = trimmed[offset + name.len()..].trim_start();
+            let shape_ok = match after.chars().next() {
+                None => true,
+                Some(next) => matches!(next, '{' | '(' | '<' | ':' | ';' | ','),
+            };
+            if member_access || !shape_ok {
+                index = name_index + 1;
+                continue;
+            }
+            if name == stem || name == base_stem {
                 return Some(kind);
             }
             if first.is_none()
@@ -375,6 +361,134 @@ pub fn symbol_kind(text: &str, stem: &str) -> Option<&'static str> {
         }
     }
     first
+}
+
+/// Replaces strings and comments with spaces, keeping newlines so tokens stay on their line.
+/// Handles `"..."`, `@"..."`, `"""..."""` (including multi-line), char literals and both comments.
+fn code_only(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let current = chars[index];
+        if current == '"' {
+            let quotes = quote_run(&chars, index);
+            if quotes >= 3 {
+                index += quotes;
+                while index < chars.len() {
+                    if chars[index] == '\n' {
+                        out.push('\n');
+                    } else if chars[index] == '"' && quote_run(&chars, index) >= quotes {
+                        index += quotes;
+                        break;
+                    }
+                    index += 1;
+                }
+                continue;
+            }
+            index += 1;
+            while index < chars.len() {
+                if chars[index] == '\\' {
+                    index += 2;
+                    continue;
+                }
+                if chars[index] == '"' {
+                    index += 1;
+                    break;
+                }
+                if chars[index] == '\n' {
+                    out.push('\n');
+                }
+                index += 1;
+            }
+            continue;
+        }
+        if current == '@' && chars.get(index + 1) == Some(&'"') {
+            index += 2;
+            while index < chars.len() {
+                if chars[index] == '"' {
+                    if chars.get(index + 1) == Some(&'"') {
+                        index += 2;
+                        continue;
+                    }
+                    index += 1;
+                    break;
+                }
+                if chars[index] == '\n' {
+                    out.push('\n');
+                }
+                index += 1;
+            }
+            continue;
+        }
+        if current == '@' && chars.get(index + 1) == Some(&'$') && chars.get(index + 2) == Some(&'"') {
+            index += 3;
+            while index < chars.len() {
+                if chars[index] == '"' {
+                    if chars.get(index + 1) == Some(&'"') {
+                        index += 2;
+                        continue;
+                    }
+                    index += 1;
+                    break;
+                }
+                if chars[index] == '\n' {
+                    out.push('\n');
+                }
+                index += 1;
+            }
+            continue;
+        }
+        if current == '\'' {
+            index += 1;
+            while index < chars.len() {
+                if chars[index] == '\\' {
+                    index += 2;
+                    continue;
+                }
+                if chars[index] == '\'' {
+                    index += 1;
+                    break;
+                }
+                if chars[index] == '\n' {
+                    break;
+                }
+                index += 1;
+            }
+            continue;
+        }
+        if current == '/' && chars.get(index + 1) == Some(&'/') {
+            while index < chars.len() && chars[index] != '\n' {
+                index += 1;
+            }
+            continue;
+        }
+        if current == '/' && chars.get(index + 1) == Some(&'*') {
+            index += 2;
+            while index < chars.len() {
+                if chars[index] == '*' && chars.get(index + 1) == Some(&'/') {
+                    index += 2;
+                    break;
+                }
+                if chars[index] == '\n' {
+                    out.push('\n');
+                }
+                index += 1;
+            }
+            continue;
+        }
+        out.push(current);
+        index += 1;
+    }
+    out
+}
+
+fn quote_run(chars: &[char], start: usize) -> usize {
+    let mut count = 0;
+    while chars.get(start + count) == Some(&'"') {
+        count += 1;
+    }
+    count
 }
 
 #[cfg(test)]
@@ -459,6 +573,44 @@ mod tests {
         assert_eq!(symbol_kind("var text = \"class NotAType\";", "NotAType"), None);
         assert_eq!(symbol_kind("Console.WriteLine(\"interface IFake\");", "IFake"), None);
         assert_eq!(symbol_kind("var kind = typeof(string);", "string"), None);
+    }
+
+    #[test]
+    fn symbol_kind_requires_lowercase_keywords_in_declaration_position() {
+        assert_eq!(symbol_kind("Enum.Parse<Foo>(value);", "Program"), None);
+        assert_eq!(symbol_kind("Class = value;", "Holder"), None);
+        assert_eq!(symbol_kind("record.ToString();", "Program"), None);
+        assert_eq!(symbol_kind("foreach (var record in records) { }", "Program"), None);
+    }
+
+    #[test]
+    fn symbol_kind_skips_strings_before_comments_and_keywords() {
+        assert_eq!(
+            symbol_kind("var pattern = \"application/*\";\npublic class Widget {}", "Widget"),
+            Some("class")
+        );
+        assert_eq!(symbol_kind("var note = \"Add a new record to db\";", "Program"), None);
+        assert_eq!(
+            symbol_kind("var p = @\"// not a comment\"; public class Widget {}", "Widget"),
+            Some("class")
+        );
+        let raw = "var text = \"\"\"\ninterface Fake\n\"\"\";";
+        assert_eq!(symbol_kind(raw, "Program"), None);
+        let interpolated = "var p = $\"/* {value}\";\npublic class Widget {}";
+        assert_eq!(symbol_kind(interpolated, "Widget"), Some("class"));
+    }
+
+    #[test]
+    fn symbol_kind_reads_attributes_on_the_same_line_and_strips_bom() {
+        assert_eq!(symbol_kind("[Fact] public sealed class Widget {}", "Widget"), Some("class"));
+        let bom = "\u{feff}[assembly: AssemblyMetadata(\"class\")]\npublic sealed class Widget {}";
+        assert_eq!(symbol_kind(bom, "Widget"), Some("class"));
+    }
+
+    #[test]
+    fn symbol_kind_matches_a_designer_stem_before_the_first_dot() {
+        let file = "enum Helper { A }\npublic sealed class Foo {}";
+        assert_eq!(symbol_kind(file, "Foo.Designer"), Some("class"));
     }
 
     #[test]
