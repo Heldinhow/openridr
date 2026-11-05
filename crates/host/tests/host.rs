@@ -3645,20 +3645,28 @@ exit 1
     )
     .unwrap();
 
-    // Every observation during the attempt must be the measured download: no total is known, and
-    // the bytes never grow by the installer's copies.
+    // Every observation during the attempt is the measured download: a partial read is legitimate,
+    // so samples only have to be monotonic and never reach the installer's copies on disk.
     let mut samples = 0;
+    let mut previous = 0;
+    let mut last = 0;
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let tool = snapshot(&host)["tools"]["csharp-ls"].clone();
         if let Some(progress) = tool["progress"].as_object() {
             samples += 1;
             assert_eq!(progress["total"], Value::Null, "no total was sent: {tool}");
-            assert_eq!(
-                progress["downloaded"].as_u64(),
-                Some(payload_len),
-                "progress fell back to bytes on disk: {tool}"
+            let downloaded = progress["downloaded"].as_u64().expect("progress is a byte count");
+            assert!(
+                downloaded >= previous,
+                "progress went backwards ({previous} -> {downloaded}): {tool}"
             );
+            assert!(
+                downloaded <= payload_len,
+                "progress counted the installer's copies on disk ({downloaded} > {payload_len}): {tool}"
+            );
+            previous = downloaded;
+            last = downloaded;
         }
         if tool["state"] == "failed" {
             break;
@@ -3667,6 +3675,10 @@ exit 1
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(samples > 0, "no progress was observed for the measured download");
+    assert_eq!(
+        last, payload_len,
+        "the download never reported the whole package"
+    );
 }
 
 #[cfg(unix)]
