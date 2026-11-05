@@ -2947,8 +2947,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   // Opening another file remounts the editor; focusing before that lands on the old one or nothing.
+  // WebKit commits that remount later than a timer, so retry per frame until the new editor has focus.
+  function focusEditorWhenMounted(frames: number) {
+    focusEditor();
+    const focused = document.activeElement?.closest<HTMLElement>('[data-testid="editor"]');
+    if (focused?.querySelector(".cm-content") === document.activeElement || frames <= 0) return;
+    window.requestAnimationFrame(() => focusEditorWhenMounted(frames - 1));
+  }
+
   function focusEditorAfterOpen(open: () => Promise<unknown>) {
-    void open().finally(() => window.setTimeout(focusEditor, 0));
+    void open().finally(() => focusEditorWhenMounted(30));
   }
 
   function openSearchFile(path: string) {
