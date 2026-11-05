@@ -987,8 +987,7 @@ impl Host {
             lsp_view.coverage,
             lsp_view.coverage_note.clone(),
         );
-        let mut tests_view = inner.tests.view();
-        tests_view.run = inner.test_run.view();
+        let tests_view = inner.tests_view();
         let tools_view = inner.tools.view();
         let debug_view = inner.debugger.view(inner.debugger_experimental);
         let setup_active = matches!(
@@ -2670,7 +2669,8 @@ impl Host {
     /// real path and never touches the workspace; no process is started.
     fn export_tests(&self) -> HostResult<Value> {
         let inner = self.inner.lock().unwrap();
-        let tests = inner.tests.view();
+        // The same composed view the snapshot serves: discovery plus the real last run.
+        let tests = inner.tests_view();
         let discovery = tests.discovery;
         let run = tests.run;
         if discovery.revision == 0 && run.revision == 0 {
@@ -6926,6 +6926,15 @@ impl Inner {
         }
     }
 
+    /// The one shape every reader of the Tests state gets: the discovery plus the real last run.
+    /// `Tests::view()` always carries an idle run, so a caller that wants the run must not read
+    /// the discovery view directly (that is how the export used to write an empty run).
+    fn tests_view(&self) -> test_discovery::TestsView {
+        let mut view = self.tests.view();
+        view.run = self.test_run.view();
+        view
+    }
+
     /// Observes the discovery process. Only an exit the registry observed can finish the
     /// discovery; cancellation keeps the items printed so far.
     fn sync_tests(&mut self) {
@@ -7257,12 +7266,12 @@ fn resolve_test_scope(
         ));
     }
 
-    let target_framework = match params.get("targetFramework") {
+    let requested_framework = match params.get("targetFramework") {
         Some(Value::String(value)) if !value.trim().is_empty() => Some(value.trim().to_string()),
         Some(_) => None,
         None => evaluation.context.target_framework.clone(),
     };
-    if target_framework
+    if requested_framework
         .as_deref()
         .is_some_and(|tfm| !valid_selection(tfm))
     {
@@ -7271,16 +7280,20 @@ fn resolve_test_scope(
             "TFM must not contain `;`, `=`, quotes or line breaks; no test operation was started.",
         ));
     }
-    if target_framework != evaluation.context.target_framework {
+    if requested_framework != evaluation.context.target_framework {
         return Err(HostError::with_details(
             "invalid_state",
             format!(
                 "{label} was not started: TFM {} has not been evaluated. Re-evaluate with that TFM first.",
-                target_framework.unwrap_or_else(|| "not selected".to_string())
+                requested_framework.unwrap_or_else(|| "not selected".to_string())
             ),
             json!({ "reason": "tfm_not_evaluated", "action": { "method": "evaluation.run", "params": {} } }),
         ));
     }
+    // A project with one evaluated TFM has exactly one framework the runner could use, so the
+    // operation names it instead of letting every row report "TFM not selected". A multi-TFM
+    // project keeps the explicit selection and is refused above when none was made.
+    let target_framework = test_framework(&project, requested_framework);
 
     let project = project.clone();
     Ok(TestScope {
@@ -7294,6 +7307,22 @@ fn resolve_test_scope(
         sdk_root,
         root,
     })
+}
+
+/// The TFM a test operation runs: the explicit/evaluated selection when there is one, otherwise
+/// the only framework the evaluated project declares.
+fn test_framework(
+    project: &evaluation::EvaluatedProject,
+    selected: Option<String>,
+) -> Option<String> {
+    if selected.is_some() {
+        return selected;
+    }
+    let mut tfms = project.tfms.iter().filter(|tfm| !tfm.trim().is_empty());
+    match (tfms.next(), tfms.next()) {
+        (Some(only), None) => Some(only.clone()),
+        _ => None,
+    }
 }
 
 /// One VSTest scope: never let the runner pick a TFM for a multi-target project and never
