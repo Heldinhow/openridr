@@ -38,6 +38,18 @@ test("Rider-style rows: counts, solution folders, nested sources and Dependencie
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveCount(0);
   await page.getByTestId("tree-root").click();
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toBeVisible();
+
+  // Dependencies is grouped like Rider: Frameworks / Packages / Projects, only when non-empty.
+  await page.getByTestId("tree-deps-OrderDesk.Cli").click();
+  await expect(page.getByTestId("tree-deps-group-OrderDesk.Cli-frameworks")).toBeVisible();
+  await expect(page.getByTestId("tree-deps-group-OrderDesk.Cli-projects")).toBeVisible();
+  await expect(page.getByTestId("tree-deps-group-OrderDesk.Cli-packages")).toHaveCount(0);
+  await page.getByTestId("tree-deps-group-OrderDesk.Cli-frameworks").click();
+  await expect(
+    page.getByTestId("tree-framework-OrderDesk.Cli-Microsoft.NETCore.App (net8.0)"),
+  ).toBeVisible();
+  await page.getByTestId("tree-deps-group-OrderDesk.Cli-projects").click();
+  await expect(page.getByTestId("tree-ref-OrderDesk.Cli-OrderDesk.Core")).toContainText("OrderDesk.Core");
 });
 
 test("toolbar: collapse/expand all, filter, minimize", async ({ page }) => {

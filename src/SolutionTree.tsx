@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { FileIcon } from "./FileIcon";
-import { call, type EvaluationProject, type OutlineProject } from "./host/client";
+import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
+import { ProjectIcon } from "./icons/ProjectIcon";
 import {
-  ROOT_KEY, baseOf, countLabel, depsKey, dirKey, dirOf, folderKey, nestSources, type SourceNode,
+  ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, nestSources,
+  visibleSourceFiles, type DependencyGroup, type SourceNode,
 } from "./solutionNodes";
+import {
+  dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, symbolKindOf,
+  type ProjectKind, type SymbolKind,
+} from "./solutionVisuals";
 import { TreeRow } from "./TreeRow";
 
 export type TreeTarget =
@@ -14,17 +20,21 @@ export type TreeTarget =
   | { kind: "dir"; path: string };
 
 type Entry = { name: string; path: string; dir: boolean; hidden: boolean };
+type SymbolCacheEntry = { kind: SymbolKind | null; modified: number };
+type SymbolEntry = { path: string; kind: string | null; modified: number };
 
 // One shape for the evaluated model and the text outline, so both render through the same rows.
 type View = {
   name: string;
   path: string;
   kind: string;
+  /** Kind read from the project text, used for `web` when MSBuild reports `Exe`. */
+  textKind: string | null;
   tfms: string[];
   folder: string | null;
   sources: string[];
   refs: string[];
-  packages: string[];
+  packages: EvaluatedPackageRef[];
   evaluated: boolean;
   failed: boolean;
   restore: EvaluationProject["restored"];
@@ -33,20 +43,22 @@ type View = {
 };
 
 function toViews(evaluated: EvaluationProject[] | null, outline: OutlineProject[]): View[] {
+  const outlineByPath = new Map(outline.map((project) => [project.path, project]));
   if (evaluated) {
     return evaluated.map((p) => ({
       // A failed evaluation has no sources; fall back to the text outline plus the project file itself.
       sources: p.state === "failed" && p.sources.length === 0
-        ? [...(outline.find((o) => o.path === p.path)?.files ?? []), p.path]
+        ? [...(outlineByPath.get(p.path)?.files ?? []), p.path]
         : p.sources,
-      name: p.name, path: p.path, kind: p.kind, tfms: p.tfms, folder: p.folder,
+      name: p.name, path: p.path, kind: p.kind, textKind: outlineByPath.get(p.path)?.kind ?? null,
+      tfms: p.tfms, folder: p.folder,
       refs: p.projectRefs.map((r) => r.name),
-      packages: p.packageRefs.map((k) => (k.version ? `${k.name} ${k.version}` : `${k.name} (version unknown)`)),
+      packages: dedupePackages(p.packageRefs),
       evaluated: true, failed: p.state === "failed", restore: p.restored, error: p.error, note: p.note,
     }));
   }
   return outline.map((p) => ({
-    name: p.name, path: p.path, kind: p.kind, tfms: p.tfms, folder: null, sources: p.files,
+    name: p.name, path: p.path, kind: p.kind, textKind: p.kind, tfms: p.tfms, folder: null, sources: p.files,
     refs: p.references, packages: [], evaluated: false, failed: false, restore: "restored", error: null, note: null,
   }));
 }
@@ -57,7 +69,17 @@ export function expandableKeys(evaluated: EvaluationProject[] | null, outline: O
   for (const view of toViews(evaluated, outline)) {
     keys.add(view.path);
     if (view.folder) keys.add(folderKey(view.folder));
-    if (deps) keys.add(depsKey(view.path));
+    if (deps) {
+      const kind = projectKindOf(view.kind, view.textKind);
+      const frameworks = frameworkRows(view.tfms, kind);
+      const hasDeps = frameworks.length > 0 || view.packages.length > 0 || view.refs.length > 0;
+      if (hasDeps) {
+        keys.add(depsKey(view.path));
+        if (frameworks.length > 0) keys.add(depGroupKey(view.path, "frameworks"));
+        if (view.packages.length > 0) keys.add(depGroupKey(view.path, "packages"));
+        if (view.refs.length > 0) keys.add(depGroupKey(view.path, "projects"));
+      }
+    }
     for (const node of nestSources(view.path, view.sources)) collectDirs(node, keys);
   }
   return keys;
@@ -80,6 +102,8 @@ type Props = {
   activePath: string | null;
   onOpenFile: (path: string) => void;
   restoreIncomplete: (projectPath: string) => boolean;
+  /** Bumps when the model is re-evaluated; the symbol scan must not outlive a fresh model. */
+  evaluationRevision: number;
   showAll: boolean;
   filter: string;
   onMenu: (event: MouseEvent, target: TreeTarget) => void;
@@ -90,6 +114,24 @@ export function SolutionTree(p: Props) {
   const filter = p.filter.trim().toLowerCase();
   const hit = (text: string) => text.toLowerCase().includes(filter);
   const [listing, setListing] = useState<Record<string, Entry[]>>({});
+  const [symbolKinds, setSymbolKinds] = useState<Record<string, SymbolKind>>({});
+  const symbolKindsRef = useRef<Record<string, SymbolKind>>({});
+  const symbolCache = useRef(new Map<string, SymbolCacheEntry>());
+  const sourceSet = useMemo(() => new Set(views.flatMap((view) => view.sources)), [views]);
+  const projectDirs = useMemo(() => new Set(views.map((view) => dirOf(view.path))), [views]);
+  const ancestors = useMemo(
+    () => new Set(views.flatMap((view) => {
+      const out: string[] = [];
+      for (let dir = dirOf(view.path); dir; dir = dirOf(dir)) out.push(dir);
+      return out;
+    })),
+    [views],
+  );
+  const projectFiles = useMemo(() => new Set(views.map((view) => view.path)), [views]);
+  const allSourcesKey = useMemo(
+    () => Array.from(sourceSet).filter((path) => path.toLowerCase().endsWith(".cs")).sort().join("\n"),
+    [sourceSet],
+  );
 
   // Show all files: load one directory level at a time; toggling the mode off drops the cache.
   async function ensureDir(dir: string) {
@@ -108,25 +150,116 @@ export function SolutionTree(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.showAll, views.length]);
 
-  const sourceSet = new Set(views.flatMap((view) => view.sources));
-  const projectDirs = new Set(views.map((view) => dirOf(view.path)));
-  const ancestors = new Set(views.flatMap((view) => {
-    const out: string[] = [];
-    for (let dir = dirOf(view.path); dir; dir = dirOf(dir)) out.push(dir);
-    return out;
-  }));
-  const projectFiles = new Set(views.map((view) => view.path));
+  // Only files the user can see (open project + open folders) are asked for; filter mode keeps the
+  // badges already known and never starts a scan per keystroke.
+  const visibleSignature = useMemo(() => {
+    if (filter) return "";
+    const visible = new Set<string>();
+    if (p.showAll) {
+      const walk = (dir: string) => {
+        for (const entry of listing[dir] ?? []) {
+          if (entry.dir) {
+            const projectRoot = dir === "" && (projectDirs.has(entry.path) || ancestors.has(entry.path));
+            if (!projectRoot && p.expanded.has(dirKey(entry.path))) walk(entry.path);
+          } else if (entry.path.toLowerCase().endsWith(".cs") && sourceSet.has(entry.path)) {
+            visible.add(entry.path);
+          }
+        }
+      };
+      for (const view of views) {
+        if (p.expanded.has(view.path)) walk(dirOf(view.path));
+      }
+      if (p.expanded.has(ROOT_KEY)) walk("");
+    } else {
+      for (const view of views) {
+        if (!p.expanded.has(view.path)) continue;
+        for (const path of visibleSourceFiles(
+          nestSources(view.path, view.sources),
+          (key) => p.expanded.has(key),
+        )) {
+          if (path.toLowerCase().endsWith(".cs")) visible.add(path);
+        }
+      }
+    }
+    return Array.from(visible).sort().join("\n");
+  }, [filter, p.expanded, p.showAll, views, listing, sourceSet, projectDirs, ancestors]);
+
+  // Batches of 128 keep the host's 256-file cap out of reach; `known` makes unchanged files a stat.
+  useEffect(() => {
+    if (!visibleSignature) return;
+    const visible = visibleSignature.split("\n");
+    let alive = true;
+    void (async () => {
+      const updates: Array<[string, SymbolCacheEntry]> = [];
+      for (let start = 0; start < visible.length; start += 128) {
+        const batch = visible.slice(start, start + 128);
+        const known: Record<string, number> = {};
+        for (const path of batch) {
+          const cached = symbolCache.current.get(path);
+          if (cached) known[path] = cached.modified;
+        }
+        try {
+          const result = await call<{ entries: SymbolEntry[] }>("workspace.symbolKinds", {
+            paths: batch,
+            known,
+          });
+          if (!alive) return;
+          for (const entry of result.entries ?? []) {
+            updates.push([
+              entry.path,
+              { kind: symbolKindOf(entry.kind) ?? null, modified: entry.modified },
+            ]);
+          }
+        } catch {
+          break; // keep the badges already shown and apply the batches that succeeded
+        }
+      }
+      if (!alive || updates.length === 0) return;
+      const next = { ...symbolKindsRef.current };
+      for (const [path, entry] of updates) {
+        symbolCache.current.set(path, entry);
+        if (entry.kind) next[path] = entry.kind;
+        else delete next[path];
+      }
+      symbolKindsRef.current = next;
+      setSymbolKinds(next);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [visibleSignature, p.evaluationRevision]);
+
+  // Renamed/deleted sources must not keep a badge forever.
+  useEffect(() => {
+    const allowed = new Set(allSourcesKey ? allSourcesKey.split("\n") : []);
+    for (const path of Array.from(symbolCache.current.keys())) {
+      if (!allowed.has(path)) symbolCache.current.delete(path);
+    }
+    const next = Object.fromEntries(
+      Object.entries(symbolKindsRef.current).filter(([path]) => allowed.has(path)),
+    );
+    if (Object.keys(next).length !== Object.keys(symbolKindsRef.current).length) {
+      symbolKindsRef.current = next;
+      setSymbolKinds(next);
+    }
+  }, [allSourcesKey]);
+
   const open = (key: string) => (filter ? true : p.expanded.has(key));
 
   function fileRow(path: string, level: number, noIndex = false) {
+    const owner = views.find((view) => view.path === path);
+    const projectKind = owner ? projectKindOf(owner.kind, owner.textKind) : undefined;
+    const kind = fileKind(path);
     return (
       <TreeRow
         key={path}
         level={level}
-        icon={<FileIcon path={path} />}
+        icon={<FileIcon path={path} projectKind={projectKind} symbolKind={symbolKinds[path]} />}
         name={baseOf(path)}
         noIndex={noIndex}
         testId={`tree-file-${path}`}
+        fileKind={kind}
+        symbolKind={symbolKinds[path]}
         current={p.activePath === path}
         selected={p.activePath === path}
         title={path}
@@ -146,7 +279,7 @@ export function SolutionTree(p: Props) {
           key={node.path}
           level={level}
           open={open(dirKey(node.path))}
-          icon={<Icon name="folder" />}
+          icon={<Icon name="folder" className="tint-folder" />}
           name={node.name}
           testId={`tree-dir-${node.path}`}
           onClick={() => p.onToggle(dirKey(node.path))}
@@ -167,7 +300,7 @@ export function SolutionTree(p: Props) {
           key={entry.path}
           level={level}
           open={open(key)}
-          icon={<Icon name="folder" />}
+          icon={<Icon name="folder" className="tint-folder" />}
           name={entry.name}
           noIndex={entry.hidden}
           testId={`tree-dir-${entry.path}`}
@@ -187,17 +320,38 @@ export function SolutionTree(p: Props) {
     const selected = p.selectedProjectPath === view.path;
     const sources = filter ? view.sources.filter((source) => hit(baseOf(source))) : view.sources;
     if (filter && sources.length === 0 && !hit(view.name)) return null;
-    const hasDeps = view.refs.length > 0 || view.packages.length > 0;
+    const kind = projectKindOf(view.kind, view.textKind);
+    const frameworks = frameworkRows(view.tfms, kind);
+    const hasDeps = view.refs.length > 0 || view.packages.length > 0 || frameworks.length > 0;
+    const groupRow = (group: DependencyGroup, name: string, icon: ReactNode, items: ReactNode[]) => {
+      if (items.length === 0) return null;
+      const key = depGroupKey(view.path, group);
+      return (
+        <>
+          <TreeRow
+            level={level + 2}
+            open={p.expanded.has(key)}
+            icon={icon}
+            name={name}
+            testId={`tree-deps-group-${view.name}-${group}`}
+            onClick={() => p.onToggle(key)}
+          />
+          {p.expanded.has(key) && items}
+        </>
+      );
+    };
     return (
       <div key={view.path}>
         <TreeRow
           level={level}
           open={isOpen}
-          icon={<FileIcon path={view.path} project />}
+          icon={<ProjectIcon kind={kind} />}
           name={view.name}
           testId={`tree-project-${view.name}`}
           selected={selected}
           title={view.path}
+          projectKind={kind}
+          projectTfms={view.tfms.join(" ")}
           onClick={() => {
             p.onToggle(view.path);
             p.onSelectProject(view.path);
@@ -208,9 +362,7 @@ export function SolutionTree(p: Props) {
           }}
           suffix={
             <>
-              <span className="tag">· {view.kind}</span>
               {view.failed && <span className="tag error">error</span>}
-              {view.tfms.map((tfm) => <span className="tag" key={tfm}>· {tfm}</span>)}
               {view.evaluated && view.restore !== "restored" && (
                 <span className="tag warning">{view.restore === "unknown" ? "restore unknown" : "partial context"}</span>
               )}
@@ -227,19 +379,69 @@ export function SolutionTree(p: Props) {
                 <TreeRow
                   level={level + 1}
                   open={p.expanded.has(depsKey(view.path))}
-                  icon={<Icon name="dependencies" />}
+                  icon={<Icon name="dependencies" className="tint-dependencies" />}
                   name="Dependencies"
                   testId={`tree-deps-${view.name}`}
                   onClick={() => p.onToggle(depsKey(view.path))}
                 />
                 {p.expanded.has(depsKey(view.path)) && (
                   <>
-                    {view.refs.map((ref) => (
-                      <TreeRow key={`ref:${ref}`} level={level + 2} icon={<Icon name="project" />} name={ref} suffix={<span className="tag">· project</span>} onClick={() => undefined} />
-                    ))}
-                    {view.packages.map((pkg) => (
-                      <TreeRow key={`pkg:${pkg}`} level={level + 2} icon={<Icon name="package" />} name={pkg} suffix={<span className="tag">· package</span>} onClick={() => undefined} />
-                    ))}
+                    {groupRow(
+                      "frameworks",
+                      "Frameworks",
+                      <Icon name="layers" className="tint-framework" />,
+                      frameworks.map((framework) => (
+                        <TreeRow
+                          key={`fw:${framework}`}
+                          level={level + 3}
+                          icon={<Icon name="layers" className="tint-framework" />}
+                          name={framework}
+                          testId={`tree-framework-${view.name}-${framework}`}
+                          onClick={() => undefined}
+                        />
+                      )),
+                    )}
+                    {groupRow(
+                      "packages",
+                      "Packages",
+                      <Icon name="package" className="tint-package" />,
+                      view.packages.map((pkg) => (
+                        <TreeRow
+                          key={`pkg:${packageKey(pkg)}`}
+                          level={level + 3}
+                          icon={<Icon name="package" className="tint-package" />}
+                          name={pkg.name}
+                          testId={`tree-package-${view.name}-${pkg.name}`}
+                          suffix={
+                            <span className="tag">
+                              {pkg.version ? ` ${pkg.version}` : " (version unknown)"}
+                            </span>
+                          }
+                          onClick={() => undefined}
+                        />
+                      )),
+                    )}
+                    {groupRow(
+                      "projects",
+                      "Projects",
+                      <Icon name="solutionFolder" className="tint-solution-folder" />,
+                      view.refs.map((ref) => {
+                        const target = views.find((candidate) => candidate.name === ref);
+                        const refKind: ProjectKind = target
+                          ? projectKindOf(target.kind, target.textKind)
+                          : "unknown";
+                        return (
+                          <TreeRow
+                            key={`ref:${ref}`}
+                            level={level + 3}
+                            icon={<ProjectIcon kind={refKind} />}
+                            name={ref}
+                            testId={`tree-ref-${view.name}-${ref}`}
+                            onClick={() => undefined}
+                          />
+                        );
+                      }),
+                    )}
                   </>
                 )}
               </>
@@ -265,7 +467,7 @@ export function SolutionTree(p: Props) {
       <TreeRow
         level={0}
         open={rootOpen}
-        icon={<Icon name="solution" />}
+        icon={<Icon name="solution" className="tint-solution" />}
         name={p.workspaceName.replace(/\.(slnx?|csproj)$/i, "")}
         testId="tree-root"
         suffix={<span className="tag tree-count">· {countLabel(views.length, "project")}</span>}
@@ -283,7 +485,7 @@ export function SolutionTree(p: Props) {
                   <TreeRow
                     level={1}
                     open={open(folderKey(folder))}
-                    icon={<Icon name="solutionFolder" />}
+                    icon={<Icon name="solutionFolder" className="tint-solution-folder" />}
                     name={folder}
                     testId={`tree-folder-${folder}`}
                     suffix={<span className="tag tree-count">· {countLabel(items.length, "project")}</span>}

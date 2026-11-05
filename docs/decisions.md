@@ -698,3 +698,44 @@ Spec: `docs/SPEC-RIDER-PARITY.md`; tickets: `docs/tickets-rider-parity/` (01–1
 - **Verificação.** Aceite de cada ticket no app desktop real via `agent-desktop`; Playwright novo só para contrato de host ou regressão estável. Nenhum ticket é dado como pronto sem evidência no app real; o que não rodar entra como "não verificado" com motivo.
 - **Dependência de Debug.** `fix/debug-dotnet-path` não é importada, mesclada nem cherry-picked; `crates/host/src/child_env.rs` e os arquivos de ambiente do Debug não são tocados. Se um spec de Debug falhar pelo sintoma que aquela branch corrige, fica "bloqueado por `fix/debug-dotnet-path`", sem contorno.
 - **Limites.** Sem dependência nova; sem screenshots, código ou strings copiadas do Rider; MIT. Commits só locais, um por ticket, com `scripts/commit-only.sh`; sem push, merge, PR ou release. `DESIGN.md` e `PRODUCT.md` não são tocados.
+
+## 2026-11-04 — Solution Explorer visual: chrome fora da árvore, tipo por cor/ícone
+
+Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORER-VISUAL.md`.
+
+- **Chrome.** A árvore deixa de mostrar `MSBuild evaluated` / `Text outline`, o botão Evaluate, o `revision N` e o botão `Project details`; os rodapés `MSBuild has not run…` e `Partial workspace…` também saem. É a revisão do bullet de `docs/decisions.md` (2026-11-04, paridade) que mantinha os controles visíveis por causa dos specs. O estado já duplicado na barra de status vira a única leitura; o botão `eval-run` vira o ícone de refresh ao lado dela e `eval-state` passa a ser o filho do segmento `status-evaluation`, preservando o texto completo (inclusive `revision N`, lido por regex) e o `title` verificado pelo teste de layout. `Project details` continua só no menu ⋮ (`tree-more-details`), com o painel `eval-details` inalterado. Os avisos acionáveis (`eval-disabled-reason`, `eval-stale`, erro por projeto, restore) ficam: são erro, não chrome.
+- **Projeto por tipo, incluindo web.** O ícone distingue console/app, library, test, web e unknown; os chips `· console`/`· net8.0` saem da linha e viram `data-project-kind`/`data-project-tfms` (os specs passam a ler atributos). `web` não existe no modelo avaliado (`OutputType=Exe`), então vem do texto do `.csproj` já lido pelo outline (`Microsoft.NET.Sdk.Web` ou `UsingMicrosoftNETSdkWeb=true`); `test` continua vencendo, e a avaliação não muda.
+- **Cor e ícone.** Tokens `--icon-*` no `:root`, com fallback escuro e `light-dark()` dentro de `@supports` (o build só distribui o tema escuro; o claro é forward-compatible, não verificado). Valores partem das cores do Seti (MIT) e foram medidos ≥ 6:1 sobre `--panel` no escuro e sobre `#fff` no claro. Glifos continuam Lucide (ISC) + `CSharpIcon` (MDI, Apache-2.0); classe/interface/enum/record/struct usam um badge de letra desenhado aqui, sem fonte/SVG do Rider, Seti ou codicons. Zero dependência nova.
+- **Símbolo C#.** `workspace.symbolKinds { paths }` é read-only, sem trust, confinado ao workspace, teto de 256 arquivos/256 KB, e devolve só `class|interface|enum|record|struct` para `.cs`. O parser em `outline.rs` ignora comentários/atributos e prefere a declaração com o nome do arquivo; sem evidência a chave falta e a UI mantém o glifo C#. Não usa LSP nem compila.
+- **Dependencies.** Referência usa o ícone do projeto referenciado, pacote tem ícone/cor próprios e cada TFM ganha uma linha de framework derivada (`Microsoft.NETCore.App (net8.0)`, `Microsoft.AspNetCore.App` para web), sem inventar versão. A lista continua plana (decisão anterior); agrupar Projects/Packages/Frameworks fica fora e exigiria nova decisão + specs.
+- **Gerado/excluído.** `no index` mantém o fundo âmbar e passa a esmaecer nome e ícone.
+- **Limites.** Verificação visual no app real e Playwright ficam pendentes da liberação da porta 1420; o que não rodou entra como "não verificado" nas notas de implementação e na retro.
+
+## 2026-11-04 — Dependencies agrupadas (Frameworks / Packages / Projects)
+
+- **Substitui** o item "Dependencies lista projetos e pacotes em linhas planas (sem grupos)" do aceite de
+  `docs/SPEC-SOLUTION-EXPLORER.md` (e a lista plana implementada no ticket 38). A decisão 10 daquele
+  documento — zero dependência nova e `data-testid` existentes preservados — continua valendo. Pedido
+  explícito do Helder via orquestrador.
+- **Forma.** `Dependencies` tem três grupos expansíveis, como no Rider: `Frameworks`, `Packages` e
+  `Projects`. Dependencies e grupos começam fechados; `Expand All` abre os três; grupo sem filhos não é
+  renderizado (nada de nó vazio). Chaves de expansão `solution:deps:<projeto>:<grupo>`; testids
+  `tree-deps-group-<projeto>-<grupo>`, mantendo `tree-deps-*`, `tree-framework-*`, `tree-package-*` e
+  `tree-ref-*`.
+- **Conteúdo.** `Frameworks` deriva da TFM já avaliada/lida do texto (`Microsoft.NETCore.App (net8.0)`,
+  `Microsoft.AspNetCore.App` para web, `.NET Standard`, `.NET Framework`), sem inventar versão de patch.
+  `Packages` mostra nome e versão discreta. `Projects` usa o ícone do projeto referenciado. Os sufixos
+  `· project`/`· package` saem porque o grupo já nomeia o tipo; os specs passam a mirar linhas/testids.
+- **Fora.** `Assemblies` não é inventado: o host não expõe inventário de assemblies. Categorias do Rider sem
+  dado real continuam fora.
+- **Prova.** `tests/e2e/solution-explorer.spec.ts` cobre a estrutura em texto (Frameworks/Projects no Cli,
+  Packages ausente) e `tests/e2e/evaluation.spec.ts` cobre pacote e referência no modelo avaliado. E2E e app
+  real seguem pendentes da liberação da porta; sem captura, o que não rodou fica "não verificado".
+
+## 2026-11-04 — Revisão externa do Solution Explorer: parser, status e cache
+
+- **`workspace.symbolKinds` muda de `{ kinds, scanned }` para `{ entries, scanned, skipped, truncated }`** com `known` (mtime em ms) no request. A UI pede só arquivos visíveis, em lotes de 128, mescla respostas e poda paths removidos; o host faz `stat` e só lê o que mudou. O root é clonado e o lock do host é solto antes do I/O. Motivo: 256 arquivos em silêncio e re-scan a cada arquivo novo piscavam/ficavam sem badge; ver a revisão do provedor externo (9 itens) em `docs/implementation-notes.md`.
+- **Parser** passa a exigir palavra-chave minúscula em posição/forma de declaração e ignora strings (verbatim/raw/char), comentários e BOM; stem com ponto (`Foo.Designer.cs`) casa `Foo`.
+- **Status bar** usa `evaluationStatusView`: `Evaluating…`/`Evaluation failed` aparecem antes de haver projeto, o `not current` vem antes do revision, a classe `error` volta e o `Partial workspace` (`tree-partial`) reaparece discreto ali, não na árvore.
+- **Pacotes** têm chave `name@version` (+ TFM quando existir) e são deduplicados antes de renderizar.
+- **Testes:** parser/symbol no host (9/9 e 18/18), unit no Bun (21/21) e cargo lib (235/235). E2E/app seguem pendentes de liberação.

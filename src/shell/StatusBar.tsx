@@ -1,8 +1,18 @@
 import { profileTitle, type ProfileId } from "../actions/keymap";
 import type { Snapshot } from "../host/client";
+import type { PartialWorkspaceStatus } from "../evaluationStatus";
+import { Icon } from "../Icon";
 import { StatusMode } from "./StatusMode";
 
-type EvaluationStatus = { text: string; title?: string; testId?: string };
+type EvaluationStatus = {
+  text: string;
+  title?: string;
+  testId?: string;
+  /** Failed/partial evaluations keep the old red cue in the status bar. */
+  tone?: "error";
+  /** The single action that produces a current model; null hides the affordance. */
+  reevaluate: { label: string; disabledReason: string | null; onClick: () => void } | null;
+};
 
 type RestoreStatus = {
   state: "idle" | "running" | "ok" | "failed" | "cancelled";
@@ -11,12 +21,14 @@ type RestoreStatus = {
   onRetry: (() => void) | null;
 };
 
-export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile }: {
+export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, partial, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile }: {
   workspace: { name: string; path: string };
   snapshot: Snapshot;
   onSnapshot: (snapshot: Snapshot) => void;
   sdkSummary: string;
   evaluation: EvaluationStatus;
+  /** Incomplete evaluated context; the old tree footnote now lives here. */
+  partial: PartialWorkspaceStatus | null;
   restore: RestoreStatus;
   dirtyCount: number;
   diagnostics: { errors: number; warnings: number; onOpen: () => void };
@@ -47,10 +59,40 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
           )}
         </span>
       )}
+      {evaluation.reevaluate && (
+        <button
+          type="button"
+          className="status-evaluation-action"
+          data-testid="eval-run"
+          aria-label={evaluation.reevaluate.label}
+          title={evaluation.reevaluate.disabledReason ?? evaluation.reevaluate.label}
+          disabled={evaluation.reevaluate.disabledReason !== null}
+          onClick={evaluation.reevaluate.onClick}
+        >
+          <Icon name="refresh" />
+        </button>
+      )}
       {evaluation.testId ? (
-        <span data-testid={evaluation.testId} title={evaluation.title}>{evaluation.text}</span>
+        <span
+          data-testid={evaluation.testId}
+          title={evaluation.title}
+          className={evaluation.tone === "error" ? "error" : undefined}
+        >
+          <span
+            data-testid="eval-state"
+            role="status"
+            className={evaluation.tone === "error" ? "error" : undefined}
+          >
+            {evaluation.text}
+          </span>
+        </span>
       ) : (
         <span>{evaluation.text}</span>
+      )}
+      {partial && (
+        <span className="status-partial" data-testid="tree-partial" title={partial.title}>
+          {partial.text}
+        </span>
       )}
       {analysis && (
         <span data-testid="status-analysis">

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { openProjectDetails } from "./automatic";
 import { host } from "./environment";
 
 const temporaryWorkspaces: string[] = [];
@@ -130,8 +131,11 @@ test("evaluated project details keep paths intact and Close with the heading", a
   await page.getByTestId("workspace-tools-toggle").click();
   await page.getByTestId("eval-run").click();
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
-  await page.getByTestId("tree-project-OrderDesk.Cli").click();
-  await page.getByRole("button", { name: "Project details" }).click();
+  const project = page.getByTestId("tree-project-OrderDesk.Cli");
+  await project.click();
+  // Clicking a project row also toggles it; make sure its files are visible for the next step.
+  if ((await project.getAttribute("aria-expanded")) === "false") await project.click();
+  await openProjectDetails(page);
 
   const details = page.getByTestId("eval-details");
   await expect(details).toBeVisible();

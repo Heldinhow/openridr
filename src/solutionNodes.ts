@@ -2,6 +2,9 @@
 export const ROOT_KEY = "solution:root";
 export const folderKey = (folder: string) => `solution:folder:${folder}`;
 export const depsKey = (project: string) => `solution:deps:${project}`;
+export type DependencyGroup = "frameworks" | "packages" | "projects";
+export const depGroupKey = (project: string, group: DependencyGroup) =>
+  `solution:deps:${project}:${group}`;
 export const dirKey = (dir: string) => `solution:dir:${dir}`;
 
 export const dirOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -51,4 +54,17 @@ export function nestSources(projectPath: string, sources: string[]): SourceNode[
   };
   order(top);
   return top;
+}
+
+/** Files under folders that are open; top-level files are always visible. */
+export function visibleSourceFiles(
+  nodes: SourceNode[],
+  open: (key: string) => boolean,
+  out: string[] = [],
+): string[] {
+  for (const node of nodes) {
+    if (node.kind === "file") out.push(node.path);
+    else if (open(dirKey(node.path))) visibleSourceFiles(node.children, open, out);
+  }
+  return out;
 }

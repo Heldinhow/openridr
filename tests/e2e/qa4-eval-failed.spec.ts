@@ -18,6 +18,9 @@ test("4 - a project whose evaluation failed still lists its files and the error 
     await expect(page.getByTestId("eval-state")).toContainText("Evaluation failed", {
       timeout: 30_000,
     });
+    await expect(page.getByTestId("status-evaluation")).toHaveClass(/error/);
+    await expect(page.getByTestId("eval-state")).toHaveClass(/error/);
+    await expect(page.getByTestId("tree-partial")).toContainText("Partial workspace");
 
     await expect(page.getByTestId("tree-file-Program.cs")).toBeVisible();
     await expect(page.getByTestId("tree-file-BrokenImport.csproj")).toBeVisible();

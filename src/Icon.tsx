@@ -31,6 +31,10 @@ import {
   Redo2,
   RotateCcw,
   Save,
+  Info,
+  BookMarked,
+  Globe,
+  Layers,
   Search,
   Settings,
   Shield,
@@ -76,6 +80,11 @@ export type IconName =
   | "stepOut"
   | "pause"
   | "restart"
+  | "refresh"
+  | "info"
+  | "library"
+  | "web"
+  | "layers"
   | "folder"
   | "solution"
   | "solutionFolder"
@@ -119,6 +128,11 @@ const icons: Record<IconName, LucideIcon> = {
   stepOut: ArrowUpFromLine,
   pause: Pause,
   restart: RotateCcw,
+  refresh: RotateCcw,
+  info: Info,
+  library: BookMarked,
+  web: Globe,
+  layers: Layers,
   folder: Folder,
   solution: Blocks,
   solutionFolder: FolderTree,
@@ -131,8 +145,8 @@ const icons: Record<IconName, LucideIcon> = {
 };
 
 /** Lucide glyphs; stroke stays 1.5 screen px at any CSS size (`.icon *` uses non-scaling-stroke). */
-export function Icon({ name }: { name: IconName }) {
+export function Icon({ name, className = "" }: { name: IconName; className?: string }) {
   const Glyph = icons[name];
   const filled = name === "run" || name === "stop";
-  return <Glyph className={`icon icon-${name}`} size={16} strokeWidth={1.5} fill={filled ? "currentColor" : "none"} aria-hidden="true" />;
+  return <Glyph className={`icon icon-${name}${className ? ` ${className}` : ""}`} size={16} strokeWidth={1.5} fill={filled ? "currentColor" : "none"} aria-hidden="true" />;
 }

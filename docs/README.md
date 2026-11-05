@@ -37,6 +37,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md`, tickets em `tickets-<tema>/NN-
 | netcoredbg embutido | [SPEC-EMBED-NETCOREDBG](SPEC-EMBED-NETCOREDBG.md) | [tickets-embed-netcoredbg/](tickets-embed-netcoredbg/) | [RETRO-EMBED-NETCOREDBG](RETRO-EMBED-NETCOREDBG.md) | [evidence/embed-netcoredbg.md](evidence/embed-netcoredbg.md) |
 | Polimento visual (ícones Lucide, fontes embutidas, escala) | [SPEC-UI-POLISH](SPEC-UI-POLISH.md) | [tickets-ui-polish/](tickets-ui-polish/README.md) (01–06) | [RETRO-UI-POLISH](RETRO-UI-POLISH.md) | [evidence/ui-polish.md](evidence/ui-polish.md), `evidence/ui-polish/depois-*.png` |
 | Paridade com o Rider (gaps G01–G23) | [SPEC-RIDER-PARITY](SPEC-RIDER-PARITY.md) | [tickets-rider-parity/](tickets-rider-parity/README.md) (01–16) | `RETRO-RIDER-PARITY` (a fazer) | `evidence/rider-parity.md` (a fazer) |
+| Solution Explorer visual (ícones/cores, sem chrome de avaliação) | [SPEC-SOLUTION-EXPLORER-VISUAL](SPEC-SOLUTION-EXPLORER-VISUAL.md) | [tickets-solution-explorer-visual/](tickets-solution-explorer-visual/README.md) (01–04) | [RETRO-SOLUTION-EXPLORER-VISUAL](RETRO-SOLUTION-EXPLORER-VISUAL.md) | [evidence/solution-explorer-visual](evidence/solution-explorer-visual.md) |
 Decisão: netcoredbg 3.2.0-1092 é embutido no bundle (ticket 01); SDK .NET e csharp-ls ficam fora. A prova no app/DMG real continua pendente.
 
 Numeração de tickets **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta.

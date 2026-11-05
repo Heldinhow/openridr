@@ -1,20 +1,43 @@
 import { Icon, type IconName } from "./Icon";
 import { CSharpIcon } from "./icons/CSharpIcon";
+import { ProjectIcon } from "./icons/ProjectIcon";
+import { SymbolIcon } from "./icons/SymbolIcon";
+import { fileKind, type FileKind, type ProjectKind, type SymbolKind } from "./solutionVisuals";
 
-const byExtension: Record<string, IconName> = {
-  csproj: "project",
-  props: "project",
-  targets: "project",
-  sln: "solution",
-  slnx: "solution",
+const GLYPH: Partial<Record<FileKind, IconName>> = {
+  solution: "solution",
+  props: "code",
   json: "braces",
-  md: "text",
-  txt: "text",
+  xml: "code",
+  razor: "code",
+  resource: "package",
+  markdown: "text",
+  text: "text",
+  yaml: "runconfig",
+  config: "settings",
+  script: "terminal",
+  file: "file",
 };
 
-/** Neutral type glyphs: C# lettering for C# projects/sources, Lucide for the rest. Color is state-only. */
-export function FileIcon({ path, project = false }: { path: string; project?: boolean }) {
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  if (project || ext === "cs") return <CSharpIcon />;
-  return <Icon name={byExtension[ext] ?? "file"} />;
+/** Type glyph for a path; color is a token (`--icon-*`) applied by the `tint-*` class. */
+export function FileIcon({
+  path,
+  projectKind = "unknown",
+  symbolKind,
+}: {
+  path: string;
+  projectKind?: ProjectKind;
+  symbolKind?: SymbolKind;
+}) {
+  if (symbolKind) return <SymbolIcon kind={symbolKind} />;
+  const kind = fileKind(path);
+  if (kind === "csharp") {
+    return (
+      <span className="file-icon tint-csharp" aria-hidden="true">
+        <CSharpIcon />
+      </span>
+    );
+  }
+  if (kind === "project") return <ProjectIcon kind={projectKind} />;
+  return <Icon name={GLYPH[kind] ?? "file"} className={`tint-${kind}`} />;
 }

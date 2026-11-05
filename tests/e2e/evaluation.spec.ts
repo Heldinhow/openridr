@@ -1,4 +1,4 @@
-import { revisionOf } from "./automatic";
+import { openProjectDetails, revisionOf } from "./automatic";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
@@ -70,25 +70,36 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await waitForEvaluation(page);
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
 
-  await expect(page.getByTestId("tree")).toContainText("MSBuild evaluated");
+  await expect(page.getByTestId("status-evaluation")).toContainText("Evaluated");
   await expect(page.getByTestId("tree-folder-src")).toBeVisible();
   await expect(page.getByTestId("tree-folder-tests")).toBeVisible();
-  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
-  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
-  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
-  await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
-  // Dependencies is a tree node (closed by default) whose children are the real references.
+  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-kind", "console");
+  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-tfms", "net8.0");
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute("data-project-kind", "library");
+  await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toHaveAttribute("data-project-kind", "test");
+  // Dependencies is a tree node (closed by default); its groups are closed until opened.
   const cliDeps = page.getByTestId("tree-deps-OrderDesk.Cli");
   await expect(cliDeps).toHaveAttribute("aria-expanded", "false");
   await cliDeps.click();
   await expect(cliDeps).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByTestId("tree")).toContainText(/OrderDesk\.Core\s*· project/);
+  await expect(page.getByTestId("tree-deps-group-OrderDesk.Cli-frameworks")).toBeVisible();
+  await expect(page.getByTestId("tree-deps-group-OrderDesk.Cli-packages")).toHaveCount(0); // Cli has no packages
+  const cliProjects = page.getByTestId("tree-deps-group-OrderDesk.Cli-projects");
+  await expect(cliProjects).toHaveAttribute("aria-expanded", "false");
+  await cliProjects.click();
+  const coreRef = page.getByTestId("tree-ref-OrderDesk.Cli-OrderDesk.Core");
+  await expect(coreRef).toContainText("OrderDesk.Core");
+  await expect(coreRef).not.toContainText("· project");
   await cliDeps.click();
   await page.getByTestId("tree-deps-OrderDesk.Tests").click();
+  await page.getByTestId("tree-deps-group-OrderDesk.Tests-packages").click();
   if (process.env.OPENRIDR_EVALUATION_SCREENSHOT) {
     await page.screenshot({ path: process.env.OPENRIDR_EVALUATION_SCREENSHOT });
   }
-  await expect(page.getByTestId("tree")).toContainText(/Microsoft\.NET\.Test\.Sdk 17\.11\.1\s*· package/);
+  const testSdk = page.getByTestId("tree-package-OrderDesk.Tests-Microsoft.NET.Test.Sdk");
+  await expect(testSdk).toContainText("Microsoft.NET.Test.Sdk");
+  await expect(testSdk).toContainText("17.11.1");
+  await expect(testSdk).not.toContainText("· package");
   await expect(page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs")).toBeVisible();
   await expect(page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs")).toBeVisible();
   await expect(page.getByTestId("tree-file-tests/OrderDesk.Tests/OrderTests.cs")).toBeVisible();
@@ -113,7 +124,7 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("eval-configuration")).toHaveValue("Debug");
 
   await page.getByTestId("tree-project-OrderDesk.Cli").click();
-  await page.getByRole("button", { name: "Project details", exact: true }).click();
+  await openProjectDetails(page);
   await expect(page.getByTestId("eval-details")).toBeVisible();
   await expect(page.getByTestId("eval-details-state")).toHaveText("Evaluated");
   const target = (await page.getByTestId("eval-target-path").textContent()) ?? "";
@@ -160,7 +171,7 @@ test("a broken import stays in the tree with cause, log, open and retry", async 
     });
 
     await expect(page.getByTestId("tree-project-BrokenImport")).toContainText("error");
-    await page.getByRole("button", { name: "Project details", exact: true }).click();
+    await openProjectDetails(page);
     await expect(page.getByTestId("eval-details")).toBeVisible();
     await expect(page.getByTestId("eval-error")).toContainText("MSB4019");
     await expect(page.getByTestId("eval-project-log")).toContainText("Missing.props");
@@ -202,7 +213,7 @@ test("saving a project file in a temp copy marks the model stale and re-evaluate
     await expect(page.getByTestId("eval-stale")).toHaveCount(0);
 
     await page.getByTestId("tree-project-OrderDesk.Cli").click();
-    await page.getByRole("button", { name: "Project details", exact: true }).click();
+    await openProjectDetails(page);
     await page.getByTestId("eval-open-project").click();
     await expect(page.getByTestId("editor")).toContainText("ProjectReference");
     const original = fs.readFileSync(path.join(copy, projectFile), "utf8");

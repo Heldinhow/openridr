@@ -595,6 +595,9 @@ impl Host {
         if method == "workspace.tree" {
             return self.workspace_tree(&params);
         }
+        if method == "workspace.symbolKinds" {
+            return self.workspace_symbol_kinds(&params);
+        }
         if method == "search.text" {
             return self.search_text(params);
         }
@@ -5234,6 +5237,74 @@ impl Host {
         Ok(json!({ "dir": raw, "entries": entries }))
     }
 
+    /// Read-only C# type-kind scan for Solution Explorer badges. No trust, no compile, no LSP:
+    /// it reads at most 256 `.cs` files of at most 256 KB inside the workspace and ignores the rest.
+    /// Read-only C# type-kind scan for Solution Explorer badges. No trust, no compile, no LSP.
+    /// The workspace root is cloned under the lock; file I/O happens after the lock is released.
+    /// `known` carries the mtime the UI cached, so unchanged files are stat'ed but never read.
+    fn workspace_symbol_kinds(&self, params: &Value) -> HostResult<Value> {
+        self.workspace_symbol_kinds_with(params, |path| fs::read_to_string(path).ok())
+    }
+
+    fn workspace_symbol_kinds_with(
+        &self,
+        params: &Value,
+        read: impl Fn(&Path) -> Option<String>,
+    ) -> HostResult<Value> {
+        let paths = params.get("paths").and_then(Value::as_array).ok_or_else(|| {
+            HostError::new("invalid_state", "workspace.symbolKinds requires a paths array.")
+        })?;
+        let known = params.get("known").and_then(Value::as_object);
+        let root = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .workspace
+                .as_ref()
+                .map(|workspace| workspace.root.clone())
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?
+        };
+        let mut entries = Vec::new();
+        let mut scanned = 0;
+        let mut skipped = 0;
+        for raw in paths.iter().filter_map(Value::as_str).take(256) {
+            if !raw.to_ascii_lowercase().ends_with(".cs") {
+                continue;
+            }
+            let Ok((path, rel)) = resolve_in_root(&root, raw) else {
+                continue;
+            };
+            let Ok(metadata) = fs::metadata(&path) else {
+                continue;
+            };
+            let modified = modified_ms(&metadata);
+            if known
+                .and_then(|map| map.get(&rel))
+                .and_then(Value::as_u64)
+                == Some(modified)
+            {
+                skipped += 1;
+                continue;
+            }
+            // A file too large to scan is still an answer (kind null) so the UI caches the miss.
+            let kind = if metadata.len() <= 256 * 1024 {
+                read(&path).and_then(|text| {
+                    let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
+                    outline::symbol_kind(&text, stem).map(|kind| Value::String(kind.to_string()))
+                })
+            } else {
+                None
+            };
+            entries.push(json!({ "path": rel, "kind": kind, "modified": modified }));
+            scanned += 1;
+        }
+        Ok(json!({
+            "entries": entries,
+            "scanned": scanned,
+            "skipped": skipped,
+            "truncated": paths.len() > 256,
+        }))
+    }
+
     fn search_text(&self, params: Value) -> HostResult<Value> {
         let query = required_str(&params, "query")?;
         if query.is_empty() {
@@ -7199,6 +7270,12 @@ fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String
         .workspace
         .as_ref()
         .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+    resolve_in_root(&workspace.root, raw)
+}
+
+/// Same confinement rules as `resolve_in_workspace`, but takes the root directly so callers can
+/// drop the host lock before touching the disk.
+fn resolve_in_root(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
     if raw.trim().is_empty() {
         return Err(HostError::new("path_not_allowed", "File path is empty."));
     }
@@ -7206,11 +7283,11 @@ fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String
     let candidate = if requested.is_absolute() {
         requested.to_path_buf()
     } else {
-        workspace.root.join(requested)
+        root.join(requested)
     };
     let canonical = fs::canonicalize(&candidate)
         .map_err(|_| HostError::new("not_found", format!("File not found: {raw}")))?;
-    if !canonical.starts_with(&workspace.root) {
+    if !canonical.starts_with(root) {
         return Err(HostError::new(
             "outside_workspace",
             format!("Path is outside the workspace: {raw}"),
@@ -7223,11 +7300,20 @@ fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String
         ));
     }
     let rel = canonical
-        .strip_prefix(&workspace.root)
+        .strip_prefix(root)
         .unwrap_or(&canonical)
         .to_string_lossy()
         .replace('\\', "/");
     Ok((canonical, rel))
+}
+
+fn modified_ms(metadata: &fs::Metadata) -> u64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn content_hash(content: &str) -> String {
@@ -7443,6 +7529,127 @@ mod tests {
         assert_eq!(names, vec![("bin", true), (".gitignore", true), ("App.csproj", false)]);
         let outside = host.dispatch("workspace.tree", json!({ "dir": ".." })).unwrap_err();
         assert_eq!(outside.code, "outside_workspace");
+    }
+
+    #[test]
+    fn workspace_symbol_kinds_reads_files_after_releasing_the_host_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Widget.cs"), "public sealed class Widget {}\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let result = host
+            .workspace_symbol_kinds_with(&json!({ "paths": ["Widget.cs"] }), |path| {
+                // If the method still held `inner.lock()`, the same-thread try_lock would fail.
+                assert!(host.inner.try_lock().is_ok(), "host lock must be free during file I/O");
+                fs::read_to_string(path).ok()
+            })
+            .unwrap();
+        assert_eq!(result["entries"][0]["kind"], "class");
+    }
+
+    #[test]
+    fn workspace_symbol_kinds_flags_more_than_256_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Widget.cs"), "public sealed class Widget {}\n").unwrap();
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let paths: Vec<&str> = (0..257).map(|_| "Widget.cs").collect();
+        let result = host
+            .dispatch("workspace.symbolKinds", json!({ "paths": paths }))
+            .unwrap();
+        assert_eq!(result["truncated"], true);
+        assert_eq!(result["entries"].as_array().unwrap().len(), 256);
+    }
+
+    #[test]
+    fn workspace_symbol_kinds_scans_only_workspace_sources() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Widget.cs"), "namespace App;\npublic sealed class Widget {}\n").unwrap();
+        fs::write(root.join("IRepo.cs"), "public interface IRepo {}\n").unwrap();
+        fs::write(root.join("notes.txt"), "class NotACsharpFile {}\n").unwrap();
+        let outside = root.parent().unwrap().join("Outside.cs");
+        fs::write(&outside, "public class Outside {}\n").unwrap();
+
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let result = host.dispatch(
+            "workspace.symbolKinds",
+            json!({ "paths": ["Widget.cs", "IRepo.cs", "notes.txt", "../Outside.cs", "Missing.cs"] }),
+        )
+        .unwrap();
+        let entries = result["entries"].as_array().unwrap();
+        let entry = |path: &str| entries.iter().find(|entry| entry["path"] == path);
+        assert_eq!(entry("Widget.cs").unwrap()["kind"], "class");
+        assert_eq!(entry("IRepo.cs").unwrap()["kind"], "interface");
+        assert!(entry("notes.txt").is_none());
+        assert!(entry("../Outside.cs").is_none());
+        assert!(entry("Missing.cs").is_none());
+        assert_eq!(result["scanned"], 2);
+        assert_eq!(result["skipped"], 0);
+        assert_eq!(result["truncated"], false);
+    }
+
+    #[test]
+    fn workspace_symbol_kinds_uses_known_mtimes_and_caches_misses() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Widget.cs"), "public sealed class Widget {}\n").unwrap();
+        fs::write(
+            root.join("Large.cs"),
+            format!("// {}\npublic sealed class Large {{}}\n", "x".repeat(300 * 1024)),
+        )
+        .unwrap();
+
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let first = host
+            .dispatch(
+                "workspace.symbolKinds",
+                json!({ "paths": ["Widget.cs", "Large.cs"] }),
+            )
+            .unwrap();
+        let entries = first["entries"].as_array().unwrap();
+        let find = |path: &str| entries.iter().find(|entry| entry["path"] == path).unwrap();
+        assert_eq!(find("Widget.cs")["kind"], "class");
+        assert!(find("Large.cs")["kind"].is_null()); // too large to read, still a cacheable answer
+        let modified = find("Widget.cs")["modified"].as_u64().unwrap();
+        let large_modified = find("Large.cs")["modified"].as_u64().unwrap();
+        assert!(modified > 0);
+
+        let second = host
+            .dispatch(
+                "workspace.symbolKinds",
+                json!({
+                    "paths": ["Widget.cs", "Large.cs"],
+                    "known": { "Widget.cs": modified, "Large.cs": large_modified },
+                }),
+            )
+            .unwrap();
+        assert_eq!(second["entries"].as_array().unwrap().len(), 0);
+        assert_eq!(second["skipped"], 2);
+        assert_eq!(second["scanned"], 0);
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(root.join("Widget.cs"), "public interface Widget {}\n").unwrap();
+        let third = host
+            .dispatch(
+                "workspace.symbolKinds",
+                json!({ "paths": ["Widget.cs"], "known": { "Widget.cs": modified } }),
+            )
+            .unwrap();
+        assert_eq!(third["entries"][0]["kind"], "interface");
+        assert_ne!(third["entries"][0]["modified"].as_u64().unwrap(), modified);
     }
 
     #[test]

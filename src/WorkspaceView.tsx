@@ -43,6 +43,7 @@ import {
 import { TestsQuickList } from "./TestsQuickList";
 import { ProcessPanel } from "./ProcessPanel";
 import { collectDiagnostics, problemCounts, samePath } from "./diagnosticMarks";
+import { partialWorkspaceStatus, evaluationStatusView } from "./evaluationStatus";
 import { DebugAdapterPanel, LspPanel, ToolInstaller, lspStartBlocker, lspStateLabel } from "./ToolchainPanels";
 import { DebugPanel } from "./DebugPanel";
 import { TerminalPanel } from "./TerminalPanel";
@@ -339,21 +340,6 @@ function evaluatedProjectFor(path: string, projects: EvaluationProject[]) {
     const dir = project.path.replace(/\/[^/]+$/, "");
     return path === project.path || path.startsWith(`${dir}/`);
   });
-}
-
-function evaluationStateLabel(state: Snapshot["evaluation"]["state"]) {
-  switch (state) {
-    case "running":
-      return "Evaluating…";
-    case "ok":
-      return "Evaluated";
-    case "partial":
-      return "Evaluated with errors";
-    case "failed":
-      return "Evaluation failed";
-    default:
-      return "Not evaluated";
-  }
 }
 
 function restoreStateLabel(restore: Snapshot["restore"]) {
@@ -4074,13 +4060,17 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     breadcrumbProject && breadcrumbProject !== workspace.name ? breadcrumbProject : null,
     active ? baseName(active.path) : null,
   ].filter((part): part is string => Boolean(part)).join(" > ");
-  const evaluationStatus = showsEvaluatedTree
-    ? {
-        testId: "status-evaluation",
-        title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
-        text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
-      }
-    : { text: "Text outline · not evaluated" };
+  const evaluationStatus = evaluationStatusView(evaluation);
+  const partialWorkspace = showsEvaluatedTree ? partialWorkspaceStatus(evaluatedProjects) : null;
+  const evaluationRun = {
+    label: evaluation.revision > 0 ? "Re-evaluate project model" : "Evaluate project model",
+    disabledReason: !evaluationAvailable
+      ? "Trust the workspace and resolve the project SDK before evaluating."
+      : evaluationBusy
+        ? "Wait for the current evaluation to finish."
+        : null,
+    onClick: () => void runEvaluation(),
+  };
 
   async function openSolution(solution: string) {
     if (solution === workspace.path) return;
@@ -4467,11 +4457,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
           <div className="panel-title">
             <span className="explorer-heading">
-              <span className="explorer-title">Solution<Icon name="chevron" />{" "}
-                <span className="tag">
-                  {showsEvaluatedTree ? "MSBuild evaluated" : "Text outline · not evaluated"}
-                </span>
-              </span>
+              <span className="explorer-title">Solution<Icon name="chevron" /></span>
               <SolutionToolbar
                 showAll={showAllFiles}
                 searchOpen={treeSearchOpen}
@@ -4506,35 +4492,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               }}
             />
           )}
-
-          <div className="eval-controls">
-            <button
-              data-testid="eval-run"
-              disabled={!evaluationAvailable || evaluationBusy}
-              onClick={() => void runEvaluation()}
-              title={
-                evaluationAvailable
-                  ? "Evaluate every project with MSBuild. No restore, no build."
-                  : "Trust the workspace and resolve the project SDK before evaluating."
-              }
-            >
-              {evaluationBusy
-                ? "Evaluating…"
-                : evaluation.revision > 0
-                  ? "Re-evaluate"
-                  : "Evaluate project model"}
-            </button>
-            <span
-              className={`tag ${evaluation.state === "failed" || evaluation.state === "partial" ? "error" : ""}`}
-              data-testid="eval-state"
-              role="status"
-            >
-              {evaluationStateLabel(evaluation.state)}
-              {evaluation.stale ? " · not current" : ""}
-              {evaluation.revision > 0 ? ` · revision ${evaluation.revision}` : ""}
-            </span>
-            {selectedProject && <button onClick={() => setProjectDetailsOpen(!projectDetailsOpen)} aria-expanded={projectDetailsOpen}>Project details</button>}
-          </div>
 
           {trusted && (emptySolution || !evaluationAvailable) && (
             <div className="tree-note" data-testid="eval-disabled-reason">
@@ -4609,21 +4566,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             activePath={activePath}
             onOpenFile={(path) => void openUserFile(path)}
             restoreIncomplete={(path) => showsEvaluatedTree && restore.revision > 0 && restoreProjectState.get(path) !== "restored"}
+            evaluationRevision={evaluation.revision}
             showAll={showAllFiles}
             filter={treeFilter}
             onMenu={openTreeMenu}
           />
-
-          {showsEvaluatedTree && evaluatedProjects.some((project) => project.state === "failed" || project.restored !== "restored") && (
-            <p className="tree-footnote" data-testid="tree-partial">
-              Partial workspace · {evaluatedProjects.filter((project) => project.state === "failed" || project.restored !== "restored").length} of {evaluatedProjects.length} projects have incomplete context. This is not a clean solution.
-            </p>
-          )}
-          {!showsEvaluatedTree && (
-            <p className="tree-footnote">
-              Read from project text only. MSBuild has not run and nothing is evaluated.
-            </p>
-          )}
         </nav>
         )}
         <Splitter label="Solution explorer width" value={effectiveSidebarWidth} min={Math.min(220, effectiveSidebarWidth)} max={420} onChange={setSidebarWidth} />
@@ -5314,7 +5261,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         snapshot={snapshot}
         onSnapshot={onSnapshot}
         sdkSummary={sdkSummary}
-        evaluation={evaluationStatus}
+        evaluation={{ ...evaluationStatus, reevaluate: evaluationRun }}
+        partial={partialWorkspace}
         restore={{
           state: restore.state,
           label: restoreStateLabel(restore),

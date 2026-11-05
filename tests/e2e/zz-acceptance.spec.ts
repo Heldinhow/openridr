@@ -7,16 +7,15 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { clickDiscover, revisionOf } from "./automatic";
+import { clickDiscover, openProjectDetails, revisionOf } from "./automatic";
+import { e2eHome, frontend, host } from "./environment";
 import os from "node:os";
 import path from "node:path";
 import { openTrustPopover, reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
-const host = "http://127.0.0.1:4317";
 const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 const logs = path.resolve(process.env.OPENRIDR_EVIDENCE_LOG_DIR ?? "docs/evidence/logs");
-const e2eHome = path.join(os.tmpdir(), "openridr-e2e-home");
 const realAdapter = path.join(
   process.env.HOME ?? "",
   "Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092",
@@ -288,13 +287,16 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
 
     // Evaluated tree: console + library + tests, TargetPath from MSBuild, bin/obj hidden.
-    await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
-    await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
-    await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
+    await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-kind", "console");
+    await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute("data-project-kind", "library");
+    await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toHaveAttribute("data-project-kind", "test");
     await expect(page.getByTestId("tree")).not.toContainText("/bin/");
     await expect(page.getByTestId("tree")).not.toContainText("/obj/");
-    await page.getByTestId("tree-project-OrderDesk.Cli").click();
-    await page.getByRole("button", { name: "Project details" }).click();
+    const cliProject = page.getByTestId("tree-project-OrderDesk.Cli");
+    await cliProject.click();
+    // Clicking a project row also toggles it; keep the files visible for the rest of the journey.
+    if ((await cliProject.getAttribute("aria-expanded")) === "false") await cliProject.click();
+    await openProjectDetails(page);
     await expect(page.getByTestId("eval-details")).toBeVisible();
     await expect(page.getByTestId("eval-target-path")).toContainText(
       "src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll",
@@ -609,6 +611,9 @@ public sealed class LongTests
 }
 `,
     );
+    // The new file makes the evaluated project model stale; re-evaluate before discovery.
+    await page.getByTestId("eval-run").click();
+    await waitEvaluation(page, 3);
     await clickDiscover(page);
     await expect(page.getByTestId("tests-state")).toContainText("Discovered 5 tests", {
       timeout: 120_000,
@@ -863,13 +868,10 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
   const externalRequests: string[] = [];
   page.on("request", (request) => {
     const url = request.url();
-    const local =
-      url.startsWith("http://localhost:1420") ||
-      url.startsWith("ws://localhost:1420") ||
-      url.startsWith("http://127.0.0.1:1420") ||
-      url.startsWith("ws://127.0.0.1:1420") ||
-      url.startsWith("http://127.0.0.1:4317") ||
-      url.startsWith("ws://127.0.0.1:4317");
+    const websocket = (origin: string) => `ws://${new URL(origin).host}`;
+    const local = [frontend, host, websocket(frontend), websocket(host)].some((prefix) =>
+      url.startsWith(prefix),
+    );
     if (!local) externalRequests.push(url);
   });
   try {
