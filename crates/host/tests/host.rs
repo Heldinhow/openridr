@@ -1094,6 +1094,44 @@ fn nuget_update_requires_confirmation_and_a_current_plan_before_any_process() {
 }
 
 #[test]
+fn trust_set_refuses_another_path_while_a_workspace_is_open() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["Open.csproj"]);
+    let other = temp_workspace(&["Other.csproj"]);
+    let open = workspace.path().join("Open.csproj");
+    let other = other.path().join("Other.csproj");
+    host.dispatch("workspace.open", json!({ "path": open })).unwrap();
+
+    assert_eq!(
+        error_code(host.dispatch(
+            "trust.set",
+            json!({ "path": other, "decision": "trusted" }),
+        )),
+        "invalid_state"
+    );
+    assert_eq!(
+        error_code(host.dispatch(
+            "trust.set",
+            json!({ "path": open, "decision": "trusted" }),
+        )),
+        "setup_required"
+    );
+    host.allow_setup_for_tests();
+    host.dispatch(
+        "trust.set",
+        json!({ "path": workspace.path().join("Open.csproj"), "decision": "trusted" }),
+    )
+    .unwrap();
+    assert_eq!(
+        error_code(host.dispatch(
+            "trust.set",
+            json!({ "path": other, "decision": "restricted" }),
+        )),
+        "invalid_state"
+    );
+}
+
+#[test]
 fn trust_and_executable_methods_are_refused_until_setup_is_ready() {
     let host = Host::new();
     let workspace = temp_workspace(&["Gate.csproj"]);
@@ -1167,6 +1205,29 @@ fn a_cpm_item_fails_alone_instead_of_blocking_the_batch_plan() {
         .unwrap()
         .contains("Central Package Management"));
     assert_eq!(applied["restores"], json!([]));
+}
+
+#[test]
+fn nuget_list_rejects_a_source_that_is_not_configured_or_not_https() {
+    let host = Host::new();
+    open(&host, &fixture().join("OrderDesk.sln"));
+    grant(&host);
+    for source in ["https://evil.example/v3/index.json", "/tmp/local-feed", "http://127.0.0.1:1/v3/index.json"] {
+        let listing = host
+            .dispatch(
+                "nuget.list",
+                json!({
+                    "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+                    "source": source
+                }),
+            )
+            .unwrap();
+        assert_eq!(listing["state"], "failed", "{source}");
+        assert!(listing["message"]
+            .as_str()
+            .unwrap()
+            .contains("not configured"), "{source}: {}", listing["message"]);
+    }
 }
 
 #[test]
@@ -5982,9 +6043,10 @@ fn trust_decision_persists_per_project_and_gates_workspace_open() {
     assert_eq!(reopened["trust"]["granted"], false);
     assert_eq!(reopened["trust"]["decision"], "restricted");
 
-    // set for a path that is not open only persists.
+    // set for a path that is not open only persists; with no workspace open it is welcome-screen state.
     let other = temp_workspace(&["Other.csproj"]);
     let other_path = fs::canonicalize(other.path()).unwrap();
+    host.dispatch("workspace.close", json!({})).unwrap();
     let stored = host
         .dispatch(
             "trust.set",
@@ -6067,9 +6129,10 @@ fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions() {
     fs::write(home.path().join("trusted.json"), "{ not json").unwrap();
     let workspace = temp_workspace(&["App.csproj"]);
     let path = fs::canonicalize(workspace.path()).unwrap();
-    open(&host, &path);
+    let opened = open(&host, &path);
+    let open_key = opened["workspace"]["path"].as_str().unwrap();
     assert_eq!(
-        error_code(host.dispatch("trust.set", json!({ "path": path, "decision": "trusted" }))),
+        error_code(host.dispatch("trust.set", json!({ "path": open_key, "decision": "trusted" }))),
         "trusted_unreadable"
     );
     assert_eq!(fs::read_to_string(home.path().join("trusted.json")).unwrap(), "{ not json");

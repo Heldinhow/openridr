@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::process::Stdio;
 
 pub const PACKAGE_LIMIT: usize = 500;
@@ -818,18 +819,35 @@ fn assets_target_tfm(target: &str) -> String {
 /// the same framework is never listed twice. Only the default `obj/project.assets.json` is
 /// read; a custom `BaseIntermediateOutputPath` is a documented limitation.
 pub fn read_assets(project: &Path, target_framework: Option<&str>) -> Assets {
-    let intermediate = project
-        .parent()
-        .map(|parent| {
-            let text = fs::read_to_string(project).unwrap_or_default();
-            let property = xml_property(&text, "BaseIntermediateOutputPath")
-                .filter(|value| !value.contains('$'));
-            match property {
-                Some(value) => parent.join(value),
-                None => parent.join("obj"),
-            }
-        })
-        .unwrap_or_else(|| project.join("obj"));
+    let project_text = fs::read_to_string(project).unwrap_or_default();
+    let property = xml_property(&project_text, "BaseIntermediateOutputPath");
+    if let Some(value) = property.as_deref() {
+        if value.contains('$') {
+            return Assets {
+                state: "unsupported",
+                message: Some(
+                    "Implicit and transitive packages are unavailable: BaseIntermediateOutputPath is inherited or expanded by MSBuild, so obj/project.assets.json is outside the default path."
+                        .to_string(),
+                ),
+                path: project
+                    .parent()
+                    .map(|parent| parent.join("obj/project.assets.json"))
+                    .unwrap_or_else(|| project.join("obj/project.assets.json"))
+                    .to_string_lossy()
+                    .to_string(),
+                frameworks: Vec::new(),
+            };
+        }
+    }
+    let intermediate = property
+        .as_deref()
+        .map(|value| project.parent().unwrap_or_else(|| Path::new(".")).join(value))
+        .unwrap_or_else(|| {
+            project
+                .parent()
+                .map(|parent| parent.join("obj"))
+                .unwrap_or_else(|| project.join("obj"))
+        });
     let path = intermediate.join("project.assets.json");
     let display = path.to_string_lossy().to_string();
     let text = match fs::read_to_string(&path) {
@@ -1045,11 +1063,27 @@ pub fn list(
         base.push("--framework".to_string());
         base.push(tfm.to_string());
     }
+    let installed_argv = base.clone();
+    let mut outdated_argv = base.clone();
+    outdated_argv.insert(4, "--outdated".to_string());
+    if prerelease {
+        outdated_argv.push("--include-prerelease".to_string());
+    }
     if let Some(source) = selected_source {
-        if let Err(error) = validate_source_arg(source) {
+        outdated_argv.push("--source".to_string());
+        outdated_argv.push(source.to_string());
+    }
+    let sources = configured_sources(root, muxer, sdk_root);
+    if let Some(source) = selected_source {
+        let valid = sources.state == "ok"
+            && source_matches(source, &sources.items)
+            && validate_source_arg(source).is_ok();
+        if !valid {
             return Listing {
                 state: "failed",
-                message: Some(error),
+                message: Some(
+                    "The selected NuGet source is not configured for this project or is not a public HTTPS source; no package command was run.".to_string(),
+                ),
                 project: project_display.to_string(),
                 project_name: project_name(project),
                 target_framework: target_framework.map(str::to_string),
@@ -1074,33 +1108,18 @@ pub fn list(
                     frameworks: Vec::new(),
                     truncated: false,
                 },
-                sources: Sources {
-                    state: "ok",
-                    message: None,
-                    items: Vec::new(),
-                },
+                sources,
                 frameworks: Vec::new(),
                 total_packages: 0,
                 outdated_count: 0,
                 truncated: false,
                 prerelease,
-                selected_source: selected_source.map(str::to_string),
+                selected_source: Some(source.to_string()),
                 assets: read_assets(project, target_framework),
                 probe: false,
             };
         }
     }
-    let installed_argv = base.clone();
-    let mut outdated_argv = base.clone();
-    outdated_argv.insert(4, "--outdated".to_string());
-    if prerelease {
-        outdated_argv.push("--include-prerelease".to_string());
-    }
-    if let Some(source) = selected_source {
-        outdated_argv.push("--source".to_string());
-        outdated_argv.push(source.to_string());
-    }
-    let sources = configured_sources(root, muxer, sdk_root);
     let no_references = !declares_package_reference(project);
     let installed = command_result(
         run(&installed_argv, root, sdk_root),
@@ -1334,7 +1353,7 @@ pub fn validate_source_arg(source: &str) -> Result<(), String> {
         return Err("NuGet sources must use HTTPS; plain HTTP is refused.".to_string());
     }
     if !source.starts_with("https://") {
-        return Ok(());
+        return Err("NuGet sources must use HTTPS.".to_string());
     }
     let Some(host) = url_host(source) else {
         return Err("The NuGet source URL is invalid.".to_string());
@@ -1345,6 +1364,48 @@ pub fn validate_source_arg(source: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || (ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1]))
+        }
+        IpAddr::V6(ip) => {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || (ip.segments()[0] & 0xfe00) == 0xfc00
+                || (ip.segments()[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+/// Resolves once and refuses the request if any answer is loopback/private/link-local. ureq
+/// connects to these same addresses, so a DNS answer changed after validation is not used.
+struct SafeResolver;
+
+impl ureq::Resolver for SafeResolver {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
+        let addresses: Vec<SocketAddr> = netloc.to_socket_addrs()?.collect();
+        if addresses.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "the source host has no address",
+            ));
+        }
+        if addresses.iter().any(|address| private_ip(address.ip())) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the source host resolves to a loopback, private or link-local address",
+            ));
+        }
+        Ok(addresses)
+    }
 }
 
 pub fn source_matches(source: &str, configured: &[Source]) -> bool {
@@ -1456,6 +1517,7 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(20))
         .redirects(0)
+        .resolver(SafeResolver)
         .build();
     let index: Value = match agent.get(source).call() {
         Ok(response) => match response.into_string() {
@@ -2462,9 +2524,27 @@ mod tests {
             assert!(validate_source_arg(source).is_err(), "{source}");
         }
         assert!(validate_source_arg("https://api.nuget.org/v3/index.json").is_ok());
-        assert!(validate_source_arg("/tmp/local-feed").is_ok());
+        assert!(validate_source_arg("/tmp/local-feed").is_err());
+        use ureq::Resolver;
+        assert!(SafeResolver.resolve("localhost:443").is_err());
+        assert!(SafeResolver.resolve("127.0.0.1:443").is_err());
         let unsafe_search = search("http://127.0.0.1:1/v3/index.json", "xunit", false, 5);
         assert_eq!(unsafe_search.state, "failed");
         assert!(unsafe_search.message.unwrap().contains("HTTPS"));
+    }
+
+    #[test]
+    fn an_expanded_base_intermediate_path_marks_assets_unsupported_not_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("App.csproj");
+        fs::write(
+            &project,
+            "<Project><PropertyGroup><BaseIntermediateOutputPath>$(MSBuildProjectDirectory)/artifacts/obj/</BaseIntermediateOutputPath></PropertyGroup></Project>",
+        )
+        .unwrap();
+        let assets = read_assets(&project, Some("net8.0"));
+        assert_eq!(assets.state, "unsupported");
+        assert!(assets.frameworks.is_empty());
+        assert!(assets.message.unwrap().contains("BaseIntermediateOutputPath"));
     }
 }

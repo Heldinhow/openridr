@@ -58,6 +58,7 @@ impl Model {
             Op::Set(j, trust) if self.open == Some(j) => {
                 return self.apply(if trust { Op::Grant { remember: true } } else { Op::Revoke });
             }
+            Op::Set(j, _) if self.open.is_some() && self.open != Some(j) => return None,
             Op::Set(j, trust) => self.store[j] = Some(trust),
         }
         Some(())

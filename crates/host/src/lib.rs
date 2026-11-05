@@ -1089,11 +1089,13 @@ impl Host {
 
     /// Test-only: host tests exercise trust/execution gates without downloading real tools.
     /// It is not reachable from `dispatch`, so the UI and HTTP bridge cannot bypass setup.
+    #[cfg(debug_assertions)]
     #[doc(hidden)]
     pub fn allow_setup_for_tests(&self) {
         self.inner.lock().unwrap().setup_override = true;
     }
 
+    #[cfg(debug_assertions)]
     #[doc(hidden)]
     pub fn deny_setup_for_tests(&self) {
         self.inner.lock().unwrap().setup_override = false;
@@ -1313,6 +1315,15 @@ impl Host {
         };
         // Decide and apply under one lock so a concurrent workspace.open cannot be trusted by mistake.
         let mut inner = self.inner.lock().unwrap();
+        if let Some(workspace) = inner.workspace.as_ref() {
+            let open_path = workspace.path.to_string_lossy();
+            if open_path != path {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "While a workspace is open, trust can only be changed for that workspace. Close it before deciding another path.",
+                ));
+            }
+        }
         let is_open = inner
             .workspace
             .as_ref()
@@ -1324,6 +1335,8 @@ impl Host {
                 self.revoke_locked(&mut inner)
             };
         }
+        // No workspace is open: storing a decision for a welcome-screen project starts no
+        // process, so it is intentionally not gated by the per-workspace tool setup.
         trusted::set(&path, decision)?;
         Ok(json!({ "path": path, "decision": trusted::get(&path) }))
     }
@@ -6216,6 +6229,20 @@ impl Host {
         }
         let mut restores = Vec::new();
         for project in &updated_projects {
+            let allowed = {
+                let inner = self.inner.lock().unwrap();
+                inner.trusted && accept_locked(&inner, token).is_ok()
+            };
+            if !allowed {
+                restores.push(json!({
+                    "state": "failed",
+                    "message": "Trust was revoked or the workspace changed before the batch restore; no restore was run.",
+                    "command": "",
+                    "exit": null,
+                    "log": "",
+                }));
+                break;
+            }
             let Some(plan) = batch
                 .iter()
                 .find(|plan| &plan.project_display == project)
