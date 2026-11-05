@@ -1094,6 +1094,32 @@ fn nuget_update_requires_confirmation_and_a_current_plan_before_any_process() {
 }
 
 #[test]
+fn a_welcome_trust_decision_still_requires_setup_before_execution() {
+    let host = Host::new();
+    let workspace = temp_workspace(&["Welcome.csproj"]);
+    let project = workspace.path().join("Welcome.csproj");
+    // Welcome-screen decision, before any workspace is open.
+    host.dispatch(
+        "trust.set",
+        json!({ "path": project, "decision": "trusted" }),
+    )
+    .unwrap();
+    let opened = host
+        .dispatch("workspace.open", json!({ "path": project }))
+        .unwrap();
+    assert_eq!(opened["trust"]["granted"], true);
+    assert_ne!(opened["setup"]["state"], "ready");
+    assert_eq!(
+        error_code(host.dispatch("build.start", json!({}))),
+        "setup_required"
+    );
+    assert_eq!(
+        error_code(host.dispatch("lsp.start", json!({}))),
+        "setup_required"
+    );
+}
+
+#[test]
 fn trust_set_refuses_another_path_while_a_workspace_is_open() {
     let host = Host::new();
     let workspace = temp_workspace(&["Open.csproj"]);

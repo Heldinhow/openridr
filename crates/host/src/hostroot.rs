@@ -32,8 +32,14 @@ pub fn default_path() -> PathBuf {
 }
 
 /// Test seam: `OPENRIDR_FORCE_HOSTROOT` uses an existing root as-is and skips composition.
+#[cfg(debug_assertions)]
 pub fn forced_path() -> Option<PathBuf> {
     std::env::var_os("OPENRIDR_FORCE_HOSTROOT").map(PathBuf::from)
+}
+
+#[cfg(not(debug_assertions))]
+pub fn forced_path() -> Option<PathBuf> {
+    None
 }
 
 /// Builds the composite root from the .NET 10 runtime root and the resolved project SDK.

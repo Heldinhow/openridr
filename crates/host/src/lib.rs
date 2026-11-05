@@ -90,8 +90,6 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.pause",
     "tests.discover",
     "tests.run",
-    "processes.probe",
-    "diagnostics.probe",
     "git.status",
     "git.diff",
     "git.branches",
@@ -105,7 +103,6 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "nuget.list",
     "nuget.planUpdate",
     "nuget.applyUpdate",
-    "nuget.probe",
 ];
 
 pub struct Host {
@@ -448,9 +445,11 @@ impl Host {
     }
 
     pub fn dispatch(&self, method: &str, params: Value) -> HostResult<Value> {
+        #[cfg(debug_assertions)]
         if method == "processes.probe" {
             return self.probe(params);
         }
+        #[cfg(debug_assertions)]
         if method == "diagnostics.probe" {
             return self.diagnostics_probe(params);
         }
@@ -713,6 +712,7 @@ impl Host {
         if method == "nuget.applyBatch" {
             return self.nuget_apply_batch(params);
         }
+        #[cfg(debug_assertions)]
         if method == "nuget.probe" {
             return self.nuget_probe(params);
         }
@@ -1441,6 +1441,7 @@ impl Host {
         Ok(self.snapshot_value(&mut inner))
     }
 
+    #[cfg(debug_assertions)]
     fn probe(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("processes.probe")?;
         if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
@@ -1484,6 +1485,7 @@ impl Host {
 
     /// Development-only boundary: publishes a diagnostic without a range for the current
     /// session so the UI contract "no position, no navigation" can be exercised end to end.
+    #[cfg(debug_assertions)]
     fn diagnostics_probe(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("diagnostics.probe")?;
         if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
@@ -5873,6 +5875,7 @@ impl Host {
 
     /// Development-only deterministic listing so the NuGet surface is debuggable where no
     /// .NET SDK exists. It never runs dotnet and is gated by OPENRIDR_ENABLE_PROBE=1.
+    #[cfg(debug_assertions)]
     fn nuget_probe(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("nuget.probe")?;
         if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
@@ -6229,11 +6232,11 @@ impl Host {
         }
         let mut restores = Vec::new();
         for project in &updated_projects {
-            let allowed = {
-                let inner = self.inner.lock().unwrap();
-                restore_allowed(&inner, token)
-            };
-            if !allowed {
+            // The guard is held through the restore start: a concurrent revoke cannot land
+            // between the check and the command. The trade-off is that revoke waits for this
+            // synchronous restore to finish instead of sealing a process it does not own.
+            let guard = self.inner.lock().unwrap();
+            if !restore_allowed(&guard, token) {
                 restores.push(json!({
                     "state": "failed",
                     "message": "Trust was revoked or the workspace changed before the batch restore; no restore was run.",
@@ -6241,15 +6244,19 @@ impl Host {
                     "exit": null,
                     "log": "",
                 }));
+                drop(guard);
                 break;
             }
             let Some(plan) = batch
                 .iter()
                 .find(|plan| &plan.project_display == project)
             else {
+                drop(guard);
                 continue;
             };
-            restores.push(serde_json::to_value(nuget::restore(plan)).expect("restore serializes"));
+            let result = nuget::restore(plan);
+            drop(guard);
+            restores.push(serde_json::to_value(result).expect("restore serializes"));
         }
         let restore_failed = restores
             .iter()
