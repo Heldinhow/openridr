@@ -5,8 +5,8 @@ Spec: [D4–D6, D8, D9](../SPEC-SOLUTION-EXPLORER-VISUAL.md)
 
 ## Mudança
 
-- `src/solutionVisuals.ts` (puro): `fileKind(path)`, `projectKindOf(kind, textKind)`, `frameworkRows(tfms, web)`,
-  `packageParts(label)`, `isGeneratedPath(path)`.
+- `src/solutionVisuals.ts` (puro): `fileKind(path)`, `projectKindOf(kind, textKind)`, `frameworkRows(tfms, kind)`,
+  `symbolKindOf(value)`.
 - `src/icons/SymbolIcon.tsx` (badge C/I/E/R/S), `src/icons/ProjectIcon.tsx` (glifo por tipo).
 - `src/FileIcon.tsx`: extensão → glifo/tint; `symbolKind` opcional; `projectKind` opcional.
 - `src/Icon.tsx`: novos nomes `book`, `web`, `layers`, `refresh` (para D2 do ticket 01 se necessário).

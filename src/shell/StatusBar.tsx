@@ -7,6 +7,8 @@ type EvaluationStatus = {
   text: string;
   title?: string;
   testId?: string;
+  /** Failed/partial evaluations keep the old red cue in the status bar. */
+  tone?: "error";
   /** The single action that produces a current model; null hides the affordance. */
   reevaluate: { label: string; disabledReason: string | null; onClick: () => void } | null;
 };
@@ -68,7 +70,11 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
         </button>
       )}
       {evaluation.testId ? (
-        <span data-testid={evaluation.testId} title={evaluation.title}>
+        <span
+          data-testid={evaluation.testId}
+          title={evaluation.title}
+          className={evaluation.tone === "error" ? "error" : undefined}
+        >
           <span data-testid="eval-state" role="status">{evaluation.text}</span>
         </span>
       ) : (

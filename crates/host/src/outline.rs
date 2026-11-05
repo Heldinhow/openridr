@@ -288,9 +288,15 @@ fn walk(dir: &Path, root: &Path, files: &mut Vec<String>) {
 /// declaration named after the file stem wins over an earlier one. `None` means no evidence.
 pub fn symbol_kind(text: &str, stem: &str) -> Option<&'static str> {
     const KEYWORDS: [&str; 5] = ["class", "interface", "enum", "record", "struct"];
+    // A type keyword only counts in declaration position (line start or after a modifier);
+    // `var s = "class NotAType"` must not paint the file as a class.
+    const MODIFIERS: [&str; 14] = [
+        "public", "private", "protected", "internal", "abstract", "sealed", "static", "partial",
+        "readonly", "ref", "file", "unsafe", "new", "fixed",
+    ];
     let mut first: Option<&'static str> = None;
     let mut in_block_comment = false;
-    for raw in text.lines().take(2_000) {
+    for raw in text.lines() {
         // Strip line and block comments before scanning; a declaration inside `/* */` is not evidence.
         let chars: Vec<char> = raw.chars().collect();
         let mut line = String::with_capacity(raw.len());
@@ -334,6 +340,14 @@ pub fn symbol_kind(text: &str, stem: &str) -> Option<&'static str> {
                 index += 1;
                 continue;
             };
+            let declaration = index == 0
+                || tokens.get(index - 1).is_some_and(|previous| {
+                    MODIFIERS.iter().any(|modifier| previous.eq_ignore_ascii_case(modifier))
+                });
+            if !declaration {
+                index += 1;
+                continue;
+            }
             let mut name_index = index + 1;
             if kind == "record" {
                 if let Some(next) = tokens.get(name_index) {
@@ -438,6 +452,13 @@ mod tests {
         assert_eq!(symbol_kind(commented, "Widget"), Some("class"));
         assert_eq!(symbol_kind("public class Box<T> where T : struct {}", "Box"), Some("class"));
         assert_eq!(symbol_kind("namespace App;\npublic static class Extensions { }", "Extensions"), Some("class"));
+    }
+
+    #[test]
+    fn symbol_kind_ignores_keywords_inside_strings_and_expressions() {
+        assert_eq!(symbol_kind("var text = \"class NotAType\";", "NotAType"), None);
+        assert_eq!(symbol_kind("Console.WriteLine(\"interface IFake\");", "IFake"), None);
+        assert_eq!(symbol_kind("var kind = typeof(string);", "string"), None);
     }
 
     #[test]

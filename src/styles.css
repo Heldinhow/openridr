@@ -1348,6 +1348,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.status > [data-testid="status-evaluation"].error { color: var(--error); }
 .status > [data-testid="status-breadcrumb"] { flex: 0 1 280px; }
 .status > [data-testid="status-sdk"] { flex: 0 1 auto; }
 .status > [data-testid="status-workspace"] { flex: 0 0 auto; max-width: 240px; }
@@ -3301,6 +3302,7 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .sol-row .tree-icon .tint-solution-folder { color: var(--icon-solution-folder); }
 .sol-row .tree-icon .tint-folder { color: var(--icon-folder); }
 .sol-row .tree-icon .tint-csharp { color: var(--icon-csharp); }
+.sol-row .tree-icon .file-icon .icon-csharp { color: var(--icon-csharp); }
 .sol-row .tree-icon .tint-json { color: var(--icon-json); }
 .sol-row .tree-icon .tint-xml { color: var(--icon-xml); }
 .sol-row .tree-icon .tint-razor { color: var(--icon-razor); }

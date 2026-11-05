@@ -4062,6 +4062,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const evaluationStatus = showsEvaluatedTree
     ? {
         testId: "status-evaluation",
+        tone: evaluation.state === "failed" || evaluation.state === "partial" ? ("error" as const) : undefined,
         title: `${evaluationStateLabel(evaluation.state)} · ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
         text: `${evaluationStateLabel(evaluation.state)} · Configuration ${evaluation.context.configuration} · TFM ${evaluation.context.targetFramework ?? "not selected"} · revision ${evaluation.revision}${evaluation.stale ? " · not current" : ""}`,
       }
@@ -4570,6 +4571,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             activePath={activePath}
             onOpenFile={(path) => void openUserFile(path)}
             restoreIncomplete={(path) => showsEvaluatedTree && restore.revision > 0 && restoreProjectState.get(path) !== "restored"}
+            evaluationRevision={evaluation.revision}
             showAll={showAllFiles}
             filter={treeFilter}
             onMenu={openTreeMenu}

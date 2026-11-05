@@ -97,6 +97,8 @@ type Props = {
   activePath: string | null;
   onOpenFile: (path: string) => void;
   restoreIncomplete: (projectPath: string) => boolean;
+  /** Bumps when the model is re-evaluated; the symbol scan must not outlive a fresh model. */
+  evaluationRevision: number;
   showAll: boolean;
   filter: string;
   onMenu: (event: MouseEvent, target: TreeTarget) => void;
@@ -140,7 +142,7 @@ export function SolutionTree(p: Props) {
     return () => {
       alive = false;
     };
-  }, [sourceSignature]);
+  }, [sourceSignature, p.evaluationRevision]);
 
   // Show all files: load one directory level at a time; toggling the mode off drops the cache.
   async function ensureDir(dir: string) {

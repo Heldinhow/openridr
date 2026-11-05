@@ -6,8 +6,6 @@ declare module "bun:test" {
   export function expect(actual: unknown): {
     toBe(expected: unknown): void;
     toEqual(expected: unknown): void;
-    toBeTrue(): void;
-    toBeFalse(): void;
     toBeUndefined(): void;
   };
 }

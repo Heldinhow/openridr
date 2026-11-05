@@ -22,17 +22,15 @@ const GLYPH: Partial<Record<FileKind, IconName>> = {
 /** Type glyph for a path; color is a token (`--icon-*`) applied by the `tint-*` class. */
 export function FileIcon({
   path,
-  project = false,
   projectKind = "unknown",
   symbolKind,
 }: {
   path: string;
-  project?: boolean;
   projectKind?: ProjectKind;
   symbolKind?: SymbolKind;
 }) {
   if (symbolKind) return <SymbolIcon kind={symbolKind} />;
-  const kind = project ? "project" : fileKind(path);
+  const kind = fileKind(path);
   if (kind === "csharp") {
     return (
       <span className="file-icon tint-csharp" aria-hidden="true">

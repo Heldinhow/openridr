@@ -101,11 +101,6 @@ export function frameworkRows(tfms: string[], kind: ProjectKind): string[] {
     .filter((label): label is string => label !== null);
 }
 
-/** `bin/` and `obj/` are generated; Show All marks them `no index` and dims them. */
-export function isGeneratedPath(path: string): boolean {
-  return /(^|\/)(bin|obj)(\/|$)/i.test(path);
-}
-
 const SYMBOL_KINDS: SymbolKind[] = ["class", "interface", "enum", "record", "struct"];
 
 /** Guard for the host answer: only the five declared kinds reach the badge. */

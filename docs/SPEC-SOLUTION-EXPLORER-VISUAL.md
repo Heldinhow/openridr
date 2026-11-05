@@ -62,7 +62,7 @@ forward-compatible, **não verificado**. Nenhuma cor de arquivo é usada para te
 (acima disso, sem tipo). Parser conservador em `crates/host/src/outline.rs`: ignora comentários de linha,
 procura declaração de tipo no texto e prefere a cujo nome é o stem do arquivo. Sem declaração confiável, não
 devolve nada e a UI mantém o glifo C#. Não usa LSP (que exige trust/documento aberto) e não compila.
-Custo: um read por fonte na primeira carga da revisão; a UI busca uma vez por conjunto de fontes e cacheia.
+Custo: um read por fonte a cada revisão de avaliação; a UI busca uma vez por conjunto de fontes + revisão e cacheia.
 
 **D8 — Badges de letra são desenho próprio.** Classe/interface/enum/record/struct = quadrado arredondado
 16×16 com a letra (`C`, `I`, `E`, `R`, `S`) na cor do tipo; não é SVG, fonte nem código do Rider/VS Code.

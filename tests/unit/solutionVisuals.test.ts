@@ -3,7 +3,6 @@ import {
   fileKind,
   frameworkName,
   frameworkRows,
-  isGeneratedPath,
   projectKindOf,
   symbolKindOf,
 } from "../../src/solutionVisuals";
@@ -70,15 +69,6 @@ describe("frameworks", () => {
   test("empty or unknown TFMs do not create rows", () => {
     expect(frameworkRows([], "console")).toEqual([]);
     expect(frameworkRows(["", "net8.0"], "console")).toEqual(["Microsoft.NETCore.App (net8.0)"]);
-  });
-});
-
-describe("isGeneratedPath", () => {
-  test("bin/obj anywhere in the path are generated", () => {
-    expect(isGeneratedPath("src/App/bin/Debug/App.dll")).toBe(true);
-    expect(isGeneratedPath("src/App/obj/project.assets.json")).toBe(true);
-    expect(isGeneratedPath("src/App/Program.cs")).toBe(false);
-    expect(isGeneratedPath("src/Binders/App.cs")).toBe(false);
   });
 });
 
