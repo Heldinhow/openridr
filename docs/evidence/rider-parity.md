@@ -101,3 +101,35 @@ Capturas e textos de árvore de acessibilidade das rodadas anteriores (`00`–`1
    estado compartilhado entre specs na mesma rodada.
 5. Adaptador de debug (`DebugAdapterPanel`) tem o mesmo texto "No adapter at the destination."
    depois da instalação; não corrigido, fora do drawer de Workspace tools.
+
+## Revisão (Sonnet) das correções 76b96e2 / cd6c325 / badc156
+
+- **Foco após navegação por painel (item 1):** a regra de `focusEditorWhenMounted` voltou a valer
+  também quando o foco está no controle que originou a navegação (linha de Find Usages, Problems,
+  Tests). Só para em diálogo modal (`[role="dialog"][aria-modal="true"]`), no terminal e em campos de
+  texto. Não para no editor, porque a primeira tentativa pode cair no editor antigo.
+  - Testes Chromium: `focus-after-navigation` (5) e `find-usages` "Enter on a Find Usages reference…"
+    passam. **Limitação:** no Chromium o editor já foca sozinho depois da navegação (medido: o foco
+    vai para `div testid=editor`), então esse teste de teclado **não discrimina** a regressão. A prova
+    que discrimina é o app real, pendente.
+  - Achado de regressão pego pela rodada: a versão que retentava até o editor ter foco quebrava o ⌘E
+    (`recent-files` perdia o foco). Corrigido com a regra acima.
+- **Guarda de ⌘E após Enter (item 2):** teste novo "Recent Files opened right after a Search Everywhere
+  Enter keeps the focus in its dialog" passa. Só espera a aba do arquivo, não o foco do editor, para
+  disputar o foco com o laço. A versão anterior (que roubava o foco) o faria falhar.
+- **Drawer (item 3), raiz no host:** `Plan::record_verified` em `crates/host/src/tools.rs` atualiza
+  `plan.existing` depois de instalação verificada e de reuso. Teste Rust
+  `tools_install_is_real_verified_and_reused`: **vermelho antes** (plano continuava `absent`:
+  "No launcher exists at the destination."), **verde depois**. Override do frontend removido
+  (`ToolchainPanels.tsx` voltou à versão anterior). E2E `csharp-ls` "install plan is exact…": passa
+  sem o override.
+- **Rust (crate `openridr-host`):** 221 + 14 + 80 + 9 + 5 + 1 passam, 0 falham.
+- **Playwright, área de navegação/painéis (11 specs):** 60 passaram, 1 falhou
+  (`find-usages` "a blocked Find Usages runs once": "csharp-ls did not answer the references request
+  within 5 seconds" numa execução; passou na outra). Instabilidade de LSP, não de foco.
+
+## Pendente de app real (aguardando liberação da sessão do desktop)
+
+- Item 1 no app: Enter em linha do Find Usages (ou Problems/Tests) deve deixar o foco no editor e ⌘F
+  abrir o Find; ⌘E logo após Enter deve manter o foco no diálogo. Não rodado (app em uso pela outra
+  sessão).
