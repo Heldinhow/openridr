@@ -25,6 +25,8 @@ Reproduzidas no commit base `cb8ae7d` com o mesmo ambiente:
 - `tests/e2e/zz-acceptance.spec.ts` (jornada P0): `debug.install` devolve `downloading` em vez de `ready` na cópia do adaptador; falha igual na base.
 - `tests/e2e/tests.spec.ts` (2 casos de discovery/run) falharam na rodada completa por revisão `:2` em vez de `:1`, mas passaram isolados na mesma árvore; classificado como flake de ordem/estado, não regressão.
 
+**Status (2026-11-04):** os dois itens Rust acima foram investigados e corrigidos em `fix/file-access-confinement` — ver `docs/evidence/file-access-confinement.md`. Os E2E listados continuam como estavam.
+
 ## Não verificado
 
 - App Tauri/WKWebView empacotado: toda a prova de UI foi no Chrome sobre a ponte HTTP de dev.
