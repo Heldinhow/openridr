@@ -902,3 +902,13 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
   mede ≥ 3,86:1 (pior caso, linha atual focada em `--select`) e 5,31:1 no painel. No tema claro a
   transparência reprovaria (2,34:1), então lá o corpo usa `opacity: 1` (3,72:1 sobre branco) — tema não
   distribuído, não verificado. O piso de 3:1 virou teste E2E que lê os tokens do CSS real.
+
+## 2026-11-05 — Estado de testes tem um só ponto de composição; download medido é dono do progresso
+
+Duas leituras do mesmo estado divergiam sem erro visível: o snapshot injetava o run real e o export serializava
+a vista da descoberta (run sempre idle); o progresso do setup era publicado pelo leitor do pacote (com
+`Content-Length`) e sobrescrito por uma soma de bytes em disco que contava o mesmo `.nupkg` três vezes. Regra
+nova: **quem lê o estado de testes chama `Inner::tests_view()`** e **um número medido nunca é substituído por
+uma estimativa**. Consequência: a observação de disco do `dotnet tool install` só existe onde não há medição
+(instalador de probe), e `Progress.total` deixou de ser sempre `None`. Alternativa recusada: ensinar o export a
+lembrar do run — o mesmo erro voltaria no próximo leitor.
