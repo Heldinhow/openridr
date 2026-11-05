@@ -1,23 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Original OpenRidr mark: "OR" monogram on the app's dark panel tokens (src/styles.css). -->
+  <!-- OpenRidr mark: "OR_" monogram on a black tile inside a blue-violet-pink frame. Letters are paths, no font dependency. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#141414"/>
-      <stop offset="1" stop-color="#050505"/>
-    </linearGradient>
-    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6d9bf9"/>
-      <stop offset="1" stop-color="#548af7"/>
+    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#548af7"/>
+      <stop offset="0.55" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#ec4899"/>
     </linearGradient>
   </defs>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
-  <rect x="104" y="104" width="816" height="816" rx="181" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="8"/>
-  <g transform="translate(26 0)" fill="none" stroke-width="72">
-    <circle cx="345" cy="512" r="144" stroke="url(#ring)"/>
-    <g stroke="#f5f5f5">
-      <path d="M600 332V692"/>
-      <path d="M600 368H700A72 72 0 0 1 700 512H600" stroke-linejoin="round"/>
-      <path d="M676 512L772 692"/>
-    </g>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#frame)"/>
+  <rect x="244" y="244" width="536" height="536" fill="#000000"/>
+  <g fill="none" stroke="#ffffff" stroke-width="48">
+    <ellipse cx="384" cy="420" rx="64" ry="76"/>
+    <path d="M528 320V520"/>
+    <path d="M504 344H592A56 56 0 0 1 592 456H504"/>
+    <path d="M584 456L660 520"/>
   </g>
+  <rect x="304" y="636" width="155" height="32" fill="#ffffff"/>
 </svg>
