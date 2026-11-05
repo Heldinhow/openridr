@@ -710,3 +710,24 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **Dependencies.** Referência usa o ícone do projeto referenciado, pacote tem ícone/cor próprios e cada TFM ganha uma linha de framework derivada (`Microsoft.NETCore.App (net8.0)`, `Microsoft.AspNetCore.App` para web), sem inventar versão. A lista continua plana (decisão anterior); agrupar Projects/Packages/Frameworks fica fora e exigiria nova decisão + specs.
 - **Gerado/excluído.** `no index` mantém o fundo âmbar e passa a esmaecer nome e ícone.
 - **Limites.** Verificação visual no app real e Playwright ficam pendentes da liberação da porta 1420; o que não rodou entra como "não verificado" nas notas de implementação e na retro.
+
+## 2026-11-04 — Dependencies agrupadas (Frameworks / Packages / Projects)
+
+- **Substitui** o item "Dependencies lista projetos e pacotes em linhas planas (sem grupos)" do aceite de
+  `docs/SPEC-SOLUTION-EXPLORER.md` (e a lista plana implementada no ticket 38). A decisão 10 daquele
+  documento — zero dependência nova e `data-testid` existentes preservados — continua valendo. Pedido
+  explícito do Helder via orquestrador.
+- **Forma.** `Dependencies` tem três grupos expansíveis, como no Rider: `Frameworks`, `Packages` e
+  `Projects`. Dependencies e grupos começam fechados; `Expand All` abre os três; grupo sem filhos não é
+  renderizado (nada de nó vazio). Chaves de expansão `solution:deps:<projeto>:<grupo>`; testids
+  `tree-deps-group-<projeto>-<grupo>`, mantendo `tree-deps-*`, `tree-framework-*`, `tree-package-*` e
+  `tree-ref-*`.
+- **Conteúdo.** `Frameworks` deriva da TFM já avaliada/lida do texto (`Microsoft.NETCore.App (net8.0)`,
+  `Microsoft.AspNetCore.App` para web, `.NET Standard`, `.NET Framework`), sem inventar versão de patch.
+  `Packages` mostra nome e versão discreta. `Projects` usa o ícone do projeto referenciado. Os sufixos
+  `· project`/`· package` saem porque o grupo já nomeia o tipo; os specs passam a mirar linhas/testids.
+- **Fora.** `Assemblies` não é inventado: o host não expõe inventário de assemblies. Categorias do Rider sem
+  dado real continuam fora.
+- **Prova.** `tests/e2e/solution-explorer.spec.ts` cobre a estrutura em texto (Frameworks/Projects no Cli,
+  Packages ausente) e `tests/e2e/evaluation.spec.ts` cobre pacote e referência no modelo avaliado. E2E e app
+  real seguem pendentes da liberação da porta; sem captura, o que não rodou fica "não verificado".

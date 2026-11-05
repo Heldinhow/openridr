@@ -37,10 +37,10 @@ clicado em 4 specs; `eval-state` é lido (inclusive `revision N` por regex) em ~
 | Projeto | **sempre** o glifo C# (`CSharpIcon`), sem tipo | `src/FileIcon.tsx:16-19`; `src/SolutionTree.tsx:196` | ícone por tipo (app/lib/test/web) | sem ícone de `.csproj` no Seti; cor vem do tema |
 | Tipo do projeto | só texto cinza `· console · net8.0` | `src/SolutionTree.tsx:211-213` | só ícone | — |
 | Pasta de fontes | mesmo `Folder` cinza | `src/SolutionTree.tsx:143,167` | pasta cinza | `_folder` cinza |
-| Dependencies | `Network` cinza | `src/SolutionTree.tsx:230` | ícone de dependências | — |
+| Dependencies | `Network` cinza, lista plana de refs/pacotes | `src/SolutionTree.tsx:230-242` | ícone de dependências e grupos `Frameworks` / `Packages` / `Projects` | — |
 | Referência de projeto | `Box` cinza + `· project` | `src/SolutionTree.tsx:238` | ícone do projeto referenciado | — |
-| Pacote | `Package`, mesma cor; nome+versão juntos | `src/SolutionTree.tsx:241` | pacote com versão discreta | — |
-| Frameworks | **não existe** | — | nó `Frameworks` | — |
+| Pacote | `Package`, mesma cor; nome+versão juntos | `src/SolutionTree.tsx:241` | grupo `Packages`, pacote com versão discreta | — |
+| Frameworks | **não existe** | — | grupo `Frameworks` por TFM | — |
 | `.cs` (classe/interface/enum/record/struct) | **sempre** o mesmo glifo C# | `src/FileIcon.tsx:18` | letra do símbolo com cor | codicons `symbol-class`, `symbol-interface`, `symbol-enum`, `symbol-struct`, `symbol-record` (MIT) |
 | `.sln` | `Blocks` cinza | `src/FileIcon.tsx:6-7` | ícone de solução | Seti não mapeia |
 | `.csproj` | `Box` cinza | `src/FileIcon.tsx:5` | ícone de projeto | Seti não mapeia |
@@ -69,17 +69,18 @@ Dados disponíveis hoje:
    solução, pasta de solução, pasta, projeto por tipo (console/app, library, test, web), Dependencies,
    referência de projeto, pacote, framework, arquivo por extensão e `.cs` por símbolo.
 3. `web` sai do texto do `.csproj` (outline) quando a avaliação diz `console`.
-4. Tipo de símbolo por `.cs` via método read-only novo do host (`workspace.symbolKinds`), parser
+4. Dependencies agrupada em `Frameworks` / `Packages` / `Projects` (grupos não vazios), com título/ícone
+   próprios e refs usando o ícone do projeto referenciado.
+5. Tipo de símbolo por `.cs` via método read-only novo do host (`workspace.symbolKinds`), parser
    conservador testado em Rust; sem tipo confiável, mantém o glifo C#.
-5. Gerado/excluído (`no index`) esmaece ícone e nome, além do fundo atual.
-6. Nenhuma dependência nova de UI; glifos continuam Lucide + `CSharpIcon` (Apache-2.0); badges de letra são
+6. Gerado/excluído (`no index`) esmaece ícone e nome, além do fundo atual.
+7. Nenhuma dependência nova de UI; glifos continuam Lucide + `CSharpIcon` (Apache-2.0); badges de letra são
    desenho próprio. Nenhum SVG/fonte do Rider, Seti ou codicons é copiado.
 
 ## 4. Fora deste escopo (registrar, não fingir)
 
-- Nó `Frameworks` agrupado e grupos `Projects`/`Packages` dentro de Dependencies: a lista plana é decisão
-  anterior (`docs/SPEC-SOLUTION-EXPLORER.md`, decisão 10) e os specs dependem do texto atual. Nesta branch
-  só entram linhas de framework e ícones; agrupar exigiria nova decisão + reescrita de specs.
+- `Assemblies` e outras categorias do Rider dentro de Dependencies: o host não expõe inventário de
+  assemblies; não inventamos o grupo. Grupos vazios são omitidos, não exibidos como nós falsos.
 - `web` a partir da avaliação MSBuild (hoje só pelo texto do `.csproj`).
 - Ícone por símbolo para arquivos `.cs` gigantes (>256 KB), fora do workspace ou com sintaxe que o scan
   conservador não entende: cai no glifo C#.

@@ -37,12 +37,17 @@ avaliação por projeto (`eval-project-error-*`) e o aviso de restore continuam 
 consultada. Saem das linhas os chips `· console` e `· net8.0`; o tipo/TFMs viram atributos
 (`data-project-kind`, `data-project-tfms`) para testes e leitores de tela (`title` não muda de contrato).
 
-**D5 — Dependências ganham tipos, não grupos.** Filhos planos (decisão anterior do Solution Explorer)
-continuam: referência de projeto usa o ícone do projeto referenciado (quando conhecido), pacote usa ícone
-de pacote e versão discreta, e cada TFM avaliada vira uma linha de framework derivada
-(`Microsoft.NETCore.App (net8.0)`, `Microsoft.AspNetCore.App (net8.0)` para `web`, `.NET Standard (…)`,
-`.NET Framework (…)`). O texto `· project` / `· package` fica (contrato dos specs). Agrupar
-Frameworks/Packages/Projects exigiria nova decisão e reescrever specs; fica fora.
+**D5 — Dependências agrupadas como no Rider.** `Dependencies` deixa de ser uma lista plana e passa a ter
+três grupos expansíveis, cada um só quando tem filhos: `Frameworks`, `Packages` e `Projects`.
+`Frameworks` deriva da TFM (`Microsoft.NETCore.App (net8.0)`, `Microsoft.AspNetCore.App (net8.0)` para
+`web`, `.NET Standard (…)`, `.NET Framework (…)`) sem inventar versão; `Packages` mostra nome e versão
+discreta; `Projects` usa o ícone do projeto referenciado (quando conhecido). Dependencies e os grupos
+começam fechados (o "Expand All" abre os três); grupos vazios não aparecem. Os sufixos `· project` /
+`· package` saem, porque o grupo já nomeia o tipo. Chaves de expansão: `solution:deps:<projeto>:<grupo>`;
+testids `tree-deps-group-<projeto>-<grupo>` e os já usados `tree-framework-*`, `tree-package-*`,
+`tree-ref-*`. Isso substitui o item de lista plana do aceite de
+[SPEC-SOLUTION-EXPLORER](SPEC-SOLUTION-EXPLORER.md); a decisão 10 daquele documento (sem dependência
+nova, testids preservados) continua valendo.
 
 **D6 — Paleta semântica, não cores soltas.** Tokens `--icon-*` em `:root`, com `light-dark(claro, escuro)`
 e fallback escuro declarado antes (WebKit antigo cai no fallback). Valores são derivados das cores do Seti
@@ -157,8 +162,9 @@ Medido com WCAG 2.1 (sRGB) sobre `--panel` escuro `#0b0b0b` e sobre `#ffffff`.
    Restricted (desabilitado com motivo) e trusted.
 2. Projetos: ícone e cor por tipo; `console`/`net8.0` não aparecem como texto na linha; atributos
    `data-project-kind`/`data-project-tfms` presentes; erro/restore continuam visíveis.
-3. Dependencies: referência com ícone do projeto (quando conhecido), pacote com ícone/cor, framework por TFM;
-   `· project`/`· package` preservados.
+3. Dependencies agrupada em `Frameworks` / `Packages` / `Projects` (grupos vazios omitidos, todos
+   fechados por padrão); referência com ícone do projeto, pacote com versão discreta, framework por TFM;
+   `· project`/`· package` não aparecem mais.
 4. `.cs` com declaração reconhecida mostra badge C/I/E/R/S; sem reconhecimento, C#.
 5. `.sln`/`.csproj`/`.json`/`.xml`/`.razor`/`.cshtml`/`.resx`/`.props`/`.targets`/`.md`/`.yml`/`.sh`
    diferenciados por ícone e cor; desconhecido cai no genérico.

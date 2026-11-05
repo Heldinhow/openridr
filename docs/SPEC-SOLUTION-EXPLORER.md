@@ -2,6 +2,10 @@
 
 Referência: `.scratch/rider-solution-ref/` (4 prints do Rider, não versionados). Alvo: macOS ARM64.
 
+> **Atualizada em 2026-11-04:** os chips `· console · net8.0` (decisão 7) e a lista plana de Dependencies
+> (Aceite) foram substituídos pela [SPEC-SOLUTION-EXPLORER-VISUAL](SPEC-SOLUTION-EXPLORER-VISUAL.md)
+> (tickets 02–04). A decisão 10 — zero dependência nova e testids existentes preservados — continua válida.
+
 ## Auditoria (antes)
 
 | Área | Hoje | Rider |
@@ -23,14 +27,14 @@ Referência: `.scratch/rider-solution-ref/` (4 prints do Rider, não versionados
 4. **Build/Run/Debug só em projeto console avaliado** (o host builda pelo TargetPath do startup). Biblioteca/teste: desabilitado com o motivo.
 5. **Scratches and Consoles**: não há backend nem pasta de scratches; o nó ficaria falso → fora (já registrado em decisions).
 6. **Show all files** exige um método de host novo, somente leitura e sem trust (como `workspace.files`): `workspace.tree {dir}` lista um diretório do workspace (nome, caminho, dir, `hidden`). `hidden` = pasta em `IGNORED_DIRS` ou dotfile/dotfolder; a UI marca `no index` em `hidden` ou em arquivo que não é fonte avaliada (`.sln` e `.csproj` nem são listados). Não lê `.gitignore` (limite declarado).
-7. **Chips**: `kind`/TFM viram sufixo cinza `· console · net8.0` na mesma linha (sem quebrar os `toContainText` existentes); avisos de erro/restore continuam visíveis.
+7. **Chips**: `kind`/TFM viram sufixo cinza `· console · net8.0` na mesma linha (sem quebrar os `toContainText` existentes); avisos de erro/restore continuam visíveis. **Substituída em 2026-11-04** pela D4 da spec visual: o tipo vira ícone/cor e `data-project-kind`/`data-project-tfms`; os chips saem.
 8. **Buscar**: filtro client-side por nome na árvore já carregada (não é a busca global).
 9. **Minimizar** = esconder a tool window (`toggleToolWindow`). **⋮** = Re-evaluate, Project details, Expand/Collapse All, Show All Files.
 10. Zero dependência nova; `data-testid` existentes preservados.
 
 ## Aceite
 
-- Dependencies lista projetos e pacotes em linhas planas (sem grupos Projects/Packages).
+- **Substituído em 2026-11-04:** Dependencies agrupa `Frameworks` / `Packages` / `Projects`, como o Rider, e omite grupos vazios; ver D5 da [spec visual](SPEC-SOLUTION-EXPLORER-VISUAL.md) e a [decisão](../docs/decisions.md). A lista plana anterior fica no histórico.
 - Extras além do print: menu de raiz/arquivo (Open, Reload Solution, Copy Path, Find in Files) e navegação por teclado no submenu.
 - Linha única por projeto/pasta/arquivo, contagem `· N projects` na raiz e em cada pasta de solução.
 - Dependencies expansível com filhos reais; pastas aninhadas nos fontes.
