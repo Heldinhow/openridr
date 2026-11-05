@@ -239,11 +239,14 @@ test("install plan is exact, cancel is inert, and the real install reaches verif
       expect(fs.existsSync(plan.destination), "cancel created a tool directory").toBe(false);
       expect(fs.existsSync(plan.staging), "cancel created a staging directory").toBe(false);
       // Other specs leave exited processes in the shared registry; cancel must create none
-      // for this workspace. The automatic restore after Trust is its own process and is not counted.
+      // for this workspace. The automatic restore after Trust and the automatic test discovery
+      // (ticket 03) are their own processes and are not counted.
       expect(
         (await hostState(request)).processes.filter(
           (process: { workspaceId: number; kind: string }) =>
-            process.workspaceId === workspaceId && !process.kind.startsWith("restore:"),
+            process.workspaceId === workspaceId &&
+            !process.kind.startsWith("restore:") &&
+            !process.kind.startsWith("tests:"),
         ),
       ).toEqual([]);
       await page.getByTestId("install-plan-open").click();
@@ -261,6 +264,9 @@ test("install plan is exact, cancel is inert, and the real install reaches verif
     await expect(page.getByTestId("install-ready")).toContainText("Executable and version verified");
     await expect(page.getByTestId("install-sha256")).toContainText(/[0-9a-f]{64}/);
     await expect(page.getByTestId("install-verified")).toContainText("csharp-ls, 0.28.0");
+    // The plan was reviewed before the install; its Existing row must now describe the verified launcher.
+    await expect(page.getByTestId("install-existing")).not.toContainText("No launcher at the destination");
+    await expect(page.getByTestId("install-existing")).toContainText(/verified/i);
     expect(fs.existsSync(path.join(plan.destination, "csharp-ls"))).toBe(true);
     expect(fs.existsSync(plan.staging)).toBe(false);
 
