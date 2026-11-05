@@ -25,4 +25,6 @@ o home isolado. Capturas em `docs/evidence/tests-nuget-tools-setup/`. O diretór
   cobre o adapter; a mensagem de runtime tem teste de unidade), não no app desktop.
 - Update em lote e install descoberto foram feitos numa cópia descartável da fixture, com restore real; a fixture do repositório não foi alterada.
 - `BaseIntermediateOutputPath` com propriedades MSBuild, manifesto por DLL e sessão de solução real continuam fora do escopo/teste.
-- Saída por ⌘Q e por fechar a janela foram provadas com `pgrep -x openridr`, `csharp-ls` e `netcoredbg` vazio.
+- Saída por ⌘Q e por fechar a janela foram provadas com `pgrep -x openridr`, `csharp-ls`, `netcoredbg` e BuildHost vazio; o mesmo vale após `cargo test --workspace`.
+- O build release foi checado com `nm`/`strings`: sem `allow_setup_for_tests` e sem `OPENRIDR_TOOLS_MUXER`.
+- `BaseIntermediateOutputPath` expandido/herdado é reportado como “implícitos indisponíveis (obj fora do padrão)”; a mensagem tem teste de host e não é uma lista vazia.

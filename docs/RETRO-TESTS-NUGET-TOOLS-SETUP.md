@@ -32,3 +32,9 @@
 - **Saída**: fechar a janela/⌘Q fecha o workspace antes do exit; `kill(-pid)` só acontece com líder vivo, evitando pgid reciclado. `pgrep -x` vazio nas duas saídas.
 - **Visual**: a árvore de Tests ficou à esquerda com detalhe à direita, barra vertical e aba de sessão; NuGet trocou a tabela por seções recolhíveis com checkbox geral, badge e barra vertical. `All tests from Solution` não foi rotulado assim porque o host continua por projeto/TFM.
 - **Lição**: testes de UI antigos que codificavam plano/flag precisam ser reescritos quando o produto muda de fluxo; o gate de setup quebrou o teste de propriedade de trust e os testes de LSP — usar o seam de setup explicitamente, never esconder a condição no helper de UI.
+
+## Rodada 3 (re-check)
+
+- O worker agora é a última barreira do feed verificado; a promoção do Reinstall é uma troca atômica `renamex_np` no macOS e o teste de falha no swap cobre o pior caso. O grupo de processos é observado com `WNOWAIT`: o líder só é reaped depois de TERM/KILL nos netos, o que eliminou os BuildHost órfãos do csharp-ls.
+- DNS é resolvido e validado antes da conexão (sem rebinding), e `trust.set` só altera o workspace aberto; decisões da tela inicial continuam permitidas porque não executam nada. Seams de probe/teste ficaram fora do build release e isso foi provado por símbolos.
+- Lição: guardas de segurança pertencem ao worker/registro, não ao chamador; e "o líder saiu" não significa "o grupo acabou".
