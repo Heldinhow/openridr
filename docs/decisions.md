@@ -804,3 +804,9 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
   mover o foco para o editor nesse caminho seria mudar produto, não este ticket.
 - **Clicar fora mira onde o usuário clicou.** Se o alvo é focável (editor), ele fica com o foco; a linha
   recupera o foco quando nada mais o tomou (Esc, clique em área não focável).
+
+## 2026-11-05 — Ferramentas obrigatórias no setup
+
+- A abertura segue setup verificado de csharp-ls e netcoredbg → trust → workspace; falha no setup bloqueia o workspace e oferece retry. Ferramentas verificadas são reutilizadas entre projetos e aberturas.
+- Instalar e verificar ferramentas de origem, versão e checksum fixos não executa código do projeto e não depende de trust. Análise, restore, build, test e debug continuam exigindo trust; em modo restrito não são iniciados. Com trust, a análise inicia automaticamente.
+- O drawer passa a diagnóstico e reinstalação. Isso substitui as decisões anteriores de plano revisado para csharp-ls e flag experimental/consentimento para netcoredbg; não substitui os demais gates de segurança. SDK do projeto não é instalado nem imposto; ausência de runtime .NET 10 é explicada com link adequado.
