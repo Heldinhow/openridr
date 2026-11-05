@@ -65,6 +65,8 @@ pub struct AnalysisRuntime {
     pub sdk_path: Option<String>,
     pub instructions_url: &'static str,
     pub message: Option<String>,
+    /// True when the runtime comes from the app bundle instead of a detected installation.
+    pub bundled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -205,6 +207,27 @@ impl ProjectSdk {
 }
 
 impl AnalysisRuntime {
+    /// The runtime analysis actually uses: the app bundle wins, the detected inventory is the
+    /// fallback (a `tauri dev` build without resources, and every platform the bundle does not
+    /// cover). The project SDK is never taken from here.
+    pub fn for_analysis(runtimes: &[RuntimeInstall]) -> Self {
+        if let Some(bundled) = crate::bundled::analysis_runtime() {
+            return Self {
+                state: "found",
+                version: Some(bundled.version.clone()),
+                root: Some(bundled.root.to_string_lossy().to_string()),
+                sdk_path: None,
+                instructions_url: RUNTIME_INSTRUCTIONS_URL,
+                message: Some(
+                    "Bundled with OpenRidr: the .NET 10 runtime csharp-ls needs ships inside the app; the project SDK still comes from global.json."
+                        .to_string(),
+                ),
+                bundled: true,
+            };
+        }
+        Self::from_runtimes(runtimes)
+    }
+
     pub fn from_runtimes(runtimes: &[RuntimeInstall]) -> Self {
         match analysis_runtime(runtimes) {
             Some(runtime) => Self {
@@ -214,6 +237,7 @@ impl AnalysisRuntime {
                 sdk_path: None,
                 instructions_url: RUNTIME_INSTRUCTIONS_URL,
                 message: None,
+                bundled: false,
             },
             None => Self {
                 state: "missing",
@@ -225,6 +249,7 @@ impl AnalysisRuntime {
                     "No .NET 10 runtime (Microsoft.NETCore.App) was found in the detected roots. C# analysis needs that runtime; the project SDK is separate and is never used as a substitute."
                         .to_string(),
                 ),
+                bundled: false,
             },
         }
     }

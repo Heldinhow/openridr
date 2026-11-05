@@ -1243,3 +1243,34 @@ branch em [evidence/acceptance-fixes.md](evidence/acceptance-fixes.md). Diagnost
 - Testes: cargo host 393, unit 33, E2E `acceptance-fixes` 5, `tests/testsuite/tests-auto-discovery/nuget` 15
   (+1 falha pré-existente), `solution-explorer/solution-file-icons/ui-layout/evaluation/tools-install-ux/
   setup-gate-layout` 34.
+
+## Análise embutida (csharp-ls 0.28.0 + runtime 10.0.14)
+
+Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, evidência
+`docs/evidence/bundled-analysis.md`.
+
+- **Build:** `scripts/vendor-analysis.sh` (chamado no `beforeBuildCommand` depois do
+  `vendor-netcoredbg.sh`) baixa para `vendor/` (fora do git), confere SHA-512, extrai para
+  `src-tauri/resources/{dotnet,csharp-ls}/` e reassina todo Mach-O. `.gitignore` cobre as duas
+  árvores, os markers `*.vendor-state` e os downloads; `src-tauri/resources/dotnet.entitlements`
+  é versionado (allow-jit + disable-library-validation no muxer).
+- **Host:** `crates/host/src/bundled.rs` resolve `<exe>/../Resources/{csharp-ls,dotnet}` com
+  overrides só de debug; `Tools::sync_bundled` verifica o par com `<Resources>/dotnet
+  .../CSharpLanguageServer.dll --version` e publica `state=ready`, `bundled=true`, SHA-256 do DLL;
+  `Tools::view` re-hasheia o DLL e falha se ele mudou. `AnalysisRuntime::for_analysis` prefere o
+  bundle; `lsp.start` roda `<hostroot>/dotnet <dll>` no lugar do launcher instalado.
+- **UI:** `ToolInstall.bundled` e `AnalysisRuntime.bundled`; SetupGate diz "Bundled and verified"
+  e mostra a raiz do runtime; Workspace tools desabilita Reinstall com motivo. Nenhum
+  `data-testid` existente mudou; o novo é `setup-gate-runtime-bundled`.
+- **Testes:** `crates/host/tests/bundled_analysis.rs` (par embutido ready sem app home, DLL
+  alterado deixa de ser ready, `for_analysis` prefere o bundle e cai para o inventário, hostroot
+  composto com o runtime vendorizado) + suíte existente. `cargo test -p openridr-host`: 266 lib +
+  4 bundled + 14 debugger + 98 host + 10 + 7 + 1, todos verdes.
+- **Prova real:** bridge HTTP offline (sandbox sem rede IP, SDK 8 sintético sem runtime 10) —
+  setup ready sem `tools/`, diagnóstico CS0029 da fixture, `lsof` com o DLL em
+  `Contents/Resources`; Debug com breakpoint na linha 4 de `Program.cs`, locals e saída
+  `Order A-104: R$ 42,00`. App Tauri real (verify-openridr): gate pulado, Problems com CS0029,
+  reabertura direta no workspace, DMG montado somente leitura com a mesma análise.
+- **Não verificado:** notarização/Developer ID (sem credencial nesta sessão; `spctl` rejeita o
+  ad-hoc), `stapler` (exige Xcode completo), quarentena real e Mac limpo (a ausência de runtime
+  10 foi simulada por sandbox + raiz SDK-8-só, não por uma máquina sem .NET).

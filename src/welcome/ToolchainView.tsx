@@ -45,7 +45,11 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
                 {sdk.host.state === "found" ? (
                   <>
                     <strong className="success">.NET {sdk.host.version} runtime</strong>{" "}
-                    <span className="tag">runs the analysis tool · separate from the project SDK</span>
+                    <span className="tag">
+                      {sdk.host.bundled
+                        ? "bundled with OpenRidr · runs the analysis tool · separate from the project SDK"
+                        : "runs the analysis tool · separate from the project SDK"}
+                    </span>
                     <br />
                     <span className="muted">Root: {sdk.host.root}</span>
                   </>

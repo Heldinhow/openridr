@@ -67,9 +67,10 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
       <section className="setup-gate-body" aria-labelledby="setup-gate-title">
         <h1 id="setup-gate-title">Fixed tools are part of the project setup</h1>
         <p className="muted">
-          OpenRidr verifies and installs these tools once, outside the workspace. Nothing in the
-          project is executed during setup, and the workspace is not shown until both tools are
-          ready. Version and checksum never change between projects.
+          OpenRidr verifies these tools once, outside the workspace. csharp-ls and the .NET
+          runtime that runs it ship inside the app, next to netcoredbg; nothing of the project is
+          executed during setup, and the workspace is not shown until both tools are ready.
+          Version and checksum never change between projects.
         </p>
 
         <ol className="setup-gate-steps">
@@ -77,7 +78,9 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
             <strong>Analysis tool · csharp-ls {tool.version}</strong>
             <span className="menu-note">
               {tool.state === "ready"
-                ? "Verified"
+                ? tool.bundled
+                  ? "Bundled and verified"
+                  : "Verified"
                 : activeStates.includes(tool.state)
                   ? tool.state === "downloading"
                     ? "Downloading the pinned package"
@@ -128,9 +131,16 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
             <strong>Analysis runtime · .NET 10</strong>
             <span className="menu-note">
               {runtimeReady
-                ? `Found ${setup.runtime.version ?? ""} at ${setup.runtime.root ?? ""}`
+                ? setup.runtime.bundled
+                  ? `Bundled ${setup.runtime.version ?? ""} with the app`
+                  : `Found ${setup.runtime.version ?? ""} at ${setup.runtime.root ?? ""}`
                 : "Missing"}
             </span>
+            {setup.runtime.bundled && setup.runtime.root && (
+              <span className="muted">
+                <code data-testid="setup-gate-runtime-bundled">{setup.runtime.root}</code>
+              </span>
+            )}
           </li>
         </ol>
 

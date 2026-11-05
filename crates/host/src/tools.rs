@@ -5,6 +5,7 @@
 //! promoted only after the process exits 0, then verified; no state becomes `ready` before
 //! the launcher exists and its `--version` output contains the pinned version.
 
+use crate::bundled;
 use crate::error::{HostError, HostResult};
 use crate::logbuf::{self, LogBuffer};
 use crate::process::{ProcessStatus, Registry, Termination};
@@ -295,8 +296,16 @@ fn probe_muxer() -> Option<PathBuf> {
 }
 
 /// Builds the plan from the detected runtimes and SDKs. `dotnet tool install` runs on any
-/// installed SDK; the launcher is verified against the .NET 10 runtime root.
+/// installed SDK; the launcher is verified against the .NET 10 runtime root. A bundled pair has
+/// no plan at all: the bundle is the only source and it cannot be installed or reinstalled.
 pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
+    if bundled::analysis().is_some() {
+        return Err(HostError::with_details(
+            "invalid_state",
+            "csharp-ls and its .NET runtime are bundled with OpenRidr; there is nothing to download or install.",
+            json!({}),
+        ));
+    }
     let runtime = AnalysisRuntime::from_runtimes(&inventory.runtimes);
     let Some(runtime_root) = runtime.root.clone() else {
         return Err(HostError::with_details(
@@ -598,6 +607,7 @@ pub struct ToolView {
     pub version: &'static str,
     pub destination: String,
     pub staging: String,
+    pub bundled: bool,
     pub plan: Option<Plan>,
     pub log: String,
     pub log_truncated: bool,
@@ -629,6 +639,10 @@ struct Data {
     destination: String,
     staging: String,
     runtime_root: String,
+    /// A verified pair inside the app bundle; it replaces the download plan entirely.
+    bundled: Option<BundledTool>,
+    /// The bundled pair is verified at most once per session: it cannot be reinstalled.
+    bundled_attempted: bool,
     plan: Option<Plan>,
     confirmed_plan_id: Option<String>,
     log: LogBuffer,
@@ -666,6 +680,74 @@ pub struct Tools {
     data: Mutex<Data>,
 }
 
+/// A verified pair shipped inside the app bundle: `Resources/csharp-ls` plus the private
+/// runtime it runs on. The hash is of the managed entry point the bundled muxer executes.
+#[derive(Debug, Clone)]
+struct BundledTool {
+    dir: PathBuf,
+    sha256: String,
+    output: String,
+}
+
+fn bundled_intact(bundled: &BundledTool) -> bool {
+    sha256_file(&bundled.dir.join(bundled::CSHARP_LS_ENTRY)).as_deref()
+        == Some(bundled.sha256.as_str())
+}
+
+/// Runs the bundled pair once: `<bundle>/dotnet <entry> --version`. No network, no installation
+/// and no write outside the isolated child home; the project SDK is not involved.
+fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
+    let home = child_home();
+    fs::create_dir_all(&home)
+        .map_err(|error| format!("Could not create the isolated tool HOME: {error}"))?;
+    let cwd = neutral_cwd();
+    let _ = fs::create_dir_all(&cwd);
+    let muxer = bundled::muxer(&analysis.runtime.root);
+    let output = Command::new(&muxer)
+        .arg(&analysis.entry)
+        .arg("--version")
+        .current_dir(&cwd)
+        .env("HOME", &home)
+        .env("DOTNET_ROOT", &analysis.runtime.root)
+        .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+        .env("DOTNET_CLI_UI_LANGUAGE", "en")
+        .env("DOTNET_NOLOGO", "1")
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        .env_remove("NUGET_PACKAGES")
+        .env_remove("NUGET_HTTP_CACHE_PATH")
+        .env_remove("DOTNET_CLI_HOME")
+        .output()
+        .map_err(|error| {
+            format!(
+                "Could not run the bundled csharp-ls {}: {error}",
+                analysis.entry.to_string_lossy()
+            )
+        })?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = text.trim().to_string();
+    if !output.status.success() || !text.contains(VERSION) {
+        return Err(format!(
+            "The bundled csharp-ls did not report {VERSION} (exit {}): {text}",
+            output
+                .status
+                .code()
+                .map(|code| code.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        ));
+    }
+    let sha256 = sha256_file(&analysis.entry)
+        .ok_or_else(|| "Could not hash the bundled csharp-ls entry point.".to_string())?;
+    Ok(BundledTool {
+        dir: analysis.tool_dir.clone(),
+        sha256,
+        output: text,
+    })
+}
+
 impl Tools {
     pub fn new() -> Self {
         Self {
@@ -675,6 +757,8 @@ impl Tools {
                 destination: destination().to_string_lossy().to_string(),
                 staging: staging().to_string_lossy().to_string(),
                 runtime_root: String::new(),
+                bundled: None,
+                bundled_attempted: false,
                 plan: None,
                 confirmed_plan_id: None,
                 log: LogBuffer::default(),
@@ -723,11 +807,29 @@ impl Tools {
         } else {
             PathBuf::from(&data.staging)
         };
+        // A bundled pair is read from the app bundle on every view: a replaced entry is not the
+        // verified tool, and analysis/setup must stop instead of running something else.
+        let bundled_changed = data
+            .bundled
+            .as_ref()
+            .is_some_and(|bundled| !bundled_intact(bundled));
+        let (state, error) = if bundled_changed {
+            (
+                "failed",
+                Some(
+                    "The bundled csharp-ls changed since it was verified; the app bundle is damaged or was modified. Reinstall OpenRidr instead of using this analyzer."
+                        .to_string(),
+                ),
+            )
+        } else {
+            (data.state, data.error.clone())
+        };
         ToolView {
-            state: data.state,
+            state,
             version: VERSION,
             destination: destination.to_string_lossy().to_string(),
             staging: staging.to_string_lossy().to_string(),
+            bundled: data.bundled.is_some(),
             plan: data.plan.clone(),
             log,
             log_truncated,
@@ -739,7 +841,7 @@ impl Tools {
             sha256: data.sha256.clone(),
             verified_version: data.verified_version.clone(),
             verified_output: data.verified_output.clone(),
-            error: data.error.clone(),
+            error,
             note: data.note.clone(),
             reused: data.reused,
             revision: data.revision,
@@ -769,10 +871,62 @@ impl Tools {
         if data.state != "ready" {
             return false;
         }
+        if let Some(bundled) = &data.bundled {
+            return bundled_intact(bundled);
+        }
         let binary = Path::new(&data.destination).join(binary_name());
         match (&data.sha256, sha256_file(&binary)) {
             (Some(expected), Some(actual)) => expected == &actual,
             _ => false,
+        }
+    }
+
+    /// Verifies the pair inside the app bundle, once per session. Without a bundle (`tauri dev`,
+    /// host tests, non-macOS builds) this is a no-op and the download plan is used as before.
+    /// The bundled pair is never installed, downloaded, replaced or reinstalled.
+    pub fn sync_bundled(&self) {
+        if self.data.lock().unwrap().bundled_attempted {
+            return;
+        }
+        let Some(analysis) = bundled::analysis() else {
+            return;
+        };
+        let result = verify_bundled(&analysis);
+        let mut data = self.data.lock().unwrap();
+        data.bundled_attempted = true;
+        data.destination = analysis.tool_dir.to_string_lossy().to_string();
+        data.staging = staging().to_string_lossy().to_string();
+        data.plan = None;
+        data.progress = None;
+        data.runtime_root = analysis.runtime.root.to_string_lossy().to_string();
+        match result {
+            Ok(verified) => {
+                data.state = "ready";
+                data.bundled = Some(verified.clone());
+                data.sha256 = Some(verified.sha256.clone());
+                data.verified_version = Some(VERSION.to_string());
+                data.verified_output = Some(verified.output.clone());
+                data.error = None;
+                data.note = Some(format!(
+                    "Bundled with OpenRidr: csharp-ls {VERSION} and the .NET runtime {} ship inside the app. Nothing is downloaded or installed.",
+                    analysis.runtime.version
+                ));
+                data.log.push(format!(
+                    "Bundled analysis tool verified: {} --version",
+                    analysis.entry.to_string_lossy()
+                ));
+                data.log.push(verified.output);
+            }
+            Err(message) => {
+                data.state = "failed";
+                data.bundled = None;
+                data.error = Some(message.clone());
+                data.note = Some(
+                    "The bundled analysis tool did not verify; the app bundle is incomplete or damaged. Reinstall OpenRidr instead of downloading a different tool."
+                        .to_string(),
+                );
+                data.log.push(message);
+            }
         }
     }
 

@@ -70,9 +70,11 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
     ? "An action is already running."
     : active
       ? "An installation is already running."
-      : lspRunning
-        ? "Stop analysis before reinstalling csharp-ls; the running server uses that launcher."
-        : null;
+      : tool.bundled
+        ? "csharp-ls and its .NET runtime ship inside the app; reinstall OpenRidr to replace them."
+        : lspRunning
+          ? "Stop analysis before reinstalling csharp-ls; the running server uses that launcher."
+          : null;
 
   async function run(action: () => Promise<Snapshot>) {
     setBusy(true);
@@ -125,8 +127,9 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
       )}
       {tool.state === "ready" && (
         <p className="success" data-testid="install-ready">
-          Executable and version verified. This does not prove that the language server loads a
-          solution.
+          {tool.bundled
+            ? "Bundled with OpenRidr: the analyzer and its .NET runtime come from the app, and neither is downloaded. This does not prove that the language server loads a solution."
+            : "Executable and version verified. This does not prove that the language server loads a solution."}
         </p>
       )}
       <ToolDownloadStatus
@@ -152,7 +155,8 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
       )}
       {tool.sha256 && (
         <p className="muted" data-testid="install-sha256">
-          SHA-256 of the installed launcher: <code>{tool.sha256}</code>
+          SHA-256 of the {tool.bundled ? "bundled entry point" : "installed launcher"}:{" "}
+          <code>{tool.sha256}</code>
         </p>
       )}
       {tool.verifiedOutput && (
@@ -526,7 +530,7 @@ export function lspStartBlocker(snapshot: Snapshot): string | null {
   return !trusted
     ? "Trust the workspace before analysis."
     : tool.state !== "ready"
-      ? "Install and verify csharp-ls 0.28.0 first; the LSP never installs itself."
+      ? "csharp-ls 0.28.0 is not ready; if the app bundle is intact the setup verifies it. The LSP never installs itself."
       : projectSdk.state !== "resolved"
         ? "Resolve the project SDK before analysis."
         : restore.state === "running"
