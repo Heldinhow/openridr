@@ -27,6 +27,34 @@ const PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.28
 const PACKAGE_SHA512: &str = "a138b9c8f9de9dd6343e9b0d0c8f4d51637bba7e38606b7c2b08b1d91e8eefa39f12123057f6625f425812b4361e52841bd2856704ec127ff50144ce05170a99";
 const PACKAGE_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
+/// The pinned package: URL and expected SHA-512. A debug build may point both at a local server so
+/// the installer's real download path (measured progress, size limit, hash check) can be exercised
+/// without NuGet.org; release builds always use the compiled-in pin.
+fn package_source() -> (String, String) {
+    #[cfg(debug_assertions)]
+    if let (Ok(url), Ok(sha512)) = (
+        std::env::var("OPENRIDR_TOOLS_PACKAGE_URL"),
+        std::env::var("OPENRIDR_TOOLS_PACKAGE_SHA512"),
+    ) {
+        return (url, sha512);
+    }
+    (PACKAGE_URL.to_string(), PACKAGE_SHA512.to_string())
+}
+
+/// True when a debug build redirected the pinned package. The probe installer is then only the
+/// install step: the verified download still runs, because it is what is being exercised.
+fn package_redirected() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        return std::env::var_os("OPENRIDR_TOOLS_PACKAGE_URL").is_some()
+            && std::env::var_os("OPENRIDR_TOOLS_PACKAGE_SHA512").is_some();
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
 fn verify_package_hash(bytes: &[u8], expected: &str) -> Result<(), String> {
     let actual = format!("{:x}", Sha512::digest(bytes));
     if actual == expected {
@@ -51,10 +79,11 @@ fn store_verified_package(temp: &Path, bytes: &[u8], expected: &str) -> Result<(
 }
 
 fn prepare_local_package(temp: &Path, progress: impl Fn(u64, Option<u64>) -> bool) -> Result<(PathBuf, PathBuf), String> {
+    let (url, sha512) = package_source();
     let response = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(120))
         .build()
-        .get(PACKAGE_URL)
+        .get(&url)
         .call()
         .map_err(|error| format!("Could not download csharp-ls: {error}"))?;
     let total = response.header("Content-Length").and_then(|value| value.parse().ok());
@@ -68,7 +97,7 @@ fn prepare_local_package(temp: &Path, progress: impl Fn(u64, Option<u64>) -> boo
         if bytes.len() as u64 > PACKAGE_MAX_BYTES { return Err("csharp-ls package exceeds the size limit".to_string()); }
         if !progress(bytes.len() as u64, total) { return Err("Installation cancelled.".to_string()); }
     }
-    store_verified_package(temp, &bytes, PACKAGE_SHA512)
+    store_verified_package(temp, &bytes, &sha512)
 }
 const SIGNATURE_LIMITATION: &str = "The NuGet package is checked against the pinned SHA-512 before local installation. dotnet reports skipping package signature verification. The installed launcher SHA-256 and version are recorded separately.";
 
@@ -883,7 +912,7 @@ impl Tools {
                     data.download_dir = Some(temp.to_string_lossy().to_string());
                 }
             }
-            let package = if probe_muxer().is_some() {
+            let package = if probe_muxer().is_some() && !package_redirected() {
                 #[cfg(debug_assertions)]
                 if let Ok(delay) = std::env::var("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS") {
                     if let Ok(milliseconds) = delay.parse::<u64>() {
@@ -897,7 +926,9 @@ impl Tools {
                         let mut data = tools.data.lock().unwrap();
                         if data.cancel_requested || data.sealed || data.revision != attempt { return false; }
                         data.progress = Some(Progress { downloaded, total });
-                        data.progress_measured = total.is_some();
+                        // Measured, with or without a total: bytes read from the socket are not a
+                        // disk estimate, so the observation below must never replace them.
+                        data.progress_measured = true;
                         true
                     }).map(Some)
                 })
@@ -1054,7 +1085,9 @@ impl Tools {
                     ),
                 )
             })?;
-            verify_package_hash(&bytes, PACKAGE_SHA512).map_err(|error| {
+            // The same pin the download verified: a redirected debug package must survive the
+            // recheck, otherwise only the download half of the attempt is exercised.
+            verify_package_hash(&bytes, &package_source().1).map_err(|error| {
                 HostError::new(
                     "operation_failed",
                     format!("{error} No dotnet tool install was started."),
