@@ -3,6 +3,7 @@ import { FileIcon } from "./FileIcon";
 import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
 import { ProjectIcon } from "./icons/ProjectIcon";
+import { SYMBOL_LABEL } from "./icons/SymbolMark";
 import {
   ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, nestSources,
   visibleSourceFiles, type DependencyGroup, type SourceNode,
@@ -253,19 +254,19 @@ export function SolutionTree(p: Props) {
   }
 
   function fileRow(path: string, level: number, noIndex = false) {
-    const owner = views.find((view) => view.path === path);
-    const projectKind = owner ? projectKindOf(owner.kind, owner.textKind) : undefined;
     const kind = fileKind(path);
+    const symbol = symbolKinds[path];
     return (
       <TreeRow
         key={path}
         level={level}
-        icon={<FileIcon path={path} projectKind={projectKind} symbolKind={symbolKinds[path]} />}
+        icon={<FileIcon path={path} symbolKind={symbol} />}
         name={baseOf(path)}
+        description={symbol ? `C# ${SYMBOL_LABEL[symbol]}` : undefined}
         noIndex={noIndex}
         testId={`tree-file-${path}`}
         fileKind={kind}
-        symbolKind={symbolKinds[path]}
+        symbolKind={symbol}
         current={p.activePath === path}
         selected={p.activePath === path}
         title={path}
@@ -285,7 +286,6 @@ export function SolutionTree(p: Props) {
           key={node.path}
           level={level}
           open={open(dirKey(node.path))}
-          icon={<Icon name="folder" className="tint-folder" />}
           name={node.name}
           testId={`tree-dir-${node.path}`}
           onClick={() => p.onToggle(dirKey(node.path))}
@@ -306,7 +306,6 @@ export function SolutionTree(p: Props) {
           key={entry.path}
           level={level}
           open={open(key)}
-          icon={<Icon name="folder" className="tint-folder" />}
           name={entry.name}
           noIndex={entry.hidden}
           testId={`tree-dir-${entry.path}`}
@@ -505,7 +504,6 @@ export function SolutionTree(p: Props) {
                   <TreeRow
                     level={1}
                     open={open(folderKey(folder))}
-                    icon={<Icon name="solutionFolder" className="tint-solution-folder" />}
                     name={folder}
                     testId={`tree-folder-${folder}`}
                     suffix={<span className="tag tree-count">· {countLabel(items.length, "project")}</span>}

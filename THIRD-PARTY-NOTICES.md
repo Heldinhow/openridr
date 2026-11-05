@@ -56,7 +56,8 @@ SOFTWARE.
 
 ## Lucide (lucide-react 1.68.0) — ISC, and MIT for icons derived from Feather
 
-All UI icons except the C# glyph are drawn by `lucide-react`, bundled into the app's JavaScript.
+All UI icons except the file-tree glyphs listed below are drawn by `lucide-react`, bundled into the app's
+JavaScript.
 
 ```text
 ISC License
@@ -104,12 +105,108 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Material Design Icons `language-csharp` — Apache-2.0
+## File tree glyphs from `@pierre/trees` 1.0.0-beta.6 — Apache-2.0
 
-`src/icons/CSharpIcon.tsx` contains the `language-csharp` glyph from Material Design Icons by the
-Pictogrammers group (https://github.com/Templarian/MaterialDesign), redistributed under the Apache License 2.0
-(icons are Apache-2.0; the MDI code license is MIT). It is plain "C#" lettering. OpenRidr does not use the
-Microsoft C#, .NET or Visual Studio logos.
+Seven SVG symbols were copied from the npm package `@pierre/trees@1.0.0-beta.6` (license field
+`apache-2.0`), file `dist/builtInIcons.js` (the package's compiled icon sprite), into
+`src/icons/fileGlyphs.tsx`:
+
+| Symbol in the package | Component in OpenRidr |
+|---|---|
+| `file-tree-icon-file` | `DocGlyph` |
+| `file-tree-builtin-json` | `JsonGlyph` |
+| `file-tree-builtin-markdown` | `MarkdownGlyph` |
+| `file-tree-builtin-docker` | `DockerGlyph` |
+| `file-tree-builtin-yml` | `YamlGlyph` |
+| `file-tree-builtin-text` | `TextGlyph` |
+| `file-tree-builtin-git` | `GitGlyph` |
+
+**Modified.** The seven glyphs are **not** verbatim: the `<symbol>`/sprite wrapper is dropped, the
+package's `class="bg"` / `class="fg"` hits became one local class (`glyph-page`) that keeps the
+same half-strength page body, the original inline `opacity` attributes became that class (its value is
+the only visual change: 0.65 instead of 0.5, for WCAG 1.4.11 contrast — see
+`docs/evidence/solution-file-icons.md`), the hardcoded colors became `currentColor` so the row's
+`tint-*` class supplies the token, and the file names/JSX differ. The path data is unchanged.
+`@pierre/trees` is **not** a dependency of OpenRidr; only these seven symbols are vendored.
+
+### NOTICE of `@pierre/trees` 1.0.0-beta.6
+
+Reproduced as the package ships it (`NOTICE.md` in the tarball). It refers to the tree implementation
+that OpenRidr does **not** use; it is kept because Apache-2.0 requires distributing the NOTICE.
+
+```text
+This project includes some code derived from
+[@headless-tree/core](https://github.com/lukasbach/headless-tree).
+
+The initial version of this project used `headless-tree` as the underlying tree
+implementation. We have since written our own core at `packages/path-store`, but
+many of the best ideas from `headless-tree` made their way to `path-store` and
+`trees`. It's hard to identify exactly which code this is at this point, but
+definitely things like the drag and drop implementation and the general list
+approach to rendering and I'm sure more. The work that `@lukasbach` has
+contributed to this space is greatly appreciated. `<3`
+
+Original license for `headless-tree/core`:
+
+MIT License
+
+Copyright (c) 2023 Lukas Bach
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+## Simple Icons `c-sharp` — CC0 1.0
+
+`src/icons/fileGlyphs.tsx` (`CSharpGlyph`) contains the Simple Icons `c-sharp` mark
+(https://github.com/simple-icons/simple-icons, CC0 1.0 Universal), taken verbatim from the icon sprite the
+T3 Code file tree ships. It is the hexagonal C# logo used as the `.cs` file icon. Simple Icons asks for
+attribution but does not require it; this notice and the link above are the attribution. Microsoft, C#
+and .NET are trademarks of Microsoft Corporation; OpenRidr is not affiliated with Microsoft.
+
+## T3 Code (`pingdotgg/t3code`) — MIT
+
+Two things were adapted from the T3 Code repository (MIT): the file-name/extension → icon resolution
+logic in `src/solutionVisuals.ts` (`BY_NAME`, `Dockerfile`/`docker-compose`/`DotSettings`/`appsettings`
+rules) and the per-kind color pairs in `src/styles.css` (`--icon-csharp`, `--icon-json`,
+`--icon-markdown`, `--icon-docker`, `--icon-doc`, `--icon-git`, dark and light). No component, stylesheet or
+asset of the T3 Code app is copied.
+
+Copyright (c) 2026 T3 Tools Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Apache License 2.0 (the `@pierre/trees` glyphs above, and this whole notice's license text)
 
 ```text
                                  Apache License
