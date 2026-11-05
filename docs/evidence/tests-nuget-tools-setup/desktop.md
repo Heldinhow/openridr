@@ -26,5 +26,5 @@ o home isolado. Capturas em `docs/evidence/tests-nuget-tools-setup/`. O diretór
 - Update em lote e install descoberto foram feitos numa cópia descartável da fixture, com restore real; a fixture do repositório não foi alterada.
 - Manifesto por DLL e sessão de solução real continuam fora do escopo/teste; `BaseIntermediateOutputPath` expandido/herdado é reportado como indisponível, não como lista vazia.
 - Saída por ⌘Q e por fechar a janela foram provadas com `pgrep -x openridr`, `csharp-ls`, `netcoredbg` e BuildHost vazio; o mesmo vale após `cargo test --workspace`.
-- O build release foi checado com `nm`/`strings`: sem `allow_setup_for_tests` e sem `OPENRIDR_TOOLS_MUXER`.
+- O build release foi checado com `nm`/`strings`: sem `allow_setup_for_tests`, sem `processes.probe`/`diagnostics.probe`/`nuget.probe` e sem os nomes de env de probe/teste (`OPENRIDR_ENABLE_PROBE`, `OPENRIDR_TOOLS_MUXER`, `OPENRIDR_BUNDLED_NETCOREDBG`, `OPENRIDR_DEBUG_*`, `OPENRIDR_FORCE_HOSTROOT`).
 - `BaseIntermediateOutputPath` expandido/herdado é reportado como “implícitos indisponíveis (obj fora do padrão)”; a mensagem tem teste de host e não é uma lista vazia.
