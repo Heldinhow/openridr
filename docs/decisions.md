@@ -748,3 +748,59 @@ Spec: `docs/SPEC-SOLUTION-EXPLORER-VISUAL.md`; gaps: `docs/GAPS-SOLUTION-EXPLORE
 - **Revisão (mesmo dia):** a checagem do caminho inteiro deixava brecha de observabilidade — symlink dentro do workspace apontando para fora, com alvo **inexistente**, respondia `not_found` em vez de `outside_workspace`. A decisão canônica passa a resolver o **ancestral existente mais profundo** quando o alvo não existe (`fsutil::canonical_confined`): fora → `outside_workspace`, tudo dentro → `not_found`. E a checagem léxica vale só para entrada **relativa**: um caminho absoluto pode ter prefixo não canônico (`/tmp` × `/private/tmp`, APFS ignorando caixa) e ser o mesmo arquivo, então para absoluto a contenção é decidida pela canonicalização — o helper único (`confine`/`confine_raw`) atende as cinco fronteiras.
 - **Revisão 2 (mesmo dia):** symlink que existe e não resolve — pendente **ou laço** — é sempre `outside_workspace`: o host não prova para onde aponta, então não prova que está dentro, e a resposta é a mesma para qualquer alvo do outro lado (inclusive um pendente cujo nome do alvo seria interno). `not_found` fica restrito a "nada aqui e toda a ascendência resolvível está dentro". As três fronteiras que ainda faziam `canonicalize` + `starts_with` por conta própria (preview de rename/code action, `definition_location`, `outline_project` lendo o caminho vindo do `.sln`) passaram pelo mesmo `confine`; nenhuma delas responde à UI com código de erro, então a mudança observável é só deixar de ler/oferecer um alvo atrás de link pendente.
 - Prova e matriz de vetores: `docs/evidence/file-access-confinement.md`.
+
+## 2026-11-05 — Menu de contexto: um dono por linha e guard contra o menu do WebKit
+
+- **Contexto.** Aceitação da alpha.7, ticket 05: `AXShowMenu` em linha de pasta/arquivo abria o menu do
+  WebKit. Reprodução no app real mostrou duas causas: (a) linhas sem `onContextMenu` — solution folder,
+  `Dependencies`, grupos e folhas de dependência; (b) `Shift+F10`/tecla de menu nunca abriram nada,
+  porque o WebKit não os converte em `contextmenu`. Fora da árvore, toolbar/abas/status bar mostravam o
+  menu de navegador do WKWebView.
+- **Forma.** `TreeRow` é o único dono da decisão: sempre `preventDefault` no `contextmenu`, trata
+  `Shift+F10`/`ContextMenu` no teclado e entrega uma **posição** (`MenuPosition`) para quem desenha o
+  menu. `TreeTarget` ganhou `solution-folder`; `Dependencies`, grupos, framework, pacote e referência
+  abrem o menu do **projeto dono** (mesma escolha do Rider: são comandos do projeto). A pasta do `.sln`
+  reaproveita os comandos da solução sem `Copy Path`/`Show in Finder`, porque a pasta pode ser virtual.
+- **Guard.** `src/nativeMenu.ts` instala um listener de `contextmenu` no documento, **só em produção**
+  (`import.meta.env.PROD`): cancela tudo que não é `input`/`textarea`/`[contenteditable]`. Em
+  desenvolvimento o menu do WebKit fica, porque é o caminho para "Inspect Element" no webview. Sem
+  dependência nova e sem swizzle nativo.
+- **Nomes acessíveis.** Os menus da árvore agora dizem de que linha são (`File`/`Folder`/`Solution folder`
+  context menu); projeto e raiz mantêm `Project`/`Solution context menu`. Nenhum `data-testid` mudou.
+- **Prova.** E2E novo (`native-context-menu.spec.ts`, vermelho antes/verde depois), unit do guard, e app
+  real antes/depois em `docs/evidence/native-context-menu.md`. Windows/Intel e o DMG desta correção não
+  rodaram.
+
+## 2026-11-05 — Revisão do menu de contexto: terminal, precedência de teclado e dono do foco
+
+- **Terminal é exceção do guard.** O xterm trata `contextmenu` só para focar o `textarea` escondido e
+  deixa Copiar/Colar no menu do sistema; cancelar ali removia a única forma de copiar de um shell.
+  A lista de exceções passa a ser "onde o menu do sistema é a funcionalidade": `input`, `textarea`,
+  `[contenteditable]:not([contenteditable="false"])` e `.xterm`. `contenteditable="false"` deixou de
+  passar por acidente do seletor.
+- **`Shift+F10` e tecla de menu pertencem à linha focada.** O handler global do `WorkspaceView` roda em
+  capture e casa atalhos do keymap primeiro (IntelliJ macOS: `Shift+F10` = Run All Tests; Rider Windows:
+  Run). Nova regra: se o alvo está em `.tree-row`, esses dois gestos abrem o menu da linha e o evento
+  segue para ela; fora da árvore o keymap vale. O `Shift+F10` que não é menu também não arma o
+  duplo-Shift.
+- **Quem abre o menu é dono do foco.** `onMenu` passa a receber também a linha (`row`), e o menu devolve
+  o foco a ela ao fechar — o clique direito não move o foco no WKWebView, então `document.activeElement`
+  devolvia uma linha antiga.
+- **Solution folder sem `Add Project…`.** A ação adiciona na raiz da solução, não na pasta; o menu da
+  pasta fica com Build/Restore/Reload/Find in Files.
+- **Operação.** `git stash` é global ao repositório e este repo tem várias worktrees: para provar
+  "falha antes", copie o arquivo para `/tmp` e restaure, nunca use `stash` (um pop puxou o stash de
+  outra sessão e trouxe conflitos Rust para este worktree).
+
+## 2026-11-05 — Foco ao fechar o menu da árvore (re-check da revisão)
+
+- **Quem devolve o foco é o menu, e só enquanto ele o segura.** `closeTreeMenu` só chama
+  `row.focus()` quando o `document.activeElement` ainda está no próprio menu (ou é o `body`). Uma ação
+  que abre diálogo/painel e foca o campo (rename, new file, delete, Find in Files) ou o editor mantém o
+  foco: o React aplica `autoFocus` no commit, depois do handler do clique, então o campo sempre vence —
+  e um `focus()` síncrono dentro de uma ação futura também não seria roubado.
+- **Abrir arquivo pela árvore mantém o foco na árvore**, inclusive pelo menu (`Open`). É a convenção
+  já testada em `focus-after-navigation.spec.ts` ("a plain tree click keeps the focus in the tree");
+  mover o foco para o editor nesse caminho seria mudar produto, não este ticket.
+- **Clicar fora mira onde o usuário clicou.** Se o alvo é focável (editor), ele fica com o foco; a linha
+  recupera o foco quando nada mais o tomou (Esc, clique em área não focável).

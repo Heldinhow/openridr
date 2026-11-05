@@ -1067,3 +1067,56 @@ Branch `fix/file-access-confinement`. Evidência completa em `docs/evidence/file
 - **Revisão 2 (rodada 3):** symlink **pendente** (e laço) ainda era oráculo — `canonicalize` falhava nele, a caminhada pulava para a raiz e a resposta virava `not_found` com alvo inexistente fora, `outside_workspace` com alvo existente. Agora `existing_ancestor_resolves_inside` trata componente que existe e não resolve como fora; decidido e documentado que pendente/laço é sempre `outside_workspace` (falha fechada, mesma resposta para qualquer alvo). As três fronteiras que ainda usavam `canonicalize` + `starts_with` — preview de rename/code action (`rename_document_preview`), `definition_location` e `outline_project` (caminho vindo do texto do `.sln`) — passaram pelo mesmo `confine` (`confine`/`Shape`/`shape_of` viraram `pub(crate)`); nenhuma pendência. Provado revertendo só o produto para `f831baa`: 3 testes falham (`Dangling.cs`/`DanglingDir` → `not_found`).
 - **Rodado (rodada 3):** `cargo test --workspace --no-fail-fast` → 239 + 14 + 83 + 9 + 5 + 1 ok, 0 falhas; `bun run check` → exit 0; E2E Chrome em 1470/4367 de `code`, `solution-explorer` e `medium-nav-navigation` (17 passed) para cobrir rename/code action, árvore e navegação afetados pela refatoração. A prova "falha antes" usou `git checkout HEAD -- <paths>` + cópia em `/tmp`, **sem `git stash`** (o stash é compartilhado entre worktrees deste repo).
 - **Não verificado:** app Tauri real (outra sessão usando o app) e Windows/macOS Intel (só macOS ARM64 executado). `PLAYWRIGHT_CHANNEL=chromium` não roda aqui (binário não baixado; instalar software estava fora do escopo) — usei o `channel: "chrome"` padrão. TOCTOU entre resolução e I/O não foi fechada nem ampliada.
+
+## Menu de contexto da árvore e guard do menu nativo (2026-11-05)
+
+- **`TreeRow`** publica `onMenu?: (position: MenuPosition) => void` (tipo exportado do próprio arquivo) e
+  é o único lugar que cancela o `contextmenu`. Ele trata `Shift+F10` e a tecla `ContextMenu` no
+  `onKeyDown` e abre o menu no retângulo da linha (WebKit não sintetiza `contextmenu` para teclado). Uma
+  linha sem `onMenu` continua cancelando o evento — o pior caso vira "nenhum menu", nunca "menu do
+  navegador".
+- **`SolutionTree.tsx`** entrega `p.onMenu(position, target)` em toda linha. Novos alvos: `solution-folder`
+  (pasta do `.sln`, testid `tree-folder-*`) e, para `Dependencies`/grupos/`tree-framework-*`/
+  `tree-package-*`/`tree-ref-*`, o `{ kind: "project" }` do projeto dono.
+- **`WorkspaceView.tsx`**: `openTreeMenu(position, target)` e `closeTreeMenu()` (devolve o foco à linha
+  quando ela ainda é o `activeElement`, o que importa para `Shift+F10`), `treeMenuLabel()` com os nomes
+  acessíveis `File`/`Folder`/`Solution folder`/`Project context menu` (raiz continua o default
+  `Solution context menu`; `File`/`Folder` como `Solution context menu` era herança confusa) e
+  `solutionFolderMenuItems` em `solutionMenu.ts` (solução sem `copy-path`/`reveal`).
+- **`src/nativeMenu.ts`**: `keepsNativeContextMenu(target)` (campo de texto = `input`, `textarea`,
+  `[contenteditable]`) e `installNativeContextMenuGuard(doc, enabled)`; `main.tsx` chama com
+  `document` e `import.meta.env.PROD`. Em produção a UI não mostra mais `Reload`/`Share…`/`Services` do
+  WebKit em nenhuma área; o campo de texto mantém o menu de edição do sistema. Em `tauri dev` o menu
+  fica (Inspect Element).
+- **Testes**: `tests/e2e/native-context-menu.spec.ts` (novo; cobre cancelamento do evento, mouse em
+  pasta de solução/raiz/`Dependencies`/grupo/framework/pacote/referência, teclado com `Shift+F10` e
+  `ContextMenu` e foco de volta) e `tests/unit/nativeMenu.test.ts` (novo). Rodados em 2026-11-05 nas
+  portas 1460/4357: E2E 1/1 (vermelho com `git stash push -- src`), `solution-explorer` +
+  `medium-nav-find-in-files` 16/16, `bun test tests/unit` 25/25, `bunx tsc --noEmit` limpo.
+- **Contratos preservados**: nenhum `data-testid` novo/renomeado; o menu da árvore continua
+  `tree-context-menu` com itens `tree-menu-*`. Evidência no app real em
+  `docs/evidence/native-context-menu.md`; não verificado: Windows, macOS Intel e o DMG desta correção.
+
+- **Revisão (2026-11-05).** `src/nativeMenu.ts` exclui também `.xterm` (o xterm 6 só move o foco para
+  o `textarea` escondido e deixa Copiar/Colar no menu do sistema) e usa
+  `[contenteditable]:not([contenteditable="false"])`; `tests/unit/nativeMenu.test.ts` passou a montar
+  uma cadeia de elementos falsa (com `closest` que entende tag, `.classe`, `[attr]`, `[attr="v"]` e
+  `:not()`) para fixar a semântica de DOM. O handler global de teclado do `WorkspaceView` devolve
+  `Shift+F10`/tecla de menu à `.tree-row` focada antes de casar atalho (IntelliJ macOS = Run All Tests;
+  Rider Windows = Run) e não arma o duplo-Shift; `TreeRow` passa a linha em `onMenu(position, row)` e o
+  menu devolve o foco a ela (o clique direito não move o foco no WKWebView). `solutionFolderMenuItems`
+  perde `Add Project…` (adiciona na raiz, não na pasta). E2E do perfil IntelliJ em
+  `tests/e2e/native-context-menu.spec.ts` (o spec grava `settings.json` do home do E2E e restaura `{}`
+  no `afterEach`). Rodados em 2026-11-05: spec novo 2/2 (vermelho antes: menu da pasta com Add Project e
+  `Shift+F10` engolido pelo keymap), junto com `solution-explorer`, `medium-nav-find-in-files` e
+  `actions` 24/24, `bun test tests/unit` 26/26, `bunx tsc --noEmit` e `bun run check` limpos. No app real:
+  terminal com Cut/Copy/Paste e `Paste` executando `echo MENU_PASTE_OK`, perfil IntelliJ abrindo o menu
+  na linha e rodando a suíte no editor, foco voltando para a linha clicada com o mouse.
+- **Foco do menu da árvore (re-check).** `closeTreeMenu` guarda a linha mas só a foca quando
+  `document.activeElement` ainda está em `.editor-context-menu` (ou é o `body`): diálogo do rename/new
+  file, confirmação de delete, campo do Find in Files e o editor mantêm o foco que a própria ação abriu.
+  E2E novo no mesmo spec mede o foco depois de `Open` (linha), `Rename…`/`New File…` (`tree-name-input`),
+  `Delete` (`tree-delete-cancel`), `Find in Files…` (`find-in-files-input`) e depois de `Esc` (linha).
+  No app real: `Rename…` deixa `Name` com `states:["focused"]` (captura 22) e `Esc` (enviado por
+  `osascript` `key code 53`, porque `press escape` do agent-desktop vira `AXCancel`) devolve o foco à
+  linha que abriu (captura 23).

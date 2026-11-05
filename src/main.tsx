@@ -1,7 +1,12 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { installNativeContextMenuGuard } from "./nativeMenu";
 import "./styles.css";
 import "./rider-chrome.css";
+
+// The WebKit menu (Reload / Share… / Services) belongs to a browser, not to the shipped app.
+// Development keeps it: right-click → Inspect Element is how the webview gets debugged.
+installNativeContextMenuGuard(document, import.meta.env.PROD);
 
 const root = document.getElementById("root");
 if (!root) {

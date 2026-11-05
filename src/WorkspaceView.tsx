@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import {
   call,
   candidatesOf,
@@ -21,8 +21,9 @@ import { CodeEditor, type ChangedLine } from "./CodeEditor";
 import { EditorContextMenu, type ContextMenuItem } from "./EditorContextMenu";
 import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
+import type { MenuPosition } from "./TreeRow";
 import { ROOT_KEY, baseOf, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
-import { fileMenuItems, projectMenuItems, solutionMenuItems } from "./solutionMenu";
+import { fileMenuItems, projectMenuItems, solutionFolderMenuItems, solutionMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
   gutterActionAt,
@@ -558,6 +559,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [treeSearchOpen, setTreeSearchOpen] = useState(false);
   const [treeFilter, setTreeFilter] = useState("");
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; target: TreeTarget } | null>(null);
+  // The menu hands the focus back to the row that opened it: WKWebView does not move the focus on a
+  // right-click, so the focused element at open time may be an older row.
+  const treeMenuReturnFocus = useRef<HTMLElement | null>(null);
   const [editPreview, setEditPreview] = useState<EditPreview | null>(null);
   const editPreviewRef = useRef<EditPreview | null>(null);
   editPreviewRef.current = editPreview;
@@ -2558,9 +2562,26 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     setSelectedProjectPath(owner?.path ?? null);
   }
 
-  function openTreeMenu(event: ReactMouseEvent, target: TreeTarget) {
-    event.preventDefault();
-    setTreeMenu({ x: event.clientX, y: event.clientY, target });
+  function openTreeMenu(position: MenuPosition, target: TreeTarget, row: HTMLElement) {
+    treeMenuReturnFocus.current = row;
+    setTreeMenu({ x: position.x, y: position.y, target });
+  }
+
+  function closeTreeMenu() {
+    const row = treeMenuReturnFocus.current;
+    treeMenuReturnFocus.current = null;
+    setTreeMenu(null);
+    if (!row) return;
+    // An action that already owns the focus (the editor, a dialog field, a panel) keeps it: the row
+    // only takes the focus back while the menu itself still holds it — Esc, a click outside, or an
+    // action that focuses nothing. A dialog opened by the action focuses its field on commit, after
+    // this call, and wins on its own.
+    const active = document.activeElement;
+    const menuHoldsFocus =
+      !(active instanceof HTMLElement) ||
+      active === document.body ||
+      active.closest(".editor-context-menu") !== null;
+    if (menuHoldsFocus && row.isConnected) row.focus();
   }
 
   const reloadReason =
@@ -2642,7 +2663,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   function startRename(target: TreeTarget) {
-    if (target.kind === "root") return;
+    if (target.kind === "root" || target.kind === "solution-folder") return;
     setNamePrompt({
       kind: "rename",
       path: target.path,
@@ -2653,7 +2674,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   function requestDelete(target: TreeTarget) {
-    if (target.kind === "root") return;
+    if (target.kind === "root" || target.kind === "solution-folder") return;
     setDeletePrompt({
       path: target.path,
       directory: target.kind === "dir",
@@ -2710,8 +2731,31 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
+  /** The accessible name says which row the menu belongs to; the visible labels stay put. */
+  function treeMenuLabel(target: TreeTarget): string | undefined {
+    if (target.kind === "project") return "Project context menu";
+    if (target.kind === "file") return "File context menu";
+    if (target.kind === "dir") return "Folder context menu";
+    if (target.kind === "solution-folder") return "Solution folder context menu";
+    return undefined;
+  }
+
   function treeMenuItems(target: TreeTarget): ContextMenuItem[] {
     if (target.kind === "project") return projectMenu(target);
+    if (target.kind === "solution-folder") {
+      return solutionFolderMenuItems({
+        buildReason: buildSolutionDisabledReason,
+        restoreReason: restoreDisabledReason,
+        reloadReason,
+        buildShortcut: shortcutOf("build.solution"),
+        onBuild: requestBuildSolution,
+        onRestore: () => void startRestore("restore.start"),
+        onReload: () => void runEvaluation(),
+        onCopyPath: () => void copyPath(absolutePath("")),
+        onFind: () => openFindInFiles(""),
+        onReveal: () => void revealInFinder(""),
+      });
+    }
     const path = target.kind === "root" ? "" : target.path;
     if (target.kind === "root") {
       return solutionMenuItems({
@@ -3557,6 +3601,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       const textField =
         Boolean(target?.closest("input, textarea, select")) ||
         Boolean(target?.isContentEditable && !inEditor);
+      // A focused tree row owns Shift+F10 and the menu key: they open its context menu, exactly like
+      // a right-click, and never the keymap action behind them (IntelliJ maps Shift+F10 to Run All
+      // Tests, Windows Rider to Run). Returning without preventDefault lets the row's handler run.
+      if (
+        target?.closest(".tree-row") &&
+        (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+      ) {
+        // This Shift+key is not the first tap of a double-Shift, so it must not arm one.
+        shiftTap.current = null;
+        lastShift.current = null;
+        return;
+      }
       if (event.key === "Shift") {
         if (textField) {
           lastShift.current = null;
@@ -5544,11 +5600,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           compact
           testId="tree-context-menu"
           itemPrefix="tree-menu"
-          label={treeMenu.target.kind === "project" ? "Project context menu" : undefined}
+          label={treeMenuLabel(treeMenu.target)}
           x={treeMenu.x}
           y={treeMenu.y}
           items={treeMenuItems(treeMenu.target)}
-          onClose={() => setTreeMenu(null)}
+          onClose={closeTreeMenu}
         />
       )}
 
