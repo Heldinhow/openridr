@@ -1187,3 +1187,59 @@ Branch `fix/file-access-confinement`. Evidência completa em `docs/evidence/file
   contorno da linha atual, e gera as capturas com `OPENRIDR_FILE_ICONS_EVIDENCE`.
 - **Não verificado:** app Tauri real (agent-desktop) — a sessão do app instalado estava em uso; tema claro;
   glifo de documento do `.csproj`/`.sln` (não aparecem como linha de arquivo no Show all).
+
+## Correções da aceitação do `main` — D1…D6 (branch `fix/main-acceptance-findings`, 2026-11-05)
+
+Origem: [evidence/main-60e784f-acceptance.md](https://github.com/Heldinhow/openridr) no `main`; prova desta
+branch em [evidence/acceptance-fixes.md](evidence/acceptance-fixes.md). Diagnosticado no app instalado
+(`60e784f`) e verificado no app Tauri de debug desta branch, além de E2E e testes Rust.
+
+- **D1 — export vazio.** Havia dois leitores do estado de testes: o snapshot injetava `test_run.view()` e o
+  export serializava `Tests::view()`, cujo `run` é sempre `TestRun::idle_view()`. Agora
+  `Inner::tests_view()` é o único ponto de composição e serve os dois. O nome do arquivo passa a ser a
+  identidade do run (`tests-testrun-1-1.json`); sem run, continua sendo a da descoberta.
+- **D2 — progresso do download.** `Tools::sync` publicava, durante `downloading`, a soma de bytes de
+  `staging + toolhome + tmp`. O `dotnet tool install` grava o mesmo `.nupkg` no feed verificado, em
+  `NUGET_PACKAGES` e no cache do HOME isolado, então o número era ~4,8× o arquivo e `total` ia para `null`
+  por cima da medição real que o leitor ureq já tinha publicado (`Content-Length`). O download medido passou a
+  ser dono do número (`progress_measured`), a observação de disco só roda sem medição (instalador de probe) e
+  `observed_bytes` deixa de contar raiz aninhada duas vezes. `SetupGate` mostra `total` e percentual quando há
+  total; sem total, mantém "(measured; no percentage)".
+- **D3 — TFM "Not selected".** A descoberta herdava `evaluation.context.targetFramework`, que só é preenchido
+  quando a pessoa escolhe um TFM. `resolve_test_scope` agora usa `test_framework(&project, selected)`: escolha
+  explícita quando existe, senão o único TFM declarado pelo projeto; multi-TFM continua recusando sem escolha.
+  A aba Tests prefere o TFM da descoberta, depois a seleção, depois o único TFM do modelo, e a barra de status
+  nomeia esse único TFM em vez de "not selected".
+- **D4 — menu de folha.** O menu já era do projeto dono (no app instalado, o menu de `xunit` de OrderDesk.Tests
+  abre `Run Unit Test`, sem Run/Debug); o defeito real era a seleção não seguir a linha, deixando o inspetor em
+  outro projeto. `SolutionTree` seleciona o dono antes de abrir o menu de folha de dependência.
+- **D5 — barra duplicada.** Um dos dois `<div>` idênticos do NuGetPanel caiu.
+- **D6 — acessibilidade.** Os textos já estavam na árvore AX do app instalado (o relatório leu snapshots `-i`);
+  o que faltava era estrutura: `<footer>` dentro de `<main>` não é `contentinfo`, o painel de detalhe não tinha
+  nome e as seções recolhíveis dependiam do nome computado do `<summary>`. Agora: `role="contentinfo"` +
+  `aria-label` na barra, `role="region"` + `aria-label` + `aria-live` no detalhe (um só `detailPanel` para
+  todos os estados) e `aria-label` nas seções de detalhe de Build/Tests.
+- **Testes.** Rust: `export_carries_the_discovery_and_the_real_last_run`,
+  `a_single_target_project_is_discovered_on_its_evaluated_tfm` (ambos falham sem a correção — conferido
+  revertendo o código), `observed_bytes_never_counts_a_nested_root_twice`,
+  `a_measured_download_owns_the_progress_number`. Unit: `evaluationStatus` com um único TFM. E2E:
+  `tests/e2e/acceptance-fixes.spec.ts` (D1/D3, D4, D5, D6).
+- **Não verificado:** Windows/Intel; anúncio de leitor de tela real (`aria-live`); Reinstall pela UI.
+- Observação de dívida encontrada no caminho: `testsuite.spec.ts:51` espera `tests-filter-count`, `data-testid`
+  que não existe em `src/` (nem em `60e784f`) — falha pré-existente do HEAD.
+
+### Revisão 2 dos D1…D6 (2026-11-05)
+
+- **TFM do painel (`src/testScope.ts`).** A prioridade do seletor saiu do componente: `testPanelFramework`
+  usa o contexto avaliado e, sem seleção, apenas o único TFM do **próprio** projeto selecionado. Antes a
+  descoberta vinha primeiro (descobrir em net8.0 e mover o modelo para net9.0 deixava o seletor em net8.0) e o
+  fallback usava o TFM da solução inteira mesmo para um projeto sem TFM.
+- **Export sincroniza o run.** `export_tests` chama `sync_test_run()` antes de compor a vista; sem isso um run
+  que já tinha saído era gravado como `running`. Teste de fronteira sem snapshot intermediário.
+- **Download medido sem `Content-Length`.** `progress_measured` passa a ser verdadeiro para qualquer byte lido
+  do socket; seams de debug `OPENRIDR_TOOLS_PACKAGE_URL`/`_SHA512` permitem exercitar o download verificado
+  contra um servidor local (release mantém o pin compilado) e o teste de fronteira usa um servidor sem
+  `Content-Length` mais um instalador que grava cópias em disco.
+- Testes: cargo host 393, unit 33, E2E `acceptance-fixes` 5, `tests/testsuite/tests-auto-discovery/nuget` 15
+  (+1 falha pré-existente), `solution-explorer/solution-file-icons/ui-layout/evaluation/tools-install-ux/
+  setup-gate-layout` 34.

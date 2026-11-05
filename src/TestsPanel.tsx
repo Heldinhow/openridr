@@ -1,6 +1,7 @@
 import { Icon } from "./Icon";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { call, messageOf, type Evaluation, type TestItem, type TestResult, type TestRun, type Tests, type TestsDiscovery } from "./host/client";
+import { testPanelFramework } from "./testScope";
 import {
   buildTestTree,
   filterTestTree,
@@ -248,6 +249,13 @@ export function TestsPanel({
     !evaluation.availableTfms.includes(evaluation.context.targetFramework)
       ? [evaluation.context.targetFramework, ...evaluation.availableTfms]
       : evaluation.availableTfms;
+  // The TFM this panel operates on follows the current evaluation, never an earlier discovery: a
+  // discovery on net8.0 must not survive a move to net9.0. With no explicit selection, only the
+  // selected test project's own single TFM is named instead of "Not selected".
+  const tfmValue = testPanelFramework({
+    contextFramework: evaluation.context.targetFramework,
+    projectTfms: selectedProject?.tfms ?? [],
+  });
   const terminalFailure = [
     "failed",
     "cancelled",
@@ -519,26 +527,36 @@ export function TestsPanel({
     return null;
   }
 
+  // The detail panel is one named region in every state, so a reader (or a screen reader) lands
+  // on the same place whether a test, a group or nothing is selected.
+  function detailPanel(content: ReactNode) {
+    return (
+      <aside
+        className="tests-detail"
+        data-testid="tests-detail"
+        role="region"
+        aria-label="Test details"
+        aria-live="polite"
+      >
+        {content}
+      </aside>
+    );
+  }
+
   function renderDetail() {
     if (!selectedKey) {
-      return (
-        <aside className="tests-detail" data-testid="tests-detail">
-          <p className="muted">Select a test or group to see its last result and duration.</p>
-        </aside>
+      return detailPanel(
+        <p className="muted">Select a test or group to see its last result and duration.</p>,
       );
     }
     const node = findNode(tree, selectedKey);
     if (!node) {
-      return (
-        <aside className="tests-detail" data-testid="tests-detail">
-          <p className="muted">The selected test is not in the current tree.</p>
-        </aside>
-      );
+      return detailPanel(<p className="muted">The selected test is not in the current tree.</p>);
     }
     if (node.kind === "group") {
       const totals = nodeTotals(node);
-      return (
-        <aside className="tests-detail" data-testid="tests-detail">
+      return detailPanel(
+        <>
           <h3 data-testid="tests-detail-name">{node.title}</h3>
           <p className="menu-note">{node.tooltip}</p>
           <p className="muted" data-testid="tests-detail-counts">
@@ -546,13 +564,13 @@ export function TestsPanel({
             {totals.failed} failed · {totals.skipped} skipped · {totals.other} unknown ·{" "}
             {totals.notRun} not run
           </p>
-        </aside>
+        </>,
       );
     }
     const result = currentResults.get(node.item.id);
     const status = testStatus(node.item.id);
-    return (
-      <aside className="tests-detail" data-testid="tests-detail">
+    return detailPanel(
+      <>
         <h3 data-testid="tests-detail-name">{node.item.fullyQualifiedName}</h3>
         <dl className="restore-meta">
           <dt>Status</dt>
@@ -595,7 +613,7 @@ export function TestsPanel({
             {result.position.path}:{result.position.line + 1}
           </button>
         )}
-      </aside>
+      </>,
     );
   }
 
@@ -672,7 +690,7 @@ export function TestsPanel({
                 : "Partial results: the results list was truncated; the counts come from the run summary, not from the full list."}
             </p>
           )}
-          <details className="build-context-details">
+          <details className="build-context-details" aria-label="Test run details">
             <summary>Test run details</summary>
             <dl className="restore-meta build-meta">
             <dt>Command</dt>
@@ -948,7 +966,7 @@ export function TestsPanel({
           <span>TFM</span>
           <select
             data-testid="tests-tfm"
-            value={evaluation.context.targetFramework ?? ""}
+            value={tfmValue ?? ""}
             disabled={running || evaluation.state === "running"}
             onChange={(event) =>
               onEvaluate({ targetFramework: event.target.value === "" ? null : event.target.value })
@@ -1165,7 +1183,7 @@ export function TestsPanel({
 
       {discovery.revision > 0 && (
         <>
-          <details className="build-context-details">
+          <details className="build-context-details" aria-label="Discovery details">
             <summary>Discovery details</summary>
             <dl className="restore-meta build-meta">
             {discovery.discoveryId && (
@@ -1190,7 +1208,7 @@ export function TestsPanel({
             <dd data-testid="tests-scope">
               {discovery.project?.name ?? "unknown"} ·{" "}
               <code>{discovery.project?.path ?? "unknown"}</code> · TFM{" "}
-              {discovery.targetFramework ?? "not selected"}
+              {discovery.targetFramework ?? tfmValue ?? "not selected"}
             </dd>
             <dt>Command</dt>
             <dd>

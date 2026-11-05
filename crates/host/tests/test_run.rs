@@ -385,6 +385,114 @@ fn real_run_reports_trx_outcomes_positions_and_only_the_selected_identity() {
     assert_eq!(snapshot(&host)["tests"]["run"]["runId"], "testrun:1:2");
 }
 
+/// The export is the file equivalent of the Tests panel: it must carry the discovery and the
+/// real last run. Reading the discovery view alone always yields `run.revision == 0`.
+#[cfg(target_os = "macos")]
+#[test]
+fn export_carries_the_discovery_and_the_real_last_run() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk export");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    prepare(&host, Some("net8.0"));
+    let discovery = discover_fixture(&host);
+
+    // Before any run there is nothing to invent: the idle run is exported as idle.
+    let before = host.dispatch("tests.export", json!({})).unwrap();
+    assert_eq!(before["runRevision"], 0);
+    let before_payload: Value =
+        serde_json::from_slice(&fs::read(before["path"].as_str().unwrap()).unwrap()).unwrap();
+    assert_eq!(before_payload["run"]["revision"], 0);
+
+    host.dispatch(
+        "tests.run",
+        json!({
+            "project": DISCOVER,
+            "targetFramework": "net8.0",
+            "selection": "all",
+        }),
+    )
+    .unwrap();
+    let run = wait_for_run(&host, Duration::from_secs(120));
+    assert_eq!(run["state"], "completed", "{}", run["log"]);
+    assert_eq!(run["counts"]["failed"], 1, "{run}");
+
+    let exported = host.dispatch("tests.export", json!({})).unwrap();
+    let path = exported["path"].as_str().unwrap();
+    assert_eq!(exported["runRevision"], run["revision"]);
+    assert_eq!(exported["discoveryRevision"], discovery["revision"]);
+    assert_eq!(exported["identity"], run["runId"]);
+    // The file name is the sanitized run identity; the discovery identity would mean a null run id.
+    let run_id = run["runId"].as_str().unwrap();
+    let safe: String = run_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect();
+    assert!(path.ends_with(&format!("tests-{safe}.json")), "{path}");
+    let payload: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+
+    // Discovery comes from the same export the panel shows.
+    assert_eq!(payload["discovery"]["discoveryId"], discovery["discoveryId"]);
+    assert_eq!(payload["discovery"]["items"].as_array().unwrap().len(), 4);
+    assert_eq!(payload["discovery"]["targetFramework"], "net8.0");
+
+    // The run is the real one, not the idle view.
+    let file_run = &payload["run"];
+    assert_eq!(file_run["revision"], run["revision"]);
+    assert_eq!(file_run["runId"], run["runId"]);
+    assert_eq!(file_run["state"], "completed");
+    assert_eq!(file_run["counts"]["total"], 4, "{file_run}");
+    assert_eq!(file_run["counts"]["passed"], 2);
+    assert_eq!(file_run["counts"]["failed"], 1);
+    assert_eq!(file_run["counts"]["skipped"], 1);
+    assert_eq!(file_run["results"].as_array().unwrap().len(), 4);
+    assert!(!file_run["command"].as_array().unwrap().is_empty());
+}
+
+/// The export must observe the process it reports: a run that exited after the last snapshot is
+/// still `running` in the stored state, and writing that state to the file would be a lie.
+#[cfg(target_os = "macos")]
+#[test]
+fn export_observes_a_finished_run_without_an_intervening_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk export sync");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    prepare(&host, Some("net8.0"));
+    discover_fixture(&host);
+    host.dispatch(
+        "tests.run",
+        json!({
+            "project": DISCOVER,
+            "targetFramework": "net8.0",
+            "selection": "all",
+        }),
+    )
+    .unwrap();
+    // Wait for the run to be observed as running, then let the process finish without asking the
+    // host for a snapshot: nothing but the export itself may notice the exit.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let run = snapshot(&host)["tests"]["run"].clone();
+        if run["state"] == "running" && run["processId"].is_u64() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "test run never started: {run}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_secs(20));
+
+    let exported = host.dispatch("tests.export", json!({})).unwrap();
+    let payload: Value =
+        serde_json::from_slice(&fs::read(exported["path"].as_str().unwrap()).unwrap()).unwrap();
+    assert_eq!(payload["run"]["state"], "completed", "{}", payload["run"]);
+    assert_eq!(payload["run"]["counts"]["total"], 4);
+    assert_eq!(payload["run"]["results"].as_array().unwrap().len(), 4);
+    assert_eq!(payload["run"]["exit"], 1);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn duplicate_display_names_are_one_ambiguous_identity_never_a_selected_run() {

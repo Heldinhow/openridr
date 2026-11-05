@@ -134,6 +134,22 @@ fn wait_for_discovery(host: &Host, timeout: Duration) -> Value {
     }
 }
 
+fn wait_for_run(host: &Host, timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let run = snapshot(host)["tests"]["run"].clone();
+        if run["state"] != "running" {
+            return run;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "test run did not finish: {}",
+            run["log"]
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn project_path(discovery: &Value) -> String {
     discovery["project"]["path"].as_str().unwrap().to_string()
 }
@@ -228,6 +244,61 @@ fn discovery_requires_an_explicit_test_project_and_a_matching_evaluated_tfm() {
     assert_eq!(tfm.code, "invalid_state");
     assert_eq!(tfm.details.unwrap()["reason"], "tfm_not_evaluated");
     assert!(discovery_processes(&snapshot(&host)).is_empty());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_single_target_project_is_discovered_on_its_evaluated_tfm() {
+    // No TFM is selected in the evaluated context; the project declares exactly one, so discovery
+    // names it instead of leaving every test row and the panel at "TFM not selected".
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk single tfm");
+    let host = Host::new();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    let evaluated = prepare(&host, None);
+    assert_eq!(evaluated["evaluation"]["context"]["targetFramework"], Value::Null);
+
+    let started = host
+        .dispatch(
+            "tests.discover",
+            json!({ "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj" }),
+        )
+        .unwrap();
+    assert_eq!(
+        started["tests"]["discovery"]["targetFramework"],
+        "net8.0",
+        "the single declared TFM is the discovered scope"
+    );
+    let discovery = wait_for_discovery(&host, Duration::from_secs(120));
+    assert_eq!(discovery["state"], "completed", "{}", discovery["log"]);
+    assert_eq!(discovery["targetFramework"], "net8.0");
+    let command: Vec<&str> = discovery["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert!(command.contains(&"-f"), "{command:?}");
+    assert!(command.contains(&"net8.0"), "{command:?}");
+    // Every row reports the framework, so the tree and the detail panel never fall back.
+    let items = discovery["items"].as_array().unwrap();
+    assert_eq!(items.len(), 4);
+    assert!(items.iter().all(|item| item["tfm"] == "net8.0"), "{discovery}");
+
+    // A run without a TFM uses the same scope as the discovery it validates against.
+    host.dispatch(
+        "tests.run",
+        json!({
+            "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+            "selection": "selected",
+            "testIds": [items[0]["id"]],
+        }),
+    )
+    .expect("a run without a TFM uses the discovery's own scope");
+    let run = wait_for_run(&host, Duration::from_secs(120));
+    assert_eq!(run["state"], "completed", "{}", run["log"]);
+    assert_eq!(run["targetFramework"], "net8.0");
 }
 
 #[cfg(target_os = "macos")]

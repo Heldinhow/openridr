@@ -3575,6 +3575,112 @@ fn tools_download_does_not_block_host_calls() {
     );
 }
 
+/// The verified download owns the progress number with or without `Content-Length`: the bytes read
+/// from the socket are a measurement, the copies `dotnet tool install` writes to its cache are not.
+/// Drives the real installer (`tools.install` -> worker -> download -> install) against a local
+/// server that never sends `Content-Length`, which is the case the disk fallback used to take over.
+#[cfg(all(unix, debug_assertions))]
+#[test]
+fn a_download_without_content_length_keeps_the_measured_bytes() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::os::unix::fs::PermissionsExt;
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let installer = home.path().join("slow-installer");
+    // A package the size of nothing that matters, and an installer that copies 400 KiB into the
+    // NuGet cache before failing: the old progress summed those copies onto the download.
+    fs::write(
+        &installer,
+        r#"#!/bin/sh
+tmp="$OPENRIDR_HOME/tools/csharp-ls/tmp/packages/csharp-ls/0.28.0"
+mkdir -p "$tmp"
+dd if=/dev/zero of="$tmp/csharp-ls.0.28.0.nupkg" bs=1024 count=400 2>/dev/null
+sleep 2
+exit 1
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
+
+    // 100 KiB of deterministic bytes; the digest is the pinned-package override for this attempt.
+    let payload: Vec<u8> = (0..102_400u32).map(|index| (index % 251) as u8).collect();
+    let payload_len = payload.len() as u64;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let body = payload.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n",
+            );
+            let _ = stream.write_all(&body);
+            let _ = stream.flush();
+        }
+    });
+
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
+    let _url = EnvVar::set(
+        "OPENRIDR_TOOLS_PACKAGE_URL",
+        &format!("http://{address}/csharp-ls.0.28.0.nupkg"),
+    );
+    let _sha = EnvVar::set(
+        "OPENRIDR_TOOLS_PACKAGE_SHA512",
+        "2acda2d1386c8cd9ef01c797cfd154b073e7ea26e4c5741e9f2aee089dc8106cb887526d5bbb04920c2b742b2dab945e2a8db4cd31f58ac945aec9df89b1f18d",
+    );
+    let host = Host::new();
+    let workspace = temp_workspace(&["Tools.csproj"]);
+    open(&host, &workspace.path().join("Tools.csproj"));
+    grant(&host);
+    let plan = tool_plan(&host);
+    host.dispatch(
+        "tools.install",
+        json!({ "planId": plan["plan"]["planId"], "confirm": true }),
+    )
+    .unwrap();
+
+    // Every observation during the attempt is the measured download: a partial read is legitimate,
+    // so samples only have to be monotonic and never reach the installer's copies on disk.
+    let mut samples = 0;
+    let mut previous = 0;
+    let mut last = 0;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let tool = snapshot(&host)["tools"]["csharp-ls"].clone();
+        if let Some(progress) = tool["progress"].as_object() {
+            samples += 1;
+            assert_eq!(progress["total"], Value::Null, "no total was sent: {tool}");
+            let downloaded = progress["downloaded"].as_u64().expect("progress is a byte count");
+            assert!(
+                downloaded >= previous,
+                "progress went backwards ({previous} -> {downloaded}): {tool}"
+            );
+            assert!(
+                downloaded <= payload_len,
+                "progress counted the installer's copies on disk ({downloaded} > {payload_len}): {tool}"
+            );
+            previous = downloaded;
+            last = downloaded;
+        }
+        if tool["state"] == "failed" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "install stuck: {}", tool["log"]);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(samples > 0, "no progress was observed for the measured download");
+    assert_eq!(
+        last, payload_len,
+        "the download never reported the whole package"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging() {
