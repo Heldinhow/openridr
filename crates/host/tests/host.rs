@@ -2568,6 +2568,10 @@ fn tools_install_is_real_verified_and_reused() {
     let destination = PathBuf::from(finished["destination"].as_str().unwrap());
     let staging = PathBuf::from(finished["staging"].as_str().unwrap());
     assert!(destination.join("csharp-ls").is_file());
+    // The plan was built while the launcher was absent; after the verified install it must say so.
+    let after = snapshot(&host)["tools"]["csharp-ls"]["plan"]["existing"].clone();
+    assert_eq!(after["state"], "present", "the plan kept the pre-install state: {after}");
+    assert_eq!(after["sha256"], json!(sha), "the plan does not describe the verified launcher");
     assert!(!staging.exists());
     assert!(destination.starts_with(home.path()));
     let processes_before = snapshot(&host)["processes"].as_array().unwrap().len();

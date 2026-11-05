@@ -276,12 +276,9 @@ export function ToolInstaller({ snapshot, onChange, planRequest = 0 }: Props & {
             <dd data-testid="install-integrity">{plan.integrity}</dd>
             <dt>Existing</dt>
             <dd data-testid="install-existing">
-              {/* The plan was reviewed before the install; once verified, the live state wins. */}
-              {tool.state === "ready"
-                ? "Verified launcher at the destination; confirming reuses it."
-                : plan.existing.state === "present"
-                  ? `A destination exists; confirming verifies and reuses it when valid (${plan.existing.reason ?? "unverified"})`
-                  : "No launcher at the destination."}
+              {plan.existing.state === "present"
+                ? `A destination exists; confirming verifies and reuses it when valid (${plan.existing.reason ?? "unverified"})`
+                : "No launcher at the destination."}
             </dd>
           </dl>
           {!active && (
