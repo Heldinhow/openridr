@@ -1163,3 +1163,27 @@ Branch `fix/file-access-confinement`. Evidência completa em `docs/evidence/file
 
 - `stop_services` não chama mais `tools.seal`; `Host::drop` sela no shutdown do app. Assim um Reinstall que já fez swap continua `verifying/ready` após `workspace.open` e nunca fica sem destino; o staging antigo só é removido após a verificação pós-swap. Teste com troca de workspace durante `verifying`, seguido de `setup.start` reutilizando a instalação.
 - `cargo test -p openridr-host` e os demais alvos verdes; app recompilado e fechado sem órfãos.
+
+## Ícones da Solution Explorer (branch `feat/solution-file-icons`, 2026-11-05)
+
+- **Glifos.** `src/icons/fileGlyphs.tsx` (novo) vendoriza sete símbolos de `@pierre/trees` 1.0.0-beta.6
+  (Apache-2.0) — documento com dobra, `{ }`, `M↓`, baleia, blocos yml, página de texto e ramo git — e o
+  hexágono `C#` do Simple Icons (CC0), todos do sprite que o T3 Code usa. `CSharpIcon.tsx` (MDI, traço) e
+  `SymbolIcon.tsx` foram removidos; `SymbolMark.tsx` é o selo de 9 px com a letra do tipo. Licenças e
+  atribuição em `THIRD-PARTY-NOTICES.md`; mapa e origem em `SPEC-SOLUTION-FILE-ICONS.md`.
+- **Mapeamento.** `solutionVisuals.ts` ganhou `dotsettings`/`docker`/`git`, resolução por nome antes da
+  extensão (`Dockerfile`, `docker-compose*.yml`, `*.DotSettings[.user]`, `appsettings*.json`, `.gitignore`,
+  `.editorconfig`) e a função pura `fileGlyph(kind)`. `FileIcon` só decide o componente; `data-file-kind`
+  na linha continua sendo o tipo.
+- **Árvore.** `TreeRow` passou a aceitar `icon` opcional (slot de 16 px vazio mantém o alinhamento) e
+  desenha `level` spans `.tree-guide`. Pastas de fonte, pastas do `.sln` e pastas do Show all files perderam
+  o ícone; projetos e raiz mantêm. `TreeRow` exporta `ROW_INDENT`/`ROW_PADDING` para o padding e as guias
+  não saírem de sincronia.
+- **Paleta.** `--icon-csharp/json/markdown` trocados e `--icon-doc/docker/git` novos, com os hex do T3 Code
+  (escuro distribuído; claro do T3 Code, ≥ 3:1, não distribuído). A seleção ganhou
+  `box-shadow: inset 0 0 0 1px var(--accent)`.
+- **Testes.** `tests/unit/solutionVisuals.test.ts` cobre nome/extensão → kind → glifo;
+  `tests/e2e/solution-file-icons.spec.ts` (novo) valida `[data-icon]`, pasta sem ícone, contagem de guias e
+  contorno da linha atual, e gera as capturas com `OPENRIDR_FILE_ICONS_EVIDENCE`.
+- **Não verificado:** app Tauri real (agent-desktop) — a sessão do app instalado estava em uso; tema claro;
+  glifo de documento do `.csproj`/`.sln` (não aparecem como linha de arquivo no Show all).

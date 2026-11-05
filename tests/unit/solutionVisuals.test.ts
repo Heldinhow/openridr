@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   dedupePackages,
+  fileGlyph,
   fileKind,
   frameworkName,
   frameworkRows,
@@ -13,27 +14,69 @@ describe("fileKind", () => {
   test("splits the file types the tree renders today", () => {
     expect(fileKind("src/App/Program.cs")).toBe("csharp");
     expect(fileKind("OrderDesk.slnx")).toBe("solution");
+    expect(fileKind("OrderDesk.sln")).toBe("solution");
     expect(fileKind("src/App/App.csproj")).toBe("project");
     expect(fileKind("Directory.Build.props")).toBe("props");
+    expect(fileKind("Directory.Build.targets")).toBe("props");
     expect(fileKind("global.json")).toBe("json");
+    expect(fileKind("appsettings.json")).toBe("json");
+    expect(fileKind("appsettings.Development.json")).toBe("json");
     expect(fileKind("App.xml")).toBe("xml");
+    expect(fileKind("App.config")).toBe("xml");
     expect(fileKind("Pages/Index.razor")).toBe("razor");
     expect(fileKind("Views/Home.cshtml")).toBe("razor");
     expect(fileKind("Resources/Strings.resx")).toBe("resource");
     expect(fileKind("README.md")).toBe("markdown");
     expect(fileKind(".editorconfig")).toBe("config");
-    expect(fileKind(".gitignore")).toBe("config");
+    expect(fileKind(".gitignore")).toBe("git");
+    expect(fileKind(".gitattributes")).toBe("git");
     expect(fileKind("scripts/build.sh")).toBe("script");
     expect(fileKind("build.ps1")).toBe("script");
     expect(fileKind("ci.yml")).toBe("yaml");
+    expect(fileKind("ci.yaml")).toBe("yaml");
     expect(fileKind("notes.txt")).toBe("text");
     expect(fileKind("LICENSE")).toBe("file");
+  });
+
+  test("names that are not extensions win over the suffix", () => {
+    expect(fileKind("Dockerfile")).toBe("docker");
+    expect(fileKind("docker/Dockerfile.dev")).toBe("docker");
+    expect(fileKind("docker-compose.yml")).toBe("docker");
+    expect(fileKind("docker-compose.override.yaml")).toBe("docker");
+    expect(fileKind("OrderDesk.sln.DotSettings.user")).toBe("dotsettings");
+    expect(fileKind("OrderDesk.sln.DotSettings")).toBe("dotsettings");
+    expect(fileKind("pipeline.yaml")).toBe("yaml");
   });
 
   test("unknown extensions stay neutral and extension matching is case-insensitive", () => {
     expect(fileKind("tool.exe")).toBe("file");
     expect(fileKind("Program.CS")).toBe("csharp");
     expect(fileKind("Web.RAZOR")).toBe("razor");
+    expect(fileKind("DOCKERFILE")).toBe("docker");
+  });
+});
+
+describe("fileGlyph", () => {
+  test("maps every kind to the glyph the row draws", () => {
+    const glyphOf = (path: string) => fileGlyph(fileKind(path));
+    expect(glyphOf("Program.cs")).toBe("csharp");
+    expect(glyphOf("OrderDesk.sln")).toBe("doc");
+    expect(glyphOf("App.csproj")).toBe("doc");
+    expect(glyphOf("App.sln.DotSettings.user")).toBe("doc");
+    expect(glyphOf("LICENSE")).toBe("doc");
+    expect(glyphOf("global.json")).toBe("json");
+    expect(glyphOf("README.md")).toBe("markdown");
+    expect(glyphOf("Dockerfile")).toBe("docker");
+    expect(glyphOf("docker-compose.yml")).toBe("docker");
+    expect(glyphOf("ci.yml")).toBe("yaml");
+    expect(glyphOf("notes.txt")).toBe("text");
+    expect(glyphOf(".gitignore")).toBe("git");
+    expect(glyphOf("App.xml")).toBe("xml");
+    expect(glyphOf("Directory.Build.props")).toBe("xml");
+    expect(glyphOf("Index.razor")).toBe("razor");
+    expect(glyphOf("Strings.resx")).toBe("resource");
+    expect(glyphOf(".editorconfig")).toBe("config");
+    expect(glyphOf("build.sh")).toBe("script");
   });
 });
 

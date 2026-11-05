@@ -6,6 +6,7 @@ export type FileKind =
   | "csharp"
   | "solution"
   | "project"
+  | "dotsettings"
   | "props"
   | "json"
   | "xml"
@@ -14,9 +15,65 @@ export type FileKind =
   | "markdown"
   | "text"
   | "yaml"
+  | "docker"
+  | "git"
   | "config"
   | "script"
   | "file";
+
+/** The glyph a row draws; several file kinds share one glyph (e.g. `.sln` and `.csproj`). */
+export type FileGlyph =
+  | "csharp"
+  | "doc"
+  | "json"
+  | "markdown"
+  | "docker"
+  | "yaml"
+  | "text"
+  | "git"
+  | "xml"
+  | "razor"
+  | "resource"
+  | "config"
+  | "script";
+
+/** Glyph per kind. Names come from SPEC-SOLUTION-FILE-ICONS; the component map lives in FileIcon. */
+const GLYPH: Record<FileKind, FileGlyph> = {
+  csharp: "csharp",
+  solution: "doc",
+  project: "doc",
+  dotsettings: "doc",
+  file: "doc",
+  props: "xml",
+  json: "json",
+  xml: "xml",
+  razor: "razor",
+  resource: "resource",
+  markdown: "markdown",
+  text: "text",
+  yaml: "yaml",
+  docker: "docker",
+  git: "git",
+  config: "config",
+  script: "script",
+};
+
+export function fileGlyph(kind: FileKind): FileGlyph {
+  return GLYPH[kind];
+}
+
+/** Names beat extensions: `Dockerfile` and `docker-compose.yml` are not generic files. */
+const BY_NAME: Record<string, FileKind> = {
+  dockerfile: "docker",
+  "docker-compose.yml": "docker",
+  "docker-compose.yaml": "docker",
+  "docker-compose.override.yml": "docker",
+  "docker-compose.override.yaml": "docker",
+  ".gitignore": "git",
+  ".gitattributes": "git",
+  ".gitmodules": "git",
+  ".editorconfig": "config",
+};
 
 const BY_EXTENSION: Record<string, FileKind> = {
   cs: "csharp",
@@ -38,12 +95,14 @@ const BY_EXTENSION: Record<string, FileKind> = {
   resources: "resource",
   md: "markdown",
   markdown: "markdown",
+  mdx: "markdown",
   yml: "yaml",
   yaml: "yaml",
   editorconfig: "config",
-  gitignore: "config",
-  gitattributes: "config",
-  gitmodules: "config",
+  gitignore: "git",
+  gitattributes: "git",
+  gitmodules: "git",
+  dotsettings: "dotsettings",
   sh: "script",
   bash: "script",
   zsh: "script",
@@ -53,12 +112,20 @@ const BY_EXTENSION: Record<string, FileKind> = {
   txt: "text",
 };
 
-/** Type of a file row; only the extension is read, never the contents. */
+/** Type of a file row; only the name is read, never the contents. */
 export function fileKind(path: string): FileKind {
   const name = path.split("/").pop() ?? path;
   const lower = name.toLowerCase();
+  // `Dockerfile`, `docker-compose.yml`, `.gitignore`, `.editorconfig`, `App.DotSettings.user`
+  // depend on the whole name, not on an extension.
+  const byName = BY_NAME[lower];
+  if (byName) return byName;
+  if (/^dockerfile(\.[\w.-]+)?$/i.test(name)) return "docker";
+  if (/^docker-compose[.\w-]*\.ya?ml$/i.test(name)) return "docker";
+  if (/\.dotsettings(\.user)?$/i.test(name)) return "dotsettings";
+  if (/^appsettings(\.[\w.-]+)?\.json$/i.test(name)) return "json";
   if (lower.startsWith(".") && !lower.slice(1).includes(".")) {
-    // Dotfiles: `.editorconfig` has an extension-like suffix; `.gitignore` and `.env` are names.
+    // Dotfiles: `.editorconfig` has an extension-like suffix; `.env` and `.dockerignore` are names.
     return BY_EXTENSION[lower.slice(1)] ?? "config";
   }
   const dot = lower.lastIndexOf(".");

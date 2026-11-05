@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Icon } from "./Icon";
 
 /** Viewport position a context menu opens at. Rows compute it for the mouse and the keyboard. */
@@ -8,8 +8,11 @@ type Props = {
   level: number;
   /** undefined = leaf (no chevron); boolean = expandable and open/closed. */
   open?: boolean;
-  icon: ReactNode;
+  /** Omit for rows that are only a chevron and a name (folders, SPEC-SOLUTION-FILE-ICONS D3). */
+  icon?: ReactNode;
   name: string;
+  /** Accessible description read after the name, for information the row only shows as a glyph. */
+  description?: string;
   /** Dim text after the name, e.g. "· 2 projects". */
   suffix?: ReactNode;
   selected?: boolean;
@@ -28,6 +31,10 @@ type Props = {
   children?: ReactNode;
 };
 
+/** Row indent per level and the left padding of the whole row; the guides mirror both. */
+export const ROW_INDENT = 18;
+export const ROW_PADDING = 8;
+
 /**
  * One Rider-style tree row: chevron, icon, name and a dimmed suffix on a single line.
  *
@@ -36,14 +43,19 @@ type Props = {
  * back to "Reload / Share… / Services" (see nativeMenu.ts for the app-wide guard).
  */
 export function TreeRow({
-  level, open, icon, name, suffix, selected, current, noIndex, testId, title,
+  level, open, icon, name, description, suffix, selected, current, noIndex, testId, title,
   fileKind, projectKind, projectTfms, symbolKind, onClick, onMenu, children,
 }: Props) {
+  // The description lives outside the row: `aria-describedby` then adds it to the description
+  // without its text also becoming part of the button's accessible name.
+  const descriptionId = useId();
   return (
+    <>
     <button
       type="button"
       className={`tree-row sol-row${selected ? " selected" : ""}${noIndex ? " no-index" : ""}`}
-      style={{ paddingLeft: 8 + level * 18 }}
+      style={{ paddingLeft: ROW_PADDING + level * ROW_INDENT }}
+      data-level={level}
       data-testid={testId}
       data-file-kind={fileKind}
       data-project-kind={projectKind}
@@ -51,6 +63,7 @@ export function TreeRow({
       data-symbol-kind={symbolKind}
       aria-expanded={open}
       aria-current={current ? "page" : selected ? "true" : undefined}
+      aria-describedby={description ? descriptionId : undefined}
       title={title}
       onClick={onClick}
       onContextMenu={(event) => {
@@ -71,11 +84,26 @@ export function TreeRow({
       <span className={`tree-chevron${open ? " open" : ""}${open === undefined ? " leaf" : ""}`} aria-hidden="true">
         {open !== undefined && <Icon name="chevron" />}
       </span>
+      {/* One hairline per expanded ancestor, in the chevron column of that ancestor. */}
+      {Array.from({ length: Math.max(0, level) }, (_, index) => (
+        <span
+          key={`guide-${index}`}
+          className="tree-guide"
+          style={{ left: ROW_PADDING + index * ROW_INDENT + 6 }}
+          aria-hidden="true"
+        />
+      ))}
       <span className="tree-icon">{icon}</span>
       <span className="tree-name">{name}</span>
       {noIndex && <span className="tag">· no index</span>}
       {suffix}
       {children}
     </button>
+    {description && (
+      <span id={descriptionId} className="sr-only">
+        {description}
+      </span>
+    )}
+    </>
   );
 }
