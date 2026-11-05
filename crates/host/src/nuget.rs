@@ -5,7 +5,7 @@
 //! `dotnet add ... --no-restore`; the explicit restore is a separate user action. Central
 //! Package Management is listed but never edited: an update refuses before spawning anything.
 
-use crate::{HostError, HostResult};
+use crate::{fsutil, HostError, HostResult};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -162,6 +162,14 @@ pub fn resolve_project(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> 
     } else {
         root.join(requested)
     };
+    // Shape first, stat second: an escaping path is refused whether or not it exists, and nothing
+    // outside the workspace is stat'ed to decide. The canonical check afterwards catches symlinks.
+    if !fsutil::stays_inside(root, &candidate) {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
     let canonical = fs::canonicalize(&candidate)
         .map_err(|_| HostError::new("not_found", format!("Project not found: {raw}")))?;
     if !canonical.starts_with(root) {

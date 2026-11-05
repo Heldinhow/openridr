@@ -3,7 +3,7 @@
 use crate::error::{HostError, HostResult};
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -175,9 +175,56 @@ pub(crate) fn write_json_atomic<T: Serialize>(
     Ok(())
 }
 
+/// Normalizes `.` and `..` without touching the disk, so containment can be decided by shape
+/// alone. `..` above the filesystem root stays at the root, the way the operating system resolves
+/// it.
+pub(crate) fn normalize_lexically(path: &Path) -> PathBuf {
+    let mut parts: Vec<Component> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match parts.last() {
+                Some(Component::Normal(_)) => {
+                    parts.pop();
+                }
+                Some(Component::ParentDir) => parts.push(component),
+                // `/..` and `C:..` are already at the root of that path.
+                _ => {}
+            },
+            other => parts.push(other),
+        }
+    }
+    parts.iter().collect()
+}
+
+/// Whether `candidate` stays inside `root` by shape, before any filesystem call. Every resolver
+/// checks this first and canonicalizes second: this check refuses an escaping path whether or not
+/// it exists (fail closed, and the answer never reveals what lives outside the workspace), and the
+/// canonical check afterwards is what stops a symlink inside the root from resolving outside it.
+pub(crate) fn stays_inside(root: &Path, candidate: &Path) -> bool {
+    normalize_lexically(candidate).starts_with(normalize_lexically(root))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lexical_normalization_decides_containment_without_the_disk() {
+        let root = Path::new("/work/app");
+        assert!(stays_inside(root, Path::new("/work/app/src/App.cs")));
+        assert!(stays_inside(root, Path::new("/work/app")));
+        assert!(stays_inside(root, Path::new("/work/app/src/../App.cs")));
+        assert!(stays_inside(root, Path::new("/work/app/src/deep/../../App.cs")));
+        assert!(!stays_inside(root, Path::new("/work/app/../app2/App.cs")));
+        assert!(!stays_inside(root, Path::new("/work/other/App.cs")));
+        assert!(!stays_inside(root, Path::new("/etc/hosts")));
+        assert!(!stays_inside(root, Path::new("/work/applications/App.cs")));
+        // A path that does not exist is still refused by shape; `..` saturates at the root.
+        assert!(!stays_inside(root, Path::new("/nope/../../etc/missing")));
+        assert_eq!(normalize_lexically(Path::new("/../../etc/hosts")), Path::new("/etc/hosts"));
+        assert_eq!(normalize_lexically(Path::new("/a/./b/../c")), Path::new("/a/c"));
+    }
 
     #[test]
     fn reveal_selects_the_item_in_finder_on_macos() {

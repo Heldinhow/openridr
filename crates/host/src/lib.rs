@@ -5223,7 +5223,16 @@ impl Host {
     fn workspace_tree(&self, params: &Value) -> HostResult<Value> {
         let root = self.workspace_root()?;
         let raw = params.get("dir").and_then(Value::as_str).unwrap_or("");
-        let dir = fs::canonicalize(root.join(raw))
+        let candidate = root.join(raw);
+        // Shape first, then the canonical check: a folder outside the workspace is refused whether
+        // or not it exists, and a symlinked folder cannot be listed through.
+        if !fsutil::stays_inside(&root, &candidate) {
+            return Err(HostError::new(
+                "outside_workspace",
+                format!("Not a folder inside the workspace: {raw}"),
+            ));
+        }
+        let dir = fs::canonicalize(&candidate)
             .map_err(|_| HostError::new("not_found", format!("Folder not found: {raw}")))?;
         if !dir.starts_with(&root) || !dir.is_dir() {
             return Err(HostError::new(
@@ -7194,6 +7203,15 @@ fn resolve_path_in_workspace(
             format!("A file or folder name is required: {raw}"),
         )
     })?;
+    // Same order as `resolve_in_root`: refuse an escaping path by shape (it may not exist yet;
+    // the operation must not stat outside the workspace to find out), then canonicalize the parent
+    // so a symlinked folder cannot carry the target outside the workspace.
+    if !fsutil::stays_inside(&workspace.root, parent) {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
     let parent = fs::canonicalize(parent).map_err(|_| {
         HostError::new("not_found", format!("Folder not found: {raw}"))
     })?;
@@ -7249,6 +7267,12 @@ fn resolve_reveal_in_workspace(root: &Path, raw: &str) -> HostResult<(PathBuf, S
     } else {
         root.join(requested)
     };
+    if !fsutil::stays_inside(root, &candidate) {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
     let canonical = fs::canonicalize(&candidate)
         .map_err(|_| HostError::new("not_found", format!("File or folder not found: {raw}")))?;
     if !canonical.starts_with(root) {
@@ -7285,8 +7309,18 @@ fn resolve_in_root(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
     } else {
         root.join(requested)
     };
+    // Deny by shape before touching the disk: an escape attempt is refused whether or not its
+    // target exists, so the answer never depends on what lives outside the workspace.
+    if !fsutil::stays_inside(root, &candidate) {
+        return Err(HostError::new(
+            "outside_workspace",
+            format!("Path is outside the workspace: {raw}"),
+        ));
+    }
     let canonical = fs::canonicalize(&candidate)
         .map_err(|_| HostError::new("not_found", format!("File not found: {raw}")))?;
+    // Second check, after the stat: a symlink inside the workspace (or any component of the path)
+    // that points outside resolves outside and is refused here.
     if !canonical.starts_with(root) {
         return Err(HostError::new(
             "outside_workspace",

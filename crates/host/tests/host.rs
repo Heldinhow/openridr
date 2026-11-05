@@ -63,6 +63,21 @@ fn fixture_copy(parent: &Path, name: &str) -> PathBuf {
     copy
 }
 
+/// Stages the two files the host reads to report `restored` (`obj/project.assets.json` and a
+/// `success: true` `obj/project.nuget.cache`), written after the copy so their mtimes are newer
+/// than the project files. NuGet itself is not run: a real restore needs network and an ambient
+/// package cache, and `restore_reports_the_exact_command_and_creates_real_assets` already proves
+/// a real restore, while `evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts`
+/// proves a copy without these artifacts is `not_restored`.
+fn stage_restore_artifacts(root: &Path) {
+    for project in ["src/OrderDesk.Cli", "src/OrderDesk.Core", "tests/OrderDesk.Tests"] {
+        let obj = root.join(project).join("obj");
+        fs::create_dir_all(&obj).unwrap();
+        fs::write(obj.join("project.assets.json"), "{}\n").unwrap();
+        fs::write(obj.join("project.nuget.cache"), "{\"success\": true}\n").unwrap();
+    }
+}
+
 #[test]
 fn app_home_never_points_at_the_real_application_support_directory() {
     let home = openridr_host::tools::app_home();
@@ -138,54 +153,259 @@ fn text_outline_reads_solution_projects_without_evaluation() {
     );
 }
 
+/// A workspace inside a parent folder, so the paths one level up really exist. The escape cases
+/// below then depend on the confinement rules, not on how deep the checkout happens to be or on
+/// what `/etc` contains on the machine running the suite.
+fn nested_workspace() -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let outer = tempfile::tempdir().unwrap();
+    let root = outer.path().join("ws");
+    fs::create_dir_all(root.join("sub")).unwrap();
+    fs::write(root.join("App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n").unwrap();
+    fs::write(root.join("App.cs"), "class C {}\n").unwrap();
+    fs::write(outer.path().join("outside.txt"), "outside\n").unwrap();
+    let outside = fs::canonicalize(outer.path()).unwrap();
+    (outer, fs::canonicalize(&root).unwrap(), outside)
+}
+
+fn text(path: &Path) -> String {
+    path.to_string_lossy().to_string()
+}
+
+/// Sorted entry names of a folder, so a test can state exactly what must not have appeared there.
+fn entry_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort();
+    names
+}
+
 #[test]
 fn file_access_is_confined_to_the_workspace() {
+    let (_outer, root, outside) = nested_workspace();
+    let outside_file = outside.join("outside.txt");
     let host = Host::new();
-    open(&host, &fixture());
+    open(&host, &root.join("App.csproj"));
 
-    let read = host
-        .dispatch("file.read", json!({ "path": "src/OrderDesk.Cli/Program.cs" }))
-        .unwrap();
-    assert!(read["content"].as_str().unwrap().contains("OrderDesk"));
+    let read = host.dispatch("file.read", json!({ "path": "App.cs" })).unwrap();
+    assert!(read["content"].as_str().unwrap().contains("class C"));
 
-    for escape in [
-        "../../../../../../etc/hosts",
-        "/etc/hosts",
-        "src/OrderDesk.Cli/../../../../../../../../etc/hosts",
-    ] {
+    // Every escape is refused by shape, whether or not its target exists: a missing path outside
+    // must never answer `not_found`, because that answer would tell the caller what the filesystem
+    // outside the workspace contains.
+    let escapes = [
+        text(&outside_file),
+        text(&outside.join("does-not-exist.txt")),
+        "../outside.txt".to_string(),
+        "../does-not-exist.txt".to_string(),
+        "/etc/hosts".to_string(),
+        "/etc/openridr-does-not-exist".to_string(),
+        "../../../../../../../../etc/hosts".to_string(),
+        "sub/../../outside.txt".to_string(),
+        "sub/../../../../../../../../etc/openridr-does-not-exist".to_string(),
+    ];
+    for escape in &escapes {
         assert_eq!(
             error_code(host.dispatch("file.read", json!({ "path": escape }))),
             "outside_workspace",
             "expected {escape} to be rejected"
         );
+        assert_eq!(
+            error_code(host.dispatch(
+                "file.write",
+                json!({
+                    "path": escape,
+                    "content": "overwritten\n",
+                    "expected_hash": "fnv1a64:0000000000000000"
+                })
+            )),
+            "outside_workspace",
+            "expected a write to {escape} to be rejected"
+        );
     }
-
-    let outside = tempfile::NamedTempFile::new().unwrap();
-    fs::write(outside.path(), "outside\n").unwrap();
+    assert_eq!(fs::read_to_string(&outside_file).unwrap(), "outside\n");
     assert_eq!(
-        error_code(host.dispatch(
-            "file.write",
-            json!({
-                "path": outside.path().to_string_lossy(),
-                "content": "overwritten\n",
-                "expected_hash": "fnv1a64:0000000000000000"
-            })
-        )),
-        "outside_workspace"
+        error_code(host.dispatch("file.read", json!({ "path": "" }))),
+        "path_not_allowed"
     );
 
-    // A symlink inside the workspace that points outside is rejected after canonicalization.
+    // A symlink inside the workspace is rejected after canonicalization, both as the final
+    // component and as an intermediate one.
     #[cfg(unix)]
     {
-        let workspace = temp_workspace(&["Mini.csproj"]);
-        let target = tempfile::NamedTempFile::new().unwrap();
-        fs::write(target.path(), "secret\n").unwrap();
-        std::os::unix::fs::symlink(target.path(), workspace.path().join("Link.cs")).unwrap();
-        open(&host, &workspace.path().join("Mini.csproj"));
+        std::os::unix::fs::symlink(&outside_file, root.join("Link.cs")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("LinkDir")).unwrap();
+        std::os::unix::fs::symlink(&outside_file, root.join("sub/Link.cs")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("sub/LinkDir")).unwrap();
+        for escape in [
+            "Link.cs",
+            "LinkDir",
+            "LinkDir/outside.txt",
+            "sub/Link.cs",
+            "sub/LinkDir/outside.txt",
+        ] {
+            assert_eq!(
+                error_code(host.dispatch("file.read", json!({ "path": escape }))),
+                "outside_workspace",
+                "expected {escape} to be rejected"
+            );
+            assert_eq!(
+                error_code(host.dispatch(
+                    "file.write",
+                    json!({
+                        "path": escape,
+                        "content": "overwritten\n",
+                        "expected_hash": "fnv1a64:0000000000000000"
+                    })
+                )),
+                "outside_workspace",
+                "expected a write through {escape} to be rejected"
+            );
+        }
+        assert_eq!(fs::read_to_string(&outside_file).unwrap(), "outside\n");
+    }
+}
+
+#[test]
+fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
+    let (_outer, root, outside) = nested_workspace();
+    let outside_file = outside.join("outside.txt");
+    let created = outside.join("created.txt");
+    let host = Host::new();
+    open(&host, &root.join("App.csproj"));
+
+    for target in [
+        created.clone(),
+        outside.join("created-deep.txt"),
+        Path::new("../../../../../../../../tmp/openridr-created.txt").to_path_buf(),
+    ] {
         assert_eq!(
-            error_code(host.dispatch("file.read", json!({ "path": "Link.cs" }))),
+            error_code(host.dispatch(
+                "file.create",
+                json!({ "path": text(&target), "content": "x" })
+            )),
+            "outside_workspace",
+            "expected a create of {target:?} to be rejected"
+        );
+    }
+    for target in [text(&outside.join("new.cs")), "../new.cs".to_string()] {
+        assert_eq!(
+            error_code(host.dispatch(
+                "file.create",
+                json!({ "path": target, "content": "x" })
+            )),
+            "outside_workspace",
+            "expected a create of {target} to be rejected"
+        );
+    }
+    assert_eq!(entry_names(&outside), vec!["outside.txt", "ws"]);
+    assert!(!created.exists());
+    assert!(!Path::new("/tmp/openridr-created.txt").exists());
+
+    for (from, to) in [
+        ("App.cs".to_string(), text(&outside.join("moved.cs"))),
+        ("App.cs".to_string(), "../moved.cs".to_string()),
+        (text(&outside_file), "stolen.cs".to_string()),
+        ("../outside.txt".to_string(), "stolen.cs".to_string()),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("file.rename", json!({ "from": from, "to": to }))),
+            "outside_workspace",
+            "expected {from} -> {to} to be rejected"
+        );
+    }
+    assert!(root.join("App.cs").exists());
+    assert!(!root.join("stolen.cs").exists());
+    assert!(outside_file.exists());
+
+    for target in [
+        text(&outside_file),
+        "../outside.txt".to_string(),
+        text(&outside),
+        "..".to_string(),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("file.delete", json!({ "path": target }))),
+            "outside_workspace",
+            "expected a delete of {target} to be rejected"
+        );
+    }
+    assert_eq!(fs::read_to_string(&outside_file).unwrap(), "outside\n");
+
+    // A symlinked folder inside the workspace carries the operation outside if it is followed.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&outside, root.join("LinkDir")).unwrap();
+        assert_eq!(
+            error_code(host.dispatch(
+                "file.create",
+                json!({ "path": "LinkDir/created.txt", "content": "x" })
+            )),
             "outside_workspace"
         );
+        assert_eq!(
+            error_code(host.dispatch(
+                "file.rename",
+                json!({ "from": "App.cs", "to": "LinkDir/moved.cs" })
+            )),
+            "outside_workspace"
+        );
+        assert_eq!(entry_names(&outside), vec!["outside.txt", "ws"]);
+        // Deleting the link itself is inside the workspace and must not follow it.
+        host.dispatch("file.delete", json!({ "path": "LinkDir" }))
+            .expect("a symlink inside the workspace can be deleted");
+        assert_eq!(fs::read_to_string(&outside_file).unwrap(), "outside\n");
+        assert!(outside.is_dir());
+    }
+
+    // The refusals above are confinement, not a broken surface.
+    host.dispatch("file.create", json!({ "path": "New.cs", "content": "class N {}\n" }))
+        .expect("a file inside the workspace is created");
+    host.dispatch("file.rename", json!({ "from": "New.cs", "to": "Renamed.cs" }))
+        .expect("a file inside the workspace is renamed");
+    host.dispatch("file.delete", json!({ "path": "Renamed.cs" }))
+        .expect("a file inside the workspace is deleted");
+}
+
+#[test]
+fn the_directory_listing_refuses_escapes_by_shape() {
+    let (_outer, root, outside) = nested_workspace();
+    let host = Host::new();
+    open(&host, &root.join("App.csproj"));
+
+    for dir in [
+        "..".to_string(),
+        "../..".to_string(),
+        text(&outside),
+        "/etc".to_string(),
+        "/etc/openridr-does-not-exist".to_string(),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("workspace.tree", json!({ "dir": dir }))),
+            "outside_workspace",
+            "expected the listing of {dir} to be rejected"
+        );
+    }
+
+    let listing = host.dispatch("workspace.tree", json!({ "dir": "" })).unwrap();
+    assert!(listing["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["name"] == "App.cs"));
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&outside, root.join("LinkDir")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("sub/LinkDir")).unwrap();
+        for dir in ["LinkDir", "sub/LinkDir"] {
+            assert_eq!(
+                error_code(host.dispatch("workspace.tree", json!({ "dir": dir }))),
+                "outside_workspace",
+                "expected the listing of {dir} to be rejected"
+            );
+        }
     }
 }
 
@@ -1103,8 +1323,12 @@ fn evaluation_with_a_missing_project_sdk_reports_sdk_missing() {
 #[cfg(target_os = "macos")]
 #[test]
 fn evaluation_returns_the_real_msbuild_model_for_every_project() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = fixture_copy(temp.path(), "OrderDesk");
+    stage_restore_artifacts(&workspace);
+
     let host = Host::new();
-    open(&host, &fixture());
+    open(&host, &workspace.join("OrderDesk.sln"));
     grant(&host);
     let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
     let evaluation = &evaluated["evaluation"];
