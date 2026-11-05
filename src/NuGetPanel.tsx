@@ -32,7 +32,7 @@ export type NuGetAssetsFramework = {
   transitive: NuGetAssetsPackage[];
 };
 export type NuGetAssets = {
-  state: "ok" | "missing" | "failed";
+  state: "ok" | "missing" | "failed" | "unsupported";
   message: string | null;
   path: string;
   frameworks: NuGetAssetsFramework[];
@@ -1107,6 +1107,13 @@ export function NuGetPanel({
                   </button>
                   <span className="nuget-badge">{implicitRows.length}</span>
                 </div>
+                {renderListings
+                  .filter((item) => item.assets.state === "unsupported")
+                  .map((item) => (
+                    <p className="menu-note" data-testid="nuget-assets-unavailable" key={item.project}>
+                      {item.projectName}: {item.assets.message}
+                    </p>
+                  ))}
                 {implicitOpen && (
                   <div className="nuget-list">
                     {renderListings.map((item) => (
