@@ -110,10 +110,10 @@ test("opens the fixture asking for a Trust decision, with Restricted mode availa
   await enterTextOnly(page);
   await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
   await expect(page.getByTestId("status-evaluation")).toContainText("Text outline · not evaluated");
-  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
-  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
-  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
-  await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
+  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-kind", "console");
+  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-tfms", "net8.0");
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute("data-project-kind", "library");
+  await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toHaveAttribute("data-project-kind", "test");
   await expect(page.getByTestId(`tree-file-${programTab}`)).toBeVisible();
   await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
   await expect(page.getByTestId("status-mode")).toContainText("Restricted mode");

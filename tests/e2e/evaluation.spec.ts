@@ -73,10 +73,10 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("status-evaluation")).toContainText("Evaluated");
   await expect(page.getByTestId("tree-folder-src")).toBeVisible();
   await expect(page.getByTestId("tree-folder-tests")).toBeVisible();
-  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
-  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("net8.0");
-  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
-  await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
+  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-kind", "console");
+  await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-tfms", "net8.0");
+  await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute("data-project-kind", "library");
+  await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toHaveAttribute("data-project-kind", "test");
   // Dependencies is a tree node (closed by default) whose children are the real references.
   const cliDeps = page.getByTestId("tree-deps-OrderDesk.Cli");
   await expect(cliDeps).toHaveAttribute("aria-expanded", "false");

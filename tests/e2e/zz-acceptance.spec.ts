@@ -288,9 +288,9 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
 
     // Evaluated tree: console + library + tests, TargetPath from MSBuild, bin/obj hidden.
-    await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toContainText("console");
-    await expect(page.getByTestId("tree-project-OrderDesk.Core")).toContainText("library");
-    await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toContainText("test");
+    await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-kind", "console");
+    await expect(page.getByTestId("tree-project-OrderDesk.Core")).toHaveAttribute("data-project-kind", "library");
+    await expect(page.getByTestId("tree-project-OrderDesk.Tests")).toHaveAttribute("data-project-kind", "test");
     await expect(page.getByTestId("tree")).not.toContainText("/bin/");
     await expect(page.getByTestId("tree")).not.toContainText("/obj/");
     await page.getByTestId("tree-project-OrderDesk.Cli").click();

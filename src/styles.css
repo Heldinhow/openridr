@@ -80,6 +80,67 @@
   --highlight: inset 0 1px rgba(255, 255, 255, 0.06);
   --sans: "Inter Variable", -apple-system, system-ui, sans-serif;
   --mono: "JetBrains Mono Variable", ui-monospace, Menlo, monospace;
+
+  /* Solution Explorer type colors. Dark values are the shipped theme (Settings has no light
+     token set yet); the light values in the @supports block below are forward-compatible. */
+  --icon-solution: #7aa7ff;
+  --icon-solution-folder: #9db4dd;
+  --icon-folder: #9a9a9a;
+  --icon-csharp: #6fb3d9;
+  --icon-project-console: #7cc0ff;
+  --icon-project-library: #8ed39a;
+  --icon-project-test: #e0b76e;
+  --icon-project-web: #7fd3e8;
+  --icon-project-unknown: #9a9a9a;
+  --icon-dependencies: #c0a8f0;
+  --icon-package: #e0b24a;
+  --icon-framework: #9db4dd;
+  --icon-symbol-class: #6f9dff;
+  --icon-symbol-interface: #5fc9a8;
+  --icon-symbol-enum: #e5b64b;
+  --icon-symbol-record: #c58af2;
+  --icon-symbol-struct: #ee9292;
+  --icon-json: #d6c14a;
+  --icon-xml: #e08a58;
+  --icon-razor: #b48cf0;
+  --icon-resource: #73c7a3;
+  --icon-markdown: #6fb3d9;
+  --icon-yaml: #b48cf0;
+  --icon-config: #8fa1a8;
+  --icon-script: #8dc149;
+  --icon-text: #a3a3a3;
+}
+
+/* `light-dark()` is used only where the engine supports it; the dark fallback above stays valid. */
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    --icon-solution: light-dark(#1f4f9e, #7aa7ff);
+    --icon-solution-folder: light-dark(#3d5680, #9db4dd);
+    --icon-folder: light-dark(#5f6368, #9a9a9a);
+    --icon-csharp: light-dark(#17607e, #6fb3d9);
+    --icon-project-console: light-dark(#12558c, #7cc0ff);
+    --icon-project-library: light-dark(#20663a, #8ed39a);
+    --icon-project-test: light-dark(#7a4f00, #e0b76e);
+    --icon-project-web: light-dark(#0f5e70, #7fd3e8);
+    --icon-project-unknown: light-dark(#5f6368, #9a9a9a);
+    --icon-dependencies: light-dark(#5b3a9e, #c0a8f0);
+    --icon-package: light-dark(#7a5200, #e0b24a);
+    --icon-framework: light-dark(#3d5680, #9db4dd);
+    --icon-symbol-class: light-dark(#1f4f9e, #6f9dff);
+    --icon-symbol-interface: light-dark(#186a52, #5fc9a8);
+    --icon-symbol-enum: light-dark(#7a5200, #e5b64b);
+    --icon-symbol-record: light-dark(#63338f, #c58af2);
+    --icon-symbol-struct: light-dark(#8f2f2f, #ee9292);
+    --icon-json: light-dark(#6f5c00, #d6c14a);
+    --icon-xml: light-dark(#8a3f0f, #e08a58);
+    --icon-razor: light-dark(#5b3a9e, #b48cf0);
+    --icon-resource: light-dark(#186a52, #73c7a3);
+    --icon-markdown: light-dark(#17607e, #6fb3d9);
+    --icon-yaml: light-dark(#5b3a9e, #b48cf0);
+    --icon-config: light-dark(#465a61, #8fa1a8);
+    --icon-script: light-dark(#3f6b12, #8dc149);
+    --icon-text: light-dark(#5f6368, #a3a3a3);
+  }
 }
 
 * {
@@ -3223,8 +3284,6 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .sol-row .tag.error { color: var(--error); }
 .sol-row .tag.warning { color: var(--warning); }
 .sol-row .tree-name { flex: 0 0 auto; min-width: 0; }
-.sol-row .icon-folder, .sol-row .icon-solution, .sol-row .icon-dependencies { color: var(--muted); }
-.sol-row .icon-solutionFolder { color: var(--muted); }
 .sol-row.no-index { background: color-mix(in srgb, var(--warning) 9%, transparent); }
 .sol-row.no-index:hover { background: color-mix(in srgb, var(--warning) 16%, transparent); }
 .sol-row.selected.no-index { background: var(--select); }
@@ -3233,3 +3292,49 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .explorer-heading { flex-wrap: nowrap; }
 .explorer-tools { flex: 0 0 auto; gap: 0; }
 .workspace-view .side .explorer-tools button { width: 32px; height: 32px; min-height: 32px; }
+
+/* Solution Explorer visual language: type is carried by a tinted glyph, never by extra chips.
+   The `.sol-row .tree-icon` prefix keeps a selected row from flattening every type to --fg. */
+.tree-icon { flex: 0 0 16px; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
+.file-icon { display: inline-flex; align-items: center; justify-content: center; }
+.sol-row .tree-icon .tint-solution { color: var(--icon-solution); }
+.sol-row .tree-icon .tint-solution-folder { color: var(--icon-solution-folder); }
+.sol-row .tree-icon .tint-folder { color: var(--icon-folder); }
+.sol-row .tree-icon .tint-csharp { color: var(--icon-csharp); }
+.sol-row .tree-icon .tint-json { color: var(--icon-json); }
+.sol-row .tree-icon .tint-xml { color: var(--icon-xml); }
+.sol-row .tree-icon .tint-razor { color: var(--icon-razor); }
+.sol-row .tree-icon .tint-resource { color: var(--icon-resource); }
+.sol-row .tree-icon .tint-markdown { color: var(--icon-markdown); }
+.sol-row .tree-icon .tint-text { color: var(--icon-text); }
+.sol-row .tree-icon .tint-yaml { color: var(--icon-yaml); }
+.sol-row .tree-icon .tint-config { color: var(--icon-config); }
+.sol-row .tree-icon .tint-script { color: var(--icon-script); }
+.sol-row .tree-icon .tint-file { color: var(--icon-text); }
+.sol-row .tree-icon .tint-dependencies { color: var(--icon-dependencies); }
+.sol-row .tree-icon .tint-package { color: var(--icon-package); }
+.sol-row .tree-icon .tint-framework { color: var(--icon-framework); }
+.sol-row .tree-icon .project-icon.project-console { color: var(--icon-project-console); }
+.sol-row .tree-icon .project-icon.project-library { color: var(--icon-project-library); }
+.sol-row .tree-icon .project-icon.project-test { color: var(--icon-project-test); }
+.sol-row .tree-icon .project-icon.project-web { color: var(--icon-project-web); }
+.sol-row .tree-icon .project-icon.project-unknown { color: var(--icon-project-unknown); }
+
+.symbol-badge {
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font: 700 9.5px/1 var(--mono);
+  color: #0b0b0b;
+}
+.symbol-badge.symbol-class { background: var(--icon-symbol-class); }
+.symbol-badge.symbol-interface { background: var(--icon-symbol-interface); }
+.symbol-badge.symbol-enum { background: var(--icon-symbol-enum); }
+.symbol-badge.symbol-record { background: var(--icon-symbol-record); }
+.symbol-badge.symbol-struct { background: var(--icon-symbol-struct); }
+
+.sol-row.no-index .tree-name { color: var(--muted); }
+.sol-row.no-index .tree-icon { opacity: 0.6; }
