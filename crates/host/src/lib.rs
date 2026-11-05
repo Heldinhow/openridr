@@ -7064,11 +7064,13 @@ fn rename_document_preview(
 ) -> Result<Value, String> {
     let raw = lsp::uri_to_path(&document.uri)
         .ok_or_else(|| format!("{} is not a file URI", document.uri))?;
-    let canonical =
-        fs::canonicalize(&raw).map_err(|error| format!("{raw} is not readable: {error}"))?;
-    if !canonical.starts_with(root) {
-        return Err(format!("{raw} is outside the workspace"));
-    }
+    // The same confinement contract as the editor frontiers, including the dangling-symlink rule:
+    // an unprovable target is refused, and only the wording differs because this path answers to
+    // the analysis session instead of the UI.
+    let canonical = confine(root, Path::new(&raw), shape_of(&raw)).map_err(|error| match error {
+        fsutil::ConfineError::Outside => format!("{raw} is outside the workspace"),
+        fsutil::ConfineError::Missing => format!("{raw} is not readable"),
+    })?;
     if !canonical.is_file() {
         return Err(format!("{raw} is not a file"));
     }
@@ -7138,16 +7140,14 @@ fn rename_document_preview(
 }
 
 fn definition_location(root: &Path, target: &lsp::DefinitionTarget) -> Option<Value> {
-    let path = PathBuf::from(lsp::uri_to_path(&target.uri)?);
-    let canonical = fs::canonicalize(&path).ok()?;
-    if !canonical.starts_with(root) || !canonical.is_file() {
+    let raw = lsp::uri_to_path(&target.uri)?;
+    // Same contract as every other frontier: a target outside the workspace — including one behind a
+    // dangling symlink — is dropped, never offered as a location.
+    let canonical = confine(root, Path::new(&raw), shape_of(&raw)).ok()?;
+    if !canonical.is_file() {
         return None;
     }
-    let rel = canonical
-        .strip_prefix(root)
-        .ok()?
-        .to_string_lossy()
-        .replace('\\', "/");
+    let rel = workspace_relative(root, &canonical);
     let chosen = target.selection_range.as_ref().unwrap_or(&target.range);
     let start = chosen.get("start")?;
     Some(json!({
@@ -7279,7 +7279,7 @@ fn resolve_in_root(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
 
 /// Which textual comparison a frontier can make before touching the disk.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Shape {
+pub(crate) enum Shape {
     /// The candidate was built by joining a relative path onto the root, so a path that normalizes
     /// outside is refused with no I/O at all.
     Joined,
@@ -7289,7 +7289,7 @@ enum Shape {
     Absolute,
 }
 
-fn shape_of(raw: &str) -> Shape {
+pub(crate) fn shape_of(raw: &str) -> Shape {
     if Path::new(raw).is_absolute() {
         Shape::Absolute
     } else {
@@ -7304,7 +7304,11 @@ fn shape_of(raw: &str) -> Shape {
 ///    the path outside is refused the same way whether or not the target exists (no existence
 ///    oracle: `LinkDir/etc/hosts` and `LinkDir/missing` answer alike);
 /// 3. the target itself is canonicalized and checked again.
-fn confine(root: &Path, candidate: &Path, shape: Shape) -> Result<PathBuf, fsutil::ConfineError> {
+pub(crate) fn confine(
+    root: &Path,
+    candidate: &Path,
+    shape: Shape,
+) -> Result<PathBuf, fsutil::ConfineError> {
     if shape == Shape::Joined && !fsutil::stays_inside(root, candidate) {
         return Err(fsutil::ConfineError::Outside);
     }

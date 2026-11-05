@@ -1244,6 +1244,18 @@ mod tests {
         assert_eq!(error.code, "outside_workspace");
         let error = resolve_project(&root, "missing.csproj").unwrap_err();
         assert_eq!(error.code, "not_found");
+
+        // A dangling link exists but points nowhere provable: refused the same way whether or not
+        // the target exists outside.
+        std::os::unix::fs::symlink(outside.join("Missing.csproj"), root.join("Dangling.csproj"))
+            .unwrap();
+        fs::write(outside.join("There.csproj"), PROJECT).unwrap();
+        std::os::unix::fs::symlink(outside.join("There.csproj"), root.join("DanglingThere.csproj"))
+            .unwrap();
+        for project in ["Dangling.csproj", "DanglingThere.csproj"] {
+            let error = resolve_project(&root, project).unwrap_err();
+            assert_eq!(error.code, "outside_workspace", "{project}");
+        }
     }
 
     #[test]

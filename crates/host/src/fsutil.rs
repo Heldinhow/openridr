@@ -218,16 +218,21 @@ pub(crate) enum ConfineError {
 /// Whether the deepest existing ancestor of `candidate` — the path itself when it exists — resolves
 /// inside `root`. Deciding on the nearest *existing* ancestor is what stops a symlink that carries a
 /// missing target outside from hiding behind `not_found`.
+///
+/// A dangling symlink (or a loop) exists but cannot be resolved, so where it points is unknown and
+/// containment cannot be proven: it is refused, and it is refused the same way whether or not the
+/// missing target exists — otherwise the answer would reveal what lives outside the workspace.
 fn existing_ancestor_resolves_inside(root: &Path, candidate: &Path) -> bool {
     let mut probe = candidate;
     loop {
-        if let Ok(canonical) = fs::canonicalize(probe) {
-            return canonical.starts_with(root);
-        }
-        match probe.parent() {
-            Some(parent) if parent != probe => probe = parent,
-            // Nothing above the path exists, so containment cannot be proven: refuse.
-            _ => return false,
+        match fs::canonicalize(probe) {
+            Ok(canonical) => return canonical.starts_with(root),
+            Err(_) if fs::symlink_metadata(probe).is_ok() => return false,
+            Err(_) => match probe.parent() {
+                Some(parent) if parent != probe => probe = parent,
+                // Nothing above the path exists, so containment cannot be proven: refuse.
+                _ => return false,
+            },
         }
     }
 }
@@ -304,6 +309,50 @@ mod tests {
         );
         assert_eq!(
             canonical_confined(&root, &root.join("missing/deep.txt")),
+            Err(ConfineError::Missing)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_is_outside_whether_or_not_its_target_exists() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("ws");
+        fs::create_dir_all(&root).unwrap();
+        let outside = outer.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("There.cs"), "class T {}\n").unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+
+        // Same link, two targets: one that exists outside and one that does not.
+        std::os::unix::fs::symlink(outside.join("There.cs"), root.join("There.cs")).unwrap();
+        std::os::unix::fs::symlink(outside.join("Missing.cs"), root.join("Missing.cs")).unwrap();
+        // A dangling link whose target name would be inside the workspace: the host cannot prove
+        // where it points, so it is refused like the others (never `not_found`).
+        std::os::unix::fs::symlink("not-yet-created.cs", root.join("Pending.cs")).unwrap();
+        // A loop exists but never resolves.
+        std::os::unix::fs::symlink(root.join("Loop.cs"), root.join("Loop.cs")).unwrap();
+
+        for link in ["There.cs", "Missing.cs", "Pending.cs", "Loop.cs"] {
+            assert_eq!(
+                canonical_confined(&root, &root.join(link)),
+                Err(ConfineError::Outside),
+                "{link} must be refused as outside"
+            );
+            assert_eq!(
+                canonical_confined(&root, &root.join(link).join("child.cs")),
+                Err(ConfineError::Outside),
+                "{link} as an intermediate component must be refused as outside"
+            );
+        }
+        // Nothing inside the workspace changed hands. (`absent.cs`: `missing.cs` would be the same
+        // name as the dangling `Missing.cs` on a case-insensitive filesystem.)
+        assert_eq!(
+            canonical_confined(&root, &root.join("absent.cs")),
+            Err(ConfineError::Missing)
+        );
+        assert_eq!(
+            canonical_confined(&root, &root.join("absent/deep.cs")),
             Err(ConfineError::Missing)
         );
     }

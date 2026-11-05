@@ -238,6 +238,15 @@ fn file_access_is_confined_to_the_workspace() {
         std::os::unix::fs::symlink(&outside, root.join("LinkDir")).unwrap();
         std::os::unix::fs::symlink(&outside_file, root.join("sub/Link.cs")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("sub/LinkDir")).unwrap();
+        // A dangling symlink exists but points somewhere the host cannot resolve, so where it leads
+        // is unprovable: the answer must not depend on whether the target outside exists.
+        std::os::unix::fs::symlink(outside.join("missing.txt"), root.join("Dangling.cs")).unwrap();
+        std::os::unix::fs::symlink(outside.join("outside.txt"), root.join("DanglingThere.cs"))
+            .unwrap();
+        // Even a dangling link whose target name would be inside the workspace is refused, so the
+        // rule is "dangling is outside" and never leaks what exists on the other side.
+        std::os::unix::fs::symlink("not-yet-created.cs", root.join("Pending.cs")).unwrap();
+        std::os::unix::fs::symlink(outside.join("missing-dir"), root.join("DanglingDir")).unwrap();
         for escape in [
             "Link.cs",
             "LinkDir",
@@ -249,6 +258,12 @@ fn file_access_is_confined_to_the_workspace() {
             "LinkDir/missing.txt",
             "LinkDir/deep/missing.txt",
             "sub/LinkDir/deep/missing.txt",
+            // Dangling links: existing and missing targets outside answer alike.
+            "Dangling.cs",
+            "DanglingThere.cs",
+            "Pending.cs",
+            "DanglingDir",
+            "DanglingDir/child.txt",
         ] {
             assert_eq!(
                 error_code(host.dispatch("file.read", json!({ "path": escape }))),
@@ -342,6 +357,7 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(&outside, root.join("LinkDir")).unwrap();
+        std::os::unix::fs::symlink(outside.join("missing-dir"), root.join("DanglingDir")).unwrap();
         assert_eq!(
             error_code(host.dispatch(
                 "file.create",
@@ -377,6 +393,24 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
         );
         assert_eq!(
             error_code(host.dispatch("file.delete", json!({ "path": "LinkDir/sub/missing.cs" }))),
+            "outside_workspace"
+        );
+        // A dangling folder link is unprovable, so a create or rename through it is refused.
+        for path in ["DanglingDir/new.cs", "DanglingDir/deep/new.cs"] {
+            assert_eq!(
+                error_code(host.dispatch(
+                    "file.create",
+                    json!({ "path": path, "content": "x" })
+                )),
+                "outside_workspace",
+                "expected a create of {path} to be rejected"
+            );
+        }
+        assert_eq!(
+            error_code(host.dispatch(
+                "file.rename",
+                json!({ "from": "App.cs", "to": "DanglingDir/moved.cs" })
+            )),
             "outside_workspace"
         );
         assert_eq!(entry_names(&outside), vec!["outside.txt", "ws"]);
@@ -489,7 +523,15 @@ fn the_directory_listing_refuses_escapes_by_shape() {
     {
         std::os::unix::fs::symlink(&outside, root.join("LinkDir")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("sub/LinkDir")).unwrap();
-        for dir in ["LinkDir", "sub/LinkDir", "LinkDir/missing", "sub/LinkDir/deep/missing"] {
+        std::os::unix::fs::symlink(outside.join("missing-dir"), root.join("DanglingDir")).unwrap();
+        for dir in [
+            "LinkDir",
+            "sub/LinkDir",
+            "LinkDir/missing",
+            "sub/LinkDir/deep/missing",
+            "DanglingDir",
+            "DanglingDir/child",
+        ] {
             assert_eq!(
                 error_code(host.dispatch("workspace.tree", json!({ "dir": dir }))),
                 "outside_workspace",

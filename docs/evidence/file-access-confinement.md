@@ -222,3 +222,78 @@ exit=0
 ```
 
 `find-usages` isolado: 2 falhas (`Partial coverage` em `lsp-state`; "This document is not open in the analysis session"). **Base `ca85e47`, mesmo comando e mesmas portas: exatamente as mesmas 2 falhas** — é a falha pré-existente/intermitente já registrada em `docs/RETRO-DEVFLOW-2026-11-02.md`, de estado do csharp-ls, não de confinamento. Os fluxos que abrem arquivo por caminho absoluto (build clicável, stack trace de teste, Find Usages que navega, foco após navegação) passaram. `PLAYWRIGHT_CHANNEL=chromium` não roda nesta máquina (binário do Chromium não baixado; instalar software estava fora do escopo), então usei o `channel: "chrome"` que é o padrão do repo.
+
+## Rodada 3 (re-check sobre `f831baa`)
+
+O achado 2 ficou fechado na rodada 2; o achado 1 estava **parcial**: symlink **pendente** ainda era oráculo.
+
+### Symlink pendente (alvo inexistente do outro lado)
+
+`existing_ancestor_resolves_inside` descia até o ancestral que `canonicalize` conseguisse resolver. Um symlink pendente existe, mas `canonicalize` falha nele, então a caminhada pulava para a raiz — que está dentro — e a resposta virava `not_found`:
+
+| Vetor (`Dangling -> <fora>/inexistente`) | Rodada 2 | Rodada 3 |
+|---|---|---|
+| `file.read Dangling.cs` | **`not_found`** | `outside_workspace` |
+| `file.read Dangling.cs/child.txt` (componente intermediário) | **`not_found`** | `outside_workspace` |
+| `file.create DanglingDir/new.cs` | **`not_found`** | `outside_workspace` |
+| `file.rename App.cs -> DanglingDir/moved.cs` | **`not_found`** | `outside_workspace` |
+| `workspace.tree DanglingDir` | **`not_found`** | `outside_workspace` |
+| `nuget` `Dangling.csproj` | **`not_found`** | `outside_workspace` |
+| mesma coisa com `Dangling -> <fora>/existente` | `outside_workspace` | `outside_workspace` |
+
+A diferença entre as duas últimas linhas era exatamente o oráculo: o alvo do link existe fora ou não.
+
+**Decisão documentada:** um symlink que existe e não resolve — pendente **ou laço** (`Loop -> Loop`) — é sempre `outside_workspace`. O host não consegue provar para onde ele aponta, então não pode provar que está dentro; negar é a única resposta fail-closed, e ela é a mesma para qualquer alvo do outro lado. Vale também para um pendente cujo nome do alvo seria interno (`Pending -> not-yet-created.cs`): continua `outside_workspace`, e `not_found` passa a significar só "nada aqui e toda a ascendência resolvível está dentro".
+
+Implementação: em `existing_ancestor_resolves_inside` (`crates/host/src/fsutil.rs:226`), quando `canonicalize` falha mas `fs::symlink_metadata(probe)` tem sucesso, o componente existe e não resolve → `Outside`.
+
+### Itens 2 do re-check: as três fronteiras restantes passaram pelo helper
+
+Eram triviais (nenhuma expõe código de erro próprio), então foram fechadas em vez de virar pendência:
+
+| Fronteira | Antes | Agora |
+|---|---|---|
+| `rename_document_preview` (`lib.rs:7057`) — preview de rename/code action vindo de URI `file://` do csharp-ls | `canonicalize` + `starts_with` | `confine(..., shape_of(raw))`, mesmas mensagens ("is outside the workspace" / "is not readable") |
+| `definition_location` (`lib.rs:7142`) — ir para definição/Find Usages | `canonicalize` + `starts_with` | `confine(...).ok()?` + `is_file`; segue descartando em silêncio |
+| `outline_project` (`outline.rs:75`) — caminho de projeto vindo do texto do `.sln` | `canonicalize` + `starts_with` | `crate::confine(root, &root.join(&rel), Shape::Joined)`, degradando para `unknown` |
+
+Para isso `confine`, `Shape` e `shape_of` ficaram `pub(crate)`. Nenhuma dessas três responde à UI com código de erro, então a única mudança observável é que um alvo atrás de symlink pendente deixa de ser oferecido/lido — que é o objetivo. Nada ficou como pendência.
+
+### Falham antes
+
+Revertendo apenas o produto (`fsutil.rs`, `lib.rs`, `nuget.rs`, `outline.rs`) para `f831baa` e mantendo os testes:
+
+```
+test the_directory_listing_refuses_escapes_by_shape ... FAILED
+  expected the listing of DanglingDir to be rejected: left "not_found" right "outside_workspace"
+test file_operations_refuse_escapes_and_leave_the_outside_untouched ... FAILED
+  expected a create of DanglingDir/new.cs to be rejected: left "not_found" ...
+test file_access_is_confined_to_the_workspace ... FAILED
+  expected Dangling.cs to be rejected: left "not_found" ...
+test result: FAILED. 1 passed; 3 failed
+```
+
+Casos novos: `a_dangling_symlink_is_outside_whether_or_not_its_target_exists` (unitário, cobre alvo existente/inexistente fora, pendente com alvo interno, laço e componente intermediário), o bloco de dangling em `file_access_is_confined_to_the_workspace`, em `file_operations_refuse_escapes_and_leave_the_outside_untouched`, em `the_directory_listing_refuses_escapes_by_shape` e em `resolve_project_refuses_a_missing_project_under_an_escaping_symlink`.
+
+### Depois (rodada 3)
+
+```
+$ cargo test --workspace --no-fail-fast
+unittests src/lib.rs ......... 239 passed; 0 failed
+tests/debugger.rs ............ 14 passed; 0 failed
+tests/host.rs ................ 83 passed; 0 failed
+tests/test_discovery.rs ...... 9 passed; 0 failed
+tests/test_run.rs ............ 5 passed; 0 failed
+tests/trust_model.rs ......... 1 passed; 0 failed
+host-http main, doc-tests .... 0 passed; 0 failed
+
+$ bun run check
+exit=0
+
+$ bunx playwright test tests/e2e/code.spec.ts tests/e2e/solution-explorer.spec.ts tests/e2e/medium-nav-navigation.spec.ts   # 1470/4367
+17 passed (1.0m)
+```
+
+O E2E desta rodada cobre o que a refatoração do rename preview, da definição e do outline poderia quebrar (rename/code action, árvore de solução e navegação). `find-usages` não foi repetido: é o spec com falha intermitente já registrada e idêntica na base.
+
+> Nota operacional: `git stash` é compartilhado entre worktrees deste repo. A prova "falha antes" desta rodada usou `git checkout HEAD -- <paths>` com cópia em `/tmp` e restauração por `cp`, sem stash.

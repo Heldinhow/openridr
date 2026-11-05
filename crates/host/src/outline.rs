@@ -71,10 +71,11 @@ fn outline_project(root: &Path, rel: &str, name: &str) -> OutlineProject {
         files: Vec::new(),
     };
 
-    // Never read project text outside the workspace, even if the .sln names such a path.
-    let canonical = match fs::canonicalize(root.join(&rel)) {
-        Ok(path) if path.starts_with(root) => path,
-        _ => return unknown(),
+    // Never read project text outside the workspace, even if the .sln names such a path: the same
+    // contract as the editor frontiers, so a symlink or `..` cannot pull the outline outside.
+    let canonical = match crate::confine(root, &root.join(&rel), crate::Shape::Joined) {
+        Ok(path) => path,
+        Err(_) => return unknown(),
     };
     let Ok(text) = fs::read_to_string(&canonical) else {
         return unknown();
