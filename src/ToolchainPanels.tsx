@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { call, HostCallError, type Snapshot } from "./host/client";
 import { ToolDownloadStatus } from "./ToolDownloadStatus";
 
@@ -55,41 +55,24 @@ type Props = {
   onChange: (snapshot: Snapshot) => void;
 };
 
-export function ToolInstaller({ snapshot, onChange, planRequest = 0 }: Props & { planRequest?: number }) {
+export function ToolInstaller({ snapshot, onChange }: Props) {
   const tool = snapshot.tools["csharp-ls"];
   const plan = tool.plan;
-  const trusted = snapshot.trust.granted;
   const active = activeStates.includes(tool.state);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [planOpen, setPlanOpen] = useState(false);
-  const planRef = useRef<HTMLDetailsElement>(null);
-  const [reviews, setReviews] = useState(0);
-  // Each review scrolls the plan to the top of the drawer so its fields and Confirm read together.
-  useEffect(() => {
-    if (reviews > 0) planRef.current?.scrollIntoView({ block: "start" });
-  }, [reviews]);
-  // An analysis gate outside this panel asks for the same reviewable plan; it never installs.
-  useEffect(() => {
-    if (planRequest === 0) return;
-    setPlanOpen(true);
-    if (activeStates.includes(tool.state)) return;
-    void run(() => call<Snapshot>("tools.plan", { tool: "csharp-ls" })).then(() =>
-      setReviews((count) => count + 1),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planRequest]);
-
-  const disabledReason = !trusted
-    ? "Trust the workspace before installing a tool; trust and installation are separate decisions."
-    : !plan
-      ? "Review the exact install plan before confirming."
-      : active
-        ? "An installation is already running."
+  const lspRunning = ["starting", "loading", "ready", "partial", "awaiting_diagnostics"].includes(
+    snapshot.lsp.state,
+  );
+  // The drawer is diagnosis only: setup already installed both fixed tools. Reinstall is the
+  // one action, and it refuses to replace a launcher a running server still uses.
+  const reinstallBlocked = busy
+    ? "An action is already running."
+    : active
+      ? "An installation is already running."
+      : lspRunning
+        ? "Stop analysis before reinstalling csharp-ls; the running server uses that launcher."
         : null;
-  const canCancel = tool.state === "planned" || tool.state === "downloading";
-  // A failed install gets its retry from ToolDownloadStatus; a cancelled one keeps the header button.
-  const canRetry = tool.state === "cancelled" && tool.revision > 0;
 
   async function run(action: () => Promise<Snapshot>) {
     setBusy(true);
@@ -122,53 +105,22 @@ export function ToolInstaller({ snapshot, onChange, planRequest = 0 }: Props & {
           {installStateLabel(tool.state)}
         </span>
         <span className="push" />
-        {!active && (
-          <button
-            data-testid="install-plan-open"
-            disabled={busy}
-            onClick={() => {
-              setPlanOpen(true);
-              void run(() => call<Snapshot>("tools.plan", { tool: "csharp-ls" })).then(() =>
-                setReviews((count) => count + 1),
-              );
-            }}
-            title="Shows the exact version, source, platform, destination, command and permissions. It does not download or execute anything."
-          >
-            Review install plan
-          </button>
-        )}
-        {canCancel && (
-          <button
-            data-testid="install-cancel"
-            disabled={busy}
-            onClick={() => void run(() => call<Snapshot>("tools.cancel"))}
-            title={
-              active
-                ? "Requests termination of the install process group and keeps the partial staging directory labelled as not ready."
-                : "Cancels the plan; no download or process was started."
-            }
-          >
-            {active ? "Cancel install" : "Cancel plan"}
-          </button>
-        )}
-        {canRetry && (
-          <button
-            data-testid="install-retry"
-            disabled={busy || !plan}
-            onClick={() => void run(() => call<Snapshot>("tools.retry"))}
-            title={
-              disabledReason ??
-              "Runs the confirmed plan again. A changed plan requires a new confirmation."
-            }
-          >
-            Retry install
-          </button>
-        )}
+        <button
+          data-testid="install-reinstall"
+          disabled={reinstallBlocked !== null}
+          onClick={() => void run(() => call<Snapshot>("setup.reinstall"))}
+          title={
+            reinstallBlocked ??
+            "Removes only the app-home installation, downloads the pinned package again and verifies the launcher. The workspace is never touched."
+          }
+        >
+          Reinstall
+        </button>
       </div>
 
-      {disabledReason && !active && (
+      {reinstallBlocked && (
         <p className="muted" data-testid="install-disabled-reason">
-          {disabledReason}
+          {reinstallBlocked}
         </p>
       )}
       {tool.state === "ready" && (
@@ -185,14 +137,8 @@ export function ToolInstaller({ snapshot, onChange, planRequest = 0 }: Props & {
         error={tool.error}
         note={tool.note}
         busy={busy}
-        retryDisabledReason={
-          !trusted
-            ? "Trust the workspace before retrying an installation."
-            : !plan
-              ? "Review the install plan before retrying."
-              : null
-        }
-        onRetry={() => void run(() => call<Snapshot>("tools.retry"))}
+        retryDisabledReason={null}
+        onRetry={() => void run(() => call<Snapshot>("setup.start"))}
       />
       {!active && tool.state !== "failed" && tool.note && (
         <p className="muted" data-testid="install-note">
@@ -228,11 +174,8 @@ export function ToolInstaller({ snapshot, onChange, planRequest = 0 }: Props & {
         <details
           className="eval-log analysis-plan"
           data-testid="install-plan"
-          ref={planRef}
-          open={planOpen}
-          onToggle={(event) => setPlanOpen(event.currentTarget.open)}
         >
-          <summary>Install plan details</summary>
+          <summary>Installation details</summary>
           <dl className="restore-meta">
             <dt>Tool</dt>
             <dd data-testid="install-tool">
@@ -281,21 +224,6 @@ export function ToolInstaller({ snapshot, onChange, planRequest = 0 }: Props & {
                 : "No launcher at the destination."}
             </dd>
           </dl>
-          {!active && (
-            <button
-              className="primary"
-              data-testid="install-confirm"
-              disabled={busy || disabledReason !== null}
-              onClick={() =>
-                void run(() =>
-                  call<Snapshot>("tools.install", { planId: plan.planId, confirm: true }),
-                )
-              }
-              title={disabledReason ?? "Downloads and installs into the staging directory, then verifies before ready."}
-            >
-              {tool.state === "ready" ? "Reuse verified installation" : "Confirm and install"}
-            </button>
-          )}
         </details>
       )}
 
@@ -350,55 +278,9 @@ export function DebugAdapterPanel({
 }: Props & { compact?: boolean }) {
   const debug = snapshot.debug;
   const plan = debug.plan;
-  const trusted = snapshot.trust.granted;
   const active =
     !debug.bundled &&
     (debug.busy || ["downloading", "installing", "verifying"].includes(debug.adapterState));
-  const appleSilicon = debug.os === "macos" && debug.arch === "aarch64";
-  const [acknowledged, setAcknowledged] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [debugPlanOpen, setDebugPlanOpen] = useState(false);
-
-  const installBlocker = debug.bundled
-    ? null
-    : !debug.installable
-      ? debug.adapterMessage
-      : !trusted
-        ? "Trust the workspace before installing a debug adapter; trust and installation are separate decisions."
-        : busy || active
-          ? "An install attempt is still running or winding down."
-          : !plan
-            ? "Review the exact install plan before confirming."
-            : plan.blockedReason
-              ? plan.blockedReason
-              : null;
-  const canCancel =
-    !debug.bundled &&
-    (debug.adapterState === "planned" ||
-      debug.adapterState === "failed" ||
-      ["downloading", "installing", "verifying"].includes(debug.adapterState));
-  const canRetry =
-    !debug.bundled &&
-    (debug.adapterState === "failed" || debug.adapterState === "cancelled") &&
-    debug.revision > 0;
-
-  async function run(action: () => Promise<Snapshot>) {
-    setBusy(true);
-    setMessage(null);
-    try {
-      onChange(await action());
-    } catch (error) {
-      setMessage(messageOf(error));
-      try {
-        onChange(await call<Snapshot>("workspace.state"));
-      } catch {
-        // The action message already explains the failure.
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <section
@@ -429,47 +311,6 @@ export function DebugAdapterPanel({
           {debug.os} / {debug.arch}
         </span>
         <span className="push" />
-        {!debug.bundled && (
-          <button
-            data-testid="debug-plan-open"
-            disabled={busy}
-            onClick={() => {
-              setDebugPlanOpen(true);
-              void run(() => call<Snapshot>("debug.plan"));
-            }}
-            title="Shows the approved version, official source, platform asset, destination, operation, permissions, integrity and limits. It does not download or execute anything."
-          >
-            Review install plan
-          </button>
-        )}
-        {canCancel && (
-          <button
-            data-testid="debug-cancel"
-            disabled={busy}
-            onClick={() => void run(() => call<Snapshot>("debug.cancel"))}
-            title={
-              active
-                ? "Requests cancellation of the download/extraction; a partial staging directory is never reported ready."
-                : "Cancels the plan; no download and no process were started."
-            }
-          >
-            {active ? "Cancel install" : "Cancel plan"}
-          </button>
-        )}
-        {canRetry && (
-          <button
-            data-testid="debug-retry"
-            disabled={busy || active || !trusted}
-            onClick={() => void run(() => call<Snapshot>("debug.retry"))}
-            title={
-              !trusted
-                ? "Trust the workspace before retrying an installation."
-                : "Runs the confirmed plan again; a changed plan requires a new confirmation."
-            }
-          >
-            Retry install
-          </button>
-        )}
       </div>
 
       <div data-testid="sdk-debug-adapter">
@@ -535,11 +376,6 @@ export function DebugAdapterPanel({
         </p>
       </div>
 
-      {installBlocker && !active && (
-        <p className="muted" data-testid="debug-disabled-reason">
-          {installBlocker}
-        </p>
-      )}
       {debug.error && (
         <p className="error" role="alert" data-testid="debug-error">
           {debug.error}
@@ -548,11 +384,6 @@ export function DebugAdapterPanel({
       {debug.note && (
         <p className="muted" data-testid="debug-note">
           {debug.note}
-        </p>
-      )}
-      {message && (
-        <p className="error" role="alert" data-testid="debug-message-error">
-          {message}
         </p>
       )}
       {!debug.bundled && debug.progress && (
@@ -578,68 +409,9 @@ export function DebugAdapterPanel({
         messages, exit code, processes and preserved logs.
       </p>
 
-      {appleSilicon && (
-        <div data-testid="sdk-apple-silicon">
-          <strong>Apple Silicon debugger</strong>{" "}
-          <span className="tag">
-            {debug.appleSiliconExperimental ? "experimental · enabled" : "experimental · disabled"}
-          </span>
-          <p className="muted" data-testid="debug-flag-note">
-            The session-scoped experimental opt-in resets when the workspace opens or closes. It
-            {debug.bundled
-              ? " only unlocks the bundled adapter; nothing is downloaded."
-              : " neither installs netcoredbg nor proves compatibility. It only unlocks the install plan, which still requires trust and an explicit confirmation."}
-          </p>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              data-testid="debug-flag-checkbox"
-              checked={acknowledged}
-              disabled={busy || debug.appleSiliconExperimental}
-              onChange={(event) => setAcknowledged(event.target.checked)}
-            />
-            I understand the experimental flag does not install or prove the adapter
-          </label>
-          {debug.appleSiliconExperimental ? (
-            <button
-              data-testid="debug-flag-disable"
-              disabled={busy}
-              onClick={() =>
-                void run(() => call<Snapshot>("debug.flag", { enabled: false }))
-              }
-              title="Disables the experimental flag. It never installed or claimed compatibility."
-            >
-              Disable experimental flag
-            </button>
-          ) : (
-            <button
-              data-testid="debug-flag-enable"
-              disabled={busy || !acknowledged}
-              onClick={() =>
-                void run(() =>
-                  call<Snapshot>("debug.flag", { enabled: true, confirm: true }),
-                )
-              }
-              title={
-                acknowledged
-                  ? "Records the experimental opt-in for this session only. Nothing is installed and no DAP support is claimed."
-                  : "Acknowledge the limitation before enabling the experimental flag."
-              }
-            >
-              Enable experimental flag
-            </button>
-          )}
-        </div>
-      )}
-
       {!debug.bundled && plan && (
-        <details
-          className="eval-log analysis-plan"
-          data-testid="debug-plan"
-          open={debugPlanOpen}
-          onToggle={(event) => setDebugPlanOpen(event.currentTarget.open)}
-        >
-          <summary>Install plan details</summary>
+        <details className="eval-log analysis-plan" data-testid="debug-plan">
+          <summary>Installation details</summary>
           <dl className="restore-meta">
             <dt>Tool</dt>
             <dd data-testid="debug-plan-tool">
@@ -718,24 +490,6 @@ export function DebugAdapterPanel({
               <code>{plan.planId}</code>
             </dd>
           </dl>
-          {!active && (
-            <button
-              className="primary"
-              data-testid="debug-install"
-              disabled={busy || installBlocker !== null}
-              onClick={() =>
-                void run(() =>
-                  call<Snapshot>("debug.install", { planId: plan.planId, confirm: true }),
-                )
-              }
-              title={
-                installBlocker ??
-                "Downloads the official asset, verifies its published SHA-256, extracts it safely and only then verifies and promotes it."
-              }
-            >
-              {debug.adapterState === "ready" ? "Reuse verified adapter" : "Confirm and install"}
-            </button>
-          )}
         </details>
       )}
 

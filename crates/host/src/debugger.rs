@@ -122,12 +122,14 @@ pub fn destination() -> PathBuf {
 
 /// Test-only override for the bundled adapter directory, using the same layout as
 /// `Contents/Resources/netcoredbg`. Never set by the app itself.
+#[cfg(debug_assertions)]
 pub const BUNDLED_OVERRIDE: &str = "OPENRIDR_BUNDLED_NETCOREDBG";
 
 fn bundled_root() -> Option<PathBuf> {
     if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         return None;
     }
+    #[cfg(debug_assertions)]
     if let Some(value) = std::env::var_os(BUNDLED_OVERRIDE) {
         return Some(PathBuf::from(value));
     }
@@ -169,10 +171,17 @@ fn platform_key(os: &str, arch: &str) -> &'static str {
 /// Test seam, enabled only with `OPENRIDR_ENABLE_PROBE=1` (the same dev-only switch as the
 /// process probe): forces another platform and a controlled asset served by a local test
 /// server. The hash is always required, so the pipeline still verifies what it downloaded.
+#[cfg(debug_assertions)]
 fn probe() -> bool {
     std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() == Ok("1")
 }
 
+#[cfg(not(debug_assertions))]
+fn probe() -> bool {
+    false
+}
+
+#[cfg(debug_assertions)]
 fn forced_platform() -> Option<(String, String)> {
     if !probe() {
         return None;
@@ -182,11 +191,17 @@ fn forced_platform() -> Option<(String, String)> {
     Some((os.to_string(), arch.to_string()))
 }
 
+#[cfg(not(debug_assertions))]
+fn forced_platform() -> Option<(String, String)> {
+    None
+}
+
 struct ControlledAsset {
     url: String,
     sha256: String,
 }
 
+#[cfg(debug_assertions)]
 fn controlled_asset() -> Option<ControlledAsset> {
     if !probe() {
         return None;
@@ -194,6 +209,11 @@ fn controlled_asset() -> Option<ControlledAsset> {
     let url = std::env::var("OPENRIDR_DEBUG_ASSET_URL").ok()?;
     let sha256 = std::env::var("OPENRIDR_DEBUG_ASSET_SHA256").ok()?;
     Some(ControlledAsset { url, sha256 })
+}
+
+#[cfg(not(debug_assertions))]
+fn controlled_asset() -> Option<ControlledAsset> {
+    None
 }
 
 fn base_name(url: &str) -> String {

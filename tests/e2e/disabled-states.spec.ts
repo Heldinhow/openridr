@@ -52,15 +52,6 @@ test("disabled trust grant looks disabled and becomes enabled after the checkbox
   await expect.poll(() => page.getByTestId("trust-grant").evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
 });
 
-test("disabled install confirmation looks disabled before trust", async ({ page }) => {
-  await openWorkspace(page);
-  await page.getByTestId("trust-prompt-restricted").click();
-  await page.getByTestId("workspace-tools-toggle").click();
-  await page.getByTestId("install-plan-open").click();
-  await expect(page.getByTestId("install-plan")).toBeVisible();
-  await expectLooksDisabled(page.getByTestId("install-confirm"));
-});
-
 test("disabled run configuration controls look disabled on the default configuration", async ({ page }) => {
   await openWorkspace(page);
   await page.getByTestId("trust-prompt-trust").click();

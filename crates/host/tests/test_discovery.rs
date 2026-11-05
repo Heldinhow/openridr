@@ -62,8 +62,11 @@ const ADAPTER_PACKAGES: &str = "<ItemGroup>\
 </ItemGroup>";
 
 fn open(host: &Host, path: &Path) -> Value {
-    host.dispatch("workspace.open", json!({ "path": path }))
-        .expect("workspace opens")
+    let opened = host
+        .dispatch("workspace.open", json!({ "path": path }))
+        .expect("workspace opens");
+    host.allow_setup_for_tests();
+    opened
 }
 
 fn grant(host: &Host) -> Value {

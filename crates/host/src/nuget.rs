@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::process::Stdio;
 
 pub const PACKAGE_LIMIT: usize = 500;
@@ -69,6 +70,30 @@ pub struct Cpm {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AssetsPackage {
+    pub id: String,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetsFramework {
+    pub framework: String,
+    pub implicit: Vec<AssetsPackage>,
+    pub transitive: Vec<AssetsPackage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Assets {
+    pub state: &'static str,
+    pub message: Option<String>,
+    pub path: String,
+    pub frameworks: Vec<AssetsFramework>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Listing {
     pub state: &'static str,
     pub message: Option<String>,
@@ -86,6 +111,9 @@ pub struct Listing {
     pub total_packages: usize,
     pub outdated_count: usize,
     pub truncated: bool,
+    pub prerelease: bool,
+    pub selected_source: Option<String>,
+    pub assets: Assets,
     pub probe: bool,
 }
 
@@ -103,6 +131,7 @@ pub struct Plan {
     pub target_framework: Option<String>,
     pub muxer: PathBuf,
     pub sdk_root: PathBuf,
+    pub install: bool,
     pub probe: bool,
 }
 
@@ -119,6 +148,10 @@ pub struct PlanRequest {
     pub target_framework: Option<String>,
     pub muxer: PathBuf,
     pub sdk_root: PathBuf,
+    pub install: bool,
+    /// Batch plans defer the CPM refusal to `apply`, so one central project cannot block the
+    /// whole batch. Single-project plans keep the early refusal and its UI reason.
+    pub defer_cpm: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -349,7 +382,7 @@ pub fn make_plan(request: PlanRequest) -> HostResult<Plan> {
         validate_tfm(tfm)?;
     }
     let cpm = detect_cpm(&request.root, &request.project);
-    if cpm.enabled {
+    if cpm.enabled && !request.defer_cpm {
         return Err(HostError::with_details(
             "nuget_cpm_unsupported",
             cpm.message.clone().unwrap_or_else(|| {
@@ -372,6 +405,7 @@ pub fn make_plan(request: PlanRequest) -> HostResult<Plan> {
         target_framework: request.target_framework,
         muxer: request.muxer,
         sdk_root: request.sdk_root,
+        install: request.install,
         probe: false,
     };
     let project_text = fs::read_to_string(&plan.project).map_err(|error| {
@@ -400,6 +434,7 @@ pub fn plan_view(plan: &Plan) -> Value {
         "targetFramework": plan.target_framework,
         "command": display(&argv),
         "argv": argv,
+        "install": plan.install,
         "restore": RestoreOffer {
             command: display(&restore),
             argv: restore,
@@ -414,6 +449,7 @@ pub fn plan_view(plan: &Plan) -> Value {
 pub fn revalidate_text(plan: &Plan, text: &str) -> HostResult<()> {
     let current = package_version(text, &plan.package);
     match current {
+        None if plan.install => Ok(()),
         None => Err(HostError::new(
             "nuget_stale_plan",
             format!(
@@ -752,6 +788,274 @@ pub fn merge(
     merged
 }
 
+/// Assets target keys use the long TFI form for older frameworks
+/// (`.NETStandard,Version=v2.0`); the UI and `dotnet list` use the short TFM.
+fn assets_target_tfm(target: &str) -> String {
+    let head = target.split('/').next().unwrap_or(target);
+    if let Some(version) = head.strip_prefix(".NETStandard,Version=v") {
+        return format!("netstandard{version}");
+    }
+    if let Some(version) = head.strip_prefix(".NETCoreApp,Version=v") {
+        if version.starts_with('5') {
+            return format!("net{version}");
+        }
+        return format!("net{}", version.split('.').next().unwrap_or(version));
+    }
+    if let Some(version) = head.strip_prefix(".NETPlatform,Version=v") {
+        return format!("net{version}");
+    }
+    if let Some(version) = head.strip_prefix(".NETFramework,Version=v") {
+        return format!("net{}", version.replace('.', ""));
+    }
+    head.to_string()
+}
+
+fn inherited_base_intermediate(project: &Path) -> bool {
+    let mut current = project.parent();
+    while let Some(directory) = current {
+        for name in ["Directory.Build.props", "Directory.Build.targets"] {
+            let path = directory.join(name);
+            if let Ok(text) = fs::read_to_string(&path) {
+                if text.contains("<BaseIntermediateOutputPath") {
+                    return true;
+                }
+            }
+        }
+        current = directory.parent();
+    }
+    false
+}
+
+/// Reads the restore graph that MSBuild already wrote. It never restores: a missing or
+/// unreadable assets file is reported as unavailable, not guessed from the project file.
+///
+/// Implicit packages come from `project.frameworks.<tfm>.dependencies` entries with
+/// `autoReferenced: true` and from `downloadDependencies`; `targets` entries only provide the
+/// transitive set. A RID-specific target (`net8.0/osx-arm64`) is folded into its base TFM so
+/// the same framework is never listed twice. Only the default `obj/project.assets.json` is
+/// read; a custom `BaseIntermediateOutputPath` is a documented limitation.
+pub fn read_assets(project: &Path, target_framework: Option<&str>) -> Assets {
+    let project_text = fs::read_to_string(project).unwrap_or_default();
+    let property = xml_property(&project_text, "BaseIntermediateOutputPath");
+    let inherited = inherited_base_intermediate(project);
+    let expanded = property.as_deref().is_some_and(|value| value.contains('$'));
+    if inherited || expanded {
+        return Assets {
+            state: "unsupported",
+            message: Some(
+                "Implicit and transitive packages are unavailable: BaseIntermediateOutputPath is inherited or expanded by MSBuild (Directory.Build.props/targets or a property), so obj/project.assets.json is outside the default path."
+                    .to_string(),
+            ),
+            path: project
+                .parent()
+                .map(|parent| parent.join("obj/project.assets.json"))
+                .unwrap_or_else(|| project.join("obj/project.assets.json"))
+                .to_string_lossy()
+                .to_string(),
+            frameworks: Vec::new(),
+        };
+    }
+    let intermediate = property
+        .as_deref()
+        .map(|value| project.parent().unwrap_or_else(|| Path::new(".")).join(value))
+        .unwrap_or_else(|| {
+            project
+                .parent()
+                .map(|parent| parent.join("obj"))
+                .unwrap_or_else(|| project.join("obj"))
+        });
+    let path = intermediate.join("project.assets.json");
+    let display = path.to_string_lossy().to_string();
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            return Assets {
+                state: "missing",
+                message: Some(format!(
+                    "obj/project.assets.json is not readable ({error}); restore the project to list implicit and transitive packages."
+                )),
+                path: display,
+                frameworks: Vec::new(),
+            }
+        }
+    };
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(error) => {
+            return Assets {
+                state: "failed",
+                message: Some(format!("obj/project.assets.json is not valid JSON: {error}")),
+                path: display,
+                frameworks: Vec::new(),
+            }
+        }
+    };
+
+    // direct[base][id] = autoReferenced; implicit[base] holds the SDK/auto packages.
+    let mut direct: std::collections::HashMap<String, std::collections::HashMap<String, bool>> =
+        std::collections::HashMap::new();
+    let mut implicit: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, AssetsPackage>,
+    > = std::collections::HashMap::new();
+    if let Some(frameworks) = value
+        .get("project")
+        .and_then(|project| project.get("frameworks"))
+        .and_then(Value::as_object)
+    {
+        for (tfm, framework) in frameworks {
+            let base = tfm.split('/').next().unwrap_or(tfm).to_string();
+            if target_framework.is_some_and(|selected| selected != base) {
+                continue;
+            }
+            let direct_for = direct.entry(base.clone()).or_default();
+            let implicit_for = implicit.entry(base.clone()).or_default();
+            if let Some(dependencies) = framework.get("dependencies").and_then(Value::as_object) {
+                for (id, dependency) in dependencies {
+                    let auto = dependency
+                        .get("autoReferenced")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    direct_for.insert(id.to_ascii_lowercase(), auto);
+                    if auto {
+                        implicit_for.insert(
+                            id.to_ascii_lowercase(),
+                            AssetsPackage {
+                                id: id.clone(),
+                                version: dependency
+                                    .get("version")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_string),
+                            },
+                        );
+                    }
+                }
+            }
+            if let Some(downloads) = framework.get("downloadDependencies").and_then(Value::as_array) {
+                for download in downloads {
+                    let Some(name) = download.get("name").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    implicit_for.insert(
+                        name.to_ascii_lowercase(),
+                        AssetsPackage {
+                            id: name.to_string(),
+                            version: download
+                                .get("version")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                        },
+                    );
+                }
+            }
+        }
+    }
+    if let Some(downloads) = value
+        .get("project")
+        .and_then(|project| project.get("downloadDependencies"))
+        .and_then(Value::as_array)
+    {
+        for download in downloads {
+            let Some(name) = download.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let package = AssetsPackage {
+                id: name.to_string(),
+                version: download
+                    .get("version")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            };
+            for implicit_for in implicit.values_mut() {
+                implicit_for.insert(name.to_ascii_lowercase(), package.clone());
+            }
+        }
+    }
+
+    let mut frameworks: std::collections::BTreeMap<String, AssetsFramework> =
+        std::collections::BTreeMap::new();
+    if let Some(targets) = value.get("targets").and_then(Value::as_object) {
+        for (target, packages) in targets {
+            let framework = assets_target_tfm(target);
+            if target_framework.is_some_and(|selected| selected != framework) {
+                continue;
+            }
+            let entry = frameworks
+                .entry(framework.clone())
+                .or_insert_with(|| AssetsFramework {
+                    framework: framework.clone(),
+                    implicit: Vec::new(),
+                    transitive: Vec::new(),
+                });
+            if let Some(packages) = packages.as_object() {
+                for (key, package) in packages {
+                    let kind = package.get("type").and_then(Value::as_str).unwrap_or("package");
+                    if kind != "package" {
+                        continue;
+                    }
+                    let id = key.split('/').next().unwrap_or(key).to_string();
+                    let version = key.split_once('/').map(|(_, version)| version.to_string());
+                    let lower = id.to_ascii_lowercase();
+                    if direct
+                        .get(&framework)
+                        .is_some_and(|direct| direct.contains_key(&lower))
+                        || implicit
+                            .get(&framework)
+                            .is_some_and(|implicit| implicit.contains_key(&lower))
+                    {
+                        continue;
+                    }
+                    if !entry
+                        .transitive
+                        .iter()
+                        .any(|package| package.id.eq_ignore_ascii_case(&id))
+                    {
+                        entry.transitive.push(AssetsPackage { id, version });
+                    }
+                }
+            }
+        }
+    }
+    for (tfm, framework) in &mut frameworks.iter_mut() {
+        if let Some(implicit_for) = implicit.get(tfm) {
+            framework.implicit = implicit_for.values().cloned().collect();
+        }
+        framework
+            .implicit
+            .sort_by(|left, right| left.id.to_lowercase().cmp(&right.id.to_lowercase()));
+        framework
+            .transitive
+            .sort_by(|left, right| left.id.to_lowercase().cmp(&right.id.to_lowercase()));
+    }
+
+    let frameworks: Vec<AssetsFramework> = frameworks.into_values().collect();
+    if frameworks.is_empty() {
+        Assets {
+            state: "missing",
+            message: Some(
+                "obj/project.assets.json has no package targets for this project/TFM.".to_string(),
+            ),
+            path: display,
+            frameworks,
+        }
+    } else {
+        Assets {
+            state: "ok",
+            message: None,
+            path: display,
+            frameworks,
+        }
+    }
+}
+
+fn xml_property(text: &str, name: &str) -> Option<String> {
+    let open = format!("<{name}>");
+    let close = format!("</{name}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&close)? + start;
+    Some(text[start..end].trim().to_string())
+}
+
 pub fn list(
     root: &Path,
     project: &Path,
@@ -760,6 +1064,8 @@ pub fn list(
     muxer: &Path,
     sdk_root: &Path,
     sdk_version: &str,
+    prerelease: bool,
+    selected_source: Option<&str>,
 ) -> Listing {
     let mut base = vec![
         muxer.to_string_lossy().into_owned(),
@@ -776,15 +1082,60 @@ pub fn list(
     let installed_argv = base.clone();
     let mut outdated_argv = base.clone();
     outdated_argv.insert(4, "--outdated".to_string());
-    let sources_argv = vec![
-        muxer.to_string_lossy().into_owned(),
-        "nuget".to_string(),
-        "list".to_string(),
-        "source".to_string(),
-        "--format".to_string(),
-        "short".to_string(),
-    ];
-
+    if prerelease {
+        outdated_argv.push("--include-prerelease".to_string());
+    }
+    if let Some(source) = selected_source {
+        outdated_argv.push("--source".to_string());
+        outdated_argv.push(source.to_string());
+    }
+    let sources = configured_sources(root, muxer, sdk_root);
+    if let Some(source) = selected_source {
+        let valid = sources.state == "ok"
+            && source_matches(source, &sources.items)
+            && validate_source_arg(source).is_ok();
+        if !valid {
+            return Listing {
+                state: "failed",
+                message: Some(
+                    "The selected NuGet source is not configured for this project or is not a public HTTPS source; no package command was run.".to_string(),
+                ),
+                project: project_display.to_string(),
+                project_name: project_name(project),
+                target_framework: target_framework.map(str::to_string),
+                sdk_version: sdk_version.to_string(),
+                sdk_root: sdk_root.to_string_lossy().into_owned(),
+                cpm: detect_cpm(root, project),
+                installed: CommandResult {
+                    state: "failed",
+                    message: None,
+                    command: String::new(),
+                    exit: None,
+                    log: String::new(),
+                    frameworks: Vec::new(),
+                    truncated: false,
+                },
+                outdated: CommandResult {
+                    state: "failed",
+                    message: None,
+                    command: String::new(),
+                    exit: None,
+                    log: String::new(),
+                    frameworks: Vec::new(),
+                    truncated: false,
+                },
+                sources,
+                frameworks: Vec::new(),
+                total_packages: 0,
+                outdated_count: 0,
+                truncated: false,
+                prerelease,
+                selected_source: Some(source.to_string()),
+                assets: read_assets(project, target_framework),
+                probe: false,
+            };
+        }
+    }
     let no_references = !declares_package_reference(project);
     let installed = command_result(
         run(&installed_argv, root, sdk_root),
@@ -800,36 +1151,6 @@ pub fn list(
         "dotnet list package --outdated",
         no_references,
     );
-    let sources = match run(&sources_argv, root, sdk_root) {
-        exec if exec.spawn_error.is_some() => Sources {
-            state: "failed",
-            message: Some(format!(
-                "Could not list NuGet sources: {}",
-                exec.spawn_error.unwrap_or_default()
-            )),
-            items: Vec::new(),
-        },
-        exec if exec.code != Some(0) => Sources {
-            state: "failed",
-            message: Some(first_line(&exec.stderr).unwrap_or_else(|| {
-                "dotnet nuget list source failed; the configured source is unknown.".to_string()
-            })),
-            items: Vec::new(),
-        },
-        exec => match parse_sources(&exec.stdout) {
-            Ok(items) => Sources {
-                state: "ok",
-                message: None,
-                items,
-            },
-            Err(error) => Sources {
-                state: "failed",
-                message: Some(format!("dotnet nuget list source returned {error}.")),
-                items: Vec::new(),
-            },
-        },
-    };
-
     let cpm = detect_cpm(root, project);
     let (mut frameworks, merged_truncated) = cap(merge(&installed.frameworks, &outdated.frameworks));
     if let Some(tfm) = target_framework {
@@ -880,6 +1201,9 @@ pub fn list(
         total_packages,
         outdated_count,
         truncated: merged_truncated,
+        prerelease,
+        selected_source: selected_source.map(str::to_string),
+        assets: read_assets(project, target_framework),
         probe: false,
     }
 }
@@ -993,6 +1317,388 @@ fn declares_package_reference(project: &Path) -> bool {
     fs::read_to_string(project).map_or(true, |text| text.contains("PackageReference"))
 }
 
+fn url_host(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    if rest.contains('@') {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority
+        .strip_prefix('[')
+        .and_then(|value| value.split(']').next())
+        .or_else(|| authority.split(':').next())?;
+    (!host.is_empty()).then_some(host)
+}
+
+fn private_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return private_ip(ip);
+    }
+    if host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host == "0.0.0.0"
+        || host == "::1"
+        || host.starts_with("fe80:")
+        || host.starts_with("fc")
+        || host.starts_with("fd")
+    {
+        return true;
+    }
+    let octets: Vec<u8> = host
+        .split('.')
+        .filter_map(|part| part.parse::<u8>().ok())
+        .collect();
+    if octets.len() == 4 {
+        return octets[0] == 0
+            || octets[0] == 10
+            || octets[0] == 127
+            || (octets[0] == 192 && octets[1] == 168)
+            || (octets[0] == 169 && octets[1] == 254)
+            || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+            || (octets[0] == 100 && (64..=127).contains(&octets[1]));
+    }
+    false
+}
+
+/// SSRF guard shared by Discover and `dotnet list --source`: only HTTPS to a public host.
+/// A local path is allowed for configured folder sources; plain HTTP and private/loopback/
+/// link-local hosts are refused before any request or process.
+pub fn validate_source_arg(source: &str) -> Result<(), String> {
+    if source.starts_with("http://") {
+        return Err("NuGet sources must use HTTPS; plain HTTP is refused.".to_string());
+    }
+    if !source.starts_with("https://") {
+        return Err("NuGet sources must use HTTPS.".to_string());
+    }
+    let Some(host) = url_host(source) else {
+        return Err("The NuGet source URL is invalid.".to_string());
+    };
+    if private_host(host) {
+        return Err(format!(
+            "The NuGet source host {host} is loopback, private or link-local and is refused."
+        ));
+    }
+    Ok(())
+}
+
+fn private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || ip.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+        }
+        IpAddr::V6(ip) => {
+            // Mapped/compatible IPv4 and the NAT64 well-known prefix embed an IPv4 address
+            // that must be classified as IPv4, not as a public IPv6 literal.
+            if let Some(v4) = ip.to_ipv4() {
+                return private_ip(IpAddr::V4(v4));
+            }
+            let segments = ip.segments();
+            if segments[..6] == [0x0064, 0xff9b, 0, 0, 0, 0] {
+                let v4 = std::net::Ipv4Addr::new(
+                    (segments[6] >> 8) as u8,
+                    segments[6] as u8,
+                    (segments[7] >> 8) as u8,
+                    segments[7] as u8,
+                );
+                return private_ip(IpAddr::V4(v4));
+            }
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+/// Resolves once and refuses the request if any answer is loopback/private/link-local. ureq
+/// connects to these same addresses, so a DNS answer changed after validation is not used.
+struct SafeResolver;
+
+impl ureq::Resolver for SafeResolver {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
+        let addresses: Vec<SocketAddr> = netloc.to_socket_addrs()?.collect();
+        if addresses.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "the source host has no address",
+            ));
+        }
+        if addresses.iter().any(|address| private_ip(address.ip())) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the source host resolves to a loopback, private or link-local address",
+            ));
+        }
+        Ok(addresses)
+    }
+}
+
+pub fn source_matches(source: &str, configured: &[Source]) -> bool {
+    configured.iter().any(|item| {
+        let value = item.url.as_deref().unwrap_or(&item.name);
+        value.trim_end_matches('/') == source.trim_end_matches('/')
+    })
+}
+
+pub fn configured_sources(
+    root: &Path,
+    muxer: &Path,
+    sdk_root: &Path,
+) -> Sources {
+    let sources_argv = vec![
+        muxer.to_string_lossy().into_owned(),
+        "nuget".to_string(),
+        "list".to_string(),
+        "source".to_string(),
+        "--format".to_string(),
+        "short".to_string(),
+    ];
+    match run(&sources_argv, root, sdk_root) {
+        exec if exec.spawn_error.is_some() => Sources {
+            state: "failed",
+            message: Some(format!(
+                "Could not list NuGet sources: {}",
+                exec.spawn_error.unwrap_or_default()
+            )),
+            items: Vec::new(),
+        },
+        exec if exec.code != Some(0) => Sources {
+            state: "failed",
+            message: Some(first_line(&exec.stderr).unwrap_or_else(|| {
+                "dotnet nuget list source failed; the configured source is unknown.".to_string()
+            })),
+            items: Vec::new(),
+        },
+        exec => match parse_sources(&exec.stdout) {
+            Ok(items) => Sources {
+                state: "ok",
+                message: None,
+                items,
+            },
+            Err(error) => Sources {
+                state: "failed",
+                message: Some(format!("dotnet nuget list source returned {error}.")),
+                items: Vec::new(),
+            },
+        },
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchItem {
+    pub id: String,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    pub authors: Vec<String>,
+    pub downloads: Option<u64>,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Search {
+    pub state: &'static str,
+    pub message: Option<String>,
+    pub source: String,
+    pub query: String,
+    pub prerelease: bool,
+    pub items: Vec<SearchItem>,
+}
+
+fn percent_encode(text: &str) -> String {
+    let mut encoded = String::new();
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(byte as char)
+            }
+            b' ' => encoded.push('+'),
+            other => encoded.push_str(&format!("%{other:02X}")),
+        }
+    }
+    encoded
+}
+
+/// Discover uses the source's own v3 SearchQueryService. It never installs and never falls
+/// back to another source when the selected one is not HTTP or does not advertise search.
+pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Search {
+    let failed = |message: String| Search {
+        state: "failed",
+        message: Some(message),
+        source: source.to_string(),
+        query: query.to_string(),
+        prerelease,
+        items: Vec::new(),
+    };
+    if !source.starts_with("https://") {
+        return failed(format!(
+            "Discover needs an HTTPS NuGet v3 source; {source} is not one. Package installation still uses the configured sources."
+        ));
+    }
+    if let Err(error) = validate_source_arg(source) {
+        return failed(error);
+    }
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(20))
+        .redirects(0)
+        .resolver(SafeResolver)
+        .build();
+    let index: Value = match agent.get(source).call() {
+        Ok(response) => match response.into_string() {
+            Ok(text) => match serde_json::from_str::<Value>(&text) {
+                Ok(value) => value,
+                Err(error) => return failed(format!("Could not read the NuGet source index: {error}")),
+            },
+            Err(error) => return failed(format!("Could not read the NuGet source index: {error}")),
+        },
+        Err(error) => return failed(format!("Could not read the NuGet source index: {error}")),
+    };
+    let service = index
+        .get("resources")
+        .and_then(Value::as_array)
+        .and_then(|resources| {
+            resources.iter().find(|resource| {
+                resource
+                    .get("@type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| kind == "SearchQueryService" || kind.starts_with("SearchQueryService/"))
+            })
+        })
+        .and_then(|resource| resource.get("@id"))
+        .and_then(Value::as_str);
+    let Some(service) = service else {
+        return failed("The selected NuGet source does not advertise a v3 SearchQueryService.".to_string());
+    };
+    if let Err(error) = validate_source_arg(service) {
+        return failed(format!("The source advertised an unsafe search endpoint: {error}"));
+    }
+    let separator = if service.contains('?') { '&' } else { '?' };
+    let url = format!(
+        "{service}{separator}q={}&take={}&prerelease={}&semVerLevel=2.0.0",
+        percent_encode(query),
+        take.clamp(1, 100),
+        prerelease
+    );
+    let body: Value = match agent.get(&url).call() {
+        Ok(response) => match response.into_string() {
+            Ok(text) => match serde_json::from_str::<Value>(&text) {
+                Ok(value) => value,
+                Err(error) => return failed(format!("NuGet search returned invalid JSON: {error}")),
+            },
+            Err(error) => return failed(format!("NuGet search failed: {error}")),
+        },
+        Err(error) => return failed(format!("NuGet search failed: {error}")),
+    };
+    let items = body
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|data| {
+            data.iter()
+                .filter_map(|item| {
+                    let id = item.get("id").and_then(Value::as_str)?.to_string();
+                    let authors = match item.get("authors") {
+                        Some(Value::String(text)) => text
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|author| !author.is_empty())
+                            .map(str::to_string)
+                            .collect(),
+                        Some(Value::Array(values)) => values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect(),
+                        _ => Vec::new(),
+                    };
+                    Some(SearchItem {
+                        id,
+                        version: item.get("version").and_then(Value::as_str).map(str::to_string),
+                        description: item
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        authors,
+                        downloads: item.get("totalDownloads").and_then(Value::as_u64),
+                        verified: item.get("verified").and_then(Value::as_bool).unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Search {
+        state: "ok",
+        message: None,
+        source: source.to_string(),
+        query: query.to_string(),
+        prerelease,
+        items,
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreRun {
+    pub state: &'static str,
+    pub message: Option<String>,
+    pub command: String,
+    pub exit: Option<i32>,
+    pub log: String,
+}
+
+/// One explicit restore after a confirmed batch. Its failure is reported, never hidden.
+pub fn restore(plan: &Plan) -> RestoreRun {
+    let argv = restore_argv(plan);
+    let command = display(&argv);
+    let exec = run(&argv, &plan.root, &plan.sdk_root);
+    let (log, _) = cap_log(&format!(
+        "$ {command}\nexit {}\n--- stdout\n{}\n--- stderr\n{}",
+        exec.code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        exec.stdout.trim_end(),
+        exec.stderr.trim_end()
+    ));
+    let (state, message) = if let Some(error) = exec.spawn_error {
+        ("failed", Some(format!("Could not run dotnet restore: {error}")))
+    } else if exec.code != Some(0) {
+        (
+            "failed",
+            Some(first_line(&exec.stderr).unwrap_or_else(|| {
+                format!(
+                    "dotnet restore exited with {}.",
+                    exec.code
+                        .map(|code| code.to_string())
+                        .unwrap_or_else(|| "an unknown status".to_string())
+                )
+            })),
+        )
+    } else {
+        ("ok", None)
+    };
+    RestoreRun {
+        state,
+        message,
+        command,
+        exit: exec.code,
+        log,
+    }
+}
+
 fn run(argv: &[String], cwd: &Path, sdk_root: &Path) -> Exec {
     let output = crate::dotnet_command(argv, cwd, sdk_root)
         .stdin(Stdio::null())
@@ -1061,6 +1767,8 @@ pub fn probe(
     cpm: bool,
     empty: bool,
     sources_failed: bool,
+    prerelease: bool,
+    selected_source: Option<&str>,
 ) -> Listing {
     let mut frameworks = if empty {
         Vec::new()
@@ -1180,6 +1888,31 @@ pub fn probe(
         total_packages,
         outdated_count,
         truncated: false,
+        prerelease,
+        selected_source: selected_source.map(str::to_string),
+        assets: Assets {
+            state: if empty { "missing" } else { "ok" },
+            message: empty.then(|| {
+                "obj/project.assets.json is not readable in the probe; restore the project to list implicit and transitive packages."
+                    .to_string()
+            }),
+            path: "probe/obj/project.assets.json".to_string(),
+            frameworks: if empty {
+                Vec::new()
+            } else {
+                vec![AssetsFramework {
+                    framework: "net8.0".to_string(),
+                    implicit: vec![AssetsPackage {
+                        id: "Microsoft.NETCore.App.Ref".to_string(),
+                        version: Some("8.0.0".to_string()),
+                    }],
+                    transitive: vec![AssetsPackage {
+                        id: "Microsoft.Extensions.Primitives".to_string(),
+                        version: Some("8.0.0".to_string()),
+                    }],
+                }]
+            },
+        },
         probe: true,
     }
 }
@@ -1187,6 +1920,7 @@ pub fn probe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     const INSTALLED: &str = include_str!("../tests/fixtures/nuget/installed.json");
     const OUTDATED: &str = include_str!("../tests/fixtures/nuget/outdated.json");
@@ -1207,6 +1941,7 @@ mod tests {
             target_framework: Some("net8.0".to_string()),
             muxer: PathBuf::from("/sdk/dotnet"),
             sdk_root: PathBuf::from("/sdk"),
+            install: false,
             probe: false,
         }
     }
@@ -1409,6 +2144,8 @@ mod tests {
             target_framework: Some("net8.0".to_string()),
             muxer: PathBuf::from("/sdk/dotnet"),
             sdk_root: PathBuf::from("/sdk"),
+            install: false,
+            defer_cpm: false,
         };
         let plan = make_plan(request).unwrap();
         let view = plan_view(&plan);
@@ -1439,6 +2176,8 @@ mod tests {
             target_framework: None,
             muxer: PathBuf::from("/sdk/dotnet"),
             sdk_root: PathBuf::from("/sdk"),
+            install: false,
+            defer_cpm: false,
         })
         .expect_err("CPM refuses the update plan");
         assert_eq!(error.code, "nuget_cpm_unsupported");
@@ -1648,5 +2387,231 @@ mod tests {
         assert_eq!(first, plan_id(1, 2, "App.csproj", "A", "1.0.0"));
         assert_ne!(first, plan_id(1, 3, "App.csproj", "A", "1.0.0"));
         assert!(first.starts_with("nuget-2-1-"));
+    }
+
+    #[test]
+    fn assets_read_implicit_and_transitive_without_guessing() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("App.csproj");
+        fs::write(&project, "<Project />").unwrap();
+        fs::create_dir_all(dir.path().join("obj")).unwrap();
+        fs::write(
+            dir.path().join("obj/project.assets.json"),
+            r#"{
+              "targets": {
+                "net8.0": {
+                  "Microsoft.NETCore.App.Ref/8.0.0": { "type": "package" },
+                  "Newtonsoft.Json/13.0.1": { "type": "package" },
+                  "Microsoft.Extensions.Primitives/8.0.0": { "type": "package" },
+                  "Serilog/3.1.1": { "type": "package" }
+                }
+              },
+              "project": {
+                "frameworks": {
+                  "net8.0": {
+                    "dependencies": {
+                      "Microsoft.NETCore.App.Ref": { "target": "Package", "version": "[8.0.0, )", "autoReferenced": true },
+                      "Newtonsoft.Json": { "target": "Package", "version": "[13.0.1, )" },
+                      "Serilog": { "target": "Package", "version": "[3.1.1, )" }
+                    },
+                    "downloadDependencies": [
+                      { "name": "Microsoft.AspNetCore.App.Ref", "version": "[8.0.0, )" }
+                    ]
+                  }
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+        let assets = read_assets(&project, Some("net8.0"));
+        assert_eq!(assets.state, "ok");
+        assert_eq!(assets.frameworks.len(), 1);
+        assert_eq!(assets.frameworks[0].implicit.len(), 2);
+        assert!(assets.frameworks[0]
+            .implicit
+            .iter()
+            .any(|package| package.id == "Microsoft.NETCore.App.Ref"));
+        assert!(assets.frameworks[0]
+            .implicit
+            .iter()
+            .any(|package| package.id == "Microsoft.AspNetCore.App.Ref"));
+        assert_eq!(assets.frameworks[0].transitive.len(), 1);
+        assert_eq!(
+            assets.frameworks[0].transitive[0].id,
+            "Microsoft.Extensions.Primitives"
+        );
+        assert!(!assets.frameworks[0]
+            .transitive
+            .iter()
+            .any(|package| package.id == "Newtonsoft.Json" || package.id == "Serilog"));
+
+        let missing = read_assets(&project, Some("net9.0"));
+        assert_eq!(missing.state, "missing");
+        assert!(missing.message.unwrap().contains("no package targets"));
+    }
+
+    #[test]
+    fn install_plan_allows_a_package_that_is_not_referenced_yet() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\" />").unwrap();
+        let request = |install: bool| PlanRequest {
+            id: "plan-install".to_string(),
+            workspace_id: 1,
+            context_id: 2,
+            root: dir.path().to_path_buf(),
+            project: project.clone(),
+            project_display: "App.csproj".to_string(),
+            package: "Newtonsoft.Json".to_string(),
+            from_version: None,
+            version: "13.0.3".to_string(),
+            target_framework: None,
+            muxer: PathBuf::from("/sdk/dotnet"),
+            sdk_root: PathBuf::from("/sdk"),
+            install,
+            defer_cpm: false,
+        };
+        let error = make_plan(request(false)).expect_err("an update needs the package");
+        assert_eq!(error.code, "nuget_stale_plan");
+        let plan = make_plan(request(true)).unwrap();
+        assert!(plan.install);
+        assert_eq!(
+            plan_view(&plan)["command"],
+            "/sdk/dotnet add App.csproj package Newtonsoft.Json --version 13.0.3 --no-restore"
+        );
+        assert_eq!(plan_view(&plan)["install"], true);
+    }
+
+    fn restore_project(project: &Path) {
+        let output = Command::new("dotnet")
+            .args(["restore", project.to_string_lossy().as_ref(), "-nologo", "-v:q"])
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_UI_LANGUAGE", "en")
+            .output()
+            .expect("dotnet is available for the real assets test");
+        assert!(
+            output.status.success(),
+            "restore failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn real_assets_read_implicit_packages_from_project_dependencies() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("NetStandard.csproj");
+        fs::write(
+            &project,
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>netstandard2.0</TargetFramework></PropertyGroup></Project>",
+        )
+        .unwrap();
+        restore_project(&project);
+        let assets = read_assets(&project, Some("netstandard2.0"));
+        assert_eq!(assets.state, "ok", "{:?}", assets.message);
+        assert!(
+            assets.frameworks[0]
+                .implicit
+                .iter()
+                .any(|package| package.id == "NETStandard.Library"),
+            "implicit: {:?}",
+            assets.frameworks[0].implicit
+        );
+        assert!(!assets.frameworks[0]
+            .transitive
+            .iter()
+            .any(|package| package.id == "NETStandard.Library"));
+    }
+
+    #[test]
+    fn real_assets_fold_a_rid_target_into_one_framework() {
+        if !cfg!(target_os = "macos") || !cfg!(target_arch = "aarch64") {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("Rid.csproj");
+        fs::write(
+            &project,
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework><RuntimeIdentifier>osx-arm64</RuntimeIdentifier></PropertyGroup></Project>",
+        )
+        .unwrap();
+        restore_project(&project);
+        let assets = read_assets(&project, None);
+        assert_eq!(assets.state, "ok", "{:?}", assets.message);
+        assert_eq!(
+            assets
+                .frameworks
+                .iter()
+                .map(|framework| framework.framework.as_str())
+                .collect::<Vec<_>>(),
+            vec!["net8.0"]
+        );
+    }
+
+    #[test]
+    fn source_validation_rejects_plain_http_and_private_hosts() {
+        for source in [
+            "http://api.nuget.org/v3/index.json",
+            "https://localhost/v3/index.json",
+            "https://127.0.0.1/v3/index.json",
+            "https://10.0.0.2/v3/index.json",
+            "https://192.168.1.2/v3/index.json",
+            "https://169.254.1.2/v3/index.json",
+            "https://[::1]/v3/index.json",
+            "https://[::ffff:127.0.0.1]/v3/index.json",
+            "https://[::ffff:10.0.0.1]/v3/index.json",
+            "https://[::127.0.0.1]/v3/index.json",
+            "https://[64:ff9b::7f00:1]/v3/index.json",
+            "https://[64:ff9b::10.0.0.1]/v3/index.json",
+            "https://0.0.0.0/v3/index.json",
+            "https://100.64.0.1/v3/index.json",
+            "https://198.18.0.1/v3/index.json",
+            "https://224.0.0.1/v3/index.json",
+            "https://[fc00::1]/v3/index.json",
+            "https://[fe80::1]/v3/index.json",
+            "https://nuget.local/v3/index.json",
+        ] {
+            assert!(validate_source_arg(source).is_err(), "{source}");
+        }
+        assert!(validate_source_arg("https://api.nuget.org/v3/index.json").is_ok());
+        assert!(validate_source_arg("/tmp/local-feed").is_err());
+        use ureq::Resolver;
+        assert!(SafeResolver.resolve("localhost:443").is_err());
+        assert!(SafeResolver.resolve("127.0.0.1:443").is_err());
+        let unsafe_search = search("http://127.0.0.1:1/v3/index.json", "xunit", false, 5);
+        assert_eq!(unsafe_search.state, "failed");
+        assert!(unsafe_search.message.unwrap().contains("HTTPS"));
+    }
+
+    #[test]
+    fn an_inherited_base_intermediate_props_file_marks_assets_unsupported() {
+        let root = tempfile::tempdir().unwrap();
+        let project_dir = root.path().join("src/App");
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(
+            root.path().join("Directory.Build.props"),
+            "<Project><PropertyGroup><BaseIntermediateOutputPath>artifacts/obj/</BaseIntermediateOutputPath></PropertyGroup></Project>",
+        )
+        .unwrap();
+        let project = project_dir.join("App.csproj");
+        fs::write(&project, "<Project />").unwrap();
+        let assets = read_assets(&project, Some("net8.0"));
+        assert_eq!(assets.state, "unsupported");
+        assert!(assets.message.unwrap().contains("BaseIntermediateOutputPath"));
+    }
+
+    #[test]
+    fn an_expanded_base_intermediate_path_marks_assets_unsupported_not_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("App.csproj");
+        fs::write(
+            &project,
+            "<Project><PropertyGroup><BaseIntermediateOutputPath>$(MSBuildProjectDirectory)/artifacts/obj/</BaseIntermediateOutputPath></PropertyGroup></Project>",
+        )
+        .unwrap();
+        let assets = read_assets(&project, Some("net8.0"));
+        assert_eq!(assets.state, "unsupported");
+        assert!(assets.frameworks.is_empty());
+        assert!(assets.message.unwrap().contains("BaseIntermediateOutputPath"));
     }
 }

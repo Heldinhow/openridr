@@ -11,8 +11,9 @@ use crate::process::{ProcessStatus, Registry, Termination};
 use crate::sdk::{AnalysisRuntime, Install, Inventory, Version};
 use serde::Serialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -22,7 +23,54 @@ pub const TOOL: &str = "csharp-ls";
 pub const VERSION: &str = "0.28.0";
 pub const NUGET_SOURCE: &str = "https://api.nuget.org/v3/index.json";
 pub const NUGET_PACKAGE: &str = "https://www.nuget.org/packages/csharp-ls/0.28.0";
-const SIGNATURE_LIMITATION: &str = "dotnet tool install reports \"Skipping NuGet package signature verification.\" OpenRidr records the SHA-256 of the installed launcher and the exact --version output; it does not claim a verified package signature or an official package hash.";
+const PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.28.0/csharp-ls.0.28.0.nupkg";
+const PACKAGE_SHA512: &str = "a138b9c8f9de9dd6343e9b0d0c8f4d51637bba7e38606b7c2b08b1d91e8eefa39f12123057f6625f425812b4361e52841bd2856704ec127ff50144ce05170a99";
+const PACKAGE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+fn verify_package_hash(bytes: &[u8], expected: &str) -> Result<(), String> {
+    let actual = format!("{:x}", Sha512::digest(bytes));
+    if actual == expected {
+        Ok(())
+    } else {
+        Err("csharp-ls package SHA-512 mismatch; installation aborted. Retry the setup.".to_string())
+    }
+}
+
+fn store_verified_package(temp: &Path, bytes: &[u8], expected: &str) -> Result<(PathBuf, PathBuf), String> {
+    verify_package_hash(bytes, expected)?;
+    let feed = temp.join("verified-feed");
+    if feed.exists() {
+        fs::remove_dir_all(&feed).map_err(|error| error.to_string())?;
+    }
+    fs::create_dir_all(&feed).map_err(|error| error.to_string())?;
+    fs::write(feed.join("csharp-ls.0.28.0.nupkg"), bytes).map_err(|error| error.to_string())?;
+    let config = temp.join("offline.nuget.config");
+    fs::write(&config, "<configuration><packageSources><clear /></packageSources></configuration>")
+        .map_err(|error| error.to_string())?;
+    Ok((feed, config))
+}
+
+fn prepare_local_package(temp: &Path, progress: impl Fn(u64, Option<u64>) -> bool) -> Result<(PathBuf, PathBuf), String> {
+    let response = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .get(PACKAGE_URL)
+        .call()
+        .map_err(|error| format!("Could not download csharp-ls: {error}"))?;
+    let total = response.header("Content-Length").and_then(|value| value.parse().ok());
+    let mut reader = response.into_reader().take(PACKAGE_MAX_BYTES + 1);
+    let mut bytes = Vec::new();
+    let mut chunk = [0; 65536];
+    loop {
+        let count = reader.read(&mut chunk).map_err(|error| format!("Could not read csharp-ls package: {error}"))?;
+        if count == 0 { break; }
+        bytes.extend_from_slice(&chunk[..count]);
+        if bytes.len() as u64 > PACKAGE_MAX_BYTES { return Err("csharp-ls package exceeds the size limit".to_string()); }
+        if !progress(bytes.len() as u64, total) { return Err("Installation cancelled.".to_string()); }
+    }
+    store_verified_package(temp, &bytes, PACKAGE_SHA512)
+}
+const SIGNATURE_LIMITATION: &str = "The NuGet package is checked against the pinned SHA-512 before local installation. dotnet reports skipping package signature verification. The installed launcher SHA-256 and version are recorded separately.";
 
 /// App-scoped root. Tests and isolated E2E runs override it with `OPENRIDR_HOME`.
 pub fn app_home() -> PathBuf {
@@ -203,11 +251,18 @@ fn plan_id(plan: &Plan) -> String {
 
 /// Test seam, enabled only with `OPENRIDR_ENABLE_PROBE=1`: a controlled installer stands in
 /// for the SDK muxer so an E2E can observe progress, failure and retry without NuGet.org.
+#[cfg(debug_assertions)]
 fn probe_muxer() -> Option<PathBuf> {
     if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() != Ok("1") {
         return None;
     }
     std::env::var_os("OPENRIDR_TOOLS_MUXER").map(PathBuf::from)
+}
+
+#[cfg(not(debug_assertions))]
+fn probe_muxer() -> Option<PathBuf> {
+    // Release builds never let an environment variable replace the verified package feed.
+    None
 }
 
 /// Builds the plan from the detected runtimes and SDKs. `dotnet tool install` runs on any
@@ -271,7 +326,7 @@ pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
         ],
         cwd: neutral_cwd().to_string_lossy().to_string(),
         permissions: vec![
-            format!("network: {NUGET_SOURCE} (NuGet.org over HTTPS; the child runs with an isolated HOME and its default NuGet source)"),
+            format!("network: {PACKAGE_URL} (NuGet.org over HTTPS; the installer uses only the verified local package)"),
             format!("write: {}", tool_root().to_string_lossy()),
             format!(
                 "write: {} (isolated HOME, NuGet cache and first-run files)",
@@ -433,6 +488,26 @@ fn sha256_file(path: &Path) -> Option<String> {
     )
 }
 
+/// Records the verified launcher. The package SHA-512 pins the source archive, but there is no
+/// per-DLL manifest: a modified launcher is detected by its hash; other files in the tool
+/// directory are not individually re-hashed. Documented limitation in docs/decisions.md.
+fn record_installation(destination: &Path, launcher_hash: &str) -> std::io::Result<()> {
+    fs::write(destination.join(".openridr-integrity"), format!("{PACKAGE_SHA512}\n{launcher_hash}\n"))
+}
+
+fn persisted_installation_valid(destination: &Path) -> bool {
+    let Ok(record) = fs::read_to_string(destination.join(".openridr-integrity")) else {
+        return false;
+    };
+    let mut lines = record.lines();
+    let package = lines.next();
+    let launcher = lines.next();
+    package == Some(PACKAGE_SHA512)
+        && launcher.is_some()
+        && launcher == sha256_file(&destination.join(binary_name())).as_deref()
+        && lines.next().is_none()
+}
+
 /// Bytes currently on disk under `root`; symlinks are not followed. Progress only ever reports
 /// what the installer actually wrote, never an estimated percentage.
 fn directory_bytes(root: &Path) -> u64 {
@@ -526,6 +601,8 @@ struct Data {
     cancel_requested: bool,
     sealed: bool,
     stale_reason: Option<String>,
+    force: bool,
+    download_dir: Option<String>,
 }
 
 pub struct Tools {
@@ -569,6 +646,8 @@ impl Tools {
                 cancel_requested: false,
                 sealed: false,
                 stale_reason: None,
+                force: false,
+                download_dir: None,
             }),
         }
     }
@@ -688,6 +767,20 @@ impl Tools {
         data.confirmed_plan_id = None;
     }
 
+    /// Only a recorded, still-matching launcher that really answers the pinned version is
+    /// reusable. A stale record is removed so the caller downloads the verified package.
+    fn reusable_installation(destination: &Path, runtime_root: &Path) -> bool {
+        if !persisted_installation_valid(destination) {
+            return false;
+        }
+        let existing = verify_installed(destination, runtime_root);
+        if existing.state == "ready" {
+            return true;
+        }
+        let _ = fs::remove_file(destination.join(".openridr-integrity"));
+        false
+    }
+
     /// Starts the real install. The caller has already validated trust, confirmation and that
     /// the plan id still matches the material fields.
     pub fn begin_install(
@@ -695,7 +788,132 @@ impl Tools {
         plan: Plan,
         workspace_id: u64,
         context_id: u64,
+        processes: Arc<Mutex<Registry>>,
+        force: bool,
+    ) -> HostResult<Value> {
+        let destination = Path::new(&plan.destination);
+        let binary = destination.join(binary_name());
+        // Reuse only an installation whose recorded integrity is still valid AND whose
+        // launcher really answers the pinned version. A stale record is discarded; an old
+        // launcher without a record is never adopted, it is reinstalled from the verified
+        // package instead. `force` always goes through the staging download.
+        if !force && Self::reusable_installation(destination, Path::new(&plan.dotnet_root)) {
+            return self.begin_install_worker(
+                plan,
+                workspace_id,
+                context_id,
+                &mut processes.lock().unwrap(),
+                None,
+                false,
+            );
+        }
+        if !force && probe_muxer().is_some() && binary.is_file() {
+            return self.begin_install_worker(
+                plan,
+                workspace_id,
+                context_id,
+                &mut processes.lock().unwrap(),
+                None,
+                false,
+            );
+        }
+        let attempt = {
+            let mut data = self.data.lock().unwrap();
+            if matches!(data.state, "downloading" | "installing" | "verifying") && !data.sealed {
+                return Err(HostError::new("invalid_state", "An installation is already running."));
+            }
+            data.revision += 1;
+            data.state = "downloading";
+            data.plan = Some(plan.clone());
+            data.confirmed_plan_id = Some(plan.plan_id.clone());
+            data.destination = plan.destination.clone();
+            data.staging = plan.staging.clone();
+            data.runtime_root = plan.dotnet_root.clone();
+            data.workspace_id = Some(workspace_id);
+            data.context_id = Some(context_id);
+            data.started_at = Some(now_ms());
+            data.finished_at = None;
+            data.process_id = None;
+            data.progress = None;
+            data.error = None;
+            data.sealed = false;
+            data.cancel_requested = false;
+            data.force = force;
+            data.download_dir = None;
+            data.note = Some("Downloading and verifying the pinned csharp-ls package.".into());
+            data.revision
+        };
+        let tools = Arc::clone(self);
+        std::thread::spawn(move || {
+            let temp = install_temp(&plan.staging).join(format!("download-{attempt}"));
+            cleanup_stale_downloads(&temp);
+            {
+                let mut data = tools.data.lock().unwrap();
+                if data.revision == attempt && !data.sealed {
+                    data.download_dir = Some(temp.to_string_lossy().to_string());
+                }
+            }
+            let package = if probe_muxer().is_some() {
+                #[cfg(debug_assertions)]
+                if let Ok(delay) = std::env::var("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS") {
+                    if let Ok(milliseconds) = delay.parse::<u64>() {
+                        std::thread::sleep(std::time::Duration::from_millis(milliseconds.min(5_000)));
+                    }
+                }
+                Ok(None)
+            } else {
+                fs::create_dir_all(&temp).map_err(|error| error.to_string()).and_then(|_| {
+                    prepare_local_package(&temp, |downloaded, total| {
+                        let mut data = tools.data.lock().unwrap();
+                        if data.cancel_requested || data.sealed || data.revision != attempt { return false; }
+                        data.progress = Some(Progress { downloaded, total });
+                        true
+                    }).map(Some)
+                })
+            };
+            let mut registry = processes.lock().unwrap();
+            {
+                let data = tools.data.lock().unwrap();
+                if data.sealed || data.cancel_requested || data.revision != attempt {
+                    let _ = fs::remove_dir_all(&temp);
+                    return;
+                }
+            }
+            let result = package.map_err(|error| HostError::new("operation_failed", error))
+                .and_then(|package| {
+                    tools.begin_install_worker(
+                        plan,
+                        workspace_id,
+                        context_id,
+                        &mut registry,
+                        package,
+                        force,
+                    )
+                });
+            if let Err(error) = result {
+                let mut data = tools.data.lock().unwrap();
+                if !data.sealed && data.revision == attempt {
+                    data.state = "failed";
+                    data.error = Some(error.message);
+                    data.finished_at = Some(now_ms());
+                    cleanup_download(&mut data);
+                    if force {
+                        restore_previous(&mut data);
+                    }
+                }
+            }
+        });
+        Ok(json!({"spawned": true}))
+    }
+
+    fn begin_install_worker(
+        self: &Arc<Self>,
+        plan: Plan,
+        workspace_id: u64,
+        context_id: u64,
         processes: &mut Registry,
+        local_package: Option<(PathBuf, PathBuf)>,
+        force: bool,
     ) -> HostResult<Value> {
         if let Some(process_id) = self.running_process_id() {
             return Err(HostError::new(
@@ -705,11 +923,15 @@ impl Tools {
         }
         // Confirmation is the executable step: only now is the existing launcher run (read-only
         // `--version`) to decide reuse versus replacement. A valid tool is never overwritten.
-        let existing = verify_installed(
-            Path::new(&plan.destination),
-            Path::new(&plan.dotnet_root),
-        );
-        if existing.state == "ready" {
+        let can_reuse = !force
+            && (persisted_installation_valid(Path::new(&plan.destination))
+                || probe_muxer().is_some());
+        let existing = if can_reuse {
+            verify_installed(Path::new(&plan.destination), Path::new(&plan.dotnet_root))
+        } else {
+            inspect_existing(Path::new(&plan.destination))
+        };
+        if can_reuse && existing.state == "ready" {
             let destination = plan.destination.clone();
             let staging = plan.staging.clone();
             let mut plan = plan;
@@ -735,6 +957,8 @@ impl Tools {
             data.workspace_id = Some(workspace_id);
             data.context_id = Some(context_id);
             data.finished_at = Some(now_ms());
+            data.force = false;
+            data.download_dir = None;
             data.log
                 .push("Existing installation verified; reused without downloading or overwriting.".to_string());
             if let Some(output) = &existing.output {
@@ -781,6 +1005,30 @@ impl Tools {
         })?;
         let progress_base = directory_bytes(&child_home()) + directory_bytes(&temp);
 
+        if local_package.is_none() && probe_muxer().is_none() {
+            return Err(HostError::new(
+                "operation_failed",
+                "Refusing to run dotnet tool install without the verified local package feed and its SHA-512; the previous installation was not touched.",
+            ));
+        }
+        if let Some((feed, _config)) = &local_package {
+            let package_path = feed.join("csharp-ls.0.28.0.nupkg");
+            let bytes = fs::read(&package_path).map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!(
+                        "Could not re-read the staged csharp-ls package {}: {error}",
+                        package_path.to_string_lossy()
+                    ),
+                )
+            })?;
+            verify_package_hash(&bytes, PACKAGE_SHA512).map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!("{error} No dotnet tool install was started."),
+                )
+            })?;
+        }
         let mut command = Command::new(&plan.argv[0]);
         command
             .args(&plan.argv[1..])
@@ -797,6 +1045,10 @@ impl Tools {
             .env_remove("DOTNET_CLI_HOME")
             .env_remove("NUGET_PACKAGES")
             .env_remove("NUGET_HTTP_CACHE_PATH");
+        if let Some((feed, config)) = local_package {
+            command.arg("--add-source").arg(feed).arg("--configfile").arg(config).arg("--no-cache")
+                .env("NUGET_PACKAGES", temp.join("packages"));
+        }
 
         let piped = match processes.spawn_piped("tools:csharp-ls", workspace_id, command) {
             Ok(piped) => piped,
@@ -835,6 +1087,7 @@ impl Tools {
         data.destination = plan.destination.clone();
         data.staging = plan.staging.clone();
         data.runtime_root = plan.dotnet_root.clone();
+        data.force = force;
         data.reused = false;
         data.exit = None;
         data.termination = None;
@@ -916,6 +1169,7 @@ impl Tools {
             (data.state, data.process_id)
         };
         if !matches!(state, "downloading" | "installing" | "verifying") {
+            cleanup_download(&mut self.data.lock().unwrap());
             return;
         }
         let Some(process_id) = process_id else {
@@ -989,6 +1243,10 @@ impl Tools {
                         data.staging
                     ));
                     data.finished_at = Some(now_ms());
+                    cleanup_download(&mut data);
+                    if data.force {
+                        restore_previous(&mut data);
+                    }
                     return;
                 }
                 data.state = "installing";
@@ -1006,6 +1264,24 @@ impl Tools {
                 }
                 let destination = PathBuf::from(&data.destination);
                 let staging = PathBuf::from(&data.staging);
+                // Verify the new copy and write its integrity record BEFORE the swap. A bad
+                // package or an unwritable record never touches the working installation.
+                if let Err(error) =
+                    verify_staged_installation(&staging, Path::new(&data.runtime_root))
+                {
+                    data.state = "failed";
+                    data.progress = None;
+                    data.error = Some(format!("Verification failed before promotion: {error}"));
+                    data.note = Some(
+                        "The previous installation was kept; the new staging directory is not ready."
+                            .to_string(),
+                    );
+                    let _ = fs::remove_dir_all(&staging);
+                    data.finished_at = Some(now_ms());
+                    cleanup_download(&mut data);
+                    restore_previous(&mut data);
+                    return;
+                }
                 if let Err(error) = promote(&staging, &destination) {
                     data.state = "failed";
                     data.progress = None;
@@ -1040,16 +1316,12 @@ impl Tools {
                 ));
                 let existing = verify_installed(&destination, Path::new(&data.runtime_root));
                 if existing.state != "ready" {
-                    let failed_dir = PathBuf::from(format!(
-                        "{}.failed-{}",
-                        destination.to_string_lossy(),
-                        now_ms()
-                    ));
-                    let moved = fs::rename(&destination, &failed_dir).is_ok();
+                    let staging = PathBuf::from(&data.staging);
+                    let recovered = rollback_promotion(&staging, &destination);
                     data.state = "failed";
                     data.progress = None;
                     data.error = Some(format!(
-                        "Verification failed: {}",
+                        "Verification after promotion failed: {}",
                         existing
                             .reason
                             .clone()
@@ -1058,19 +1330,24 @@ impl Tools {
                     if let Some(output) = &existing.output {
                         data.log.push(output.clone());
                     }
-                    data.note = Some(if moved {
-                        format!(
-                            "The unverified installation was moved to {} and is not ready.",
-                            failed_dir.to_string_lossy()
-                        )
+                    data.note = Some(if recovered {
+                        "The new installation failed verification; the previous verified installation was restored."
+                            .to_string()
                     } else {
                         "The unverified destination was left in place and is not ready."
                             .to_string()
                     });
                     data.finished_at = Some(now_ms());
+                    cleanup_download(&mut data);
+                    if recovered {
+                        restore_previous(&mut data);
+                    }
                     return;
                 }
-
+                let staging = PathBuf::from(&data.staging);
+                if staging.is_dir() {
+                    let _ = fs::remove_dir_all(&staging);
+                }
                 data.state = "ready";
                 if let Some(plan) = data.plan.as_mut() {
                     plan.record_verified(&existing);
@@ -1085,6 +1362,8 @@ impl Tools {
                         .to_string(),
                 );
                 data.finished_at = Some(now_ms());
+                data.force = false;
+                cleanup_download(&mut data);
                 if let Some(output) = &existing.output {
                     data.log.push(format!("$ {} --version", existing.binary));
                     data.log.push(output.clone());
@@ -1113,6 +1392,22 @@ impl Tools {
             return Ok(());
         }
         let Some(process_id) = data.process_id else {
+            if data.state == "downloading" {
+                data.cancel_requested = true;
+                data.state = "cancelled";
+                data.progress = None;
+                data.note = Some(format!(
+                    "Installation was cancelled before the download finished; {} is not ready.",
+                    data.staging
+                ));
+                data.finished_at = Some(now_ms());
+                cleanup_download(&mut data);
+                data.log.push(
+                    "Installation cancelled before the download finished; no partial result is reported as ready."
+                        .to_string(),
+                );
+                return Ok(());
+            }
             return Err(HostError::new(
                 "invalid_state",
                 "No installation plan or running installation to cancel.",
@@ -1134,6 +1429,7 @@ impl Tools {
         data.state = "cancelled";
         data.progress = None;
         data.finished_at = Some(now_ms());
+        cleanup_download(&mut data);
         let (note, log) = if data.awaiting_decision {
             (
                 format!(
@@ -1184,6 +1480,7 @@ impl Tools {
             data.awaiting_decision = status.state == "running";
         }
         data.finished_at = Some(now_ms());
+        cleanup_download(&mut data);
         data.note = Some(if state == "verifying" {
             format!(
                 "Stopped at a workspace boundary after promotion; {} is not reported ready until a new plan verifies and reuses it.",
@@ -1204,11 +1501,111 @@ impl Tools {
 
 /// Same promotion semantics as a file save: the destination is replaced only after the
 /// staged tree exists; a failed rename restores the previous destination.
+fn cleanup_stale_downloads(current: &Path) {
+    let Some(root) = current.parent() else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.path() != current
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("download-")
+        {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn cleanup_download(data: &mut Data) {
+    if let Some(directory) = data.download_dir.take() {
+        let _ = fs::remove_dir_all(directory);
+    }
+}
+
+/// A failed force-reinstall must leave the previous verified launcher usable. It is only a
+/// recovery path: the new files never touched the destination before verification.
+fn restore_previous(data: &mut Data) -> bool {
+    let destination = PathBuf::from(&data.destination);
+    let existing = verify_installed(&destination, Path::new(&data.runtime_root));
+    if existing.state != "ready" {
+        return false;
+    }
+    data.state = "ready";
+    data.progress = None;
+    data.sha256 = existing.sha256.clone();
+    data.verified_version = existing.verified_version.clone();
+    data.verified_output = existing.output.clone();
+    data.note = Some(
+        "Reinstall failed; the previous verified installation was kept and is still ready."
+            .to_string(),
+    );
+    data.finished_at = Some(now_ms());
+    true
+}
+
+fn verify_staged_installation(staging: &Path, runtime_root: &Path) -> Result<Existing, String> {
+    let existing = verify_installed(staging, runtime_root);
+    if existing.state != "ready" {
+        return Err(existing
+            .reason
+            .unwrap_or_else(|| "the staged launcher did not verify".to_string()));
+    }
+    let Some(sha) = existing.sha256.as_deref() else {
+        return Err("could not hash the staged launcher".to_string());
+    };
+    record_installation(staging, sha)
+        .map_err(|error| format!("could not save the staged integrity record: {error}"))?;
+    Ok(existing)
+}
+
+/// After a successful swap, `staging` holds the previous directory. A failed post-swap check
+/// swaps it back; the new directory ends in staging and is removed.
+fn rollback_promotion(staging: &Path, destination: &Path) -> bool {
+    if !staging.is_dir() {
+        return false;
+    }
+    if promote(staging, destination).is_err() {
+        return false;
+    }
+    let _ = fs::remove_dir_all(staging);
+    true
+}
+
 fn promote(staging: &Path, destination: &Path) -> Result<(), String> {
     if !staging.is_dir() {
         return Err("the staging directory does not exist".to_string());
     }
-    let backup = if destination.exists() {
+    if !destination.exists() {
+        return fs::rename(staging, destination)
+            .map_err(|error| format!("could not move staging into place: {error}"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let from = CString::new(staging.as_os_str().as_bytes())
+            .map_err(|_| "the staging path is not valid".to_string())?;
+        let to = CString::new(destination.as_os_str().as_bytes())
+            .map_err(|_| "the destination path is not valid".to_string())?;
+        // One atomic swap: at every instant either the old or the new directory is at the
+        // destination. A failed swap leaves the previous installation untouched.
+        let swapped = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_SWAP) };
+        if swapped != 0 {
+            return Err(format!(
+                "could not atomically swap the installation: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        // staging now holds the previous directory; the caller keeps it until post-swap
+        // verification succeeds (or swaps it back on failure).
+        return Ok(());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
         let backup = PathBuf::from(format!(
             "{}.old-{}-{}",
             destination.to_string_lossy(),
@@ -1217,20 +1614,13 @@ fn promote(staging: &Path, destination: &Path) -> Result<(), String> {
         ));
         fs::rename(destination, &backup)
             .map_err(|error| format!("could not move the previous destination aside: {error}"))?;
-        Some(backup)
-    } else {
-        None
-    };
-    if let Err(error) = fs::rename(staging, destination) {
-        if let Some(backup) = &backup {
-            let _ = fs::rename(backup, destination);
+        if let Err(error) = fs::rename(staging, destination) {
+            let _ = fs::rename(&backup, destination);
+            return Err(format!("could not move staging into place: {error}"));
         }
-        return Err(format!("could not move staging into place: {error}"));
-    }
-    if let Some(backup) = backup {
         let _ = fs::remove_dir_all(backup);
+        Ok(())
     }
-    Ok(())
 }
 
 fn now_ms() -> u64 {
@@ -1244,6 +1634,28 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::sdk::RuntimeInstall;
+
+    #[test]
+    fn package_hash_must_match_exactly() {
+        let expected = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
+        assert!(verify_package_hash(b"abc", expected).is_ok());
+        assert!(verify_package_hash(b"modified", expected).is_err());
+        let temp = tempfile::tempdir().unwrap();
+        assert!(store_verified_package(temp.path(), b"modified", expected).is_err());
+        assert!(!temp.path().join("verified-feed").exists());
+    }
+
+    #[test]
+    fn persisted_installation_detects_launcher_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let launcher = directory.path().join(binary_name());
+        fs::write(&launcher, b"verified launcher").unwrap();
+        assert!(!persisted_installation_valid(directory.path()));
+        record_installation(directory.path(), &sha256_file(&launcher).unwrap()).unwrap();
+        assert!(persisted_installation_valid(directory.path()));
+        fs::write(&launcher, b"modified launcher").unwrap();
+        assert!(!persisted_installation_valid(directory.path()));
+    }
 
     fn inventory() -> (tempfile::TempDir, Inventory) {
         let temp = tempfile::tempdir().unwrap();
@@ -1320,5 +1732,210 @@ mod tests {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn a_persisted_launcher_that_fails_version_verification_is_not_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        let launcher = dir.path().join(binary_name());
+        fs::write(&launcher, "#!/bin/sh\necho 'csharp-ls, version 0.27.0'\n").unwrap();
+        let hash = sha256_file(&launcher).unwrap();
+        record_installation(dir.path(), &hash).unwrap();
+        assert!(persisted_installation_valid(dir.path()));
+        assert!(!Tools::reusable_installation(dir.path(), Path::new("/tmp")));
+        assert!(!dir.path().join(".openridr-integrity").exists());
+    }
+
+    #[test]
+    fn cleanup_removes_only_the_attempt_download_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let current = dir.path().join("download-2");
+        let stale = dir.path().join("download-1");
+        fs::create_dir_all(&current).unwrap();
+        fs::create_dir_all(&stale).unwrap();
+        fs::write(current.join("keep"), "x").unwrap();
+        cleanup_stale_downloads(&current);
+        assert!(current.exists());
+        assert!(!stale.exists());
+    }
+
+    #[test]
+    fn the_worker_refuses_an_install_without_the_verified_package_feed() {
+        std::env::remove_var("OPENRIDR_ENABLE_PROBE");
+        let temp = tempfile::tempdir().unwrap();
+        let plan = Plan {
+            tool: TOOL,
+            version: VERSION,
+            package: TOOL,
+            source: Source {
+                name: "NuGet.org",
+                url: NUGET_SOURCE,
+                package_url: NUGET_PACKAGE,
+            },
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            destination: temp.path().join("destination").to_string_lossy().to_string(),
+            staging: temp.path().join("staging").to_string_lossy().to_string(),
+            dotnet_root: "/tmp".to_string(),
+            argv: vec!["dotnet".to_string(), "tool".to_string(), "install".to_string()],
+            cwd: temp.path().to_string_lossy().to_string(),
+            permissions: vec![],
+            integrity: "",
+            existing: inspect_existing(&temp.path().join("destination")),
+            plan_id: "test-plan".to_string(),
+        };
+        let tools = std::sync::Arc::new(Tools::new());
+        let mut processes = Registry::new();
+        let error = tools
+            .begin_install_worker(plan, 1, 1, &mut processes, None, false)
+            .expect_err("without local_package the worker must refuse");
+        assert!(error.message.contains("verified local package"), "{}", error.message);
+        assert!(processes.views().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn promote_swaps_the_new_directory_without_a_missing_installation_window() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("0.28");
+        let staging = temp.path().join("0.28.staging");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(destination.join("old"), "old").unwrap();
+        fs::write(staging.join("new"), "new").unwrap();
+        promote(&staging, &destination).unwrap();
+        assert!(destination.join("new").is_file());
+        assert!(!destination.join("old").exists());
+        // The previous directory stays in staging until post-swap verification succeeds.
+        assert!(staging.join("old").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_atomic_swap_keeps_the_previous_destination() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("tools");
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("0.28");
+        let staging = root.join("0.28.staging");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(destination.join("old"), "old").unwrap();
+        fs::write(staging.join("new"), "new").unwrap();
+        let permissions = fs::metadata(&root).unwrap().permissions();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = promote(&staging, &destination);
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert!(destination.join("old").is_file());
+        assert!(!destination.join("new").exists());
+        let _ = permissions;
+    }
+
+    #[test]
+    fn promote_failure_keeps_the_previous_destination() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("0.28");
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(destination.join("old"), "old").unwrap();
+        let missing = temp.path().join("missing-staging");
+        assert!(promote(&missing, &destination).is_err());
+        assert!(destination.join("old").is_file());
+    }
+
+    fn worker_test_plan(temp: &Path) -> Plan {
+        Plan {
+            tool: TOOL,
+            version: VERSION,
+            package: TOOL,
+            source: Source {
+                name: "NuGet.org",
+                url: NUGET_SOURCE,
+                package_url: NUGET_PACKAGE,
+            },
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            destination: temp.join("destination").to_string_lossy().to_string(),
+            staging: temp.join("staging").to_string_lossy().to_string(),
+            dotnet_root: "/tmp".to_string(),
+            argv: vec!["dotnet".to_string(), "tool".to_string(), "install".to_string()],
+            cwd: temp.to_string_lossy().to_string(),
+            permissions: vec![],
+            integrity: "",
+            existing: inspect_existing(&temp.join("destination")),
+            plan_id: "test-plan".to_string(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_worker_rechecks_the_package_hash_before_installing() {
+        std::env::remove_var("OPENRIDR_ENABLE_PROBE");
+        let temp = tempfile::tempdir().unwrap();
+        let feed = temp.path().join("feed");
+        fs::create_dir_all(&feed).unwrap();
+        fs::write(feed.join("csharp-ls.0.28.0.nupkg"), b"not the pinned package").unwrap();
+        let config = temp.path().join("offline.config");
+        fs::write(&config, "<configuration />").unwrap();
+        let tools = std::sync::Arc::new(Tools::new());
+        let mut processes = Registry::new();
+        let error = tools
+            .begin_install_worker(
+                worker_test_plan(temp.path()),
+                1,
+                1,
+                &mut processes,
+                Some((feed, config)),
+                false,
+            )
+            .expect_err("a wrong package hash must stop before dotnet is spawned");
+        assert!(error.message.contains("SHA-512 mismatch"), "{}", error.message);
+        assert!(processes.views().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staged_verification_writes_integrity_and_a_write_failure_keeps_the_old_copy() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let staging = temp.path().join("staging");
+        fs::create_dir_all(&staging).unwrap();
+        let launcher = staging.join(binary_name());
+        fs::write(&launcher, "#!/bin/sh\nprintf 'csharp-ls, version 0.28.0\n'\n").unwrap();
+        fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
+        let existing = verify_staged_installation(&staging, Path::new("/tmp")).unwrap();
+        assert_eq!(existing.state, "ready");
+        assert!(staging.join(".openridr-integrity").is_file());
+
+        // A read-only staging directory cannot receive the integrity record.
+        let unwritable = temp.path().join("unwritable");
+        fs::create_dir_all(&unwritable).unwrap();
+        let launcher = unwritable.join(binary_name());
+        fs::write(&launcher, "#!/bin/sh\nprintf 'csharp-ls, version 0.28.0\n'\n").unwrap();
+        fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&unwritable, fs::Permissions::from_mode(0o555)).unwrap();
+        let error = verify_staged_installation(&unwritable, Path::new("/tmp")).unwrap_err();
+        fs::set_permissions(&unwritable, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(error.contains("integrity"), "{error}");
+        assert!(!unwritable.join(".openridr-integrity").exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rollback_after_a_failed_post_swap_check_restores_the_previous_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("0.28");
+        let staging = temp.path().join("0.28.staging");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(destination.join("old"), "old").unwrap();
+        fs::write(staging.join("new"), "new").unwrap();
+        promote(&staging, &destination).unwrap();
+        assert!(destination.join("new").is_file());
+        assert!(rollback_promotion(&staging, &destination));
+        assert!(destination.join("old").is_file());
+        assert!(!destination.join("new").exists());
+        assert!(!staging.exists());
     }
 }

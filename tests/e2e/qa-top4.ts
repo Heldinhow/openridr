@@ -55,15 +55,10 @@ export async function cleanup(request: APIRequestContext) {
   await hostCall(request, "workspace.close");
 }
 
-/** The user's confirmation of the install plan, through the API. A present launcher is reused; an absent one is installed. */
+/** Fixed tools are project setup now: verify/install without trust and wait for verified ready. */
 export async function confirmToolPlan(request: APIRequestContext) {
-  const planned = await hostCall(request, "tools.plan", { tool: "csharp-ls" });
-  expect(planned.ok, JSON.stringify(planned.error)).toBe(true);
-  const install = await hostCall(request, "tools.install", {
-    planId: planned.data.tools["csharp-ls"].plan.planId,
-    confirm: true,
-  });
-  expect(install.ok, JSON.stringify(install.error)).toBe(true);
+  const started = await hostCall(request, "setup.start");
+  expect(started.ok, JSON.stringify(started.error)).toBe(true);
   await expect
     .poll(async () => (await hostState(request)).tools["csharp-ls"].state, { timeout: 180_000 })
     .toBe("ready");

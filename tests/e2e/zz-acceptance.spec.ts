@@ -111,26 +111,21 @@ async function waitEvaluation(page: Page, revision: number) {
 }
 
 async function ensureCsharpLs(page: Page, request: APIRequestContext) {
-  // Fase 1 layout: the installer lives in the Workspace tools drawer, closed by default.
+  // Fixed tools are project setup: the gate already installed and verified them before trust.
   if (!(await page.getByTestId("workspace-tools").isVisible())) {
     await page.getByTestId("workspace-tools-toggle").click();
   }
-  const before = await hostState(request);
-  if (before.tools["csharp-ls"].state === "ready") {
-    await expect(page.getByTestId("install-ready")).toBeVisible();
-    return before;
+  const state = await hostState(request);
+  if (state.tools["csharp-ls"].state !== "ready") {
+    await hostState(request).then(() => hostCall(request, "setup.start"));
   }
-  await clickTestId(page, "install-plan-open");
-  await expect(page.getByTestId("install-plan")).toBeVisible();
-  await expect(page.getByTestId("install-tool")).toContainText("csharp-ls 0.28.0");
-  await expect(page.getByTestId("install-source")).toContainText("NuGet");
-  await clickTestId(page, "install-confirm");
   await expect
     .poll(
       async () => (await hostState(request)).tools["csharp-ls"].state,
       { timeout: 240_000, intervals: [100, 250, 500] },
     )
     .toBe("ready");
+  await expect(page.getByTestId("install-ready")).toBeVisible();
   return hostState(request);
 }
 

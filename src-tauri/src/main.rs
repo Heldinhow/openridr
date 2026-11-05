@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use openridr_host::{Host, HostError};
 use serde_json::Value;
 use tauri::menu::{Menu, MenuItemBuilder};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, State, Url};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, Url, WindowEvent};
 
 /// Event that tells the UI a path is waiting in `take_pending_open`.
 const OPEN_EVENT: &str = "openridr-open";
@@ -42,7 +42,8 @@ fn take_pending_quit(pending: State<'_, PendingQuit>) -> bool {
 
 /// End of the quit flow: the UI already saved or discarded, so nothing may prevent the exit.
 #[tauri::command]
-fn quit_app(app: AppHandle) {
+fn quit_app(app: AppHandle, host: State<'_, Host>) {
+    let _ = host.dispatch("workspace.close", Value::Null);
     QUITTING.store(true, Ordering::SeqCst);
     app.exit(0);
 }
@@ -81,6 +82,13 @@ fn path_from_url(url: &Url) -> Option<String> {
 fn offer_open(app: &AppHandle, path: String) {
     *app.state::<PendingOpen>().0.lock().unwrap() = Some(path);
     let _ = app.emit(OPEN_EVENT, ());
+}
+
+/// Every exit path closes the host workspace first: analysis and debugger process groups are
+/// owned by the host, not by the webview that may already be gone.
+fn close_host_workspace(app: &AppHandle) {
+    let host = app.state::<Host>();
+    let _ = host.dispatch("workspace.close", Value::Null);
 }
 
 fn request_quit(app: &AppHandle) {
@@ -160,8 +168,19 @@ fn main() {
                 if !QUITTING.load(Ordering::SeqCst) && app.get_webview_window("main").is_some() {
                     api.prevent_exit();
                     request_quit(app);
+                } else {
+                    close_host_workspace(app);
                 }
             }
+            RunEvent::WindowEvent {
+                event: WindowEvent::Destroyed,
+                label,
+                ..
+            } if label == "main" => {
+                // Closing the last window must stop LSP/netcoredbg instead of leaving orphans.
+                close_host_workspace(app);
+            }
+            RunEvent::Exit => close_host_workspace(app),
             #[cfg(target_os = "macos")]
             RunEvent::Opened { urls } => {
                 for path in urls.iter().filter_map(path_from_url) {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SetupScreen } from "./SetupScreen";
+import { SetupGate } from "./SetupGate";
 import { WorkspaceView } from "./WorkspaceView";
 import { TrustPrompt } from "./TrustPrompt";
 import { call, messageOf, type Snapshot } from "./host/client";
@@ -7,7 +8,7 @@ import { fetchRecent, type RecentProject } from "./welcome/recent";
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [stage, setStage] = useState<"setup" | "workspace">("setup");
+  const [stage, setStage] = useState<"setup" | "gate" | "workspace">("setup");
   const [lastPath, setLastPath] = useState("");
   // A workspace the host opened that still waits for its first Trust decision.
   const [prompt, setPrompt] = useState<Snapshot | null>(null);
@@ -16,6 +17,7 @@ export default function App() {
   const [cancelError, setCancelError] = useState<string | null>(null);
   const background = useRef<HTMLDivElement>(null);
   const [pendingFile, setPendingFile] = useState<string | null>(null);
+  const [gateError, setGateError] = useState<string | null>(null);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const recentSolutions = recentProjects.map((project) => project.path);
   // Path from Finder or the Dock while a workspace is mounted; WorkspaceView applies it with its dirty-buffer guard.
@@ -59,19 +61,61 @@ export default function App() {
     );
   }
 
-  function handleOpened(opened: Snapshot) {
-    handleSnapshot(opened);
-    if (opened.workspace) {
-      setLastPath(opened.workspace.path);
+  async function handleOpened(opened: Snapshot) {
+    let next = opened;
+    // Both tools are fixed project setup; ask the host to verify/install them before the
+    // workspace is usable. A ready installation is reused synchronously, so no gate appears.
+    if (next.workspace && next.setup.state !== "ready") {
+      setGateError(null);
+      try {
+        next = await call<Snapshot>("setup.start");
+      } catch (caught) {
+        setGateError(messageOf(caught));
+      }
+    }
+    handleSnapshot(next);
+    if (next.workspace) {
+      setLastPath(next.workspace.path);
     }
     setPendingFile(null);
+    if (!next.workspace) {
+      setStage("setup");
+      return;
+    }
+    if (next.setup.state !== "ready") {
+      setPrompt(null);
+      setStage("gate");
+      return;
+    }
     // Undecided projects ask before entering the IDE; decided ones open straight in the stored mode.
-    if (opened.trust.decision === null) {
+    if (next.trust.decision === null) {
       setCancelError(null);
-      setPrompt(opened);
+      setPrompt(next);
       setStage("setup");
     } else {
       setStage("workspace");
+    }
+  }
+
+  useEffect(() => {
+    // The gate polls through SetupGate; once the host reports ready, continue to trust/workspace.
+    if (stage !== "gate" || !snapshot?.workspace || snapshot.setup.state !== "ready") return;
+    setGateError(null);
+    if (snapshot.trust.decision === null) {
+      setPrompt(snapshot);
+      setStage("setup");
+    } else {
+      setStage("workspace");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, snapshot]);
+
+  async function retrySetup() {
+    setGateError(null);
+    try {
+      handleSnapshot(await call<Snapshot>("setup.start"));
+    } catch (caught) {
+      setGateError(messageOf(caught));
     }
   }
 
@@ -91,7 +135,7 @@ export default function App() {
       setPrompt(null);
       previousPath.current = null;
       if (previous) {
-        handleOpened(restored);
+        void handleOpened(restored);
       } else {
         handleClosed(restored);
       }
@@ -119,7 +163,7 @@ export default function App() {
     // Opening another workspace resets trust in the host; the view remounts on the new id.
     // While a prompt is pending, the workspace to restore on Cancel is already in previousPath.
     if (!prompt) previousPath.current = snapshot?.workspace?.path ?? null;
-    handleOpened(await call<Snapshot>("workspace.open", { path }));
+    await handleOpened(await call<Snapshot>("workspace.open", { path }));
   }
 
   function openExternal(path: string) {
@@ -131,6 +175,10 @@ export default function App() {
     }
     if (stage === "workspace" && snapshot?.workspace) {
       setExternalOpen({ path });
+      return;
+    }
+    if (stage === "gate") {
+      setExternalError("Finish the project setup before opening another project.");
       return;
     }
     setSetupOpen({ path });
@@ -218,6 +266,26 @@ export default function App() {
       <button className="notice-dismiss" aria-label="Dismiss external open error" onClick={() => setExternalError(null)}>×</button>
     </div>
   ) : null;
+
+  if (stage === "gate" && snapshot?.workspace) {
+    return (
+      <>
+        {externalBand}
+        <SetupGate
+          snapshot={snapshot}
+          error={gateError}
+          onSnapshot={handleSnapshot}
+          onRetry={() => void retrySetup()}
+          onCancel={() => {
+            setGateError(null);
+            void call<Snapshot>("workspace.close")
+              .then(handleClosed)
+              .catch((caught) => setGateError(messageOf(caught)));
+          }}
+        />
+      </>
+    );
+  }
 
   if (stage === "workspace" && snapshot?.workspace && !prompt) {
     return (

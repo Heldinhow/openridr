@@ -40,8 +40,11 @@ fn temp_workspace() -> tempfile::TempDir {
 }
 
 fn open(host: &Host, dir: &Path) -> Value {
-    host.dispatch("workspace.open", json!({ "path": dir.join("Debug.csproj") }))
-        .expect("workspace opens")
+    let opened = host
+        .dispatch("workspace.open", json!({ "path": dir.join("Debug.csproj") }))
+        .expect("workspace opens");
+    host.allow_setup_for_tests();
+    opened
 }
 
 fn state(host: &Host) -> Value {

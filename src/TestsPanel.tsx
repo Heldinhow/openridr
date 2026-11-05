@@ -1,12 +1,13 @@
 import { Icon } from "./Icon";
 import { useEffect, useRef, useState } from "react";
-import type { Evaluation, TestItem, TestResult, TestRun, Tests, TestsDiscovery } from "./host/client";
+import { call, messageOf, type Evaluation, type TestItem, type TestResult, type TestRun, type Tests, type TestsDiscovery } from "./host/client";
 import {
   buildTestTree,
   filterTestTree,
   testCount,
   type TestGroup,
   type TestLeaf,
+  type TreeNode,
 } from "./testTree";
 
 type Props = {
@@ -271,7 +272,12 @@ export function TestsPanel({
   const failedIds = failedTestIds(run, discovery);
   const rerunBlocked = rerunFailedReason({ disabledReason, discovery, run, editedAt });
   const [filter, setFilter] = useState("");
+  const [testsTab, setTestsTab] = useState<"explorer" | "session">("explorer");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [exported, setExported] = useState<{ path: string; bytes: number } | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const tree = buildTestTree(items);
   const visibleTree = filterTestTree(tree, filter);
   const visibleCount = visibleTree.reduce((total, group) => total + testCount(group), 0);
@@ -291,6 +297,31 @@ export function TestsPanel({
   useEffect(() => {
     setFailureCursor(-1);
   }, [run.runId]);
+
+  // Rider keeps the tree and shows the first failure in the right detail after a run.
+  useEffect(() => {
+    if (run.revision === 0 || selectedKey) return;
+    if (!["completed", "failed", "cancelled"].includes(run.state)) return;
+    const failed =
+      run.results.find((result) => result.outcome === "failed" && result.testId) ??
+      run.results.find((result) => result.testId);
+    if (!failed?.testId) return;
+    const findLeaf = (nodes: TreeNode[]): TestLeaf | null => {
+      for (const node of nodes) {
+        if (node.kind === "test") {
+          if (node.item.id === failed.testId) return node;
+        } else {
+          const found = findLeaf(node.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const leaf = findLeaf(tree);
+    if (leaf) setSelectedKey(leaf.key);
+    // A completed run selects the first failure once; a user selection is never replaced.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run.revision, run.state]);
 
   function nextFailure() {
     if (failures.length === 0) return;
@@ -327,13 +358,64 @@ export function TestsPanel({
     });
   }
 
+  function groupKeys(nodes: TreeNode[]): string[] {
+    return nodes.flatMap((node) =>
+      node.kind === "group" ? [node.key, ...groupKeys(node.children)] : [],
+    );
+  }
+
+  function leavesOf(node: TreeNode): TestLeaf[] {
+    return node.kind === "test" ? [node] : node.children.flatMap(leavesOf);
+  }
+
+  function nodeTotals(node: TreeNode) {
+    const totals = { passed: 0, failed: 0, skipped: 0, other: 0, notRun: 0, total: 0 };
+    for (const leaf of leavesOf(node)) {
+      totals.total += 1;
+      const result = currentResults.get(leaf.item.id);
+      if (result?.outcome === "passed") totals.passed += 1;
+      else if (result?.outcome === "failed") totals.failed += 1;
+      else if (result?.outcome === "skipped" || result?.outcome === "notExecuted") totals.skipped += 1;
+      else if (result) totals.other += 1;
+      else totals.notRun += 1;
+    }
+    return totals;
+  }
+
+  function groupTone(node: TreeNode) {
+    const totals = nodeTotals(node);
+    if (totals.failed > 0) return "error";
+    if (totals.total > 0 && totals.passed === totals.total) return "success";
+    return "";
+  }
+
+  async function exportResults() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      setExported(
+        await call<{ path: string; bytes: number }>("tests.export"),
+      );
+    } catch (error) {
+      setExportError(messageOf(error));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function renderLeaf(leaf: TestLeaf) {
     const item = leaf.item;
     const index = leaf.index;
     const status = testStatus(item.id);
     return (
       <ul className="test-list test-tree-leaf" key={leaf.key}>
-        <li data-testid={`test-item-${index}`} title={item.fullyQualifiedName}>
+        <li
+          data-testid={`test-item-${index}`}
+          title={item.fullyQualifiedName}
+          className={selectedKey === leaf.key ? "selected" : undefined}
+          aria-selected={selectedKey === leaf.key}
+          onClick={() => setSelectedKey(leaf.key)}
+        >
           <label>
             <input
               type="checkbox"
@@ -382,20 +464,38 @@ export function TestsPanel({
     }
     const folding = filter.trim() === "";
     const isCollapsed = folding && collapsed.has(group.key);
+    const totals = nodeTotals(group);
     return (
-      <div className="test-group" key={group.key} data-depth={depth}>
+      <div
+        className={`test-group${selectedKey === group.key ? " selected" : ""}`}
+        key={group.key}
+        data-depth={depth}
+      >
         <button
           type="button"
           className="test-group-title"
           aria-expanded={!isCollapsed}
+          aria-selected={selectedKey === group.key}
           title={group.tooltip}
-          onClick={() => toggleGroup(group.key)}
+          onClick={() => {
+            setSelectedKey(group.key);
+            toggleGroup(group.key);
+          }}
         >
           <span aria-hidden="true" className={`test-group-chevron ${isCollapsed ? "" : "open"}`}>
             <Icon name="chevron" />
           </span>
           <span className="test-group-name">{group.title}</span>
-          <span className="muted">{testCount(group)}</span>
+          <span
+            className={`tag ${groupTone(group)}`}
+            data-testid={`test-group-status-${group.key}`}
+            title="Outcome aggregated from the last run of each test under this node."
+          >
+            {totals.failed > 0 ? `${totals.failed} failed` : totals.passed > 0 ? `${totals.passed} passed` : "not run"}
+          </span>
+          <span className="muted">
+            {testCount(group)} test{testCount(group) === 1 ? "" : "s"}
+          </span>
         </button>
         {!isCollapsed && (
           <div className="test-group-body">
@@ -408,354 +508,100 @@ export function TestsPanel({
     );
   }
 
-  return (
-    <div className="build-panel" data-testid="tests-panel">
-      <div className="build-controls">
-        <label className="eval-field">
-          <span>Test project</span>
-          <select
-            data-testid="tests-project"
-            value={selectedProject?.path ?? ""}
-            disabled={running || candidates.length === 0}
-            onChange={(event) => onProjectChange(event.target.value)}
-            title={
-              candidates.length === 0
-                ? "No evaluated test project is available; evaluate a project whose IsTestProject is true."
-                : "The test project is selected explicitly; discovery never scans other projects."
-            }
-          >
-            {candidates.length === 0 && <option value="">No test project</option>}
-            {candidates.length > 1 && !selectedProject && (
-              <option value="">Select a test project</option>
-            )}
-            {candidates.map((project) => (
-              <option key={project.path} value={project.path}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="eval-field">
-          <span>TFM</span>
-          <select
-            data-testid="tests-tfm"
-            value={evaluation.context.targetFramework ?? ""}
-            disabled={running || evaluation.state === "running"}
-            onChange={(event) =>
-              onEvaluate({ targetFramework: event.target.value === "" ? null : event.target.value })
-            }
-            title="The TFM is part of the evaluated model; changing it re-evaluates before discovery."
-          >
-            <option value="">Not selected</option>
-            {tfmOptions.map((tfm) => (
-              <option key={tfm} value={tfm}>
-                {tfm}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          data-testid="tests-discover"
-          disabled={discoverReason !== null || running}
-          onClick={() => selectedProject && onDiscover(selectedProject.path)}
-          title={
-            discoverReason ??
-            "Runs the project's VSTest adapter through dotnet test --list-tests. Never restores, builds a solution or edits packages."
-          }
-        >
-          {running ? "Discovering…" : discovery.revision > 0 ? "Refresh tests" : "Discover tests"}
-        </button>
-        {running && (
-          <button
-            data-testid="tests-cancel"
-            onClick={onCancel}
-            title="Requests termination of the discovery process group and keeps the partial list."
-          >
-            Stop discovery
-          </button>
-        )}
-        {terminalFailure && !running && (
-          <button
-            data-testid="tests-retry"
-            disabled={discoverReason !== null}
-            onClick={() => selectedProject && onDiscover(selectedProject.path)}
-            title={discoverReason ?? "Runs a new discovery of the same project and TFM."}
-          >
-            Retry discovery
-          </button>
-        )}
-        <button
-          data-testid="tests-run-all"
-          disabled={runBlocked !== null}
-          onClick={() => selectedProject && onRun(selectedProject.path, "all", [])}
-          title={
-            runBlocked ??
-            "Runs every identity of the current discovery with VSTest --no-build --no-restore and the built-in TRX logger."
-          }
-        >
-          Run all
-        </button>
-        <button
-          data-testid="tests-run-selected"
-          disabled={runBlocked !== null || selected.size === 0}
-          onClick={() =>
-            selectedProject && onRun(selectedProject.path, "selected", Array.from(selected))
-          }
-          title={
-            runBlocked ??
-            (selected.size === 0
-              ? "Select at least one discovered test; an empty selection never runs all tests."
-              : `Runs exactly ${selected.size} selected identit${selected.size === 1 ? "y" : "ies"}.`)
-          }
-        >
-          Run selected
-        </button>
-        <button
-          data-testid="tests-debug-selected"
-          disabled
-          title={testDebugUnavailable}
-        >
-          Debug selected
-        </button>
-        <button
-          data-testid="tests-rerun-failed"
-          disabled={rerunBlocked !== null}
-          onClick={() =>
-            selectedProject && onRun(selectedProject.path, "selected", failedIds)
-          }
-          title={
-            rerunBlocked ??
-            `Reruns the ${failedIds.length} failed or not-executed identit${
-              failedIds.length === 1 ? "y" : "ies"
-            } from the last completed run of this discovery.`
-          }
-        >
-          Rerun failed
-        </button>
-        {runRunning && (
-          <button
-            data-testid="tests-run-cancel"
-            onClick={onRunCancel}
-            title="Requests termination of the test process group and keeps the partial results, TRX and log."
-          >
-            Stop run
-          </button>
-        )}
-        {(run.state === "failed" || run.state === "cancelled") && !runRunning && (
-          <button
-            data-testid="tests-run-retry"
-            disabled={retryBlocked !== null}
-            onClick={() =>
-              selectedProject &&
-              onRun(
-                selectedProject.path,
-                run.selection,
-                run.selection === "selected" ? run.selectedTestIds : [],
-              )
-            }
-            title={
-              retryBlocked ??
-              "Starts a new explicit run with the same selection; nothing is retried automatically."
-            }
-          >
-            Retry run
-          </button>
-        )}
-        <span
-          className={`tag ${discovery.state === "failed" ? "error" : ""}`}
-          data-testid="tests-state"
-          role="status"
-        >
-          {discoveryStateLabel(discovery)}
-        </span>
-      </div>
+  function findNode(nodes: TreeNode[], key: string): TreeNode | null {
+    for (const node of nodes) {
+      if (node.key === key) return node;
+      if (node.kind === "group") {
+        const found = findNode(node.children, key);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
 
-      {disabledReason && (
-        <p className="muted" data-testid="tests-disabled-reason">
-          {disabledReason}
-        </p>
-      )}
-
-      {autoDiscoveryError && (
-        <p className="warning" data-testid="tests-auto-error" role="status">
-          Automatic discovery did not start: {autoDiscoveryError}
-        </p>
-      )}
-
-      {restoreRequired && (
-        <div className="notice warning" data-testid="tests-restore-required" role="status">
-          <strong>Test discovery needs restored assets.</strong> OpenRidr never restores inside
-          discovery; run the explicit restore first.
-          <div className="actions">
-            <button
-              data-testid="tests-restore-action"
-              disabled={restoreDisabledReason !== null}
-              onClick={onRestore}
-              title={restoreDisabledReason ?? "Calls restore.start for this workspace."}
-            >
-              Restore now
-            </button>
-          </div>
-        </div>
-      )}
-
-      {discovery.state === "mtp_unsupported" && (
-        <p className="warning" data-testid="tests-mtp-message" role="status">
-          {discovery.mtpMessage}
-        </p>
-      )}
-      {discovery.state === "adapter_missing" && (
-        <p className="warning" data-testid="tests-guidance" role="status">
-          {discovery.error}
-        </p>
-      )}
-      {discovery.state === "empty" && (
-        <p className="notice" data-testid="tests-guidance" role="status">
-          {discovery.error}
-        </p>
-      )}
-      {discovery.state === "failed" && (
-        <p className="warning" data-testid="tests-guidance" role="status">
-          {discovery.error} The raw log below is complete for this run; Retry starts a new
-          discovery.
-        </p>
-      )}
-      {discovery.state === "cancelled" && (
-        <p className="warning" data-testid="tests-guidance" role="status">
-          Discovery was cancelled; the {discovery.items.length} test
-          {discovery.items.length === 1 ? "" : "s"} found so far {discovery.partial ? "are" : "is"}{" "}
-          partial and cannot be selected. The log is preserved.
-        </p>
-      )}
-
-      {discovery.revision > 0 && (
-        <>
-          <details className="build-context-details">
-            <summary>Discovery details</summary>
-            <dl className="restore-meta build-meta">
-            {discovery.discoveryId && (
-              <>
-                <dt>Discovery</dt>
-                <dd data-testid="tests-discovery-id">
-                  {discovery.discoveryId} · revision {discovery.revision} · context{" "}
-                  {discovery.contextId ?? "unknown"}
-                </dd>
-              </>
-            )}
-            <dt>Tree</dt>
-            <dd data-testid="tests-tree-state" role="status">
-              {treeStateLabel(discovery, stale, discovery.sealed)}
-            </dd>
-            <dt>Grouping</dt>
-            <dd data-testid="tests-grouping">
-              Grouping derived from test names: project &gt; namespace prefix &gt; class &gt; method.
-              Nothing is parsed from source files; every tooltip carries the full name.
-            </dd>
-            <dt>Scope</dt>
-            <dd data-testid="tests-scope">
-              {discovery.project?.name ?? "unknown"} ·{" "}
-              <code>{discovery.project?.path ?? "unknown"}</code> · TFM{" "}
-              {discovery.targetFramework ?? "not selected"}
-            </dd>
-            <dt>Command</dt>
-            <dd>
-              <code data-testid="tests-command">
-                {discovery.command.length > 0
-                  ? discovery.command.join(" ")
-                  : "No command was run."}
-              </code>
-            </dd>
-            <dt>Working directory</dt>
-            <dd>
-              <code data-testid="tests-cwd">{discovery.cwd || "unknown"}</code>
-            </dd>
-            <dt>Project SDK</dt>
-            <dd data-testid="tests-sdk">
-              {discovery.sdkVersion ?? "unknown"} ·{" "}
-              <code>{discovery.sdkRoot ?? "unknown"}</code>
-            </dd>
-            <dt>Exit</dt>
-            <dd data-testid="tests-exit">
-              {discovery.exit === null ? "exit unknown" : `exit ${discovery.exit}`}
-            </dd>
-            </dl>
-          </details>
-
-          {discovery.sealed && (
-            <p className="warning" data-testid="tests-sealed">
-              Previous discovery, not current: {discovery.staleReason}
-            </p>
-          )}
-          {!discovery.sealed && stale && (
-            <p className="warning" data-testid="tests-stale" role="status">
-              This discovery is stale, not failed: {staleReason} Discover again before selecting
-              tests.
-            </p>
-          )}
-          {discovery.termination && (
-            <p className="muted" data-testid="tests-termination">
-              Termination requested: {discovery.termination.requested}. Observed:{" "}
-              {discovery.termination.observed}
-              {discovery.termination.killedAfterGrace ? " after the grace period" : ""}.
-            </p>
-          )}
-          {discovery.awaitingDecision && (
-            <p className="warning" data-testid="tests-awaiting">
-              Still running; the host has not confirmed termination. Decide in the process panel.
-            </p>
-          )}
-
-          <p className="muted" data-testid="tests-counts">
-            {items.length} test{items.length === 1 ? "" : "s"} · {selected.size} selected ·{" "}
-            <span className="sr-only">{discovery.discoveryId ?? "no discovery"} · revision {discovery.revision}</span>
-            {discovery.partial ? " · partial" : ""}
+  function renderDetail() {
+    if (!selectedKey) {
+      return (
+        <aside className="tests-detail" data-testid="tests-detail">
+          <p className="muted">Select a test or group to see its last result and duration.</p>
+        </aside>
+      );
+    }
+    const node = findNode(tree, selectedKey);
+    if (!node) {
+      return (
+        <aside className="tests-detail" data-testid="tests-detail">
+          <p className="muted">The selected test is not in the current tree.</p>
+        </aside>
+      );
+    }
+    if (node.kind === "group") {
+      const totals = nodeTotals(node);
+      return (
+        <aside className="tests-detail" data-testid="tests-detail">
+          <h3 data-testid="tests-detail-name">{node.title}</h3>
+          <p className="menu-note">{node.tooltip}</p>
+          <p className="muted" data-testid="tests-detail-counts">
+            {totals.total} test{totals.total === 1 ? "" : "s"} · {totals.passed} passed ·{" "}
+            {totals.failed} failed · {totals.skipped} skipped · {totals.other} unknown ·{" "}
+            {totals.notRun} not run
           </p>
-          {items.length > 0 && (
-            <label className="tests-filter-row">
-              <span>Filter</span>
-              <input
-                data-testid="tests-filter"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-                placeholder="Filter tests by name"
-                title="Hides tests that do not match; groups with matches stay and the selection is unchanged."
-              />
-              {filter.trim() !== "" && (
-                <span className="muted" data-testid="tests-filter-count">
-                  {visibleCount} of {items.length} match
-                </span>
-              )}
-            </label>
-          )}
-          {items.length > 0 && visibleCount === 0 && (
-            <p className="notice" data-testid="tests-filter-empty" role="status">
-              No test matches “{filter}”. Clear the filter to see the {items.length} discovered
-              test{items.length === 1 ? "" : "s"}; the selection was not changed.
-            </p>
-          )}
-          {items.length > 0 && visibleCount > 0 && (
-            <div className="test-tree" data-testid="tests-items" aria-label="Discovered tests">
-              {visibleTree.map((group) => renderGroup(group, 0))}
-            </div>
-          )}
-          {selected.size > 0 && stale && (
-            <p className="muted" data-testid="tests-selection-blocked">
-              Selection is disabled until discovery runs again for the current code.
-            </p>
-          )}
-          <pre className="eval-pre build-log" data-testid="tests-log">
-            {discovery.log || "No output yet."}
+        </aside>
+      );
+    }
+    const result = currentResults.get(node.item.id);
+    const status = testStatus(node.item.id);
+    return (
+      <aside className="tests-detail" data-testid="tests-detail">
+        <h3 data-testid="tests-detail-name">{node.item.fullyQualifiedName}</h3>
+        <dl className="restore-meta">
+          <dt>Status</dt>
+          <dd data-testid="tests-detail-status">{status.text}</dd>
+          <dt>Duration</dt>
+          <dd data-testid="tests-detail-duration">
+            {result ? resultDuration(result) : "not run"}
+          </dd>
+          <dt>Project</dt>
+          <dd>{node.item.project}</dd>
+          <dt>TFM</dt>
+          <dd>{node.item.tfm ?? "TFM not selected"}</dd>
+          <dt>Source</dt>
+          <dd>
+            <code>{node.item.source}</code>
+          </dd>
+        </dl>
+        {result?.message && (
+          <pre className="eval-pre" data-testid="tests-detail-message">
+            {result.message}
           </pre>
-          {discovery.logTruncated && (
-            <p className="muted" data-testid="tests-log-truncated">
-              The discovery log is bounded and the earliest lines were dropped; the note at the top
-              of the log says how many.
-            </p>
-          )}
-        </>
-      )}
+        )}
+        {result?.stackTrace && (
+          <pre className="eval-pre" data-testid="tests-detail-stack">
+            {result.stackTrace}
+          </pre>
+        )}
+        {result?.position && (
+          <button
+            className="link-button"
+            data-testid="tests-detail-navigate"
+            onClick={() =>
+              result.position &&
+              onNavigate(result.position.path, {
+                line: result.position.line,
+                character: result.position.character,
+              })
+            }
+          >
+            {result.position.path}:{result.position.line + 1}
+          </button>
+        )}
+      </aside>
+    );
+  }
 
-      {run.revision > 0 && (
+  function renderRunPanel() {
+    if (run.revision === 0) return null;
+    return (
         <section className="build-panel" aria-label="Test run" data-testid="tests-run-panel">
           <div className="build-controls">
             <span
@@ -960,7 +806,480 @@ export function TestsPanel({
             </p>
           )}
         </section>
+
+    );
+  }
+
+  return (
+    <div className="build-panel" data-testid="tests-panel">
+      <div className="tests-tabs" role="tablist" aria-label="Test views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={testsTab === "explorer"}
+          className={`tab-label ${testsTab === "explorer" ? "active" : ""}`}
+          data-testid="tests-tab-explorer"
+          onClick={() => setTestsTab("explorer")}
+        >
+          Explorer
+        </button>
+        {discovery.project && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={testsTab === "session"}
+            className={`tab-label ${testsTab === "session" ? "active" : ""}`}
+            data-testid="tests-tab-session"
+            onClick={() => setTestsTab("session")}
+            title="Execution session for the current project discovery. A solution-wide session is not represented by the host model."
+          >
+            All tests from {discovery.project.name}
+          </button>
+        )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected="false"
+          disabled
+          data-testid="tests-tab-continuous"
+          title="Continuous Testing needs a file watcher and an isolated test session the host does not provide yet."
+        >
+          Continuous Testing
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected="false"
+          disabled
+          data-testid="tests-tab-coverage"
+          title="Coverage needs a collector and a coverage report model the host does not provide yet."
+        >
+          Coverage
+        </button>
+      </div>
+
+      <div className="tests-toolbar" role="toolbar" aria-label="Test actions">
+        <span className="tag success" data-testid="tests-count-passed" title="Passed in the last run of this discovery">
+          ✓ {run.counts.passed}
+        </span>
+        <span className="tag error" data-testid="tests-count-failed" title="Failed in the last run of this discovery">
+          ✗ {run.counts.failed}
+        </span>
+        <span className="tag" data-testid="tests-count-skipped" title="Skipped or not executed in the last run">
+          – {run.counts.skipped + run.counts.notExecuted}
+        </span>
+        <span className="tag" data-testid="tests-count-not-run" title="No result in the last run of this discovery">
+          ? {run.revision === 0 ? items.length : Math.max(0, items.length - run.counts.matched)}
+        </span>
+        <label className="tests-filter-row">
+          <span>Filter</span>
+          <input
+            data-testid="tests-filter"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder="Filter tests by name"
+            title="Hides tests that do not match; groups with matches stay and the selection is unchanged."
+          />
+        </label>
+        <span className="push" />
+        <button
+          type="button"
+          data-testid="tests-expand-all"
+          onClick={() => setCollapsed(new Set())}
+          title="Expands every group in the tree."
+        >
+          <Icon name="expandAll" /> Expand all
+        </button>
+        <button
+          type="button"
+          data-testid="tests-collapse-all"
+          onClick={() => setCollapsed(new Set(groupKeys(tree)))}
+          title="Collapses every group; the tree and selection stay the same."
+        >
+          <Icon name="collapseAll" /> Collapse all
+        </button>
+        <button
+          type="button"
+          data-testid="tests-export"
+          disabled={exporting || (discovery.revision === 0 && run.revision === 0)}
+          onClick={() => void exportResults()}
+          title="Writes the current discovery and the last run to a JSON file in the OpenRidr app home."
+        >
+          <Icon name="text" /> {exporting ? "Exporting…" : "Export"}
+        </button>
+        {exported && (
+          <span className="muted" data-testid="tests-export-path" title={exported.path}>
+            Exported {exported.bytes} bytes to <code>{exported.path}</code>
+          </span>
+        )}
+        {exportError && (
+          <span className="error" role="alert" data-testid="tests-export-error">
+            {exportError}
+          </span>
+        )}
+      </div>
+
+      <div className="build-controls">
+        <label className="eval-field">
+          <span>Test project</span>
+          <select
+            data-testid="tests-project"
+            value={selectedProject?.path ?? ""}
+            disabled={running || candidates.length === 0}
+            onChange={(event) => onProjectChange(event.target.value)}
+            title={
+              candidates.length === 0
+                ? "No evaluated test project is available; evaluate a project whose IsTestProject is true."
+                : "The test project is selected explicitly; discovery never scans other projects."
+            }
+          >
+            {candidates.length === 0 && <option value="">No test project</option>}
+            {candidates.length > 1 && !selectedProject && (
+              <option value="">Select a test project</option>
+            )}
+            {candidates.map((project) => (
+              <option key={project.path} value={project.path}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="eval-field">
+          <span>TFM</span>
+          <select
+            data-testid="tests-tfm"
+            value={evaluation.context.targetFramework ?? ""}
+            disabled={running || evaluation.state === "running"}
+            onChange={(event) =>
+              onEvaluate({ targetFramework: event.target.value === "" ? null : event.target.value })
+            }
+            title="The TFM is part of the evaluated model; changing it re-evaluates before discovery."
+          >
+            <option value="">Not selected</option>
+            {tfmOptions.map((tfm) => (
+              <option key={tfm} value={tfm}>
+                {tfm}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          data-testid="tests-discover"
+          disabled={discoverReason !== null || running}
+          onClick={() => selectedProject && onDiscover(selectedProject.path)}
+          title={
+            discoverReason ??
+            "Runs the project's VSTest adapter through dotnet test --list-tests. Never restores, builds a solution or edits packages."
+          }
+        >
+          {running ? "Discovering…" : discovery.revision > 0 ? "Refresh tests" : "Discover tests"}
+        </button>
+        {running && (
+          <button
+            data-testid="tests-cancel"
+            onClick={onCancel}
+            title="Requests termination of the discovery process group and keeps the partial list."
+          >
+            Stop discovery
+          </button>
+        )}
+        {terminalFailure && !running && (
+          <button
+            data-testid="tests-retry"
+            disabled={discoverReason !== null}
+            onClick={() => selectedProject && onDiscover(selectedProject.path)}
+            title={discoverReason ?? "Runs a new discovery of the same project and TFM."}
+          >
+            Retry discovery
+          </button>
+        )}
+        <span
+          className={`tag ${discovery.state === "failed" ? "error" : ""}`}
+          data-testid="tests-state"
+          role="status"
+        >
+          {discoveryStateLabel(discovery)}
+        </span>
+      </div>
+
+      <div className="tests-body">
+        <nav className="tests-actions" aria-label="Test actions">
+          <button
+            data-testid="tests-run-all"
+            disabled={runBlocked !== null}
+            onClick={() => selectedProject && onRun(selectedProject.path, "all", [])}
+            title={
+              runBlocked ??
+              "Runs every identity of the current discovery with VSTest --no-build --no-restore and the built-in TRX logger."
+            }
+            aria-label="Run all tests"
+          >
+            <Icon name="run" />
+            <span>Run</span>
+          </button>
+          <button
+            data-testid="tests-run-selected"
+            disabled={runBlocked !== null || selected.size === 0}
+            onClick={() =>
+              selectedProject && onRun(selectedProject.path, "selected", Array.from(selected))
+            }
+            title={
+              runBlocked ??
+              (selected.size === 0
+                ? "Select at least one discovered test; an empty selection never runs all tests."
+                : `Runs exactly ${selected.size} selected identit${selected.size === 1 ? "y" : "ies"}.`)
+            }
+            aria-label="Run selected tests"
+          >
+            <Icon name="tests" />
+            <span>Selected</span>
+          </button>
+          <button
+            data-testid="tests-debug-selected"
+            disabled
+            title={testDebugUnavailable}
+            aria-label="Debug selected test (unavailable)"
+          >
+            <Icon name="debug" />
+            <span>Debug</span>
+          </button>
+          <button
+            data-testid="tests-rerun-failed"
+            disabled={rerunBlocked !== null}
+            onClick={() =>
+              selectedProject && onRun(selectedProject.path, "selected", failedIds)
+            }
+            title={
+              rerunBlocked ??
+              `Reruns the ${failedIds.length} failed or not-executed identit${
+                failedIds.length === 1 ? "y" : "ies"
+              } from the last completed run of this discovery.`
+            }
+            aria-label="Rerun failed tests"
+          >
+            <Icon name="refresh" />
+            <span>Rerun failed</span>
+          </button>
+          {runRunning && (
+            <button
+              data-testid="tests-run-cancel"
+              onClick={onRunCancel}
+              title="Requests termination of the test process group and keeps the partial results, TRX and log."
+              aria-label="Stop test run"
+            >
+              <Icon name="stop" />
+              <span>Stop</span>
+            </button>
+          )}
+          {(run.state === "failed" || run.state === "cancelled") && !runRunning && (
+            <button
+              data-testid="tests-run-retry"
+              disabled={retryBlocked !== null}
+              onClick={() =>
+                selectedProject &&
+                onRun(
+                  selectedProject.path,
+                  run.selection,
+                  run.selection === "selected" ? run.selectedTestIds : [],
+                )
+              }
+              title={
+                retryBlocked ??
+                "Starts a new explicit run with the same selection; nothing is retried automatically."
+              }
+              aria-label="Retry test run"
+            >
+              <Icon name="restart" />
+              <span>Retry</span>
+            </button>
+          )}
+        </nav>
+        <div className="tests-content">
+          {testsTab === "session" ? (
+            <div className="tests-session-view">
+              <p className="muted">
+                Session of {discovery.project?.name ?? "the current discovery"} — run output and
+                per-test results. Switch to Explorer to inspect the tree.
+              </p>
+              {renderRunPanel()}
+            </div>
+          ) : (
+            <>
+      {disabledReason && (
+        <p className="muted" data-testid="tests-disabled-reason">
+          {disabledReason}
+        </p>
       )}
+
+      {autoDiscoveryError && (
+        <p className="warning" data-testid="tests-auto-error" role="status">
+          Automatic discovery did not start: {autoDiscoveryError}
+        </p>
+      )}
+
+      {restoreRequired && (
+        <div className="notice warning" data-testid="tests-restore-required" role="status">
+          <strong>Test discovery needs restored assets.</strong> OpenRidr never restores inside
+          discovery; run the explicit restore first.
+          <div className="actions">
+            <button
+              data-testid="tests-restore-action"
+              disabled={restoreDisabledReason !== null}
+              onClick={onRestore}
+              title={restoreDisabledReason ?? "Calls restore.start for this workspace."}
+            >
+              Restore now
+            </button>
+          </div>
+        </div>
+      )}
+
+      {discovery.state === "mtp_unsupported" && (
+        <p className="warning" data-testid="tests-mtp-message" role="status">
+          {discovery.mtpMessage}
+        </p>
+      )}
+      {discovery.state === "adapter_missing" && (
+        <p className="warning" data-testid="tests-guidance" role="status">
+          {discovery.error}
+        </p>
+      )}
+      {discovery.state === "empty" && (
+        <p className="notice" data-testid="tests-guidance" role="status">
+          {discovery.error}
+        </p>
+      )}
+      {discovery.state === "failed" && (
+        <p className="warning" data-testid="tests-guidance" role="status">
+          {discovery.error} The raw log below is complete for this run; Retry starts a new
+          discovery.
+        </p>
+      )}
+      {discovery.state === "cancelled" && (
+        <p className="warning" data-testid="tests-guidance" role="status">
+          Discovery was cancelled; the {discovery.items.length} test
+          {discovery.items.length === 1 ? "" : "s"} found so far {discovery.partial ? "are" : "is"}{" "}
+          partial and cannot be selected. The log is preserved.
+        </p>
+      )}
+
+      {discovery.revision > 0 && (
+        <>
+          <details className="build-context-details">
+            <summary>Discovery details</summary>
+            <dl className="restore-meta build-meta">
+            {discovery.discoveryId && (
+              <>
+                <dt>Discovery</dt>
+                <dd data-testid="tests-discovery-id">
+                  {discovery.discoveryId} · revision {discovery.revision} · context{" "}
+                  {discovery.contextId ?? "unknown"}
+                </dd>
+              </>
+            )}
+            <dt>Tree</dt>
+            <dd data-testid="tests-tree-state" role="status">
+              {treeStateLabel(discovery, stale, discovery.sealed)}
+            </dd>
+            <dt>Grouping</dt>
+            <dd data-testid="tests-grouping">
+              Grouping derived from test names: project &gt; namespace prefix &gt; class &gt; method.
+              Nothing is parsed from source files; every tooltip carries the full name.
+            </dd>
+            <dt>Scope</dt>
+            <dd data-testid="tests-scope">
+              {discovery.project?.name ?? "unknown"} ·{" "}
+              <code>{discovery.project?.path ?? "unknown"}</code> · TFM{" "}
+              {discovery.targetFramework ?? "not selected"}
+            </dd>
+            <dt>Command</dt>
+            <dd>
+              <code data-testid="tests-command">
+                {discovery.command.length > 0
+                  ? discovery.command.join(" ")
+                  : "No command was run."}
+              </code>
+            </dd>
+            <dt>Working directory</dt>
+            <dd>
+              <code data-testid="tests-cwd">{discovery.cwd || "unknown"}</code>
+            </dd>
+            <dt>Project SDK</dt>
+            <dd data-testid="tests-sdk">
+              {discovery.sdkVersion ?? "unknown"} ·{" "}
+              <code>{discovery.sdkRoot ?? "unknown"}</code>
+            </dd>
+            <dt>Exit</dt>
+            <dd data-testid="tests-exit">
+              {discovery.exit === null ? "exit unknown" : `exit ${discovery.exit}`}
+            </dd>
+            </dl>
+          </details>
+
+          {discovery.sealed && (
+            <p className="warning" data-testid="tests-sealed">
+              Previous discovery, not current: {discovery.staleReason}
+            </p>
+          )}
+          {!discovery.sealed && stale && (
+            <p className="warning" data-testid="tests-stale" role="status">
+              This discovery is stale, not failed: {staleReason} Discover again before selecting
+              tests.
+            </p>
+          )}
+          {discovery.termination && (
+            <p className="muted" data-testid="tests-termination">
+              Termination requested: {discovery.termination.requested}. Observed:{" "}
+              {discovery.termination.observed}
+              {discovery.termination.killedAfterGrace ? " after the grace period" : ""}.
+            </p>
+          )}
+          {discovery.awaitingDecision && (
+            <p className="warning" data-testid="tests-awaiting">
+              Still running; the host has not confirmed termination. Decide in the process panel.
+            </p>
+          )}
+
+          <p className="muted" data-testid="tests-counts">
+            {items.length} test{items.length === 1 ? "" : "s"} · {selected.size} selected ·{" "}
+            <span className="sr-only">{discovery.discoveryId ?? "no discovery"} · revision {discovery.revision}</span>
+            {discovery.partial ? " · partial" : ""}
+          </p>
+          {items.length > 0 && visibleCount === 0 && (
+            <p className="notice" data-testid="tests-filter-empty" role="status">
+              No test matches “{filter}”. Clear the filter to see the {items.length} discovered
+              test{items.length === 1 ? "" : "s"}; the selection was not changed.
+            </p>
+          )}
+          {items.length > 0 && visibleCount > 0 && (
+            <div className="test-tree" data-testid="tests-items" aria-label="Discovered tests">
+              {visibleTree.map((group) => renderGroup(group, 0))}
+            </div>
+          )}
+          {selected.size > 0 && stale && (
+            <p className="muted" data-testid="tests-selection-blocked">
+              Selection is disabled until discovery runs again for the current code.
+            </p>
+          )}
+          <pre className="eval-pre build-log" data-testid="tests-log">
+            {discovery.log || "No output yet."}
+          </pre>
+          {discovery.logTruncated && (
+            <p className="muted" data-testid="tests-log-truncated">
+              The discovery log is bounded and the earliest lines were dropped; the note at the top
+              of the log says how many.
+            </p>
+          )}
+        </>
+      )}
+            </>
+          )}
+        </div>
+        <aside className="tests-side">
+          {renderDetail()}
+          {testsTab === "explorer" && renderRunPanel()}
+        </aside>
+      </div>
     </div>
   );
 }

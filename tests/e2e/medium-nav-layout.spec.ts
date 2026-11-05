@@ -126,9 +126,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700
     await page.getByTestId("workspace-open").click();
     await page.getByTestId("trust-prompt-restricted").click();
     await page.getByTestId("workspace-tools-toggle").click();
-    await page.getByTestId("install-plan-open").click();
-    const plan = page.getByTestId("install-plan");
-    await expect(plan).toBeVisible();
+    await expect(page.getByTestId("install-panel")).toBeVisible();
+    await expect(page.getByTestId("install-reinstall")).toBeVisible();
 
     const drawer = page.getByTestId("workspace-tools");
     const metrics = await drawer.evaluate((element) => ({
@@ -139,27 +138,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1100, height: 700
     expect(metrics.scrollWidth, "the drawer does not overflow horizontally").toBeLessThanOrEqual(metrics.clientWidth + 1);
     expect(metrics.scrollLeft, "the drawer is not scrolled sideways").toBe(0);
 
-    // The plan stays readable: fields and confirm are on screen, or the drawer scrolls vertically.
-    const ids = ["install-command", "install-destination", "install-staging", "install-integrity", "install-permissions"];
-    const confirm = page.getByTestId("install-confirm");
-    await expect(confirm).toBeVisible();
+    // The diagnostic panel scrolls in the drawer itself, never sideways and never inside a nested plan.
     const view = await drawer.evaluate((element) => ({
       scrolls: element.scrollHeight > element.clientHeight,
       overflowY: getComputedStyle(element).overflowY,
       top: element.getBoundingClientRect().top,
       bottom: element.getBoundingClientRect().bottom,
     }));
-    if (viewport.height >= 900) {
-      const planBox = (await plan.boundingBox())!;
-      expect(planBox.y, "plan starts inside the drawer").toBeGreaterThanOrEqual(view.top - 1);
-      for (const id of [...ids, "install-confirm"]) {
-        const box = (await page.getByTestId(id).boundingBox())!;
-        expect(box.y + box.height, `${id} is visible without scrolling`).toBeLessThanOrEqual(view.bottom);
-      }
-    } else {
+    if (viewport.height < 900) {
       expect(view.scrolls && view.overflowY !== "hidden", "the drawer scrolls vertically").toBe(true);
     }
-    // The plan never scrolls inside itself: its rows read in the drawer's own scroll.
-    expect(await plan.evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);
+    const panelBox = (await page.getByTestId("install-panel").boundingBox())!;
+    expect(panelBox.y, "the panel starts inside the drawer").toBeGreaterThanOrEqual(view.top - 1);
   });
 }

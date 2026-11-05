@@ -552,7 +552,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [runConfigInitialId, setRunConfigInitialId] = useState(DEFAULT_RUN_CONFIG_ID);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [installPlanRequest, setInstallPlanRequest] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(() => expandableKeys(null, projects));
   const seededTreeExpansion = useRef(0);
   const [showAllFiles, setShowAllFiles] = useState(false);
@@ -739,7 +738,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           ? { text: "Analysis: installing…", action: null }
           : {
               text: "Analysis: not installed",
-              action: { label: "Install analysis", disabledReason: null, onClick: () => setToolsOpen(true) },
+              action: { label: "Open tool diagnostics", disabledReason: null, onClick: () => setToolsOpen(true) },
             }
         : {
             text: `Analysis: ${lsp.state === "unavailable" ? "not running" : lspStateLabel(lsp.state).toLowerCase()}`,
@@ -791,11 +790,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     if (trusted && active && !lspActive) {
       if (toolState !== "ready") {
         action = {
-          label: "Install analysis",
-          onClick: () => {
-            setToolsOpen(true);
-            setInstallPlanRequest((count) => count + 1);
-          },
+          label: "Open tool diagnostics",
+          onClick: () => setToolsOpen(true),
         };
       } else if (lspStartBlocker(snapshot) === null) {
         action = { label: "Start analysis", onClick: () => void startAnalysis() };
@@ -3932,7 +3928,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       )}
 
       <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
-      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} planRequest={installPlanRequest} />
+      <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
 
       {showsProcesses && <ProcessPanel snapshot={snapshot} onChange={onSnapshot} />}

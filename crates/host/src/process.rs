@@ -57,6 +57,9 @@ struct Entry {
     awaiting_decision: bool,
     kept: bool,
     termination: Option<Termination>,
+    /// Unix waits without reaping until the whole group has been terminated; this keeps the
+    /// pid/pgid reserved so the cleanup cannot hit a recycled group.
+    reaped: bool,
 }
 
 impl Entry {
@@ -79,15 +82,47 @@ impl Entry {
         if self.exited {
             return;
         }
-        if let Some(child) = self.child.as_mut() {
-            if let Ok(Some(status)) = child.try_wait() {
-                self.exited = true;
-                self.exit = status.code();
-                self.signal = exit_signal(&status);
-                // Once the host has observed the exit there is no termination decision left.
-                self.awaiting_decision = false;
+        if self.child.is_some() {
+            #[cfg(unix)]
+            {
+                // WNOWAIT observes the exit without reaping the leader. The pid (and therefore
+                // the pgid) stays reserved until `finish_group` kills every descendant and
+                // `reap` releases it, so a recycled pid can never be mistaken for our group.
+                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+                let observed = unsafe {
+                    libc::waitid(
+                        libc::P_PID,
+                        self.pid as libc::id_t,
+                        &mut info,
+                        libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                    )
+                };
+                if observed == 0 && info.si_pid == self.pid as libc::pid_t {
+                    self.exited = true;
+                    match info.si_code {
+                        libc::CLD_EXITED => self.exit = Some(info.si_status),
+                        libc::CLD_KILLED | libc::CLD_DUMPED => self.signal = Some(info.si_status),
+                        _ => {}
+                    }
+                    self.awaiting_decision = false;
+                    self.finish_group();
+                    self.reap();
+                }
+                return;
             }
-            return;
+            #[cfg(not(unix))]
+            {
+                if let Some(child) = self.child.as_mut() {
+                    if let Ok(Some(status)) = child.try_wait() {
+                        self.exited = true;
+                        self.exit = status.code();
+                        self.signal = exit_signal(&status);
+                        // Once the host has observed the exit there is no termination decision left.
+                        self.awaiting_decision = false;
+                    }
+                }
+                return;
+            }
         }
         if let Some(slot) = &self.external_exit {
             if let Some(code) = *slot.lock().unwrap() {
@@ -100,6 +135,44 @@ impl Entry {
 
     fn running(&self) -> bool {
         !self.exited
+    }
+
+    /// The leader is a zombie here, so its pid (and pgid) cannot be reused yet. Terminate any
+    /// grandchildren, escalate to KILL if the group survives, then release the leader.
+    #[cfg(unix)]
+    fn finish_group(&mut self) {
+        // ponytail: the leader is still a zombie here, so the kernel cannot reuse its pid/pgid;
+        // this closes the practical race. A future design that reaps before group cleanup would
+        // need an ownership token, because pgid reuse after reap is theoretically possible.
+        let pgid = self.pid;
+        if pgid == 0 || self.killer.is_some() {
+            return;
+        }
+        let group = |signal: libc::c_int| unsafe { libc::kill(-(pgid as i32), signal) };
+        if group(0) != 0 {
+            return;
+        }
+        let _ = group(libc::SIGTERM);
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < deadline && group(0) == 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if group(0) == 0 {
+            let _ = group(libc::SIGKILL);
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn finish_group(&mut self) {}
+
+    fn reap(&mut self) {
+        if self.reaped {
+            return;
+        }
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.try_wait();
+        }
+        self.reaped = true;
     }
 }
 
@@ -190,6 +263,7 @@ impl Registry {
             awaiting_decision: false,
             kept: false,
             termination: None,
+            reaped: false,
         });
         id
     }
@@ -221,6 +295,7 @@ impl Registry {
             awaiting_decision: false,
             kept: false,
             termination: None,
+            reaped: false,
         });
         (id, slot)
     }
@@ -306,6 +381,19 @@ impl Registry {
         self.status(id)
     }
 
+    pub fn stop_remaining_group(&mut self, id: u64) {
+        #[cfg(unix)]
+        if let Some(entry) = self.entries.iter().find(|entry| entry.id == id) {
+            // A reaped leader's pgid can be recycled by a new process group. Only signal while
+            // the leader still exists; otherwise refuse to guess which group is ours.
+            if process_alive(entry.pid) {
+                unsafe { libc::kill(-(entry.pid as i32), libc::SIGTERM); }
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = id;
+    }
+
     fn wait_until_exited(&mut self, index: usize, limit: Duration) {
         let deadline = Instant::now() + limit;
         while Instant::now() < deadline {
@@ -384,11 +472,6 @@ fn taskkill(pid: u32, hard: bool) -> bool {
 
 /// The signal that killed the child, if any. A normal exit reports `code()` and no signal.
 #[cfg(unix)]
-fn exit_signal(status: &std::process::ExitStatus) -> Option<i32> {
-    use std::os::unix::process::ExitStatusExt;
-    status.signal()
-}
-
 #[cfg(not(unix))]
 fn exit_signal(_status: &std::process::ExitStatus) -> Option<i32> {
     None
@@ -448,6 +531,10 @@ pub fn signal_name(signal: i32) -> String {
 /// be delivered (already gone or not permitted).
 #[cfg(unix)]
 pub(crate) fn kill_group(pid: u32, hard: bool) -> bool {
+    if !process_alive(pid) {
+        // Never signal a negative pid after its leader was reaped: that pid may be reused.
+        return false;
+    }
     let signal = if hard { libc::SIGKILL } else { libc::SIGTERM };
     let group = unsafe { libc::kill(-(pid as i32), signal) };
     if group == 0 {
@@ -519,6 +606,43 @@ pub fn probe_command(kind: &str) -> io::Result<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_leader_that_exits_does_not_leave_its_grandchild_alive() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join("grandchild-pid");
+        let mut command = Command::new("/bin/sh");
+        command
+            .arg("-c")
+            .arg("sleep 60 & echo $! > \"$1\"")
+            .arg("sh")
+            .arg(&marker);
+        let mut registry = Registry::new();
+        let process = registry.spawn("lsp:csharp-ls", 1, command).unwrap();
+        let id = process["id"].as_u64().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !marker.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let grandchild: u32 = std::fs::read_to_string(&marker).unwrap().trim().parse().unwrap();
+        // Observing the leader exit runs the group cleanup, even though the leader is gone.
+        let exited = loop {
+            let status = registry.status(id).unwrap();
+            if status.state == "exited" {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "leader did not exit");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(exited.exit, Some(0));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while process_alive(grandchild) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!process_alive(grandchild), "grandchild survived the leader");
+    }
+
 
     #[test]
     fn a_signal_number_is_reported_by_its_name() {
