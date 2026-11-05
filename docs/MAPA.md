@@ -20,7 +20,8 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 
 | Arquivo | O que tem |
 |---|---|
-| `main.tsx`, `App.tsx`, `nativeMenu.ts` | entrada; alterna Welcome × Workspace; recebe "abrir com" do Finder/Dock; guard que cancela o menu do WebKit fora de campo de texto (produção) |
+| `main.tsx`, `App.tsx`, `nativeMenu.ts` | entrada; alterna Welcome × SetupGate × Workspace; recebe "abrir com" do Finder/Dock; guard que cancela o menu do WebKit fora de campo de texto (produção) |
+| `SetupGate.tsx` | gate de setup obrigatório (progresso, erro, retry, runtime) antes do Trust/workspace |
 | `welcome/` | tela inicial: recentes, toolchain, formulário de caminho |
 | **`WorkspaceView.tsx`** (~5.200 linhas) | **um único componente** que monta o workspace: abas, editor, painéis, diálogos, atalhos globais. Começa em `export function WorkspaceView`. Antes dele só há helpers puros. Fluxos já extraídos: `useExecutionFlow.ts`, `useEvaluationFlow.ts`, `useRunConfigs.ts` |
 | **`CodeEditor.tsx`** (~1.200) | CodeMirror: gutter, breakpoints, marcas de diagnóstico, completion, rename |
@@ -30,7 +31,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | `actions/` | keymap, registro de ações, Search Everywhere (`FindAction`), diálogo de Keymap |
 | `useExecutionFlow.ts`, `executionGates.ts`, `executionCommands.ts` | Build/Run/Debug: fluxo, gates (por que está desabilitado) e comandos |
 | `BuildPanel`, `RunPanel`, `DebugPanel` (+ `Debug*.tsx`), `TestsPanel`, `TerminalPanel`, `ProblemsPanel`, `NuGetPanel`, `FindInFiles`, `FindUsagesPanel`, `ProcessPanel` | um painel por arquivo |
-| `ToolchainPanels.tsx` | painéis de SDK, restore, instalação de ferramentas, LSP, adaptador de debug |
+| `ToolchainPanels.tsx` | painéis de SDK, restore, diagnóstico/reinstalação de ferramentas, LSP, adaptador de debug |
 | `git.tsx` (~1.000) | tudo de Git da UI (status, commit, branches, diálogos) |
 | `runConfigs.tsx`, `SettingsDialog.tsx` | Run configurations; Settings |
 | `TrustControls.tsx`, `TrustPrompt.tsx`, `SetupScreen.tsx` | Trust e tela de setup |
