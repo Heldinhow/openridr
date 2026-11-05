@@ -6126,6 +6126,43 @@ impl Host {
         Ok(json!({ "planId": plan_id, "count": views.len(), "items": views }))
     }
 
+    /// The trust check and the synchronous restore are performed under the same host lock:
+    /// a revoke can land before the check or after the restore, never between them.
+    fn batch_restores(
+        &self,
+        batch: &[nuget::Plan],
+        updated_projects: &[String],
+        token: ContextToken,
+        restore: impl Fn(&nuget::Plan) -> nuget::RestoreRun,
+    ) -> Vec<Value> {
+        let mut restores = Vec::new();
+        for project in updated_projects {
+            let guard = self.inner.lock().unwrap();
+            if !restore_allowed(&guard, token) {
+                restores.push(json!({
+                    "state": "failed",
+                    "message": "Trust was revoked or the workspace changed before the batch restore; no restore was run.",
+                    "command": "",
+                    "exit": null,
+                    "log": "",
+                }));
+                drop(guard);
+                break;
+            }
+            let Some(plan) = batch
+                .iter()
+                .find(|plan| &plan.project_display == project)
+            else {
+                drop(guard);
+                continue;
+            };
+            let result = restore(plan);
+            drop(guard);
+            restores.push(serde_json::to_value(result).expect("restore serializes"));
+        }
+        restores
+    }
+
     /// Confirmed batch: each package gets its own `dotnet add`, failures are reported per
     /// package, and one explicit restore per project follows. Failures are never masked.
     fn nuget_apply_batch(&self, params: Value) -> HostResult<Value> {
@@ -6230,34 +6267,8 @@ impl Host {
                 }
             }
         }
-        let mut restores = Vec::new();
-        for project in &updated_projects {
-            // The guard is held through the restore start: a concurrent revoke cannot land
-            // between the check and the command. The trade-off is that revoke waits for this
-            // synchronous restore to finish instead of sealing a process it does not own.
-            let guard = self.inner.lock().unwrap();
-            if !restore_allowed(&guard, token) {
-                restores.push(json!({
-                    "state": "failed",
-                    "message": "Trust was revoked or the workspace changed before the batch restore; no restore was run.",
-                    "command": "",
-                    "exit": null,
-                    "log": "",
-                }));
-                drop(guard);
-                break;
-            }
-            let Some(plan) = batch
-                .iter()
-                .find(|plan| &plan.project_display == project)
-            else {
-                drop(guard);
-                continue;
-            };
-            let result = nuget::restore(plan);
-            drop(guard);
-            restores.push(serde_json::to_value(result).expect("restore serializes"));
-        }
+        let restores =
+            self.batch_restores(&batch, &updated_projects, token, nuget::restore);
         let restore_failed = restores
             .iter()
             .any(|restore| restore.get("state").and_then(Value::as_str) != Some("ok"));
@@ -9156,5 +9167,52 @@ mod tests {
         host.dispatch("trust.revoke", json!({})).unwrap();
         let inner = host.inner.lock().unwrap();
         assert!(!restore_allowed(&inner, token));
+    }
+
+    #[test]
+    fn a_batch_restore_is_not_called_after_revocation() {
+        let host = Host::default();
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        host.dispatch("workspace.open", json!({ "path": project.clone() })).unwrap();
+        host.allow_setup_for_tests();
+        host.dispatch("trust.grant", json!({})).unwrap();
+        let token = host.context_token().unwrap();
+        host.dispatch("trust.revoke", json!({})).unwrap();
+        let plan = nuget::Plan {
+            id: "plan".to_string(),
+            workspace_id: token.workspace_id,
+            context_id: token.context_id,
+            root: temp.path().to_path_buf(),
+            project: project.clone(),
+            project_display: "App.csproj".to_string(),
+            package: "xunit".to_string(),
+            from_version: Some("2.9.2".to_string()),
+            version: "2.9.3".to_string(),
+            target_framework: Some("net8.0".to_string()),
+            muxer: std::path::PathBuf::from("/bin/false"),
+            sdk_root: temp.path().to_path_buf(),
+            install: false,
+            probe: false,
+        };
+        let called = std::cell::Cell::new(false);
+        let restores = host.batch_restores(
+            &[plan],
+            &["App.csproj".to_string()],
+            token,
+            |_| {
+                called.set(true);
+                nuget::RestoreRun {
+                    state: "ok",
+                    message: None,
+                    command: String::new(),
+                    exit: Some(0),
+                    log: String::new(),
+                }
+            },
+        );
+        assert!(!called.get());
+        assert_eq!(restores[0]["state"], "failed");
     }
 }

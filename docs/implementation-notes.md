@@ -1148,7 +1148,7 @@ Branch `fix/file-access-confinement`. Evidência completa em `docs/evidence/file
 ## Rodada 3 (2026-11-05)
 
 - Worker guard `local_package`/probe; swap `renamex_np` com teste de falha no swap; resolver DNS seguro; fonte `dotnet list` configurada+HTTPS; `trust.set` restrito ao workspace aberto; seams só em debug; `waitid(WNOWAIT)` + limpeza de grupo com netos; recheck de trust antes do restore; `assets.state="unsupported"` e mensagem no painel.
-- Testes novos: worker sem feed, swap atômico/falha, resolver privado, `dotnet list` source recusada, `trust.set` outro caminho, neto órfão, assets expandido. Provas: `cargo test --workspace` 260+14+96+9+5+1; `--test-threads=1` para host/debugger/test_run; `bun test tests/unit` 26; `bun run check`; `pgrep BuildHost`/`csharp-ls`/`netcoredbg` vazio após workspace e após ⌘Q/fechar janela; `nm`/`strings` release sem `allow_setup_for_tests`/`OPENRIDR_TOOLS_MUXER`.
+- Testes novos: worker sem feed, swap atômico/falha, resolver privado, `dotnet list` source recusada, `trust.set` outro caminho, neto órfão, assets expandido. Provas: `cargo test --workspace` 261+14+96+9+5+1; `--test-threads=1` para host/debugger/test_run; `bun test tests/unit` 26; `bun run check`; `pgrep BuildHost`/`csharp-ls`/`netcoredbg` vazio após workspace e após ⌘Q/fechar janela; `nm`/`strings` release sem `allow_setup_for_tests`/`OPENRIDR_TOOLS_MUXER`.
 
 ## Rodada 4 (2026-11-05)
 
@@ -1157,4 +1157,4 @@ Branch `fix/file-access-confinement`. Evidência completa em `docs/evidence/file
 - Probes/seams de env e `allow_setup_for_tests` só em debug; release `strings`/`nm` sem nomes de variável/método.
 - Restore do lote mantém o lock do host entre check e início; revogação não executa restore posterior.
 - `BaseIntermediateOutputPath` herdado por Directory.Build.props/targets vira assets unsupported; trust vindo da welcome continua exigindo setup ao abrir.
-- Testes: cargo workspace 260+14+96+9+5+1 (host/debugger/test_run também threads=1), bun unit 26, check; E2E afetados e pgrep vazio.
+- Testes: cargo workspace 261+14+96+9+5+1 (host/debugger/test_run também threads=1), bun unit 26, check; E2E afetados e pgrep vazio.
