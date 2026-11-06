@@ -88,11 +88,72 @@ jobs:
       - name: Host tests
         run: cargo test -p openridr-host
 
+  governance:
+    name: Governance (workflows, PR title, PR body)
+    # Only a pull request has a title and a body to check.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint the workflow files
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+        with:
+          version: "1.7.12"
+          pyflakes: false
+
+      # Offline audits only: no GitHub token, no network, deterministic result for the same YAML.
+      # `min-severity: low` keeps the job honest without failing on the informational
+      # `template-injection` findings that expand our own step outputs inside a `run:` block (the
+      # release workflow: `steps.release.outputs.*` comes from scripts/release-macos.sh). Anything
+      # low and above blocks, including `${{ github.event.* }}` in a run block.
+      - name: Audit the workflow files
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: "1.32.0"
+          advanced-security: false
+          online-audits: false
+          min-severity: "low"
+
+      - name: Check the PR title
+        uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            chore
+            ci
+            refactor
+            test
+            perf
+            build
+            revert
+          requireScope: false
+
+      - name: Self-check the PR body gate
+        run: sh scripts/ci-pr-body-selfcheck.sh
+
+      - name: Check the PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          body="$RUNNER_TEMP/pull-request-body.md"
+          printf '%s' "$PR_BODY" >"$body"
+          sh scripts/ci-pr-body.sh "$body" "$PR_AUTHOR"
+
   # Single required check with a stable name: adding or renaming an internal job does not touch the
   # ruleset. A skipped PR-only job is not a failure, so `push` to main can pass without them.
   ci:
     name: ci
-    needs: [typescript, rust]
+    needs: [typescript, rust, governance]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
