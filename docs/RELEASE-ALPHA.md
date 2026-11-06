@@ -4,8 +4,10 @@
 > `csharp-ls` 0.28.0 e o runtime .NET 10.0.14 que ele executa vêm **dentro** do app/DMG. Setup e
 > reabertura não baixam a análise nem exigem runtime .NET 10 instalado; o SDK do projeto continua
 > sendo o que o `global.json` pede, detectado na máquina (o app nunca instala SDK). O DMG de teste
-> mediu 61.774.338 bytes (58,91 MiB). O texto abaixo descreve a alpha.8 **publicada**, cujo setup
-> ainda baixava o csharp-ls (~99 MB) e exigia o runtime externo.
+> mediu 61.774.338 bytes (58,91 MiB). A integridade do par embutido vem da assinatura
+> Developer ID + notarização do app — o host não confere hash fixado em runtime, e o SHA-256
+> mostrado na UI é informativo. O texto abaixo descreve a alpha.8 **publicada**, cujo setup ainda
+> baixava o csharp-ls (~99 MB) e exigia o runtime externo.
 
 Oitava alfa instalável. IDE C#/.NET inspirada no Rider (Tauri 2 + Rust + React/TS), tema escuro.
 Esta alfa põe o **setup de ferramentas antes do workspace**, refaz **Tests** e **NuGet**, e fecha

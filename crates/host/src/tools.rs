@@ -906,7 +906,7 @@ impl Tools {
             (
                 "failed",
                 Some(
-                    "The bundled csharp-ls changed since it was verified; the app bundle is damaged or was modified. Reinstall OpenRidr instead of using this analyzer."
+                    "The bundled csharp-ls changed since the setup checked it; the app bundle is damaged or was modified. Reinstall OpenRidr instead of using this analyzer."
                         .to_string(),
                 ),
             )
@@ -1024,12 +1024,12 @@ impl Tools {
                     analysis.runtime.version
                 ));
                 data.log.push(format!(
-                    "Bundled analysis tool verified: {} --version",
+                    "Bundled analysis tool checked: {} --version",
                     analysis.entry.to_string_lossy()
                 ));
                 data.log.push(verified.output);
                 data.log.push(format!(
-                    "Bundled pair content SHA-256 {} ({} files)",
+                    "Bundled pair content SHA-256 {} ({} files); informational, the integrity reference is the app's code signature",
                     verified.content_sha256,
                     verified.fingerprint.len()
                 ));

@@ -202,9 +202,11 @@ para a revisão independente. Não classificar como flake sem essa prova.
   externo). `Absent` mantém o download de desenvolvimento.
 - `tools` pronto passa a acompanhar o **par inteiro**: fingerprint (caminho, tamanho, mtime) de
   `csharp-ls/` + `dotnet/`; entrada, dependência gerenciada, muxer e componente do runtime
-  invalidam o estado. SHA-256 de conteúdo único vai para o log (auditoria), sem rehash de ~140 MB
-  por snapshot. Limite explícito: quem reescreve a árvore e restaura mtimes não é detectado (o
-  manifest do build é a garantia da árvore distribuída).
+  invalidam o estado. Isso é **detector de mudança**, não atestação: a referência de integridade é
+  a assinatura de código/notarização do `.app` (selo de recursos do Gatekeeper), e o SHA-256 de
+  conteúdo mostrado no log/UI é **informativo** — não há hash fixado comparado em runtime. Limite
+  explícito: quem reescreve a árvore e restaura mtimes não é detectado pela checagem local (o
+  manifest do build é a garantia da árvore empacotada).
 - Testes `bundled_analysis` (8): par completo ready sem home; ambos ausentes e cada metade
   ausente → `failed`/`missing`, `plan=null`, sem `tools/`; dev sem bundle ainda planeja; entrada,
   dependência, muxer e runtime alterados derrubam o ready.

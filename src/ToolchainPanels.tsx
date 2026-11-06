@@ -128,7 +128,7 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
       {tool.state === "ready" && (
         <p className="success" data-testid="install-ready">
           {tool.bundled
-            ? "Bundled with OpenRidr: the analyzer and its .NET runtime come from the app, and neither is downloaded. This does not prove that the language server loads a solution."
+            ? "Bundled with OpenRidr: the analyzer and its .NET runtime come from the app, protected by the app's code signature, and neither is downloaded. This does not prove that the language server loads a solution."
             : "Executable and version verified. This does not prove that the language server loads a solution."}
         </p>
       )}
@@ -155,7 +155,7 @@ export function ToolInstaller({ snapshot, onChange }: Props) {
       )}
       {tool.sha256 && (
         <p className="muted" data-testid="install-sha256">
-          SHA-256 of the {tool.bundled ? "bundled entry point" : "installed launcher"}:{" "}
+          SHA-256 of the {tool.bundled ? "bundled entry point (informational; integrity reference is the app signature)" : "installed launcher"}:{" "}
           <code>{tool.sha256}</code>
         </p>
       )}

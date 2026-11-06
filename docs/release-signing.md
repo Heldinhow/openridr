@@ -46,6 +46,12 @@ bun run tauri build --target aarch64-apple-darwin --bundles app
   `disable-library-validation` o `libhostfxr` ad-hoc não carrega sob hardened runtime, e sem
   `allow-jit` o CLR não JITa. O netcoredbg embutido já tinha o mesmo desenho
   (`vendor-netcoredbg.sh`).
+- **A referência de integridade do par embutido é a assinatura do app.** csharp-ls e o runtime
+  privado viajam em `Contents/Resources` e são cobertos pela assinatura Developer ID +
+  notarização do `.app`/DMG (o selo de recursos que o Gatekeeper valida na instalação). O host
+  **não** compara contra hash fixado em runtime; o fingerprint (tamanho/mtime) só detecta mudança
+  durante a sessão, e o SHA-256 exibido no SetupGate/Workspace tools é **informativo**. Build
+  ad-hoc local não é assinatura confiável: distribuir exige Developer ID + notarização.
 - Só `--bundles app` aqui: o bundler de DMG refaz o `.app` a partir do binário e descartaria o
   ticket grampeado. O DMG é montado no passo seguinte, depois do `stapler`.
 

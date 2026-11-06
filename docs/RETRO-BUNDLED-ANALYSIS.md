@@ -65,8 +65,9 @@ Onda: 2026-11-05, branch `feat/bundled-analysis-runtime` (base `eb3fe6f`, alpha.
   recusa em setup, `tools.plan/install/retry`, `setup.reinstall` e `lsp.start`; runtime externo
   nunca mascara a falta. Fallback de dev preservado.
 - **Integridade do par**: fingerprint de `csharp-ls/` + `dotnet/` (entrada, dependência, muxer,
-  runtime) invalida o ready; SHA-256 de conteúdo único no log. Custo: metadados por snapshot,
-  hash só na verificação.
+  runtime) invalida o ready — é detector de mudança, não atestação. A referência de integridade é
+  a assinatura/notarização do app; o SHA-256 do par é informativo no log/UI. Custo: metadados por
+  snapshot, hash só na checagem inicial.
 - **Vendor**: manifest de conteúdo por arquivo (pós-assinatura) decide reutilização; árvore
   danificada é remontada do artefato pinado e reassinada.
 

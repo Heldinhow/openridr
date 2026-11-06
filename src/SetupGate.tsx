@@ -67,10 +67,11 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
       <section className="setup-gate-body" aria-labelledby="setup-gate-title">
         <h1 id="setup-gate-title">Fixed tools are part of the project setup</h1>
         <p className="muted">
-          OpenRidr verifies these tools once, outside the workspace. csharp-ls and the .NET
-          runtime that runs it ship inside the app, next to netcoredbg; nothing of the project is
-          executed during setup, and the workspace is not shown until both tools are ready.
-          Version and checksum never change between projects.
+          OpenRidr reads these tools from the signed app bundle once, outside the workspace.
+          csharp-ls and the .NET runtime that runs it ship inside the app, next to netcoredbg;
+          nothing of the project is executed during setup, and the workspace is not shown until
+          both tools are ready. The app's code signature is the integrity reference; the SHA-256
+          shown below is informational.
         </p>
 
         <ol className="setup-gate-steps">
@@ -79,7 +80,7 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
             <span className="menu-note">
               {tool.state === "ready"
                 ? tool.bundled
-                  ? "Bundled and verified"
+                  ? "Bundled · version checked"
                   : "Verified"
                 : activeStates.includes(tool.state)
                   ? tool.state === "downloading"
@@ -106,7 +107,8 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
                 {tool.sha256 && (
                   <>
                     {" "}
-                    · SHA-256 <code data-testid="setup-gate-tool-sha256">{tool.sha256}</code>
+                    · SHA-256 (informational){" "}
+                    <code data-testid="setup-gate-tool-sha256">{tool.sha256}</code>
                   </>
                 )}
               </span>
@@ -189,7 +191,7 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
           <button
             data-testid="setup-gate-cancel"
             onClick={onCancel}
-            title="Closes the workspace; a running install is stopped and the verified tools stay installed for the next project."
+            title="Closes the workspace; a running install is stopped and the tools already checked stay available for the next project."
           >
             Back to projects
           </button>

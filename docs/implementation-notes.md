@@ -1275,8 +1275,10 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   branch; a sonda host/LSP mostra o mesmo comportamento na base `eb3fe6f` (servidor vira zombie
   após STOP/CONT e não publica), então não há evidência de causa nesta branch. Segue aberta como
   fragilidade do spec; detalhe em `docs/evidence/bundled-analysis.md`.
-- **Rodada 2:** bundle ausente/parcial falha fechado (`Availability::Damaged`); integridade do par
-  inteiro por fingerprint (entrada, dependência, muxer, runtime) com SHA-256 de conteúdo no log;
+- **Rodada 2:** bundle ausente/parcial falha fechado (`Availability::Damaged`); o estado `ready`
+  acompanha o par inteiro por fingerprint (entrada, dependência, muxer, runtime) como detector de
+  mudança, não como atestação — a referência de integridade é a assinatura/notarização do app, e o
+  SHA-256 no log/UI é informativo;
   `vendor-analysis.sh` só reutiliza árvore cujo manifest de conteúdo confere e remonta do artefato
   pinado quando não confere (`vendor-analysis-selfcheck.sh`).
 - **Não verificado:** notarização/Developer ID (sem credencial nesta sessão; `spctl` rejeita o
