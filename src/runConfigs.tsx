@@ -6,6 +6,7 @@ import {
   type EvaluationProject,
   type RunConfig,
   type RunConfigIssue,
+  type LaunchProfile,
 } from "./host/client";
 import { Icon } from "./Icon";
 import { MidText } from "./shell/MidText";
@@ -55,6 +56,9 @@ export function RunConfigWidget({
   disabledReason,
   onSelect,
   onEdit,
+  profiles,
+  onSelectProfile,
+  onOpen,
 }: {
   configs: RunConfig[];
   defaultConfig: RunConfigView | null;
@@ -62,6 +66,9 @@ export function RunConfigWidget({
   disabledReason: string | null;
   onSelect: (id: string) => void;
   onEdit: () => void;
+  profiles: LaunchProfile[];
+  onSelectProfile: (name: string) => void;
+  onOpen: () => void;
 }) {
   const available = defaultConfig !== null || configs.length > 0;
   const active: RunConfigView | null =
@@ -94,16 +101,16 @@ export function RunConfigWidget({
     onSelect(id);
   };
   return (
-    <details className="toolbar-menu run-config-menu" data-testid="run-config-menu">
+    <details className="toolbar-menu run-config-menu" data-testid="run-config-menu" onToggle={(event) => { if (event.currentTarget.open) onOpen(); }}>
       <summary data-testid="toolbar-run-config" title={title} aria-label={title}>
         <Icon name="runconfig" />
         <span data-testid="run-config-active"><MidText text={active?.name ?? "Run config"} /></span>
-        {active?.readOnly && <span className="run-config-tag">default</span>}
+        {active?.readOnly && <span className="run-config-tag">{active.launchProfile ? "imported" : "default"}</span>}
         <Icon name="chevron" />
       </summary>
       <div className="menu-content">
         <span className="menu-heading">Run configuration</span>
-        {defaultConfig && (
+        {defaultConfig && !profiles.some((profile) => profile.commandName === "Project") && (
           <button
             type="button"
             data-testid="run-config-option-default"
@@ -115,6 +122,20 @@ export function RunConfigWidget({
             <span className="menu-note">Derived from the evaluation; read only.</span>
           </button>
         )}
+        {profiles.map((profile) => (
+          <button
+            key={profile.name}
+            type="button"
+            data-testid={`run-config-profile-${profile.name}`}
+            disabled={profile.commandName !== "Project"}
+            aria-current={activeId === DEFAULT_RUN_CONFIG_ID && defaultConfig?.launchProfile === profile.name ? "true" : undefined}
+            title={profile.commandName === "Project" ? "Imported from launchSettings.json; read only." : `Unsupported commandName: ${profile.commandName || "missing"}`}
+            onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); onSelectProfile(profile.name); }}
+          >
+            {defaultConfig?.project.split("/").pop()?.replace(/\.csproj$/i, "")} · {profile.name}
+            <span className="menu-note">{profile.commandName === "Project" ? "Imported profile" : `Unsupported: ${profile.commandName || "missing commandName"}`}</span>
+          </button>
+        ))}
         {configs.map((config) => (
           <button
             key={config.id}
@@ -124,7 +145,7 @@ export function RunConfigWidget({
             title={`${config.project} · ${config.configuration}${config.targetFramework ? ` · ${config.targetFramework}` : ""}`}
             onClick={(event) => choose(config.id, event)}
           >
-            {config.name}
+            {config.name} <span className="menu-note">Manual configuration</span>
           </button>
         ))}
         <button

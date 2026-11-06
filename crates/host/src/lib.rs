@@ -763,6 +763,8 @@ impl Host {
             "runConfigs.read" => run_configs::read(&params),
             "runConfigs.write" => run_configs::write(&params),
             "runConfigs.setStartup" => run_configs::set_startup(&params),
+            "runConfigs.launchProfiles" => self.launch_profile_request(&params, false),
+            "runConfigs.setLaunchProfile" => self.launch_profile_request(&params, true),
             "session.read" => run_configs::read_session(&params),
             "session.write" => run_configs::write_session(&params),
             _ => Err(HostError::new(
@@ -770,6 +772,19 @@ impl Host {
                 format!("Unknown host method: {method}"),
             )),
         }
+    }
+
+    fn launch_profile_request(&self, params: &Value, select: bool) -> HostResult<Value> {
+        let inner = self.inner.lock().unwrap();
+        let workspace = inner.workspace.as_ref().ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+        let solution = params.get("solution").and_then(Value::as_str)
+            .and_then(|path| fs::canonicalize(path).ok());
+        if solution.as_deref() != Some(workspace.path.as_path()) {
+            return Err(HostError::new("invalid_state", "The solution is not the open workspace."));
+        }
+        run_configs::validate_evaluated_project(params, &workspace.root,
+            inner.evaluation.projects.iter().filter(|project| project.state == "ok").map(|project| project.path.as_str()))?;
+        if select { run_configs::set_launch_profile(params) } else { run_configs::launch_profiles(params) }
     }
 
     /// The one gate every executable path must pass. Direct host calls (HTTP bridge, tests,
@@ -2775,6 +2790,10 @@ impl Host {
 
         // The active configuration's argv, cwd and environment are validated before any
         // restore/build gate so an invalid launch explains its own field first.
+        if params.get("launchProfile").and_then(Value::as_str).is_some() {
+            run_configs::validate_evaluated_project(&params, &root,
+                inner.evaluation.projects.iter().filter(|project| project.state == "ok").map(|project| project.path.as_str()))?;
+        }
         let options = run_configs::launch_options(&params, &root)?;
 
         // Same policy as build/tests/debug: Run never restores implicitly, and a build whose
@@ -3678,6 +3697,10 @@ impl Host {
         let root = workspace.root.clone();
         // The active configuration is validated before the adapter/build gates so a bad cwd,
         // argument or .env line is reported as that field instead of an unrelated failure.
+        if params.get("launchProfile").and_then(Value::as_str).is_some() {
+            run_configs::validate_evaluated_project(&params, &root,
+                inner.evaluation.projects.iter().filter(|project| project.state == "ok").map(|project| project.path.as_str()))?;
+        }
         let options = run_configs::launch_options(&params, &root)?;
         // Same restore policy as every executable consumer: Debug never restores implicitly.
         restore::require_restored(

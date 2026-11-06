@@ -54,6 +54,14 @@ export function useRunConfigs(c: {
     return store;
   }
 
+  async function selectLaunchProfile(project: string, profile: string) {
+    const store = await call<RunConfigStore>("runConfigs.setLaunchProfile", {
+      solution: workspacePath, project, profile,
+    });
+    setRunConfigStore(store);
+    return store;
+  }
+
   async function persistSession(session: SessionState) {
     const store = await call<RunConfigStore>("session.write", {
       solution: workspacePath,
@@ -63,5 +71,5 @@ export function useRunConfigs(c: {
     return store;
   }
 
-  return { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject, persistSession };
+  return { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject, persistSession, selectLaunchProfile };
 }

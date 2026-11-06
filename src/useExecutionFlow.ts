@@ -201,6 +201,7 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
           workingDirectory: config?.workingDirectory ?? "",
           env: config?.env ?? {},
           envFiles: config?.envFiles ?? [],
+          launchProfile: config?.launchProfile,
         }),
       );
       setMessage(null);
@@ -283,6 +284,7 @@ export function useExecutionFlow(c: ExecutionFlowInput) {
       workingDirectory: config?.workingDirectory ?? "",
       env: config?.env ?? {},
       envFiles: config?.envFiles ?? [],
+      launchProfile: config?.launchProfile,
     };
   }
 
