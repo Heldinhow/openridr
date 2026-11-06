@@ -1839,12 +1839,16 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
     Ok(operation("ok", Some(message), &text, &repo, None))
 }
 
-/// The update policy the dialog states. `--no-rebase` plus `--ff` are passed explicitly so the
-/// repository's `pull.rebase`/`pull.ff`/`merge.ff` cannot change what the dialog promised;
+/// The update policy the dialog states: fetch, then merge. `--ff` is passed explicitly so the
+/// repository's `pull.rebase`/`pull.ff`/`merge.ff` cannot change what the dialog promised, and
 /// `--no-edit` keeps git's merge message without an editor. Never `--no-ff` (a fast-forward stays
-/// one) and never a rebase: it rewrites local commits and leaves a rebase the app cannot finish
-/// or abort yet (#114).
-const UPDATE_FLAGS: [&str; 3] = ["--no-rebase", "--ff", "--no-edit"];
+/// one) and never a rebase: it rewrites local commits and leaves a rebase the app cannot finish or
+/// abort yet (#114).
+///
+/// Fetch and merge are separate commands on purpose. The fetch moves only refs; the merge is then
+/// started against a commit the host has named, so a failed merge can be attributed to this update
+/// before it is aborted — a merge another process started is never aborted here.
+const MERGE_FLAGS: [&str; 2] = ["--ff", "--no-edit"];
 const CONFLICT_PATH_LIMIT: usize = 20;
 
 pub fn pull(root: &Path) -> HostResult<Operation> {
@@ -1857,16 +1861,51 @@ pub fn pull(root: &Path) -> HostResult<Operation> {
             "No upstream is configured; nothing to pull.",
         ));
     }
-    let mut args = vec!["pull"];
-    args.extend(UPDATE_FLAGS);
-    let output = run(&repo.top, &args)
+
+    let fetched = run(&repo.top, &["fetch", "--quiet"])
         .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
-    let text = format!("{}{}", output.stdout, output.stderr);
-    if !output.ok() {
-        let stderr = mask_urls(output.stderr.trim());
+    let mut text = format!("{}{}", fetched.stdout, fetched.stderr);
+    if !fetched.ok() {
+        let stderr = mask_urls(fetched.stderr.trim());
         return Ok(operation(
             "failed",
-            Some(update_failure(&repo, &stderr)),
+            Some(update_failure(&repo, &stderr, None)),
+            &text,
+            &repo,
+            None,
+        ));
+    }
+
+    // The commit this update means to merge. A merge whose `MERGE_HEAD` is another commit was not
+    // started here and must be left alone.
+    let resolved = run(&repo.top, &["rev-parse", "@{upstream}"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let target = resolved.stdout.trim().to_string();
+    if !resolved.ok() || target.is_empty() {
+        text.push_str(&resolved.stdout);
+        text.push_str(&resolved.stderr);
+        let stderr = mask_urls(resolved.stderr.trim());
+        return Ok(operation(
+            "failed",
+            Some(update_failure(&repo, &stderr, None)),
+            &text,
+            &repo,
+            None,
+        ));
+    }
+
+    let mut args = vec!["merge"];
+    args.extend(MERGE_FLAGS);
+    args.push("@{upstream}");
+    let merged = run(&repo.top, &args)
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    text.push_str(&merged.stdout);
+    text.push_str(&merged.stderr);
+    if !merged.ok() {
+        let stderr = mask_urls(merged.stderr.trim());
+        return Ok(operation(
+            "failed",
+            Some(update_failure(&repo, &stderr, Some(&target))),
             &text,
             &repo,
             None,
@@ -1881,10 +1920,38 @@ pub fn pull(root: &Path) -> HostResult<Operation> {
     ))
 }
 
+/// The commits a merge in progress is merging. More than one line means an octopus merge, which
+/// the app never starts but can find.
+fn merge_head(repo: &Repo) -> Vec<String> {
+    fs::read_to_string(repo.git_dir.join("MERGE_HEAD"))
+        .map(|text| {
+            text.lines()
+                .map(|line| line.trim().to_string())
+                .filter(|line| !line.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Every failed update ends in the app's own words. For these three cases git explains itself by
 /// telling the user to edit configuration or run a shell command, which is exactly what the app
 /// must not dump; the raw output stays in `Operation.output` for anything the app does not know.
-fn update_failure(repo: &Repo, stderr: &str) -> String {
+///
+/// `attempted` names the commit this update asked to merge. Only a merge in progress whose
+/// `MERGE_HEAD` is exactly that commit is this update's to abort; anything else is reported and
+/// left alone.
+fn update_failure(repo: &Repo, stderr: &str, attempted: Option<&str>) -> String {
+    let status = read_status(repo).ok();
+    if let (Some(target), Some(status)) = (attempted, status.as_ref()) {
+        if status.operation == Some("merge") && merge_head(repo).iter().any(|head| head == target) {
+            return abort_conflicting_merge(repo, status);
+        }
+    }
+    if let Some(operation) = status.as_ref().and_then(|status| status.operation) {
+        return format!(
+            "Update stopped: a {operation} is in progress, and OpenRidr cannot prove this update started it, so it did not abort it. Finish or abort it before updating again."
+        );
+    }
     let lower = stderr.to_lowercase();
     if lower.contains("identity unknown")
         || lower.contains("please tell me who you are")
@@ -1895,11 +1962,6 @@ fn update_failure(repo: &Repo, stderr: &str) -> String {
     }
     if lower.contains("not possible to fast-forward") || lower.contains("non-fast-forward") {
         return "Update stopped: git refused a non-fast-forward update. OpenRidr reconciles a diverged branch with a merge commit. Nothing was changed.".to_string();
-    }
-    if let Ok(status) = read_status(repo) {
-        if status.operation == Some("merge") {
-            return abort_conflicting_merge(repo, &status);
-        }
     }
     if stderr.is_empty() {
         "git pull failed without output.".to_string()
@@ -2821,6 +2883,8 @@ mod tests {
         );
         git(&user, &["config", "user.name", "OpenRidr Test"]);
         git(&user, &["config", "user.email", "test@openridr.invalid"]);
+        // A machine-wide signing requirement must not decide whether a test can merge.
+        git(&user, &["config", "commit.gpgsign", "false"]);
         fs::write(user.join("a.txt"), "one\n").unwrap();
         fs::write(user.join("b.txt"), "one\n").unwrap();
         commit_all(&user, "initial");
@@ -2842,6 +2906,7 @@ mod tests {
         );
         git(&peer, &["config", "user.name", "OpenRidr Peer"]);
         git(&peer, &["config", "user.email", "peer@openridr.invalid"]);
+        git(&peer, &["config", "commit.gpgsign", "false"]);
         peer
     }
 
@@ -2915,11 +2980,13 @@ mod tests {
     }
 
     #[test]
-    fn update_ignores_the_repository_pull_rebase_setting() {
+    fn update_ignores_the_repository_pull_and_merge_settings() {
         let (temp, user, bare) = remote_repo("user");
         let peer = peer_clone(temp.path(), &bare);
-        // The dialog states the policy, so the repository's preference cannot silently win.
+        // The dialog states the policy, so the repository's preferences cannot silently win.
         git(&user, &["config", "pull.rebase", "true"]);
+        git(&user, &["config", "pull.ff", "only"]);
+        git(&user, &["config", "merge.ff", "only"]);
         publish(&peer, "b.txt", "one\npeer\n", "peer change");
         fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
         commit_all(&user, "local change");
@@ -2929,6 +2996,52 @@ mod tests {
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_eq!(parent_count(&user), 2, "a merge commit, not a rebase");
         assert_eq!(result.status.operation, None);
+    }
+
+    #[test]
+    fn update_leaves_a_merge_it_did_not_start_alone() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+        git(&root, &["checkout", "-qb", "other"]);
+        fs::write(root.join("a.txt"), "other\n").unwrap();
+        commit_all(&root, "other");
+        git(&root, &["checkout", "-q", "main"]);
+        fs::write(root.join("a.txt"), "main\n").unwrap();
+        commit_all(&root, "main");
+        // A merge started outside the app, of a commit this update never asked to merge. It conflicts,
+        // so its exit status is expected to be non-zero.
+        let _ = Command::new("git")
+            .args(["merge", "other"])
+            .current_dir(&root)
+            .output()
+            .expect("git runs");
+        assert!(root.join(".git/MERGE_HEAD").exists());
+        let repo = repo_of(&root);
+        let other = git(&root, &["rev-parse", "other"]).trim().to_string();
+        let attempted = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let message = update_failure(
+            &repo,
+            "CONFLICT (content): Merge conflict in a.txt",
+            Some(&attempted),
+        );
+
+        assert!(
+            message.contains("cannot prove this update started it"),
+            "{message}"
+        );
+        assert!(message.contains("did not abort"), "{message}");
+        assert!(
+            root.join(".git/MERGE_HEAD").exists(),
+            "the foreign merge stays"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(".git/MERGE_HEAD"))
+                .unwrap()
+                .trim(),
+            other
+        );
     }
 
     #[test]

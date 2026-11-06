@@ -586,11 +586,13 @@ export function BranchWidget({
               <dd>{status.behind}</dd>
             </dl>
             <p className="hint" data-testid="update-policy">
-              When the branch and its upstream both moved, Update creates a merge commit
-              (<code>git pull --no-rebase --ff --no-edit</code>); the repository's{" "}
-              <code>pull.rebase</code>/<code>pull.ff</code> settings do not change that. If the
-              merge conflicts, OpenRidr aborts it and leaves your branch, commits and working
-              tree unchanged.
+              When the branch and its upstream both moved, Update fetches and merges the upstream
+              into a merge commit (<code>git fetch</code>, then{" "}
+              <code>git merge --ff --no-edit</code>); a fast-forward stays a fast-forward. The
+              repository's <code>pull.rebase</code>, <code>pull.ff</code> and{" "}
+              <code>merge.ff</code> settings do not change that. If the merge conflicts, OpenRidr
+              aborts it and leaves your branch, commits and working tree unchanged; if it cannot
+              abort, the dialog says so.
             </p>
             <p className="hint">
               A dirty tree or an in-progress operation refuses the update; OpenRidr never stashes.
