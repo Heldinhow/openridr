@@ -6855,8 +6855,10 @@ fn env_writes_are_confined_to_isolated_leaves() {
             if function.name == "env_writes_are_confined_to_isolated_leaves" {
                 continue;
             }
-            if let Some(rest) = function.body.split("run_isolated_leaf(\"").nth(1) {
-                if let Some(leaf) = rest.split('"').next() {
+            // Split at the call, not at `run_isolated_leaf("`: rustfmt may put the leaf name on the
+            // next line, and this guard must not depend on how the call is wrapped.
+            if let Some(rest) = function.body.split("run_isolated_leaf(").nth(1) {
+                if let Some(leaf) = rest.split('"').nth(1) {
                     // The wrapper may name the leaf by its module path (`trusted::tests::x_isolated`).
                     let name = leaf.rsplit("::").next().unwrap_or(leaf);
                     wrappers.push(name.to_string());
