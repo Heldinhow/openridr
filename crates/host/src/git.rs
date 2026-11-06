@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const LOG_LIMIT: usize = 200;
 pub const COMMIT_FILES_LIMIT: usize = 200;
@@ -37,6 +37,13 @@ const STDERR_BYTES: usize = 32_000;
 const IGNORED_PATHS: usize = 256;
 const IGNORED_PATH_BYTES: usize = 64 * 1024;
 const IGNORED_BYTES: usize = 256 * 1024;
+/// The only Git operation with a deadline. Every host dispatch runs behind one lock in the shell,
+/// so a fetch waiting on an unreachable remote would freeze the whole app, not just the panel that
+/// started it. Push and pull keep that exposure for now; it is tracked in #136.
+const FETCH_DEADLINE: Duration = Duration::from_secs(60);
+/// How often the bounded fetch checks whether its child finished. Short enough to answer soon
+/// after a kill, long enough to keep a healthy fetch off the CPU.
+const FETCH_POLL: Duration = Duration::from_millis(20);
 /// Unique suffix for the private decoded-diff files (`pid` plus this counter).
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -503,6 +510,78 @@ fn spawn_bounded(cwd: &Path, args: &[&str], limit: usize) -> Result<Captured, Sp
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
         truncated,
     })
+}
+
+/// A `git` run that is bounded in time: at `deadline` the child is killed and the flag says so.
+/// Both pipes are drained on their own threads, so neither a chatty failure nor a child waiting to
+/// write can deadlock the wait — and a killed child can still be reaped, so no zombie outlives it.
+fn run_with_deadline(
+    cwd: &Path,
+    args: &[&str],
+    deadline: Duration,
+) -> Result<(Output, bool), SpawnError> {
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => SpawnError::Missing,
+            _ => SpawnError::Failed(error.to_string()),
+        })?;
+    let mut stdout = child.stdout.take().expect("piped stdout");
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    let captured = std::thread::spawn(move || drain_bounded(&mut stdout));
+    let echoed = std::thread::spawn(move || drain_bounded(&mut stderr));
+    let began = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if began.elapsed() >= deadline {
+                    let _ = child.kill();
+                    timed_out = true;
+                    break child.wait().ok();
+                }
+                std::thread::sleep(FETCH_POLL);
+            }
+            Err(_) => break child.wait().ok(),
+        }
+    };
+    let stdout = captured.join().unwrap_or_default();
+    let stderr = echoed.join().unwrap_or_default();
+    Ok((
+        Output {
+            code: status.and_then(|status| status.code()),
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            truncated: false,
+        },
+        timed_out,
+    ))
+}
+
+/// Reads a pipe to its end but keeps at most `STDERR_BYTES`: a fetch output is tiny, and a child
+/// that never closes its pipe must not grow the host.
+fn drain_bounded<R: Read>(reader: &mut R) -> Vec<u8> {
+    let mut kept = Vec::new();
+    let mut buffer = [0u8; 4096];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(count) => {
+                if kept.len() < STDERR_BYTES {
+                    let room = STDERR_BYTES - kept.len();
+                    kept.extend_from_slice(&buffer[..count.min(room)]);
+                }
+            }
+        }
+    }
+    kept
 }
 
 fn spawn_message(error: SpawnError) -> String {
@@ -1994,6 +2073,97 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
     Ok(operation("ok", Some(message), &text, &repo, None))
 }
 
+/// Brings the remote's refs into the local copy: `git fetch --quiet --prune <remote>`, on the
+/// remote the upstream tracks (the first configured remote when there is no upstream).
+///
+/// Fetch moves only refs, so a dirty tree, a merge in progress or a detached HEAD are not reasons
+/// to refuse: the worktree, the index, the local branches and `MERGE_HEAD` are all left alone. The
+/// deadline is the other half of the contract — it is the only bounded network command in the app,
+/// because a hung one would hold the lock every host call waits behind (#136 for push and pull).
+pub fn fetch(root: &Path) -> HostResult<Operation> {
+    fetch_with(root, FETCH_DEADLINE)
+}
+
+fn fetch_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
+    let repo = require_repo(root)?;
+    let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
+    let upstream_remote = status
+        .upstream
+        .as_ref()
+        .and_then(|upstream| upstream.split_once('/'))
+        .map(|(remote, _)| remote.to_string());
+    let Some(remote) = upstream_remote.or_else(|| first_remote(&repo)) else {
+        return Err(HostError::new(
+            "git_no_remote",
+            "No remote is configured. Add one with git remote add; nothing was fetched.",
+        ));
+    };
+
+    let fetched = run_with_deadline(
+        &repo.top,
+        &["fetch", "--quiet", "--prune", &remote],
+        deadline,
+    )
+    .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let (output, timed_out) = fetched;
+    let text = format!("{}{}", output.stdout, output.stderr);
+    let mut next = operation("ok", None, &text, &repo, None);
+    next.remote = Some(remote.clone());
+    if timed_out {
+        next.state = "failed";
+        next.message = Some(format!(
+            "Fetch stopped: {remote} did not answer within {} seconds. Nothing was changed.",
+            deadline.as_secs()
+        ));
+        return Ok(next);
+    }
+    if !output.ok() {
+        next.state = "failed";
+        let stderr = mask_urls(output.stderr.trim());
+        next.message = Some(fetch_failure(&remote, &stderr));
+        return Ok(next);
+    }
+    next.message = Some(format!("Fetched {remote}: {}.", tracking_line(&next.status)));
+    Ok(next)
+}
+
+/// The refreshed tracking state in one clause: what the fetch just changed and what the counters
+/// now read. The message never claims the counter is fresh — it says what this fetch saw.
+fn tracking_line(status: &GitStatus) -> String {
+    let branch = status.branch.clone().unwrap_or_else(|| "HEAD".to_string());
+    match status.upstream.as_deref() {
+        Some(upstream) => format!(
+            "{branch} is {} ahead, {} behind {upstream}",
+            status.ahead, status.behind
+        ),
+        None => format!("{branch} is {} ahead, {} behind", status.ahead, status.behind),
+    }
+}
+
+/// Every failed fetch either names a class the app knows or keeps Git's own tail. The credential
+/// class is the one the app must own: the host runs without a terminal and with interactive
+/// prompting disabled, so Git's advice ("terminal prompts disabled") describes a situation the
+/// user cannot see from inside the app.
+fn fetch_failure(remote: &str, stderr: &str) -> String {
+    let lower = stderr.to_lowercase();
+    if lower.contains("could not read username")
+        || lower.contains("could not read password")
+        || lower.contains("terminal prompts disabled")
+        || lower.contains("authentication failed")
+        || lower.contains("permission denied (publickey)")
+        || lower.contains("invalid username or password")
+    {
+        return format!(
+            "Fetch needs credentials for {remote}. OpenRidr cannot ask for them: the credential helper has to answer, or fetch from a terminal. Nothing was changed."
+        );
+    }
+    if stderr.is_empty() {
+        "git fetch failed without output.".to_string()
+    } else {
+        tail(stderr)
+    }
+}
+
 /// The update policy the dialog states: fetch, then merge. `--ff` is passed explicitly so the
 /// repository's `pull.rebase`/`pull.ff`/`merge.ff` cannot change what the dialog promised, and
 /// `--no-edit` keeps git's merge message without an editor. Never `--no-ff` (a fast-forward stays
@@ -3475,6 +3645,173 @@ mod tests {
         assert_eq!(pushed.status.upstream.as_deref(), Some("origin/main"));
         let count = git(&bare, &["rev-list", "--count", "main"]);
         assert_eq!(count.trim(), "1");
+    }
+
+    #[test]
+    fn fetch_moves_the_behind_counter_and_the_remote_branch_list() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "b.txt", "one\npeer\n", "peer change");
+        git(
+            &peer,
+            &["checkout", "-qb", "published", "origin/main"],
+        );
+        // A branch only the counterpart knows about, published from a second commit.
+        fs::write(peer.join("c.txt"), "peer only\n").unwrap();
+        commit_all(&peer, "peer branch");
+        git(&peer, &["push", "-q", "origin", "published"]);
+
+        // Before any fetch the local tracking refs are stale: this is the #113 symptom.
+        let stale = status(&user);
+        assert_eq!(stale.behind, 0);
+        assert!(branches(&user)
+            .remote
+            .iter()
+            .all(|branch| branch.name != "origin/published"));
+        let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let worktree_before = fs::read_to_string(user.join("b.txt")).unwrap();
+
+        let result = fetch(&user).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert_eq!(result.remote.as_deref(), Some("origin"));
+        assert_eq!(result.status.behind, 1, "the counter the panel shows");
+        assert_eq!(result.status.ahead, 0);
+        assert_eq!(
+            git(&user, &["rev-parse", "HEAD"]).trim(),
+            head,
+            "fetch never moves HEAD"
+        );
+        assert_eq!(
+            fs::read_to_string(user.join("b.txt")).unwrap(),
+            worktree_before,
+            "fetch never writes the worktree"
+        );
+        assert_eq!(git(&user, &["status", "--porcelain"]).trim(), "");
+        let listed = branches(&user);
+        assert!(listed
+            .remote
+            .iter()
+            .any(|branch| branch.name == "origin/published"));
+        let message = result.message.unwrap_or_default();
+        assert!(message.contains("Fetched origin"), "{message}");
+        assert!(message.contains("1 behind"), "{message}");
+    }
+
+    #[test]
+    fn fetch_prunes_a_branch_the_counterpart_deleted_and_keeps_local_work() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        git(&peer, &["checkout", "-qb", "doomed"]);
+        fs::write(peer.join("doomed.txt"), "x\n").unwrap();
+        commit_all(&peer, "doomed");
+        git(&peer, &["push", "-q", "origin", "doomed"]);
+        fetch(&user).unwrap();
+        assert!(branches(&user)
+            .remote
+            .iter()
+            .any(|branch| branch.name == "origin/doomed"));
+        // The user keeps a local branch with the same short name: prune must not touch it.
+        git(&user, &["branch", "doomed", "origin/doomed"]);
+        let local_before = git(&user, &["rev-parse", "doomed"]).trim().to_string();
+
+        git(&peer, &["push", "-q", "origin", "--delete", "doomed"]);
+        let result = fetch(&user).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert!(branches(&user)
+            .remote
+            .iter()
+            .all(|branch| branch.name != "origin/doomed"));
+        assert_eq!(
+            git(&user, &["rev-parse", "doomed"]).trim(),
+            local_before,
+            "prune only removes refs/remotes/*"
+        );
+    }
+
+    #[test]
+    fn fetch_is_allowed_with_a_dirty_tree_and_around_an_in_progress_merge() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "a.txt", "one\npeer\n", "peer change");
+        fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
+        commit_all(&user, "local change");
+        // The app's own action first, so the merge below has something to conflict with.
+        fetch(&user).unwrap();
+        // A real conflict, started outside the app: MERGE_HEAD exists and the tree is dirty.
+        let _ = Command::new("git")
+            .args(["merge", "origin/main"])
+            .current_dir(&user)
+            .output()
+            .expect("git runs");
+        assert!(user.join(".git/MERGE_HEAD").exists());
+        let dirty = fs::read_to_string(user.join("a.txt")).unwrap();
+
+        let result = fetch(&user).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert!(user.join(".git/MERGE_HEAD").exists());
+        assert_eq!(fs::read_to_string(user.join("a.txt")).unwrap(), dirty);
+        assert!(result.status.operation.is_some(), "still mid-merge");
+    }
+
+    #[test]
+    fn fetch_without_a_remote_is_refused_with_the_apps_reason() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+
+        let refused = fetch(&root).unwrap_err();
+
+        assert_eq!(refused.code, "git_no_remote");
+        assert!(
+            refused.message.contains("No remote is configured"),
+            "{}",
+            refused.message
+        );
+    }
+
+    #[test]
+    fn fetch_reports_a_credential_failure_in_the_apps_own_words() {
+        let message = fetch_failure(
+            "origin",
+            "fatal: could not read Username for 'https://example.com': terminal prompts disabled",
+        );
+        assert!(message.contains("needs credentials for origin"), "{message}");
+        assert!(message.contains("credential helper"), "{message}");
+        assert!(message.contains("Nothing was changed"), "{message}");
+        assert!(!message.contains("terminal prompts"), "{message}");
+        // Anything the app does not know keeps Git's own tail instead of a guess.
+        let other = fetch_failure("origin", "fatal: unable to access: connection reset");
+        assert!(other.contains("connection reset"), "{other}");
+    }
+
+    #[test]
+    fn a_fetch_that_outruns_its_deadline_is_killed_and_changes_nothing() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "b.txt", "one\npeer\n", "peer change");
+        let before = git(&user, &["for-each-ref", "refs/remotes"]);
+        let began = Instant::now();
+
+        // A deadline that is already spent: the child cannot finish, so it is killed.
+        let result = fetch_with(&user, Duration::ZERO).unwrap();
+
+        assert_eq!(result.state, "failed");
+        let message = result.message.unwrap_or_default();
+        assert!(message.contains("did not answer within"), "{message}");
+        assert!(message.contains("Nothing was changed"), "{message}");
+        assert!(
+            began.elapsed() < Duration::from_secs(10),
+            "the kill must not wait for the remote"
+        );
+        assert_eq!(
+            git(&user, &["for-each-ref", "refs/remotes"]),
+            before,
+            "no tracking ref moved"
+        );
+        assert_eq!(status(&user).behind, 0);
     }
 
     #[test]
