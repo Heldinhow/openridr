@@ -148,6 +148,13 @@ export function projectUnified(rows: DiffRow[]): UnifiedDoc {
 export type DiffMode = "split" | "unified";
 export const diffModeKey = "openridr.commitDiffMode.v1";
 
+/** The explanation shown instead of the full file: a host `full` whose ranges the row builder
+ * refused is `unaligned`, and that wins over a missing host reason. */
+export function fullFileReason(full: boolean, aligned: boolean, hostReason: string | null): string | null {
+  if (full && !aligned) return "unaligned";
+  return hostReason;
+}
+
 export function loadDiffMode(): DiffMode {
   try {
     return globalThis.localStorage?.getItem(diffModeKey) === "unified" ? "unified" : "split";

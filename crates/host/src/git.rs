@@ -2401,6 +2401,8 @@ mod tests {
         assert!(!answer.full);
         assert_eq!(answer.full_reason, Some("too_large"));
         assert!(answer.truncated, "the bounded patch still says it was cut");
+        assert!(!answer.patch.is_empty(), "the fallback stays usable");
+        assert!(answer.patch.starts_with("diff --git"));
         assert!(answer.patch.chars().count() <= DIFF_LIMIT + 80);
 
         // A committed side is rejected from the blob size, before any content byte is read.

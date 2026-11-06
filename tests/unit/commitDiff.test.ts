@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildCommitRows, loadDiffMode, parseCommitPatch, projectUnified } from "../../src/commitDiffRows";
+import { buildCommitRows, fullFileReason, loadDiffMode, parseCommitPatch, projectUnified } from "../../src/commitDiffRows";
 
 describe("commit patch projection", () => {
   test("pairs replacements, preserves real line numbers and highlights only changed characters", () => {
@@ -126,6 +126,16 @@ describe("unified projection", () => {
     const unified = projectUnified(rows.rows);
     expect(unified.lines.map((line) => line.prefix + line.text)).toEqual(["-a", "+A", " b", "-c", "+C"]);
     expect(unified.differenceLines).toEqual([0, 3]);
+  });
+});
+
+describe("full-file fallback reason", () => {
+  test("names unaligned when the host promised the full file but the rows did not fit", () => {
+    expect(fullFileReason(true, false, null)).toBe("unaligned");
+    expect(fullFileReason(true, false, "binary")).toBe("unaligned");
+    expect(fullFileReason(false, false, "binary")).toBe("binary");
+    expect(fullFileReason(false, false, null)).toBeNull();
+    expect(fullFileReason(true, true, null)).toBeNull();
   });
 });
 
