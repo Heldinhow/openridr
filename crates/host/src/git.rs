@@ -1021,14 +1021,19 @@ fn diff_output(
     unified: &str,
 ) -> Result<Captured, SpawnError> {
     let limit = if unified == "-U0" { HUNK_BYTES } else { PATCH_BYTES };
-    if tracked {
-        let mut args = vec!["diff", "--no-color", "--no-ext-diff", unified];
-        if staged {
-            args.push("--cached");
-        }
+    if staged {
+        // HEAD -> index, tracked or not: a path absent from the index (an untracked path or a
+        // staged deletion) is still compared to HEAD, and the worktree is never read here.
+        let mut args = vec!["diff", "--no-color", "--no-ext-diff", unified, "--cached"];
         args.push("--");
         args.push(path);
         spawn_bounded(&repo.top, &args, limit)
+    } else if tracked {
+        spawn_bounded(
+            &repo.top,
+            &["diff", "--no-color", "--no-ext-diff", unified, "--", path],
+            limit,
+        )
     } else {
         // An untracked file has no index entry to diff against; /dev/null shows its content.
         spawn_bounded(
@@ -1048,8 +1053,16 @@ fn diff_output(
     }
 }
 
-fn is_tracked(repo: &Repo, path: &str) -> Result<bool, SpawnError> {
-    Ok(run(&repo.top, &["ls-files", "--error-unmatch", "--", path])?.ok())
+fn is_tracked(repo: &Repo, path: &str) -> Result<bool, (&'static str, String)> {
+    let output = run(&repo.top, &["ls-files", "--error-unmatch", "--", path])
+        .map_err(|error| (spawn_state(&error), spawn_message(error)))?;
+    match output.code {
+        Some(0) => Ok(true),
+        // `--error-unmatch` exits 1 when the path simply has no index entry.
+        Some(1) => Ok(false),
+        // A corrupt or unreadable index must not turn into "untracked" (and then `--no-index`).
+        _ => Err(("failed", mask_urls(output.stderr.trim()))),
+    }
 }
 
 pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
@@ -1063,7 +1076,9 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
     };
     let tracked = match is_tracked(&repo, path) {
         Ok(tracked) => tracked,
-        Err(error) => return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged)),
+        Err((state, message)) => {
+            return Ok(GitDiff::unavailable(state, message, path, staged))
+        }
     };
     if !staged && worktree_confinement(&repo, path) == Confinement::Outside {
         return Ok(GitDiff::unavailable(
@@ -1426,13 +1441,8 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
     };
     let tracked = match is_tracked(&repo, path) {
         Ok(tracked) => tracked,
-        Err(error) => {
-            return Ok(GitFileDiff::unavailable(
-                "failed",
-                spawn_message(error),
-                path,
-                staged,
-            ))
+        Err((state, message)) => {
+            return Ok(GitFileDiff::unavailable(state, message, path, staged))
         }
     };
     if !staged && worktree_confinement(&repo, path) == Confinement::Outside {
@@ -2454,6 +2464,139 @@ mod tests {
         let mode = std::os::unix::fs::PermissionsExt::mode(&fs::metadata(&path).unwrap().permissions());
         let _ = fs::remove_file(&path);
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn both_reads_refuse_a_worktree_reached_through_a_symlink_in_every_staged_state() {
+        let (_temp, root) = init("repo");
+        let outside = tempfile::tempdir().unwrap();
+        let marker = "R2-SECRET-MARKER-48";
+        fs::write(outside.path().join("secret.txt"), format!("{marker}\n")).unwrap();
+        fs::write(root.join("keep.txt"), "keep\n").unwrap();
+        commit_all(&root, "initial");
+        std::os::unix::fs::symlink(outside.path(), root.join("outdir")).unwrap();
+
+        for staged in [false, true] {
+            let legacy = diff(&root, "outdir/secret.txt", staged).unwrap();
+            let full = file_diff(&root, "outdir/secret.txt", staged).unwrap();
+            assert!(!legacy.diff.contains(marker), "staged={staged}");
+            assert!(!full.patch.contains(marker), "staged={staged}");
+            assert!(
+                !full.base.text.as_deref().unwrap_or_default().contains(marker),
+                "staged={staged}"
+            );
+            assert!(
+                !full.current.text.as_deref().unwrap_or_default().contains(marker),
+                "staged={staged}"
+            );
+            assert!(
+                !full.message.clone().unwrap_or_default().contains(marker),
+                "staged={staged}"
+            );
+            if staged {
+                // HEAD -> index never reads the worktree: an untracked path simply has no diff.
+                assert_eq!(legacy.state, "empty", "staged={staged}");
+                assert_eq!(full.state, "empty", "staged={staged}");
+            } else {
+                assert_eq!(legacy.state, "failed", "staged={staged}");
+                assert_eq!(full.state, "failed", "staged={staged}");
+                assert!(
+                    full.message.unwrap_or_default().contains("symbolic link"),
+                    "staged={staged}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_reads_keep_head_to_index_for_tracked_and_deleted_paths() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        fs::write(root.join("gone.txt"), "bye\n").unwrap();
+        commit_all(&root, "initial");
+        fs::write(root.join("a.txt"), "ONE\n").unwrap();
+        git(&root, &["add", "a.txt"]);
+        git(&root, &["rm", "-q", "gone.txt"]);
+
+        let tracked = file_diff(&root, "a.txt", true).unwrap();
+        assert_eq!(tracked.state, "ok");
+        assert_eq!(tracked.base.text.as_deref(), Some("one\n"));
+        assert_eq!(tracked.current.text.as_deref(), Some("ONE\n"));
+        assert_eq!(
+            tracked.hunks,
+            vec![DiffHunk {
+                old_start: 1,
+                old_count: 1,
+                new_start: 1,
+                new_count: 1
+            }]
+        );
+        let legacy = diff(&root, "a.txt", true).unwrap();
+        assert_eq!(legacy.state, "ok");
+        assert!(legacy.diff.contains("+ONE"));
+
+        // A staged deletion has no index entry; it must still be HEAD -> index, not --no-index.
+        let deleted = file_diff(&root, "gone.txt", true).unwrap();
+        assert_eq!(deleted.state, "ok", "{:?}", deleted.message);
+        assert_eq!(deleted.base.text.as_deref(), Some("bye\n"));
+        assert!(!deleted.current.exists);
+        assert_eq!(deleted.current.text, None);
+        assert_eq!(
+            deleted.hunks,
+            vec![DiffHunk {
+                old_start: 1,
+                old_count: 1,
+                new_start: 0,
+                new_count: 0
+            }]
+        );
+        let legacy_deleted = diff(&root, "gone.txt", true).unwrap();
+        assert_eq!(legacy_deleted.state, "ok");
+        assert!(legacy_deleted.diff.contains("-bye"));
+    }
+
+    #[test]
+    fn corrupt_index_and_tree_reads_are_errors_not_absences() {
+        // A corrupt tree keeps `HEAD:a.txt` unresolvable: that is a read error, not an addition.
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+        let tree = git(&root, &["rev-parse", "HEAD^{tree}"]).trim().to_string();
+        let object = root.join(".git/objects").join(&tree[..2]).join(&tree[2..]);
+        let mut permissions = fs::metadata(&object).unwrap().permissions();
+        permissions.set_readonly(false);
+        fs::set_permissions(&object, permissions).unwrap();
+        fs::write(&object, b"corrupt").unwrap();
+        assert!(matches!(
+            read_blob(&repo_of(&root), "HEAD:a.txt"),
+            Ok(SideBytes::Unreadable)
+        ));
+        // Only the staged read needs the HEAD tree, and it must fail instead of inventing a side.
+        let broken_tree = file_diff(&root, "a.txt", true).unwrap();
+        assert_eq!(broken_tree.state, "failed");
+        assert!(!broken_tree.message.clone().unwrap_or_default().is_empty());
+
+        // A corrupt index must not become "untracked" (and then a --no-index read).
+        let (_temp2, root2) = init("repo2");
+        fs::write(root2.join("a.txt"), "one\n").unwrap();
+        commit_all(&root2, "initial");
+        let index = root2.join(".git/index");
+        let mut permissions = fs::metadata(&index).unwrap().permissions();
+        permissions.set_readonly(false);
+        fs::set_permissions(&index, permissions).unwrap();
+        fs::write(&index, b"garbage").unwrap();
+        assert!(matches!(
+            read_blob(&repo_of(&root2), ":a.txt"),
+            Ok(SideBytes::Unreadable)
+        ));
+        assert!(is_tracked(&repo_of(&root2), "a.txt").is_err());
+        let broken_index = file_diff(&root2, "a.txt", false).unwrap();
+        assert_eq!(broken_index.state, "failed");
+        assert!(broken_index
+            .message
+            .unwrap_or_default()
+            .contains("index"));
     }
 
     #[test]

@@ -50,4 +50,23 @@ Bundle de debug construído do HEAD desta sessão (`src-tauri/target/debug/bundl
 | UTF-16 caía em `unaligned` | ranges do `git diff --no-index` sobre o texto decodificado em temporários privados 0600 com `Drop` | `hunk_ranges_are_read_from_the_decoded_text_for_utf16` (LE e BE, staged e unstaged), `decoded_diff_temporaries_are_private_and_removed` (0600 e limpeza) |
 | Erro de blob virava ausência | `rev-parse --verify --quiet` separa ausência de erro; conteúdo só depois de `cat-file -s`; vazio + ilegível = `failed` | `blob_reads_tell_absence_apart_from_a_read_error` (ausência em HEAD e no index, blob corrompido → `unreadable`, estado `failed` sem inventar adição) |
 
-Limites desta rodada: app Tauri real não foi reaberto (correções sem mudança visível; a verificação anterior de split/unificado/hash continua); Windows/macOS Intel não executados; a janela TOCTOU entre confinamento e uso não foi fechada (declarada).
+Limites desta rodada: app Tauri real não foi reaberto (correções sem mudança visível; a verificação anterior de split/unificado/hash continua); Windows/macOS Intel não executados; a janela TOCTOU entre confinamento e uso não foi demonstrada nem fechada (limite declarado); um SIGKILL pode deixar os temporários do diff decodificado (nom único e 0600; a limpeza por `Drop` cobre os caminhos normais e de erro).
+
+## Rodada 2 da revisão independente
+
+Achado: com `staged=true` e caminho **não rastreado**, o `diff_output` caía no `--no-index` (que lê a worktree) e o confinamento era pulado — um diretório symlink externo vazava conteúdo no patch das duas APIs.
+
+Correção: o ramo staged agora é sempre `HEAD → Index` (`--cached`), rastreado ou não, e nunca toca a worktree; o `--no-index` só permanece no ramo unstaged de caminho sem entrada no index, atrás do confinamento. `is_tracked` separa exit 1 (sem entrada no index) de erro de Git (index corrompido), então erro não vira "untracked".
+
+Matriz provada (`both_reads_refuse_a_worktree_reached_through_a_symlink_in_every_staged_state`), marcador único `R2-SECRET-MARKER-48` num arquivo fora do repo, alcançável só por `outdir` symlink:
+
+| API | staged | antes | depois |
+|---|---|---|---|
+| `git.diff` | false | `failed` (confinamento) | `failed`, marcador ausente |
+| `git.diff` | true | **marcador no `diff`** (falha-antes) | `empty`, marcador ausente |
+| `git.fileDiff` | false | `failed` (confinamento) | `failed`, `patch`/`base`/`current`/`message` sem marcador |
+| `git.fileDiff` | true | **marcador no `patch`** (falha-antes) | `empty`, sem marcador em patch/textos/mensagem |
+
+Falha-antes demonstrada revertendo só o ramo de `diff_output` e rodando o mesmo teste: ele falha em `staged=true` nas duas APIs (uma execução por asserção), volta a passar com a correção.
+
+Casos preservados/adicionados: `staged_reads_keep_head_to_index_for_tracked_and_deleted_paths` (staged rastreado `HEAD → Index` e **deleção staged** sem entrada no index, ambas `ok` com o patch certo) e `corrupt_index_and_tree_reads_are_errors_not_absences` (`read_blob` de árvore corrompida e de index corrompido → `Unreadable`, não `Missing`; `file_diff` staged com árvore corrompida → `failed`; index corrompido → `is_tracked` erro e `file_diff` `failed` com mensagem, sem inventar "untracked"). `cargo test -p openridr-host --lib -- git::`: 27 passed. Sem E2E, sem app e sem bateria completa nesta rodada (guard de host).
