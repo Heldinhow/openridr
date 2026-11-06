@@ -3,12 +3,14 @@ import { Icon, type IconName } from "./Icon";
 import {
   CSharpGlyph, DockerGlyph, DocGlyph, GitGlyph, JsonGlyph, MarkdownGlyph, TextGlyph, YamlGlyph,
 } from "./icons/fileGlyphs";
-import { SYMBOL_LABEL, SymbolMark } from "./icons/SymbolMark";
+import { SYMBOL_LABEL } from "./icons/SymbolMark";
+import { ProjectIcon } from "./icons/ProjectIcon";
 import { fileGlyph, fileKind, type FileGlyph, type SymbolKind } from "./solutionVisuals";
 
 /** Vendored SVGs (see THIRD-PARTY-NOTICES); shared elements are immutable, so they live here. */
 const CUSTOM: Partial<Record<FileGlyph, ReactNode>> = {
   doc: <DocGlyph />,
+  project: <ProjectIcon kind="unknown" />,
   json: <JsonGlyph />,
   markdown: <MarkdownGlyph />,
   docker: <DockerGlyph />,
@@ -29,8 +31,7 @@ const LUCIDE: Partial<Record<FileGlyph, IconName>> = {
 /**
  * Type glyph for a path; color is a token (`--icon-*`) applied by the `tint-*` class.
  *
- * A `.cs` file is always the `C#` hexagon (SPEC-SOLUTION-FILE-ICONS D2); a known symbol kind is a
- * small corner mark plus the tooltip, never a replacement for the file type.
+ * C# symbol kinds remain in the tooltip and row description, not a visual badge.
  */
 export function FileIcon({ path, symbolKind }: { path: string; symbolKind?: SymbolKind }) {
   const glyph = fileGlyph(fileKind(path));
@@ -43,7 +44,6 @@ export function FileIcon({ path, symbolKind }: { path: string; symbolKind?: Symb
         title={symbolKind ? `C# ${SYMBOL_LABEL[symbolKind]}` : "C# file"}
       >
         <CSharpGlyph />
-        {symbolKind && <SymbolMark kind={symbolKind} />}
       </span>
     );
   }

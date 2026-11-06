@@ -4,8 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { host } from "./environment";
 
-// SPEC-SOLUTION-FILE-ICONS: the tree draws vendored file glyphs, folders are chevron + name and the
-// current row is an outline. Works on a temp copy of the fixture, like the other tree specs.
+// Rider-style tree glyphs and selection. Works on a temp copy of the fixture.
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -15,6 +14,7 @@ function tempCopy() {
   fs.cpSync(fixture, copy, { recursive: true, filter: (s) => !/[\\/](bin|obj)([\\/]|$)/.test(s) });
   // Files the reference shows that the fixture does not carry. The versioned fixture is untouched.
   fs.writeFileSync(path.join(copy, "README.md"), "# OrderDesk\n");
+  fs.writeFileSync(path.join(copy, "LICENSE"), "Example\n");
   fs.writeFileSync(path.join(copy, "appsettings.json"), "{}\n");
   fs.writeFileSync(path.join(copy, "Dockerfile"), "FROM mcr.microsoft.com/dotnet/sdk:8.0\n");
   fs.writeFileSync(path.join(copy, "docker-compose.yml"), "services: {}\n");
@@ -38,12 +38,12 @@ test("a C# row exposes its symbol kind to assistive tech without changing the na
   await open(page, tempCopy());
   const row = page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs");
   await expect(row).toBeVisible();
-  // The kind is only a 9px mark on screen; the row carries it as a description, so the name is still
-  // the file name and no second node repeats it.
+  // The kind is a description, not a visual badge or part of the accessible name.
   await expect(row).toHaveAccessibleDescription("C# class");
   await expect(row).toHaveAccessibleName(/Order\.cs$/);
   await expect(row.locator("[data-icon]")).toHaveAttribute("aria-hidden", "true");
-  await expect(row.locator(".symbol-mark")).toHaveAttribute("aria-hidden", "true");
+  await expect(row.locator(".symbol-mark")).toHaveCount(0);
+  await expect(row.locator("[data-icon] text")).toHaveText("C#");
 });
 
 /** Evidence is opt-in: `OPENRIDR_FILE_ICONS_EVIDENCE=docs/evidence/solution-file-icons`. */
@@ -69,13 +69,13 @@ test("file kinds map to the reference glyphs", async ({ page }) => {
     ["tree-file-global.json", "json"],
     ["tree-file-Dockerfile", "docker"],
     ["tree-file-docker-compose.yml", "docker"],
-    ["tree-file-OrderDesk.sln.DotSettings.user", "doc"],
+    ["tree-file-OrderDesk.sln.DotSettings.user", "xml"],
     ["tree-file-src/OrderDesk.Core/Order.cs", "csharp"],
   ]) {
     await expect(glyph(testId)).toHaveAttribute("data-icon", icon);
     await expect(glyph(testId).locator("svg")).toHaveCount(1);
   }
-  // The C# glyph is the filled Simple Icons hexagon, not a stroke icon.
+  // The C# glyph is text, not a hexagon or a symbol badge.
   await expect(glyph("tree-file-src/OrderDesk.Core/Order.cs").locator(".icon")).toHaveCount(0);
   // One glyph per row: a file never stacks two type icons.
   await expect(page.getByTestId("tree-file-README.md").locator("[data-icon]")).toHaveCount(1);
@@ -86,7 +86,7 @@ test("file kinds map to the reference glyphs", async ({ page }) => {
   await shot(page, "depois-glyphs");
 });
 
-test("folders are chevron and name only, with an indent guide per ancestor", async ({ page }) => {
+test("folders have outline icons and an indent guide per ancestor", async ({ page }) => {
   const root = tempCopy();
   fs.mkdirSync(path.join(root, ".idea"), { recursive: true });
   fs.mkdirSync(path.join(root, "src/OrderDesk.Core/bin"), { recursive: true });
@@ -96,10 +96,9 @@ test("folders are chevron and name only, with an indent guide per ancestor", asy
   for (const testId of ["tree-dir-.idea", "tree-dir-src/OrderDesk.Core/bin", "tree-file-README.md"]) {
     await expect(page.getByTestId(testId)).toBeVisible();
   }
-  // Folders lost their icon; the empty 16px slot keeps the names aligned with file names. The
-  // chevron is an svg too, so the assertion is on the icon slot itself.
-  await expect(page.getByTestId("tree-dir-.idea").locator(".tree-icon")).toHaveText("");
-  await expect(page.getByTestId("tree-dir-.idea").locator("svg")).toHaveCount(1);
+  // The folder occupies the same 16px slot as file glyphs.
+  await expect(page.getByTestId("tree-dir-.idea").locator(".tree-icon svg")).toHaveCount(1);
+  await expect(page.getByTestId("tree-dir-.idea").locator("svg")).toHaveCount(2);
   await expect(page.getByTestId("tree-dir-src/OrderDesk.Core/bin").locator("[data-icon]")).toHaveCount(0);
   const dirName = await page.getByTestId("tree-dir-.idea").locator(".tree-name").boundingBox();
   const fileName = await page.getByTestId("tree-file-README.md").locator(".tree-name").boundingBox();
@@ -116,7 +115,7 @@ test("folders are chevron and name only, with an indent guide per ancestor", asy
 test("the two-tone document body keeps WCAG 1.4.11 contrast on every row background", async ({ page }) => {
   await open(page, tempCopy());
   await page.getByTestId("tree-show-all").click();
-  const row = page.getByTestId("tree-file-OrderDesk.sln.DotSettings.user");
+  const row = page.getByTestId("tree-file-LICENSE");
   await expect(row).toBeVisible();
   // Everything comes from the shipped CSS: the glyph token, the body opacity and the row backgrounds.
   const ratios = await row.evaluate((el) => {
