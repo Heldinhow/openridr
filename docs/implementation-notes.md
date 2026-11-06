@@ -1363,6 +1363,12 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   host em teste não isolado. Saíram `RwLock`, `env_guard`, `TestHost` e o `ShellEnv` local. O skip do
   launch profile só acontece quando nenhuma raiz satisfaz o pin (muxer ausente ou que não inicia é
   falha; `OPENRIDR_REQUIRE_DOTNET=1` proíbe skip). O alvo de escape usa `tempfile::tempdir()`.
+- **Carga dos filhos e mtimes do fixture.** Isolar cada corpo em processo próprio fez 27 filhos
+  disputarem dotnet/MSBuild ao mesmo tempo: `csharp-ls did not answer within 5 seconds` apareceu.
+  O harness limita a **2 processos-filho** simultâneos por binário (semáforo). E a cópia do fixture
+  agora tem mtimes normalizados para 2020, porque `restore` compara `project.assets.json` com o
+  `.csproj` por mtime em milissegundos e a cópia podia empatar sob carga (`restore_required` em vez
+  de `invalid_state`).
 - **Prova.** Ver `docs/evidence/test-stability.md` (tabela por item da issue, medições e o que não
   foi verificado). Não verificado: E2E (quarentenado; decisão do Playwright pendente), Windows e
   macOS Intel, e a falha de instalação do debugger relatada por outra sessão (não reproduzida aqui).

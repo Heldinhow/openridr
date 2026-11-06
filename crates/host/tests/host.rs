@@ -66,7 +66,38 @@ fn copy_tree(from: &Path, to: &Path) {
 fn fixture_copy(parent: &Path, name: &str) -> PathBuf {
     let copy = parent.join(name);
     copy_tree(&fixture(), &copy);
+    // Restore compares `obj/project.assets.json` with the project file by mtime. A copy keeps the
+    // checkout timestamps, so under load a restore finishing in the same millisecond could look
+    // older than its project and the next gate would say "restore_required". A fixed past time
+    // makes every freshly written asset unambiguously newer.
+    age_tree(&copy);
     copy
+}
+
+/// Sets every file and directory under `root` to a fixed timestamp in the past.
+fn age_tree(root: &Path) {
+    use std::time::{Duration, UNIX_EPOCH};
+    let old = UNIX_EPOCH + Duration::from_secs(1_600_000_000);
+    fn walk(dir: &Path, old: std::time::SystemTime) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, old);
+            }
+            if let Ok(file) = fs::File::open(&path) {
+                let _ = file.set_modified(old);
+            } else {
+                let _ = fs::File::open(dir).and_then(|handle| handle.set_modified(old));
+            }
+        }
+        if let Ok(handle) = fs::File::open(dir) {
+            let _ = handle.set_modified(old);
+        }
+    }
+    walk(root, old);
+    if let Ok(handle) = fs::File::open(root) {
+        let _ = handle.set_modified(old);
+    }
 }
 
 /// Stages the two files the host reads to report `restored` (`obj/project.assets.json` and a

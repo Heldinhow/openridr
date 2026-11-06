@@ -12,7 +12,7 @@
 #![cfg(test)]
 
 use std::ffi::{OsStr, OsString};
-use std::sync::{Once, OnceLock};
+use std::sync::{Condvar, Mutex, Once, OnceLock};
 
 /// Every `OPENRIDR_*` variable the host crate reads. Keep in sync with `tests/support/mod.rs`.
 const AMBIENT: &[&str] = &[
@@ -35,6 +35,32 @@ const AMBIENT: &[&str] = &[
 ];
 
 static PURGE: Once = Once::new();
+/// Same cap as the integration harness: isolated leaves do real work, so the binary must not start
+/// all of them at once.
+static SLOTS: Mutex<usize> = Mutex::new(0);
+static SLOT_READY: Condvar = Condvar::new();
+const PARALLEL_CHILDREN: usize = 2;
+
+struct Slot;
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut running = SLOTS.lock().unwrap_or_else(|poison| poison.into_inner());
+        *running -= 1;
+        SLOT_READY.notify_one();
+    }
+}
+
+fn slot() -> Slot {
+    let mut running = SLOTS.lock().unwrap_or_else(|poison| poison.into_inner());
+    while *running >= PARALLEL_CHILDREN {
+        running = SLOT_READY
+            .wait(running)
+            .unwrap_or_else(|poison| poison.into_inner());
+    }
+    *running += 1;
+    Slot
+}
 static HOME: OnceLock<tempfile::TempDir> = OnceLock::new();
 
 /// The one environment the lib test binary shares. Set once, before any test writes anything.
@@ -64,6 +90,7 @@ pub fn controlled_command() -> std::process::Command {
 
 /// Runs one isolated leaf of this binary in its own process.
 pub fn run_isolated_leaf(leaf: &str) {
+    let _slot = slot();
     let done = controlled_command()
         .args(["--test-threads=1", "--ignored", "--exact", leaf])
         .output()

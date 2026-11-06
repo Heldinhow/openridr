@@ -9,7 +9,7 @@
 
 use openridr_host::Host;
 use std::ffi::{OsStr, OsString};
-use std::sync::{Once, OnceLock};
+use std::sync::{Condvar, Mutex, Once, OnceLock};
 
 /// Every `OPENRIDR_*` variable the host crate reads. A new one belongs here or the suite starts
 /// depending on whichever shell ran it.
@@ -33,6 +33,32 @@ const AMBIENT: &[&str] = &[
 ];
 
 static PURGE: Once = Once::new();
+/// Isolated leaves run real dotnet/MSBuild work; without a cap the whole binary would start dozens
+/// at once and starve each other into restore timeouts. Isolation stays; only the width changes.
+static SLOTS: Mutex<usize> = Mutex::new(0);
+static SLOT_READY: Condvar = Condvar::new();
+const PARALLEL_CHILDREN: usize = 2;
+
+struct Slot;
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut running = SLOTS.lock().unwrap_or_else(|poison| poison.into_inner());
+        *running -= 1;
+        SLOT_READY.notify_one();
+    }
+}
+
+fn slot() -> Slot {
+    let mut running = SLOTS.lock().unwrap_or_else(|poison| poison.into_inner());
+    while *running >= PARALLEL_CHILDREN {
+        running = SLOT_READY
+            .wait(running)
+            .unwrap_or_else(|poison| poison.into_inner());
+    }
+    *running += 1;
+    Slot
+}
 static HOME: OnceLock<tempfile::TempDir> = OnceLock::new();
 
 /// The one environment every test in a binary shares. It is set once, before the first test can
@@ -77,6 +103,7 @@ pub fn controlled_command() -> std::process::Command {
 /// Runs one isolated leaf of this binary in its own process. The leaf is marked `#[ignore]`
 /// because it writes `OPENRIDR_*` for its host; only this fresh process ever sees those values.
 pub fn run_isolated_leaf(leaf: &str) {
+    let _slot = slot();
     let done = controlled_command()
         .args(["--test-threads=1", "--ignored", "--exact", leaf])
         .output()
@@ -98,6 +125,7 @@ pub fn run_isolated_leaf(leaf: &str) {
 /// Runs one plain leaf of this same binary in a fresh process, with `envs` set on top of the
 /// current environment. For tests that prove the shared environment is not inherited.
 pub fn assert_leaf_passes_in_a_fresh_process(test: &str, envs: &[(&str, &OsStr)]) {
+    let _slot = slot();
     let mut command = controlled_command();
     command.args(["--test-threads=1", "--exact", test]);
     for (key, value) in envs {
