@@ -21,9 +21,9 @@ mod tls_tests;
 #[path = "http_proxy_test.rs"]
 mod proxy_tests;
 
-/// Builds the agent every host request starts from. The route is decided by [`agent_for`], so no
-/// proxy is picked up from the environment here.
-pub(crate) fn agent_builder() -> ureq::AgentBuilder {
+/// Builds the agent every host request starts from. The route is decided by [`agent_for`], which
+/// is the only public way in; nothing here picks a proxy up from the environment on its own.
+fn agent_builder() -> ureq::AgentBuilder {
     agent_builder_with_certs(rustls_native_certs::load_native_certs().unwrap_or_default())
 }
 
@@ -46,6 +46,15 @@ fn agent_builder_with_certs(
 /// redirect policy and limits; the proxy and the address guard are not the caller's business.
 pub(crate) fn agent_for(url: &str) -> Result<ureq::AgentBuilder, String> {
     agent_for_with(url, &process_env)
+}
+
+/// The log line for one download request: the URL, plus the proxy when one is in use. Credentials
+/// never reach this text because [`proxy_label`] only keeps `host:port`.
+pub(crate) fn log_line(url: &str, proxy: Option<&str>) -> String {
+    match proxy {
+        Some(proxy) => format!("GET {url} via proxy {proxy}"),
+        None => format!("GET {url}"),
+    }
 }
 
 /// The proxy label (`host:port`, never credentials) used for one URL, for logs and diagnostics.
@@ -349,6 +358,18 @@ mod tests {
         assert!(message.contains("https://api.nuget.org/v3/index.json"));
         assert!(message.contains("network certificate"));
         assert!(message.contains("system Keychain"));
+    }
+
+    #[test]
+    fn the_download_log_names_the_proxy_only_when_there_is_one() {
+        assert_eq!(
+            log_line("https://github.com/o/r/asset.zip", Some("proxy.corp:3128")),
+            "GET https://github.com/o/r/asset.zip via proxy proxy.corp:3128"
+        );
+        assert_eq!(
+            log_line("https://github.com/o/r/asset.zip", None),
+            "GET https://github.com/o/r/asset.zip"
+        );
     }
 
     #[test]

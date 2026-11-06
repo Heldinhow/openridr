@@ -98,17 +98,16 @@ fn prepare_local_package(
     progress: impl Fn(u64, Option<u64>) -> bool,
 ) -> Result<(PathBuf, PathBuf), String> {
     let (url, sha512) = package_source();
-    let response = crate::http::agent_builder()
+    let agent = crate::http::agent_for(&url)
+        .map_err(|error| format!("Could not download csharp-ls: {error}"))?
         .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .get(&url)
-        .call()
-        .map_err(|error| {
-            format!(
-                "Could not download csharp-ls: {}",
-                crate::http::describe_error(&url, &error)
-            )
-        })?;
+        .build();
+    let response = agent.get(&url).call().map_err(|error| {
+        format!(
+            "Could not download csharp-ls: {}",
+            crate::http::describe_error(&url, &error)
+        )
+    })?;
     let total = response
         .header("Content-Length")
         .and_then(|value| value.parse().ok());

@@ -1378,11 +1378,6 @@ impl Debugger {
 
     /// Downloads the asset to `path`, validating every origin and redirect, while hashing.
     fn download(&self, asset: &AssetView, path: &Path) -> Result<String, Stop> {
-        let agent = crate::http::agent_builder()
-            .redirects(0)
-            .timeout_connect(Duration::from_secs(15))
-            .timeout(Duration::from_secs(300))
-            .build();
         let mut url = asset.url.clone();
         for _ in 0..=MAX_REDIRECTS {
             if !allowed_url(&url) {
@@ -1391,7 +1386,20 @@ impl Debugger {
                     ALLOWED_HOSTS.join(", ")
                 )));
             }
-            self.log(&format!("GET {}", loggable_url(&url)));
+            // Every hop is its own destination: route and guard it again instead of reusing the
+            // client that was built for the previous host.
+            let agent = match crate::http::agent_for(&url) {
+                Ok(builder) => builder
+                    .redirects(0)
+                    .timeout_connect(Duration::from_secs(15))
+                    .timeout(Duration::from_secs(300))
+                    .build(),
+                Err(error) => return Err(Stop::Failed(format!("{error} Nothing was downloaded."))),
+            };
+            self.log(&crate::http::log_line(
+                &loggable_url(&url),
+                crate::http::proxy_label(&url).as_deref(),
+            ));
             match agent.get(&url).call() {
                 Ok(response) if (300..400).contains(&response.status()) => {
                     let Some(location) = response.header("location") else {
