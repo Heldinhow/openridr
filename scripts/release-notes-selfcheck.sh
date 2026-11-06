@@ -71,7 +71,10 @@ grep -q -- '- stapler: app e DMG validados' "$work/out" || fail "stapler result 
 
 echo "self-check: rejections"
 write_notes 9.9.9
-expect_fail "expected '# OpenRidr $version'" "$version" "$hash" 12345 "$notes"
+expect_fail "expected '$version' (exact)" "$version" "$hash" 12345 "$notes"
+# A longer prerelease that starts with the expected version is not the same version.
+write_notes "$version-extra"
+expect_fail "heading says '$version-extra'" "$version" "$hash" 12345 "$notes"
 write_notes "$version"
 expect_fail "not 64 lowercase hex" "$version" abc 12345 "$notes"
 expect_fail "not 64 lowercase hex" "$version" "$(printf '%s' "$hash" | tr 'a-f' 'A-F')" 12345 "$notes"
@@ -79,6 +82,9 @@ expect_fail "not a positive integer" "$version" "$hash" 0 "$notes"
 expect_fail "not a positive integer" "$version" "$hash" 12.5 "$notes"
 expect_fail "missing notes file" "$version" "$hash" 12345 "$work/absent.md"
 write_notes "$version" "Hash copiado à mão: $hash"
+expect_fail "already contains a SHA-256" "$version" "$hash" 12345 "$notes"
+# Uppercase hex is still a hand-written hash.
+write_notes "$version" "Hash copiado à mão: $(printf '%s' "$hash" | tr 'a-f' 'A-F')"
 expect_fail "already contains a SHA-256" "$version" "$hash" 12345 "$notes"
 write_notes "$version"
 

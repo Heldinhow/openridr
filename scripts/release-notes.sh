@@ -40,12 +40,17 @@ printf '%s\n' "$bytes" | grep -Eq '^[1-9][0-9]*$' || fail "bytes '$bytes' is not
 
 heading=$(sed -n '1p' "$notes")
 case $heading in
-  "# $PRODUCT $version"*) ;;
+  "# $PRODUCT "*)
+    rest=${heading#"# $PRODUCT "}
+    heading_version=${rest%% *}
+    [ "$heading_version" = "$version" ] ||
+      fail "$notes heading says '$heading_version'; expected '$version' (exact)"
+    ;;
   *) fail "$notes starts with '$heading'; expected '# $PRODUCT $version'" ;;
 esac
 
 # The hash belongs to this run: a hand-written one in the notes is stale by construction.
-if grep -Eq '(^|[^0-9a-f])[0-9a-f]{64}([^0-9a-f]|$)' "$notes"; then
+if grep -Eqi '(^|[^0-9a-f])[0-9a-f]{64}([^0-9a-f]|$)' "$notes"; then
   fail "$notes already contains a SHA-256; the release body generates it, remove the hand-written one"
 fi
 

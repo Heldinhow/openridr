@@ -117,8 +117,24 @@ done
 
 echo "self-check: notes heading"
 plant "$root/docs/RELEASE-ALPHA.md" "# OpenRidr 9.9.9 (pré-release)"
+expect_fail "heading says '9.9.9'" --check --tag "v$VERSION"
+# A version that only starts with the expected one is not the expected one.
+plant "$root/docs/RELEASE-ALPHA.md" "# OpenRidr $VERSION-extra (pré-release)"
+expect_fail "heading says '$VERSION-extra'" --check --tag "v$VERSION"
+plant "$root/docs/RELEASE-ALPHA.md" "# Alguma coisa"
 expect_fail "docs/RELEASE-ALPHA.md starts with" --check --tag "v$VERSION"
 add_version "$VERSION"
+expect_ok --check --tag "v$VERSION"
+
+echo "self-check: the checked-out commit must be the tagged commit"
+git_ checkout -q -b later
+plant "$root/docs/RELEASE-ALPHA.md" "# OpenRidr $VERSION (pré-release)"
+printf 'later\n' >"$root/later.txt"
+git_ add -A
+git_ commit -qm "commit after the tag"
+expect_fail "HEAD is" --check --tag "v$VERSION"
+git_ checkout -q main
+git_ branch -qD later
 expect_ok --check --tag "v$VERSION"
 
 echo "self-check: the tag must exist, be on main and have origin/main fetched"
@@ -230,10 +246,15 @@ grep -q "needs --tag" "$work/err" || fail "missing version message is not specif
 echo "self-check: credentials accept a keychain profile and require a Developer ID identity"
 (
   credentials
-  unset APPLE_API_KEY
+  unset APPLE_API_KEY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
   NOTARY_KEYCHAIN_PROFILE=notary
   export NOTARY_KEYCHAIN_PROFILE
   expect_ok --check --tag "v$VERSION"
+)
+(
+  credentials
+  unset APPLE_CERTIFICATE
+  expect_fail "missing credentials:.*APPLE_CERTIFICATE" --check --tag "v$VERSION"
 )
 (
   credentials
@@ -274,7 +295,7 @@ cp "$(command -v sh)" "$stub/Contents/MacOS/openridr"
 stub_plist "$VERSION"
 rt="$work/run-full"
 mkdir -p "$rt"
-if credentials >/dev/null 2>&1 && RUNNER_TEMP=$rt RELEASE_APP=$stub \
+if credentials >/dev/null 2>&1 && RELEASE_ROOT=$root RUNNER_TEMP=$rt RELEASE_APP=$stub \
   APPLE_CERTIFICATE=$canary APPLE_CERTIFICATE_PASSWORD=$canary APPLE_API_KEY=$canary \
   APPLE_API_KEY_ID=$canary APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
   sh "$script" --tag "v$VERSION" >"$work/out" 2>"$work/err"; then
@@ -284,5 +305,55 @@ grep -q "no hardened runtime" "$work/err" ||
   fail "the audit did not reject the ad-hoc app on hardening: $(cat "$work/err")"
 leftovers=$(ls -A "$rt")
 [ -z "$leftovers" ] || fail "the failed run left files in RUNNER_TEMP: $leftovers"
+
+echo "self-check: the audit verifies each signature, not only its metadata"
+broken="$work/Broken.app"
+mkdir -p "$broken/Contents/MacOS"
+cp "$(command -v sh)" "$broken/Contents/MacOS/openridr"
+printf 'x' >>"$broken/Contents/MacOS/openridr"
+cp "$stub/Contents/Info.plist" "$broken/Contents/Info.plist"
+if APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
+  sh "$script" --audit "$broken" >"$work/out" 2>"$work/err"; then
+  fail "a binary with a broken signature passed the audit"
+fi
+grep -q "does not verify with codesign --verify --strict" "$work/err" ||
+  fail "broken signature message is not specific: $(cat "$work/err")"
+
+echo "self-check: --dry-run builds ad-hoc even when the environment has an identity"
+bin3="$work/bin-build"
+mkdir -p "$bin3"
+built="$root/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/OpenRidr.app"
+plist="$work/Info.plist"
+cat >"$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+</dict>
+</plist>
+PLIST
+cat >"$bin3/bun" <<BUN
+#!/bin/sh
+printf '%s' "\${APPLE_SIGNING_IDENTITY-unset}" >"$work/build-identity"
+mkdir -p "$built/Contents/MacOS"
+cp "$(command -v sh)" "$built/Contents/MacOS/openridr"
+cp "$plist" "$built/Contents/Info.plist"
+exit 0
+BUN
+chmod +x "$bin3/bun"
+mkdir -p "$work/run-dry"
+if ! RELEASE_ROOT=$root RUNNER_TEMP=$work/run-dry \
+  APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
+  PATH="$bin3:$PATH" sh "$script" --dry-run --tag "v$VERSION" >"$work/out" 2>"$work/err"; then
+  cat "$work/err" >&2
+  fail "the dry run failed against a stub build"
+fi
+[ -f "$work/build-identity" ] || fail "the stub build did not run"
+[ -z "$(cat "$work/build-identity")" ] ||
+  fail "the dry run passed APPLE_SIGNING_IDENTITY='$(cat "$work/build-identity")' to the build"
+grep -q "signing identity cleared" "$work/err" || fail "the dry run does not say the identity was cleared"
+grep -q '^dmg=' "$work/out" || fail "the dry run printed no DMG"
+grep -q '^sha256=' "$work/out" || fail "the dry run printed no hash"
 
 echo "ok: release self-check passed"

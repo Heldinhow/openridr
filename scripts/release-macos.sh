@@ -140,6 +140,11 @@ check_tag_on_main() {
     fail "$ROOT is not a git checkout: cannot verify the tag is on main"
   git -C "$ROOT" rev-parse -q --verify "refs/tags/$TAG" >/dev/null ||
     fail "tag $TAG does not exist in this checkout (create it before releasing)"
+  # What gets built must be what the tag points at: a checked-out branch is not a release.
+  head=$(git -C "$ROOT" rev-parse HEAD)
+  tagged=$(git -C "$ROOT" rev-parse "refs/tags/$TAG^{commit}")
+  [ "$head" = "$tagged" ] ||
+    fail "HEAD is $head but tag $TAG points at $tagged; check out the tag before releasing"
   git -C "$ROOT" rev-parse -q --verify origin/main >/dev/null ||
     fail "origin/main is not fetched; run 'git fetch origin main' so the tag can be checked against main"
   git -C "$ROOT" merge-base --is-ancestor "refs/tags/$TAG^{commit}" origin/main ||
@@ -151,23 +156,36 @@ check_notes_heading() {
   [ -f "$file" ] || fail "missing docs/RELEASE-ALPHA.md (release notes)"
   heading=$(sed -n '1p' "$file")
   case $heading in
-    "# $PRODUCT ${TAG#v}"*) ;;
+    "# $PRODUCT "*)
+      rest=${heading#"# $PRODUCT "}
+      heading_version=${rest%% *}
+      [ "$heading_version" = "${TAG#v}" ] ||
+        fail "docs/RELEASE-ALPHA.md heading says '$heading_version'; expected ${TAG#v} (exact)"
+      ;;
     *) fail "docs/RELEASE-ALPHA.md starts with '$heading'; expected '# $PRODUCT ${TAG#v}'" ;;
   esac
 }
 
 check_credentials() {
   missing=
-  for name in $REQUIRED_CERTIFICATE $REQUIRED_IDENTITY; do
-    eval "value=\${$name:-}"
-    [ -n "$value" ] || missing="$missing $name"
-  done
   if [ -z "${APPLE_API_KEY:-}" ] && [ -z "${NOTARY_KEYCHAIN_PROFILE:-}" ]; then
     missing="$missing APPLE_API_KEY(or NOTARY_KEYCHAIN_PROFILE)"
   fi
   if [ -n "${APPLE_API_KEY:-}" ] && [ -z "${APPLE_API_KEY_ID:-}" ]; then
     missing="$missing APPLE_API_KEY_ID"
   fi
+  # CI imports the certificate from secrets; a Mac using the notary keychain profile already has it
+  # in the login keychain, so the .p12 variables are not its business.
+  if [ -z "${NOTARY_KEYCHAIN_PROFILE:-}" ]; then
+    for name in $REQUIRED_CERTIFICATE; do
+      eval "value=\${$name:-}"
+      [ -n "$value" ] || missing="$missing $name"
+    done
+  fi
+  for name in $REQUIRED_IDENTITY; do
+    eval "value=\${$name:-}"
+    [ -n "$value" ] || missing="$missing $name"
+  done
   [ -z "$missing" ] ||
     fail "missing credentials:$missing (names only; values belong in GitHub secrets/variables)"
   case ${APPLE_SIGNING_IDENTITY} in
@@ -248,8 +266,11 @@ build_app() {
     note "installing JS dependencies (bun install --frozen-lockfile)"
     (cd "$ROOT" && bun install --frozen-lockfile)
   fi
-  note "building $PRODUCT ${TAG#v} (aarch64-apple-darwin, --bundles app)"
-  (cd "$ROOT" && bun run tauri build --target aarch64-apple-darwin --bundles app)
+  ident=$(identity)
+  note "building $PRODUCT ${TAG#v} (aarch64-apple-darwin, --bundles app, identity ${ident:-ad-hoc (-)})"
+  # The identity is passed explicitly so a dry run can clear it and stay ad-hoc (the vendor scripts
+  # and the Tauri bundler both read it).
+  (cd "$ROOT" && APPLE_SIGNING_IDENTITY="$ident" bun run tauri build --target aarch64-apple-darwin --bundles app)
   app=$(resolve_app)
   [ -d "$app" ] || fail "the build produced no app bundle at $app"
 }
@@ -335,11 +356,12 @@ audit_identity() {
   printf '%s' "$ident"
 }
 
+# `file` parses the load commands, so it sees every Mach-O magic (32/64-bit, both endiannesses,
+# fat32/fat64) and does not mistake a data file whose first bytes happen to look like a magic.
 macho_files() {
   find "$1" -type f | while IFS= read -r file; do
-    magic=$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')
-    case $magic in
-      cffaedfe | cefaedfe | cafebabe) printf '%s\n' "$file" ;;
+    case $(file -b "$file" 2>/dev/null) in
+      *Mach-O*) printf '%s\n' "$file" ;;
     esac
   done
 }
@@ -362,6 +384,10 @@ audit_app() {
   problem=
   while IFS= read -r file; do
     relative=${file#"$app"/}
+    if ! codesign --verify --strict "$file" 2>/dev/null; then
+      problem="$relative does not verify with codesign --verify --strict"
+      break
+    fi
     if ! meta=$(codesign -dv --verbose=4 "$file" 2>&1); then
       problem="cannot read the signature of $relative"
       break
@@ -408,31 +434,37 @@ audit_app() {
   note "audit ok: $total Mach-O ($ours with '$ident', $microsoft createdump from Microsoft)"
 }
 
-notary_key_path() {
-  if [ -z "$NOTARY_KEY_FILE" ]; then
-    [ -n "${APPLE_API_KEY:-}" ] || return 1
-    [ -n "${APPLE_API_KEY_ID:-}" ] || fail "APPLE_API_KEY is set without APPLE_API_KEY_ID"
-    NOTARY_KEY_FILE="$WORK/AuthKey_${APPLE_API_KEY_ID}.p8"
-    printf '%s' "$APPLE_API_KEY" | tr -d '\n' | openssl base64 -d -A >"$NOTARY_KEY_FILE" ||
-      fail "APPLE_API_KEY is not valid base64 of a .p8"
-    chmod 600 "$NOTARY_KEY_FILE"
-    [ -s "$NOTARY_KEY_FILE" ] || fail "APPLE_API_KEY decoded to an empty file"
+# Writes the .p8 and records its path in this shell (never in a $(...) subshell), so the EXIT trap
+# can always remove it. Returns 1 when the environment uses a keychain profile instead.
+prepare_notary_key() {
+  if [ -n "$NOTARY_KEY_FILE" ]; then
+    return 0
   fi
-  printf '%s' "$NOTARY_KEY_FILE"
+  [ -n "${APPLE_API_KEY:-}" ] || return 1
+  [ -n "${APPLE_API_KEY_ID:-}" ] || fail "APPLE_API_KEY is set without APPLE_API_KEY_ID"
+  old_umask=$(umask)
+  umask 077
+  NOTARY_KEY_FILE=$(mktemp "$WORK/AuthKey_${APPLE_API_KEY_ID}.XXXXXX")
+  umask "$old_umask"
+  printf '%s' "$APPLE_API_KEY" | tr -d '\n' | openssl base64 -d -A >"$NOTARY_KEY_FILE" ||
+    fail "APPLE_API_KEY is not valid base64 of a .p8"
+  [ -s "$NOTARY_KEY_FILE" ] || fail "APPLE_API_KEY decoded to an empty file"
+  return 0
 }
 
 # notarytool with the credentials from the environment; the key is a path, never a value in argv.
 notary() {
   action=$1
   shift
-  key=$(notary_key_path) || {
-    xcrun notarytool "$action" "$@" --keychain-profile "$NOTARY_KEYCHAIN_PROFILE"
-    return
-  }
-  if [ -n "${APPLE_API_ISSUER:-}" ]; then
-    xcrun notarytool "$action" "$@" --key "$key" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"
+  if prepare_notary_key; then
+    if [ -n "${APPLE_API_ISSUER:-}" ]; then
+      xcrun notarytool "$action" "$@" --key "$NOTARY_KEY_FILE" --key-id "$APPLE_API_KEY_ID" \
+        --issuer "$APPLE_API_ISSUER"
+    else
+      xcrun notarytool "$action" "$@" --key "$NOTARY_KEY_FILE" --key-id "$APPLE_API_KEY_ID"
+    fi
   else
-    xcrun notarytool "$action" "$@" --key "$key" --key-id "$APPLE_API_KEY_ID"
+    xcrun notarytool "$action" "$@" --keychain-profile "$NOTARY_KEYCHAIN_PROFILE"
   fi
 }
 
@@ -505,7 +537,7 @@ verify_artifact() {
 verification_outputs() {
   [ -n "${GITHUB_OUTPUT:-}" ] || return 0
   {
-    printf 'verify_codesign=%s\n' "app, app no DMG montado e DMG aceitos (--deep --strict)"
+    printf 'verify_codesign=%s\n' "app e app no DMG montado aceitos (codesign --deep --strict)"
     printf 'verify_spctl=%s\n' "Notarized Developer ID (app e DMG)"
     printf 'verify_stapler=%s\n' "app e DMG validados"
   } >>"$GITHUB_OUTPUT"
@@ -553,6 +585,11 @@ case $MODE in
     ;;
   dry-run)
     preflight relaxed
+    # A rehearsal must build exactly like a local build: no Developer ID even if the environment has
+    # one, so vendor tools and the bundler sign ad-hoc and nothing real can be notarized by accident.
+    APPLE_SIGNING_IDENTITY=
+    export APPLE_SIGNING_IDENTITY
+    note "dry run: signing identity cleared, the build stays ad-hoc"
     build_app
     print_plan
     dmg=$(assemble_dmg "$(resolve_app)")
