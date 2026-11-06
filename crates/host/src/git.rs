@@ -211,7 +211,12 @@ pub struct GitDiff {
 }
 
 impl GitDiff {
-    fn unavailable(state: &'static str, message: impl Into<String>, path: &str, staged: bool) -> Self {
+    fn unavailable(
+        state: &'static str,
+        message: impl Into<String>,
+        path: &str,
+        staged: bool,
+    ) -> Self {
         Self {
             state,
             message: Some(message.into()),
@@ -350,7 +355,10 @@ fn require_repo(root: &Path) -> HostResult<Repo> {
 
 fn cap(text: &str, limit: usize) -> (String, bool) {
     match text.char_indices().nth(limit) {
-        Some((index, _)) => (format!("{}\n… truncated at {limit} characters", &text[..index]), true),
+        Some((index, _)) => (
+            format!("{}\n… truncated at {limit} characters", &text[..index]),
+            true,
+        ),
         None => (text.to_string(), false),
     }
 }
@@ -477,7 +485,10 @@ fn parse_status(text: &str) -> (Progress, Vec<GitFile>) {
     let records: Vec<&str> = text.split('\0').collect();
     let mut progress = Progress::default();
     let mut index = 0;
-    if records.first().is_some_and(|record| record.starts_with("## ")) {
+    if records
+        .first()
+        .is_some_and(|record| record.starts_with("## "))
+    {
         progress = parse_header(records[0]);
         index = 1;
     }
@@ -528,11 +539,8 @@ fn in_progress(git_dir: &Path) -> Option<&'static str> {
 }
 
 fn read_status(repo: &Repo) -> Result<GitStatus, String> {
-    let output = run(
-        &repo.top,
-        &["status", "--porcelain=v1", "-z", "--branch"],
-    )
-    .map_err(spawn_message)?;
+    let output =
+        run(&repo.top, &["status", "--porcelain=v1", "-z", "--branch"]).map_err(spawn_message)?;
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
         return Err(if stderr.is_empty() {
@@ -738,10 +746,7 @@ fn parse_log(text: &str) -> Vec<GitCommit> {
         }
         let hash = fields[0].trim().to_string();
         let short_hash = hash.chars().take(7).collect();
-        let parents: Vec<String> = fields[3]
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
+        let parents: Vec<String> = fields[3].split_whitespace().map(str::to_string).collect();
         let (files, files_truncated) = parse_name_status(body);
         commits.push(GitCommit {
             hash,
@@ -836,18 +841,37 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
     };
     let tracked = match run(&repo.top, &["ls-files", "--error-unmatch", "--", path]) {
         Ok(output) => output,
-        Err(error) => return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged)),
+        Err(error) => {
+            return Ok(GitDiff::unavailable(
+                "failed",
+                spawn_message(error),
+                path,
+                staged,
+            ))
+        }
     };
     let output = if tracked.ok() {
         let args = if staged {
-            vec!["diff", "--no-color", "--no-ext-diff", "--cached", "--", path]
+            vec![
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "--cached",
+                "--",
+                path,
+            ]
         } else {
             vec!["diff", "--no-color", "--no-ext-diff", "--", path]
         };
         match run(&repo.top, &args) {
             Ok(output) => output,
             Err(error) => {
-                return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged));
+                return Ok(GitDiff::unavailable(
+                    "failed",
+                    spawn_message(error),
+                    path,
+                    staged,
+                ));
             }
         }
     } else {
@@ -866,7 +890,12 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
         ) {
             Ok(output) => output,
             Err(error) => {
-                return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged));
+                return Ok(GitDiff::unavailable(
+                    "failed",
+                    spawn_message(error),
+                    path,
+                    staged,
+                ));
             }
         }
     };
@@ -927,7 +956,8 @@ fn operation(
     repo: &Repo,
     commit: Option<Committed>,
 ) -> Operation {
-    let status = read_status(repo).unwrap_or_else(|message| GitStatus::unavailable("failed", message));
+    let status =
+        read_status(repo).unwrap_or_else(|message| GitStatus::unavailable("failed", message));
     let (capped, _) = cap(&mask_urls(output), OUTPUT_LIMIT);
     Operation {
         state,
@@ -985,13 +1015,15 @@ pub fn commit(root: &Path, paths: &[String], message: &str, amend: bool) -> Host
         // only when the commit fails.
         let mut args = vec!["add", "--intent-to-add", "--"];
         args.extend(untracked.iter().map(String::as_str));
-        let output = run(&repo.top, &args).map_err(|error| {
-            HostError::new("git_failed", spawn_message(error))
-        })?;
+        let output = run(&repo.top, &args)
+            .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
         if !output.ok() {
             return Err(HostError::new(
                 "git_failed",
-                format!("git add --intent-to-add failed: {}", tail(&mask_urls(&output.stderr))),
+                format!(
+                    "git add --intent-to-add failed: {}",
+                    tail(&mask_urls(&output.stderr))
+                ),
             ));
         }
     }
@@ -1046,12 +1078,9 @@ pub fn commit(root: &Path, paths: &[String], message: &str, amend: bool) -> Host
 }
 
 fn has_ref(repo: &Repo, reference: &str) -> bool {
-    run(
-        &repo.top,
-        &["rev-parse", "--verify", "--quiet", reference],
-    )
-    .map(|output| output.ok())
-    .unwrap_or(false)
+    run(&repo.top, &["rev-parse", "--verify", "--quiet", reference])
+        .map(|output| output.ok())
+        .unwrap_or(false)
 }
 
 pub fn branch_create(root: &Path, name: &str, checkout: bool) -> HostResult<Operation> {
@@ -1062,7 +1091,8 @@ pub fn branch_create(root: &Path, name: &str, checkout: bool) -> HostResult<Oper
     } else {
         vec!["branch", name]
     };
-    let output = run(&repo.top, &args).map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let output = run(&repo.top, &args)
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
@@ -1104,7 +1134,8 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
     } else {
         vec!["checkout", name]
     };
-    let output = run(&repo.top, &args).map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let output = run(&repo.top, &args)
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
@@ -1120,7 +1151,8 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
             None,
         ));
     }
-    let next = read_status(&repo).unwrap_or_else(|message| GitStatus::unavailable("failed", message));
+    let next =
+        read_status(&repo).unwrap_or_else(|message| GitStatus::unavailable("failed", message));
     let message = match next.branch.as_deref() {
         Some(branch) => format!("Checked out {branch}."),
         None => "Checked out detached HEAD.".to_string(),
@@ -1138,7 +1170,8 @@ pub fn pull(root: &Path) -> HostResult<Operation> {
             "No upstream is configured; nothing to pull.",
         ));
     }
-    let output = run(&repo.top, &["pull"]).map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let output = run(&repo.top, &["pull"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
@@ -1188,10 +1221,11 @@ pub fn push(root: &Path, params: &Value) -> HostResult<Operation> {
             "Cannot push a detached HEAD.",
         ));
     };
-    let upstream_remote = status
-        .upstream
-        .as_ref()
-        .and_then(|upstream| upstream.split_once('/').map(|(remote, _)| remote.to_string()));
+    let upstream_remote = status.upstream.as_ref().and_then(|upstream| {
+        upstream
+            .split_once('/')
+            .map(|(remote, _)| remote.to_string())
+    });
     let remote = params
         .get("remote")
         .and_then(Value::as_str)
@@ -1206,14 +1240,11 @@ pub fn push(root: &Path, params: &Value) -> HostResult<Operation> {
     };
     let mut args = vec!["push".to_string()];
     if status.upstream.is_none() {
-        args.extend([
-            "--set-upstream".to_string(),
-            remote.clone(),
-            branch.clone(),
-        ]);
+        args.extend(["--set-upstream".to_string(), remote.clone(), branch.clone()]);
     }
     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = run(&repo.top, &borrowed).map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let output = run(&repo.top, &borrowed)
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     let mut next = operation(
         if output.ok() { "ok" } else { "failed" },
@@ -1318,9 +1349,10 @@ mod tests {
             .find(|file| file.path == "new.txt")
             .unwrap();
         assert_eq!(staged.label, "Staged");
-        assert!(current.files.iter().any(|file| file.path == "dirty.txt"
-            && file.untracked
-            && file.label == "Untracked"));
+        assert!(current
+            .files
+            .iter()
+            .any(|file| file.path == "dirty.txt" && file.untracked && file.label == "Untracked"));
 
         let plain = tempfile::tempdir().unwrap();
         let missing = status(plain.path());
@@ -1427,7 +1459,10 @@ mod tests {
         assert_eq!(paths, vec!["new.txt", "picked.txt"]);
         let staged = git(&root, &["diff", "--cached", "--name-only"]);
         assert_eq!(staged.trim(), "staged.txt");
-        assert_eq!(git(&root, &["status", "--porcelain"]).trim(), "M  staged.txt");
+        assert_eq!(
+            git(&root, &["status", "--porcelain"]).trim(),
+            "M  staged.txt"
+        );
 
         fs::write(root.join("picked.txt"), "base\npicked\nagain\n").unwrap();
         let amended = commit(&root, &["picked.txt".to_string()], "amended subject", true).unwrap();
@@ -1437,7 +1472,10 @@ mod tests {
             "amended subject"
         );
         assert_eq!(git(&root, &["rev-list", "--count", "HEAD"]).trim(), "2");
-        assert_eq!(git(&root, &["diff", "--cached", "--name-only"]).trim(), "staged.txt");
+        assert_eq!(
+            git(&root, &["diff", "--cached", "--name-only"]).trim(),
+            "staged.txt"
+        );
         let new_tracked = git(&root, &["ls-files", "new.txt"]);
         assert_eq!(new_tracked.trim(), "new.txt");
     }
@@ -1482,12 +1520,7 @@ mod tests {
         git(remote.path(), &["init", "-q", "-b", "main", "--bare"]);
         git(
             &root,
-            &[
-                "remote",
-                "add",
-                "origin",
-                remote.path().to_str().unwrap(),
-            ],
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
         );
         git(&root, &["push", "-q", "-u", "origin", "main"]);
         git(&root, &["checkout", "-qb", "feature"]);
@@ -1546,11 +1579,15 @@ mod tests {
 
     #[test]
     fn masked_output_hides_credentials() {
-        let text = "fatal: unable to access 'https://user:secret-token@example.com/repo.git/': denied";
+        let text =
+            "fatal: unable to access 'https://user:secret-token@example.com/repo.git/': denied";
         let masked = mask_urls(text);
         assert!(!masked.contains("secret-token"), "{masked}");
         assert!(!masked.contains("user:"), "{masked}");
-        assert!(masked.contains("https://***@example.com/repo.git/"), "{masked}");
+        assert!(
+            masked.contains("https://***@example.com/repo.git/"),
+            "{masked}"
+        );
         assert_eq!(mask_urls("plain text"), "plain text");
     }
 }

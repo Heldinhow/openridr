@@ -276,7 +276,12 @@ impl TestRun {
         let (log, log_truncated) = data.log.text();
         let counts = counts(&data.results);
         let trx_path = if data.revision > 0 {
-            Some(data.results_directory.join(TRX_FILE).to_string_lossy().to_string())
+            Some(
+                data.results_directory
+                    .join(TRX_FILE)
+                    .to_string_lossy()
+                    .to_string(),
+            )
         } else {
             None
         };
@@ -447,10 +452,7 @@ fn finalize(data: &mut Data, cancelled: bool) {
     data.trx_state = parsed.state;
     data.results = parsed.results;
     data.results_truncated = parsed.truncated;
-    let _ = fs::write(
-        data.results_directory.join("run.log"),
-        data.log.text().0,
-    );
+    let _ = fs::write(data.results_directory.join("run.log"), data.log.text().0);
     let (state, infrastructure, error) =
         classify(cancelled, data.exit, &data.results, data.trx_state);
     data.state = state;
@@ -584,7 +586,10 @@ impl SelectionError {
 
 /// Selected ids are validated against the current discovery. An empty, duplicated or unknown
 /// id blocks the run instead of falling back to `all`.
-pub fn validate_selection(items: &[TestItem], ids: &[String]) -> Result<Vec<TestItem>, SelectionError> {
+pub fn validate_selection(
+    items: &[TestItem],
+    ids: &[String],
+) -> Result<Vec<TestItem>, SelectionError> {
     if ids.is_empty() {
         return Err(SelectionError::Empty);
     }
@@ -620,9 +625,12 @@ pub fn filter_expression(items: &[TestItem]) -> Result<String, String> {
             ));
         }
         if fqn.is_empty()
-            || fqn
-                .chars()
-                .any(|c| matches!(c, '|' | '&' | '(' | ')' | '=' | '!' | '~' | '"' | '\'' | '\n' | '\r'))
+            || fqn.chars().any(|c| {
+                matches!(
+                    c,
+                    '|' | '&' | '(' | ')' | '=' | '!' | '~' | '"' | '\'' | '\n' | '\r'
+                )
+            })
         {
             return Err(format!(
                 "The test identity {fqn:?} contains VSTest filter grammar; the run was refused instead of escaping and risking another set of tests."
@@ -641,7 +649,8 @@ pub fn pump(reader: impl std::io::Read, run: std::sync::Arc<TestRun>, stderr: bo
     });
 }
 
-pub fn counts(results: &[TestResult]) -> Counts {    let mut counts = Counts::default();
+pub fn counts(results: &[TestResult]) -> Counts {
+    let mut counts = Counts::default();
     for result in results {
         counts.total += 1;
         if result.matched {
@@ -721,7 +730,14 @@ pub fn parse_trx(xml: &str, items: &[TestItem], workspace_root: &Path) -> Parsed
             truncated = true;
             break;
         }
-        results.push(parse_result(tag, body, &definitions, &skipped, items, workspace_root));
+        results.push(parse_result(
+            tag,
+            body,
+            &definitions,
+            &skipped,
+            items,
+            workspace_root,
+        ));
         search = next.max(start + 1);
     }
     ParsedTrx {
@@ -750,7 +766,9 @@ fn unit_test_definitions(xml: &str) -> HashMap<String, Definition> {
         if let (Some(id), Some(unit_name)) = (attribute(block, "id"), attribute(block, "name")) {
             let method = block
                 .find("<TestMethod")
-                .and_then(|index| tag_end(&block[index..], 0).map(|close| &block[index..index + close + 1]))
+                .and_then(|index| {
+                    tag_end(&block[index..], 0).map(|close| &block[index..index + close + 1])
+                })
                 .unwrap_or("");
             definitions.insert(
                 id,
@@ -778,7 +796,10 @@ fn skipped_names(xml: &str) -> HashSet<String> {
     for line in summary.lines() {
         let line = line.trim();
         // xUnit's adapter reports an explicit per-test skip line in the summary output.
-        let Some(rest) = line.find("Test '").map(|index| &line[index + "Test '".len()..]) else {
+        let Some(rest) = line
+            .find("Test '")
+            .map(|index| &line[index + "Test '".len()..])
+        else {
             continue;
         };
         if let Some((name, _)) = rest.split_once("' was skipped in the test run.") {
@@ -1206,7 +1227,10 @@ mod tests {
             r#"<TestRun><Results><UnitTestResult testId="1" testName="N.C.Fail" outcome="Failed"><Output><ErrorInfo><StackTrace>at N.C.Fail() in {}/Gone.cs:line 2</StackTrace></ErrorInfo></Output></UnitTestResult></Results></TestRun>"#,
             root.to_string_lossy()
         );
-        assert_eq!(parse_trx(&missing_file, &items(), root).results[0].position, None);
+        assert_eq!(
+            parse_trx(&missing_file, &items(), root).results[0].position,
+            None
+        );
     }
 
     #[test]
@@ -1231,8 +1255,7 @@ mod tests {
         );
         assert_eq!(partial.state, "partial");
         assert_eq!(partial.results.len(), 1);
-        let (state, infrastructure, error) =
-            classify(false, Some(1), &partial.results, "partial");
+        let (state, infrastructure, error) = classify(false, Some(1), &partial.results, "partial");
         assert_eq!((state, infrastructure), ("failed", true));
         assert!(error.unwrap().contains("partially"));
         assert_eq!(partial.results[0].outcome, "passed");
@@ -1275,10 +1298,7 @@ mod tests {
         let (state, infra, error) = classify(false, Some(143), &[], "ok");
         assert_eq!((state, infra), ("failed", true));
         assert!(error.unwrap().contains("infrastructure"));
-        assert_eq!(
-            classify(false, None, &[passed.clone()], "ok").0,
-            "failed"
-        );
+        assert_eq!(classify(false, None, &[passed.clone()], "ok").0, "failed");
         let (state, infra, error) = classify(false, None, &[passed, skipped], "ok");
         assert_eq!((state, infra), ("failed", true));
         assert!(error.unwrap().contains("not explained"));
@@ -1367,11 +1387,15 @@ mod tests {
         assert_eq!(stale.state, "completed");
         assert_eq!(stale.results.len(), 1);
         assert_eq!(stale.counts.passed, 1);
-        assert_eq!(stale.stale_reason.as_deref(), Some("A buffer changed after this run."));
+        assert_eq!(
+            stale.stale_reason.as_deref(),
+            Some("A buffer changed after this run.")
+        );
     }
 
     #[test]
-    fn sealing_a_run_drops_late_output_and_keeps_the_observed_exit() {        let temp = tempfile::tempdir().unwrap();
+    fn sealing_a_run_drops_late_output_and_keeps_the_observed_exit() {
+        let temp = tempfile::tempdir().unwrap();
         let run = started(temp.path());
         run.append_line("before revoke", false);
         run.seal("Trust was revoked.", Some(&status(Some(143), None)));

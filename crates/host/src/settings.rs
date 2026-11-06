@@ -19,7 +19,10 @@ pub fn read() -> HostResult<Value> {
 
 pub fn write(params: &Value) -> HostResult<Value> {
     let settings = params.get("settings").ok_or_else(|| {
-        HostError::new("invalid_settings", "settings.write requires a settings object.")
+        HostError::new(
+            "invalid_settings",
+            "settings.write requires a settings object.",
+        )
     })?;
     let path = path();
     write_at(&path, settings)?;
@@ -52,9 +55,9 @@ pub fn write_at(path: &Path, settings: &Value) -> HostResult<()> {
 }
 
 fn validate(settings: &Value) -> HostResult<()> {
-    let object = settings.as_object().ok_or_else(|| {
-        HostError::new("invalid_settings", "Settings must be a JSON object.")
-    })?;
+    let object = settings
+        .as_object()
+        .ok_or_else(|| HostError::new("invalid_settings", "Settings must be a JSON object."))?;
     if let Some(appearance) = object.get("appearance") {
         validate_appearance(appearance)?;
     }
@@ -68,9 +71,9 @@ fn validate(settings: &Value) -> HostResult<()> {
         .as_object()
         .ok_or_else(|| HostError::new("invalid_settings", "keymap must be an object."))?;
     if let Some(profile) = keymap.get("profile") {
-        let profile = profile
-            .as_str()
-            .ok_or_else(|| HostError::new("invalid_settings", "keymap.profile must be a string."))?;
+        let profile = profile.as_str().ok_or_else(|| {
+            HostError::new("invalid_settings", "keymap.profile must be a string.")
+        })?;
         if !matches!(profile, "rider-macos" | "intellij" | "visual-studio") {
             return Err(HostError::new(
                 "invalid_settings",
@@ -111,9 +114,9 @@ fn validate(settings: &Value) -> HostResult<()> {
 }
 
 fn validate_appearance(value: &Value) -> HostResult<()> {
-    let appearance = value.as_object().ok_or_else(|| {
-        HostError::new("invalid_settings", "appearance must be an object.")
-    })?;
+    let appearance = value
+        .as_object()
+        .ok_or_else(|| HostError::new("invalid_settings", "appearance must be an object."))?;
     if let Some(zoom) = appearance.get("zoom") {
         match zoom.as_i64() {
             Some(zoom) if (80..=150).contains(&zoom) => {}
@@ -182,7 +185,10 @@ fn validate_shortcut(id: &str, value: &Value) -> HostResult<()> {
             format!("keymap.overrides.{id} contains a shortcut that is not an object."),
         )
     })?;
-    let key = object.get("key").and_then(Value::as_str).unwrap_or_default();
+    let key = object
+        .get("key")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if key.is_empty() || key.len() > 24 {
         return Err(HostError::new(
             "invalid_settings",

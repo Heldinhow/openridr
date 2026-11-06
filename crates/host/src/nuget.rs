@@ -9,8 +9,8 @@ use crate::{HostError, HostResult};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 pub const PACKAGE_LIMIT: usize = 500;
@@ -644,8 +644,7 @@ pub fn parse_listing(stdout: &str) -> Result<Vec<FrameworkPackages>, String> {
                     frameworks.last_mut().expect("just pushed")
                 }
             };
-            let Some(packages) = framework.get("topLevelPackages").and_then(Value::as_array)
-            else {
+            let Some(packages) = framework.get("topLevelPackages").and_then(Value::as_array) else {
                 continue;
             };
             for package in packages {
@@ -657,10 +656,10 @@ pub fn parse_listing(stdout: &str) -> Result<Vec<FrameworkPackages>, String> {
                     continue;
                 };
                 // Older fixtures spell these without "Version"; keep both readable.
-                let requested =
-                    text_field(package, "requested").or_else(|| text_field(package, "requestedVersion"));
-                let resolved =
-                    text_field(package, "resolved").or_else(|| text_field(package, "resolvedVersion"));
+                let requested = text_field(package, "requested")
+                    .or_else(|| text_field(package, "requestedVersion"));
+                let resolved = text_field(package, "resolved")
+                    .or_else(|| text_field(package, "resolvedVersion"));
                 let latest = text_field(package, "latestVersion");
                 if let Some(existing) = target
                     .packages
@@ -710,7 +709,11 @@ fn text_field(value: &Value, key: &str) -> Option<String> {
 
 pub fn parse_sources(stdout: &str) -> Result<Vec<Source>, String> {
     let mut sources = Vec::new();
-    for line in stdout.lines().map(str::trim).filter(|line| !line.is_empty()) {
+    for line in stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         let (enabled, value) = if let Some(value) = line.strip_prefix("E ") {
             (true, value.trim())
         } else if let Some(value) = line.strip_prefix("D ") {
@@ -722,7 +725,10 @@ pub fn parse_sources(stdout: &str) -> Result<Vec<Source>, String> {
             return Err("source location is empty".to_string());
         }
         if enabled {
-            sources.push(Source { name: value.to_string(), url: None });
+            sources.push(Source {
+                name: value.to_string(),
+                url: None,
+            });
         }
     }
     Ok(sources)
@@ -857,7 +863,12 @@ pub fn read_assets(project: &Path, target_framework: Option<&str>) -> Assets {
     }
     let intermediate = property
         .as_deref()
-        .map(|value| project.parent().unwrap_or_else(|| Path::new(".")).join(value))
+        .map(|value| {
+            project
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(value)
+        })
         .unwrap_or_else(|| {
             project
                 .parent()
@@ -884,7 +895,9 @@ pub fn read_assets(project: &Path, target_framework: Option<&str>) -> Assets {
         Err(error) => {
             return Assets {
                 state: "failed",
-                message: Some(format!("obj/project.assets.json is not valid JSON: {error}")),
+                message: Some(format!(
+                    "obj/project.assets.json is not valid JSON: {error}"
+                )),
                 path: display,
                 frameworks: Vec::new(),
             }
@@ -931,7 +944,10 @@ pub fn read_assets(project: &Path, target_framework: Option<&str>) -> Assets {
                     }
                 }
             }
-            if let Some(downloads) = framework.get("downloadDependencies").and_then(Value::as_array) {
+            if let Some(downloads) = framework
+                .get("downloadDependencies")
+                .and_then(Value::as_array)
+            {
                 for download in downloads {
                     let Some(name) = download.get("name").and_then(Value::as_str) else {
                         continue;
@@ -989,7 +1005,10 @@ pub fn read_assets(project: &Path, target_framework: Option<&str>) -> Assets {
                 });
             if let Some(packages) = packages.as_object() {
                 for (key, package) in packages {
-                    let kind = package.get("type").and_then(Value::as_str).unwrap_or("package");
+                    let kind = package
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .unwrap_or("package");
                     if kind != "package" {
                         continue;
                     }
@@ -1152,7 +1171,8 @@ pub fn list(
         no_references,
     );
     let cpm = detect_cpm(root, project);
-    let (mut frameworks, merged_truncated) = cap(merge(&installed.frameworks, &outdated.frameworks));
+    let (mut frameworks, merged_truncated) =
+        cap(merge(&installed.frameworks, &outdated.frameworks));
     if let Some(tfm) = target_framework {
         frameworks.retain(|framework| framework.framework == tfm);
     }
@@ -1454,11 +1474,7 @@ pub fn source_matches(source: &str, configured: &[Source]) -> bool {
     })
 }
 
-pub fn configured_sources(
-    root: &Path,
-    muxer: &Path,
-    sdk_root: &Path,
-) -> Sources {
+pub fn configured_sources(root: &Path, muxer: &Path, sdk_root: &Path) -> Sources {
     let sources_argv = vec![
         muxer.to_string_lossy().into_owned(),
         "nuget".to_string(),
@@ -1562,11 +1578,18 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
         Ok(response) => match response.into_string() {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(value) => value,
-                Err(error) => return failed(format!("Could not read the NuGet source index: {error}")),
+                Err(error) => {
+                    return failed(format!("Could not read the NuGet source index: {error}"))
+                }
             },
             Err(error) => return failed(format!("Could not read the NuGet source index: {error}")),
         },
-        Err(error) => return failed(format!("Could not read the NuGet source index: {}", crate::http::describe_error(source, &error))),
+        Err(error) => {
+            return failed(format!(
+                "Could not read the NuGet source index: {}",
+                crate::http::describe_error(source, &error)
+            ))
+        }
     };
     let service = index
         .get("resources")
@@ -1576,16 +1599,22 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
                 resource
                     .get("@type")
                     .and_then(Value::as_str)
-                    .is_some_and(|kind| kind == "SearchQueryService" || kind.starts_with("SearchQueryService/"))
+                    .is_some_and(|kind| {
+                        kind == "SearchQueryService" || kind.starts_with("SearchQueryService/")
+                    })
             })
         })
         .and_then(|resource| resource.get("@id"))
         .and_then(Value::as_str);
     let Some(service) = service else {
-        return failed("The selected NuGet source does not advertise a v3 SearchQueryService.".to_string());
+        return failed(
+            "The selected NuGet source does not advertise a v3 SearchQueryService.".to_string(),
+        );
     };
     if let Err(error) = validate_source_arg(service) {
-        return failed(format!("The source advertised an unsafe search endpoint: {error}"));
+        return failed(format!(
+            "The source advertised an unsafe search endpoint: {error}"
+        ));
     }
     let separator = if service.contains('?') { '&' } else { '?' };
     let url = format!(
@@ -1598,11 +1627,18 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
         Ok(response) => match response.into_string() {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(value) => value,
-                Err(error) => return failed(format!("NuGet search returned invalid JSON: {error}")),
+                Err(error) => {
+                    return failed(format!("NuGet search returned invalid JSON: {error}"))
+                }
             },
             Err(error) => return failed(format!("NuGet search failed: {error}")),
         },
-        Err(error) => return failed(format!("NuGet search failed: {}", crate::http::describe_error(&url, &error))),
+        Err(error) => {
+            return failed(format!(
+                "NuGet search failed: {}",
+                crate::http::describe_error(&url, &error)
+            ))
+        }
     };
     let items = body
         .get("data")
@@ -1627,14 +1663,20 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
                     };
                     Some(SearchItem {
                         id,
-                        version: item.get("version").and_then(Value::as_str).map(str::to_string),
+                        version: item
+                            .get("version")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
                         description: item
                             .get("description")
                             .and_then(Value::as_str)
                             .map(str::to_string),
                         authors,
                         downloads: item.get("totalDownloads").and_then(Value::as_u64),
-                        verified: item.get("verified").and_then(Value::as_bool).unwrap_or(false),
+                        verified: item
+                            .get("verified")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                     })
                 })
                 .collect()
@@ -1674,7 +1716,10 @@ pub fn restore(plan: &Plan) -> RestoreRun {
         exec.stderr.trim_end()
     ));
     let (state, message) = if let Some(error) = exec.spawn_error {
-        ("failed", Some(format!("Could not run dotnet restore: {error}")))
+        (
+            "failed",
+            Some(format!("Could not run dotnet restore: {error}")),
+        )
     } else if exec.code != Some(0) {
         (
             "failed",
@@ -1985,8 +2030,11 @@ mod tests {
         std::os::unix::fs::symlink(outside.join("Missing.csproj"), root.join("Dangling.csproj"))
             .unwrap();
         fs::write(outside.join("There.csproj"), PROJECT).unwrap();
-        std::os::unix::fs::symlink(outside.join("There.csproj"), root.join("DanglingThere.csproj"))
-            .unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("There.csproj"),
+            root.join("DanglingThere.csproj"),
+        )
+        .unwrap();
         for project in ["Dangling.csproj", "DanglingThere.csproj"] {
             let error = resolve_project(&root, project).unwrap_err();
             assert_eq!(error.code, "outside_workspace", "{project}");
@@ -2042,7 +2090,11 @@ mod tests {
         let merged = merge(&installed, &outdated);
         let net8 = &merged[0];
         assert_eq!(net8.framework, "net8.0");
-        let xunit = net8.packages.iter().find(|item| item.id == "xunit").unwrap();
+        let xunit = net8
+            .packages
+            .iter()
+            .find(|item| item.id == "xunit")
+            .unwrap();
         assert_eq!(xunit.resolved.as_deref(), Some("2.9.2"));
         assert_eq!(xunit.latest_version.as_deref(), Some("2.9.4"));
         assert!(xunit.outdated);
@@ -2083,7 +2135,11 @@ mod tests {
         .unwrap();
         assert_eq!(frameworks.len(), 1);
         let packages = &frameworks[0].packages;
-        assert_eq!(packages.len(), 2, "transitive and id-less entries are ignored");
+        assert_eq!(
+            packages.len(),
+            2,
+            "transitive and id-less entries are ignored"
+        );
         let a = packages.iter().find(|item| item.id == "A").unwrap();
         assert_eq!(a.requested.as_deref(), Some("1.0.0"));
         assert_eq!(a.latest_version.as_deref(), Some("1.2.0"));
@@ -2094,7 +2150,10 @@ mod tests {
 
     #[test]
     fn short_source_listing_only_reports_enabled_sources_and_rejects_unknown_rows() {
-        let sources = parse_sources("E https://api.nuget.org/v3/index.json\nD /tmp/disabled feed\nE /tmp/local feed\n").unwrap();
+        let sources = parse_sources(
+            "E https://api.nuget.org/v3/index.json\nD /tmp/disabled feed\nE /tmp/local feed\n",
+        )
+        .unwrap();
         assert_eq!(sources.len(), 2);
         assert_eq!(sources[0].name, "https://api.nuget.org/v3/index.json");
         assert_eq!(sources[1].name, "/tmp/local feed");
@@ -2192,7 +2251,9 @@ mod tests {
 
         let already = PROJECT.replace("13.0.1", "13.0.3");
         assert_eq!(
-            revalidate_text(&plan, &already).expect_err("already updated").code,
+            revalidate_text(&plan, &already)
+                .expect_err("already updated")
+                .code,
             "nuget_stale_plan"
         );
 
@@ -2316,7 +2377,11 @@ mod tests {
     fn a_real_dotnet_failure_is_never_an_empty_list_even_without_references() {
         let argv = vec!["dotnet".to_string(), "list".to_string()];
         let network = command_result(
-            listing_exec(Some(1), "", "Unable to load the service index for source https://api.nuget.org\n"),
+            listing_exec(
+                Some(1),
+                "",
+                "Unable to load the service index for source https://api.nuget.org\n",
+            ),
             &argv,
             parse_listing,
             "dotnet list package --outdated",
@@ -2484,7 +2549,12 @@ mod tests {
 
     fn restore_project(project: &Path) {
         let output = Command::new("dotnet")
-            .args(["restore", project.to_string_lossy().as_ref(), "-nologo", "-v:q"])
+            .args([
+                "restore",
+                project.to_string_lossy().as_ref(),
+                "-nologo",
+                "-v:q",
+            ])
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_UI_LANGUAGE", "en")
             .output()
@@ -2597,7 +2667,10 @@ mod tests {
         fs::write(&project, "<Project />").unwrap();
         let assets = read_assets(&project, Some("net8.0"));
         assert_eq!(assets.state, "unsupported");
-        assert!(assets.message.unwrap().contains("BaseIntermediateOutputPath"));
+        assert!(assets
+            .message
+            .unwrap()
+            .contains("BaseIntermediateOutputPath"));
     }
 
     #[test]
@@ -2612,6 +2685,9 @@ mod tests {
         let assets = read_assets(&project, Some("net8.0"));
         assert_eq!(assets.state, "unsupported");
         assert!(assets.frameworks.is_empty());
-        assert!(assets.message.unwrap().contains("BaseIntermediateOutputPath"));
+        assert!(assets
+            .message
+            .unwrap()
+            .contains("BaseIntermediateOutputPath"));
     }
 }

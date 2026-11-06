@@ -109,7 +109,8 @@ pub(crate) mod tests {
             assert_eq!(get("/old"), Some(TRUSTED));
             assert_eq!(get("/older"), Some(TRUSTED));
             set("/new", RESTRICTED).unwrap();
-            let stored: Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+            let stored: Value =
+                serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
             assert_eq!(
                 stored,
                 json!({ "/old": "trusted", "/older": "trusted", "/new": "restricted" })

@@ -140,8 +140,10 @@ pub fn availability() -> Availability {
     let tool_override = override_path(CSHARP_LS_OVERRIDE);
     let runtime_override = override_path(RUNTIME_OVERRIDE);
     let resource_root = resources_root();
-    let tool_dir = tool_override.or_else(|| resource_root.as_ref().map(|root| root.join(CSHARP_LS_DIR)));
-    let runtime_root = runtime_override.or_else(|| resource_root.as_ref().map(|root| root.join(RUNTIME_DIR)));
+    let tool_dir =
+        tool_override.or_else(|| resource_root.as_ref().map(|root| root.join(CSHARP_LS_DIR)));
+    let runtime_root =
+        runtime_override.or_else(|| resource_root.as_ref().map(|root| root.join(RUNTIME_DIR)));
     // An explicit override is a claim that a pair exists there; a broken one is damage.
     let expects_pair = pair_expected();
 

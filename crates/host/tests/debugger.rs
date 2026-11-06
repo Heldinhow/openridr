@@ -41,7 +41,10 @@ fn temp_workspace() -> tempfile::TempDir {
 
 fn open(host: &Host, dir: &Path) -> Value {
     let opened = host
-        .dispatch("workspace.open", json!({ "path": dir.join("Debug.csproj") }))
+        .dispatch(
+            "workspace.open",
+            json!({ "path": dir.join("Debug.csproj") }),
+        )
         .expect("workspace opens");
     host.allow_setup_for_tests();
     opened
@@ -236,7 +239,6 @@ fn zip_bytes(entries: &[(&str, &[u8], Option<u32>)]) -> Vec<u8> {
     }
     buffer.into_inner()
 }
-
 
 /// A single stored entry with an explicit external mode. The zip crate normalizes permissions,
 /// so a hostile symlink/absolute entry is expressed byte by byte here.
@@ -443,7 +445,10 @@ fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
     assert_eq!(refused.code, "experimental_required");
     assert!(refused.message.contains("Nothing was downloaded"));
     assert!(!tool_dir(home.path()).exists());
-    assert_eq!(state(&host)["log"].as_str().unwrap().contains("attempt"), false);
+    assert_eq!(
+        state(&host)["log"].as_str().unwrap().contains("attempt"),
+        false
+    );
 
     // The opt-in is independent of trust and installation; it replans, so the consent shown
     // afterwards is the one that authorizes the experimental install.
@@ -499,8 +504,11 @@ fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
     assert_eq!(flagged["adapterState"], "planned");
     assert_eq!(flagged["installable"], true);
     let plan_id = flagged["plan"]["planId"].as_str().unwrap().to_string();
-    host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-        .unwrap();
+    host.dispatch(
+        "debug.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .unwrap();
 
     let mut seen = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -674,11 +682,11 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
     assert_eq!(finished["sha256"].as_str().unwrap().len(), 64);
     assert_eq!(finished["reused"], false);
     assert_eq!(finished["dapProven"], false);
+    assert!(finished["log"].as_str().unwrap().contains("sha256"));
     assert!(finished["log"]
         .as_str()
         .unwrap()
-        .contains("sha256") );
-    assert!(finished["log"].as_str().unwrap().contains("matched the plan"));
+        .contains("matched the plan"));
     assert_eq!(finished["destinationPresent"], true);
     assert_eq!(finished["stagingPresent"], false);
     let destination = PathBuf::from(finished["destination"].as_str().unwrap());
@@ -754,7 +762,10 @@ fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_block
         .starts_with(seam.home.path().to_str().unwrap()));
     let message = view["adapterMessage"].as_str().unwrap();
     assert!(message.contains("already installed"), "{message}");
-    assert!(!message.contains("stays blocked on this platform"), "{message}");
+    assert!(
+        !message.contains("stays blocked on this platform"),
+        "{message}"
+    );
 
     let planned = second.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
     assert_eq!(planned["plan"]["existing"]["state"], "present");
@@ -839,10 +850,16 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
             .as_str()
             .unwrap()
             .to_string();
-        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-            .unwrap();
+        host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
         let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
-        assert!(failed["error"].as_str().unwrap().contains("SHA-256 mismatch"));
+        assert!(failed["error"]
+            .as_str()
+            .unwrap()
+            .contains("SHA-256 mismatch"));
         assert_eq!(failed["stagingPresent"], false);
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
     }
@@ -860,10 +877,16 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
             .as_str()
             .unwrap()
             .to_string();
-        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-            .unwrap();
+        host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
         let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
-        assert!(failed["error"].as_str().unwrap().contains("Verification failed"));
+        assert!(failed["error"]
+            .as_str()
+            .unwrap()
+            .contains("Verification failed"));
         assert!(failed["log"].as_str().unwrap().contains("3.1.1"));
         assert_eq!(failed["stagingPresent"], true, "staging stays as evidence");
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
@@ -882,10 +905,16 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
             .as_str()
             .unwrap()
             .to_string();
-        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-            .unwrap();
+        host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
         let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
-        assert!(failed["error"].as_str().unwrap().contains("not a readable zip"));
+        assert!(failed["error"]
+            .as_str()
+            .unwrap()
+            .contains("not a readable zip"));
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
     }
 
@@ -902,8 +931,11 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
             .as_str()
             .unwrap()
             .to_string();
-        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-            .unwrap();
+        host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
         let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
         assert!(
             failed["error"]
@@ -931,11 +963,17 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
             .as_str()
             .unwrap()
             .to_string();
-        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-            .unwrap();
+        host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
         let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
         assert!(
-            failed["error"].as_str().unwrap().contains("symlinks are not extracted"),
+            failed["error"]
+                .as_str()
+                .unwrap()
+                .contains("symlinks are not extracted"),
             "{}",
             failed["error"]
         );
@@ -955,11 +993,17 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
             .as_str()
             .unwrap()
             .to_string();
-        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-            .unwrap();
+        host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
         let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
         assert!(
-            failed["error"].as_str().unwrap().contains("escapes the extraction directory"),
+            failed["error"]
+                .as_str()
+                .unwrap()
+                .contains("escapes the extraction directory"),
             "{}",
             failed["error"]
         );
@@ -975,7 +1019,10 @@ fn origins_and_redirects_are_checked_before_any_download() {
 
     // A URL that is not the official host and not the loopback test seam is refused.
     {
-        let seam = Seam::new("https://example.invalid/netcoredbg-win64.zip", &sha256(&zip));
+        let seam = Seam::new(
+            "https://example.invalid/netcoredbg-win64.zip",
+            &sha256(&zip),
+        );
         let host = Host::new();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -984,14 +1031,23 @@ fn origins_and_redirects_are_checked_before_any_download() {
             .as_str()
             .unwrap()
             .to_string();
-        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-            .unwrap();
+        host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
         let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
         assert!(failed["error"]
             .as_str()
             .unwrap()
             .contains("only HTTPS on the official release hosts"));
-        assert_eq!(failed["error"].as_str().unwrap().contains("example.invalid"), true);
+        assert_eq!(
+            failed["error"]
+                .as_str()
+                .unwrap()
+                .contains("example.invalid"),
+            true
+        );
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
     }
 
@@ -1010,8 +1066,11 @@ fn origins_and_redirects_are_checked_before_any_download() {
             .as_str()
             .unwrap()
             .to_string();
-        host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-            .unwrap();
+        host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
+        .unwrap();
         let failed = wait_for(&host, &["failed"], Duration::from_secs(30));
         assert!(failed["error"]
             .as_str()
@@ -1040,14 +1099,20 @@ fn cancel_keeps_partial_state_and_retry_completes() {
     assert_eq!(state(&host)["adapterState"], "planned");
     let cancelled = host.dispatch("debug.cancel", json!({})).unwrap()["debug"].clone();
     assert_eq!(cancelled["adapterState"], "cancelled");
-    assert!(cancelled["log"].as_str().unwrap().contains("Plan cancelled"));
+    assert!(cancelled["log"]
+        .as_str()
+        .unwrap()
+        .contains("Plan cancelled"));
     assert_eq!(server.requests(), 0);
 
     host.dispatch("trust.grant", json!({})).unwrap();
     let planned = host.dispatch("debug.plan", json!({})).unwrap()["debug"].clone();
     let plan_id = planned["plan"]["planId"].as_str().unwrap().to_string();
-    host.dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
-        .unwrap();
+    host.dispatch(
+        "debug.install",
+        json!({ "planId": plan_id, "confirm": true }),
+    )
+    .unwrap();
     wait_for(&host, &["downloading"], Duration::from_secs(10));
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -1062,14 +1127,20 @@ fn cancel_keeps_partial_state_and_retry_completes() {
     wait_for(&host, &["cancelled"], Duration::from_secs(10));
     let deadline = Instant::now() + Duration::from_secs(10);
     while state(&host)["busy"].as_bool().unwrap_or(false) {
-        assert!(Instant::now() < deadline, "the cancelled worker never stopped");
+        assert!(
+            Instant::now() < deadline,
+            "the cancelled worker never stopped"
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
     let stopped = state(&host);
     assert!(stopped["error"].is_null());
     assert_eq!(stopped["stagingPresent"], false);
     assert_eq!(stopped["destinationPresent"], false);
-    assert!(stopped["log"].as_str().unwrap().contains("Cancellation requested"));
+    assert!(stopped["log"]
+        .as_str()
+        .unwrap()
+        .contains("Cancellation requested"));
     assert_eq!(
         error_code(host.dispatch("debug.cancel", json!({}))),
         "invalid_state"
@@ -1093,7 +1164,10 @@ fn cancel_keeps_partial_state_and_retry_completes() {
     let finished = wait_for(&host, &["ready", "failed"], Duration::from_secs(30));
     assert_eq!(finished["adapterState"], "ready", "{}", finished["log"]);
     assert!(finished["revision"].as_u64().unwrap() >= 2);
-    assert!(finished["log"].as_str().unwrap().contains("== attempt 2 =="));
+    assert!(finished["log"]
+        .as_str()
+        .unwrap()
+        .contains("== attempt 2 =="));
     assert!(Path::new(finished["destination"].as_str().unwrap())
         .join("netcoredbg.exe")
         .is_file());
@@ -1109,7 +1183,10 @@ fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
     let host = Host::new();
     let workspace = temp_workspace();
     open(&host, workspace.path());
-    for method in EXECUTABLE_METHODS.iter().filter(|method| method.starts_with("debug.")) {
+    for method in EXECUTABLE_METHODS
+        .iter()
+        .filter(|method| method.starts_with("debug."))
+    {
         assert_eq!(
             error_code(host.dispatch(method, json!({ "planId": "none", "confirm": true }))),
             "trust_required",
@@ -1198,9 +1275,15 @@ fn without_a_bundle_the_tools_install_is_reused() {
     host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
         .unwrap();
     let planned = host.dispatch("debug.plan", json!({})).unwrap();
-    let plan_id = planned["debug"]["plan"]["planId"].as_str().unwrap().to_string();
+    let plan_id = planned["debug"]["plan"]["planId"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let installed_snapshot = host
-        .dispatch("debug.install", json!({ "planId": plan_id, "confirm": true }))
+        .dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true }),
+        )
         .unwrap();
     let debug = &installed_snapshot["debug"];
     assert_eq!(debug["bundled"], false);

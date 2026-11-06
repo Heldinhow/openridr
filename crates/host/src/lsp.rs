@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{ChildStderr, ChildStdout, ChildStdin};
+use std::process::{ChildStderr, ChildStdin, ChildStdout};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -264,7 +264,10 @@ fn completion_item(item: &Value) -> Option<CompletionItemView> {
     let kind_raw = item.get("kind").and_then(Value::as_u64);
     Some(CompletionItemView {
         label,
-        detail: item.get("detail").and_then(Value::as_str).map(str::to_string),
+        detail: item
+            .get("detail")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         kind: kind_raw.map(completion_kind).map(str::to_string),
         kind_raw,
         insert_text: item
@@ -273,7 +276,10 @@ fn completion_item(item: &Value) -> Option<CompletionItemView> {
             .map(str::to_string),
         text_edit: item.get("textEdit").and_then(text_edit),
         documentation: item.get("documentation").and_then(documentation),
-        sort_text: item.get("sortText").and_then(Value::as_str).map(str::to_string),
+        sort_text: item
+            .get("sortText")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
@@ -433,29 +439,34 @@ fn code_action(value: &Value) -> Option<CodeActionView> {
         ),
         _ => None,
     };
-    let command_present = value.get("command").is_some_and(|command| !command.is_null());
-    let command = value.get("command").and_then(Value::as_object).and_then(|command| {
-        Some(CodeActionCommand {
-            title: command
-                .get("title")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            command: command.get("command")?.as_str()?.to_string(),
-        })
-    });
+    let command_present = value
+        .get("command")
+        .is_some_and(|command| !command.is_null());
+    let command = value
+        .get("command")
+        .and_then(Value::as_object)
+        .and_then(|command| {
+            Some(CodeActionCommand {
+                title: command
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                command: command.get("command")?.as_str()?.to_string(),
+            })
+        });
     Some(CodeActionView {
         title,
-        kind: value.get("kind").and_then(Value::as_str).map(str::to_string),
+        kind: value
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         is_preferred: value
             .get("isPreferred")
             .and_then(Value::as_bool)
             .unwrap_or(false),
         disabled,
-        edit: value
-            .get("edit")
-            .filter(|edit| !edit.is_null())
-            .cloned(),
+        edit: value.get("edit").filter(|edit| !edit.is_null()).cloned(),
         command,
         command_present,
         has_data: value.get("data").is_some_and(|data| !data.is_null()),
@@ -511,11 +522,13 @@ pub struct WorkspaceSymbolList {
 /// usable name, kind or start position are skipped, never invented.
 pub fn parse_workspace_symbols(result: &Value, limit: usize) -> Option<WorkspaceSymbolList> {
     let entries = match result {
-        Value::Null => return Some(WorkspaceSymbolList {
-            items: Vec::new(),
-            total: 0,
-            truncated: false,
-        }),
+        Value::Null => {
+            return Some(WorkspaceSymbolList {
+                items: Vec::new(),
+                total: 0,
+                truncated: false,
+            })
+        }
         Value::Array(entries) => entries,
         _ => return None,
     };
@@ -757,10 +770,7 @@ fn trim_document_symbols(
         *remaining -= 1;
         let mut children = Vec::new();
         trim_document_symbols(symbol.children, remaining, &mut children);
-        out.push(DocumentSymbolView {
-            children,
-            ..symbol
-        });
+        out.push(DocumentSymbolView { children, ..symbol });
     }
 }
 
@@ -1156,7 +1166,11 @@ impl Lsp {
         let mut log = LogBuffer::default();
         log.push(format!(
             "LSP session {session} · {} · {}",
-            if verbose { "log level debug" } else { "log level info" },
+            if verbose {
+                "log level debug"
+            } else {
+                "log level info"
+            },
             command.join(" ")
         ));
         log.push(format!("cwd {cwd}"));
@@ -1231,7 +1245,11 @@ impl Lsp {
     /// Whether the initialize response has been accepted, so document notifications are valid.
     pub fn accepts_documents(&self) -> bool {
         let data = self.data.lock().unwrap();
-        data.initialized && matches!(data.state, "loading" | "ready" | "partial" | "awaiting_diagnostics")
+        data.initialized
+            && matches!(
+                data.state,
+                "loading" | "ready" | "partial" | "awaiting_diagnostics"
+            )
     }
 
     pub fn process_id(&self) -> Option<u64> {
@@ -1299,7 +1317,13 @@ impl Lsp {
     }
 
     pub fn publications(&self) -> Vec<Publication> {
-        self.data.lock().unwrap().publications.values().cloned().collect()
+        self.data
+            .lock()
+            .unwrap()
+            .publications
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Open documents with their client revision, so the snapshot store can tell a publication
@@ -1378,7 +1402,9 @@ impl Lsp {
                         .and_then(Value::as_str)
                         .unwrap_or("unknown error");
                     let code = error.get("code").cloned().unwrap_or(Value::Null);
-                    self.log_line(format!("[client] {method} id {id} failed: {message} ({code})"));
+                    self.log_line(format!(
+                        "[client] {method} id {id} failed: {message} ({code})"
+                    ));
                     Err(RequestError::Server(format!("{message} ({code})")))
                 } else {
                     self.log_line(format!("[client] {method} id {id} answered"));
@@ -1605,8 +1631,7 @@ impl Lsp {
             data.finished_at = Some(now_ms());
             data.pending.clear();
             data.kill_tx = None;
-            data.log
-                .push(format!("[client] stopped: {reason}"));
+            data.log.push(format!("[client] stopped: {reason}"));
         }
     }
 
@@ -1674,7 +1699,8 @@ impl Lsp {
         data.error = Some(message.clone());
         data.finished_at = Some(now_ms());
         data.pending.clear();
-        data.log.push(format!("[client] analysis failed: {message}"));
+        data.log
+            .push(format!("[client] analysis failed: {message}"));
     }
 
     fn finalize(&self) {
@@ -1832,9 +1858,10 @@ impl Lsp {
             if let Some(info) = &server_info {
                 data.log.push(format!(
                     "[client] server {} {}",
-                    info.get("name").and_then(Value::as_str).unwrap_or("unknown"),
-                    info
-                        .get("version")
+                    info.get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown"),
+                    info.get("version")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown")
                 ));
@@ -1991,7 +2018,10 @@ impl Lsp {
 }
 
 fn finalize(data: &mut Data) {
-    if matches!(data.state, "failed" | "stopped" | "unavailable" | "starting") {
+    if matches!(
+        data.state,
+        "failed" | "stopped" | "unavailable" | "starting"
+    ) {
         return;
     }
     if !data.initialized {
@@ -2084,8 +2114,9 @@ pub fn file_uri(path: &Path) -> String {
     let mut encoded = String::new();
     for byte in text.bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/'
-            | b':' => encoded.push(byte as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
+                encoded.push(byte as char)
+            }
             _ => encoded.push_str(&format!("%{byte:02X}")),
         }
     }
@@ -2200,7 +2231,8 @@ mod tests {
 
     #[test]
     fn content_length_counts_bytes_for_multibyte_text() {
-        let body = r#"{"jsonrpc":"2.0","method":"window/logMessage","params":{"message":"Klebiškis"}}"#;
+        let body =
+            r#"{"jsonrpc":"2.0","method":"window/logMessage","params":{"message":"Klebiškis"}}"#;
         assert!(body.len() > body.chars().count());
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&frame(body));
@@ -2222,10 +2254,7 @@ mod tests {
         .unwrap();
         let text = String::from_utf8(out).unwrap();
         let (header, body) = text.split_once("\r\n\r\n").unwrap();
-        assert_eq!(
-            header,
-            format!("Content-Length: {}", body.as_bytes().len())
-        );
+        assert_eq!(header, format!("Content-Length: {}", body.as_bytes().len()));
     }
 
     #[test]
@@ -2243,10 +2272,7 @@ mod tests {
         let uri = file_uri(Path::new("/tmp/Order Desk/Klebiškis.cs"));
         assert!(uri.starts_with("file:///tmp/Order%20Desk/"));
         assert!(uri.contains("%C5%A1"));
-        assert_eq!(
-            uri_to_path(&uri).unwrap(),
-            "/tmp/Order Desk/Klebiškis.cs"
-        );
+        assert_eq!(uri_to_path(&uri).unwrap(), "/tmp/Order Desk/Klebiškis.cs");
         assert_eq!(
             file_uri(Path::new("/tmp/a;b&c.cs")),
             "file:///tmp/a%3Bb%26c.cs"
@@ -2299,11 +2325,24 @@ mod tests {
         let (second_id, second) = lsp
             .post_request("textDocument/definition", json!({}), true)
             .expect("the pipe accepts the request");
-        lsp.handle_message(json!({ "jsonrpc": "2.0", "id": second_id, "result": { "which": "two" } }));
-        assert_eq!(second.recv_timeout(Duration::from_millis(200)).unwrap()["result"]["which"], "two");
-        assert!(first.try_recv().is_err(), "the second answer reached the first request");
-        lsp.handle_message(json!({ "jsonrpc": "2.0", "id": first_id, "result": { "which": "one" } }));
-        assert_eq!(first.recv_timeout(Duration::from_millis(200)).unwrap()["result"]["which"], "one");
+        lsp.handle_message(
+            json!({ "jsonrpc": "2.0", "id": second_id, "result": { "which": "two" } }),
+        );
+        assert_eq!(
+            second.recv_timeout(Duration::from_millis(200)).unwrap()["result"]["which"],
+            "two"
+        );
+        assert!(
+            first.try_recv().is_err(),
+            "the second answer reached the first request"
+        );
+        lsp.handle_message(
+            json!({ "jsonrpc": "2.0", "id": first_id, "result": { "which": "one" } }),
+        );
+        assert_eq!(
+            first.recv_timeout(Duration::from_millis(200)).unwrap()["result"]["which"],
+            "one"
+        );
         drop(lsp);
         let _ = child.wait();
     }
@@ -2341,7 +2380,9 @@ mod tests {
         assert!(!lsp.response_is_current(4, uri, Some(1)));
         assert!(!lsp.response_is_current(3, uri, None));
 
-        assert!(lsp.change_document(uri, "a.cs", "class A { int B; }\n").is_err());
+        assert!(lsp
+            .change_document(uri, "a.cs", "class A { int B; }\n")
+            .is_err());
         assert_eq!(lsp.document_version(uri), Some(2));
         assert!(!lsp.response_is_current(3, uri, Some(1)));
         assert!(lsp.response_is_current(3, uri, Some(2)));
@@ -2409,7 +2450,8 @@ mod tests {
             "targetRange": range,
             "targetSelectionRange": range
         });
-        let parsed = parse_definition(&json!([link, { "uri": "file:///tmp/NoRange.cs" }])).expect("array");
+        let parsed =
+            parse_definition(&json!([link, { "uri": "file:///tmp/NoRange.cs" }])).expect("array");
         assert_eq!(parsed.targets.len(), 1);
         assert_eq!(parsed.rejected, 1);
         assert!(parsed.targets[0].selection_range.is_some());
@@ -2473,7 +2515,10 @@ mod tests {
         );
         assert!(parsed.actions[3].has_data);
         assert!(parsed.actions[3].edit.is_none() && parsed.actions[3].command.is_none());
-        assert_eq!(parse_code_actions(&Value::Null, 50).unwrap().actions.len(), 0);
+        assert_eq!(
+            parse_code_actions(&Value::Null, 50).unwrap().actions.len(),
+            0
+        );
         assert!(parse_code_actions(&json!({ "not": "an array" }), 50).is_none());
     }
 
@@ -2582,10 +2627,7 @@ mod tests {
         assert_eq!(capped.total, 2);
         assert!(capped.total > capped.targets.len());
 
-        assert_eq!(
-            parse_references(&Value::Null, 200).expect("null").total,
-            0
-        );
+        assert_eq!(parse_references(&Value::Null, 200).expect("null").total, 0);
         assert!(parse_references(&json!({ "not": "an array" }), 200).is_none());
     }
 
@@ -2629,10 +2671,7 @@ mod tests {
             4
         );
         assert_eq!(parsed.symbols[1].container_name, "OrderDesk.Cli");
-        assert_eq!(
-            parsed.symbols[1].selection_range["start"]["character"],
-            0
-        );
+        assert_eq!(parsed.symbols[1].selection_range["start"]["character"], 0);
 
         let capped = parse_document_symbols(&symbols, 2).expect("array");
         assert_eq!(capped.total, 3);
@@ -2658,7 +2697,9 @@ mod tests {
         }));
         assert!(advertised.workspace_symbol);
         assert!(advertised.supports("workspace/symbol"));
-        assert!(advertised.summary.contains(&"workspace symbols".to_string()));
+        assert!(advertised
+            .summary
+            .contains(&"workspace symbols".to_string()));
         assert!(advertised.references);
         assert!(advertised.supports("textDocument/references"));
         assert!(advertised.document_symbol);

@@ -486,7 +486,12 @@ mod tests {
         }
     }
 
-    fn publication(session: u64, uri: &str, revision: i64, items: Vec<DiagnosticItem>) -> Publication {
+    fn publication(
+        session: u64,
+        uri: &str,
+        revision: i64,
+        items: Vec<DiagnosticItem>,
+    ) -> Publication {
         Publication {
             uri: uri.to_string(),
             path: Some(uri.trim_start_matches("file://").to_string()),
@@ -548,8 +553,7 @@ mod tests {
         );
         let view = store.view(&documents(2), "full", None);
         assert_eq!(view.snapshots[0].state, "awaiting");
-        assert!(view
-            .snapshots[0]
+        assert!(view.snapshots[0]
             .stale_reason
             .as_deref()
             .unwrap()
@@ -573,7 +577,10 @@ mod tests {
                 vec![item("CS0246", Some("lsp"), range(4, 17))],
             ),
         );
-        assert_eq!(store.view(&documents(2), "full", None).snapshots[0].state, "awaiting");
+        assert_eq!(
+            store.view(&documents(2), "full", None).snapshots[0].state,
+            "awaiting"
+        );
         store.ingest(
             &Origin::lsp(),
             &publication(1, "file:///Program.cs", 2, Vec::new()),
@@ -663,7 +670,12 @@ mod tests {
         fifth.severity = Some(9);
         store.ingest(
             &Origin::lsp(),
-            &publication(1, "file:///Program.cs", 1, vec![first, second, third, fourth, fifth]),
+            &publication(
+                1,
+                "file:///Program.cs",
+                1,
+                vec![first, second, third, fourth, fifth],
+            ),
         );
         let view = store.view(&documents(1), "full", None);
         let severities: Vec<&str> = view.snapshots[0]
@@ -748,10 +760,7 @@ mod tests {
                 vec![item("CS0246", Some("lsp"), range(4, 17))],
             ),
         );
-        store.mark_unavailable(
-            LSP_ORIGIN,
-            "Trust was revoked; analysis is unavailable.",
-        );
+        store.mark_unavailable(LSP_ORIGIN, "Trust was revoked; analysis is unavailable.");
         let view = store.view(&documents(1), "full", None);
         assert_eq!(view.snapshots.len(), 1);
         assert_eq!(view.snapshots[0].state, "stale");

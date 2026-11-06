@@ -217,7 +217,10 @@ mod tests {
     #[test]
     fn argv_ignores_program_name_and_finder_flags() {
         assert_eq!(first_file_argument(args(&["OpenRidr"])), None);
-        assert_eq!(first_file_argument(args(&["OpenRidr", "-psn_0_12345"])), None);
+        assert_eq!(
+            first_file_argument(args(&["OpenRidr", "-psn_0_12345"])),
+            None
+        );
         assert_eq!(
             first_file_argument(args(&["OpenRidr", "-psn_0_1", "/tmp/My Apps/App.sln"])),
             Some("/tmp/My Apps/App.sln".to_string()),
@@ -245,7 +248,10 @@ mod tests {
     #[test]
     fn file_urls_become_local_paths_and_other_schemes_are_ignored() {
         let file = Url::parse("file:///tmp/My%20Apps/App.sln").unwrap();
-        assert_eq!(path_from_url(&file).as_deref(), Some("/tmp/My Apps/App.sln"));
+        assert_eq!(
+            path_from_url(&file).as_deref(),
+            Some("/tmp/My Apps/App.sln")
+        );
 
         let web = Url::parse("https://example.com/App.sln").unwrap();
         assert_eq!(path_from_url(&web), None);

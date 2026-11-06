@@ -138,7 +138,11 @@ fn wait_for_run(host: &Host, timeout: Duration) -> Value {
         if run["state"] != "running" {
             return run;
         }
-        assert!(Instant::now() < deadline, "test run did not finish: {}", run["log"]);
+        assert!(
+            Instant::now() < deadline,
+            "test run did not finish: {}",
+            run["log"]
+        );
         std::thread::sleep(Duration::from_millis(100));
     }
 }
@@ -212,10 +216,7 @@ fn mtp_is_refused_before_any_vstest_process_even_with_a_direct_run_call() {
     let discovered = host
         .dispatch("tests.discover", json!({ "project": "MtpRun.csproj" }))
         .unwrap();
-    assert_eq!(
-        discovered["tests"]["discovery"]["state"],
-        "mtp_unsupported"
-    );
+    assert_eq!(discovered["tests"]["discovery"]["state"], "mtp_unsupported");
 
     let error = host
         .dispatch(
@@ -290,7 +291,10 @@ fn real_run_reports_trx_outcomes_positions_and_only_the_selected_identity() {
     assert!(message.contains("Expected: 43"), "{message}");
     let stack = failure["stackTrace"].as_str().unwrap();
     assert!(stack.contains("OrderTests.cs:line 29"), "{stack}");
-    assert_eq!(failure["position"]["path"], "tests/OrderDesk.Tests/OrderTests.cs");
+    assert_eq!(
+        failure["position"]["path"],
+        "tests/OrderDesk.Tests/OrderTests.cs"
+    );
     assert_eq!(failure["position"]["line"], 28);
     assert_eq!(failure["testId"], items[2]["id"]);
 
@@ -366,7 +370,10 @@ fn real_run_reports_trx_outcomes_positions_and_only_the_selected_identity() {
     for (ids, reason) in [
         (json!([]), "empty_selection"),
         (json!(["test:not-current"]), "invalid_selection"),
-        (json!([selected_id.clone(), selected_id]), "duplicate_selection"),
+        (
+            json!([selected_id.clone(), selected_id]),
+            "duplicate_selection",
+        ),
     ] {
         let error = host
             .dispatch(
@@ -427,13 +434,22 @@ fn export_carries_the_discovery_and_the_real_last_run() {
     let run_id = run["runId"].as_str().unwrap();
     let safe: String = run_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     assert!(path.ends_with(&format!("tests-{safe}.json")), "{path}");
     let payload: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
 
     // Discovery comes from the same export the panel shows.
-    assert_eq!(payload["discovery"]["discoveryId"], discovery["discoveryId"]);
+    assert_eq!(
+        payload["discovery"]["discoveryId"],
+        discovery["discoveryId"]
+    );
     assert_eq!(payload["discovery"]["items"].as_array().unwrap().len(), 4);
     assert_eq!(payload["discovery"]["targetFramework"], "net8.0");
 
@@ -541,8 +557,11 @@ fn duplicate_display_names_are_one_ambiguous_identity_never_a_selected_run() {
 
     // Run all remains possible: no filter is sent, both real tests execute and are reported,
     // unmatched because the runner's list had no FQN for either.
-    host.dispatch("tests.run", json!({ "project": "Disp.csproj", "selection": "all" }))
-        .unwrap();
+    host.dispatch(
+        "tests.run",
+        json!({ "project": "Disp.csproj", "selection": "all" }),
+    )
+    .unwrap();
     let run = wait_for_run(&host, Duration::from_secs(120));
     assert_eq!(run["state"], "completed", "{}", run["log"]);
     assert_eq!(run["counts"]["total"], 2);

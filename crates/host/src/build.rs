@@ -847,7 +847,13 @@ pub fn select_startup_for<'a>(
     requested: Option<&str>,
     consumer: &str,
 ) -> HostResult<&'a EvaluatedProject> {
-    select_kinds(projects, requested, consumer, &["console"], "console executable")
+    select_kinds(
+        projects,
+        requested,
+        consumer,
+        &["console"],
+        "console executable",
+    )
 }
 
 fn select_kinds<'a>(
@@ -973,7 +979,10 @@ mod tests {
         assert_eq!(strip_project_suffix("bad [/w/App.csproj]"), "bad");
         assert_eq!(strip_project_suffix("bad [/w/App.sln]"), "bad");
         assert_eq!(strip_project_suffix("bad [/w/Modern.slnx]"), "bad");
-        assert_eq!(strip_project_suffix("kept [/w/notes.txt]"), "kept [/w/notes.txt]");
+        assert_eq!(
+            strip_project_suffix("kept [/w/notes.txt]"),
+            "kept [/w/notes.txt]"
+        );
     }
 
     #[test]
@@ -1334,7 +1343,11 @@ mod tests {
             false,
         );
         let view = build.view();
-        assert_eq!(view.log_links.len(), 2, "outside and unknown lines stay text");
+        assert_eq!(
+            view.log_links.len(),
+            2,
+            "outside and unknown lines stay text"
+        );
 
         let stdout = &view.log_links[0];
         assert_eq!(stdout.line, 0);

@@ -84,7 +84,8 @@ fn launch_parameters(launch: &Launch) -> Value {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BreakpointView {    pub path: String,
+pub struct BreakpointView {
+    pub path: String,
     pub line: i64,
     pub verified: bool,
     pub message: Option<String>,
@@ -564,14 +565,21 @@ impl Dap {
         )
         .argv;
         let mut log = LogBuffer::default();
-        log.push(format!("DAP session {} · {}", launch.session, command_line.join(" ")));
+        log.push(format!(
+            "DAP session {} · {}",
+            launch.session,
+            command_line.join(" ")
+        ));
         log.push(format!("cwd {}", launch.cwd.to_string_lossy()));
         log.push(format!("program {}", launch.assembly));
         log.push(format!(
             "build {} · {} / {} · adapter {} · {}",
             launch.build_id,
             launch.configuration,
-            launch.target_framework.clone().unwrap_or_else(|| "no TFM".to_string()),
+            launch
+                .target_framework
+                .clone()
+                .unwrap_or_else(|| "no TFM".to_string()),
             launch.adapter_version,
             launch.adapter_platform
         ));
@@ -819,9 +827,18 @@ impl Dap {
 
     /// Sets or clears the condition of a breakpoint that already exists on `line`. Live sessions
     /// get the whole source again, because DAP replaces the breakpoints of a source at once.
-    pub fn set_condition(&self, path: &str, line: i64, condition: Option<String>) -> HostResult<()> {
+    pub fn set_condition(
+        &self,
+        path: &str,
+        line: i64,
+        condition: Option<String>,
+    ) -> HostResult<()> {
         let mut data = self.data.lock().unwrap();
-        if data.adapter_capabilities.get("supportsConditionalBreakpoints") == Some(&false) {
+        if data
+            .adapter_capabilities
+            .get("supportsConditionalBreakpoints")
+            == Some(&false)
+        {
             return Err(HostError::new(
                 "unsupported",
                 "The debug adapter did not advertise conditional breakpoints.",
@@ -833,7 +850,9 @@ impl Dap {
         let entry = entries
             .iter_mut()
             .find(|item| item.line == line)
-            .ok_or_else(|| HostError::new("invalid_state", "Set a breakpoint on this line first."))?;
+            .ok_or_else(|| {
+                HostError::new("invalid_state", "Set a breakpoint on this line first.")
+            })?;
         entry.condition = condition;
         let entries = entries.clone();
         let live = matches!(data.state, "preparing" | "running" | "paused");
@@ -883,7 +902,12 @@ impl Dap {
                 json!({ "filters": filters }),
                 REQUEST_TIMEOUT,
             )
-            .map_err(|error| HostError::new("operation_failed", format!("The adapter refused exception filters: {error}")))?;
+            .map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!("The adapter refused exception filters: {error}"),
+                )
+            })?;
         }
         Ok(())
     }
@@ -1073,12 +1097,7 @@ impl Dap {
             && matches!(data.state, "paused" | "preparing")
     }
 
-    fn request(
-        &self,
-        command: &str,
-        params: Value,
-        timeout: Duration,
-    ) -> Result<Value, String> {
+    fn request(&self, command: &str, params: Value, timeout: Duration) -> Result<Value, String> {
         let Some((id, receiver)) = self.post_request(command, params) else {
             return Err("the debug adapter is not accepting requests".to_string());
         };
@@ -1102,7 +1121,10 @@ impl Dap {
                     "[dap] {command} id {id} timed out after {} ms",
                     timeout.as_millis()
                 ));
-                Err(format!("{command} timed out after {} ms", timeout.as_millis()))
+                Err(format!(
+                    "{command} timed out after {} ms",
+                    timeout.as_millis()
+                ))
             }
             Err(RecvTimeoutError::Disconnected) => {
                 Err("the debug adapter stopped before answering".to_string())
@@ -1127,16 +1149,18 @@ impl Dap {
             "arguments": params,
         });
         let Some(writer) = writer else {
-            data.log.push(format!("[dap] -> {command} id {id} skipped: no stdin"));
+            data.log
+                .push(format!("[dap] -> {command} id {id} skipped: no stdin"));
             return None;
         };
         data.log.push(format!("[dap] -> {command} id {id}"));
         let (sender, receiver) = mpsc::channel();
         data.pending.insert(id, sender);
         drop(data);
-        let written = writer.lock().ok().and_then(|mut writer| {
-            write_message(&mut *writer, &message).ok()
-        });
+        let written = writer
+            .lock()
+            .ok()
+            .and_then(|mut writer| write_message(&mut *writer, &message).ok());
         if written.is_none() {
             self.data.lock().unwrap().pending.remove(&id);
             self.note(format!("[dap] -> {command} id {id} write failed"));
@@ -1216,7 +1240,9 @@ impl Dap {
                     }
                     return;
                 }
-                self.note(format!("[dap] <- reverse request {command} · answered null"));
+                self.note(format!(
+                    "[dap] <- reverse request {command} · answered null"
+                ));
                 self.send_response(id, Value::Null);
                 return;
             }
@@ -1371,10 +1397,7 @@ impl Dap {
                     {
                         continue;
                     }
-                    if let Some(entry) = entries
-                        .iter_mut()
-                        .find(|entry| Some(entry.line) == line)
-                    {
+                    if let Some(entry) = entries.iter_mut().find(|entry| Some(entry.line) == line) {
                         entry.verified = verified;
                         entry.message = message.clone();
                         changed.push(format!("{} line {}", entry_path, entry.line));
@@ -1448,8 +1471,9 @@ impl Dap {
         {
             let mut data = self.data.lock().unwrap();
             if data.session != session || data.stop_seq != stop_seq || data.sealed {
-                data.log
-                    .push("[dap] late thread/frame response discarded (old stop generation)".to_string());
+                data.log.push(
+                    "[dap] late thread/frame response discarded (old stop generation)".to_string(),
+                );
                 return;
             }
             data.threads = threads;
@@ -1542,7 +1566,10 @@ impl Dap {
     pub fn add_watch(&self, expression: &str) -> HostResult<()> {
         let expression = expression.trim().to_string();
         if expression.is_empty() {
-            return Err(HostError::new("invalid_state", "The watch expression is empty."));
+            return Err(HostError::new(
+                "invalid_state",
+                "The watch expression is empty.",
+            ));
         }
         {
             let mut data = self.data.lock().unwrap();
@@ -1563,14 +1590,18 @@ impl Dap {
     pub fn remove_watch(&self, expression: &str) {
         let mut data = self.data.lock().unwrap();
         data.watches.retain(|watch| watch != expression);
-        data.watch_results.retain(|result| result.expression != expression);
+        data.watch_results
+            .retain(|result| result.expression != expression);
     }
 
     /// Evaluates every watch against the top frame of the current pause.
     fn refresh_watches(&self, session: u64, stop_seq: u64) {
         let (expressions, frame_id) = {
             let data = self.data.lock().unwrap();
-            (data.watches.clone(), data.frames.first().map(|frame| frame.id))
+            (
+                data.watches.clone(),
+                data.frames.first().map(|frame| frame.id),
+            )
         };
         let results: Vec<EvaluationView> = expressions
             .iter()
@@ -1598,7 +1629,12 @@ impl Dap {
         Ok((data.session, data.stop_seq, data.selected_frame_id))
     }
 
-    fn evaluate_in(&self, expression: &str, frame_id: Option<i64>, context: &str) -> EvaluationView {
+    fn evaluate_in(
+        &self,
+        expression: &str,
+        frame_id: Option<i64>,
+        context: &str,
+    ) -> EvaluationView {
         let mut params = json!({ "expression": expression, "context": context });
         if let Some(frame) = frame_id {
             params["frameId"] = json!(frame);
@@ -1606,7 +1642,10 @@ impl Dap {
         match self.request("evaluate", params, REQUEST_TIMEOUT) {
             Ok(body) => EvaluationView {
                 expression: expression.to_string(),
-                value: body.get("result").and_then(Value::as_str).map(str::to_string),
+                value: body
+                    .get("result")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 type_name: body.get("type").and_then(Value::as_str).map(str::to_string),
                 variables_reference: body
                     .get("variablesReference")
@@ -1661,15 +1700,12 @@ impl Dap {
         Ok(())
     }
 
-    fn load_locals_for(
-        &self,
-        frame_id: i64,
-        session: u64,
-        stop_seq: u64,
-    ) -> HostResult<()> {
+    fn load_locals_for(&self, frame_id: i64, session: u64, stop_seq: u64) -> HostResult<()> {
         let scopes = self
             .request("scopes", json!({ "frameId": frame_id }), REQUEST_TIMEOUT)
-            .map_err(|error| HostError::new("operation_failed", format!("scopes failed: {error}")))?;
+            .map_err(|error| {
+                HostError::new("operation_failed", format!("scopes failed: {error}"))
+            })?;
         let entries = scopes
             .get("scopes")
             .and_then(Value::as_array)
@@ -2035,7 +2071,10 @@ impl Dap {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(self.data.lock().unwrap().cwd.clone()));
         if !cwd.is_dir() {
-            return Err(format!("runInTerminal cwd {} does not exist", cwd.to_string_lossy()));
+            return Err(format!(
+                "runInTerminal cwd {} does not exist",
+                cwd.to_string_lossy()
+            ));
         }
         let mut command = Command::new(&args[0]);
         command.args(&args[1..]).current_dir(&cwd);
@@ -2106,13 +2145,17 @@ impl Dap {
                 data.sealed = true;
                 data.stale_reason = Some(reason.to_string());
                 data.stop_seq += 1;
-                data.log
-                    .push(format!("[host] session sealed at a workspace boundary: {reason}"));
+                data.log.push(format!(
+                    "[host] session sealed at a workspace boundary: {reason}"
+                ));
             }
             return Ok(());
         }
         if already_done && !seal {
-            return Err(HostError::new("invalid_state", "No debug session is running."));
+            return Err(HostError::new(
+                "invalid_state",
+                "No debug session is running.",
+            ));
         }
         if !already_done {
             let mut data = self.data.lock().unwrap();
@@ -2209,7 +2252,10 @@ impl Dap {
             let Some(status) = registry.status(id) else {
                 continue;
             };
-            if let Some(terminal) = data.terminals.iter_mut().find(|terminal| terminal.process_id == id)
+            if let Some(terminal) = data
+                .terminals
+                .iter_mut()
+                .find(|terminal| terminal.process_id == id)
             {
                 terminal.state = status.state.to_string();
                 terminal.exit = status.exit;
@@ -2382,7 +2428,9 @@ mod tests {
             dap.data.lock().unwrap().state = "running";
         }
         let first = dap.post_request("threads", json!({})).unwrap();
-        let second = dap.post_request("stackTrace", json!({ "threadId": 1 })).unwrap();
+        let second = dap
+            .post_request("stackTrace", json!({ "threadId": 1 }))
+            .unwrap();
         let frames = written_frames(&sink);
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0]["type"], "request");
@@ -2451,10 +2499,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(2);
         let threads = loop {
             let frames = written_frames(&sink);
-            if let Some(frame) = frames
-                .iter()
-                .find(|frame| frame["command"] == "threads")
-            {
+            if let Some(frame) = frames.iter().find(|frame| frame["command"] == "threads") {
                 break frame.clone();
             }
             assert!(Instant::now() < deadline, "threads request was never sent");
@@ -2508,7 +2553,10 @@ mod tests {
         }
         let observed = std::fs::read_to_string(&marker).expect("the exact argv ran");
         assert!(observed.contains("cwd="), "{observed}");
-        assert!(observed.contains("arg1=<two words; not a shell>"), "{observed}");
+        assert!(
+            observed.contains("arg1=<two words; not a shell>"),
+            "{observed}"
+        );
         assert!(observed.contains("arg2=<>"), "{observed}");
         assert!(observed.contains("env=<exact>"), "{observed}");
         let terminals = dap.view().terminals;
@@ -2657,7 +2705,9 @@ while True:
         assert_eq!(locals.scopes[0].variables[0].name, "order");
         // The breakpoint was pending: the controlled adapter has no symbols before the pause.
         assert!(
-            view.breakpoints.iter().any(|breakpoint| !breakpoint.verified),
+            view.breakpoints
+                .iter()
+                .any(|breakpoint| !breakpoint.verified),
             "unverified breakpoints stay pending"
         );
 

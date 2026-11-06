@@ -170,10 +170,13 @@ fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
     fs::create_dir_all(&home).unwrap();
     let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
     let calls = temp.path().join("calls");
-    write_script(&runtime.join("dotnet"), &format!(
-        "#!/bin/sh\necho invoked >> '{}'\nprintf 'csharp-ls, 0.28.0 (probe)\\n'\n",
-        calls.display()
-    ));
+    write_script(
+        &runtime.join("dotnet"),
+        &format!(
+            "#!/bin/sh\necho invoked >> '{}'\nprintf 'csharp-ls, 0.28.0 (probe)\\n'\n",
+            calls.display()
+        ),
+    );
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
@@ -304,8 +307,14 @@ fn a_distributed_app_without_the_bundle_fails_closed() {
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _required = EnvVar::set(bundled::REQUIRED_OVERRIDE, "1");
     // No payload and no runtime anywhere: the app bundle lost both halves.
-    let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, temp.path().join("missing-tool"));
-    let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, temp.path().join("missing-runtime"));
+    let _tool = EnvVar::set(
+        bundled::CSHARP_LS_OVERRIDE,
+        temp.path().join("missing-tool"),
+    );
+    let _runtime = EnvVar::set(
+        bundled::RUNTIME_OVERRIDE,
+        temp.path().join("missing-runtime"),
+    );
 
     let host = Host::new();
     open(&host, &fixture());
@@ -322,7 +331,11 @@ fn a_distributed_app_without_the_bundle_fails_closed() {
     // `allow_setup_for_tests` forces setup readiness; the tool/runtime gates are the signal.
 
     // No external runtime may mask the missing bundle, even though this machine has a 10.x.
-    assert_eq!(state["sdk"]["host"]["state"], "missing", "{}", state["sdk"]["host"]);
+    assert_eq!(
+        state["sdk"]["host"]["state"], "missing",
+        "{}",
+        state["sdk"]["host"]
+    );
     assert_eq!(state["sdk"]["host"]["bundled"], true);
     assert_eq!(state["sdk"]["host"]["version"], Value::Null);
     assert_eq!(state["sdk"]["host"]["root"], Value::Null);
@@ -384,16 +397,14 @@ fn a_distributed_app_with_a_partial_bundle_fails_closed() {
         host.dispatch("setup.start", json!({})).unwrap();
         let state = snapshot(&host);
         assert_eq!(
-            state["tools"]["csharp-ls"]["state"],
-            "failed",
+            state["tools"]["csharp-ls"]["state"], "failed",
             "{half}: {}",
             state["tools"]["csharp-ls"]
         );
         assert_eq!(state["tools"]["csharp-ls"]["plan"], Value::Null, "{half}");
         assert_eq!(state["sdk"]["host"]["state"], "missing", "{half}");
         assert_eq!(
-            state["tools"]["csharp-ls"]["bundled"],
-            true,
+            state["tools"]["csharp-ls"]["bundled"], true,
             "{half}: the refusal still comes from the app bundle"
         );
         assert!(
@@ -450,18 +461,17 @@ fn a_build_without_a_pair_never_reports_verifying() {
 #[test]
 fn bundled_result_is_cached_for_the_session() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
-    let targets = [
-        "dependency",
-        "muxer",
-        "runtime-component",
-        "entry",
-    ];
+    let targets = ["dependency", "muxer", "runtime-component", "entry"];
     for target in targets {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
         fs::create_dir_all(&home).unwrap();
         let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
-        fs::write(tools.join("Microsoft.CodeAnalysis.CSharp.dll"), b"dependency-v1").unwrap();
+        fs::write(
+            tools.join("Microsoft.CodeAnalysis.CSharp.dll"),
+            b"dependency-v1",
+        )
+        .unwrap();
         fs::write(
             runtime.join("shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll"),
             b"runtime-v1",

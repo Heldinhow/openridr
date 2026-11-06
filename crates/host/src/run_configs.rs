@@ -130,14 +130,19 @@ struct LaunchSettings {
     profiles: Vec<LaunchProfile>,
 }
 
-fn deserialize_profiles<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<LaunchProfile>, D::Error> {
+fn deserialize_profiles<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<LaunchProfile>, D::Error> {
     struct ProfilesVisitor;
     impl<'de> serde::de::Visitor<'de> for ProfilesVisitor {
         type Value = Vec<LaunchProfile>;
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             formatter.write_str("an object of launch profiles")
         }
-        fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
             let mut profiles = Vec::new();
             while let Some((name, mut profile)) = map.next_entry::<String, LaunchProfile>()? {
                 profile.name = name;
@@ -150,28 +155,54 @@ fn deserialize_profiles<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Re
 }
 
 fn read_launch_profiles(project: &Path) -> HostResult<Vec<LaunchProfile>> {
-    let path = project.parent().unwrap_or(project).join("Properties/launchSettings.json");
+    let path = project
+        .parent()
+        .unwrap_or(project)
+        .join("Properties/launchSettings.json");
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(HostError::new("invalid_launch_settings", format!("{}: {error}", path.display()))),
+        Err(error) => {
+            return Err(HostError::new(
+                "invalid_launch_settings",
+                format!("{}: {error}", path.display()),
+            ))
+        }
     };
-    let text = normalize_launch_json(&text)
-        .map_err(|error| HostError::new("invalid_launch_settings", format!("{}: {error}", path.display())))?;
-    serde_json::from_str::<LaunchSettings>(&text).map(|settings| settings.profiles)
-        .map_err(|error| HostError::new("invalid_launch_settings", format!("{}: {error}", path.display())))
+    let text = normalize_launch_json(&text).map_err(|error| {
+        HostError::new(
+            "invalid_launch_settings",
+            format!("{}: {error}", path.display()),
+        )
+    })?;
+    serde_json::from_str::<LaunchSettings>(&text)
+        .map(|settings| settings.profiles)
+        .map_err(|error| {
+            HostError::new(
+                "invalid_launch_settings",
+                format!("{}: {error}", path.display()),
+            )
+        })
 }
 
 fn normalize_launch_json(text: &str) -> Result<String, &'static str> {
-    let mut bytes = text.strip_prefix('\u{feff}').unwrap_or(text).as_bytes().to_vec();
+    let mut bytes = text
+        .strip_prefix('\u{feff}')
+        .unwrap_or(text)
+        .as_bytes()
+        .to_vec();
     let mut index = 0;
     let mut in_string = false;
     let mut escaped = false;
     while index < bytes.len() {
         if in_string {
-            if escaped { escaped = false; }
-            else if bytes[index] == b'\\' { escaped = true; }
-            else if bytes[index] == b'"' { in_string = false; }
+            if escaped {
+                escaped = false;
+            } else if bytes[index] == b'\\' {
+                escaped = true;
+            } else if bytes[index] == b'"' {
+                in_string = false;
+            }
             index += 1;
         } else if bytes[index] == b'"' {
             in_string = true;
@@ -194,10 +225,14 @@ fn normalize_launch_json(text: &str) -> Result<String, &'static str> {
                     closed = true;
                     break;
                 }
-                if bytes[index] != b'\n' && bytes[index] != b'\r' { bytes[index] = b' '; }
+                if bytes[index] != b'\n' && bytes[index] != b'\r' {
+                    bytes[index] = b' ';
+                }
                 index += 1;
             }
-            if !closed { return Err("Unterminated block comment."); }
+            if !closed {
+                return Err("Unterminated block comment.");
+            }
         } else {
             index += 1;
         }
@@ -207,15 +242,24 @@ fn normalize_launch_json(text: &str) -> Result<String, &'static str> {
     escaped = false;
     while index < bytes.len() {
         if in_string {
-            if escaped { escaped = false; }
-            else if bytes[index] == b'\\' { escaped = true; }
-            else if bytes[index] == b'"' { in_string = false; }
+            if escaped {
+                escaped = false;
+            } else if bytes[index] == b'\\' {
+                escaped = true;
+            } else if bytes[index] == b'"' {
+                in_string = false;
+            }
         } else if bytes[index] == b'"' {
             in_string = true;
         } else if bytes[index] == b',' {
             let mut next = index + 1;
-            while next < bytes.len() && bytes[next].is_ascii_whitespace() { next += 1; }
-            let previous = bytes[..index].iter().rev().find(|byte| !byte.is_ascii_whitespace());
+            while next < bytes.len() && bytes[next].is_ascii_whitespace() {
+                next += 1;
+            }
+            let previous = bytes[..index]
+                .iter()
+                .rev()
+                .find(|byte| !byte.is_ascii_whitespace());
             if matches!(bytes.get(next), Some(b'}' | b']'))
                 && !matches!(previous, None | Some(b'[' | b'{' | b',' | b':'))
             {
@@ -228,18 +272,31 @@ fn normalize_launch_json(text: &str) -> Result<String, &'static str> {
 }
 
 fn project_param(params: &Value, root: &Path) -> HostResult<PathBuf> {
-    let raw = params.get("project").and_then(Value::as_str).ok_or_else(|| invalid("A project is required."))?;
-    let path = fs::canonicalize(resolve_path(root, raw)).map_err(|error| invalid(format!("Project {raw}: {error}")))?;
+    let raw = params
+        .get("project")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("A project is required."))?;
+    let path = fs::canonicalize(resolve_path(root, raw))
+        .map_err(|error| invalid(format!("Project {raw}: {error}")))?;
     if path.extension().and_then(|value| value.to_str()) != Some("csproj") {
         return Err(invalid("The project must be a .csproj."));
     }
     Ok(path)
 }
 
-pub fn validate_evaluated_project<'a>(params: &Value, root: &Path, projects: impl Iterator<Item = &'a str>) -> HostResult<()> {
+pub fn validate_evaluated_project<'a>(
+    params: &Value,
+    root: &Path,
+    projects: impl Iterator<Item = &'a str>,
+) -> HostResult<()> {
     let requested = project_param(params, root)?;
-    if !projects.filter_map(|path| fs::canonicalize(resolve_path(root, path)).ok()).any(|path| path == requested) {
-        return Err(invalid("The project is not present in the current evaluation."));
+    if !projects
+        .filter_map(|path| fs::canonicalize(resolve_path(root, path)).ok())
+        .any(|path| path == requested)
+    {
+        return Err(invalid(
+            "The project is not present in the current evaluation.",
+        ));
     }
     Ok(())
 }
@@ -249,16 +306,34 @@ fn profile_key(project: &Path) -> String {
 }
 
 fn stored_launch_profile<'a>(store: &'a Store, root: &Path, project: &Path) -> Option<&'a str> {
-    store.launch_profiles.get(&profile_key(project)).map(String::as_str).or_else(|| {
-        store.launch_profiles.iter().find_map(|(key, value)| {
-            fs::canonicalize(resolve_path(root, key)).ok().filter(|path| path == project).map(|_| value.as_str())
+    store
+        .launch_profiles
+        .get(&profile_key(project))
+        .map(String::as_str)
+        .or_else(|| {
+            store.launch_profiles.iter().find_map(|(key, value)| {
+                fs::canonicalize(resolve_path(root, key))
+                    .ok()
+                    .filter(|path| path == project)
+                    .map(|_| value.as_str())
+            })
         })
-    })
 }
 
-fn selected_launch_profile<'a>(profiles: &'a [LaunchProfile], selected: Option<&str>) -> Option<&'a str> {
-    profiles.iter().find(|profile| profile.command_name == "Project" && Some(profile.name.as_str()) == selected)
-        .or_else(|| profiles.iter().find(|profile| profile.command_name == "Project"))
+fn selected_launch_profile<'a>(
+    profiles: &'a [LaunchProfile],
+    selected: Option<&str>,
+) -> Option<&'a str> {
+    profiles
+        .iter()
+        .find(|profile| {
+            profile.command_name == "Project" && Some(profile.name.as_str()) == selected
+        })
+        .or_else(|| {
+            profiles
+                .iter()
+                .find(|profile| profile.command_name == "Project")
+        })
         .map(|profile| profile.name.as_str())
 }
 
@@ -278,16 +353,28 @@ pub fn set_launch_profile(params: &Value) -> HostResult<Value> {
     let _guard = lock_store();
     let solution = solution_param(params)?;
     let project = project_param(params, solution.parent().unwrap_or(&solution))?;
-    let name = params.get("profile").and_then(Value::as_str).ok_or_else(|| invalid("A profile is required."))?;
+    let name = params
+        .get("profile")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("A profile is required."))?;
     let profiles = read_launch_profiles(&project)?;
-    if !profiles.iter().any(|profile| profile.name == name && profile.command_name == "Project") {
-        return Err(invalid(format!("Launch profile {name} is not supported or no longer exists.")));
+    if !profiles
+        .iter()
+        .any(|profile| profile.name == name && profile.command_name == "Project")
+    {
+        return Err(invalid(format!(
+            "Launch profile {name} is not supported or no longer exists."
+        )));
     }
     let path = path_for(&solution);
     let mut store = read_at(&path, &solution)?;
     let root = solution.parent().unwrap_or(&solution);
-    store.launch_profiles.retain(|key, _| fs::canonicalize(resolve_path(root, key)).ok().as_ref() != Some(&project));
-    store.launch_profiles.insert(profile_key(&project), name.to_string());
+    store
+        .launch_profiles
+        .retain(|key, _| fs::canonicalize(resolve_path(root, key)).ok().as_ref() != Some(&project));
+    store
+        .launch_profiles
+        .insert(profile_key(&project), name.to_string());
     store.active_id = "default".to_string();
     write_at(&path, &store)?;
     Ok(view(&store, &path, &solution))
@@ -301,16 +388,32 @@ fn split_launch_args(text: &str) -> HostResult<Vec<String>> {
     let mut chars = text.chars().peekable();
     while let Some(character) = chars.next() {
         match character {
-            '"' => { quoted = !quoted; started = true; }
-            '\\' if chars.peek() == Some(&'"') => { current.push(chars.next().unwrap()); started = true; }
-            value if value.is_whitespace() && !quoted => {
-                if started { args.push(std::mem::take(&mut current)); started = false; }
+            '"' => {
+                quoted = !quoted;
+                started = true;
             }
-            value => { current.push(value); started = true; }
+            '\\' if chars.peek() == Some(&'"') => {
+                current.push(chars.next().unwrap());
+                started = true;
+            }
+            value if value.is_whitespace() && !quoted => {
+                if started {
+                    args.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            value => {
+                current.push(value);
+                started = true;
+            }
         }
     }
-    if quoted { return Err(invalid("Unclosed quote in launch profile commandLineArgs.")); }
-    if started { args.push(current); }
+    if quoted {
+        return Err(invalid("Unclosed quote in launch profile commandLineArgs."));
+    }
+    if started {
+        args.push(current);
+    }
     Ok(args)
 }
 
@@ -325,7 +428,10 @@ pub fn read(params: &Value) -> HostResult<Value> {
 /// E2E isolation: the shared Playwright host sets this off so one spec cannot restore another
 /// spec's tabs. The desktop app and the dedicated session spec leave it on.
 fn session_store_enabled() -> bool {
-    !matches!(std::env::var("OPENRIDR_SESSION_STORE").as_deref(), Ok("off"))
+    !matches!(
+        std::env::var("OPENRIDR_SESSION_STORE").as_deref(),
+        Ok("off")
+    )
 }
 
 pub fn write(params: &Value) -> HostResult<Value> {
@@ -402,7 +508,10 @@ fn store_from_params(path: &Path, solution: &Path, params: &Value) -> HostResult
         .ok()
         .map(|store| store.session)
         .unwrap_or_default();
-    let launch_profiles = read_at(path, solution).ok().map(|store| store.launch_profiles).unwrap_or_default();
+    let launch_profiles = read_at(path, solution)
+        .ok()
+        .map(|store| store.launch_profiles)
+        .unwrap_or_default();
     Ok(Store {
         solution: solution.to_string_lossy().to_string(),
         active_id,
@@ -502,21 +611,39 @@ fn startup_param(params: &Value) -> HostResult<Option<String>> {
 pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> {
     if let Some(name) = params.get("launchProfile").and_then(Value::as_str) {
         let project = project_param(params, root)?;
-        let profile = read_launch_profiles(&project)?.into_iter().find(|profile| profile.name == name)
-            .ok_or_else(|| invalid(format!("Launch profile {name} was not found in {}.", project.display())))?;
+        let profile = read_launch_profiles(&project)?
+            .into_iter()
+            .find(|profile| profile.name == name)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "Launch profile {name} was not found in {}.",
+                    project.display()
+                ))
+            })?;
         if profile.command_name != "Project" {
-            return Err(invalid(format!("Launch profile {name} uses unsupported commandName {}.", profile.command_name)));
+            return Err(invalid(format!(
+                "Launch profile {name} uses unsupported commandName {}.",
+                profile.command_name
+            )));
         }
         let mut env = profile.environment_variables;
-        if let Some(url) = profile.application_url { env.entry("ASPNETCORE_URLS".to_string()).or_insert(url); }
+        if let Some(url) = profile.application_url {
+            env.entry("ASPNETCORE_URLS".to_string()).or_insert(url);
+        }
         let project_dir = project.parent().unwrap_or(root);
-        let cwd = profile.working_directory.as_deref().map(|value| resolve_path(project_dir, value));
+        let cwd = profile
+            .working_directory
+            .as_deref()
+            .map(|value| resolve_path(project_dir, value));
         if let Some(path) = &cwd {
             if !path.is_dir() {
                 return Err(option_error("workingDirectory", "working_directory_missing", format!("The working directory {} does not exist or is not a directory; fix workingDirectory in launchSettings.json before running.", path.display())));
             }
         }
-        return launch_options(&json!({"args": split_launch_args(&profile.command_line_args)?, "env": env, "workingDirectory": cwd}), root);
+        return launch_options(
+            &json!({"args": split_launch_args(&profile.command_line_args)?, "env": env, "workingDirectory": cwd}),
+            root,
+        );
     }
     let args = string_list(params.get("args"), "args", MAX_ARGS)?;
     for argument in &args {
@@ -641,10 +768,7 @@ pub fn parse_env(text: &str) -> Result<Vec<(String, String)>, String> {
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
-            return Err(format!(
-                "line {}: expected KEY=VALUE.",
-                index + 1
-            ));
+            return Err(format!("line {}: expected KEY=VALUE.", index + 1));
         };
         let key = key.trim();
         if !valid_env_name(key) {
@@ -681,10 +805,7 @@ fn solution_param(params: &Value) -> HostResult<PathBuf> {
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            HostError::new(
-                "invalid_run_configs",
-                "runConfigs needs the solution path.",
-            )
+            HostError::new("invalid_run_configs", "runConfigs needs the solution path.")
         })?;
     let path = Path::new(raw);
     if !path.is_absolute() {
@@ -693,14 +814,12 @@ fn solution_param(params: &Value) -> HostResult<PathBuf> {
             "The solution path must be absolute.",
         ));
     }
-    let canonical = fs::canonicalize(path).map_err(|_| {
-        HostError::new(
-            "invalid_run_configs",
-            format!("Solution not found: {raw}"),
-        )
-    })?;
+    let canonical = fs::canonicalize(path)
+        .map_err(|_| HostError::new("invalid_run_configs", format!("Solution not found: {raw}")))?;
     if !matches!(
-        canonical.extension().and_then(|extension| extension.to_str()),
+        canonical
+            .extension()
+            .and_then(|extension| extension.to_str()),
         Some("sln") | Some("slnx") | Some("csproj")
     ) {
         return Err(HostError::new(
@@ -733,7 +852,10 @@ fn read_at(path: &Path, solution: &Path) -> HostResult<Store> {
     let store: Store = serde_json::from_str(&text).map_err(|error| {
         HostError::new(
             "invalid_run_configs",
-            format!("{} is not a valid run configuration file: {error}", path.to_string_lossy()),
+            format!(
+                "{} is not a valid run configuration file: {error}",
+                path.to_string_lossy()
+            ),
         )
     })?;
     if store.solution != solution.to_string_lossy() {
@@ -743,7 +865,10 @@ fn read_at(path: &Path, solution: &Path) -> HostResult<Store> {
     }
     let mut store = store;
     if store.active_id != "default"
-        && !store.configs.iter().any(|config| config.id == store.active_id)
+        && !store
+            .configs
+            .iter()
+            .any(|config| config.id == store.active_id)
     {
         // A stale active id from an older file is not a reason to lose the configurations.
         store.active_id = "default".to_string();
@@ -805,7 +930,9 @@ fn validate(configs: &[RunConfig], active_id: &str) -> HostResult<()> {
             return Err(shape_error(
                 "name",
                 "duplicate_name",
-                format!("Another run configuration is already named \"{name}\"; names must be unique."),
+                format!(
+                    "Another run configuration is already named \"{name}\"; names must be unique."
+                ),
             ));
         }
         if config.project.trim().is_empty() || config.project.len() > 1024 {
@@ -971,7 +1098,11 @@ fn shape_error(field: &'static str, reason: &'static str, message: impl Into<Str
     )
 }
 
-fn option_error(field: &'static str, reason: &'static str, message: impl Into<String>) -> HostError {
+fn option_error(
+    field: &'static str,
+    reason: &'static str,
+    message: impl Into<String>,
+) -> HostError {
     HostError::with_details(
         "invalid_state",
         message,
@@ -1047,28 +1178,51 @@ mod tests {
     fn launch_profiles_accept_bom_comments_and_trailing_commas() {
         let (_temp, project) = profile_fixture("\u{feff}{\n// comment\n\"profiles\": { /* block */ \"http\": {\"commandName\":\"Project\",\"applicationUrl\":\"http://localhost:1/a/*b*/,//c\",},},}\n");
         let profiles = read_launch_profiles(&project).unwrap();
-        assert_eq!(profiles[0].application_url.as_deref(), Some("http://localhost:1/a/*b*/,//c"));
-        assert!(serde_json::from_str::<Value>(&normalize_launch_json("{\"items\":[,]}").unwrap()).is_err());
+        assert_eq!(
+            profiles[0].application_url.as_deref(),
+            Some("http://localhost:1/a/*b*/,//c")
+        );
+        assert!(
+            serde_json::from_str::<Value>(&normalize_launch_json("{\"items\":[,]}").unwrap())
+                .is_err()
+        );
         assert!(normalize_launch_json("{/* unterminated").is_err());
-        assert!(serde_json::from_str::<Value>(&normalize_launch_json("{\"items\":[1, /* comment */ ]}").unwrap()).is_ok());
+        assert!(serde_json::from_str::<Value>(
+            &normalize_launch_json("{\"items\":[1, /* comment */ ]}").unwrap()
+        )
+        .is_ok());
     }
 
     #[test]
     fn launch_profiles_accept_null_command_fields() {
-        let (_temp, project) = profile_fixture(r#"{"profiles":{"empty":{"commandName":null,"commandLineArgs":null},"ok":{"commandName":"Project","commandLineArgs":null}}}"#);
+        let (_temp, project) = profile_fixture(
+            r#"{"profiles":{"empty":{"commandName":null,"commandLineArgs":null},"ok":{"commandName":"Project","commandLineArgs":null}}}"#,
+        );
         let profiles = read_launch_profiles(&project).unwrap();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[1].name, "ok");
         assert_eq!(selected_launch_profile(&profiles, None), Some("ok"));
-        let options = launch_options(&json!({"project":project,"launchProfile":"ok"}), project.parent().unwrap()).unwrap();
+        let options = launch_options(
+            &json!({"project":project,"launchProfile":"ok"}),
+            project.parent().unwrap(),
+        )
+        .unwrap();
         assert!(options.args.is_empty());
     }
 
     #[test]
     fn launch_profile_environment_overrides_application_url() {
-        let (temp, project) = profile_fixture(r#"{"profiles":{"http":{"commandName":"Project","applicationUrl":"http://original","environmentVariables":{"ASPNETCORE_URLS":"http://override"}}}}"#);
-        let options = launch_options(&json!({"project":project,"launchProfile":"http"}), temp.path()).unwrap();
-        assert!(options.env.contains(&("ASPNETCORE_URLS".into(), "http://override".into())));
+        let (temp, project) = profile_fixture(
+            r#"{"profiles":{"http":{"commandName":"Project","applicationUrl":"http://original","environmentVariables":{"ASPNETCORE_URLS":"http://override"}}}}"#,
+        );
+        let options = launch_options(
+            &json!({"project":project,"launchProfile":"http"}),
+            temp.path(),
+        )
+        .unwrap();
+        assert!(options
+            .env
+            .contains(&("ASPNETCORE_URLS".into(), "http://override".into())));
     }
 
     #[test]
@@ -1076,33 +1230,67 @@ mod tests {
         let (temp, project) = profile_fixture(r#"{"profiles":{"http":{"commandName":"Project"}}}"#);
         let root = temp.path().join("solution");
         fs::create_dir(&root).unwrap();
-        let options = launch_options(&json!({"project":"../App.csproj","launchProfile":"http"}), &root).unwrap();
+        let options = launch_options(
+            &json!({"project":"../App.csproj","launchProfile":"http"}),
+            &root,
+        )
+        .unwrap();
         assert!(options.args.is_empty());
-        assert_eq!(project_param(&json!({"project":"../App.csproj"}), &root).unwrap(), fs::canonicalize(project).unwrap());
+        assert_eq!(
+            project_param(&json!({"project":"../App.csproj"}), &root).unwrap(),
+            fs::canonicalize(project).unwrap()
+        );
         let params = json!({"project":"../App.csproj"});
         assert!(validate_evaluated_project(&params, &root, ["../App.csproj"].into_iter()).is_ok());
-        assert!(validate_evaluated_project(&params, &root, ["Unrelated.csproj"].into_iter()).is_err());
+        assert!(
+            validate_evaluated_project(&params, &root, ["Unrelated.csproj"].into_iter()).is_err()
+        );
     }
 
     #[test]
     fn launch_profile_missing_cwd_names_launch_settings() {
-        let (temp, project) = profile_fixture(r#"{"profiles":{"http":{"commandName":"Project","workingDirectory":"missing"}}}"#);
-        let error = launch_options(&json!({"project":project,"launchProfile":"http"}), temp.path()).unwrap_err();
-        assert!(error.message.contains("workingDirectory") && error.message.contains("launchSettings.json"), "{}", error.message);
+        let (temp, project) = profile_fixture(
+            r#"{"profiles":{"http":{"commandName":"Project","workingDirectory":"missing"}}}"#,
+        );
+        let error = launch_options(
+            &json!({"project":project,"launchProfile":"http"}),
+            temp.path(),
+        )
+        .unwrap_err();
+        assert!(
+            error.message.contains("workingDirectory")
+                && error.message.contains("launchSettings.json"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]
     fn launch_args_keep_empty_and_escaped_quotes() {
-        assert_eq!(split_launch_args(r#""" "say \"hello\"""#).unwrap(), vec!["", "say \"hello\""]);
-        assert_eq!(split_launch_args("%HOME% $(HOME)").unwrap(), vec!["%HOME%", "$(HOME)"]);
+        assert_eq!(
+            split_launch_args(r#""" "say \"hello\"""#).unwrap(),
+            vec!["", "say \"hello\""]
+        );
+        assert_eq!(
+            split_launch_args("%HOME% $(HOME)").unwrap(),
+            vec!["%HOME%", "$(HOME)"]
+        );
     }
 
     #[test]
     fn missing_selected_profile_uses_first_project_profile() {
-        let (_temp, project) = profile_fixture(r#"{"profiles":{"iis":{"commandName":"IISExpress"},"first":{"commandName":"Project"},"second":{"commandName":"Project"}}}"#);
+        let (_temp, project) = profile_fixture(
+            r#"{"profiles":{"iis":{"commandName":"IISExpress"},"first":{"commandName":"Project"},"second":{"commandName":"Project"}}}"#,
+        );
         let profiles = read_launch_profiles(&project).unwrap();
-        assert_eq!(selected_launch_profile(&profiles, Some("removed")), Some("first"));
-        assert_eq!(selected_launch_profile(&profiles, Some("second")), Some("second"));
+        assert_eq!(
+            selected_launch_profile(&profiles, Some("removed")),
+            Some("first")
+        );
+        assert_eq!(
+            selected_launch_profile(&profiles, Some("second")),
+            Some("second")
+        );
     }
 
     #[test]
@@ -1112,11 +1300,20 @@ mod tests {
         let absolute = project_param(&json!({"project":project}), temp.path()).unwrap();
         assert_eq!(profile_key(&relative), profile_key(&absolute));
         let mut store = Store {
-            solution: String::new(), active_id: "default".into(), configs: Vec::new(),
-            startup_project: None, launch_profiles: BTreeMap::new(), session: SessionState::default(),
+            solution: String::new(),
+            active_id: "default".into(),
+            configs: Vec::new(),
+            startup_project: None,
+            launch_profiles: BTreeMap::new(),
+            session: SessionState::default(),
         };
-        store.launch_profiles.insert("App.csproj".into(), "http".into());
-        assert_eq!(stored_launch_profile(&store, temp.path(), &absolute), Some("http"));
+        store
+            .launch_profiles
+            .insert("App.csproj".into(), "http".into());
+        assert_eq!(
+            stored_launch_profile(&store, temp.path(), &absolute),
+            Some("http")
+        );
     }
 
     fn run_test_dotnet(command: &mut std::process::Command) -> Option<std::process::Output> {
@@ -1133,7 +1330,10 @@ mod tests {
     #[test]
     fn launch_profile_dotnet_test_skips_missing_executable() {
         let temp = tempfile::tempdir().unwrap();
-        assert!(run_test_dotnet(&mut std::process::Command::new(temp.path().join("missing-dotnet"))).is_none());
+        assert!(run_test_dotnet(&mut std::process::Command::new(
+            temp.path().join("missing-dotnet")
+        ))
+        .is_none());
     }
 
     #[test]
@@ -1141,14 +1341,30 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/LaunchProfiles");
         let project = root.join("LaunchProfiles.csproj");
         let profiles = read_launch_profiles(&project).unwrap();
-        assert_eq!(profiles.iter().map(|profile| profile.name.as_str()).collect::<Vec<_>>(), vec!["http", "https", "IIS Express"]);
+        assert_eq!(
+            profiles
+                .iter()
+                .map(|profile| profile.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["http", "https", "IIS Express"]
+        );
         assert_eq!(profiles[2].command_name, "IISExpress");
-        let options = launch_options(&json!({"project": project, "launchProfile": "http"}), &root).unwrap();
+        let options =
+            launch_options(&json!({"project": project, "launchProfile": "http"}), &root).unwrap();
         assert_eq!(options.args, vec!["--message", "hello world"]);
-        assert_eq!(options.working_directory, Some(fs::canonicalize(&root).unwrap()));
+        assert_eq!(
+            options.working_directory,
+            Some(fs::canonicalize(&root).unwrap())
+        );
         assert!(options.env.contains(&("PROFILE_ENV".into(), "http".into())));
-        assert!(options.env.contains(&("ASPNETCORE_URLS".into(), "http://localhost:5083".into())));
-        assert!(launch_options(&json!({"project": project, "launchProfile": "IIS Express"}), &root).is_err());
+        assert!(options
+            .env
+            .contains(&("ASPNETCORE_URLS".into(), "http://localhost:5083".into())));
+        assert!(launch_options(
+            &json!({"project": project, "launchProfile": "IIS Express"}),
+            &root
+        )
+        .is_err());
     }
 
     #[test]
@@ -1156,21 +1372,52 @@ mod tests {
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/LaunchProfiles");
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir(temp.path().join("Properties")).unwrap();
-        for file in ["global.json", "LaunchProfiles.csproj", "Program.cs", "Properties/launchSettings.json"] {
+        for file in [
+            "global.json",
+            "LaunchProfiles.csproj",
+            "Program.cs",
+            "Properties/launchSettings.json",
+        ] {
             fs::copy(source.join(file), temp.path().join(file)).unwrap();
         }
         let project = temp.path().join("LaunchProfiles.csproj");
-        let options = launch_options(&json!({"project": project, "launchProfile": "http"}), temp.path()).unwrap();
+        let options = launch_options(
+            &json!({"project": project, "launchProfile": "http"}),
+            temp.path(),
+        )
+        .unwrap();
         let mut command = std::process::Command::new("dotnet");
-        command.args(["run", "--project"]).arg(&project).arg("--no-launch-profile").arg("--");
-        command.args(&options.args).envs(options.env.iter().cloned()).current_dir(options.working_directory.unwrap());
-        let Some(output) = run_test_dotnet(&mut command) else { return; };
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        command
+            .args(["run", "--project"])
+            .arg(&project)
+            .arg("--no-launch-profile")
+            .arg("--");
+        command
+            .args(&options.args)
+            .envs(options.env.iter().cloned())
+            .current_dir(options.working_directory.unwrap());
+        let Some(output) = run_test_dotnet(&mut command) else {
+            return;
+        };
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("PROFILE_ENV=http"), "{stdout}");
-        assert!(stdout.contains("ASPNETCORE_URLS=http://localhost:5083"), "{stdout}");
+        assert!(
+            stdout.contains("ASPNETCORE_URLS=http://localhost:5083"),
+            "{stdout}"
+        );
         assert!(stdout.contains("ARGS=--message|hello world"), "{stdout}");
-        assert!(stdout.contains(&format!("CWD={}", fs::canonicalize(temp.path()).unwrap().display())), "{stdout}");
+        assert!(
+            stdout.contains(&format!(
+                "CWD={}",
+                fs::canonicalize(temp.path()).unwrap().display()
+            )),
+            "{stdout}"
+        );
     }
 
     #[test]
@@ -1207,7 +1454,12 @@ mod tests {
             session: SessionState::default(),
         };
         write_at(&path, &store).unwrap();
-        let updated = store_from_params(&path, &solution, &json!({"activeId":"custom", "configs":[manual]})).unwrap();
+        let updated = store_from_params(
+            &path,
+            &solution,
+            &json!({"activeId":"custom", "configs":[manual]}),
+        )
+        .unwrap();
         assert_eq!(updated.launch_profiles, choices);
         assert_eq!(updated.configs, store.configs);
     }
@@ -1260,7 +1512,9 @@ mod tests {
         );
         assert!(parse_env("NOT A LINE\n").unwrap_err().contains("line 1"));
         assert!(parse_env("1KEY=value\n").unwrap_err().contains("line 1"));
-        assert!(parse_env("export KEY=value\n").unwrap_err().contains("line 1"));
+        assert!(parse_env("export KEY=value\n")
+            .unwrap_err()
+            .contains("line 1"));
         assert!(parse_env("=value\n").unwrap_err().contains("line 1"));
         // No expansion and no shell: the dollar sign and inline hash stay literal.
         assert_eq!(
@@ -1297,18 +1551,15 @@ mod tests {
     fn launch_options_refuse_a_missing_directory_and_a_bad_env_file() {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join("bad.env"), "NOT A LINE\n").unwrap();
-        let missing = launch_options(
-            &json!({ "workingDirectory": "missing" }),
-            root.path(),
-        )
-        .expect_err("missing cwd");
+        let missing = launch_options(&json!({ "workingDirectory": "missing" }), root.path())
+            .expect_err("missing cwd");
         assert_eq!(missing.code, "invalid_state");
         let details = missing.details.unwrap();
         assert_eq!(details["field"], "workingDirectory");
         assert_eq!(details["reason"], "working_directory_missing");
 
-        let bad = launch_options(&json!({ "envFiles": ["bad.env"] }), root.path())
-            .expect_err("bad env");
+        let bad =
+            launch_options(&json!({ "envFiles": ["bad.env"] }), root.path()).expect_err("bad env");
         let details = bad.details.unwrap();
         assert_eq!(details["field"], "envFiles");
         assert_eq!(details["reason"], "env_file_invalid");
@@ -1325,7 +1576,10 @@ mod tests {
         stored.working_directory = "missing".to_string();
         stored.env_files = vec!["missing.env".to_string()];
         let store = Store {
-            solution: fs::canonicalize(&solution).unwrap().to_string_lossy().to_string(),
+            solution: fs::canonicalize(&solution)
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
             active_id: "one".to_string(),
             configs: vec![stored],
             startup_project: None,
@@ -1380,11 +1634,9 @@ mod tests {
         assert_eq!(read_at(&path, &solution).unwrap().session, session);
 
         // The UI writes the session separately; a run-config write must not erase it.
-        let rewritten =
-            store_from_params(&path, &solution, &json!({ "configs": [] })).unwrap();
+        let rewritten = store_from_params(&path, &solution, &json!({ "configs": [] })).unwrap();
         assert_eq!(rewritten.session, session);
-        let startup =
-            set_startup_at(&path, &solution, &json!({ "startupProject": null })).unwrap();
+        let startup = set_startup_at(&path, &solution, &json!({ "startupProject": null })).unwrap();
         assert_eq!(startup.session, session);
     }
 
@@ -1414,8 +1666,7 @@ mod tests {
         );
 
         // A configuration-only write keeps the choice; an explicit null clears it.
-        let preserved =
-            store_from_params(&path, &solution, &json!({ "configs": [] })).unwrap();
+        let preserved = store_from_params(&path, &solution, &json!({ "configs": [] })).unwrap();
         assert_eq!(
             preserved.startup_project.as_deref(),
             Some("src/Tool/Tool.csproj")

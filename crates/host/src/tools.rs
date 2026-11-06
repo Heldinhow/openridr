@@ -24,7 +24,8 @@ pub const TOOL: &str = "csharp-ls";
 pub const VERSION: &str = "0.28.0";
 pub const NUGET_SOURCE: &str = "https://api.nuget.org/v3/index.json";
 pub const NUGET_PACKAGE: &str = "https://www.nuget.org/packages/csharp-ls/0.28.0";
-const PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.28.0/csharp-ls.0.28.0.nupkg";
+const PACKAGE_URL: &str =
+    "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.28.0/csharp-ls.0.28.0.nupkg";
 const PACKAGE_SHA512: &str = "a138b9c8f9de9dd6343e9b0d0c8f4d51637bba7e38606b7c2b08b1d91e8eefa39f12123057f6625f425812b4361e52841bd2856704ec127ff50144ce05170a99";
 const PACKAGE_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
@@ -64,11 +65,18 @@ fn verify_package_hash(bytes: &[u8], expected: &str) -> Result<(), String> {
     if actual == expected {
         Ok(())
     } else {
-        Err("csharp-ls package SHA-512 mismatch; installation aborted. Retry the setup.".to_string())
+        Err(
+            "csharp-ls package SHA-512 mismatch; installation aborted. Retry the setup."
+                .to_string(),
+        )
     }
 }
 
-fn store_verified_package(temp: &Path, bytes: &[u8], expected: &str) -> Result<(PathBuf, PathBuf), String> {
+fn store_verified_package(
+    temp: &Path,
+    bytes: &[u8],
+    expected: &str,
+) -> Result<(PathBuf, PathBuf), String> {
     verify_package_hash(bytes, expected)?;
     let feed = temp.join("verified-feed");
     if feed.exists() {
@@ -77,29 +85,50 @@ fn store_verified_package(temp: &Path, bytes: &[u8], expected: &str) -> Result<(
     fs::create_dir_all(&feed).map_err(|error| error.to_string())?;
     fs::write(feed.join("csharp-ls.0.28.0.nupkg"), bytes).map_err(|error| error.to_string())?;
     let config = temp.join("offline.nuget.config");
-    fs::write(&config, "<configuration><packageSources><clear /></packageSources></configuration>")
-        .map_err(|error| error.to_string())?;
+    fs::write(
+        &config,
+        "<configuration><packageSources><clear /></packageSources></configuration>",
+    )
+    .map_err(|error| error.to_string())?;
     Ok((feed, config))
 }
 
-fn prepare_local_package(temp: &Path, progress: impl Fn(u64, Option<u64>) -> bool) -> Result<(PathBuf, PathBuf), String> {
+fn prepare_local_package(
+    temp: &Path,
+    progress: impl Fn(u64, Option<u64>) -> bool,
+) -> Result<(PathBuf, PathBuf), String> {
     let (url, sha512) = package_source();
     let response = crate::http::agent_builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .get(&url)
         .call()
-        .map_err(|error| format!("Could not download csharp-ls: {}", crate::http::describe_error(&url, &error)))?;
-    let total = response.header("Content-Length").and_then(|value| value.parse().ok());
+        .map_err(|error| {
+            format!(
+                "Could not download csharp-ls: {}",
+                crate::http::describe_error(&url, &error)
+            )
+        })?;
+    let total = response
+        .header("Content-Length")
+        .and_then(|value| value.parse().ok());
     let mut reader = response.into_reader().take(PACKAGE_MAX_BYTES + 1);
     let mut bytes = Vec::new();
     let mut chunk = [0; 65536];
     loop {
-        let count = reader.read(&mut chunk).map_err(|error| format!("Could not read csharp-ls package: {error}"))?;
-        if count == 0 { break; }
+        let count = reader
+            .read(&mut chunk)
+            .map_err(|error| format!("Could not read csharp-ls package: {error}"))?;
+        if count == 0 {
+            break;
+        }
         bytes.extend_from_slice(&chunk[..count]);
-        if bytes.len() as u64 > PACKAGE_MAX_BYTES { return Err("csharp-ls package exceeds the size limit".to_string()); }
-        if !progress(bytes.len() as u64, total) { return Err("Installation cancelled.".to_string()); }
+        if bytes.len() as u64 > PACKAGE_MAX_BYTES {
+            return Err("csharp-ls package exceeds the size limit".to_string());
+        }
+        if !progress(bytes.len() as u64, total) {
+            return Err("Installation cancelled.".to_string());
+        }
     }
     store_verified_package(temp, &bytes, &sha512)
 }
@@ -312,7 +341,11 @@ pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
         }
         bundled::Availability::Damaged(reason) => {
             // Fail closed: a distributed app with a broken bundle never plans a download.
-            return Err(HostError::with_details("bundled_incomplete", reason, json!({})));
+            return Err(HostError::with_details(
+                "bundled_incomplete",
+                reason,
+                json!({}),
+            ));
         }
         bundled::Availability::Absent => {}
     }
@@ -332,9 +365,11 @@ pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
         ));
     };
     let muxer = probe_muxer().unwrap_or_else(|| {
-        install
-            .root
-            .join(if cfg!(windows) { "dotnet.exe" } else { "dotnet" })
+        install.root.join(if cfg!(windows) {
+            "dotnet.exe"
+        } else {
+            "dotnet"
+        })
     });
     if !muxer.is_file() {
         return Err(HostError::new(
@@ -491,7 +526,10 @@ pub fn verify_installed(destination: &Path, runtime_root: &Path) -> Existing {
             verified_version: None,
             output: None,
             sha256: None,
-            reason: Some(format!("Could not run {} --version.", binary.to_string_lossy())),
+            reason: Some(format!(
+                "Could not run {} --version.",
+                binary.to_string_lossy()
+            )),
         };
     };
     let text = format!(
@@ -540,7 +578,10 @@ fn sha256_file(path: &Path) -> Option<String> {
 /// per-DLL manifest: a modified launcher is detected by its hash; other files in the tool
 /// directory are not individually re-hashed. Documented limitation in docs/decisions.md.
 fn record_installation(destination: &Path, launcher_hash: &str) -> std::io::Result<()> {
-    fs::write(destination.join(".openridr-integrity"), format!("{PACKAGE_SHA512}\n{launcher_hash}\n"))
+    fs::write(
+        destination.join(".openridr-integrity"),
+        format!("{PACKAGE_SHA512}\n{launcher_hash}\n"),
+    )
 }
 
 fn persisted_installation_valid(destination: &Path) -> bool {
@@ -568,10 +609,9 @@ fn observed_bytes(roots: &[PathBuf]) -> u64 {
     // A root inside another root would count the same files twice; only the outermost stay.
     let mut outermost: Vec<&PathBuf> = Vec::new();
     for root in roots {
-        if roots
-            .iter()
-            .any(|other| other != root && root.starts_with(other) && root.as_path() != other.as_path())
-        {
+        if roots.iter().any(|other| {
+            other != root && root.starts_with(other) && root.as_path() != other.as_path()
+        }) {
             continue;
         }
         outermost.push(root);
@@ -754,7 +794,9 @@ fn start_bundled_check() -> BundledCheck {
 #[cfg(not(debug_assertions))]
 fn bundled_check() -> Arc<BundledCheck> {
     static CHECK: OnceLock<Arc<BundledCheck>> = OnceLock::new();
-    CHECK.get_or_init(|| Arc::new(start_bundled_check())).clone()
+    CHECK
+        .get_or_init(|| Arc::new(start_bundled_check()))
+        .clone()
 }
 
 #[cfg(debug_assertions)]
@@ -798,9 +840,7 @@ fn collect_fingerprint(root: &Path, prefix: &str, rows: &mut Vec<(String, u64, i
         let name = entry.file_name().to_string_lossy().to_string();
         let relative = format!("{prefix}/{name}");
         match entry.file_type() {
-            Ok(kind) if kind.is_dir() => {
-                collect_fingerprint(&path, &relative, rows)
-            }
+            Ok(kind) if kind.is_dir() => collect_fingerprint(&path, &relative, rows),
             Ok(kind) if kind.is_file() => {
                 let Ok(meta) = entry.metadata() else {
                     continue;
@@ -826,7 +866,9 @@ fn content_digest(analysis: &bundled::Analysis) -> Option<String> {
     for (relative, size, _) in rows {
         hasher.update(relative.as_bytes());
         hasher.update(size.to_le_bytes());
-        let (root, stripped) = if let Some(rest) = relative.strip_prefix(&format!("{}/", bundled::CSHARP_LS_DIR)) {
+        let (root, stripped) = if let Some(rest) =
+            relative.strip_prefix(&format!("{}/", bundled::CSHARP_LS_DIR))
+        {
             (analysis.tool_dir.as_path(), rest)
         } else if let Some(rest) = relative.strip_prefix(&format!("{}/", bundled::RUNTIME_DIR)) {
             (analysis.runtime.root.as_path(), rest)
@@ -1262,7 +1304,10 @@ impl Tools {
         let attempt = {
             let mut data = self.data.lock().unwrap();
             if matches!(data.state, "downloading" | "installing" | "verifying") && !data.sealed {
-                return Err(HostError::new("invalid_state", "An installation is already running."));
+                return Err(HostError::new(
+                    "invalid_state",
+                    "An installation is already running.",
+                ));
             }
             data.revision += 1;
             data.state = "downloading";
@@ -1300,22 +1345,29 @@ impl Tools {
                 #[cfg(debug_assertions)]
                 if let Ok(delay) = std::env::var("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS") {
                     if let Ok(milliseconds) = delay.parse::<u64>() {
-                        std::thread::sleep(std::time::Duration::from_millis(milliseconds.min(5_000)));
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            milliseconds.min(5_000),
+                        ));
                     }
                 }
                 Ok(None)
             } else {
-                fs::create_dir_all(&temp).map_err(|error| error.to_string()).and_then(|_| {
-                    prepare_local_package(&temp, |downloaded, total| {
-                        let mut data = tools.data.lock().unwrap();
-                        if data.cancel_requested || data.sealed || data.revision != attempt { return false; }
-                        data.progress = Some(Progress { downloaded, total });
-                        // Measured, with or without a total: bytes read from the socket are not a
-                        // disk estimate, so the observation below must never replace them.
-                        data.progress_measured = true;
-                        true
-                    }).map(Some)
-                })
+                fs::create_dir_all(&temp)
+                    .map_err(|error| error.to_string())
+                    .and_then(|_| {
+                        prepare_local_package(&temp, |downloaded, total| {
+                            let mut data = tools.data.lock().unwrap();
+                            if data.cancel_requested || data.sealed || data.revision != attempt {
+                                return false;
+                            }
+                            data.progress = Some(Progress { downloaded, total });
+                            // Measured, with or without a total: bytes read from the socket are not a
+                            // disk estimate, so the observation below must never replace them.
+                            data.progress_measured = true;
+                            true
+                        })
+                        .map(Some)
+                    })
             };
             let mut registry = processes.lock().unwrap();
             {
@@ -1325,7 +1377,8 @@ impl Tools {
                     return;
                 }
             }
-            let result = package.map_err(|error| HostError::new("operation_failed", error))
+            let result = package
+                .map_err(|error| HostError::new("operation_failed", error))
                 .and_then(|package| {
                     tools.begin_install_worker(
                         plan,
@@ -1406,8 +1459,10 @@ impl Tools {
             data.finished_at = Some(now_ms());
             data.force = false;
             data.download_dir = None;
-            data.log
-                .push("Existing installation verified; reused without downloading or overwriting.".to_string());
+            data.log.push(
+                "Existing installation verified; reused without downloading or overwriting."
+                    .to_string(),
+            );
             if let Some(output) = &existing.output {
                 data.log.push(format!("$ {} --version", existing.binary));
                 data.log.push(output.clone());
@@ -1495,7 +1550,12 @@ impl Tools {
             .env_remove("NUGET_PACKAGES")
             .env_remove("NUGET_HTTP_CACHE_PATH");
         if let Some((feed, config)) = local_package {
-            command.arg("--add-source").arg(feed).arg("--configfile").arg(config).arg("--no-cache")
+            command
+                .arg("--add-source")
+                .arg(feed)
+                .arg("--configfile")
+                .arg(config)
+                .arg("--no-cache")
                 .env("NUGET_PACKAGES", temp.join("packages"));
         }
 
@@ -1522,8 +1582,7 @@ impl Tools {
                     .as_ref()
                     .map(|plan| plan.argv.join(" "))
                     .unwrap_or_default();
-                data.log
-                    .push(format!("Could not start {argv}: {error}"));
+                data.log.push(format!("Could not start {argv}: {error}"));
                 return Ok(json!({ "spawned": false }));
             }
         };
@@ -1680,7 +1739,8 @@ impl Tools {
                     ));
                     data.finished_at = Some(now_ms());
                     data.log.push(
-                        "Installation cancelled; no partial result is reported as ready.".to_string(),
+                        "Installation cancelled; no partial result is reported as ready."
+                            .to_string(),
                     );
                     return;
                 }
@@ -1712,9 +1772,8 @@ impl Tools {
                 }
                 data.state = "installing";
                 data.installing_since = Some(now_ms());
-                data.log.push(
-                    "Install process exited 0; promoting the staging directory.".to_string(),
-                );
+                data.log
+                    .push("Install process exited 0; promoting the staging directory.".to_string());
             }
             "installing" => {
                 // Like verifying, keep promotion observable for at least one poll interval.
@@ -1795,8 +1854,7 @@ impl Tools {
                         "The new installation failed verification; the previous verified installation was restored."
                             .to_string()
                     } else {
-                        "The unverified destination was left in place and is not ready."
-                            .to_string()
+                        "The unverified destination was left in place and is not ready.".to_string()
                     });
                     data.finished_at = Some(now_ms());
                     cleanup_download(&mut data);
@@ -1844,8 +1902,7 @@ impl Tools {
             data.state = "cancelled";
             data.progress = None;
             data.note = Some(
-                "Installation plan cancelled; no download and no process were started."
-                    .to_string(),
+                "Installation plan cancelled; no download and no process were started.".to_string(),
             );
             data.finished_at = Some(now_ms());
             data.log
@@ -1918,9 +1975,7 @@ impl Tools {
     pub fn seal(&self, reason: &str, status: Option<&ProcessStatus>, processes: &mut Registry) {
         let (state, process_id) = {
             let data = self.data.lock().unwrap();
-            if !matches!(data.state, "downloading" | "installing" | "verifying")
-                || data.sealed
-            {
+            if !matches!(data.state, "downloading" | "installing" | "verifying") || data.sealed {
                 return;
             }
             (data.state, data.process_id)
@@ -1970,12 +2025,7 @@ fn cleanup_stale_downloads(current: &Path) {
         return;
     };
     for entry in entries.flatten() {
-        if entry.path() != current
-            && entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with("download-")
-        {
+        if entry.path() != current && entry.file_name().to_string_lossy().starts_with("download-") {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
@@ -2169,7 +2219,10 @@ mod tests {
         assert!(error.contains("within 0 s"), "{error}");
         assert!(started.elapsed() < Duration::from_millis(900));
         std::thread::sleep(Duration::from_millis(1200));
-        assert!(!marker.exists(), "the timed-out child must not keep running");
+        assert!(
+            !marker.exists(),
+            "the timed-out child must not keep running"
+        );
     }
 
     #[test]
@@ -2273,7 +2326,10 @@ mod tests {
         assert_eq!(plan.version, VERSION);
         assert_eq!(plan.source.url, NUGET_SOURCE);
         assert!(plan.argv[0].ends_with("sdk-root/dotnet"));
-        assert_eq!(plan.dotnet_root, inventory.runtimes[0].root.to_string_lossy());
+        assert_eq!(
+            plan.dotnet_root,
+            inventory.runtimes[0].root.to_string_lossy()
+        );
         assert_eq!(&plan.argv[1..3], ["tool", "install"]);
         assert_eq!(plan.argv[3], TOOL);
         assert_eq!(&plan.argv[4..6], ["--version", VERSION]);
@@ -2288,7 +2344,11 @@ mod tests {
         detected.runtimes.clear();
         let error = plan(&detected).unwrap_err();
         assert_eq!(error.code, "sdk_missing");
-        assert!(error.message.contains(".NET 10 runtime"), "{}", error.message);
+        assert!(
+            error.message.contains(".NET 10 runtime"),
+            "{}",
+            error.message
+        );
 
         let (_temp, mut detected) = inventory();
         detected.installs.clear();
@@ -2341,10 +2401,18 @@ mod tests {
             },
             os: std::env::consts::OS,
             arch: std::env::consts::ARCH,
-            destination: temp.path().join("destination").to_string_lossy().to_string(),
+            destination: temp
+                .path()
+                .join("destination")
+                .to_string_lossy()
+                .to_string(),
             staging: temp.path().join("staging").to_string_lossy().to_string(),
             dotnet_root: "/tmp".to_string(),
-            argv: vec!["dotnet".to_string(), "tool".to_string(), "install".to_string()],
+            argv: vec![
+                "dotnet".to_string(),
+                "tool".to_string(),
+                "install".to_string(),
+            ],
             cwd: temp.path().to_string_lossy().to_string(),
             permissions: vec![],
             integrity: "",
@@ -2356,7 +2424,11 @@ mod tests {
         let error = tools
             .begin_install_worker(plan, 1, 1, &mut processes, None, false)
             .expect_err("without local_package the worker must refuse");
-        assert!(error.message.contains("verified local package"), "{}", error.message);
+        assert!(
+            error.message.contains("verified local package"),
+            "{}",
+            error.message
+        );
         assert!(processes.views().is_empty());
     }
 
@@ -2426,7 +2498,11 @@ mod tests {
             destination: temp.join("destination").to_string_lossy().to_string(),
             staging: temp.join("staging").to_string_lossy().to_string(),
             dotnet_root: "/tmp".to_string(),
-            argv: vec!["dotnet".to_string(), "tool".to_string(), "install".to_string()],
+            argv: vec![
+                "dotnet".to_string(),
+                "tool".to_string(),
+                "install".to_string(),
+            ],
             cwd: temp.to_string_lossy().to_string(),
             permissions: vec![],
             integrity: "",
@@ -2442,7 +2518,11 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let feed = temp.path().join("feed");
         fs::create_dir_all(&feed).unwrap();
-        fs::write(feed.join("csharp-ls.0.28.0.nupkg"), b"not the pinned package").unwrap();
+        fs::write(
+            feed.join("csharp-ls.0.28.0.nupkg"),
+            b"not the pinned package",
+        )
+        .unwrap();
         let config = temp.path().join("offline.config");
         fs::write(&config, "<configuration />").unwrap();
         let tools = std::sync::Arc::new(Tools::new());
@@ -2457,7 +2537,11 @@ mod tests {
                 false,
             )
             .expect_err("a wrong package hash must stop before dotnet is spawned");
-        assert!(error.message.contains("SHA-512 mismatch"), "{}", error.message);
+        assert!(
+            error.message.contains("SHA-512 mismatch"),
+            "{}",
+            error.message
+        );
         assert!(processes.views().is_empty());
     }
 
@@ -2469,7 +2553,11 @@ mod tests {
         let staging = temp.path().join("staging");
         fs::create_dir_all(&staging).unwrap();
         let launcher = staging.join(binary_name());
-        fs::write(&launcher, "#!/bin/sh\nprintf 'csharp-ls, version 0.28.0\n'\n").unwrap();
+        fs::write(
+            &launcher,
+            "#!/bin/sh\nprintf 'csharp-ls, version 0.28.0\n'\n",
+        )
+        .unwrap();
         fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
         let existing = verify_staged_installation(&staging, Path::new("/tmp")).unwrap();
         assert_eq!(existing.state, "ready");
@@ -2479,7 +2567,11 @@ mod tests {
         let unwritable = temp.path().join("unwritable");
         fs::create_dir_all(&unwritable).unwrap();
         let launcher = unwritable.join(binary_name());
-        fs::write(&launcher, "#!/bin/sh\nprintf 'csharp-ls, version 0.28.0\n'\n").unwrap();
+        fs::write(
+            &launcher,
+            "#!/bin/sh\nprintf 'csharp-ls, version 0.28.0\n'\n",
+        )
+        .unwrap();
         fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
         fs::set_permissions(&unwritable, fs::Permissions::from_mode(0o555)).unwrap();
         let error = verify_staged_installation(&unwritable, Path::new("/tmp")).unwrap_err();
