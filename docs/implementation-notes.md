@@ -1448,3 +1448,11 @@ Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, ticket
 - **UI:** inalterada; a lista e os valores já vinham de `snapshot.dap.watches`. Restart usa os mesmos `debug-watch-*`.
 - **Testes:** unidade `watches_live_in_the_host_and_are_deduplicated`; em `tests/e2e/debug-advanced.spec.ts`, "a watch survives a restart with the same expressions" (watch `index` sobrevive ao Restart com um único item e valor no novo pause) e "a watch follows the selected thread" (watch `label` mostra `worker` na thread parada e erro ao selecionar a thread principal, voltando ao valor ao reselecionar a thread). Spec completo 6/6 com netcoredbg real.
 - **Não verificado:** app Tauri real (ticket #96); Windows/macOS Intel.
+
+## Debug avançado — verificação no app real (issue #96, 2026-11-06)
+
+- **Escopo:** issue #96 (bloqueada por #94/#95), evidência em [evidence/debug-advanced.md](evidence/debug-advanced.md).
+- **Método:** bundle debug 0.3.0-alpha.11 deste worktree, `OPENRIDR_HOME` isolado, cópia da fixture OrderDesk com um laço de 5 iterações e `Thread.Sleep(3000)` entre elas, uma instância, dirigida por `agent-desktop`. Três tickets ficaram provados no app: condição (`index == 3` → `index · int = 3`), hit count (3 → `index · int = 2` com `hit count 1/3`/`2/3` no log), Pause manual com hit count armado (`Paused · pause`), watch sobrevivendo ao Restart e seguindo a thread selecionada (erro na main thread, valor de volta na worker).
+- **Sete capturas** em `docs/evidence/debug-advanced/`. O app foi fechado por `desktop.sh down`; nenhuma instância ficou viva.
+- **Bug de rótulo observado (fora do escopo):** no painel Debug, a aba **Debug Output** (`data-testid="dap-log"`) e a aba **Console** (`data-testid="dap-output"`) estão com os rótulos trocados em relação ao conteúdo. Não foi corrigido nesta frente.
+- **Não verificado:** stdout do debuggee no app real (a aba certa não foi observada por causa do rótulo trocado; o E2E prova `dap-output`); Windows/macOS Intel.
