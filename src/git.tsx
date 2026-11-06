@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { call, messageOf } from "./host/client";
 import { Icon } from "./Icon";
 import { MidText } from "./shell/MidText";
+import { FileIcon } from "./FileIcon";
+import { RefreshCw, ChevronDown, ChevronRight, Eye, ChevronsUpDown, Undo2 } from "lucide-react";
 
 export type GitFile = {
   path: string;
@@ -673,6 +675,8 @@ export function CommitPanel({
   const [state, setState] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const focused = useRef<string | null>(null);
+  const groupCheck = useRef<HTMLInputElement>(null);
+  const [expanded, setExpanded] = useState(true);
   const reason = !trusted ? TRUST_MESSAGE : unavailable(status, statusError);
   const files = status?.state === "ok" ? status.files : [];
   const selected = useMemo(
@@ -682,6 +686,10 @@ export function CommitPanel({
   const commitPaths = files
     .filter((file) => selected.has(file.path) && !file.conflicted)
     .map((file) => file.path);
+
+  useEffect(() => {
+    if (groupCheck.current) groupCheck.current.indeterminate = commitPaths.length > 0 && commitPaths.length < files.filter((file) => !file.conflicted).length;
+  }, [commitPaths.length, files]);
 
   useEffect(() => {
     if (!trusted) return;
@@ -763,13 +771,17 @@ export function CommitPanel({
         <p className="tree-note" data-testid="commit-disabled-reason">{reason}</p>
       ) : (
         <>
-          <div className="git-toolbar">
-            <button type="button" data-testid="commit-refresh" disabled={busy} onClick={() => void onRefresh()}>
-              Refresh
-            </button>
-            <span className="tag" data-testid="commit-count">
-              {commitPaths.length} of {files.length} selected
-            </span>
+          <div className="git-toolbar commit-toolbar">
+            <button type="button" data-testid="commit-refresh" aria-label="Refresh" title="Refresh" disabled={busy} onClick={() => void onRefresh()}><RefreshCw size={16} /></button>
+            <button type="button" aria-label="Rollback" title="Rollback is not available in the Commit tool" disabled><Undo2 size={16} /></button>
+            <button type="button" aria-label="Expand or collapse changes" title="Expand or collapse changes" onClick={() => setExpanded(!expanded)}><ChevronsUpDown size={16} /></button>
+            <button type="button" aria-label="Show selected diff" title="Show selected diff" disabled={!diffPath} onClick={() => { const file = files.find((entry) => entry.path === diffPath); if (file) void showDiff(file); }}><Eye size={16} /></button>
+            <span className="commit-selection-count" data-testid="commit-count">{commitPaths.length} of {files.length} selected</span>
+          </div>
+          <div className="commit-group">
+            <button type="button" aria-label={expanded ? "Collapse changes" : "Expand changes"} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
+            <input ref={groupCheck} type="checkbox" aria-label="Select all changes" checked={files.some((file) => !file.conflicted) && commitPaths.length === files.filter((file) => !file.conflicted).length} disabled={busy || !files.some((file) => !file.conflicted)} onChange={(event) => setSelection(new Set(event.target.checked ? files.filter((file) => !file.conflicted).map((file) => file.path) : []))} />
+            <strong>Changes</strong><span>{files.length} {files.length === 1 ? "file" : "files"}</span>
           </div>
           <div className="commit-files">
             {files.length === 0 && (
@@ -777,8 +789,8 @@ export function CommitPanel({
                 The working tree is clean.
               </p>
             )}
-            {files.map((file) => (
-              <div className={`commit-row ${diffPath === file.path ? "selected" : ""}`} key={`${file.path}-${file.originalPath ?? ""}`}>
+            {expanded && files.map((file) => (
+              <div className={`commit-row ${diffPath === file.path ? "selected" : ""}`}  key={`${file.path}-${file.originalPath ?? ""}`}>
                 <input
                   type="checkbox"
                   data-testid={`commit-check-${file.path}`}
@@ -795,12 +807,12 @@ export function CommitPanel({
                   title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.path}
                   onClick={() => void showDiff(file)}
                 >
+                  <FileIcon path={file.path} />
                   <span className="commit-path" title={file.path}>
-                    <span className="commit-dir">{file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : ""}</span>
-                    <span className="commit-name">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
+                    <span className={`commit-name ${file.untracked ? "untracked" : file.index === "D" || file.worktree === "D" ? "deleted" : file.index === "A" ? "added" : "modified"}`}>{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
+                    <span className="commit-dir">{file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : ""}</span>
                   </span>
-                  <span className={`tag ${file.conflicted ? "error" : ""}`}>{file.label}</span>
-                  {file.untracked && <span className="menu-note">new file</span>}
+                  <span className="commit-status">{file.label}</span>
                 </button>
               </div>
             ))}
@@ -838,8 +850,8 @@ export function CommitPanel({
           )}
           <div className="commit-form">
             <label className="commit-message-field">
-              <span>Commit message</span>
               <textarea
+                placeholder="Commit Message"
                 data-testid="commit-message"
                 aria-label="Commit message"
                 value={message}
@@ -872,6 +884,7 @@ export function CommitPanel({
             >
               {busy ? "Committing…" : amend ? "Amend commit" : "Commit"}
             </button>
+            <button type="button" className="commit-push" disabled title="Combined commit and push is not available; push separately from the branch menu.">Commit and Push…</button>
             {(state || error) && (
               <p
                 role={error ? "alert" : "status"}

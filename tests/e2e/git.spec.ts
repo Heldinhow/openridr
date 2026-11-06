@@ -107,6 +107,15 @@ test("commit tool commits only the checked files, preserves the index and amends
   await expect(page.getByTestId(`commit-file-${program}`)).toContainText("Staged");
   await expect(page.getByTestId(`commit-file-${order}`)).toContainText("Modified");
   await expect(page.getByTestId(`commit-file-${brandNew}`)).toContainText("Untracked");
+  const selectAll = page.getByRole("checkbox", { name: "Select all changes" });
+  await expect(selectAll).toBeChecked();
+  await page.getByTestId(`commit-check-${program}`).uncheck();
+  expect(await selectAll.evaluate((element: HTMLInputElement) => element.indeterminate)).toBe(true);
+  await selectAll.check();
+  await expect(page.getByTestId(`commit-check-${program}`)).toBeChecked();
+  await page.getByRole("button", { name: "Collapse changes", exact: true }).click();
+  await expect(page.getByTestId(`commit-file-${program}`)).toHaveCount(0);
+  await page.getByRole("button", { name: "Expand changes", exact: true }).click();
 
   // The diff is the real git diff of the selected file.
   await page.getByTestId(`commit-file-${order}`).click();
