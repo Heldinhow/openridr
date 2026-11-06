@@ -10,4 +10,7 @@
 
 ## Validação
 
-- Bateria final e integração com `origin/main`: resultados serão acrescentados após a execução.
+- Após integrar `origin/main` no merge `15b4b62`, `bun run check` passou e `bun test tests/unit` passou (33 testes).
+- E2E solicitado não iniciou: as portas 1540 e 4437 já estavam ocupadas por processos de outra sessão. Não foram encerrados nem reutilizados; os quatro specs permanecem não verificados.
+- As capturas foram feitas antes do merge; a aparência após a integração não foi recapturada.
+- O detector Impeccable sinalizou Inter; fonte mantida por exigência explícita do ticket.
