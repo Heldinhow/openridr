@@ -52,6 +52,12 @@ Onda: 2026-11-05, branch `feat/bundled-analysis-runtime` (base `eb3fe6f`, alpha.
 - **Simulação de ambiente precisa dizer o que ficou de fora.** A máquina ainda tem .NET 10;
   a evidência diz isso em vez de chamar de "Mac limpo".
 
+## Pendência aberta (revisão independente)
+
+- **Possível regressão no E2E `csharp-ls.spec.ts:150`** (Problems após SIGSTOP/SIGCONT): falha
+  nesta branch, passou na base `eb3fe6f`; causa não demonstrada. Comandos e leitura em
+  `docs/evidence/bundled-analysis.md`. Não é flake por conveniência.
+
 ## Pendências do Helder
 
 1. **Assinatura/notarização** com Developer ID e `stapler` (exige credencial e Xcode completo).

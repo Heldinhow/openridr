@@ -166,3 +166,27 @@ App executado do volume somente leitura com home novo e raiz SDK-8-só: trust �
 - **Windows, macOS Intel, Linux**: fora do escopo; só osx-arm64 foi construído e executado.
 - **Reabertura após atualização do app**: o `hostroot` composto fica no app home e é recomposto
   quando os inputs (incluindo `runtimeRoot`) mudam; troca de caminho do `.app` não foi testada.
+
+## Regressão possível no E2E de Problems (não classificada)
+
+Não é passe. O spec existente que exercita republicação de diagnóstico falha nesta branch:
+
+- HEAD `be3c012`, suíte focada
+  `bunx playwright test tests/e2e/csharp-ls.spec.ts tests/e2e/tools-install-ux.spec.ts`
+  → **16 passed, 1 failed** (`csharp-ls.spec.ts:150 problems navigate real diagnostics by
+  revision and keep stale items`, 4,4 min). Falha em `csharp-ls.spec.ts:305`: depois do
+  `SIGCONT` no csharp-ls, `bottom-tab-problems` continuou **"Problems"** (sem contagem) em vez de
+  "Problems (2)"; o trace mostra a linha `awaiting` e nenhuma publicação nova.
+- Repetido só o teste, no mesmo HEAD → falhou de novo.
+- Repetido com `OPENRIDR_E2E_HOME=/tmp/openridr-e2e-home-mine` (home de E2E nova) → falhou de
+  novo, então não é sujeira do home compartilhado.
+- Base `eb3fe6f` exportada com `git archive` para `/tmp/base-openridr` (sem worktree/branch nova;
+  `node_modules` por symlink), mesmo teste e portas alternativas (1620/4517) → **passou** (17,6 s).
+
+Conclusão honesta: **possível regressão desta branch, causa não demonstrada**. As suítes de
+host da mudança (400 testes) passam, então o caminho de diagnóstico/revisão não está coberto por
+elas; `lsp.rs`/`diagnostics.rs` não foram tocados, e o que mudou no caminho não-bundle é o
+`sync_tools`/`view` (verificação do bundle, no-op sem bundle), `AnalysisRuntime::for_analysis`
+(fallback idêntico ao anterior) e a montagem de `program`/args do `lsp.start` (conteúdo
+equivalente ao anterior). Não foi possível isolar mais sem alterar o código de produção; fica
+para a revisão independente. Não classificar como flake sem essa prova.

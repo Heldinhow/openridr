@@ -1271,6 +1271,9 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   `Contents/Resources`; Debug com breakpoint na linha 4 de `Program.cs`, locals e saída
   `Order A-104: R$ 42,00`. App Tauri real (verify-openridr): gate pulado, Problems com CS0029,
   reabertura direta no workspace, DMG montado somente leitura com a mesma análise.
+- **Regressão possível no E2E:** `csharp-ls.spec.ts:150` (Problems após SIGSTOP/SIGCONT) falha
+  nesta branch e passou na base `eb3fe6f` (detalhe e comandos em `docs/evidence/bundled-analysis.md`);
+  causa não demonstrada, aguarda revisão independente.
 - **Não verificado:** notarização/Developer ID (sem credencial nesta sessão; `spctl` rejeita o
   ad-hoc), `stapler` (exige Xcode completo), quarentena real e Mac limpo (a ausência de runtime
   10 foi simulada por sandbox + raiz SDK-8-só, não por uma máquina sem .NET).
