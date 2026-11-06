@@ -202,6 +202,7 @@ test("full-file diff shows the whole file, connectors and the HEAD commit", asyn
   await expect(editors.nth(1)).toContainText("line-01");
   await expect(editors.nth(1)).toContainText("changed-line-20");
   await expect(diff.locator(".cm-diff-connector").first()).toBeVisible();
+  await expect(diff.getByTestId("commit-diff-commit")).toBeVisible();
   await expect(diff.getByTestId("commit-diff-commit")).toContainText(`HEAD ${head}`);
   await expect(diff.getByTestId("commit-diff-commit")).toContainText("Add the long review file");
   await expect(diff.getByTestId("commit-diff-commit")).toHaveAttribute("title", git(["rev-parse", "HEAD"]));
