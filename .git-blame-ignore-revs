@@ -14,3 +14,7 @@
 # The merge of main into the formatting branch (2026-11-06): it re-formats the lines `main` changed
 # after the big bang (crates/host/src/dap.rs), so the merge itself is formatting, not authorship.
 2f54988cffc44e90798f4bd1c2e3ce30d0222644
+
+# Second merge of main, after the hermetic test harness (#97) rewrote the host tests: it re-formats
+# what that merge brought in, so the merge is formatting rather than authorship.
+f4a06a27497849a9e97d3db87cbb29795665cd38

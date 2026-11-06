@@ -86,10 +86,10 @@ fn random_op(seed: &mut u64) -> Op {
         0 | 1 => Op::Open(path),
         2 => Op::Close,
         3 => Op::Grant {
-            remember: next(seed) % 2 == 0,
+            remember: next(seed).is_multiple_of(2),
         },
         4 => Op::Revoke,
-        _ => Op::Set(path, next(seed) % 2 == 0),
+        _ => Op::Set(path, next(seed).is_multiple_of(2)),
     }
 }
 

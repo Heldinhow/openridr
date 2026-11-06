@@ -420,10 +420,7 @@ fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it_isolat
     assert_eq!(refused.code, "experimental_required");
     assert!(refused.message.contains("Nothing was downloaded"));
     assert!(!tool_dir(home.path()).exists());
-    assert_eq!(
-        state(&host)["log"].as_str().unwrap().contains("attempt"),
-        false
-    );
+    assert!(!state(&host)["log"].as_str().unwrap().contains("attempt"));
 
     // The opt-in is independent of trust and installation; it replans, so the consent shown
     // afterwards is the one that authorizes the experimental install.
@@ -1019,13 +1016,10 @@ fn origins_and_redirects_are_checked_before_any_download_isolated() {
             .as_str()
             .unwrap()
             .contains("only HTTPS on the official release hosts"));
-        assert_eq!(
-            failed["error"]
-                .as_str()
-                .unwrap()
-                .contains("example.invalid"),
-            true
-        );
+        assert!(failed["error"]
+            .as_str()
+            .unwrap()
+            .contains("example.invalid"));
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
     }
 
