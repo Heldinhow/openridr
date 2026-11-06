@@ -38,9 +38,10 @@ reimplementação em YAML.
 Um script, três modos, tudo por ambiente:
 
 - `--check`: preflight, sem efeito colateral (~30 s).
-- `--dry-run`: preflight relaxado (credenciais não exigidas), build, montagem e verificação do DMG,
-  impressão dos comandos de assinatura/notarização que seriam executados, SHA-256 do DMG não
-  assinado. É a prova possível sem credenciais.
+- `--dry-run`: preflight relaxado (credenciais não exigidas), build **ad-hoc** (a identidade do
+  ambiente é limpa para o ensaio nunca assinar de verdade), montagem e verificação do DMG, impressão
+  dos comandos de assinatura/notarização que seriam executados, SHA-256 do DMG não assinado. É a
+  prova possível sem credenciais.
 - sem flag: caminho completo — build com Developer ID → auditoria de Mach-O → notarizar/grampear
   `.app` → montar DMG → assinar → notarizar/grampear → verificação completa → SHA-256.
 
@@ -59,22 +60,27 @@ sincronizada.
 Falha com uma mensagem por regra e exit 1:
 
 1. tag `v<semver>` (aceita sufixo de pré-release);
-2. versão idêntica nas cinco fontes;
-3. commit da tag ancestral de `origin/main`;
-4. primeiro heading de `docs/RELEASE-ALPHA.md` é `# OpenRidr <versão>`;
-5. as credenciais presentes — só nomes, nunca valores;
-6. ferramentas no PATH: `bun`, `cargo`, `xcrun`, `codesign`, `hdiutil`, `ditto`, `shasum`, `gh`;
-7. `uname -m` = `arm64`.
+2. a tag existe e `HEAD` é exatamente o commit dela — buildar a ponta de um branch e publicar sob a
+   tag é o erro que isso impede, e o workflow faz checkout da própria tag;
+3. versão idêntica nas cinco fontes;
+4. commit da tag ancestral de `origin/main`;
+5. primeiro heading de `docs/RELEASE-ALPHA.md` tem a versão exata (não por prefixo: `0.3.0` não
+   aceita as notas de `0.3.0-alpha.11`);
+6. as credenciais presentes — só nomes, nunca valores;
+7. ferramentas no PATH: `bun`, `cargo`, `xcrun`, `codesign`, `hdiutil`, `ditto`, `shasum`, `gh`;
+8. `uname -m` = `arm64`.
 
 ## Assinatura e auditoria de Mach-O
 
 O build usa `APPLE_SIGNING_IDENTITY` (o `signingIdentity: "-"` do config fica para o build local) e
 `beforeBuildCommand` roda `vendor-netcoredbg.sh` + `vendor-analysis.sh`, que assinam o runtime .NET
 privado (muxer com `dotnet.entitlements`, dylibs sem entitlements) e o netcoredbg com a mesma
-identidade. Depois do bundle, a auditoria percorre **todos** os Mach-O do `.app` (hoje 18: 1 binário
-principal, 15 no runtime .NET, 2 no netcoredbg) e exige, em cada um:
+identidade. Depois do bundle, a auditoria lista **todos** os Mach-O do `.app` pelo `file` (que enxerga todos os
+magics: 32/64 bits, as duas endiannesses, fat32/fat64, e não confunde dados com magic) — hoje 18:
+1 binário principal, 15 no runtime .NET, 2 no netcoredbg — e exige, em cada um:
 
-- `codesign --verify --strict` ok;
+- `codesign --verify --strict` ok (a assinatura é verificada criptograficamente por arquivo, não só
+  lida como metadado);
 - `flags=0x10000(runtime)`;
 - `Timestamp=` presente;
 - `Authority=Developer ID Application: <nossa identidade>`.
@@ -109,12 +115,16 @@ hash, bytes e os resultados de `codesign`/`spctl`/`stapler`. O workflow usa `gh 
 ## CI
 
 `.github/workflows/release.yml`, um job em `macos-15` (arm64), `timeout-minutes: 90`,
-`permissions: contents: write`, `concurrency: release` sem cancelar em andamento:
+`permissions: contents: write`, `concurrency: release` — grupo único no repositório, sem cancelar em
+andamento (um dispatch e um push da mesma tag não podem disputar a release):
 
-checkout (`fetch-depth: 0`) → `setup-bun` → `release-macos.sh --check` → import do `.p12` em keychain
-temporário (senha aleatória do runner, removido em `if: always()`) → escrita do `.p8` → `bun install
+checkout da própria tag (`ref`, `fetch-depth: 0`) → `setup-bun` → `release-macos.sh --check` → import
+do `.p12` em keychain temporário (senha aleatória do runner; o caminho é registrado **antes** da
+criação, para o passo `if: always()` sempre poder apagá-lo) → escrita do `.p8` → `bun install
 --frozen-lockfile` → `bun run check` + `bun test tests/unit` → `release-macos.sh` → notas →
-`gh release create` → upload do DMG como artifact (14 dias).
+`gh release create --prerelease` → upload do DMG como artifact (14 dias). Republicar uma tag existente
+sobe o DMG (`--clobber`) **antes** de editar o corpo: o texto anuncia um hash, nunca pode conviver com
+o anexo anterior.
 
 `workflow_dispatch` aceita `tag` e `publish` (default `false`): roda build, assinatura, notarização e
 verificação e **para antes de publicar**. Não roda E2E (falhas conhecidas do HEAD) nem em
@@ -127,6 +137,12 @@ Só nomes no repositório e no doc; valores só no GitHub (secrets) e no keychai
 passo-a-passo de cadastro e do primeiro run real fica em `docs/release-signing.md`. API key do App
 Store Connect é Team API Key (issuer obrigatório) ou Individual (sem issuer); o script passa
 `--issuer` só quando `APPLE_API_ISSUER` existe.
+
+O `.p8` é escrito em `$RUNNER_TEMP` com `mktemp` + `umask 077` (0600 desde o primeiro byte) no shell
+principal, para o `trap EXIT` sempre poder removê-lo — nunca dentro de uma substituição de comando.
+`APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` só são exigidos no caminho do CI (que importa o
+`.p12`); numa máquina que usa `NOTARY_KEYCHAIN_PROFILE` o certificado já está no keychain e o script
+não pede os `.p12`.
 
 ## Testes
 

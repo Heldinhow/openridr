@@ -44,6 +44,14 @@ Sessão de 2026-11-06. Trabalho: [SPEC-release-ci](SPEC-release-ci.md), issues #
 5. **Sem CI no repositório até agora.** O único gate era o pre-commit hook local, que depende de
    `bun run hooks` uma vez por clone (worktree nova não herdou). Isso não é deste ticket (issue #56
    cobre CI em PRs), mas foi descoberto aqui: nenhum workflow existia.
+6. **O `/code-review` delegado pegou três altos que nenhum gate local pegaria.** O `.p8` escrito numa
+   substituição de comando (o `trap` não apagava), o `workflow_dispatch` buildando a ponta do branch
+   e não o commit da tag, e a detecção de Mach-O por magic number (que perdia fat64 e não verificava a
+   assinatura por arquivo). Os self-checks passavam nos três casos: eles testavam o que eu tinha
+   pensado, não o que o processo precisa.
+   → **Proposta:** para ticket de shell/CI, escrever o self-check a partir da *regra* ("a tag que eu
+   publico é a que eu buildei", "todo Mach-O foi verificado criptograficamente") e não a partir da
+   implementação que já existe; e rodar o `/code-review` antes de considerar a bateria completa.
 
 ## Números
 

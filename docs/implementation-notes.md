@@ -1352,21 +1352,24 @@ Spec: [SPEC-release-ci.md](SPEC-release-ci.md). Decisões: `decisions.md`, “Re
 - **Seams, todos por ambiente:** `RELEASE_ROOT` (self-check aponta para um checkout plantado),
   `RELEASE_APP` e `RELEASE_SKIP_BUILD` (pular build), `RELEASE_VERSION` (`--dmg-only` sem tag). Nenhum
   deles muda o caminho de release.
-- **Preflight reprova, não avisa:** tag `v<semver>` (regex estrita), versão igual nas cinco fontes,
-  tag existente e ancestral de `origin/main`, primeiro heading de `docs/RELEASE-ALPHA.md`, credenciais
-  presentes (só nomes), ferramentas (`bun cargo xcrun codesign hdiutil ditto shasum gh`) e `uname -m`
-  = arm64. Identidade que não comece com `Developer ID Application: ` é recusada (impede `-` ad-hoc
-  entrar pela variável).
-- **Auditoria de Mach-O:** detecta por magic number (`cffaedfe`/`cefaedfe`/`cafebabe`) e exige por
-  arquivo `codesign --verify --strict`, `flags=0x10000(runtime)`, `Timestamp=` e
+- **Preflight reprova, não avisa:** tag `v<semver>` (regex estrita), tag existente, `HEAD` igual ao
+  commit da tag, versão igual nas cinco fontes, tag ancestral de `origin/main`, primeiro heading de
+  `docs/RELEASE-ALPHA.md` com a versão exata (palavra por palavra), credenciais presentes (só nomes),
+  ferramentas (`bun cargo xcrun codesign hdiutil ditto shasum gh`) e `uname -m` = arm64. Identidade que
+  não comece com `Developer ID Application: ` é recusada (impede `-` ad-hoc entrar pela variável).
+- **Auditoria de Mach-O:** lista os alvos com `file -b` (enxerga 32/64 bits, as duas endiannesses e
+  fat32/fat64; não confunde arquivo de dados cujo primeiro byte parece magic) e exige por arquivo
+  `codesign --verify --strict`, `flags=0x10000(runtime)`, `Timestamp=` e
   `Authority=Developer ID Application: <identidade>`. Exceção única: basename `createdump`, aceito só
   com `Authority=Developer ID Application: Microsoft Corporation (UBF8T346G9)` e no máximo um.
   Comparação por `Authority`, porque dylib não tem `TeamIdentifier` (medido na alpha.11: 18 Mach-O,
   17 nossos + 1 `createdump`). A falha nomeia o caminho relativo e o motivo.
-- **Credenciais de notarização:** `APPLE_API_KEY` é base64 do `.p8`; o script decodifica em
-  `$RUNNER_TEMP/AuthKey_<KEYID>.p8` com `chmod 600`, passa só o caminho para `notarytool` e remove no
-  `trap cleanup EXIT`. `--issuer` entra só quando `APPLE_API_ISSUER` existe (Team API Key).
-  `NOTARY_KEYCHAIN_PROFILE` é a alternativa local, para o ritual do keychain `notary` continuar.
+- **Credenciais de notarização:** `APPLE_API_KEY` é base64 do `.p8`; `prepare_notary_key` grava o
+  caminho em `NOTARY_KEY_FILE` **no shell do script** (nunca em `$(...)`, senão o `trap EXIT` não
+  apagaria), cria o arquivo com `mktemp` sob `umask 077` (0600 desde o primeiro byte), passa só o
+  caminho para `notarytool` e remove no `trap cleanup EXIT`. `--issuer` entra só quando
+  `APPLE_API_ISSUER` existe (Team API Key). `NOTARY_KEYCHAIN_PROFILE` é a alternativa local: dispensa
+  `APPLE_API_KEY*` **e** os `.p12` (o certificado já está no keychain do Mac).
 - **Ordem do caminho completo:** build → auditoria → zip do `.app` (`ditto --sequesterRsrc`) →
   `notarytool submit --wait` → `stapler`/`validate` no `.app` → DMG (`hdiutil`) → `codesign` no DMG →
   notarizar → grampear → verificação (codesign/spctl/stapler em app, app montado e DMG) → sha256.
@@ -1377,18 +1380,21 @@ Spec: [SPEC-release-ci.md](SPEC-release-ci.md). Decisões: `decisions.md`, “Re
   O DMG não é reproduzível byte a byte (duas montagens ad-hoc do mesmo `.app`: 69.516.096 e
   69.516.278 bytes), então o hash sempre vem do run.
 - **Workflow:** `.github/workflows/release.yml`, job único em `macos-15`, `timeout-minutes: 90`,
-  `permissions: contents: write`, `concurrency: release-${{ github.ref }}` sem cancelar. Passos:
-  checkout (`fetch-depth: 0`) → setup-bun 1.3.9 → preflight → keychain temporário (senha
-  `openssl rand`) → deps + `bun run check` + `bun run test:unit` → `release-macos.sh` → limpeza do
-  certificado em `if: always()` → corpo das notas → `gh release create --prerelease`
-  (`github.event_name == 'push' || inputs.publish == true`, rerun edita e faz `--clobber`) → artifact
-  do DMG por 14 dias. Actions pinadas por SHA; sem `tauri-apps/tauri-action`.
+  `permissions: contents: write`, `concurrency: group: release` (grupo único, sem cancelar). Passos:
+  checkout da própria tag (`ref: inputs.tag || github.ref`, `fetch-depth: 0`) → setup-bun 1.3.9 →
+  preflight → keychain temporário (senha `openssl rand`; caminho registrado **antes** da criação) →
+  deps + `bun run check` + `bun run test:unit` → `release-macos.sh` → limpeza do certificado em
+  `if: always()` → corpo das notas → `gh release create --prerelease` (`github.event_name == 'push' ||
+  inputs.publish == true`; rerun sobe o DMG com `--clobber` **antes** de editar o corpo) → artifact do
+  DMG por 14 dias. Actions pinadas por SHA; sem `tauri-apps/tauri-action`.
 - **Testes que rodam sem credenciais:** `scripts/release-selfcheck.sh` (cada regra do preflight
-  reprovando isoladamente, caso completo aprovado, DMG montado de um `.app` stub com nome/symlink/
-  versão/`$GITHUB_OUTPUT`, auditoria aprovando `/Applications/OpenRidr.app` e reprovando identidade
-  trocada, caminho completo parando na auditoria de um bundle ad-hoc sem deixar arquivo em
-  `RUNNER_TEMP`) e `scripts/release-notes-selfcheck.sh` (bloco, resultados opcionais, cada rejeição).
-  `actionlint` + `shellcheck -s sh` limpos.
+  reprovando isoladamente, caso completo aprovado, `HEAD` fora da tag recusado, DMG montado de um
+  `.app` stub com nome/symlink/versão/`$GITHUB_OUTPUT`, auditoria aprovando `/Applications/OpenRidr.app`
+  e reprovando identidade trocada **e assinatura quebrada**, caminho completo parando na auditoria de
+  um bundle ad-hoc sem deixar arquivo em `RUNNER_TEMP`, e `--dry-run` com um `bun` de mentira
+  provando que o build recebe identidade vazia) e `scripts/release-notes-selfcheck.sh` (bloco,
+  resultados opcionais, heading exato, hash manual em maiúsculas, cada rejeição).
+  `actionlint` + `shellcheck -s sh` limpos; cada regra nova foi provada por mutação.
 - **Não verificado:** assinatura Developer ID real, notarização aceita, `stapler`, publicação da
   pré-release e o workflow rodando no GitHub — tudo exige as credenciais que só o Helder cadastra.
   macOS Intel e Windows continuam fora. Passo a passo do primeiro run:

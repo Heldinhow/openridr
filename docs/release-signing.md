@@ -19,11 +19,12 @@ GitHub Secrets e, na máquina do Helder, no keychain (`notary` do `notarytool`).
 
 `.github/workflows/release.yml`, job único em `macos-15` (arm64), disparado por tag `v*`:
 
-1. **Preflight** (`release-macos.sh --check`): tag `v<semver>`, versão idêntica em `package.json`,
+1. **Preflight** (`release-macos.sh --check`): tag `v<semver>`, `HEAD` igual ao commit da tag (o
+   workflow faz checkout da própria tag, não da ponta do branch), versão idêntica em `package.json`,
    `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `crates/host/Cargo.toml` e
    `crates/host-http/Cargo.toml`, tag ancestral de `origin/main`, primeiro heading de
-   `docs/RELEASE-ALPHA.md` igual a `# OpenRidr <versão>`, credenciais presentes, ferramentas no
-   `PATH` e `uname -m` = `arm64`. Falha aqui custa ~30 s e deixa de gastar ~40 min de runner.
+   `docs/RELEASE-ALPHA.md` com a versão exata, credenciais presentes, ferramentas no `PATH` e
+   `uname -m` = `arm64`. Falha aqui custa ~30 s e deixa de gastar ~40 min de runner.
 2. Importa o `.p12` num keychain temporário (senha aleatória do runner) e escreve o `.p8` da API key
    em `$RUNNER_TEMP` (`chmod 600`).
 3. `bun install --frozen-lockfile`, `bun run check`, `bun run test:unit`. Sem E2E (as falhas
@@ -96,14 +97,20 @@ dos três secrets da API key, exporte só `NOTARY_KEYCHAIN_PROFILE=notary` (perf
 keychain, não no repo).
 
 ```sh
+git fetch --tags origin && git checkout v0.3.0-alpha.12      # o build é do commit da tag
 export APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)"
-export NOTARY_KEYCHAIN_PROFILE=notary
+export NOTARY_KEYCHAIN_PROFILE=notary                        # .p8 e .p12 ficam dispensados
 sh scripts/release-macos.sh --check --tag v0.3.0-alpha.12
 sh scripts/release-macos.sh --tag v0.3.0-alpha.12
 ```
 
+Com `NOTARY_KEYCHAIN_PROFILE` o script não pede `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD`:
+o certificado já está no keychain e o `codesign` o encontra pela identidade. (No CI é o contrário: os
+`.p12` vêm dos secrets e são importados por um passo do workflow.)
+
 Sem credenciais nenhuma, o ensaio mecânico é `sh scripts/release-macos.sh --dry-run --tag
-v0.3.0-alpha.12`: builda, monta o DMG, confere o layout e imprime os comandos de assinatura que
+v0.3.0-alpha.12`: builda **ad-hoc** (a identidade é limpa mesmo que esteja no ambiente, para o ensaio
+nunca assinar de verdade), monta o DMG, confere o layout e imprime os comandos de assinatura que
 seriam executados. Nada é assinado, notarizado ou publicado.
 
 ## O que o script faz e por quê
@@ -122,8 +129,10 @@ seriam executados. Nada é assinado, notarizado ou publicado.
   (`allow-jit` + `disable-library-validation`) e os 13 dylibs sem entitlements, todos com hardened
   runtime e timestamp. Sem `disable-library-validation` o `libhostfxr` não carrega sob hardened
   runtime; sem `allow-jit` o CLR não JITa. O netcoredbg embutido segue o mesmo desenho.
-- **Auditoria de todos os Mach-O.** O script lê cada Mach-O do `.app` (hoje 18: binário principal,
-  15 do runtime .NET e 2 do netcoredbg) e exige `codesign --verify --strict`,
+- **Auditoria de todos os Mach-O.** O script lista cada Mach-O do `.app` pelo `file` (que enxerga
+  32/64 bits, as duas endiannesses e fat32/fat64, e não confunde arquivo de dados com magic) — hoje
+  18: binário principal, 15 do runtime .NET e 2 do netcoredbg — e exige, por arquivo, inclusive a
+  verificação criptográfica `codesign --verify --strict`,
   `flags=0x10000(runtime)`, `Timestamp=` e `Authority=Developer ID Application: <nossa identidade>`.
   A única exceção é `createdump`, que o runtime oficial traz assinado pela Microsoft
   (`Developer ID Application: Microsoft Corporation (UBF8T346G9)`); qualquer outra autoridade
@@ -134,6 +143,9 @@ seriam executados. Nada é assinado, notarizado ou publicado.
   do `.app`/DMG. O host **não** compara contra hash fixado em runtime; o fingerprint
   (tamanho/mtime) só detecta mudança durante a sessão, e o SHA-256 exibido no SetupGate/Workspace
   tools é informativo.
+- **O `.p8` vive no processo principal.** Ele é escrito com `mktemp` + `umask 077` (0600 desde o
+  primeiro byte) e o caminho fica numa variável do shell do script, não em `$(...)`: assim o `trap
+  EXIT` sempre apaga o arquivo, inclusive quando a notarização falha.
 - **Notarização explícita, não a do Tauri.** Nada de `APPLE_ID`/`APPLE_PASSWORD` no ambiente (o
   Tauri notarizaria por conta própria e o build passaria a depender de segredo próprio). A ordem é:
   `.app` zipado com `ditto` → `notarytool submit --wait` → `stapler staple`/`validate` no `.app` →

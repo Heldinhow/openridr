@@ -941,3 +941,38 @@ lembrar do run — o mesmo erro voltaria no próximo leitor.
 - **O corpo é gerado, não digitado.** `release-notes.sh` concatena `RELEASE-ALPHA.md` com um bloco `## Verificação` (sha256, bytes, resultados de `codesign`/`spctl`/`stapler` do run) e **recusa** notas que já contenham um SHA-256: um hash fixo no doc só pode estar errado. O hash manual saiu do `RELEASE-ALPHA.md`.
 - **O DMG não é reproduzível byte a byte.** Duas montagens do mesmo `.app` ad-hoc deram `69516096` e `69516278` bytes. O contrato "conteúdo idêntico" é sobre o caminho e a lista de verificações, não sobre o hash do arquivo; por isso o hash sempre vem do run.
 - **Sem E2E no release.** `bun run check` + `bun test tests/unit` rodam no workflow; a suíte E2E tem falhas conhecidas no HEAD e não bloqueia release. Limpeza e cache: só `~/.bun/install/cache`/registry cargo, nunca `target/` nem as árvores assinadas (cache assinado é atestação emprestada).
+
+## 2026-11-06 — Revisão do release CI: o que se publica é o commit da tag, assinado arquivo por arquivo
+
+Revisão externa (Pi, GPT-6.1 Terra) do diff de `feat/issue-44-release-ci` contra `origin/main`;
+todos os achados alto/médio foram corrigidos com teste que falha antes e passa depois.
+
+- **`HEAD` tem de ser o commit da tag.** O workflow faz checkout da própria tag (`ref: inputs.tag ||
+  github.ref`) e o preflight recusa `HEAD` diferente de `refs/tags/<tag>^{commit}`. Antes, um
+  `workflow_dispatch` na ponta de um branch passaria pelo preflight (a tag está em `main`) e buildaria
+  outro commit.
+- **O `.p8` é escrito no shell principal.** `notary_key_path` era chamado por substituição de comando
+  (`$(...)`), então `NOTARY_KEY_FILE` nascia dentro do subshell e o `trap EXIT` não removia o arquivo
+  no caminho manual. Agora `prepare_notary_key` grava a variável no processo do script, cria o arquivo
+  com `mktemp` sob `umask 077` (0600 desde o primeiro byte) e a remoção é garantida.
+- **Auditoria de Mach-O sem falso negativo.** A detecção por magic number cobria só três variantes e
+  podia confundir arquivo de dados com magic; passou a usar `file -b` (32/64 bits, duas endiannesses,
+  fat32/fat64). Cada arquivo também passou a ser verificado com `codesign --verify --strict`, não só
+  lido com `-dv`: assinatura inválida em binário aninhado agora aborta antes da notarização.
+- **`--dry-run` é sempre ad-hoc.** O ensaio limpava o ambiente? Não: herdava `APPLE_SIGNING_IDENTITY`
+  e os scripts de vendor/Tauri assinavam com Developer ID de verdade. O modo limpa a variável antes do
+  build e o ensaio não pode mais assinar nada real.
+- **Caminho manual sem `.p12`.** `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` só são exigidos no
+  caminho do CI; com `NOTARY_KEYCHAIN_PROFILE` (certificado no keychain do Mac) o preflight não pede
+  os `.p12` — antes pedia e o doc mandava exportar à toa.
+- **Uma release por vez, e nada de hash órfão.** `concurrency: group: release` (sem `github.ref`) para
+  um dispatch e um push da mesma tag não disputarem a release; ao republicar, o DMG sobe com
+  `--clobber` **antes** de editar o corpo, porque o texto anuncia um hash e nunca pode conviver com o
+  anexo anterior. O caminho do keychain é registrado antes de ser criado, para o `if: always()`
+  apagá-lo mesmo se o import falhar no meio.
+- **Heading e hash exatos.** A versão do primeiro heading é comparada palavra por palavra (antes,
+  prefixo: `0.3.0` aceitava as notas de `0.3.0-alpha.11`) e a procura de SHA-256 escrito à mão passou a
+  ser case-insensitive.
+- **O bloco publicado não afirma o que não foi verificado.** O resultado de `codesign` no corpo passou
+  a dizer "app e app no DMG montado" (o DMG em si é verificado por `spctl`/`stapler`, não por
+  `codesign --deep`).

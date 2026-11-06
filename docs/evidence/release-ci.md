@@ -9,14 +9,17 @@ ID) usado só como alvo de leitura da auditoria. Sem nenhuma credencial de assin
 
 ### Self-checks dos scripts
 
-`sh scripts/release-selfcheck.sh` → `ok: release self-check passed`. Prova:
+`sh scripts/release-selfcheck.sh` → `ok: release self-check passed`. Prova (inclui as regras
+acrescentadas na revisão):
 
 - preflight aprova o caso completo (checkout temporário, tag `v0.3.0-alpha.11`) e reprova, cada uma
   com mensagem própria: tag sem `v`, não-semver (`v1.2`), componente com zero à esquerda (`v01.2.3`),
   divergência em cada uma das cinco fontes de versão, heading de `RELEASE-ALPHA.md` de outra versão,
-  tag inexistente, tag fora de `main` (commit não mergeado), `origin/main` não buscado, cada
-  credencial ausente, identidade que não é Developer ID, ferramenta ausente (`PATH` só com binários
-  plantados, sem `hdiutil`) e `uname -m` `x86_64` (com `uname` falso na frente do `PATH`);
+  tag inexistente, tag fora de `main` (commit não mergeado), `origin/main` não buscado, **`HEAD`
+  diferente do commit da tag**, heading com versão que só começa com a esperada (`…-extra`), cada
+  credencial ausente (com o `.p12` dispensado quando há `NOTARY_KEYCHAIN_PROFILE`), identidade que não
+  é Developer ID, ferramenta ausente (`PATH` só com binários plantados, sem `hdiutil`) e `uname -m`
+  `x86_64` (com `uname` falso na frente do `PATH`);
 - nenhuma saída contém o valor-canário das credenciais;
 - `--dmg-only` sobre um `.app` de stub monta um DMG real e confere nome
   (`OpenRidr_9.9.9_aarch64.dmg`), `Applications -> /Applications`, versão do `plutil` e as quatro
@@ -24,8 +27,12 @@ ID) usado só como alvo de leitura da auditoria. Sem nenhuma credencial de assin
   app sem `Contents/MacOS/openridr` e execução sem versão;
 - `--audit` no app instalado aprova 18 Mach-O (17 com a identidade do Helder, 1 `createdump` da
   Microsoft) e reprova identidade trocada nomeando o arquivo;
+- a auditoria reprova binário com assinatura quebrada (`does not verify with codesign --verify
+  --strict`), não só metadado ausente;
 - modo completo sobre um bundle ad-hoc para na auditoria (`has no hardened runtime`) sem criar
-  `AuthKey_*.p8` nem sobras em `RUNNER_TEMP`.
+  `AuthKey_*.p8` nem sobras em `RUNNER_TEMP`;
+- `--dry-run` com identidade no ambiente e um `bun` de mentira no `PATH` registra que o build recebeu
+  `APPLE_SIGNING_IDENTITY` **vazio** (ensaio ad-hoc) e ainda assim monta e verifica o DMG.
 
 `sh scripts/release-notes-selfcheck.sh` → `ok: release-notes self-check passed`. Prova as notas +
 bloco `## Verificação` (DMG, bytes, hash, linha compatível com `shasum`, comando de conferência),
@@ -38,18 +45,38 @@ hash não-hex, bytes zero ou decimal, arquivo ausente, notas com SHA-256 escrito
   `expected failure: --check --tag v0.3.0-alpha.11`.
 - Neutralizar a validação de SHA-256 das notas: `release-notes-selfcheck.sh` falha em
   `expected failure: 0.3.0-alpha.11 abc 12345 …`.
+- Remover a comparação `HEAD == tag`: self-check falha em `expected failure: --check --tag …`.
+- Voltar o heading para casamento por prefixo: falha em `expected failure: --check --tag …`.
+- Tirar a limpeza da identidade no `--dry-run`: falha em
+  `the dry run passed APPLE_SIGNING_IDENTITY='…' to the build`.
+- Remover o `codesign --verify --strict` por arquivo: falha em
+  `broken signature message is not specific: … has no hardened runtime`.
+- Exigir `.p12` mesmo com `NOTARY_KEYCHAIN_PROFILE`: falha em
+  `expected success: --check --tag v0.3.0-alpha.11`.
 
 ### Preflight no repositório real
 
 ```text
+# na branch (HEAD != commit da tag): recusa
+$ … sh scripts/release-macos.sh --check --tag v0.3.0-alpha.11
+release: HEAD is 424a59d… but tag v0.3.0-alpha.11 points at 196e3b3…; check out the tag
+before releasing                                                                   (exit 1)
+
+# worktree destacada no commit da tag: aprova
+$ git worktree add -q --detach /tmp/relcheck v0.3.0-alpha.11
 $ APPLE_CERTIFICATE=… APPLE_CERTIFICATE_PASSWORD=… APPLE_API_KEY=… APPLE_API_KEY_ID=… \
   APPLE_SIGNING_IDENTITY='Developer ID Application: Helder Santos (K6M85697D4)' \
-  sh scripts/release-macos.sh --check --tag v0.3.0-alpha.11
+  RELEASE_ROOT=/tmp/relcheck sh scripts/release-macos.sh --check --tag v0.3.0-alpha.11
 release: preflight ok: v0.3.0-alpha.11 (0.3.0-alpha.11), architecture arm64        (exit 0)
 
+# sem credenciais
 $ sh scripts/release-macos.sh --check --tag v0.3.0-alpha.11
 release: missing credentials: APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY(or
 NOTARY_KEYCHAIN_PROFILE) APPLE_SIGNING_IDENTITY (names only; …)                    (exit 1)
+
+# caminho manual: NOTARY_KEYCHAIN_PROFILE dispensa o .p12
+$ unset APPLE_API_KEY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
+$ NOTARY_KEYCHAIN_PROFILE=notary … sh scripts/release-macos.sh --check …            (exit 0)
 ```
 
 ### Ensaio do caminho completo sem credenciais
@@ -104,6 +131,14 @@ O csharp-ls é só gerenciado (nenhum Mach-O). Dylibs não trazem `TeamIdentifie
   trabalho e passa com o `PATH` documentado no `AGENTS.md`.
 - `bun run test:e2e` **não** rodado: este trabalho não muda UI/host e a suíte tem falhas conhecidas no
   HEAD.
+
+## Revisão
+
+`/code-review` por delegação (Pi, `openai-codex/gpt-6.1-terra`, thinking medium) sobre
+`git merge-base origin/main HEAD`: 8 achados de padrão + 3 de spec, 3 altos. Os 10 itens encaminhados
+foram corrigidos com teste que falha antes e passa depois (seção “Os testes não são vazios”); o
+workflow mudou de checkout, `concurrency`, ordem de upload e limpeza do keychain sem execução remota —
+segue não verificado abaixo.
 
 ## Não verificado
 
