@@ -61,7 +61,7 @@ Rust: os pacotes se chamam `openridr-host` e `openridr-host-http` (não `host`).
 
 **Worktree nova não tem `node_modules`** (nem `target/` quente): rode `bun install` antes de `check`, `build` ou E2E. Sem isso, `tsc`/`playwright` falham e greps em `node_modules/` voltam vazios.
 
-`check` não inclui `cargo fmt --check` nem `clippy -D warnings`: o código atual não passa em nenhum dos dois. Não reformate o repo inteiro dentro de um ticket; formate apenas o que tocar até essa dívida ser paga.
+`check` continua sem `cargo fmt --check` nem `clippy -D warnings` para ser rápido; o CI roda os dois. Antes de empurrar a branch, rode `cargo fmt --all` (e `cargo fmt --manifest-path src-tauri/Cargo.toml` se tocou `src-tauri`) e `cargo clippy --workspace --all-targets -- -D warnings`: vermelho aí é vermelho no PR.
 
 ### Falhas conhecidas (não são suas)
 
@@ -94,12 +94,41 @@ Os dois testes Rust que falhavam no `main` (`file_access_is_confined_to_the_work
 - Nunca copie código, nomes de domínio, capturas ou trechos dele para este repo público: a evidência descreve só o resultado, e print só se não mostrar código dele.
 - Nunca faça commit nem push nele.
 
+## Pull request e CI
+
+A sessão que termina **empurra a própria branch e abre o PR**: `git push -u origin <branch>` e `gh pr create` com o corpo do `.github/pull_request_template.md` (`Closes #N`, `## Summary`, `## Evidence`, `## Security review`, `## Merge danger`). Sem referência a issue e sem Evidência o job `governance` reprova o PR: é contrato, não sugestão.
+
+- **Merge não é da sessão.** Com o CI verde, quem mergeia é o mantenedor/orquestrador. A sessão não faz merge, não dá `--force` na branch depois do PR aberto e nunca usa `--no-verify`.
+- **PR de risco alto pede o Helder**: `.github/workflows/**`, `scripts/release*`, assinatura/entitlements, `scripts/vendor-*`, o modelo de trust, o updater e mudança de dependência (`Cargo.toml`/`package.json`).
+- **Settings do GitHub não são da sessão**: ruleset, labels e auto-merge ficam em `.github/rulesets/main.json` e [docs/ci-main-ruleset.md](docs/ci-main-ruleset.md), para o Helder aplicar.
+
+O que o CI (`.github/workflows/ci.yml`) roda em todo PR para `main`:
+
+| Job | O que roda |
+|---|---|
+| `typescript` (ubuntu) | `bun install --frozen-lockfile`, `tsc --noEmit`, `bun test tests/unit` |
+| `rust` (macos-15) | `cargo fmt --check` (workspace e `src-tauri`), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p openridr-host` com o SDK 8.0.408 das fixtures |
+| `governance` | `actionlint`, `zizmor`, título do PR no padrão conventional, corpo com issue + Evidência |
+| `security` | `gitleaks` no histórico do PR |
+| `ci` | agregador; é o check obrigatório do ruleset |
+
+O smoke E2E é noturno e não bloqueia PR: a lista de specs está em `scripts/e2e-smoke.txt` e quem manda nela é a quarentena da #67.
+
+### O que o CI não cobre
+
+- **Nada de UI**: nenhum Playwright em PR, nenhum app Tauri real, nenhum visual. Check verde não é prova de que a tela funciona.
+- E2E completo e tudo o que depende de rede (NuGet, csharp-ls).
+- `src-tauri` fica fora do clippy (compila o Tauri inteiro em todo PR).
+- Windows e macOS Intel continuam não verificados.
+
+Por isso a Evidência do PR é obrigatória e é da sessão: comando e resultado do que rodou, e "não verificado: <motivo>" no que não rodou.
+
 ## Verificação antes de entregar
 
 O passo `/code-review` é, por padrão:
 
 1. **Checagem objetiva e curta** do diff contra a spec/ticket e os padrões deste arquivo (`## Regras`, `data-testid`, dependências). Lista só desvios concretos com `arquivo:linha`.
-2. **Rodar o skill `verify-openridr`** (`.agents/skills/verify-openridr/SKILL.md`) nas features tocadas: UI via Playwright/host isolado e, quando a tela do Mac estiver desbloqueada e com permissões, o app Tauri real via agent-desktop. O que não rodou entra como "não verificado".
+2. **Rodar o skill `verify-openridr`** (`.agents/skills/verify-openridr/SKILL.md`) nas features tocadas. UI de sessão é o **app Tauri real dirigido por `agent-desktop`** (receitas em `.agents/skills/test-app-agent-desktop`) mais o host isolado; Playwright **não** é prova de sessão — ele existe só no smoke noturno do CI. O que não rodou entra como "não verificado".
 3. **Code review em subagente único** (decisão de 2026-11-06) depois da implementação, antes do retro/PR: `delegate_task` do T3 com target Pi, model `openai-codex/gpt-6.1-terra` e option `thinking=medium`; fixed point = `git merge-base origin/main HEAD`; spec = a issue (e as filhas). Corrija achado alto/médio na hora; baixo, só se for simples. Sem `delegate_task` disponível: avise o orquestrador com o SHA do commit e siga. Revisão adversarial aberta/multi-agente continua só se o usuário pedir.
 
 Resto do fluxo (grill → spec → tickets → implement → retro) segue igual. Propostas de verificação formal: [docs/VERIFICACAO-FORMAL.md](docs/VERIFICACAO-FORMAL.md); a PoC de trust roda com `cargo test -p openridr-host --test trust_model`.
@@ -113,4 +142,4 @@ Resto do fluxo (grill → spec → tickets → implement → retro) segue igual.
 - **Ticket**: trabalho novo nasce como GitHub issue ligada à issue-mãe da frente (sub-issue, ou `Part of #N` na primeira linha do corpo), com bloqueio em `Blocked by: #M`. `docs/SPEC-<tema>.md`, `docs/RETRO-<tema>.md` e `docs/evidence/<tema>.md` continuam em `docs/`. Tickets antigos em `docs/tickets-*/` são histórico: não migre, não crie pasta nova no molde deles.
 - **Commit**: um por ticket/fatia, mensagem convencional (`feat(git): ...`, `fix(search): ...`, `docs: ...`, `chore: ...`), com código, testes e checklist atualizado.
 - **Stage explícito**: use `scripts/commit-only.sh "msg" <paths>` (faz o `git add -N` dos novos e `git commit --only -m "msg" -- <paths>`); à mão, é `git commit --only -m "msg" -- <paths>`; nunca use `git add -A` nem altere o index do usuário. Duas armadilhas que falharam 38 vezes em 10 sessões: (1) `-m` vai **antes** do `--` (depois dele vira pathspec); (2) arquivo/pasta **novo** precisa de `git add -N <paths>` antes (só marca intenção), senão dá `pathspec ... did not match`. Deixe `dist/`, `target/`, `test-results/` e afins fora (ver `.gitignore`).
-- **Sem push, remote ou PR** a partir de sessão de agente. O hook de pre-commit roda `bun run check`; não use `--no-verify`.
+- **Push e PR são da sessão; merge não.** Terminado o ticket: `git push` da branch e `gh pr create` com o template (ver "Pull request e CI"). Nunca merge feito pela sessão, nunca `--force` na `main`, nunca `--no-verify` — o hook de pre-commit roda `bun run check`.
