@@ -179,11 +179,109 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
 
+  risk:
+    # What a change can break, decided by the paths it touches (scripts/ci-risk-tier.sh), never by who
+    # wrote it: documentation, tests and stylesheets arm auto-merge; CI, release, signing, the trust
+    # model and dependency changes need the maintainer's approval of the current revision. PR-only, and
+    # inside the `ci` aggregator, so the main ruleset does not change.
+    name: Risk tier and maintainer approval
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write # the risk label and the auto-merge call; the gate itself only reads
+      issues: write # the same two calls: a pull request label is served by the issues API
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tier is a diff between the base branch and the pull request head: both sides must be in
+          # the clone, with the history that makes `base...head` the pull request's own changes.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the base branch
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+      - name: Compute the risk tier
+        id: tier
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Fail closed: a tier that cannot be computed is the highest one, never the lowest.
+          if tier=$(sh scripts/ci-risk-tier.sh "origin/$BASE_REF" "$HEAD_SHA" 2>"$RUNNER_TEMP/risk-reasons.txt"); then
+            :
+          else
+            tier=high
+            echo '::error::could not compute the risk tier; failing closed to high'
+          fi
+          echo "tier=$tier" >>"$GITHUB_OUTPUT"
+          {
+            echo "### Risk tier: `$tier`"
+            echo
+            sed 's/^/- /' "$RUNNER_TEMP/risk-reasons.txt"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Label the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TIER: ${{ steps.tier.outputs.tier }}
+        run: |
+          # The labels are created here, idempotently (`--force` updates an existing one), so the first
+          # pull request after this workflow lands is labelled with no manual setup step.
+          case "$TIER" in
+            low) colour=0e8a16 ;;
+            medium) colour=fbca04 ;;
+            *) colour=b60205 ;;
+          esac
+          # The label is a signal for humans; failing to write it (a fork pull request gets a read-only
+          # token) must not block a merge.
+          gh label create "risk:$TIER" --repo "$REPO" --color "$colour" --force \
+            --description "Risk tier computed from the paths this pull request touches" \
+            || echo "::warning::could not create the label risk:$TIER; the tier above is still authoritative"
+          for stale in low medium high; do
+            if [ "risk:$stale" = "risk:$TIER" ]; then continue; fi
+            # Deleting a label the pull request does not carry answers 404, which is not an error here.
+            gh api --method DELETE "repos/$REPO/issues/$PR_NUMBER/labels/risk:$stale" >/dev/null 2>&1 || true
+          done
+          gh api --method POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=risk:$TIER" >/dev/null \
+            || echo "::warning::could not label the pull request risk:$TIER"
+
+      - name: Require the maintainer for a high-risk pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TIER: ${{ steps.tier.outputs.tier }}
+        run: sh scripts/ci-risk-gate.sh
+
+      - name: Arm auto-merge for a low-risk pull request
+        if: steps.tier.outputs.tier == 'low'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Auto-merge waits for the required checks (`ci` and `security`) by itself. It needs the
+          # repository setting allow_auto_merge, which is a maintainer decision; until it is on this
+          # call fails and the pull request simply does not merge by itself, as today.
+          if gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --auto; then
+            echo 'auto-merge armed: merges in squash when `ci` and `security` are green'
+          else
+            echo "::warning::auto-merge not armed: the repository needs allow_auto_merge (maintainer setting): gh api --method PATCH repos/$REPO -F allow_auto_merge=true"
+          fi
+
   # Single required check with a stable name: adding or renaming an internal job does not touch the
   # ruleset. A skipped PR-only job is not a failure, so `push` to main can pass without them.
   ci:
     name: ci
-    needs: [typescript, rust, governance, security]
+    needs: [typescript, rust, governance, risk, security]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -204,5 +302,5 @@ jobs:
           # Jobs that only run for a pull request: `skipped` is expected outside one, and a bug inside
           # one. On a pull request every name here must also be present in `needs`, so dropping the gate
           # from the list cannot silently disable it.
-          PR_ONLY: "governance"
+          PR_ONLY: "governance,risk"
         run: sh scripts/ci-aggregate.sh
