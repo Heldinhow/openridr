@@ -497,7 +497,22 @@ fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in_isolated() {
         std::thread::sleep(Duration::from_millis(10));
     };
     assert_eq!(finished["adapterState"], "ready", "{}", finished["log"]);
-    assert_eq!(seen, ["downloading", "installing", "verifying", "ready"]);
+    // A 10 ms poll can miss a transient state on a fast runner (`verifying` between `installing` and
+    // `ready`), so the observable contract is: the install only moved forward through the pipeline,
+    // it was seen downloading and installing, and it ended ready.
+    let order = ["downloading", "installing", "verifying", "ready"];
+    let mut previous = 0usize;
+    for state in &seen {
+        let index = order
+            .iter()
+            .position(|candidate| candidate == state)
+            .unwrap_or_else(|| panic!("unknown adapter state: {state}"));
+        assert!(index >= previous, "install went backwards: {seen:?}");
+        previous = index;
+    }
+    assert!(seen.iter().any(|state| state == "downloading"), "{seen:?}");
+    assert!(seen.iter().any(|state| state == "installing"), "{seen:?}");
+    assert_eq!(seen.last().map(String::as_str), Some("ready"), "{seen:?}");
     assert_eq!(finished["verifiedVersion"], "3.2.0");
     assert_eq!(finished["dapProven"], false);
     let destination = PathBuf::from(finished["destination"].as_str().unwrap());
