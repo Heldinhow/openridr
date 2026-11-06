@@ -671,6 +671,9 @@ test("a session with no breakpoints set explains that it ran to completion", asy
     );
     await page.getByTestId("bottom-tab-debug").click();
     await expect(page.getByTestId("debug-breakpoints-empty")).toBeVisible();
+    // A log tab the user picked must survive the end of the session.
+    await page.getByTestId("debug-tab-output").click();
+    await expect(page.getByTestId("debug-tab-output")).toHaveAttribute("aria-selected", "true");
 
     await page.keyboard.press("Control+d");
     await expect(page.getByTestId("dap-state")).toContainText("Terminated", { timeout: 60_000 });
@@ -681,8 +684,9 @@ test("a session with no breakpoints set explains that it ran to completion", asy
       "No breakpoints were set; the program ran to completion (exit 0). Its output is in the Console tab.",
     );
     await expect(page.getByTestId("dap-terminal-note")).toHaveCount(0);
-    // The output stays prominent and in the tab the session already had open.
-    await expect(page.getByTestId("debug-tab-console")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("debug-tab-output")).toHaveAttribute("aria-selected", "true");
+    // The output stays readable in the Console tab the sentence points at.
+    await page.getByTestId("debug-tab-console").click();
     await expect(page.getByTestId("dap-output")).toBeVisible();
     await expect(page.getByTestId("dap-output")).toContainText("Order A-104");
     await expect(page.getByTestId("dap-output")).toContainText("42");

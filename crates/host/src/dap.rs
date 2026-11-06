@@ -293,9 +293,11 @@ struct Data {
     cleanup_started: bool,
     stop_seq: u64,
     stopped: Option<StoppedView>,
-    /// A stop generation was seen and then resumed; the run generation reset it.
     /// Whether the adapter ever paused this session, whatever happened afterwards.
     stopped_once: bool,
+    /// The adapter reported the debuggee's exit. An adapter that goes away by itself does not,
+    /// and its end says nothing about the program.
+    debuggee_exited: bool,
     /// Set where the session finishes; it describes that ending and never changes later.
     no_stop_explanation: Option<String>,
     threads: Vec<ThreadView>,
@@ -342,15 +344,19 @@ impl Data {
     /// to make it stop. Muted breakpoints get their own sentence: claiming none were set
     /// would contradict the user who muted them. Any other stored breakpoint, a thrown
     /// exception filter or a pending run-to-cursor is a stop source, so its absence is not
-    /// explained here; neither is a stop the user asked for or a failed adapter.
+    /// explained here; neither is a stop the user asked for, a failed adapter, or an adapter
+    /// that died before reporting the debuggee's exit.
     fn no_stop_explanation_for(&self, state: &'static str) -> Option<String> {
-        if state != "terminated" || self.stopped_once {
+        if state != "terminated" || self.stopped_once || !self.debuggee_exited {
             return None;
         }
         if self.exception_filters.iter().any(|filter| filter == "all") || self.run_to.is_some() {
             return None;
         }
-        let head = if self.breakpoints.is_empty() {
+        // Removing the last breakpoint of a source leaves an empty entry behind, which is
+        // still no breakpoint set.
+        let stored = self.breakpoints.values().any(|items| !items.is_empty());
+        let head = if !stored {
             "No breakpoints were set"
         } else if self.breakpoints_muted {
             "Breakpoints are muted"
@@ -488,6 +494,7 @@ impl Dap {
                 stop_seq: 0,
                 stopped: None,
                 stopped_once: false,
+                debuggee_exited: false,
                 no_stop_explanation: None,
                 threads: Vec::new(),
                 frames: Vec::new(),
@@ -669,6 +676,7 @@ impl Dap {
                 stop_seq: 1,
                 stopped: None,
                 stopped_once: false,
+                debuggee_exited: false,
                 no_stop_explanation: None,
                 threads: Vec::new(),
                 frames: Vec::new(),
@@ -1369,6 +1377,7 @@ impl Dap {
                 if data.sealed {
                     return;
                 }
+                data.debuggee_exited = true;
                 data.exit = code.map(|code| code as i32);
                 data.log.push(format!(
                     "[dap] event exited · {}",
@@ -2478,14 +2487,16 @@ mod tests {
         assert_eq!(view.exit, None);
     }
 
-    /// Drives a running session to its end through the events the adapter really sends.
+    /// Drives a running session to its end through the events the adapter really sends: it
+    /// reports the debuggee exit first, then the end of the session.
     fn run_to_completion(dap: &Arc<Dap>, exit: Option<i32>) {
         dap.data.lock().unwrap().state = "running";
-        if let Some(code) = exit {
-            dap.handle_message(
-                json!({ "seq": 1, "type": "event", "event": "exited", "body": { "exitCode": code } }),
-            );
-        }
+        let body = exit
+            .map(|code| json!({ "exitCode": code }))
+            .unwrap_or_else(|| json!({}));
+        dap.handle_message(
+            json!({ "seq": 1, "type": "event", "event": "exited", "body": body }),
+        );
         dap.handle_message(json!({ "seq": 2, "type": "event", "event": "terminated", "body": {} }));
     }
 
@@ -2522,6 +2533,30 @@ mod tests {
         assert_eq!(
             view.no_stop_explanation.as_deref(),
             Some("No breakpoints were set; the program ran to completion. Its output is in the Console tab.")
+        );
+    }
+
+    #[test]
+    fn an_adapter_that_dies_before_reporting_the_debuggee_exit_explains_nothing() {
+        let (dap, _) = with_sink();
+        dap.data.lock().unwrap().state = "running";
+        // The registry observed the adapter gone; the program's own end was never reported.
+        dap.observe_adapter_exit(Some(1), None);
+        let view = dap.view();
+        assert_eq!(view.state, "terminated");
+        assert_eq!(view.no_stop_explanation, None);
+    }
+
+    #[test]
+    fn removing_the_last_breakpoint_still_counts_as_no_breakpoint() {
+        let (dap, _) = with_sink();
+        dap.set_breakpoints("Program.cs", &[4]);
+        // The panel removes a breakpoint by sending the remaining lines of that source.
+        dap.set_breakpoints("Program.cs", &[]);
+        run_to_completion(&dap, Some(0));
+        assert_eq!(
+            dap.view().no_stop_explanation.as_deref(),
+            Some("No breakpoints were set; the program ran to completion (exit 0). Its output is in the Console tab.")
         );
     }
 
@@ -2593,14 +2628,13 @@ mod tests {
     #[test]
     fn a_failed_session_keeps_its_own_message() {
         let (dap, _) = with_sink();
-        {
-            let mut data = dap.data.lock().unwrap();
-            data.state = "running";
-            data.finish("failed", "the debug adapter exited before answering");
-        }
+        dap.data.lock().unwrap().state = "running";
+        // The same boundary a failed adapter negotiation or answer reaches.
+        dap.fail("the debug adapter exited before answering".to_string());
         let view = dap.view();
         assert_eq!(view.state, "failed");
         assert_eq!(view.no_stop_explanation, None);
+        assert!(view.log.contains("[error]"), "{}", view.log);
     }
 
     #[test]
