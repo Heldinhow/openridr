@@ -1,0 +1,10 @@
+# Specs that run in the nightly smoke (.github/workflows/e2e-smoke.yml), one per line, without the
+# `tests/e2e/` prefix and without the `.spec.ts` suffix. `#` starts a comment.
+#
+# The list belongs to the E2E quarantine work (#67): it decides which specs are stable enough to keep
+# nightly, so edit this file instead of the workflow. A spec added here must exist in tests/e2e/.
+#
+# Nothing here runs on a pull request: the smoke is not a required check.
+shell
+workspace
+trust-prompt
