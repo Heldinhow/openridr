@@ -126,16 +126,12 @@ pub fn destination() -> PathBuf {
 pub const BUNDLED_OVERRIDE: &str = "OPENRIDR_BUNDLED_NETCOREDBG";
 
 fn bundled_root() -> Option<PathBuf> {
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        return None;
-    }
     #[cfg(debug_assertions)]
     if let Some(value) = std::env::var_os(BUNDLED_OVERRIDE) {
         return Some(PathBuf::from(value));
     }
     // Contents/MacOS/openridr -> Contents/Resources/netcoredbg
-    let exe = std::env::current_exe().ok()?;
-    Some(exe.parent()?.parent()?.join("Resources/netcoredbg"))
+    Some(crate::bundled::resources_root()?.join("netcoredbg"))
 }
 
 /// The adapter shipped inside the app bundle, if this ARM64 macOS build has one.

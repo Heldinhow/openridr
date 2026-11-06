@@ -65,6 +65,8 @@ pub struct AnalysisRuntime {
     pub sdk_path: Option<String>,
     pub instructions_url: &'static str,
     pub message: Option<String>,
+    /// True when the runtime comes from the app bundle instead of a detected installation.
+    pub bundled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -205,6 +207,36 @@ impl ProjectSdk {
 }
 
 impl AnalysisRuntime {
+    /// The runtime analysis actually uses: the app bundle wins, the detected inventory is the
+    /// fallback for a development binary. A distributed app that lost its private runtime
+    /// reports `missing` and never borrows an external 10.x to mask it.
+    pub fn for_analysis(runtimes: &[RuntimeInstall]) -> Self {
+        match crate::bundled::availability() {
+            crate::bundled::Availability::Bundled(bundled) => Self {
+                state: "found",
+                version: Some(bundled.runtime.version.clone()),
+                root: Some(bundled.runtime.root.to_string_lossy().to_string()),
+                sdk_path: None,
+                instructions_url: RUNTIME_INSTRUCTIONS_URL,
+                message: Some(
+                    "Bundled with OpenRidr: the .NET 10 runtime csharp-ls needs ships inside the app; the project SDK still comes from global.json."
+                        .to_string(),
+                ),
+                bundled: true,
+            },
+            crate::bundled::Availability::Damaged(reason) => Self {
+                state: "missing",
+                version: None,
+                root: None,
+                sdk_path: None,
+                instructions_url: RUNTIME_INSTRUCTIONS_URL,
+                message: Some(reason),
+                bundled: true,
+            },
+            crate::bundled::Availability::Absent => Self::from_runtimes(runtimes),
+        }
+    }
+
     pub fn from_runtimes(runtimes: &[RuntimeInstall]) -> Self {
         match analysis_runtime(runtimes) {
             Some(runtime) => Self {
@@ -214,6 +246,7 @@ impl AnalysisRuntime {
                 sdk_path: None,
                 instructions_url: RUNTIME_INSTRUCTIONS_URL,
                 message: None,
+                bundled: false,
             },
             None => Self {
                 state: "missing",
@@ -225,6 +258,7 @@ impl AnalysisRuntime {
                     "No .NET 10 runtime (Microsoft.NETCore.App) was found in the detected roots. C# analysis needs that runtime; the project SDK is separate and is never used as a substitute."
                         .to_string(),
                 ),
+                bundled: false,
             },
         }
     }

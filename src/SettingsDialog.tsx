@@ -456,7 +456,7 @@ export function SettingsDialog({
                     <li>
                       Analysis runtime:{" "}
                       {snapshot.sdk.host.state === "found"
-                        ? `${snapshot.sdk.host.version} · ${snapshot.sdk.host.root ?? ""}`
+                        ? `${snapshot.sdk.host.version}${snapshot.sdk.host.bundled ? " (bundled)" : ""} · ${snapshot.sdk.host.root ?? ""}`
                         : (snapshot.sdk.host.message ?? "not found")}
                     </li>
                     <li>

@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build && sh \"$(git rev-parse --show-toplevel)/scripts/vendor-netcoredbg.sh\"",
+    "beforeBuildCommand": "bun run build && sh \"$(git rev-parse --show-toplevel)/scripts/vendor-netcoredbg.sh\" && sh \"$(git rev-parse --show-toplevel)/scripts/vendor-analysis.sh\"",
     "frontendDist": "../dist"
   },
   "app": {
@@ -85,6 +85,8 @@
     },
     "resources": {
       "resources/netcoredbg/": "netcoredbg/",
+      "resources/csharp-ls/": "csharp-ls/",
+      "resources/dotnet/": "dotnet/",
       "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
     }
   }

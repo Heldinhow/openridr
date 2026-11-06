@@ -45,7 +45,11 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
                 {sdk.host.state === "found" ? (
                   <>
                     <strong className="success">.NET {sdk.host.version} runtime</strong>{" "}
-                    <span className="tag">runs the analysis tool · separate from the project SDK</span>
+                    <span className="tag">
+                      {sdk.host.bundled
+                        ? "bundled with OpenRidr · runs the analysis tool · separate from the project SDK"
+                        : "runs the analysis tool · separate from the project SDK"}
+                    </span>
                     <br />
                     <span className="muted">Root: {sdk.host.root}</span>
                   </>
@@ -53,19 +57,23 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
                   <>
                     <strong className="error">Analysis runtime missing</strong>
                     <p>{sdk.host.message}</p>
-                    <a
-                      href={sdk.host.instructionsUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      data-testid="sdk-host-instructions"
-                    >
-                      Get the .NET 10 runtime
-                    </a>
-                    <p className="muted">
-                      Install it from that page, then use Redetect SDKs. No environment variables
-                      or manual file copies are needed; OpenRidr finds the runtime where the
-                      installer puts it.
-                    </p>
+                    {!sdk.host.bundled && (
+                      <>
+                        <a
+                          href={sdk.host.instructionsUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          data-testid="sdk-host-instructions"
+                        >
+                          Get the .NET 10 runtime
+                        </a>
+                        <p className="muted">
+                          Install it from that page, then use Redetect SDKs. No environment
+                          variables or manual file copies are needed; OpenRidr finds the runtime
+                          where the installer puts it.
+                        </p>
+                      </>
+                    )}
                   </>
                 )}
               </div>
