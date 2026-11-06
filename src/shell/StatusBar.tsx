@@ -44,10 +44,10 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
     // role: the explicit role is what puts it (and its cursor/analysis/toolchain text) in the
     // accessibility tree as a named region.
     <footer className="status" role="contentinfo" aria-label="Status bar">
-      <span data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
+      <span className="sr-only" data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
       <span data-testid="status-breadcrumb" title={breadcrumb}>{breadcrumb}</span>
-      <StatusMode snapshot={snapshot} onSnapshot={onSnapshot} />
-      <span data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
+      <StatusMode snapshot={snapshot} onSnapshot={onSnapshot} sdkSummary={sdkSummary} />
+      <span className="sr-only" data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
       {restore.state === "running" && (
         <span data-testid="status-restore">
           Restoring packages…{" "}
@@ -79,7 +79,7 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
         <span
           data-testid={evaluation.testId}
           title={evaluation.title}
-          className={evaluation.tone === "error" ? "error" : undefined}
+          className={[evaluation.tone === "error" && "error", evaluation.text.includes("not current") && "is-stale"].filter(Boolean).join(" ")}
         >
           <span
             data-testid="eval-state"

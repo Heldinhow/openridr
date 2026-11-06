@@ -3,7 +3,7 @@ import type { Snapshot } from "../host/client";
 import { TrustControls } from "../TrustControls";
 
 // Status-bar trust indicator: a button that opens a small popover to Trust/Restrict the open workspace.
-export function StatusMode({ snapshot, onSnapshot }: { snapshot: Snapshot; onSnapshot: (snapshot: Snapshot) => void }) {
+export function StatusMode({ snapshot, onSnapshot, sdkSummary }: { snapshot: Snapshot; onSnapshot: (snapshot: Snapshot) => void; sdkSummary: string }) {
   const trusted = snapshot.trust.granted;
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState({ left: 0, bottom: 0 });
@@ -51,6 +51,7 @@ export function StatusMode({ snapshot, onSnapshot }: { snapshot: Snapshot; onSna
         data-testid="status-mode"
         aria-haspopup="dialog"
         aria-expanded={open}
+        title={sdkSummary}
         onClick={toggle}
         onKeyDown={onKeyDown}
       >
@@ -66,6 +67,7 @@ export function StatusMode({ snapshot, onSnapshot }: { snapshot: Snapshot; onSna
           style={{ left: anchor.left, bottom: anchor.bottom }}
           onKeyDown={onKeyDown}
         >
+          <p>{sdkSummary}</p>
           <TrustControls
             snapshot={snapshot}
             onChange={(next) => {
