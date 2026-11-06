@@ -1,7 +1,8 @@
 # SPEC — Release assinado e notarizado pelo GitHub Actions
 
 Fonte: issue #44 (`Heldinhow/openridr`). Decisões de grill: `docs/decisions.md` (2026-11-06, “Release
-CI”). Tickets: [tickets-release-ci/](tickets-release-ci/README.md).
+CI”). Tickets: issues #58 (preflight), #61 (notas), #63 (build/DMG/ensaio), #65 (assinatura e
+notarização), #66 (workflow), #68 (docs) — todas `Part of #44`.
 
 ## Problema e solução
 
