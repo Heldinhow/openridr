@@ -50,7 +50,14 @@ fn open(host: &Host, path: &Path) -> Value {
 }
 
 fn snapshot(host: &Host) -> Value {
-    host.dispatch("workspace.state", json!({})).unwrap()
+    for _ in 0..500 {
+        let state = host.dispatch("workspace.state", json!({})).unwrap();
+        if state["tools"]["csharp-ls"]["state"] != "verifying" {
+            return state;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("bundled verification did not finish");
 }
 
 #[cfg(unix)]
@@ -95,8 +102,7 @@ fn a_bundled_pair_is_ready_without_installing_or_downloading() {
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
 
     let host = Host::new();
-    let opened = open(&host, &fixture());
-    assert_eq!(opened["tools"]["csharp-ls"]["state"], "ready");
+    open(&host, &fixture());
 
     let state = snapshot(&host);
     let tool = &state["tools"]["csharp-ls"];
@@ -157,7 +163,62 @@ fn a_bundled_pair_is_ready_without_installing_or_downloading() {
 
 #[cfg(unix)]
 #[test]
-fn a_modified_bundled_entry_is_no_longer_ready() {
+fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
+    let calls = temp.path().join("calls");
+    write_script(&runtime.join("dotnet"), &format!(
+        "#!/bin/sh\necho invoked >> '{}'\nprintf 'csharp-ls, 0.28.0 (probe)\\n'\n",
+        calls.display()
+    ));
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
+    let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
+    let host = Host::new();
+    open(&host, &fixture());
+    assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
+    let other = Host::new();
+    open(&other, &fixture());
+    for _ in 0..10 {
+        assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
+        assert_eq!(snapshot(&other)["tools"]["csharp-ls"]["state"], "ready");
+    }
+    assert_eq!(fs::read_to_string(calls).unwrap().lines().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
+    let release = temp.path().join("release");
+    write_script(&runtime.join("dotnet"), &format!(
+        "#!/bin/sh\nfor n in $(seq 1 100); do [ -f '{}' ] && break; sleep 0.05; done\nprintf 'csharp-ls, 0.28.0 (probe)\\n'\n",
+        release.display()
+    ));
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
+    let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
+    let host = Host::new();
+    let start = std::time::Instant::now();
+    for _ in 0..5 {
+        let state = host.dispatch("app.state", json!({})).unwrap();
+        assert_eq!(state["tools"]["csharp-ls"]["state"], "verifying");
+    }
+    assert!(start.elapsed() < std::time::Duration::from_secs(3));
+    fs::write(release, "").unwrap();
+    assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
@@ -174,11 +235,7 @@ fn a_modified_bundled_entry_is_no_longer_ready() {
     fs::write(tools.join(bundled::CSHARP_LS_ENTRY), b"tampered").unwrap();
     let state = snapshot(&host);
     let tool = &state["tools"]["csharp-ls"];
-    assert_eq!(tool["state"], "failed", "{tool}");
-    assert!(tool["error"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("changed"));
+    assert_eq!(tool["state"], "ready", "{tool}");
 }
 
 #[test]
@@ -371,11 +428,27 @@ fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
     assert_eq!(tool["bundled"], false);
 }
 
-/// Integrity covers the whole pair: a managed dependency, the muxer and the private runtime
-/// are as much part of the analyzer as the entry point.
+#[test]
+fn a_build_without_a_pair_never_reports_verifying() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _required = EnvVar::remove(bundled::REQUIRED_OVERRIDE);
+    let _tool = EnvVar::remove(bundled::CSHARP_LS_OVERRIDE);
+    let _runtime = EnvVar::remove(bundled::RUNTIME_OVERRIDE);
+
+    // `setup` treats "verifying" as an install in progress; a dev/Windows/Intel build has no
+    // pair, so it must stay absent and let the download plan start.
+    let host = Host::new();
+    let state = host.dispatch("app.state", json!({})).unwrap();
+    assert_eq!(state["tools"]["csharp-ls"]["state"], "absent");
+}
+
 #[cfg(unix)]
 #[test]
-fn a_changed_dependency_muxer_or_runtime_component_invalidates_ready() {
+fn bundled_result_is_cached_for_the_session() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let targets = [
         "dependency",
@@ -419,14 +492,7 @@ fn a_changed_dependency_muxer_or_runtime_component_invalidates_ready() {
 
         let state = snapshot(&host);
         let tool = &state["tools"]["csharp-ls"];
-        assert_eq!(tool["state"], "failed", "{target}: {tool}");
-        assert!(
-            tool["error"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("changed"),
-            "{target}: {tool}"
-        );
+        assert_eq!(tool["state"], "ready", "{target}: {tool}");
         // `allow_setup_for_tests` overrides setup readiness; the tool state is the signal here.
         assert_eq!(tool["plan"], Value::Null, "{target}");
     }

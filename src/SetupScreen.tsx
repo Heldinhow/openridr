@@ -84,6 +84,9 @@ export function SetupScreen({
     <main className="setup-screen">
       <header className="chrome">
         <span className="brand"><Icon name="code" /> Welcome to OpenRidr</span>
+        {snapshot?.tools["csharp-ls"].state === "verifying" && (
+          <span role="status">Preparando o OpenRidr…</span>
+        )}
         <span className="muted">{workspace?.name ?? ""}</span>
       </header>
       <div className="welcome-body">

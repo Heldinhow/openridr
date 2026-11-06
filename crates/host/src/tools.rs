@@ -16,9 +16,9 @@ use sha2::{Digest, Sha256, Sha512};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const TOOL: &str = "csharp-ls";
 pub const VERSION: &str = "0.28.0";
@@ -27,6 +27,9 @@ pub const NUGET_PACKAGE: &str = "https://www.nuget.org/packages/csharp-ls/0.28.0
 const PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.28.0/csharp-ls.0.28.0.nupkg";
 const PACKAGE_SHA512: &str = "a138b9c8f9de9dd6343e9b0d0c8f4d51637bba7e38606b7c2b08b1d91e8eefa39f12123057f6625f425812b4361e52841bd2856704ec127ff50144ce05170a99";
 const PACKAGE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// A stuck launcher must fail visibly instead of keeping setup on "Preparando…" forever.
+const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The pinned package: URL and expected SHA-512. A debug build may point both at a local server so
 /// the installer's real download path (measured progress, size limit, hash check) can be exercised
@@ -690,23 +693,94 @@ pub struct Tools {
     data: Mutex<Data>,
 }
 
-/// A verified pair shipped inside the app bundle: `Resources/csharp-ls` plus the private
-/// runtime it runs on. `sha256` is the managed entry point; `fingerprint` covers every file of
-/// the pair (path, size, mtime) so a changed dependency, muxer or runtime component invalidates
-/// the state, and `content_sha256` is the one-time audit digest recorded in the log.
+/// A verified pair shipped inside the app bundle, with informational audit digests.
 #[derive(Debug, Clone)]
 struct BundledTool {
-    dir: PathBuf,
-    runtime_root: PathBuf,
     sha256: String,
     output: String,
-    fingerprint: Vec<(String, u64, i64)>,
     content_sha256: String,
+    file_count: usize,
 }
 
-/// Cheap integrity signal for a session: metadata of every file, never a rehash of ~140 MB on
-/// each snapshot. An attacker who rewrites the whole pair and restores mtimes is out of scope;
-/// the build-time manifest (`scripts/vendor-analysis.sh`) is what keeps the shipped tree honest.
+#[derive(Clone)]
+enum BundledResult {
+    Absent,
+    Damaged(String),
+    Failed(String),
+    Checked(bundled::Analysis, Result<BundledTool, String>),
+}
+
+struct BundledCheck(Arc<Mutex<Option<BundledResult>>>);
+
+impl BundledCheck {
+    fn start(check: impl FnOnce() -> BundledResult + Send + 'static) -> Self {
+        let result = Arc::new(Mutex::new(None));
+        let target = result.clone();
+        std::thread::spawn(move || {
+            // A panic must still fill the slot: leaving it empty would keep setup in
+            // "verifying" forever instead of showing a failure.
+            let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(check))
+                .unwrap_or_else(|panic| {
+                    let reason = panic
+                        .downcast_ref::<&str>()
+                        .map(|text| text.to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "no message".to_string());
+                    BundledResult::Failed(format!(
+                        "The bundled analysis check stopped unexpectedly: {reason}"
+                    ))
+                });
+            *target.lock().unwrap() = Some(checked);
+        });
+        Self(result)
+    }
+
+    fn result(&self) -> Option<BundledResult> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+fn start_bundled_check() -> BundledCheck {
+    BundledCheck::start(|| match bundled::availability() {
+        bundled::Availability::Absent => BundledResult::Absent,
+        bundled::Availability::Damaged(reason) => BundledResult::Damaged(reason),
+        bundled::Availability::Bundled(analysis) => {
+            let result = verify_bundled(&analysis);
+            BundledResult::Checked(analysis, result)
+        }
+    })
+}
+
+#[cfg(not(debug_assertions))]
+fn bundled_check() -> Arc<BundledCheck> {
+    static CHECK: OnceLock<Arc<BundledCheck>> = OnceLock::new();
+    CHECK.get_or_init(|| Arc::new(start_bundled_check())).clone()
+}
+
+#[cfg(debug_assertions)]
+fn bundled_check() -> Arc<BundledCheck> {
+    use std::collections::HashMap;
+    type DebugKey = (
+        Option<std::ffi::OsString>,
+        Option<std::ffi::OsString>,
+        Option<std::ffi::OsString>,
+    );
+    static CHECKS: OnceLock<Mutex<HashMap<DebugKey, Arc<BundledCheck>>>> = OnceLock::new();
+    let key = (
+        std::env::var_os(bundled::CSHARP_LS_OVERRIDE),
+        std::env::var_os(bundled::RUNTIME_OVERRIDE),
+        std::env::var_os(bundled::REQUIRED_OVERRIDE),
+    );
+    CHECKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap()
+        .entry(key)
+        .or_insert_with(|| Arc::new(start_bundled_check()))
+        .clone()
+}
+
+/// Enumerates the files used for the one-time informational digest.
 fn fingerprint(tool_dir: &Path, runtime_root: &Path) -> Vec<(String, u64, i64)> {
     let mut rows = Vec::new();
     collect_fingerprint(tool_dir, bundled::CSHARP_LS_DIR, &mut rows);
@@ -744,12 +818,7 @@ fn collect_fingerprint(root: &Path, prefix: &str, rows: &mut Vec<(String, u64, i
     }
 }
 
-fn bundled_intact(bundled: &BundledTool) -> bool {
-    bundled.fingerprint == fingerprint(&bundled.dir, &bundled.runtime_root)
-}
-
-/// One-time content digest of the pair (`path\0size\0bytes` in sorted order). Recorded for the
-/// audit trail; the cheap fingerprint above is what every snapshot compares.
+/// One-time content digest of the pair (`path\0size\0bytes` in sorted order).
 fn content_digest(analysis: &bundled::Analysis) -> Option<String> {
     use std::io::Read;
     let rows = fingerprint(&analysis.tool_dir, &analysis.runtime.root);
@@ -786,7 +855,7 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
     let cwd = neutral_cwd();
     let _ = fs::create_dir_all(&cwd);
     let muxer = bundled::muxer(&analysis.runtime.root);
-    let output = Command::new(&muxer)
+    let child = Command::new(&muxer)
         .arg(&analysis.entry)
         .arg("--version")
         .current_dir(&cwd)
@@ -799,13 +868,16 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
         .env_remove("NUGET_PACKAGES")
         .env_remove("NUGET_HTTP_CACHE_PATH")
         .env_remove("DOTNET_CLI_HOME")
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| {
             format!(
                 "Could not run the bundled csharp-ls {}: {error}",
                 analysis.entry.to_string_lossy()
             )
         })?;
+    let output = output_with_timeout(child, VERIFY_TIMEOUT)?;
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -827,13 +899,36 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
     let content_sha256 = content_digest(analysis)
         .ok_or_else(|| "Could not hash the bundled analysis files.".to_string())?;
     Ok(BundledTool {
-        dir: analysis.tool_dir.clone(),
-        runtime_root: analysis.runtime.root.clone(),
         sha256,
         output: text,
-        fingerprint: fingerprint(&analysis.tool_dir, &analysis.runtime.root),
+        file_count: fingerprint(&analysis.tool_dir, &analysis.runtime.root).len(),
         content_sha256,
     })
+}
+
+/// Waits for the probe, killing it at the deadline so a hung launcher cannot leave setup in
+/// `verifying` forever.
+fn output_with_timeout(mut child: Child, timeout: Duration) -> Result<Output, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {}
+            Err(error) => return Err(format!("Could not wait for the bundled csharp-ls: {error}")),
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "The bundled csharp-ls did not report {VERSION} within {} s and was stopped.",
+                timeout.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    child
+        .wait_with_output()
+        .map_err(|error| format!("Could not read the bundled csharp-ls output: {error}"))
 }
 
 impl Tools {
@@ -896,23 +991,7 @@ impl Tools {
         } else {
             PathBuf::from(&data.staging)
         };
-        // A bundled pair is read from the app bundle on every view: a replaced entry is not the
-        // verified tool, and analysis/setup must stop instead of running something else.
-        let bundled_changed = data
-            .bundled
-            .as_ref()
-            .is_some_and(|bundled| !bundled_intact(bundled));
-        let (state, error) = if bundled_changed {
-            (
-                "failed",
-                Some(
-                    "The bundled csharp-ls changed since the setup checked it; the app bundle is damaged or was modified. Reinstall OpenRidr instead of using this analyzer."
-                        .to_string(),
-                ),
-            )
-        } else {
-            (data.state, data.error.clone())
-        };
+        let (state, error) = (data.state, data.error.clone());
         ToolView {
             state,
             version: VERSION,
@@ -953,15 +1032,14 @@ impl Tools {
         }
     }
 
-    /// Re-checks the recorded launcher hash without starting anything. A replaced/corrupted
-    /// launcher is not silently treated as the verified tool.
+    /// Checks the cached bundled result or re-checks the downloaded launcher hash.
     pub fn still_ready(&self) -> bool {
         let data = self.data.lock().unwrap();
         if data.state != "ready" {
             return false;
         }
-        if let Some(bundled) = &data.bundled {
-            return bundled_intact(bundled);
+        if data.bundled.is_some() {
+            return true;
         }
         let binary = Path::new(&data.destination).join(binary_name());
         match (&data.sha256, sha256_file(&binary)) {
@@ -977,10 +1055,43 @@ impl Tools {
         if self.data.lock().unwrap().bundled_attempted {
             return;
         }
-        let analysis = match bundled::availability() {
-            bundled::Availability::Bundled(analysis) => analysis,
-            bundled::Availability::Absent => return,
-            bundled::Availability::Damaged(reason) => {
+        let result = bundled_check().result();
+        let (analysis, result) = match result {
+            None => {
+                // `setup` reads "verifying" as an install already in progress; a build that
+                // ships no pair would then skip `begin_install` until the check finishes.
+                if bundled::pair_expected() {
+                    let mut data = self.data.lock().unwrap();
+                    if data.state == "absent" {
+                        data.state = "verifying";
+                        data.bundle_expected = true;
+                    }
+                }
+                return;
+            }
+            Some(BundledResult::Absent) => {
+                let mut data = self.data.lock().unwrap();
+                data.bundled_attempted = true;
+                if data.state == "verifying" {
+                    data.state = "absent";
+                }
+                return;
+            }
+            Some(BundledResult::Failed(reason)) => {
+                let mut data = self.data.lock().unwrap();
+                data.bundled_attempted = true;
+                data.state = "failed";
+                data.progress = None;
+                data.error = Some(reason.clone());
+                data.note = Some(
+                    "The analysis setup could not be checked in this session; no download or runtime was used."
+                        .to_string(),
+                );
+                data.log.push(reason);
+                return;
+            }
+            Some(BundledResult::Checked(analysis, result)) => (analysis, result),
+            Some(BundledResult::Damaged(reason)) => {
                 let mut data = self.data.lock().unwrap();
                 data.bundled_attempted = true;
                 data.bundle_expected = true;
@@ -1002,8 +1113,10 @@ impl Tools {
                 return;
             }
         };
-        let result = verify_bundled(&analysis);
         let mut data = self.data.lock().unwrap();
+        if data.bundled_attempted {
+            return;
+        }
         data.bundled_attempted = true;
         data.bundle_expected = true;
         data.destination = analysis.tool_dir.to_string_lossy().to_string();
@@ -1031,7 +1144,7 @@ impl Tools {
                 data.log.push(format!(
                     "Bundled pair content SHA-256 {} ({} files); informational, the integrity reference is the app's code signature",
                     verified.content_sha256,
-                    verified.fingerprint.len()
+                    verified.file_count
                 ));
             }
             Err(message) => {
@@ -1982,6 +2095,82 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::sdk::RuntimeInstall;
+
+    #[test]
+    fn bundled_check_is_nonblocking_and_runs_only_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (release, wait) = mpsc::channel();
+        let (started_worker, worker_started) = mpsc::channel();
+        let counter = calls.clone();
+        let check = BundledCheck::start(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            started_worker.send(()).unwrap();
+            wait.recv().unwrap();
+            BundledResult::Absent
+        });
+        worker_started.recv().unwrap();
+        let started = Instant::now();
+        for _ in 0..100 {
+            assert!(check.result().is_none());
+        }
+        assert!(started.elapsed() < Duration::from_secs(1));
+        release.send(()).unwrap();
+        for _ in 0..1000 {
+            if check.result().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(matches!(check.result(), Some(BundledResult::Absent)));
+        assert!(matches!(check.result(), Some(BundledResult::Absent)));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn bundled_check_records_a_panic_as_a_visible_failure() {
+        use std::time::Duration;
+
+        let check = BundledCheck::start(|| panic!("verification exploded"));
+        for _ in 0..1000 {
+            if check.result().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        match check.result() {
+            Some(BundledResult::Failed(reason)) => {
+                assert!(reason.contains("verification exploded"), "{reason}");
+            }
+            _ => panic!("a panicking check must still fill the result slot"),
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn bundled_output_timeout_kills_the_probe() {
+        use std::time::{Duration, Instant};
+
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join("finished");
+        let child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 1; touch \"$0\"")
+            .arg(&marker)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        let error = output_with_timeout(child, Duration::from_millis(100)).unwrap_err();
+        assert!(error.contains("within 0 s"), "{error}");
+        assert!(started.elapsed() < Duration::from_millis(900));
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(!marker.exists(), "the timed-out child must not keep running");
+    }
 
     #[test]
     fn package_hash_must_match_exactly() {

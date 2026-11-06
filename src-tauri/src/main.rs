@@ -2,7 +2,7 @@
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use openridr_host::{Host, HostError};
 use serde_json::Value;
@@ -17,6 +17,10 @@ const QUIT_MENU_ID: &str = "quit";
 /// Set once the UI approved the quit, so the `ExitRequested` it causes is let through.
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
+/// Serializes host dispatches: the UI fires `lsp.didOpen`, `lsp.didChange` and `session.write`
+/// without awaiting them, so the host must receive them in the order they were sent.
+static HOST_CALL: OnceLock<tauri::async_runtime::Mutex<()>> = OnceLock::new();
+
 /// Path handed over by Finder, the Dock or the command line until the UI takes it; the last one wins.
 #[derive(Default)]
 struct PendingOpen(Mutex<Option<String>>);
@@ -26,8 +30,19 @@ struct PendingOpen(Mutex<Option<String>>);
 struct PendingQuit(AtomicBool);
 
 #[tauri::command]
-fn host_call(method: String, params: Value, host: State<'_, Host>) -> Result<Value, HostError> {
-    host.dispatch(&method, params)
+async fn host_call(
+    method: String,
+    params: Value,
+    host: State<'_, Arc<Host>>,
+) -> Result<Value, HostError> {
+    let host = Arc::clone(&host);
+    // Tokio's Mutex is FIFO, so this keeps the old synchronous ordering without running the
+    // dispatch on the main thread.
+    let lock = HOST_CALL.get_or_init(|| tauri::async_runtime::Mutex::new(()));
+    let _guard = lock.lock().await;
+    tauri::async_runtime::spawn_blocking(move || host.dispatch(&method, params))
+        .await
+        .map_err(|error| HostError::new("internal_error", format!("Host task failed: {error}")))?
 }
 
 #[tauri::command]
@@ -42,7 +57,7 @@ fn take_pending_quit(pending: State<'_, PendingQuit>) -> bool {
 
 /// End of the quit flow: the UI already saved or discarded, so nothing may prevent the exit.
 #[tauri::command]
-fn quit_app(app: AppHandle, host: State<'_, Host>) {
+fn quit_app(app: AppHandle, host: State<'_, Arc<Host>>) {
     let _ = host.dispatch("workspace.close", Value::Null);
     QUITTING.store(true, Ordering::SeqCst);
     app.exit(0);
@@ -87,7 +102,7 @@ fn offer_open(app: &AppHandle, path: String) {
 /// Every exit path closes the host workspace first: analysis and debugger process groups are
 /// owned by the host, not by the webview that may already be gone.
 fn close_host_workspace(app: &AppHandle) {
-    let host = app.state::<Host>();
+    let host = app.state::<Arc<Host>>();
     let _ = host.dispatch("workspace.close", Value::Null);
 }
 
@@ -143,7 +158,7 @@ fn main() {
                 request_quit(app);
             }
         })
-        .manage(Host::new())
+        .manage(Arc::new(Host::new()))
         .manage(PendingOpen::default())
         .manage(PendingQuit::default())
         .invoke_handler(tauri::generate_handler![

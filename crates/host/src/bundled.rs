@@ -119,6 +119,22 @@ pub fn required() -> bool {
     in_app_bundle() || required_seam()
 }
 
+#[cfg(debug_assertions)]
+fn override_expected() -> bool {
+    env::var_os(CSHARP_LS_OVERRIDE).is_some() || env::var_os(RUNTIME_OVERRIDE).is_some()
+}
+
+#[cfg(not(debug_assertions))]
+fn override_expected() -> bool {
+    false
+}
+
+/// True when there is a pair to look for: a shipped app or an explicit debug override. A plain
+/// `tauri dev`, Windows or Intel build has nothing to verify.
+pub fn pair_expected() -> bool {
+    required() || override_expected()
+}
+
 /// Resolves the pair once, with the reason when a shipped pair is incomplete.
 pub fn availability() -> Availability {
     let tool_override = override_path(CSHARP_LS_OVERRIDE);
@@ -127,7 +143,7 @@ pub fn availability() -> Availability {
     let tool_dir = tool_override.or_else(|| resource_root.as_ref().map(|root| root.join(CSHARP_LS_DIR)));
     let runtime_root = runtime_override.or_else(|| resource_root.as_ref().map(|root| root.join(RUNTIME_DIR)));
     // An explicit override is a claim that a pair exists there; a broken one is damage.
-    let expects_pair = required() || env::var_os(CSHARP_LS_OVERRIDE).is_some() || env::var_os(RUNTIME_OVERRIDE).is_some();
+    let expects_pair = pair_expected();
 
     let mut missing: Vec<&str> = Vec::new();
     let tool = match tool_dir.as_deref() {
