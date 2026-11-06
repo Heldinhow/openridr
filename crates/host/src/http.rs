@@ -18,7 +18,9 @@ fn agent_builder_with_certs(
     let tls = rustls::ClientConfig::builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
-    ureq::AgentBuilder::new().tls_config(std::sync::Arc::new(tls))
+    ureq::AgentBuilder::new()
+        .try_proxy_from_env(false)
+        .tls_config(std::sync::Arc::new(tls))
 }
 
 pub(crate) fn describe_error(url: &str, error: &ureq::Error) -> String {
