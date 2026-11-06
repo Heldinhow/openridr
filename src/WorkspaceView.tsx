@@ -404,23 +404,59 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [gitStatusError, setGitStatusError] = useState<string | null>(null);
   const [gitIntent, setGitIntent] = useState<GitIntent | null>(null);
   const [commitFocusPath, setCommitFocusPath] = useState<string | null>(null);
+  // A refresh that outlives a workspace or trust change must not paint another project's status,
+  // and one Git run at a time is enough: a call made while another is in flight queues one rerun.
+  const gitIdentity = useRef(`${workspace.id}:${trusted}`);
+  gitIdentity.current = `${workspace.id}:${trusted}`;
+  const gitRefresh = useRef({ inFlight: false, queued: false });
   const refreshGit = useCallback(async () => {
     if (!trusted) {
       setGitStatus(null);
       setGitStatusError(null);
       return;
     }
-    try {
-      setGitStatus(await call<GitStatus>("git.status"));
-      setGitStatusError(null);
-    } catch (error) {
-      setGitStatusError(messageOf(error));
+    const state = gitRefresh.current;
+    if (state.inFlight) {
+      state.queued = true;
+      return;
     }
-  }, [trusted]);
+    state.inFlight = true;
+    const identity = `${workspace.id}:${trusted}`;
+    try {
+      do {
+        state.queued = false;
+        try {
+          const next = await call<GitStatus>("git.status");
+          if (gitIdentity.current !== identity) return;
+          setGitStatus(next);
+          setGitStatusError(null);
+        } catch (error) {
+          if (gitIdentity.current !== identity) return;
+          setGitStatusError(messageOf(error));
+        }
+      } while (state.queued);
+    } finally {
+      state.inFlight = false;
+    }
+  }, [trusted, workspace.id]);
   useEffect(() => {
     // Refresh on workspace/trust changes; tool windows refresh on open and after operations.
     void refreshGit();
   }, [refreshGit, workspace.id]);
+  useEffect(() => {
+    // A commit or checkout run in a terminal is invisible to the app; coming back to the window is
+    // the cheap moment to look again. Debounced, and `refreshGit` dedupes the calls itself.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onFocus = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refreshGit(), 400);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      if (timer) clearTimeout(timer);
+    };
+  }, [refreshGit]);
   function openGitIntent(kind: GitIntent["kind"]) {
     setGitIntent((current) => ({ kind, nonce: (current?.nonce ?? 0) + 1 }));
   }
@@ -4676,6 +4712,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             evaluationRevision={evaluation.revision}
             showAll={showAllFiles}
             filter={treeFilter}
+            gitStatus={gitStatus}
+            workspaceDir={workspaceDir}
             onMenu={openTreeMenu}
           />
         </nav>

@@ -658,6 +658,9 @@ impl Host {
         if method == "workspace.tree" {
             return self.workspace_tree(&params);
         }
+        if method == "workspace.symlinks" {
+            return self.workspace_symlinks(&params);
+        }
         if method == "workspace.symbolKinds" {
             return self.workspace_symbol_kinds(&params);
         }
@@ -666,6 +669,9 @@ impl Host {
         }
         if method == "git.status" {
             return self.git_status();
+        }
+        if method == "git.ignored" {
+            return self.git_ignored(&params);
         }
         if method == "git.diff" {
             return self.git_diff(params);
@@ -5634,6 +5640,8 @@ impl Host {
     }
 
     /// Read-only listing of one workspace directory; like `workspace.files` it needs no trust.
+    /// A symlinked directory is never expanded: following it would either leave the workspace or
+    /// re-enter an ancestor (a cycle), so the refusal happens before anything is listed.
     fn workspace_tree(&self, params: &Value) -> HostResult<Value> {
         let root = self.workspace_root()?;
         let raw = params.get("dir").and_then(Value::as_str).unwrap_or("");
@@ -5647,6 +5655,16 @@ impl Host {
                 HostError::new("not_found", format!("Folder not found: {raw}"))
             }
         })?;
+        // A symlinked directory is never expanded: following it would either leave the workspace
+        // (already refused above) or re-enter an ancestor (a cycle). The link is detected on the
+        // entry itself, never by resolving the target, so an inside link is refused the same way
+        // as a loop and the listing never walks through one.
+        if shape_of(raw) == Shape::Joined && has_symlink_component(&root, &candidate) {
+            return Err(HostError::new(
+                "invalid_state",
+                format!("Not a folder to list: {raw} is a symbolic link."),
+            ));
+        }
         if !dir.is_dir() {
             return Err(HostError::new(
                 "outside_workspace",
@@ -5657,6 +5675,31 @@ impl Host {
             HostError::new("operation_failed", format!("Could not list {raw}: {error}"))
         })?;
         Ok(json!({ "dir": raw, "entries": entries }))
+    }
+
+    /// Read-only symlink metadata for tree rows. No trust and no target resolution: the entry
+    /// itself is stat'ed (`symlink_metadata`), and the real parent directory is what must stay
+    /// inside the workspace. A link to the outside, a dangling link or a loop is reported as a
+    /// link and nothing behind it is read, so the answer is the same whatever lives there.
+    fn workspace_symlinks(&self, params: &Value) -> HostResult<Value> {
+        let paths = params.get("paths").and_then(Value::as_array).ok_or_else(|| {
+            HostError::new("invalid_state", "workspace.symlinks requires a paths array.")
+        })?;
+        let root = self.workspace_root()?;
+        let mut entries = Vec::new();
+        for raw in paths.iter().filter_map(Value::as_str).take(256) {
+            let Some((relative, absolute)) = confined_entry(&root, raw) else {
+                continue;
+            };
+            let Ok(metadata) = fs::symlink_metadata(&absolute) else {
+                continue;
+            };
+            entries.push(json!({
+                "path": relative,
+                "symlink": metadata.file_type().is_symlink(),
+            }));
+        }
+        Ok(json!({ "entries": entries }))
     }
 
     /// Read-only C# type-kind scan for Solution Explorer badges. No trust, no compile, no LSP:
@@ -5764,6 +5807,23 @@ impl Host {
         let _token = self.require_trust("git.status")?;
         let root = self.workspace_root()?;
         Ok(serde_json::to_value(git::status(&root)).expect("git status serializes"))
+    }
+
+    /// Which of the visible tree paths the ignore rules match. Trust-gated like every `git.*`
+    /// method, read-only, and bounded to the batch the tree is showing (no repository scan).
+    fn git_ignored(&self, params: &Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.ignored")?;
+        let root = self.workspace_root()?;
+        let paths = params.get("paths").and_then(Value::as_array).ok_or_else(|| {
+            HostError::new("invalid_state", "git.ignored requires a paths array.")
+        })?;
+        let paths: Vec<String> = paths
+            .iter()
+            .filter_map(Value::as_str)
+            .take(256)
+            .map(str::to_string)
+            .collect();
+        Ok(serde_json::to_value(git::ignored(&root, &paths)).expect("git ignored serializes"))
     }
 
     fn git_diff(&self, params: Value) -> HostResult<Value> {
@@ -8339,6 +8399,46 @@ fn workspace_relative(root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
+/// Resolves a caller path to (workspace-relative, absolute) without following the leaf: the real
+/// parent directory must canonicalize inside the root, and the leaf keeps whatever the entry is.
+/// A path that escapes, or whose parent is a symlink leading outside, is refused by omission.
+fn confined_entry(root: &Path, raw: &str) -> Option<(String, PathBuf)> {
+    let requested = Path::new(raw);
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        root.join(requested)
+    };
+    let name = candidate.file_name()?;
+    let parent = candidate.parent()?;
+    let canonical_parent = fs::canonicalize(parent).ok()?;
+    if !canonical_parent.starts_with(root) {
+        return None;
+    }
+    let absolute = canonical_parent.join(name);
+    let relative = absolute.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
+    Some((relative, absolute))
+}
+
+/// Whether any component of `candidate` below `root` is a symbolic link. Each entry is checked on
+/// itself (`symlink_metadata`), so the link is detected without resolving where it points.
+fn has_symlink_component(root: &Path, candidate: &Path) -> bool {
+    let Ok(relative) = candidate.strip_prefix(root) else {
+        return false;
+    };
+    let mut probe = root.to_path_buf();
+    for component in relative.components() {
+        probe.push(component);
+        match fs::symlink_metadata(&probe) {
+            Ok(metadata) if metadata.file_type().is_symlink() => return true,
+            Ok(_) => {}
+            // A missing component is `not_found`/`outside_workspace` from `confine`, not a link.
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
 fn modified_ms(metadata: &fs::Metadata) -> u64 {
     metadata
         .modified()
@@ -8599,6 +8699,102 @@ mod tests {
         assert_eq!(names, vec![("bin", true), (".gitignore", true), ("App.csproj", false)]);
         let outside = host.dispatch("workspace.tree", json!({ "dir": ".." })).unwrap_err();
         assert_eq!(outside.code, "outside_workspace");
+    }
+
+    #[test]
+    fn workspace_symlinks_reports_links_without_following_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside = fs::canonicalize(outside.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::write(root.join("Plain.cs"), "class Plain {}\n").unwrap();
+        fs::create_dir_all(root.join("Dir")).unwrap();
+        fs::write(root.join("Dir/Inside.cs"), "class Inside {}\n").unwrap();
+        fs::write(outside.join("Secret.cs"), "class Secret {}\n").unwrap();
+        std::os::unix::fs::symlink(root.join("Plain.cs"), root.join("Link.cs")).unwrap();
+        std::os::unix::fs::symlink(root.join("Dir"), root.join("LinkDir")).unwrap();
+        std::os::unix::fs::symlink(outside.join("Missing.cs"), root.join("Dangling.cs")).unwrap();
+        std::os::unix::fs::symlink(root.join("Loop"), root.join("Loop")).unwrap();
+        std::os::unix::fs::symlink(outside.join("Secret.cs"), root.join("Outside.cs")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("OutDir")).unwrap();
+
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        // No trust: this is read-only metadata, so Restricted mode gets it too.
+        let answer = host
+            .dispatch(
+                "workspace.symlinks",
+                json!({ "paths": [
+                    "Plain.cs", "Link.cs", "LinkDir", "Dangling.cs", "Loop", "Outside.cs", "Dir",
+                    "Missing.cs", "../outside.cs", "OutDir/Secret.cs",
+                ]}),
+            )
+            .unwrap();
+        let found: Vec<(&str, bool)> = answer["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| {
+                (entry["path"].as_str().unwrap(), entry["symlink"].as_bool().unwrap())
+            })
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("Plain.cs", false),
+                ("Link.cs", true),
+                ("LinkDir", true),
+                ("Dangling.cs", true),
+                ("Loop", true),
+                ("Outside.cs", true),
+                ("Dir", false),
+            ]
+        );
+        // A path that does not exist and a path through a parent link are omitted, so the answer
+        // is not an existence oracle for what lives outside the workspace.
+        assert!(found.iter().all(|(path, _)| *path != "Missing.cs" && !path.starts_with("..")));
+        assert!(found.iter().all(|(path, _)| *path != "OutDir/Secret.cs"));
+    }
+
+    #[test]
+    fn workspace_tree_marks_symlinks_and_refuses_to_expand_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside = fs::canonicalize(outside.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        fs::create_dir_all(root.join("Dir")).unwrap();
+        std::os::unix::fs::symlink(root.join("Dir"), root.join("LinkDir")).unwrap();
+        // A link that resolves to an ancestor inside the workspace is the cycle case.
+        std::os::unix::fs::symlink(&root, root.join("Loop")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("OutDir")).unwrap();
+
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let tree = host.dispatch("workspace.tree", json!({})).unwrap();
+        let link = tree["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == "LinkDir")
+            .expect("the link is listed");
+        assert_eq!(link["symlink"], true);
+        assert_eq!(link["dir"], true, "the glyph still shows a folder");
+        // Every symlinked directory is refused without being listed. A link that resolves outside
+        // is refused by `confine` first (`outside_workspace`, the existing contract); a link that
+        // resolves inside, and a loop, answer `invalid_state` here and the tree never expands one.
+        for dir in ["LinkDir", "Loop"] {
+            let refused = host.dispatch("workspace.tree", json!({ "dir": dir })).unwrap_err();
+            assert_eq!(refused.code, "invalid_state", "{dir} must not be listed");
+        }
+        let escaped = host.dispatch("workspace.tree", json!({ "dir": "OutDir" })).unwrap_err();
+        assert_eq!(escaped.code, "outside_workspace");
+        // A path below a link is decided by `confine` (missing inside the link target here).
+        let below = host.dispatch("workspace.tree", json!({ "dir": "LinkDir/anything" })).unwrap_err();
+        assert_eq!(below.code, "not_found");
     }
 
     #[test]

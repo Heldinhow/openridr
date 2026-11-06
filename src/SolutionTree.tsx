@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileIcon } from "./FileIcon";
+import type { GitStatus } from "./git";
 import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
 import { ProjectIcon } from "./icons/ProjectIcon";
 import { SYMBOL_LABEL } from "./icons/SymbolMark";
+import { treeGitStatusMap, mergeIgnored, type TreeGitStatus } from "./solutionGitStatus";
 import {
   ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, nestSources,
   visibleSourceFiles, type DependencyGroup, type SourceNode,
@@ -22,7 +24,19 @@ export type TreeTarget =
   | { kind: "file"; path: string }
   | { kind: "dir"; path: string };
 
-type Entry = { name: string; path: string; dir: boolean; hidden: boolean };
+/** Accessible description parts: the row's glyph-only information, read after the name. */
+const describe = (...parts: Array<string | null | undefined>) =>
+  parts.filter(Boolean).join(". ");
+const SYMLINK_DESCRIPTION = "Symbolic link — not followed";
+const GIT_STATUS_LABEL: Record<TreeGitStatus, string> = {
+  modified: "Modified",
+  added: "Added",
+  untracked: "Untracked",
+  ignored: "Ignored",
+  conflicted: "Conflicted",
+};
+
+type Entry = { name: string; path: string; dir: boolean; hidden: boolean; symlink: boolean };
 type SymbolCacheEntry = { kind: SymbolKind | null; modified: number };
 type SymbolEntry = { path: string; kind: string | null; modified: number };
 
@@ -109,6 +123,10 @@ type Props = {
   evaluationRevision: number;
   showAll: boolean;
   filter: string;
+  /** Snapshot the app already keeps; the tree never polls Git on its own. */
+  gitStatus: GitStatus | null;
+  /** Root of the open workspace, so repository paths can be mapped to tree paths. */
+  workspaceDir: string;
   onMenu: (position: MenuPosition, target: TreeTarget, row: HTMLElement) => void;
 };
 
@@ -120,6 +138,9 @@ export function SolutionTree(p: Props) {
   const [symbolKinds, setSymbolKinds] = useState<Record<string, SymbolKind>>({});
   const symbolKindsRef = useRef<Record<string, SymbolKind>>({});
   const symbolCache = useRef(new Map<string, SymbolCacheEntry>());
+  const [symlinks, setSymlinks] = useState<Set<string>>(() => new Set());
+  const symlinkRef = useRef<Set<string>>(new Set());
+  const [ignoredPaths, setIgnoredPaths] = useState<string[]>([]);
   const sourceSet = useMemo(() => new Set(views.flatMap((view) => view.sources)), [views]);
   const projectDirs = useMemo(() => new Set(views.map((view) => dirOf(view.path))), [views]);
   const ancestors = useMemo(
@@ -131,6 +152,10 @@ export function SolutionTree(p: Props) {
     [views],
   );
   const projectFiles = useMemo(() => new Set(views.map((view) => view.path)), [views]);
+  const gitStatusByPath = useMemo(
+    () => mergeIgnored(treeGitStatusMap(p.gitStatus, p.workspaceDir), ignoredPaths),
+    [p.gitStatus, p.workspaceDir, ignoredPaths],
+  );
   const allSourcesKey = useMemo(
     () => Array.from(sourceSet).filter((path) => path.toLowerCase().endsWith(".cs")).sort().join("\n"),
     [sourceSet],
@@ -187,6 +212,75 @@ export function SolutionTree(p: Props) {
     return Array.from(visible).sort().join("\n");
   }, [filter, p.expanded, p.showAll, views, listing, sourceSet, projectDirs, ancestors]);
 
+  // Same walk as `visibleSignature`, without the `.cs` filter: the ignore rules apply to every
+  // file row the tree is showing. While a filter is active the rows are not the expanded tree, so
+  // the ignored marker is dropped until the filter is cleared (the Git status itself stays).
+  const visibleFilePaths = useMemo(() => {
+    if (filter) return [];
+    const visible = new Set<string>();
+    if (p.showAll) {
+      const walk = (dir: string) => {
+        for (const entry of listing[dir] ?? []) {
+          if (entry.dir) {
+            const projectRoot = dir === "" && (projectDirs.has(entry.path) || ancestors.has(entry.path));
+            if (!projectRoot && p.expanded.has(dirKey(entry.path))) walk(entry.path);
+          } else {
+            visible.add(entry.path);
+          }
+        }
+      };
+      for (const view of views) {
+        if (p.expanded.has(view.path)) walk(dirOf(view.path));
+      }
+      if (p.expanded.has(ROOT_KEY)) walk("");
+    } else {
+      for (const view of views) {
+        if (!p.expanded.has(view.path)) continue;
+        for (const path of visibleSourceFiles(
+          nestSources(view.path, view.sources),
+          (key) => p.expanded.has(key),
+        )) {
+          visible.add(path);
+        }
+      }
+    }
+    return Array.from(visible).sort();
+  }, [filter, p.expanded, p.showAll, views, listing, projectDirs, ancestors]);
+
+  // `.gitignore` answers for the visible rows only, in batches, and only when the Git snapshot is
+  // available (trusted workspace): Restricted mode never calls Git.
+  const ignoredSignature = useMemo(() => {
+    if (!p.gitStatus || p.gitStatus.state !== "ok" || !p.gitStatus.root) return "";
+    return visibleFilePaths.join("\n");
+  }, [p.gitStatus, visibleFilePaths]);
+
+  useEffect(() => {
+    if (!ignoredSignature) {
+      setIgnoredPaths((current) => (current.length === 0 ? current : []));
+      return;
+    }
+    const paths = ignoredSignature.split("\n");
+    let alive = true;
+    void (async () => {
+      const ignored: string[] = [];
+      for (let start = 0; start < paths.length; start += 128) {
+        try {
+          const result = await call<{ ignored: string[] }>("git.ignored", {
+            paths: paths.slice(start, start + 128),
+          });
+          if (!alive) return;
+          ignored.push(...(result.ignored ?? []));
+        } catch {
+          break; // keep what the batches already proved; a missing marker is safer than a wrong one
+        }
+      }
+      if (!alive) return;
+      setIgnoredPaths(ignored);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [ignoredSignature]);
   // Batches of 128 keep the host's 256-file cap out of reach; `known` makes unchanged files a stat.
   useEffect(() => {
     if (!visibleSignature) return;
@@ -247,23 +341,78 @@ export function SolutionTree(p: Props) {
     }
   }, [allSourcesKey]);
 
+  // Symlinks of the evaluated rows (sources and their folders). "Show all files" already gets the
+  // flag from the listing, so the batch only runs in the evaluated mode.
+  const symlinkCandidates = useMemo(() => {
+    if (p.showAll) return "";
+    const paths = new Set<string>();
+    for (const view of views) {
+      for (const source of view.sources) {
+        paths.add(source);
+        for (let dir = dirOf(source); dir; dir = dirOf(dir)) paths.add(dir);
+      }
+    }
+    return Array.from(paths).sort().join("\n");
+  }, [p.showAll, views]);
+
+  useEffect(() => {
+    if (!symlinkCandidates) {
+      if (symlinkRef.current.size > 0) {
+        symlinkRef.current = new Set();
+        setSymlinks(symlinkRef.current);
+      }
+      return;
+    }
+    const candidates = symlinkCandidates.split("\n");
+    let alive = true;
+    void (async () => {
+      const links = new Set<string>();
+      for (let start = 0; start < candidates.length; start += 128) {
+        try {
+          const result = await call<{ entries: Array<{ path: string; symlink: boolean }> }>(
+            "workspace.symlinks",
+            { paths: candidates.slice(start, start + 128) },
+          );
+          if (!alive) return;
+          for (const entry of result.entries ?? []) if (entry.symlink) links.add(entry.path);
+        } catch {
+          break; // keep what the batches already proved; a missing marker is safer than a wrong one
+        }
+      }
+      if (!alive) return;
+      symlinkRef.current = links;
+      setSymlinks(links);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [symlinkCandidates]);
+
   const open = (key: string) => (filter ? true : p.expanded.has(key));
 
   function rowMenu(target: TreeTarget) {
     return (position: MenuPosition, row: HTMLElement) => p.onMenu(position, target, row);
   }
 
-  function fileRow(path: string, level: number, noIndex = false) {
+  function fileRow(path: string, level: number, noIndex = false, symlink = false) {
     const kind = fileKind(path);
     const symbol = symbolKinds[path];
+    const git = gitStatusByPath.get(path);
     return (
       <TreeRow
         key={path}
         level={level}
         icon={<FileIcon path={path} symbolKind={symbol} />}
         name={baseOf(path)}
-        description={symbol ? `C# ${SYMBOL_LABEL[symbol]}` : undefined}
+        description={describe(
+          symbol ? `C# ${SYMBOL_LABEL[symbol]}` : null,
+          symlink ? SYMLINK_DESCRIPTION : null,
+          git ? `Git status: ${GIT_STATUS_LABEL[git.status]}` : null,
+        ) || undefined}
         noIndex={noIndex}
+        symlink={symlink}
+        gitStatus={git?.status}
+        gitLabel={git?.label}
         testId={`tree-file-${path}`}
         fileKind={kind}
         symbolKind={symbol}
@@ -278,20 +427,29 @@ export function SolutionTree(p: Props) {
 
   function sourceRows(nodes: SourceNode[], level: number): ReactNode[] {
     return nodes.flatMap((node) => {
-      if (node.kind === "file") return !filter || hit(node.name) ? [fileRow(node.path, level)] : [];
-      const children = sourceRows(node.children, level + 1);
+      if (node.kind === "file") {
+        return !filter || hit(node.name)
+          ? [fileRow(node.path, level, false, symlinks.has(node.path))]
+          : [];
+      }
+      const link = symlinks.has(node.path);
+      const children = link ? [] : sourceRows(node.children, level + 1);
       if (filter && children.length === 0) return [];
       return [
         <TreeRow
           key={node.path}
           level={level}
-          open={open(dirKey(node.path))}
+          open={link ? undefined : open(dirKey(node.path))}
+          symlink={link}
+          description={link ? SYMLINK_DESCRIPTION : undefined}
           name={node.name}
           testId={`tree-dir-${node.path}`}
-          onClick={() => p.onToggle(dirKey(node.path))}
+          onClick={() => {
+            if (!link) p.onToggle(dirKey(node.path));
+          }}
           onMenu={rowMenu({ kind: "dir", path: node.path })}
         />,
-        ...(open(dirKey(node.path)) ? children : []),
+        ...(link || !open(dirKey(node.path)) ? [] : children),
       ];
     });
   }
@@ -299,23 +457,28 @@ export function SolutionTree(p: Props) {
   // "Show all files": the real directory, including bin/obj/dotfiles marked "no index".
   function diskRows(dir: string, level: number, skip: (entry: Entry) => boolean): ReactNode[] {
     return (listing[dir] ?? []).filter((entry) => !skip(entry) && (!filter || hit(entry.name))).flatMap((entry) => {
-      if (!entry.dir) return [fileRow(entry.path, level, entry.hidden || !sourceSet.has(entry.path))];
+      if (!entry.dir) {
+        return [fileRow(entry.path, level, entry.hidden || !sourceSet.has(entry.path), entry.symlink)];
+      }
       const key = dirKey(entry.path);
       return [
         <TreeRow
           key={entry.path}
           level={level}
-          open={open(key)}
+          open={entry.symlink ? undefined : open(key)}
+          symlink={entry.symlink}
+          description={entry.symlink ? SYMLINK_DESCRIPTION : undefined}
           name={entry.name}
           noIndex={entry.hidden}
           testId={`tree-dir-${entry.path}`}
           onClick={() => {
+            if (entry.symlink) return;
             p.onToggle(key);
             void ensureDir(entry.path);
           }}
           onMenu={rowMenu({ kind: "dir", path: entry.path })}
         />,
-        ...(open(key) ? diskRows(entry.path, level + 1, () => false) : []),
+        ...(entry.symlink || !open(key) ? [] : diskRows(entry.path, level + 1, () => false)),
       ];
     });
   }

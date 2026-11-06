@@ -104,24 +104,27 @@ pub fn list_files(root: &Path, limit: usize) -> FileList {
 
 /// One directory level for "Show all files". Hidden = ignored folder or dotfile; the UI decides
 /// "no index" for files from the evaluated sources. `.git` is never listed. Dirs first, then A-Z.
+/// `symlink` describes the entry itself (`DirEntry::file_type` never follows a link), while `dir`
+/// still says whether the target is a directory so the row keeps its folder glyph.
 pub fn list_dir(root: &Path, dir: &Path) -> std::io::Result<Vec<serde_json::Value>> {
-    let mut entries: Vec<(bool, String)> = Vec::new();
+    let mut entries: Vec<(bool, bool, String)> = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().to_string();
         if name == ".git" {
             continue;
         }
-        entries.push((entry.path().is_dir(), name));
+        let symlink = entry.file_type()?.is_symlink();
+        entries.push((entry.path().is_dir(), symlink, name));
     }
-    entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())));
+    entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.to_lowercase().cmp(&b.2.to_lowercase())));
     Ok(entries
         .into_iter()
-        .map(|(is_dir, name)| {
+        .map(|(is_dir, symlink, name)| {
             let rel = dir.join(&name);
             let rel = rel.strip_prefix(root).unwrap_or(&rel).to_string_lossy().replace('\\', "/");
             let hidden = name.starts_with('.') || (is_dir && IGNORED_DIRS.contains(&name.as_str()));
-            serde_json::json!({ "name": name, "path": rel, "dir": is_dir, "hidden": hidden })
+            serde_json::json!({ "name": name, "path": rel, "dir": is_dir, "symlink": symlink, "hidden": hidden })
         })
         .collect())
 }
