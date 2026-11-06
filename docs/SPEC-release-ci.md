@@ -78,7 +78,9 @@ privado (muxer com `dotnet.entitlements`, dylibs sem entitlements) e o netcoredb
 identidade. Depois do bundle, a auditoria lista **todos** os Mach-O do `.app` pelos quatro primeiros bytes
 (thin 32/64 bits nas duas endiannesses e os contêineres fat/fat64, inclusive com campos trocados;
 `cafebabe` é desambiguado do `.class` do Java pelo `nfat_arch`, que num binário universal é pequeno e
-num class file é a versão 45+) — hoje 18:
+num class file é a versão 45+); arquivo com menos de 8 bytes não é candidato, caminho com quebra de
+linha faz a auditoria falhar (a varredura é por linha) e symlink que aponta para fora do `.app` também
+(links internos são cobertos pelo alvo regular) — hoje 18:
 1 binário principal, 15 no runtime .NET, 2 no netcoredbg — e exige, em cada um:
 
 - `codesign --verify --strict` ok (a assinatura é verificada criptograficamente por arquivo, não só
@@ -140,9 +142,10 @@ passo-a-passo de cadastro e do primeiro run real fica em `docs/release-signing.m
 Store Connect é Team API Key (issuer obrigatório) ou Individual (sem issuer); o script passa
 `--issuer` só quando `APPLE_API_ISSUER` existe.
 
-O `.p8` é escrito em `$RUNNER_TEMP` com `mktemp` + `umask 077` (0600 desde o primeiro byte) no shell
-principal, antes de qualquer captura de saída do `notarytool`, para o `trap EXIT` sempre poder
-removê-lo — nunca dentro de uma substituição de comando. O self-check roda o caminho assinado com
+O `.p8` é escrito em `$RUNNER_TEMP` num diretório privado (`notary-key.<pid>`, 0700, criado com
+`umask 077`) e o caminho é definido **antes** de o arquivo existir, para o `trap EXIT` conhecê-lo desde
+o primeiro instante; o arquivo é criado no shell principal (0600 desde o primeiro byte), antes de
+qualquer captura de saída do `notarytool` — nunca dentro de uma substituição de comando. O self-check roda o caminho assinado com
 `notarytool` falso e prova que o arquivo não fica, nem no sucesso nem na rejeição.
 `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` só são exigidos no caminho do CI (que importa o
 `.p12`); numa máquina que usa `NOTARY_KEYCHAIN_PROFILE` o certificado já está no keychain e o script

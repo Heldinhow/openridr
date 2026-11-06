@@ -132,7 +132,9 @@ seriam executados. Nada é assinado, notarizado ou publicado.
 - **Auditoria de todos os Mach-O.** O script lista cada Mach-O do `.app` pelos quatro primeiros
   bytes — thin 32/64 bits nas duas endiannesses e os contêineres fat/fat64, inclusive os de campos
   trocados; `cafebabe` é desambiguado do `.class` do Java pelo `nfat_arch` (pequeno num binário
-  universal, 45+ num class file), porque `file` responde `data` para fat64 — hoje 18: binário
+  universal, 45+ num class file), porque `file` responde `data` para fat64. Arquivo com menos de 8
+  bytes é ignorado, caminho com quebra de linha e symlink que sai do `.app` fazem a auditoria falhar —
+  hoje 18: binário
   principal, 15 do runtime .NET e 2 do netcoredbg — e exige, por arquivo, inclusive a verificação
   criptográfica `codesign --verify --strict`,
   `flags=0x10000(runtime)`, `Timestamp=` e `Authority=Developer ID Application: <nossa identidade>`.
@@ -145,10 +147,11 @@ seriam executados. Nada é assinado, notarizado ou publicado.
   do `.app`/DMG. O host **não** compara contra hash fixado em runtime; o fingerprint
   (tamanho/mtime) só detecta mudança durante a sessão, e o SHA-256 exibido no SetupGate/Workspace
   tools é informativo.
-- **O `.p8` vive no processo principal.** Ele é escrito com `mktemp` + `umask 077` (0600 desde o
-  primeiro byte) e o caminho fica numa variável do shell do script, não em `$(...)`: `notarize` cria a
-  chave antes de capturar a saída do `notarytool`, então o `trap EXIT` sempre apaga o arquivo,
-  inclusive quando a notarização falha ou é rejeitada.
+- **O `.p8` vive no processo principal.** O caminho é definido antes de o arquivo existir
+  (`$RUNNER_TEMP/notary-key.<pid>/AuthKey_<id>.p8`, diretório 0700 criado com `umask 077`) e o arquivo
+  é criado no shell do script, não em `$(...)`: `notarize` cria a chave antes de capturar a saída do
+  `notarytool`, então o `trap EXIT` sempre apaga arquivo e diretório, inclusive quando a notarização
+  falha ou é rejeitada.
 - **Notarização explícita, não a do Tauri.** Nada de `APPLE_ID`/`APPLE_PASSWORD` no ambiente (o
   Tauri notarizaria por conta própria e o build passaria a depender de segredo próprio). A ordem é:
   `.app` zipado com `ditto` → `notarytool submit --wait` → `stapler staple`/`validate` no `.app` →

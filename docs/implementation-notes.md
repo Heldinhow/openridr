@@ -1359,16 +1359,18 @@ Spec: [SPEC-release-ci.md](SPEC-release-ci.md). Decisões: `decisions.md`, “Re
   não comece com `Developer ID Application: ` é recusada (impede `-` ad-hoc entrar pela variável).
 - **Auditoria de Mach-O:** lista os alvos pelos quatro primeiros bytes (thin 32/64 bits nas duas
   endiannesses, fat/fat64 e os de campos trocados; `cafebabe` desambiguado do `.class` do Java pelo
-  `nfat_arch`, porque `file` diz `data` para fat64) e exige por arquivo
+  `nfat_arch`, porque `file` diz `data` para fat64); arquivo < 8 bytes é ignorado, caminho com
+  quebra de linha e symlink para fora do `.app` fazem a auditoria falhar) e exige por arquivo
   `codesign --verify --strict`, `flags=0x10000(runtime)`, `Timestamp=` e
   `Authority=Developer ID Application: <identidade>`. Exceção única: basename `createdump`, aceito só
   com `Authority=Developer ID Application: Microsoft Corporation (UBF8T346G9)` e no máximo um.
   Comparação por `Authority`, porque dylib não tem `TeamIdentifier` (medido na alpha.11: 18 Mach-O,
   17 nossos + 1 `createdump`). A falha nomeia o caminho relativo e o motivo.
 - **Credenciais de notarização:** `APPLE_API_KEY` é base64 do `.p8`; `prepare_notary_key` grava o
-  caminho em `NOTARY_KEY_FILE` **no shell do script**, chamada por `notarize` antes da captura de
-  saída do `notarytool` (nunca em `$(...)`, senão o `trap EXIT` não apagaria), cria o arquivo com `mktemp` sob `umask 077` (0600 desde o primeiro byte), passa só o
-  caminho para `notarytool` e remove no `trap cleanup EXIT`. `--issuer` entra só quando
+  caminho em `NOTARY_KEY_DIR`/`NOTARY_KEY_FILE` (diretório privado 0700 e caminho determinístico) **antes**
+  de criar o arquivo, no shell do script e chamada por `notarize` antes da captura de saída do
+  `notarytool` (nunca em `$(...)`, senão o `trap EXIT` não apagaria); o arquivo nasce 0600, só o
+  caminho vai para o `notarytool` e arquivo + diretório saem no `trap cleanup EXIT`. `--issuer` entra só quando
   `APPLE_API_ISSUER` existe (Team API Key). `NOTARY_KEYCHAIN_PROFILE` é a alternativa local: dispensa
   `APPLE_API_KEY*` **e** os `.p12` (o certificado já está no keychain do Mac).
 - **Ordem do caminho completo:** build → auditoria → zip do `.app` (`ditto --sequesterRsrc`) →

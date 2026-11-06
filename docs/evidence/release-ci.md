@@ -31,7 +31,13 @@ acrescentadas na revisão):
   fat32, fat64 e as duas variantes de campos trocados) e ignora `Java.class` (mesmo `cafebabe`, com
   `nfat_arch` = versão 61) e um arquivo de dados;
 - o caminho assinado, com `xcrun`/`codesign`/`spctl` falsos, chega à notarização e deixa
-  `RUNNER_TEMP` limpo **no sucesso e na rejeição** (sem `AuthKey_*` nem zip de transporte);
+  `RUNNER_TEMP` limpo **no sucesso, na rejeição e quando a chave é inválida** (sem `AuthKey_*`, sem
+  `notary-key.*` e sem zip de transporte); um `openssl` falso registra, no instante da decodificação,
+  que o arquivo já está no caminho determinístico `notary-key.<pid>/AuthKey_<id>.p8` com modo 0600 e o
+  diretório com 0700;
+- a auditoria falha com caminho contendo quebra de linha, falha com symlink que aponta para fora do
+  `.app` e aceita symlink interno (o alvo regular é o auditado); arquivo de 4 bytes com magic de
+  Mach-O é ignorado (`tiny4`), não auditado;
 - a auditoria reprova binário com assinatura quebrada (`does not verify with codesign --verify
   --strict`), não só metadado ausente;
 - modo completo sobre um bundle ad-hoc para na auditoria (`has no hardened runtime`) sem criar
@@ -56,6 +62,10 @@ hash não-hex, bytes zero ou decimal, arquivo ausente, notas com SHA-256 escrito
   `the dry run passed APPLE_SIGNING_IDENTITY='…' to the build`.
 - Remover o `codesign --verify --strict` por arquivo: falha em
   `broken signature message is not specific: … has no hardened runtime`.
+- Voltar a chave para `mktemp` dentro de `$(...)`: falha em
+  `the key was not at the deterministic path with 0600 while being written`.
+- Remover `check_bundle_tree`: falha em `a symlink leaving the bundle was accepted`.
+- Remover a guarda de 8 bytes: falha em `the audit treated tiny4 as Mach-O`.
 - Remover a chamada de `prepare_notary_key` no shell principal (deixando a chave nascer dentro do
   `$(...)` do `notarytool`): o self-check falha em
   `after a successful notarization these stayed behind: AuthKey_SELFTEST123…`.

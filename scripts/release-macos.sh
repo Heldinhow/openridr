@@ -26,6 +26,7 @@ AUDIT_APP=
 # The private .NET runtime ships one binary signed by Microsoft; everything else is ours.
 MICROSOFT_IDENTITY="Developer ID Application: Microsoft Corporation (UBF8T346G9)"
 NOTARY_KEY_FILE=
+NOTARY_KEY_DIR=
 NOTARY_ZIP=
 
 # Names only: the preflight reports what is missing, never a value.
@@ -356,6 +357,34 @@ audit_identity() {
   printf '%s' "$ident"
 }
 
+# A path containing a newline would be silently split by the line-based walk, and a symlink that
+# points outside the bundle would name a binary the bundle does not contain: both are refused.
+check_bundle_tree() {
+  app=$1
+  entries=$(find "$app" -print0 | tr -cd '\000' | wc -c | tr -d ' ')
+  lines=$(find "$app" -print | wc -l | tr -d ' ')
+  [ "$entries" = "$lines" ] ||
+    fail "$app has a path containing a newline; the audit cannot walk it safely"
+  list=$(mktemp "$WORK/symlinks.XXXXXX")
+  find "$app" -type l >"$list"
+  while IFS= read -r link; do
+    target=$(readlink "$link")
+    case $target in
+      /*) candidate=$target ;;
+      *) candidate=$(dirname "$link")/$target ;;
+    esac
+    resolved=$(cd "$(dirname "$candidate")" 2>/dev/null && pwd -P)/$(basename "$candidate")
+    case $resolved in
+      "$app"/*) ;;
+      *)
+        rm -f "$list"
+        fail "symlink ${link#"$app"/} -> $target points outside $app"
+        ;;
+    esac
+  done <"$list"
+  rm -f "$list"
+}
+
 # Mach-O by the first four bytes: thin 32/64-bit in both endiannesses and the fat (universal)
 # containers. `file` is not enough: it answers "data" for a fat64 header. `cafebabe` is shared with
 # Java .class files, disambiguated by the next word (nfat_arch): a fat binary has a handful of
@@ -363,6 +392,8 @@ audit_identity() {
 macho_files() {
   find "$1" -type f | while IFS= read -r file; do
     bytes=$(od -An -tx1 -N8 "$file" 2>/dev/null | tr -d ' \n')
+    # Shorter than eight bytes cannot be a Mach-O header; ignore instead of guessing.
+    [ ${#bytes} -eq 16 ] || continue
     magic=$(printf '%s' "$bytes" | cut -c1-8)
     case $magic in
       feedface | feedfacf | cefaedfe | cffaedfe | cafebabf | bebafeca | bfbafeca)
@@ -384,6 +415,8 @@ audit_app() {
   app=$1
   ident=$2
   [ -d "$app" ] || fail "no app bundle at $app"
+  app=$(cd "$app" && pwd -P)
+  check_bundle_tree "$app"
   list=$(mktemp "$WORK/macho.XXXXXX")
   macho_files "$app" >"$list"
   total=$(wc -l <"$list" | tr -d ' ')
@@ -454,9 +487,15 @@ prepare_notary_key() {
   fi
   [ -n "${APPLE_API_KEY:-}" ] || return 1
   [ -n "${APPLE_API_KEY_ID:-}" ] || fail "APPLE_API_KEY is set without APPLE_API_KEY_ID"
+  # Both names are known before any byte exists, so a signal in between still leaves the trap a
+  # path to remove. The private directory keeps the file 0700/0600 from the first syscall.
   old_umask=$(umask)
   umask 077
-  NOTARY_KEY_FILE=$(mktemp "$WORK/AuthKey_${APPLE_API_KEY_ID}.XXXXXX")
+  NOTARY_KEY_DIR="$WORK/notary-key.$$"
+  NOTARY_KEY_FILE="$NOTARY_KEY_DIR/AuthKey_${APPLE_API_KEY_ID}.p8"
+  rm -rf "$NOTARY_KEY_DIR"
+  mkdir "$NOTARY_KEY_DIR" || fail "cannot create $NOTARY_KEY_DIR"
+  : >"$NOTARY_KEY_FILE" || fail "cannot create $NOTARY_KEY_FILE"
   umask "$old_umask"
   printf '%s' "$APPLE_API_KEY" | tr -d '\n' | openssl base64 -d -A >"$NOTARY_KEY_FILE" ||
     fail "APPLE_API_KEY is not valid base64 of a .p8"
@@ -562,6 +601,10 @@ cleanup() {
   if [ -n "$NOTARY_KEY_FILE" ]; then
     rm -f "$NOTARY_KEY_FILE"
     NOTARY_KEY_FILE=
+  fi
+  if [ -n "$NOTARY_KEY_DIR" ]; then
+    rm -rf "$NOTARY_KEY_DIR"
+    NOTARY_KEY_DIR=
   fi
   if [ -n "$NOTARY_ZIP" ]; then
     rm -f "$NOTARY_ZIP"

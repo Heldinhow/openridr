@@ -361,10 +361,10 @@ magicapp="$work/Magic.app"
 mkdir -p "$magicapp/Contents/MacOS" "$magicapp/Contents/Frameworks"
 magicdir="$magicapp/Contents/MacOS"
 # Octal escapes keep this portable between sh implementations.
-printf '\317\372\355\376' >"$magicdir/thin64le"
-printf '\376\355\372\317' >"$magicdir/thin64be"
-printf '\316\372\355\376' >"$magicdir/thin32le"
-printf '\376\355\372\316' >"$magicdir/thin32be"
+printf '\317\372\355\376\000\000\000\000' >"$magicdir/thin64le"
+printf '\376\355\372\317\000\000\000\000' >"$magicdir/thin64be"
+printf '\316\372\355\376\000\000\000\000' >"$magicdir/thin32le"
+printf '\376\355\372\316\000\000\000\000' >"$magicdir/thin32be"
 printf '\312\376\272\276\000\000\000\002' >"$magicdir/fat32"
 printf '\312\376\272\277\000\000\000\002' >"$magicdir/fat64"
 printf '\276\272\376\312\000\000\000\002' >"$magicdir/fat32swapped"
@@ -372,6 +372,8 @@ printf '\277\272\376\312\000\000\000\002' >"$magicdir/fat64swapped"
 # Java .class shares cafebabe but carries minor/major version (45+) in the second word.
 printf '\312\376\272\276\000\000\000\075' >"$magicdir/Java.class"
 printf '\000\001\002\003\004\005\006\007' >"$magicdir/data.bin"
+# Four bytes with a thin Mach-O magic: shorter than a header, so it is ignored, not guessed.
+printf '\317\372\355\376' >"$magicdir/tiny4"
 binF="$work/bin-fake"
 mkdir -p "$binF"
 cat >"$binF/codesign" <<'FAKECODESIGN'
@@ -397,7 +399,7 @@ CODESIGN_LOG=$log APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santo
 for name in thin64le thin64be thin32le thin32be fat32 fat64 fat32swapped fat64swapped; do
   grep -q "/$name\$" "$log" || fail "the audit ignored $name (fat64 included)"
 done
-for name in Java.class data.bin; do
+for name in Java.class data.bin tiny4; do
   if grep -q "/$name\$" "$log"; then fail "the audit treated $name as Mach-O"; fi
 done
 if grep -q "audit ok: 8 Mach-O" "$work/err"; then :; else
@@ -425,19 +427,33 @@ case $1 in
 esac
 exit 0
 FAKEXCRUN
+cat >"$binF/openssl" <<'FAKEOPENSSL'
+#!/bin/sh
+# Records the notary key as it exists while it is being decoded: the trap must already know the
+# path (deterministic, private directory) and the file must be 0600 from the first byte.
+if [ -n "${SELFTEST_SEEN:-}" ]; then
+  for candidate in "$SELFTEST_HOME"/notary-key.*/AuthKey_*.p8; do
+    if [ -e "$candidate" ]; then
+      printf '%s %s\n' "$(stat -f '%Lp' "$candidate")" "$candidate" >>"$SELFTEST_SEEN"
+      printf 'dir %s\n' "$(stat -f '%Lp' "$(dirname "$candidate")")" >>"$SELFTEST_SEEN"
+    fi
+  done
+fi
+exec /usr/bin/openssl "$@"
+FAKEOPENSSL
 cat >"$binF/spctl" <<'FAKESPCTL'
 #!/bin/sh
 echo "selftest: accepted"
 exit 0
 FAKESPCTL
-chmod +x "$binF/xcrun" "$binF/spctl"
+chmod +x "$binF/xcrun" "$binF/spctl" "$binF/openssl"
 cp "$(command -v sh)" "$stub/Contents/MacOS/openridr"
 stub_plist "$VERSION"
 release_key=$(printf 'selftest-notary-key' | openssl base64 -A)
 # Anything the notarization leaves in RUNNER_TEMP: the key and the transport zip.
 leftovers_in() {
   found=
-  for candidate in "$1"/AuthKey_* "$1"/*notary*; do
+  for candidate in "$1"/AuthKey_* "$1"/*notary* "$1"/*/AuthKey_*; do
     if [ -e "$candidate" ]; then found="$found $candidate"; fi
   done
   printf '%s' "$found"
@@ -448,12 +464,14 @@ run_signed() {
   mkdir -p "$home"
   NOTARY_MODE=$mode RELEASE_ROOT=$root RUNNER_TEMP=$home RELEASE_APP=$stub \
     APPLE_CERTIFICATE=$canary APPLE_CERTIFICATE_PASSWORD=$canary \
-    APPLE_API_KEY=$release_key APPLE_API_KEY_ID=SELFTEST123 \
+    APPLE_API_KEY=${SELFTEST_KEY:-$release_key} APPLE_API_KEY_ID=SELFTEST123 \
     APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
     PATH="$binF:$PATH" sh "$script" --tag "v$VERSION"
 }
 ok_home="$work/run-signed-ok"
-if ! run_signed ok "$ok_home" >"$work/out" 2>"$work/err"; then
+seen="$work/key-seen"
+: >"$seen"
+if ! SELFTEST_SEEN=$seen SELFTEST_HOME=$ok_home run_signed ok "$ok_home" >"$work/out" 2>"$work/err"; then
   cat "$work/err" >&2
   fail "the signed path failed with a fake notarytool"
 fi
@@ -462,6 +480,9 @@ grep -q "notarization accepted: OpenRidr-notary" "$work/err" ||
   fail "the app was not sent to the (fake) notary: $(cat "$work/err")"
 leftovers=$(leftovers_in "$ok_home")
 [ -z "$leftovers" ] || fail "after a successful notarization these stayed behind: $leftovers"
+grep -Eq '^600 .*/notary-key\.[0-9]+/AuthKey_SELFTEST123\.p8$' "$seen" ||
+  fail "the key was not at the deterministic path with 0600 while being written: $(cat "$seen")"
+grep -q '^dir 700$' "$seen" || fail "the key directory is not private: $(cat "$seen")"
 
 bad_home="$work/run-signed-reject"
 if run_signed reject "$bad_home" >"$work/out" 2>"$work/err"; then
@@ -470,5 +491,43 @@ fi
 grep -q "Apple rejected" "$work/err" || fail "the rejection is not reported: $(cat "$work/err")"
 leftovers=$(leftovers_in "$bad_home")
 [ -z "$leftovers" ] || fail "after a rejection these stayed behind: $leftovers"
+
+bad_key_home="$work/run-bad-key"
+if SELFTEST_KEY='not-a-key' run_signed ok "$bad_key_home" >"$work/out" 2>"$work/err"; then
+  fail "an invalid APPLE_API_KEY was accepted"
+fi
+grep -q "APPLE_API_KEY" "$work/err" || fail "the empty key is not reported: $(cat "$work/err")"
+leftovers=$(leftovers_in "$bad_key_home")
+[ -z "$leftovers" ] || fail "a failed key write left these behind: $leftovers"
+
+echo "self-check: the audit refuses what it cannot walk, and links that leave the bundle"
+tree_app="$work/Tree.app"
+mkdir -p "$tree_app/Contents/MacOS"
+cp "$(command -v sh)" "$tree_app/Contents/MacOS/openridr"
+cp "$stub/Contents/Info.plist" "$tree_app/Contents/Info.plist"
+audit_tree() {
+  CODESIGN_LOG=$log PATH="$binF:$PATH" sh "$script" --audit "$tree_app" >"$work/out" 2>"$work/err"
+}
+# An internal symlink is normal in a bundle; the regular target is what gets audited.
+ln -s openridr "$tree_app/Contents/MacOS/alias"
+if ! audit_tree; then
+  cat "$work/err" >&2
+  fail "an internal symlink was refused"
+fi
+rm -f "$tree_app/Contents/MacOS/alias"
+
+ln -s /etc/hosts "$tree_app/Contents/MacOS/outside"
+if audit_tree; then fail "a symlink leaving the bundle was accepted"; fi
+grep -q "points outside" "$work/err" ||
+  fail "outside symlink message is not specific: $(cat "$work/err")"
+rm -f "$tree_app/Contents/MacOS/outside"
+
+touch "$tree_app/Contents/MacOS/last
+line"
+if audit_tree; then fail "a path with a newline was accepted"; fi
+grep -q "path containing a newline" "$work/err" ||
+  fail "newline message is not specific: $(cat "$work/err")"
+rm -f "$tree_app/Contents/MacOS/last
+line"
 
 echo "ok: release self-check passed"

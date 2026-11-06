@@ -979,6 +979,14 @@ todos os achados alto/médio foram corrigidos com teste que falha antes e passa 
   `nfat_arch` (< 30 é fat; 45+ é versão de classe). E `notarize` — que captura a saída do `notarytool`
   em `$(...)` — passou a chamar `prepare_notary_key` **antes** da captura: criar a chave dentro do
   subshell deixava o arquivo órfão, porque o `trap EXIT` roda no shell principal.
+- **Terceira rodada (baixos do re-check): caminho da chave antes do arquivo, e recusar o que a
+  varredura não sabe ler.** `prepare_notary_key` define `NOTARY_KEY_FILE` num diretório privado
+  (`$RUNNER_TEMP/notary-key.<pid>`, 0700) **antes** de criar o arquivo, então o `trap` conhece o
+  caminho desde o primeiro instante — o `mktemp` dentro de `$(...)` deixava uma janela em que o arquivo
+  existia sem caminho registrado. Na auditoria: arquivo com menos de 8 bytes não é candidato a Mach-O,
+  caminho com quebra de linha faz falhar (a varredura é por linha) e symlink apontando para fora do
+  `.app` faz falhar; links internos (normais num bundle) continuam aceitos porque o alvo regular é
+  auditado.
 - **O bloco publicado não afirma o que não foi verificado.** O resultado de `codesign` no corpo passou
   a dizer "app e app no DMG montado" (o DMG em si é verificado por `spctl`/`stapler`, não por
   `codesign --deep`).
