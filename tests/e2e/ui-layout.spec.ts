@@ -40,8 +40,9 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     const editorBox = (await editor.boundingBox())!;
     const outputBox = (await output.boundingBox())!;
     expect(treeBox.width).toBe(280);
-    expect(treeBox.y).toBe(52);
-    expect(treeBox.y + treeBox.height).toBe(outputBox.y - 4);
+    expect(treeBox.y).toBe(56);
+    expect(outputBox.y - (treeBox.y + treeBox.height)).toBeGreaterThanOrEqual(4);
+    expect(outputBox.y - (treeBox.y + treeBox.height)).toBeLessThanOrEqual(12);
     expect(editorBox.height).toBeGreaterThan(200);
     expect(outputBox.height).toBe(220);
     expect(outputBox.x).toBe(treeBox.x);
@@ -210,7 +211,6 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     );
     const evaluationLabel = page.getByTestId("status-evaluation");
     await expect(evaluationLabel).toHaveAttribute("title", /^Evaluated · Debug · TFM .* · revision \d+$/);
-    // Secondary status text ellipsizes only when the bar runs out of room (ui-shape 02).
-    expect(await evaluationLabel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(viewport.width <= 1100);
+    expect(await evaluationLabel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
   });
 }

@@ -2989,6 +2989,9 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .status > [data-testid="status-keymap"] { margin-left: auto; }
 .status > [data-testid="status-analysis"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .status > [data-testid="status-breadcrumb"] { flex: 0 1 200px; }
+.status > [data-testid="status-evaluation"] { max-width: 68px; }
+.status > [data-testid="status-evaluation"].is-stale { max-width: 170px; }
+.status > [data-testid="status-analysis"] { max-width: 170px; }
 .breadcrumb-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 12px; border-bottom: 1px solid var(--line-internal); flex: 0 0 auto; }
 .breadcrumb-row .breadcrumb { border-bottom: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .breadcrumb { font-size: var(--fs-meta); }
@@ -3012,6 +3015,9 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .side:focus-within .tree-row[aria-current="page"] { background: var(--accent-surface-strong); }
 .sol-row.selected, .sol-row[aria-current="page"], .sol-row.selected.no-index { background: #43454a; box-shadow: none; }
 .side:focus-within .sol-row.selected, .side:focus-within .sol-row[aria-current="page"], .side:focus-within .sol-row.selected.no-index { background: #2e436e; box-shadow: none; }
+.sol-tree:has(.sol-row[aria-current="page"]) .sol-row[aria-current="true"],
+.side:focus-within .sol-tree:has(.sol-row[aria-current="page"]) .sol-row[aria-current="true"] { background: transparent; }
+.sol-tree .sol-row:not(.selected):hover { background: rgba(255, 255, 255, 0.04); }
 .sol-row:focus-visible { outline: 2px solid #a9c7ff; outline-offset: -2px; }
 /* D4: one hairline per expanded ancestor, in that ancestor's chevron column. */
 .tree-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); opacity: 0.55; pointer-events: none; }
@@ -3366,6 +3372,7 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 
 /* ui-shape polish — keyboard focus is a ring, never fill alone: dense rows and menu items take it inset so scrollers do not clip it. */
 .editor-context-menu button:not(:disabled):focus-visible, .find-usages-file li button:focus-visible, .tree-row:focus-visible, .branch-list button:focus-visible, .branch-actions > button:focus-visible, .menu-content > button:focus-visible, .bottom-hide:focus-visible, .settings-tree button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.side .sol-row:focus-visible { outline-color: #a9c7ff; }
 
 /* Solution tree menu: submenu opens to the right of its parent row, like Rider. */
 .editor-context-menu.has-submenu { overflow: visible; max-height: none; }

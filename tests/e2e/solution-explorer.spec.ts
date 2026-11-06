@@ -28,6 +28,19 @@ test.afterEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
 
+test("current file remains the sole strong tree highlight", async ({ page }) => {
+  await open(page, tempCopy());
+  const project = page.getByTestId("tree-project-OrderDesk.Cli");
+  await project.click();
+  await project.click();
+  const file = page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs");
+  await file.click();
+  await expect(file).toHaveAttribute("aria-current", "page");
+  await expect(project).toHaveAttribute("aria-current", "true");
+  await expect(project).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(file).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+});
+
 test("Rider-style rows: counts, solution folders, nested sources and Dependencies", async ({ page }) => {
   await open(page, tempCopy());
   await expect(page.getByTestId("tree-root")).toContainText("3 projects");
