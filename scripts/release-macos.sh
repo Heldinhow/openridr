@@ -4,12 +4,15 @@
 #
 #   sh scripts/release-macos.sh --check [--tag vX.Y.Z]   preflight only, no side effects
 #   sh scripts/release-macos.sh --dry-run                build + DMG, stop before signing
+#   sh scripts/release-macos.sh --dmg-only --app <app>   assemble and verify a DMG, no signing
+#   sh scripts/release-macos.sh --audit <app>            only the Mach-O signature audit
 #   sh scripts/release-macos.sh                          full path: build, sign, notarize, staple
 #
 # Credentials come from the environment and are never printed, written to the repo or passed as
 # command-line values (the notary API key is passed as a path):
 #   APPLE_SIGNING_IDENTITY (repo variable), APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
 #   APPLE_API_KEY (base64 of the .p8), APPLE_API_KEY_ID, APPLE_API_ISSUER (Team API keys only).
+# On a Mac with the `notary` keychain profile, NOTARY_KEYCHAIN_PROFILE replaces the API key trio.
 # Temporary work stays in $RUNNER_TEMP (default: ${TMPDIR:-/tmp}).
 set -eu
 
