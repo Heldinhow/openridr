@@ -13,6 +13,7 @@ import {
 
 type Props = {
   snapshot: Snapshot;
+  shortcuts: { start?: string; stop?: string; resume?: string; over?: string; into?: string; out?: string; breakpoint?: string };
   disabledReason: string | null;
   trusted: boolean;
   onTrust: () => void;
@@ -43,6 +44,7 @@ const stateLabels: Record<Dap["state"], string> = {
 
 export function DebugPanel({
   snapshot,
+  shortcuts,
   disabledReason,
   trusted,
   onTrust,
@@ -52,8 +54,8 @@ export function DebugPanel({
   onOpenFrame,
   onRestart,
 }: Props) {
-  const stopKey = snapshot.app.platform === "windows" ? "Ctrl+F2" : "⌘F2";
-  const stepOutKey = snapshot.app.platform === "windows" ? "Shift+F8" : "⇧F8";
+  const stopKey = shortcuts.stop ?? "";
+  const stepOutKey = shortcuts.out ?? "";
   const dap = snapshot.dap;
   const [busy, setBusy] = useState<string | null>(null);
   const [logTab, setLogTab] = useState<"console" | "output">("console");
@@ -111,7 +113,7 @@ export function DebugPanel({
             onClick={onLaunch}
             title={
               disabledReason ??
-              `Starts the evaluated managed assembly under the verified adapter (${snapshot.app.platform === "windows" ? "Shift+F9" : "Ctrl+D"}).`
+              `Starts the evaluated managed assembly under the verified adapter (${shortcuts.start ?? ""}).`
             }
           >
             <Icon name="debug" />
@@ -161,7 +163,7 @@ export function DebugPanel({
             aria-label="Resume"
               disabled={busy !== null}
               onClick={() => void invoke("Resume", "debug.continue")}
-              title="Resumes every thread (F9)."
+              title={`Resumes every thread (${shortcuts.resume ?? ""}).`}
             >
               <Icon name="resume" />
             </button>
@@ -171,7 +173,7 @@ export function DebugPanel({
             aria-label="Step over"
               disabled={busy !== null}
               onClick={() => void invoke("Step over", "debug.stepOver")}
-              title="Steps over the current line (F8)."
+              title={`Steps over the current line (${shortcuts.over ?? ""}).`}
             >
               <Icon name="stepOver" />
             </button>
@@ -181,7 +183,7 @@ export function DebugPanel({
             aria-label="Step into"
               disabled={busy !== null}
               onClick={() => void invoke("Step into", "debug.stepInto")}
-              title="Steps into the current call (F7)."
+              title={`Steps into the current call (${shortcuts.into ?? ""}).`}
             >
               <Icon name="stepInto" />
             </button>
@@ -453,7 +455,7 @@ export function DebugPanel({
         </label>
         {dap.breakpoints.length === 0 ? (
           <p className="muted" data-testid="debug-breakpoints-empty">
-            No breakpoints. Click the gutter marker column or press {snapshot.app.platform === "macos" ? "Cmd+F8" : "Ctrl+F8"} on a line.
+            No breakpoints. Click the gutter marker column or press {shortcuts.breakpoint} on a line.
           </p>
         ) : (
           <>
