@@ -16,6 +16,11 @@ pub const LOG_LIMIT: usize = 200;
 pub const COMMIT_FILES_LIMIT: usize = 200;
 pub const DIFF_LIMIT: usize = 240_000;
 pub const OUTPUT_LIMIT: usize = 32_000;
+/// Full-file sides are a read for the diff panel, never a guarantee: above these the read falls
+/// back to the bounded patch, and the panel says why.
+pub const FULL_FILE_BYTES: usize = 1_048_576;
+pub const FULL_FILE_LINES: usize = 30_000;
+const BINARY_PROBE: usize = 8_192;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -223,6 +228,77 @@ impl GitDiff {
     }
 }
 
+/// One side of a full-file diff: the text is present only when the side exists and the host can
+/// show it whole. `text: None` with `exists: true` is a fact for the fallback, never an empty file.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffSide {
+    pub exists: bool,
+    pub text: Option<String>,
+}
+
+/// A changed block as `git diff -U0` reports it: the base lines `oldStart..oldStart+oldCount`
+/// pair with the current lines `newStart..newStart+newCount`. A count of zero at `start` means
+/// the block is inserted after line `start` (0 = before the first line).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffHunk {
+    pub old_start: u32,
+    pub old_count: u32,
+    pub new_start: u32,
+    pub new_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFileDiff {
+    pub state: &'static str,
+    pub message: Option<String>,
+    pub path: String,
+    pub staged: bool,
+    pub base: DiffSide,
+    pub current: DiffSide,
+    pub hunks: Vec<DiffHunk>,
+    pub patch: String,
+    pub truncated: bool,
+    pub full: bool,
+    pub full_reason: Option<&'static str>,
+    pub commit: Option<DiffCommit>,
+}
+
+impl GitFileDiff {
+    fn unavailable(state: &'static str, message: impl Into<String>, path: &str, staged: bool) -> Self {
+        Self {
+            state,
+            message: Some(message.into()),
+            path: path.to_string(),
+            staged,
+            base: DiffSide {
+                exists: false,
+                text: None,
+            },
+            current: DiffSide {
+                exists: false,
+                text: None,
+            },
+            hunks: Vec::new(),
+            patch: String::new(),
+            truncated: false,
+            full: false,
+            full_reason: None,
+            commit: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Committed {
@@ -275,7 +351,9 @@ enum SpawnError {
     Failed(String),
 }
 
-fn run(cwd: &Path, args: &[&str]) -> Result<Output, SpawnError> {
+/// Raw stdout, for blob contents that must not go through lossy UTF-8 conversion before the
+/// host decides whether they are text at all.
+fn spawn_bytes(cwd: &Path, args: &[&str]) -> Result<(Option<i32>, Vec<u8>, String), SpawnError> {
     let output = Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -288,10 +366,19 @@ fn run(cwd: &Path, args: &[&str]) -> Result<Output, SpawnError> {
             std::io::ErrorKind::NotFound => SpawnError::Missing,
             _ => SpawnError::Failed(error.to_string()),
         })?;
+    Ok((
+        output.status.code(),
+        output.stdout,
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    ))
+}
+
+fn run(cwd: &Path, args: &[&str]) -> Result<Output, SpawnError> {
+    let (code, stdout, stderr) = spawn_bytes(cwd, args)?;
     Ok(Output {
-        code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        code,
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr,
     })
 }
 
@@ -825,6 +912,45 @@ fn validate_branch(name: &str) -> HostResult<()> {
     Ok(())
 }
 
+/// Defines what `git diff` compares. `unified` is the context the caller needs: `-U3` for the
+/// patch a surface shows, `-U0` for the changed block ranges only.
+fn diff_output(
+    repo: &Repo,
+    path: &str,
+    staged: bool,
+    tracked: bool,
+    unified: &str,
+) -> Result<Output, SpawnError> {
+    if tracked {
+        let mut args = vec!["diff", "--no-color", "--no-ext-diff", unified];
+        if staged {
+            args.push("--cached");
+        }
+        args.push("--");
+        args.push(path);
+        run(&repo.top, &args)
+    } else {
+        // An untracked file has no index entry to diff against; /dev/null shows its content.
+        run(
+            &repo.top,
+            &[
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                unified,
+                "--no-index",
+                "--",
+                "/dev/null",
+                path,
+            ],
+        )
+    }
+}
+
+fn is_tracked(repo: &Repo, path: &str) -> Result<bool, SpawnError> {
+    Ok(run(&repo.top, &["ls-files", "--error-unmatch", "--", path])?.ok())
+}
+
 pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
     validate_path(path)?;
     let repo = match open(root) {
@@ -834,41 +960,13 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
             return Ok(GitDiff::unavailable(state, message, path, staged));
         }
     };
-    let tracked = match run(&repo.top, &["ls-files", "--error-unmatch", "--", path]) {
-        Ok(output) => output,
+    let tracked = match is_tracked(&repo, path) {
+        Ok(tracked) => tracked,
         Err(error) => return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged)),
     };
-    let output = if tracked.ok() {
-        let args = if staged {
-            vec!["diff", "--no-color", "--no-ext-diff", "--cached", "--", path]
-        } else {
-            vec!["diff", "--no-color", "--no-ext-diff", "--", path]
-        };
-        match run(&repo.top, &args) {
-            Ok(output) => output,
-            Err(error) => {
-                return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged));
-            }
-        }
-    } else {
-        // An untracked file has no index entry to diff against; /dev/null shows its content.
-        match run(
-            &repo.top,
-            &[
-                "diff",
-                "--no-color",
-                "--no-ext-diff",
-                "--no-index",
-                "--",
-                "/dev/null",
-                path,
-            ],
-        ) {
-            Ok(output) => output,
-            Err(error) => {
-                return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged));
-            }
-        }
+    let output = match diff_output(&repo, path, staged, tracked, "-U3") {
+        Ok(output) => output,
+        Err(error) => return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged)),
     };
     if output.code != Some(0) && output.code != Some(1) {
         let stderr = mask_urls(output.stderr.trim());
@@ -891,6 +989,245 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
         staged,
         diff,
         truncated,
+    })
+}
+
+/// One side's bytes, keeping "does not exist" apart from "exists but cannot be read".
+enum SideBytes {
+    Missing,
+    Bytes(Vec<u8>),
+    Unreadable,
+}
+
+/// `text: None` with `exists: true` is a fact the panel must explain, never an empty file.
+fn read_side(bytes: SideBytes) -> (DiffSide, Option<&'static str>) {
+    let missing = DiffSide {
+        exists: false,
+        text: None,
+    };
+    let bytes = match bytes {
+        SideBytes::Missing => return (missing, None),
+        SideBytes::Unreadable => {
+            return (
+                DiffSide {
+                    exists: true,
+                    text: None,
+                },
+                Some("unreadable"),
+            )
+        }
+        SideBytes::Bytes(bytes) => bytes,
+    };
+    let present = DiffSide {
+        exists: true,
+        text: None,
+    };
+    if bytes.len() > FULL_FILE_BYTES {
+        return (present, Some("too_large"));
+    }
+    // UTF-16 text is full of NUL bytes and still something the editor shows; only a NUL without
+    // a UTF-16 BOM is the Git-style "binary" verdict.
+    let utf16 = bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
+    if !utf16 && bytes.iter().take(BINARY_PROBE).any(|byte| *byte == 0) {
+        return (present, Some("binary"));
+    }
+    match crate::fsutil::decode_text(&bytes) {
+        Ok((text, _)) => {
+            if text.lines().count() > FULL_FILE_LINES {
+                return (present, Some("too_large"));
+            }
+            (
+                DiffSide {
+                    exists: true,
+                    text: Some(text),
+                },
+                None,
+            )
+        }
+        Err(_) => (present, Some("unsupported_encoding")),
+    }
+}
+
+fn read_blob(repo: &Repo, spec: &str) -> SideBytes {
+    match spawn_bytes(&repo.top, &["cat-file", "blob", spec]) {
+        Ok((Some(0), stdout, _)) => SideBytes::Bytes(stdout),
+        // A failed `cat-file` is "this revision does not have that path" for every caller here:
+        // added files, deletions and a repository without commits all land in this arm.
+        _ => SideBytes::Missing,
+    }
+}
+
+fn read_worktree(repo: &Repo, path: &str) -> SideBytes {
+    match std::fs::read(repo.top.join(path)) {
+        Ok(bytes) => SideBytes::Bytes(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => SideBytes::Missing,
+        Err(_) => SideBytes::Unreadable,
+    }
+}
+
+fn range(text: &str) -> Option<(u32, u32)> {
+    match text.split_once(',') {
+        Some((start, count)) => Some((start.parse().ok()?, count.parse().ok()?)),
+        None => Some((text.parse().ok()?, 1)),
+    }
+}
+
+/// Header-only parse of a `-U0` patch: `@@ -oldStart,oldCount +newStart,newCount @@`. The body is
+/// not needed, because with zero context every hunk is exactly one changed block.
+fn parse_hunks(patch: &str) -> Vec<DiffHunk> {
+    let mut hunks = Vec::new();
+    for line in patch.lines() {
+        let Some(rest) = line.strip_prefix("@@ -") else {
+            continue;
+        };
+        let Some((old, rest)) = rest.split_once(" +") else {
+            continue;
+        };
+        let Some((new, _)) = rest.split_once(' ') else {
+            continue;
+        };
+        let (Some((old_start, old_count)), Some((new_start, new_count))) =
+            (range(old), range(new))
+        else {
+            continue;
+        };
+        hunks.push(DiffHunk {
+            old_start,
+            old_count,
+            new_start,
+            new_count,
+        });
+    }
+    hunks
+}
+
+fn head_commit(repo: &Repo) -> Option<DiffCommit> {
+    let output = run(&repo.top, &["log", "-1", "--format=%H\t%h\t%s"]).ok()?;
+    if !output.ok() {
+        return None;
+    }
+    let text = output.stdout.trim_end_matches('\n');
+    let mut parts = text.splitn(3, '\t');
+    let hash = parts.next()?.to_string();
+    let short_hash = parts.next()?.to_string();
+    let subject = parts.next()?.to_string();
+    if hash.is_empty() {
+        return None;
+    }
+    Some(DiffCommit {
+        hash,
+        short_hash,
+        subject,
+    })
+}
+
+/// The read behind the diff panel: full base and current texts, the changed block ranges that
+/// align them, the bounded patch as fallback, and the repository HEAD commit as context.
+pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDiff> {
+    validate_path(path)?;
+    let repo = match open(root) {
+        Ok(repo) => repo,
+        Err(error) => {
+            let (state, message) = open_data_error(error);
+            return Ok(GitFileDiff::unavailable(state, message, path, staged));
+        }
+    };
+    let tracked = match is_tracked(&repo, path) {
+        Ok(tracked) => tracked,
+        Err(error) => {
+            return Ok(GitFileDiff::unavailable(
+                "failed",
+                spawn_message(error),
+                path,
+                staged,
+            ))
+        }
+    };
+    let patch_output = match diff_output(&repo, path, staged, tracked, "-U3") {
+        Ok(output) => output,
+        Err(error) => {
+            return Ok(GitFileDiff::unavailable(
+                "failed",
+                spawn_message(error),
+                path,
+                staged,
+            ))
+        }
+    };
+    if patch_output.code != Some(0) && patch_output.code != Some(1) {
+        let stderr = mask_urls(patch_output.stderr.trim());
+        return Ok(GitFileDiff::unavailable("failed", stderr, path, staged));
+    }
+    let hunk_output = match diff_output(&repo, path, staged, tracked, "-U0") {
+        Ok(output) => output,
+        Err(error) => {
+            return Ok(GitFileDiff::unavailable(
+                "failed",
+                spawn_message(error),
+                path,
+                staged,
+            ))
+        }
+    };
+    let mut hunks = Vec::new();
+    if hunk_output.code == Some(0) || hunk_output.code == Some(1) {
+        hunks = parse_hunks(&hunk_output.stdout);
+    }
+
+    // Unstaged compares the index with the worktree; staged compares HEAD with the index.
+    let base_spec = if staged {
+        format!("HEAD:{path}")
+    } else {
+        format!(":{path}")
+    };
+    let (base, base_reason) = read_side(read_blob(&repo, &base_spec));
+    let (current, current_reason) = if staged {
+        read_side(read_blob(&repo, &format!(":{path}")))
+    } else {
+        read_side(read_worktree(&repo, path))
+    };
+    let mut full_reason = base_reason.or(current_reason);
+    let mut full = (!base.exists || base.text.is_some())
+        && (!current.exists || current.text.is_some());
+
+    let text = mask_urls(&patch_output.stdout);
+    let commit = head_commit(&repo);
+    if text.trim().is_empty() {
+        return Ok(GitFileDiff {
+            state: "empty",
+            message: Some(format!("No diff for {path}.")),
+            path: path.to_string(),
+            staged,
+            base,
+            current,
+            hunks,
+            patch: String::new(),
+            truncated: false,
+            full,
+            full_reason,
+            commit,
+        });
+    }
+    if full && hunks.is_empty() {
+        // The patch says something changed, but the block ranges that align the two texts are
+        // missing: showing the full file would be a guess.
+        full = false;
+        full_reason = Some("unaligned");
+    }
+    let (patch, truncated) = cap(&text, DIFF_LIMIT);
+    Ok(GitFileDiff {
+        state: "ok",
+        message: None,
+        path: path.to_string(),
+        staged,
+        base,
+        current,
+        hunks,
+        patch,
+        truncated,
+        full,
+        full_reason,
+        commit,
     })
 }
 
@@ -1398,6 +1735,144 @@ mod tests {
         assert!(untracked.diff.contains("+brand new"));
 
         let outside = diff(&root, "../escape.txt", false).unwrap_err();
+        assert_eq!(outside.code, "invalid_state");
+    }
+
+    #[test]
+    fn hunk_headers_parse_single_line_and_zero_count_ranges() {
+        let hunks = parse_hunks("@@ -1 +1 @@\n@@ -0,0 +1,3 @@\n@@ -5,2 +4,0 @@\n");
+        assert_eq!(
+            hunks,
+            vec![
+                DiffHunk {
+                    old_start: 1,
+                    old_count: 1,
+                    new_start: 1,
+                    new_count: 1
+                },
+                DiffHunk {
+                    old_start: 0,
+                    old_count: 0,
+                    new_start: 1,
+                    new_count: 3
+                },
+                DiffHunk {
+                    old_start: 5,
+                    old_count: 2,
+                    new_start: 4,
+                    new_count: 0
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn file_diff_returns_full_sides_hunks_and_the_head_commit() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+        commit_all(&root, "initial");
+        fs::write(root.join("a.txt"), "one\nTWO\nthree\nfour\n").unwrap();
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        let short = git(&root, &["rev-parse", "--short", "HEAD"]).trim().to_string();
+
+        let answer = file_diff(&root, "a.txt", false).unwrap();
+        assert_eq!(answer.state, "ok");
+        assert!(answer.full, "{:?}", answer.full_reason);
+        assert_eq!(answer.base.text.as_deref(), Some("one\ntwo\nthree\nfour\n"));
+        assert_eq!(answer.current.text.as_deref(), Some("one\nTWO\nthree\nfour\n"));
+        assert_eq!(
+            answer.hunks,
+            vec![DiffHunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1
+            }]
+        );
+        let commit = answer.commit.expect("HEAD is reported");
+        assert_eq!(commit.hash, head);
+        assert_eq!(commit.short_hash, short);
+        assert_eq!(commit.subject, "initial");
+        assert!(answer.patch.contains("+TWO"));
+    }
+
+    #[test]
+    fn file_diff_uses_the_index_as_the_unstaged_base_and_head_for_staged() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+        fs::write(root.join("a.txt"), "staged\n").unwrap();
+        git(&root, &["add", "a.txt"]);
+        fs::write(root.join("a.txt"), "worktree\n").unwrap();
+
+        let unstaged = file_diff(&root, "a.txt", false).unwrap();
+        assert_eq!(unstaged.base.text.as_deref(), Some("staged\n"));
+        assert_eq!(unstaged.current.text.as_deref(), Some("worktree\n"));
+
+        let staged = file_diff(&root, "a.txt", true).unwrap();
+        assert_eq!(staged.base.text.as_deref(), Some("one\n"));
+        assert_eq!(staged.current.text.as_deref(), Some("staged\n"));
+        assert!(staged.commit.is_some());
+    }
+
+    #[test]
+    fn file_diff_marks_added_and_deleted_sides() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("gone.txt"), "a\nb\n").unwrap();
+        commit_all(&root, "initial");
+        fs::remove_file(root.join("gone.txt")).unwrap();
+        fs::write(root.join("new.txt"), "brand new\n").unwrap();
+
+        let added = file_diff(&root, "new.txt", false).unwrap();
+        assert_eq!(added.state, "ok");
+        assert!(!added.base.exists);
+        assert_eq!(added.base.text, None);
+        assert_eq!(added.current.text.as_deref(), Some("brand new\n"));
+        assert!(added.full);
+        assert_eq!(added.hunks.len(), 1);
+
+        let deleted = file_diff(&root, "gone.txt", false).unwrap();
+        assert!(!deleted.current.exists);
+        assert_eq!(deleted.current.text, None);
+        assert_eq!(deleted.base.text.as_deref(), Some("a\nb\n"));
+        assert!(deleted.full);
+    }
+
+    #[test]
+    fn file_diff_falls_back_for_binary_and_oversized_sides() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("bin.dat"), b"ab\0cd").unwrap();
+        let binary = file_diff(&root, "bin.dat", false).unwrap();
+        assert_eq!(binary.state, "ok");
+        assert!(!binary.base.exists);
+        assert!(binary.current.exists);
+        assert_eq!(binary.current.text, None);
+        assert!(!binary.full);
+        assert_eq!(binary.full_reason, Some("binary"));
+        assert!(!binary.patch.is_empty());
+
+        let big = "x".repeat(FULL_FILE_BYTES + 1);
+        fs::write(root.join("big.txt"), &big).unwrap();
+        let oversized = file_diff(&root, "big.txt", false).unwrap();
+        assert!(!oversized.full);
+        assert_eq!(oversized.full_reason, Some("too_large"));
+    }
+
+    #[test]
+    fn file_diff_decodes_utf16_and_has_no_commit_before_the_first_one() {
+        let (_temp, root) = init("repo");
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in "one\ntwo\n".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        fs::write(root.join("utf16.txt"), bytes).unwrap();
+        let answer = file_diff(&root, "utf16.txt", false).unwrap();
+        assert_eq!(answer.state, "ok");
+        assert_eq!(answer.current.text.as_deref(), Some("one\ntwo\n"));
+        assert!(answer.commit.is_none());
+        assert!(!answer.base.exists);
+
+        let outside = file_diff(&root, "../escape.txt", false).unwrap_err();
         assert_eq!(outside.code, "invalid_state");
     }
 
