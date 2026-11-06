@@ -86,6 +86,13 @@ jobs:
         with:
           dotnet-version: "8.0.408"
 
+      # The first `dotnet` run on a clean machine creates ~/.nuget/NuGet/NuGet.Config and fills the
+      # package cache. Several host tests restore at the same time, and on a fresh runner the race left
+      # one of them with an empty source list (NU1100). One restore first, with a loud failure if the
+      # network or the SDK is missing, instead of a flaky test result.
+      - name: Warm the NuGet configuration
+        run: dotnet restore fixtures/OrderDesk/OrderDesk.csproj
+
       - name: Host tests
         run: cargo test -p openridr-host
 
