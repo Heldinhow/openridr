@@ -3992,8 +3992,7 @@ impl Host {
 
         inner.dap_seq += 1;
         let launch = make_launch(build.build_id.clone().unwrap_or_default(), inner.dap_seq);
-        let mut command = Command::new(&adapter.binary);
-        command.arg("--interpreter=vscode");
+        let command = debug_adapter_command(&adapter.binary, &sdk_root)?;
         let dap = dap::Dap::begin(launch, command, inner.processes.clone())?;
         inner.dap = dap;
         Ok(())
@@ -7621,6 +7620,30 @@ fn project_muxer(sdk: &ProjectSdk) -> HostResult<(PathBuf, PathBuf, String)> {
     ))
 }
 
+fn debug_adapter_command(adapter: &Path, sdk_root: &Path) -> HostResult<Command> {
+    let muxer = sdk_root.join(dotnet_exe());
+    if !muxer.is_file() {
+        return Err(HostError::new(
+            "sdk_missing",
+            format!(
+                "Debug was not started: the project .NET executable {} is missing.",
+                muxer.display()
+            ),
+        ));
+    }
+    let inherited_path = std::env::var_os("PATH").unwrap_or_default();
+    let paths = std::iter::once(sdk_root.to_path_buf()).chain(std::env::split_paths(&inherited_path));
+    let path = std::env::join_paths(paths).map_err(|error| {
+        HostError::new(
+            "invalid_state",
+            format!("Debug was not started: cannot configure PATH for {}: {error}", muxer.display()),
+        )
+    })?;
+    let mut command = Command::new(adapter);
+    command.arg("--interpreter=vscode").env("PATH", path);
+    Ok(command)
+}
+
 /// The one environment every `dotnet` child gets: explicit SDK root, no multi-level lookup,
 /// English output and no telemetry/nologo noise. Values are never written to the log.
 fn dotnet_command(command: &[String], cwd: &Path, sdk_root: &Path) -> Command {
@@ -8289,6 +8312,23 @@ fn workspace_symbol_items(list: &lsp::WorkspaceSymbolList, root: &Path) -> (Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_adapter_uses_project_muxer_before_inherited_path() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join(dotnet_exe()), "").unwrap();
+        let command = debug_adapter_command(Path::new("adapter"), root.path()).unwrap();
+        let path = command.get_envs().find(|(key, _)| *key == "PATH").unwrap().1.unwrap();
+        assert_eq!(std::env::split_paths(path).next().unwrap(), root.path());
+    }
+
+    #[test]
+    fn debug_adapter_reports_missing_project_muxer() {
+        let root = tempfile::tempdir().unwrap();
+        let error = debug_adapter_command(Path::new("adapter"), root.path()).unwrap_err();
+        let muxer = root.path().join(dotnet_exe());
+        assert!(error.message.contains(muxer.to_string_lossy().as_ref()));
+    }
 
     #[cfg(unix)]
     #[test]

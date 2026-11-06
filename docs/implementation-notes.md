@@ -1243,3 +1243,7 @@ branch em [evidence/acceptance-fixes.md](evidence/acceptance-fixes.md). Diagnost
 - Testes: cargo host 393, unit 33, E2E `acceptance-fixes` 5, `tests/testsuite/tests-auto-discovery/nuget` 15
   (+1 falha pré-existente), `solution-explorer/solution-file-icons/ui-layout/evaluation/tools-install-ux/
   setup-gate-layout` 34.
+# Debug: dotnet no PATH do adaptador (2026-11-05)
+
+- O netcoredbg precisa localizar o executável `dotnet` pelo seu próprio PATH; o `DOTNET_ROOT` do request DAP não substitui essa busca. O host antepõe a raiz do SDK do projeto ao PATH do adaptador e informa o caminho exato se o muxer não existir.
+- Regressão reproduzida com o netcoredbg empacotado e fixture net8; testes novos e limites de evidência em `docs/evidence/debug-configurationdone-enoent.md`. App desktop não foi aberto a pedido do usuário; Windows e macOS Intel não verificados.
