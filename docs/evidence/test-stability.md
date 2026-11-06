@@ -20,6 +20,7 @@ Windows e macOS Intel não foram executados.
 | Restore/LSP do host falham "ocasionalmente" no run completo e passam isolados | `--test host` | Não reproduzido: 6 rodadas completas do pacote (3 antes e 3 depois das mudanças) sem nenhuma falha em `--test host` | Não determinada; o harness agora isola ambiente, home por processo e nomes de `/tmp` | **Não reproduzido** (classe fechada por #57) |
 | Debug E2E no fluxo legado `debug.install` (1/13) | `tests/e2e/debugger.spec.ts` | Não executado (decisão do Helder sobre Playwright pendente) | Spec escrito para o download do netcoredbg; o adaptador agora vem no bundle | **Quarentenado** (#67) |
 | `csharp-ls.spec.ts:150`, `testsuite.spec.ts` (`tests-filter-count`), `tests.spec.ts:317`, `ui-layout` em 1440 px | `tests/e2e/*` | Não re-verificado nesta rodada | Não investigado | **Quarentenado com motivo** (#67) |
+| `build_start_needs_the_current_evaluation_and_accepts_an_explicit_library` falhou 1× no run completo e passou depois | `--test host` | 1 falha em `cargo test -p openridr-host` durante a sessão da #112, com o build do Tauri e o app real rodando em paralelo; isolado: ok; `--test host` completo de novo: `100 passed` em 171,77 s | Não determinada (a mensagem da falha não foi preservada) | **Observado 1×, não reproduzido** (2 execuções verdes em seguida) |
 
 ## Medições
 
