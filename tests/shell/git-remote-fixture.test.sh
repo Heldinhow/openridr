@@ -1,17 +1,19 @@
 #!/bin/sh
 # Focused tests for the Git acceptance fixture and the verification launcher's input validation.
-# They only create and remove their own mktemp directories: nothing outside $test_root and the
-# symlink target created by the test is touched.
+# They only create and remove their own mktemp directories: nothing outside the ephemeral roots this
+# script makes (and their private siblings) is touched.
 #
 #   sh tests/shell/git-remote-fixture.test.sh
 #
-# Covers: refusals that must never delete (existing dir with a sentinel, '/', $HOME, the checkout,
-# a relative or '..' path, a symlink to an outside directory), the successful new-state run, two
-# default runs producing distinct states, and the launcher validating its override before it
-# rotates the previous state.
+# Covers: refusals that must never delete (an existing directory with a sentinel, '/', $HOME, the
+# checkout, a relative or '..' path, an existing symlink), escapes through a symlinked parent, a
+# temporary root inside the checkout (no directory may be created there), the successful new-state
+# run, two default runs producing distinct states, and the launcher validating its override before
+# it rotates the previous state.
 set -eu
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo_real=$(CDPATH= cd -- "$repo" && pwd -P)
 tmp=${TMPDIR:-/tmp}; tmp=${tmp%/}
 tmp_real=$(CDPATH= cd -- "$tmp" && pwd -P)
 script="$repo/scripts/git-remote-fixture.sh"
@@ -23,7 +25,9 @@ fail() { echo "FAIL - $*"; failures=$((failures + 1)); }
 
 test_root=$(mktemp -d "$tmp_real/openridr-fixture-test.XXXXXX")
 outside=$(mktemp -d "$tmp_real/openridr-fixture-outside.XXXXXX")
-cleanup() { rm -rf "$test_root" "$outside"; }
+private_root=$(mktemp -d "$tmp_real/ridr-fixture-root.XXXXXX")
+sibling=$(mktemp -d "$tmp_real/ridr-fixture-sibling.XXXXXX")
+cleanup() { rm -rf "$test_root" "$outside" "$private_root" "$sibling"; }
 trap cleanup EXIT INT TERM
 
 # Runs the fixture once and keeps the exit code, stdout and stderr for the assertions.
@@ -66,12 +70,14 @@ fi
 
 # 4. The checkout is refused and its working tree is unchanged.
 before=$(git -C "$repo" status --porcelain)
+before_entries=$(find "$repo" -mindepth 1 -maxdepth 1 | sort)
 run_fixture sh "$script" "$repo"
 after=$(git -C "$repo" status --porcelain)
-if [ "$code" -ne 0 ] && [ "$before" = "$after" ] && [ ! -e "$repo/origin.git" ]; then
+after_entries=$(find "$repo" -mindepth 1 -maxdepth 1 | sort)
+if [ "$code" -ne 0 ] && [ "$before" = "$after" ] && [ "$before_entries" = "$after_entries" ]; then
   pass "refuses the checkout and leaves the working tree as it was"
 else
-  fail "checkout: code=$code status-changed=$([ "$before" = "$after" ] && echo no || echo yes)"
+  fail "checkout: code=$code status-changed=$([ "$before" = "$after" ] && echo no || echo yes) entries-changed=$([ "$before_entries" = "$after_entries" ] && echo no || echo yes)"
 fi
 
 # 5. Relative and '..' paths are refused.
@@ -85,18 +91,44 @@ else
   fail "relative/..: relative=$code_rel dotdot=$code_dotdot"
 fi
 
-# 6. A symlink pointing outside the temporary root is refused; its target is untouched.
+# 6. An existing symlink is refused and its target is untouched (the link itself is not followed).
 printf 'target sentinel\n' >"$outside/sentinel.txt"
 ln -s "$outside" "$test_root/link"
 run_fixture sh "$script" "$test_root/link"
 if [ "$code" -ne 0 ] && [ "$(cat "$outside/sentinel.txt")" = "target sentinel" ] \
   && [ ! -e "$outside/origin.git" ]; then
-  pass "refuses a symlink to an outside directory and keeps the target"
+  pass "refuses an existing symlink and keeps its target"
 else
-  fail "symlink: code=$code"
+  fail "existing symlink: code=$code"
 fi
 
-# 7. A new path under the temporary root succeeds and produces a working fixture.
+# 7. A NEW child reached through a symlinked parent that escapes the configured temporary root is
+#    refused: the escape target stays empty.
+printf 'escape sentinel\n' >"$sibling/sentinel.txt"
+ln -s "$sibling" "$private_root/escape"
+run_fixture env TMPDIR="$private_root" sh "$script" "$private_root/escape/new-child"
+if [ "$code" -ne 0 ] && [ ! -e "$sibling/new-child" ] \
+  && [ "$(cat "$sibling/sentinel.txt")" = "escape sentinel" ]; then
+  pass "refuses a new child through a symlinked parent that escapes the temporary root"
+else
+  fail "symlinked parent escape: code=$code child=$([ -e "$sibling/new-child" ] && echo created || echo absent)"
+fi
+
+# 8. A temporary root inside the checkout is refused with nothing created — default and custom name.
+before_entries=$(find "$repo" -mindepth 1 -maxdepth 1 | sort)
+run_fixture env TMPDIR="$repo" sh "$script"
+code_default=$code
+run_fixture env TMPDIR="$repo" sh "$script" "$repo/openridr-should-not-exist"
+code_custom=$code
+after_entries=$(find "$repo" -mindepth 1 -maxdepth 1 | sort)
+if [ "$code_default" -ne 0 ] && [ "$code_custom" -ne 0 ] \
+  && [ "$before_entries" = "$after_entries" ] && [ ! -e "$repo/openridr-should-not-exist" ]; then
+  pass "refuses TMPDIR inside the checkout without creating a directory (default and custom)"
+else
+  fail "TMPDIR=checkout: default=$code_default custom=$code_custom entries-changed=$([ "$before_entries" = "$after_entries" ] && echo no || echo yes)"
+fi
+
+# 9. A new path under the temporary root succeeds and produces a working fixture.
 new_state="$test_root/fresh-state"
 run_fixture sh "$script" "$new_state"
 baseline=$(sed -n 's/^baseline //p' "$test_root/stdout")
@@ -110,7 +142,7 @@ else
   fail "fresh state: code=$code baseline=${baseline:-none}"
 fi
 
-# 8. Two default runs create two distinct states and leave both intact.
+# 10. Two default runs create two distinct states and leave both intact.
 run_fixture sh "$script"
 first=$(sed -n 's/^state //p' "$test_root/stdout")
 first_code=$code
@@ -125,7 +157,7 @@ else
   fail "default runs: first=$first_code:$first second=$second_code:$second"
 fi
 
-# 9. The launcher validates its override before rotating any previous state.
+# 11. The launcher validates its override before rotating any previous state.
 bundle="$repo/src-tauri/target/debug/bundle/macos/OpenRidr.app"
 if ! pgrep -x openridr >/dev/null 2>&1 && [ -x "$bundle/Contents/MacOS/openridr" ]; then
   launcher_state="$test_root/desktop-state"

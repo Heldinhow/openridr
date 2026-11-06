@@ -21,7 +21,7 @@ UI dirigida **somente** no app Tauri real via `agent-desktop` (sem navegador, se
 
 | # | Cenário | Prova fora da UI (comando → resultado) | Status |
 |---|---|---|---|
-| S1 | Status inicial após trust | árvore de acessibilidade no launch: `Current branch: main · upstream origin/main`, Commit tool `0 of 0 selected`, "The working tree is clean." | **passou** (sem captura do estado inicial; o estado limpo aparece em `s3-push-rejected.png`) |
+| S1 | Status inicial após trust | lido da árvore de acessibilidade no launch: `Current branch: main · upstream origin/main`, Commit tool `0 of 0 selected`, "The working tree is clean." | **evidência inicial não preservada**: a leitura foi feita, mas nenhuma captura do estado inicial foi guardada; a captura posterior (`s3-push-rejected.png`) mostra um estado limpo semelhante e **não** comprova o estado inicial |
 | S2 | Commit → Push | UI: `Committed 78d6589 …` e `Pushed main to origin.`; `git -C origin.git log --oneline -2` → `78d6589` no topo; `git status -sb` → `## main...origin/main` (0 à frente) | **passou** |
 | S3 | Push rejeitado (non-fast-forward) | UI: diálogo com `! [rejected] main -> main (fetch first)`; `git -C user log -1` → `c8777eb` preservado; `git -C origin.git log -1` → `8ee41ac` (inalterado) | **passou** |
 | S4 | Pull fast-forward | UI: `↓1` após fetch, diálogo `Behind 1`, depois `Update completed.`; `git -C user log --oneline -1` → `619a6ab`; a linha `// Peer change for issue 50 (S4 pull)` existe no arquivo | **passou** |
@@ -32,7 +32,7 @@ UI dirigida **somente** no app Tauri real via `agent-desktop` (sem navegador, se
 | S9 | Histórico | Lista da aba Git: `db8a0e9`, `4d5ca4a` (selo `2 parents`), `8ee41ac`, `c8777eb`, `619a6ab`, `78d6589`, `0bfb695` (selo `root`) — igual a `git log --oneline main` em ordem, hash e assunto; selecionar `8ee41ac` mostra `parents 619a6ab` e `src/OrderDesk.Core/Order.cs`, igual a `git show --name-status`; filtro `619a6ab` reduz a lista a um commit | **passou** |
 | S10 | Branch sem upstream | UI: `Current branch: accept-conflict · no upstream` e `Update…` desabilitado com "No upstream is configured; nothing to pull." | **passou** |
 
-Nenhum cenário ficou "sem prova". O que não foi executado está na seção **Não verificado**.
+S1 é o único cenário com prova não preservada; S5 está registrado como **falhou/parcial** acima (com o estado de merge criado fora do app). O que não foi executado está na seção **Não verificado**.
 
 ## Fetch e pull são coisas diferentes
 
@@ -86,18 +86,34 @@ Nenhum cenário ficou "sem prova". O que não foi executado está na seção **N
 
 ## Como reproduzir a infraestrutura
 
+Numa máquina limpa, este é o caminho completo; o state e a solution vêm da execução **atual**, não de
+um caminho fixo:
+
 ```sh
-sh scripts/git-remote-fixture.sh            # state novo via mktemp; imprime state, origin, solution, peer, baseline e a linha de launch
-# um caminho explícito só é aceito se for novo e estiver sob a raiz temporária real:
-# sh scripts/git-remote-fixture.sh "${TMPDIR:-/tmp}/meu-state-novo"
-# caminho existente (diretório, arquivo, symlink pendente), /, home, o checkout, relativo ou '..' -> recusa sem apagar
-sh tests/shell/git-remote-fixture.test.sh   # prova das recusas e do state novo
-VERIFY_OPENRIDR_DESKTOP_STATE=/tmp/openridr-issue50-desktop \
-VERIFY_OPENRIDR_DESKTOP_SOLUTION=/tmp/openridr-git-remote-50/user/OrderDesk.sln \
+out=$(sh scripts/git-remote-fixture.sh)          # state novo via mktemp; nada existente é apagado
+printf '%s\n' "$out"
+state=$(printf '%s\n' "$out" | sed -n 's/^state //p')
+solution=$(printf '%s\n' "$out" | sed -n 's/^solution //p')
+[ -f "$solution" ] || { echo "solution missing: $solution" >&2; exit 1; }
+
+VERIFY_OPENRIDR_DESKTOP_STATE="${TMPDIR:-/tmp}/openridr-git-remote-desktop" \
+VERIFY_OPENRIDR_DESKTOP_SOLUTION="$solution" \
   sh .agents/skills/verify-openridr/scripts/desktop.sh up src-tauri/target/debug/bundle/macos/OpenRidr.app
-# ... cenários ...
-VERIFY_OPENRIDR_DESKTOP_STATE=/tmp/openridr-issue50-desktop \
+# ... cenários do quadro acima ...
+VERIFY_OPENRIDR_DESKTOP_STATE="${TMPDIR:-/tmp}/openridr-git-remote-desktop" \
   sh .agents/skills/verify-openridr/scripts/desktop.sh down
 ```
 
-Os diretórios em `/tmp` (fixture, state do app) são descartáveis e ficaram no disco ao fim da rodada.
+Recusa esperada (nenhum caminho existente é apagado ou reutilizado): passar `/`, `$HOME`, o próprio
+checkout, caminho relativo, `..`, symlink para fora, ou um `TMPDIR` que resolva para dentro do
+checkout. Um caminho explícito só é aceito se for absoluto, novo e estiver sob a raiz temporária real:
+
+```sh
+sh scripts/git-remote-fixture.sh "${TMPDIR:-/tmp}/meu-state-novo"
+sh tests/shell/git-remote-fixture.test.sh   # prova das recusas, do escape por symlink e do state novo
+```
+
+**Dados históricos da rodada (não reprodução):** os diretórios `/tmp/openridr-git-remote-50`
+(fixture da rodada) e `/tmp/openridr-issue50-desktop` (state do app) foram criados pela versão
+anterior do script, que aceitava um caminho explícito e o recriava. Eles ficaram no disco e não são
+necessários para repetir a aceitação: use o bloco acima.

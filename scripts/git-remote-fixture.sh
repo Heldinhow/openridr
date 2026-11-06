@@ -14,6 +14,10 @@
 # new absolute path inside the (real) temporary root; anything that already exists — a directory, a
 # file, or a dangling symlink — is refused and the path is left exactly as it was. To start over,
 # run it again with no argument (or with another new path); the previous state is kept.
+#
+# The checkout is off limits in both directions: a temporary root (or a custom state's real parent)
+# that resolves inside the checkout is refused *before* anything is created, so a TMPDIR pointing at
+# the repository cannot leave a stray directory behind.
 set -eu
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -23,8 +27,23 @@ email="acceptance@openridr.invalid"
 
 die() { echo "git-remote-fixture: $*" >&2; exit 2; }
 
-# The real temporary root: symlinked TMPDIR (macOS /var -> /private/var) resolves once, here.
+# Real path equality or directory containment; never a naive string prefix.
+is_within() {
+  p=$1
+  b=$2
+  [ "$p" = "$b" ] && return 0
+  [ "$b" = "/" ] && return 0
+  case "$p" in "$b"/*) return 0 ;; esac
+  return 1
+}
+
+repo_real=$(CDPATH= cd -- "$repo" && pwd -P) || die "the checkout is not reachable: $repo"
 tmp_real=$(CDPATH= cd -- "$tmp" && pwd -P) || die "temporary root is not reachable: $tmp"
+
+# Refuse before creating anything: no mktemp, no mkdir when the temporary root lives in the checkout.
+if is_within "$tmp_real" "$repo_real"; then
+  die "the temporary root $tmp_real is inside the checkout $repo_real; point TMPDIR outside it"
+fi
 
 if [ "$#" -gt 1 ]; then
   die "usage: scripts/git-remote-fixture.sh [new-state-dir]"
@@ -49,29 +68,28 @@ else
   base=$(basename -- "$requested")
   [ -n "$base" ] || die "the state path needs a name: $requested"
   [ -d "$parent" ] || die "the parent directory does not exist: $parent"
-  # Resolve the real parent (no symlink followed silently) and require it under the temporary root.
+  # Resolve the real parent (a symlink is followed once, here) and require it under the temporary root.
   parent_real=$(CDPATH= cd -- "$parent" && pwd -P) || die "parent directory is not reachable: $parent"
-  case "$parent_real/" in
-  "$tmp_real"/*) ;;
-  *) die "the state path must live under the temporary root $tmp_real: $requested" ;;
-  esac
+  if ! is_within "$parent_real" "$tmp_real"; then
+    die "the state path must live under the temporary root $tmp_real: $requested"
+  fi
   state="$parent_real/$base"
-  # Final check on the resolved path, so a parent symlink cannot land outside the temporary root.
-  case "$state/" in
-  "$tmp_real"/*) ;;
-  *) die "the resolved state path escapes the temporary root: $state" ;;
-  esac
+  # Both directions of the checkout boundary, checked before mkdir: nothing lands in the repository.
+  if is_within "$state" "$repo_real"; then
+    die "refusing a state inside the checkout: $state"
+  fi
   mkdir "$state" 2>/dev/null || die "could not create the state directory: $state"
 fi
 
-# A state inside the checkout would write throwaway repositories into the product tree.
-case "$(CDPATH= cd -- "$state" && pwd -P)/" in
-"$repo"/*) die "refusing a state inside the checkout: $state" ;;
-esac
+state_real=$(CDPATH= cd -- "$state" && pwd -P) || die "state directory is not reachable: $state"
+if is_within "$state_real" "$repo_real"; then
+  die "refusing a state inside the checkout: $state_real"
+fi
 
 command -v git >/dev/null 2>&1 || die "git is required"
 command -v rsync >/dev/null 2>&1 || die "rsync is required"
 
+state=$state_real
 mkdir -p "$state/user"
 # Copy the public fixture into the clone root so the repository root is the workspace root.
 rsync -a --exclude bin --exclude obj "$repo/fixtures/OrderDesk/" "$state/user/"
