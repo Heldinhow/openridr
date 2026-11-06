@@ -10,3 +10,5 @@
 - **Trust decision**: escolha do usuário, uma vez por projeto, entre confiar (*trusted*) e abrir em modo restrito (*restricted*). Persiste entre sessões e pode ser mudada depois.
 - **Trust prompt**: a pergunta única que oferece a Trust decision na primeira abertura de um projeto. Não reaparece depois de decidida.
 - **Restricted mode**: abertura sem executar código do projeto (sem build, run, debug, análise); só edição de texto.
+- **Stop source**: qualquer motivo configurado para o depurador pausar o programa em execução — um breakpoint (quando não mutado), a parada em exceções lançadas, o pause manual ou o run-to-cursor. Sem stop source, a sessão roda até o fim sem parar.
+- **No-stop session**: sessão de debug que terminou sem nunca ter pausado. O fim dela precisa ser explicado, porque não há threads, frames nem locals para mostrar.

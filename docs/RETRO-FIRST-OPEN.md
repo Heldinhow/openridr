@@ -72,11 +72,24 @@ Onda: 2026-11-06, branch `fix/issue-45-gatekeeper-first-open` (base `46e7bc7`, a
    `CoreServicesUIAgent`, nunca por `sample` de um processo suspenso — `sample` mostra o sintoma
    (parado em `_dyld_start`) e esconde a causa (diálogo esperando).
 
+## Terceira revisão (delegada, `gpt-6.1-terra`)
+
+Reprovou com dois altos, ambos de identidade: o pid era "o mais novo", não necessariamente o que a
+rodada lançou; e qualquer `present code-evaluation prompt` do log global disparava o clique, mesmo
+de outro app. Corrigido ancorando o processo a um marcador no argv, exigindo que o alerta só conte
+depois desse pid, amarrando a janela ao pid e validando `--click` como dois números. Também saíram
+daí: captura que falha passa a falhar a rodada (não clica às cegas), `trap` antes de mexer no
+ambiente, e a atribuição "5–7 s = leitura dos 164 MB" virou hipótese compatível (o split não foi
+medido), com o polling descrito como atraso de detecção, não limite inferior.
+
+Lição: "o processo que apareceu" é uma premissa frágil numa máquina compartilhada — identidade
+explícita (marcador + pid + janela) ou falha.
+
 ## Dívida deixada
 
 - Tela cheia em outro Space, cdhash nunca visto, macOS 26/Intel e Windows: não medidos, com o
   motivo na evidência.
 - O modo `--click` do script commitado não foi exercitado ponta a ponta (a tabela veio do
-  protótipo); a captura por rodada e a falha em 5 s também não.
+  protótipo); a captura por rodada, a falha em 5 s e a identidade por marcador também não.
 - Encolher o payload (runtime em `tar.gz`, sem runtime) atacaria o custo de abrir de dentro da
   imagem; ficou fora de escopo desta issue e não foi medido.

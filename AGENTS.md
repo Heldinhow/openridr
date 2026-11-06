@@ -65,7 +65,7 @@ Rust: os pacotes se chamam `openridr-host` e `openridr-host-http` (não `host`).
 
 ### Falhas conhecidas (não são suas)
 
-Presentes no HEAD sem mudanças: E2E `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts`. Qualquer outra falha é sua: investigue. Detalhes em `docs/RETRO-DEVFLOW-2026-11-02.md`.
+Presentes no HEAD sem mudanças: E2E `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts`, e **todo o `debugger.spec.ts`** (o setup do spec chama `debug.install`, que o adaptador embutido do host de E2E recusa com `invalid_state`; a correção é da frente #43, não sua). Qualquer outra falha é sua: investigue. Detalhes em `docs/RETRO-DEVFLOW-2026-11-02.md` e `docs/RETRO-DEBUG-NO-STOP.md`.
 
 Os dois testes Rust que falhavam no `main` (`file_access_is_confined_to_the_workspace` e `evaluation_returns_the_real_msbuild_model_for_every_project`) foram corrigidos: causa, classificação e prova em `docs/evidence/file-access-confinement.md`. Se algum dos dois voltar a falhar, é regressão sua.
 
