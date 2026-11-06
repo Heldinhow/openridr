@@ -55,19 +55,33 @@ test_discovery / test_run / trust_model):
 | 2 | 2,44 | 1,32 | 5,64 | 80,23 | 5,14 | 24,44 | 2,97 | 124 |
 | 3 | 2,25 | 1,36 | 5,65 | 72,24 | 5,50 | 24,87 | 2,80 | 115 |
 
-### Modelo atual (2º re-check do #59): processo compartilhado sem escrita de env
+### Modelo atual (3º re-check do #59): processo compartilhado sem escrita de env, lib incluída
+
+O ambiente comum é definido uma vez por binário (`support::prepare()` na integração,
+`test_harness::prepare()` na lib). Testes que precisam de outros valores rodam o corpo numa folha
+`#[ignore]` (`*_isolated`) executada por um processo-filho com ambiente controlado
+(`env_clear` + `PATH`/`HOME`/`TMPDIR`/`LANG`/`LC_ALL`). Folhas: 27 no binário do host, 14 no do
+debugger, 11 no da análise embutida, 11 na lib e 1 no `trust_model`.
+
+O guard `env_writes_are_confined_to_isolated_leaves` varre `crates/host/src/**` e
+`crates/host/tests/**` (recursivo) e falha quando: `set_var`/`remove_var`/`EnvVar::` aparece fora de
+folha isolada ou do módulo de harness; uma folha `*_isolated` não é `#[ignore]`; uma folha não tem
+wrapper; ou um teste não isolado toca no host sem `prepare`/`host` antes. Ele já pegou, nesta rodada,
+os helpers `with_home` de `trusted`/`recent`, o `ShellEnv` do PTY, o `Seam` do debugger e dois testes
+que liam `app_home()` antes do `prepare`.
 
 Cada folha `*_isolated` aparece como ignorada no processo compartilhado e é executada pelo wrapper
 num processo-filho. 3 rodadas seguidas, paralelismo default:
 
 | Rodada | lib | bundled (exec/ign) | debugger (exec/ign) | host (exec/ign) | discovery | run | trust | total do host |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 287 ok | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok | 40,10 s |
-| 2 | 287 ok | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok | 45,78 s |
-| 3 | 287 ok | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok | 46,35 s |
+| 1 | 287 ok / 11 ign | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok / 1 ign | 62,83 s |
+| 2 | 287 ok / 11 ign | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok / 1 ign | 62,20 s |
 
-Total por rodada: ~85–100 s (os filhos rodam em paralelo; o host ficou ~2× mais rápido que o
-modelo anterior). Com `OPENRIDR_BUNDLED_NETCOREDBG`, `OPENRIDR_HOME`, `OPENRIDR_FORCE_HOSTROOT`,
+Total por rodada: ~110–120 s. Numa rodada intermediária (logo após a conversão, com o host ainda
+quente de 3 execuções seguidas) `test_run` falhou uma vez em
+`real_run_reports_trx_outcomes_positions_and_only_the_selected_identity` e passou isolado em seguida
+e nas duas rodadas completas acima; registrado como flake de carga, não reproduzido depois. Com `OPENRIDR_BUNDLED_NETCOREDBG`, `OPENRIDR_HOME`, `OPENRIDR_FORCE_HOSTROOT`,
 `OPENRIDR_TRUST_STORE` e `OPENRIDR_ENABLE_PROBE=0` exportados: `--test debugger` 15 ok + 14 ign,
 `--test bundled_analysis` 11 ok + 11 ign — o ambiente herdado não chega ao host.
 

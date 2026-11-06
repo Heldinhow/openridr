@@ -162,7 +162,8 @@ fn check(host: &Host, model: &Model, paths: &[PathBuf], home: &Path, context: &s
 }
 
 #[test]
-fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+fn trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated() {
     let dir = tempfile::tempdir().unwrap();
     let paths: Vec<PathBuf> = (0..PATHS).map(|i| project(dir.path(), &format!("p{i}"))).collect();
     let _no_store = EnvVar::remove("OPENRIDR_TRUST_STORE");
@@ -196,4 +197,9 @@ fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
             }
         }
     }
+}
+
+#[test]
+fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
+    support::run_isolated_leaf("trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated");
 }

@@ -307,11 +307,9 @@ struct Seam {
 }
 
 impl Seam {
-    fn new(url: &str, sha: &str) -> Self {
-        Self::platform(url, sha, "windows/x86_64")
-    }
-
-    fn platform(url: &str, sha: &str, platform: &str) -> Self {
+    /// Builds the controlled-installer environment. Only called from `_isolated` leaves, which own
+    /// their process, so the env writes cannot reach another test.
+    fn seam_isolated(url: &str, sha: &str, platform: &str) -> Self {
         let home = tempfile::tempdir().unwrap();
         Self {
             _home: EnvVar::set("OPENRIDR_HOME", home.path()),
@@ -322,6 +320,14 @@ impl Seam {
             home,
         }
     }
+}
+
+fn seam(url: &str, sha: &str) -> Seam {
+    Seam::seam_isolated(url, sha, "windows/x86_64")
+}
+
+fn seam_platform(url: &str, sha: &str, platform: &str) -> Seam {
+    Seam::seam_isolated(url, sha, platform)
 }
 
 fn tool_dir(home: &Path) -> PathBuf {
@@ -443,7 +449,7 @@ fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in_isolated() {
         ("__MACOSX/._netcoredbg", b"metadata", Some(0o644)),
     ]);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
+    let seam = seam_platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
     let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
@@ -522,7 +528,7 @@ fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in_isolated() {
 fn install_requires_trust_confirmation_and_an_unchanged_plan_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+    let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
     let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
@@ -565,7 +571,7 @@ fn install_requires_trust_confirmation_and_an_unchanged_plan_isolated() {
 fn a_changed_plan_after_confirmation_downloads_nothing_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+    let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
     let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
@@ -596,7 +602,7 @@ fn a_changed_plan_after_confirmation_downloads_nothing_isolated() {
 fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+    let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
     let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
@@ -686,7 +692,7 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolate
 fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it_isolated() {
     let zip = zip_bytes(&[("netcoredbg/netcoredbg", ARTIFACT, Some(0o755))]);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
+    let seam = seam_platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
     let workspace = temp_workspace();
     let first = support::host();
     open(&first, workspace.path());
@@ -756,7 +762,7 @@ fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan_isol
         "/asset.zip",
         Route::FailOnce(zip.clone(), Arc::clone(&fail)),
     )]);
-    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+    let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
     let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
@@ -799,7 +805,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated
     // 1. Hash mismatch: the controlled expected digest is wrong on purpose.
     {
         let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &"1".repeat(64));
+        let seam = seam(&server.url("/asset.zip"), &"1".repeat(64));
         let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -820,7 +826,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated
     {
         let wrong = artifact_zip(WRONG_VERSION);
         let server = Server::start(vec![("/asset.zip", Route::Ok(wrong.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&wrong));
+        let seam = seam(&server.url("/asset.zip"), &sha256(&wrong));
         let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -842,7 +848,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated
     {
         let corrupt = b"this is not a zip archive".to_vec();
         let server = Server::start(vec![("/asset.zip", Route::Ok(corrupt.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&corrupt));
+        let seam = seam(&server.url("/asset.zip"), &sha256(&corrupt));
         let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -862,7 +868,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated
     {
         let evil = zip_bytes(&[("../escape.txt", b"escaped\n", Some(0o644))]);
         let server = Server::start(vec![("/asset.zip", Route::Ok(evil.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&evil));
+        let seam = seam(&server.url("/asset.zip"), &sha256(&evil));
         let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -891,7 +897,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated
     {
         let link = raw_zip("link", b"/etc/passwd", 0o120777);
         let server = Server::start(vec![("/asset.zip", Route::Ok(link.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&link));
+        let seam = seam(&server.url("/asset.zip"), &sha256(&link));
         let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -918,7 +924,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated
         let evil = outside.path().join("openridr-evil.txt");
         let absolute = raw_zip(&evil.to_string_lossy(), b"x", 0o100644);
         let server = Server::start(vec![("/asset.zip", Route::Ok(absolute.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&absolute));
+        let seam = seam(&server.url("/asset.zip"), &sha256(&absolute));
         let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -947,7 +953,7 @@ fn origins_and_redirects_are_checked_before_any_download_isolated() {
 
     // A URL that is not the official host and not the loopback test seam is refused.
     {
-        let seam = Seam::new("https://example.invalid/netcoredbg-win64.zip", &sha256(&zip));
+        let seam = seam("https://example.invalid/netcoredbg-win64.zip", &sha256(&zip));
         let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -973,7 +979,7 @@ fn origins_and_redirects_are_checked_before_any_download_isolated() {
             "/asset.zip",
             Route::Redirect("https://example.invalid/payload.zip"),
         )]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
+        let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
         let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
@@ -1002,7 +1008,7 @@ fn cancel_keeps_partial_state_and_retry_completes_isolated() {
         ("/slow.zip", Route::Slow(zip.clone())),
         ("/asset.zip", Route::Ok(zip.clone())),
     ]);
-    let seam = Seam::new(&server.url("/slow.zip"), &sha256(&zip));
+    let seam = seam(&server.url("/slow.zip"), &sha256(&zip));
     let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());

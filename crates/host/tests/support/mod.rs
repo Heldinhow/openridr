@@ -61,10 +61,23 @@ pub fn host() -> Host {
     Host::new()
 }
 
+/// The environment an isolated child gets: nothing inherited except what a test binary needs to
+/// find its tools and its temporary directory. A hostile shell cannot reach the child.
+pub fn controlled_command() -> std::process::Command {
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command.env_clear();
+    for key in ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    command
+}
+
 /// Runs one isolated leaf of this binary in its own process. The leaf is marked `#[ignore]`
 /// because it writes `OPENRIDR_*` for its host; only this fresh process ever sees those values.
 pub fn run_isolated_leaf(leaf: &str) {
-    let done = std::process::Command::new(std::env::current_exe().unwrap())
+    let done = controlled_command()
         .args(["--test-threads=1", "--ignored", "--exact", leaf])
         .output()
         .unwrap();
@@ -74,6 +87,8 @@ pub fn run_isolated_leaf(leaf: &str) {
         done.status.success(),
         "the isolated leaf `{leaf}` failed in its own process:\n{stdout}{stderr}"
     );
+    // The filter is a substring, so `1 passed` is what proves only this leaf ran. A module-qualified
+    // unit test matches by its bare name.
     assert!(
         stdout.contains("1 passed"),
         "the isolated process did not run exactly `{leaf}`:\n{stdout}{stderr}"
@@ -83,7 +98,7 @@ pub fn run_isolated_leaf(leaf: &str) {
 /// Runs one plain leaf of this same binary in a fresh process, with `envs` set on top of the
 /// current environment. For tests that prove the shared environment is not inherited.
 pub fn assert_leaf_passes_in_a_fresh_process(test: &str, envs: &[(&str, &OsStr)]) {
-    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    let mut command = controlled_command();
     command.args(["--test-threads=1", "--exact", test]);
     for (key, value) in envs {
         command.env(key, value);

@@ -1349,17 +1349,20 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   (`sdk::resolve` sobre `sdk::inventory`) e lança pelo muxer da raiz resolvida com `DOTNET_ROOT`,
   `DOTNET_MULTILEVEL_LOOKUP=0` e as mesmas variáveis de `dotnet_command` da produção. Sem raiz que
   satisfaça o pin, imprime skip com a versão e as raízes vistas.
-- **Re-check do `/code-review` (2026-11-06).** O ambiente do processo de teste passou a ser
-  imutável: `support::prepare()` define uma vez (home temporária, probe ligado, purga das
-  `OPENRIDR_*` herdadas) e nenhum teste escreve env depois. Os 50 testes que precisam de valores
-  diferentes viraram folhas `#[ignore]` (`*_isolated`) executadas por um processo-filho dedicado
-  (`support::run_isolated_leaf`, que exige `1 passed` e o status do filho); 27 no binário do host,
-  14 no do debugger, 11 no da análise embutida. O teste-guard `env_writes_are_confined_to_isolated_leaves`
-  lê os fontes de `tests/*.rs` e falha se `std::env::set_var/remove_var` aparecer fora de uma folha
-  isolada, e exige wrapper para cada folha. Com isso saíram `RwLock`, `env_guard`, `TestHost` e o
-  `ShellEnv` local (virou `EnvVar` na folha isolada do PTY). O skip do launch profile só acontece
-  quando nenhuma raiz satisfaz o pin (muxer ausente ou que não inicia é falha;
-  `OPENRIDR_REQUIRE_DOTNET=1` proíbe skip). O alvo de escape usa `tempfile::tempdir()` aleatório.
+- **Re-checks do `/code-review` (2026-11-06).** O ambiente do processo de teste passou a ser
+  imutável: `support::prepare()` (integração) e `test_harness::prepare()` (unidade da lib) definem
+  uma vez a home temporária, o probe (integração) e a purga das `OPENRIDR_*`; nenhum teste escreve
+  env depois. Os testes que precisam de valores diferentes viraram folhas `#[ignore]` (`*_isolated`)
+  executadas por um processo-filho dedicado (`run_isolated_leaf`, que exige `1 passed`), com ambiente
+  controlado (`env_clear` + `PATH`/`HOME`/`TMPDIR`/`LANG`/`LC_ALL`): 27 no binário do host, 14 no do
+  debugger, 11 no da análise embutida, 11 na lib, 1 no `trust_model`. Os helpers que escrevem env
+  moraram para `test_harness`/`support` (`with_home`, `EnvVar`), e o `Seam` do debugger virou
+  `Seam::seam_isolated`. O teste-guard `env_writes_are_confined_to_isolated_leaves` varre
+  `src/**` e `tests/**` recursivamente e exige: escrita de env só em folha isolada ou no harness;
+  `#[ignore]` em toda folha de teste; wrapper para cada folha; `prepare`/`host` antes de tocar no
+  host em teste não isolado. Saíram `RwLock`, `env_guard`, `TestHost` e o `ShellEnv` local. O skip do
+  launch profile só acontece quando nenhuma raiz satisfaz o pin (muxer ausente ou que não inicia é
+  falha; `OPENRIDR_REQUIRE_DOTNET=1` proíbe skip). O alvo de escape usa `tempfile::tempdir()`.
 - **Prova.** Ver `docs/evidence/test-stability.md` (tabela por item da issue, medições e o que não
   foi verificado). Não verificado: E2E (quarentenado; decisão do Playwright pendente), Windows e
   macOS Intel, e a falha de instalação do debugger relatada por outra sessão (não reproduzida aqui).

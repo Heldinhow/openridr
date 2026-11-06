@@ -86,6 +86,8 @@ fn stage_restore_artifacts(root: &Path) {
 
 #[test]
 fn app_home_never_points_at_the_real_application_support_directory() {
+    // Reads the app home from the environment, so the shared environment must be in place first.
+    support::prepare();
     let home = openridr_host::tools::app_home();
     let real = std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join("Library/Application Support/OpenRidr"));
@@ -6474,49 +6476,83 @@ fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
 }
 
 /// The test process is shared, so no test may write its environment: a test that needs different
-/// values runs its body in its own process (`support::run_isolated_leaf`). This guard reads the
-/// sources so a new `set_var` cannot quietly reintroduce the race the harness removed.
+/// values runs its body in its own process (`_isolated` leaf + `support::run_isolated_leaf`). This
+/// guard reads the sources so a new write cannot quietly reintroduce the race the harness removed.
 #[test]
 fn env_writes_are_confined_to_isolated_leaves() {
     // Built at runtime so this test's own source does not match its needles.
-    let needles = [
-        format!("std::env::{}_var(", "set"),
-        format!("std::env::{}_var(", "remove"),
+    let writes = [
+        format!("{}_var(", "set"),
+        format!("{}_var(", "remove"),
+        format!("{}::", "EnvVar"),
     ];
-    let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let prepares = [
+        "support::prepare(",
+        "support::host(",
+        "support::assert_leaf_passes_in_a_fresh_process(",
+        "run_isolated_leaf(",
+    ];
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut sources = Vec::new();
+    collect_rust_sources(&root.join("src"), &mut sources);
+    collect_rust_sources(&root.join("tests"), &mut sources);
+
     let mut offenders = Vec::new();
+    let mut unprepared = Vec::new();
+    let mut missing_ignore = Vec::new();
     let mut leaves = Vec::new();
     let mut wrappers = Vec::new();
-    for entry in fs::read_dir(&tests).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-            continue;
-        }
-        let text = fs::read_to_string(&path).unwrap();
-        let mut current = String::new();
-        for (number, line) in text.lines().enumerate() {
-            if let Some(rest) = line.trim_start().strip_prefix("fn ") {
-                current = rest.split('(').next().unwrap_or("").to_string();
-                if current.ends_with("_isolated") {
-                    leaves.push(current.clone());
-                }
+    for path in &sources {
+        let name = path.to_string_lossy().to_string();
+        let is_harness = name.ends_with("test_harness.rs") || name.ends_with("support/mod.rs");
+        let is_test_binary = name.contains("/tests/");
+        let text = fs::read_to_string(path).unwrap();
+        for function in source_functions(&text) {
+            if function.name == "env_writes_are_confined_to_isolated_leaves" {
+                continue;
             }
-            if needles.iter().any(|needle| line.contains(needle.as_str()))
-                && !current.ends_with("_isolated")
-            {
-                offenders.push(format!("{}:{} in `{current}`", path.display(), number + 1));
-            }
-            if let Some(rest) = line.split("run_isolated_leaf(\"").nth(1) {
-                if let Some(name) = rest.split('"').next() {
+            if let Some(rest) = function.body.split("run_isolated_leaf(\"").nth(1) {
+                if let Some(leaf) = rest.split('"').next() {
+                    // The wrapper may name the leaf by its module path (`trusted::tests::x_isolated`).
+                    let name = leaf.rsplit("::").next().unwrap_or(leaf);
                     wrappers.push(name.to_string());
                 }
             }
+            let isolated = function.name.ends_with("_isolated");
+            if isolated && function.is_test && !function.is_ignored {
+                missing_ignore.push(format!("{name}::{}", function.name));
+            }
+            if isolated && function.is_test {
+                leaves.push(function.name.clone());
+            }
+            if writes.iter().any(|needle| function.body.contains(needle.as_str()))
+                && !isolated
+                && !is_harness
+            {
+                offenders.push(format!("{name}::{}", function.name));
+            }
+            if is_test_binary
+                && function.is_test
+                && !isolated
+                && !prepares.iter().any(|needle| function.body.contains(needle))
+            {
+                unprepared.push(format!("{name}::{}", function.name));
+            }
         }
     }
+
     assert!(
         offenders.is_empty(),
         "tests write the shared process environment; move the body to an `_isolated` leaf:\n{}",
         offenders.join("\n")
+    );
+    assert!(
+        missing_ignore.is_empty(),
+        "these isolated leaves must be `#[ignore]`d so the shared process never runs them: {missing_ignore:?}"
+    );
+    assert!(
+        unprepared.is_empty(),
+        "these tests touch the host or env without `support::prepare()`/`support::host()` first: {unprepared:?}"
     );
     let orphans: Vec<&String> = leaves
         .iter()
@@ -6526,6 +6562,71 @@ fn env_writes_are_confined_to_isolated_leaves() {
         orphans.is_empty(),
         "these isolated leaves have no `run_isolated_leaf` wrapper: {orphans:?}"
     );
+}
+
+fn collect_rust_sources(dir: &Path, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            collect_rust_sources(&path, found);
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+            found.push(path);
+        }
+    }
+}
+
+struct SourceFunction {
+    name: String,
+    body: String,
+    is_test: bool,
+    is_ignored: bool,
+}
+
+/// Attributes belong to the next `fn`, so they are buffered until one appears.
+fn source_functions(text: &str) -> Vec<SourceFunction> {
+    let mut functions = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
+    let mut current: Option<(String, Vec<String>, String)> = None;
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#[") || trimmed.starts_with("///") {
+            pending.push(trimmed.to_string());
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("fn ") {
+            if let Some((name, attributes, body)) = current.take() {
+                functions.push(SourceFunction {
+                    name,
+                    body,
+                    is_test: attributes.iter().any(|line| line.starts_with("#[test]")),
+                    is_ignored: attributes.iter().any(|line| line.starts_with("#[ignore")),
+                });
+            }
+            current = Some((
+                rest.split('(').next().unwrap_or("").to_string(),
+                std::mem::take(&mut pending),
+                String::new(),
+            ));
+            continue;
+        }
+        match current.as_mut() {
+            Some((_, _, body)) => {
+                body.push_str(line);
+                body.push('\n');
+            }
+            None => pending.clear(),
+        }
+    }
+    if let Some((name, attributes, body)) = current {
+        functions.push(SourceFunction {
+            name,
+            body,
+            is_test: attributes.iter().any(|line| line.starts_with("#[test]")),
+            is_ignored: attributes.iter().any(|line| line.starts_with("#[ignore")),
+        });
+    }
+    functions
 }
 
 #[cfg(unix)]
