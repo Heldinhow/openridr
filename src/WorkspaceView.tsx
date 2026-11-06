@@ -79,6 +79,7 @@ import {
   type GitStatus,
 } from "./git";
 import { NuGetPanel } from "./NuGetPanel";
+import { CommitDiff } from "./CommitDiff";
 import { useExecutionFlow } from "./useExecutionFlow";
 import {
   buildDisabledReason as buildGate,
@@ -570,6 +571,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [findUsages, setFindUsages] = useState<FindUsagesState | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [gitDiffView, setGitDiffView] = useState<GitDiffView | null>(null);
+  const [commitDiffPath, setCommitDiffPath] = useState<string | null>(null);
+  const [commitDiffActive, setCommitDiffActive] = useState(false);
   const [renameRequest, setRenameRequest] = useState(0);
   const [definitionRequest, setDefinitionRequest] = useState(0);
   const renameSeq = useRef(0);
@@ -1421,6 +1424,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   async function openFile(path: string) {
+    setCommitDiffActive(false);
     const relative = workspaceRelative(path, workspaceDir);
     if (tabs.some((tab) => tab.path === relative)) {
       setActivePath(relative);
@@ -4509,6 +4513,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             trusted={trusted}
             initialPath={commitFocusPath}
             onRefresh={refreshGit}
+            onOpenDiff={(path) => { setCommitDiffPath(path); setCommitDiffActive(true); }}
           />
         ) : (
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
@@ -4637,17 +4642,18 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         <section className="editor-pane" aria-label="Editor">
           <div className="tabbar">
             <div className="tabs" role="tablist" aria-label="Open files" onKeyDown={(event) => {
-              if (!tabs.length || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              const count = tabs.length + (commitDiffPath ? 1 : 0);
+              if (!count || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
               event.preventDefault();
-              const index = tabs.findIndex((tab) => tab.path === activePath);
-              const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-              setActivePath(tabs[next].path);
-              void checkDisk(tabs[next].path);
+              const index = commitDiffActive ? tabs.length : Math.max(0, tabs.findIndex((tab) => tab.path === activePath));
+              const next = event.key === "Home" ? 0 : event.key === "End" ? count - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + count) % count;
+              setCommitDiffActive(next === tabs.length);
+              if (next < tabs.length) { setActivePath(tabs[next].path); void checkDisk(tabs[next].path); }
               event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
             }}>
               {tabs.map((tab) => {
                 const dirty = isDirty(tab);
-                const selected = tab.path === activePath;
+                const selected = !commitDiffActive && tab.path === activePath;
                 return (
                   <div className={`tab ${selected ? "active" : ""}`} key={tab.path} data-testid={`tab-${tab.path}`}>
                     <button
@@ -4657,6 +4663,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                       aria-controls="editor-content"
                       className="tab-label"
                       onClick={() => {
+                        setCommitDiffActive(false);
                         setActivePath(tab.path);
                         void checkDisk(tab.path);
                       }}
@@ -4688,6 +4695,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   </div>
                 );
               })}
+              {commitDiffPath && <div className={`tab ${commitDiffActive ? "active" : ""}`} data-testid="commit-diff-tab">
+                <button role="tab" className="tab-label" tabIndex={commitDiffActive ? 0 : -1} aria-selected={commitDiffActive} aria-controls="commit-diff-content" onClick={() => setCommitDiffActive(true)} title={commitDiffPath}>Commit: {baseName(commitDiffPath)}</button>
+                <button className="tab-close" aria-label="Close diff" title="Close diff" onClick={() => { setCommitDiffPath(null); setCommitDiffActive(false); }}>×</button>
+              </div>}
             </div>
             {activeInspections && (activeInspections.error > 0 || activeInspections.warning > 0) && (
               <span className="inspection-summary" data-testid="editor-inspections" title="Current diagnostics in this file">
@@ -4734,7 +4745,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             </button>
           </div>
 
-          {active ? (
+          {commitDiffActive && commitDiffPath ? (
+            <CommitDiff path={commitDiffPath} files={gitStatus?.files ?? []} onNavigate={setCommitDiffPath} />
+          ) : active ? (
             <>
               <div className="breadcrumb-row">
               <div className="breadcrumb" data-testid="breadcrumb">

@@ -3,6 +3,7 @@ import App from "./App";
 import { installNativeContextMenuGuard } from "./nativeMenu";
 import "./styles.css";
 import "./rider-chrome.css";
+import "./git-panel.css";
 import "./solution-icons.css";
 
 // The WebKit menu (Reload / Share… / Services) belongs to a browser, not to the shipped app.

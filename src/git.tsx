@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { call, messageOf } from "./host/client";
 import { Icon } from "./Icon";
 import { MidText } from "./shell/MidText";
+import { FileIcon } from "./FileIcon";
+import { RefreshCw, ChevronDown, ChevronRight, Eye, ChevronsUpDown, Undo2 } from "lucide-react";
 
 export type GitFile = {
   path: string;
@@ -600,79 +602,31 @@ export function BranchWidget({
   );
 }
 
-type SplitCell = { text: string; kind: "ctx" | "del" | "add" | "empty" };
-
-// Pairs "-" and "+" runs of a unified diff into old | new rows; headers span both columns.
-function splitDiff(diff: string): Array<string | [SplitCell, SplitCell]> {
-  const rows: Array<string | [SplitCell, SplitCell]> = [];
-  let dels: string[] = [];
-  let adds: string[] = [];
-  const empty: SplitCell = { text: "", kind: "empty" };
-  const flush = () => {
-    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
-      rows.push([
-        i < dels.length ? { text: dels[i], kind: "del" } : empty,
-        i < adds.length ? { text: adds[i], kind: "add" } : empty,
-      ]);
-    }
-    dels = [];
-    adds = [];
-  };
-  let inHunk = false;
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("@@")) { flush(); inHunk = true; rows.push(line); continue; }
-    if (!inHunk || line.startsWith("diff --git")) { flush(); inHunk = false; rows.push(line); continue; }
-    if (line.startsWith("-")) dels.push(line.slice(1));
-    else if (line.startsWith("+")) adds.push(line.slice(1));
-    else if (line.startsWith("\\")) continue;
-    else { flush(); const t = line.slice(1); rows.push([{ text: t, kind: "ctx" }, { text: t, kind: "ctx" }]); }
-  }
-  flush();
-  return rows;
-}
-
-function SideBySideDiff({ diff, staged }: { diff: string; staged: boolean }) {
-  const rows = useMemo(() => splitDiff(diff), [diff]);
-  const noPreviousFile = diff.split("\n").slice(0, 5).includes("--- /dev/null");
-  return (
-    <pre className="commit-diff commit-diff-split">
-      <span className="split-label" data-testid="commit-diff-left-label">{noPreviousFile ? "No previous file" : staged ? "HEAD" : "Index"}</span>
-      <span className="split-label" data-testid="commit-diff-right-label">{staged ? "Index" : "Working tree"}</span>
-      {rows.map((row, index) =>
-        typeof row === "string" ? (
-          <span key={index} className="split-head">{row}</span>
-        ) : (
-          row.map((cell, side) => (
-            <span key={`${index}-${side}`} className={`split-cell split-${cell.kind}`}>{cell.text}</span>
-          ))
-        ),
-      )}
-    </pre>
-  );
-}
-
 export function CommitPanel({
   status,
   statusError,
   trusted,
   initialPath = null,
   onRefresh,
+  onOpenDiff,
 }: {
   status: GitStatus | null;
   statusError: string | null;
   trusted: boolean;
   initialPath?: string | null;
   onRefresh: () => Promise<void>;
+  onOpenDiff: (path: string) => void;
 }) {
   const [selection, setSelection] = useState<Set<string> | null>(null);
   const [message, setMessage] = useState("");
   const [amend, setAmend] = useState(false);
-  const [diff, setDiff] = useState<GitDiff | null>(null);
   const [diffPath, setDiffPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const focused = useRef<string | null>(null);
+  const groupCheck = useRef<HTMLInputElement>(null);
+  const [expanded, setExpanded] = useState(true);
   const reason = !trusted ? TRUST_MESSAGE : unavailable(status, statusError);
   const files = status?.state === "ok" ? status.files : [];
   const selected = useMemo(
@@ -682,6 +636,10 @@ export function CommitPanel({
   const commitPaths = files
     .filter((file) => selected.has(file.path) && !file.conflicted)
     .map((file) => file.path);
+
+  useEffect(() => {
+    if (groupCheck.current) groupCheck.current.indeterminate = commitPaths.length > 0 && commitPaths.length < files.filter((file) => !file.conflicted).length;
+  }, [commitPaths.length, files]);
 
   useEffect(() => {
     if (!trusted) return;
@@ -696,24 +654,9 @@ export function CommitPanel({
     setSelection(next);
   }
 
-  async function showDiff(file: GitFile) {
+  function showDiff(file: GitFile) {
     setDiffPath(file.path);
-    setDiff(null);
-    try {
-      const staged = file.staged && file.worktree === " ";
-      setDiff(await call<GitDiff>("git.diff", { path: file.path, staged }));
-    } catch (caught) {
-      const text = messageOf(caught);
-      setError(text);
-      setDiff({
-        state: "failed",
-        message: text,
-        path: file.path,
-        staged: file.staged,
-        diff: "",
-        truncated: false,
-      });
-    }
+    onOpenDiff(file.path);
   }
 
   useEffect(() => {
@@ -743,7 +686,6 @@ export function CommitPanel({
         setMessage("");
         setAmend(false);
         setSelection(null);
-        setDiff(null);
         setDiffPath(null);
       } else {
         setError(result.message ?? "git commit failed.");
@@ -763,13 +705,17 @@ export function CommitPanel({
         <p className="tree-note" data-testid="commit-disabled-reason">{reason}</p>
       ) : (
         <>
-          <div className="git-toolbar">
-            <button type="button" data-testid="commit-refresh" disabled={busy} onClick={() => void onRefresh()}>
-              Refresh
-            </button>
-            <span className="tag" data-testid="commit-count">
-              {commitPaths.length} of {files.length} selected
-            </span>
+          <div className="git-toolbar commit-toolbar">
+            <button type="button" data-testid="commit-refresh" aria-label="Refresh" title="Refresh" disabled={busy} onClick={() => void onRefresh()}><RefreshCw size={16} /></button>
+            <button type="button" aria-label="Rollback" title="Rollback is not available in the Commit tool" disabled><Undo2 size={16} /></button>
+            <button type="button" aria-label="Expand or collapse changes" title="Expand or collapse changes" onClick={() => setExpanded(!expanded)}><ChevronsUpDown size={16} /></button>
+            <button type="button" aria-label="Show selected diff" title="Show selected diff" disabled={!diffPath} onClick={() => { const file = files.find((entry) => entry.path === diffPath); if (file) void showDiff(file); }}><Eye size={16} /></button>
+            <span className="commit-selection-count" data-testid="commit-count">{commitPaths.length} of {files.length} selected</span>
+          </div>
+          <div className="commit-group">
+            <button type="button" aria-label={expanded ? "Collapse changes" : "Expand changes"} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
+            <input ref={groupCheck} type="checkbox" aria-label="Select all changes" checked={files.some((file) => !file.conflicted) && commitPaths.length === files.filter((file) => !file.conflicted).length} disabled={busy || !files.some((file) => !file.conflicted)} onChange={(event) => setSelection(new Set(event.target.checked ? files.filter((file) => !file.conflicted).map((file) => file.path) : []))} />
+            <strong>Changes</strong><span>{files.length} {files.length === 1 ? "file" : "files"}</span>
           </div>
           <div className="commit-files">
             {files.length === 0 && (
@@ -777,8 +723,8 @@ export function CommitPanel({
                 The working tree is clean.
               </p>
             )}
-            {files.map((file) => (
-              <div className={`commit-row ${diffPath === file.path ? "selected" : ""}`} key={`${file.path}-${file.originalPath ?? ""}`}>
+            {expanded && files.map((file) => (
+              <div className={`commit-row ${diffPath === file.path ? "selected" : ""}`}  key={`${file.path}-${file.originalPath ?? ""}`}>
                 <input
                   type="checkbox"
                   data-testid={`commit-check-${file.path}`}
@@ -795,51 +741,20 @@ export function CommitPanel({
                   title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.path}
                   onClick={() => void showDiff(file)}
                 >
+                  <FileIcon path={file.path} />
                   <span className="commit-path" title={file.path}>
-                    <span className="commit-dir">{file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : ""}</span>
-                    <span className="commit-name">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
+                    <span className={`commit-name ${file.untracked ? "untracked" : file.index === "D" || file.worktree === "D" ? "deleted" : file.index === "A" ? "added" : "modified"}`}>{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
+                    <span className="commit-dir">{file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : ""}</span>
                   </span>
-                  <span className={`tag ${file.conflicted ? "error" : ""}`}>{file.label}</span>
-                  {file.untracked && <span className="menu-note">new file</span>}
+                  <span className="commit-status">{file.label}</span>
                 </button>
               </div>
             ))}
           </div>
-          {diffPath && (
-            <div className="modal-backdrop commit-diff-backdrop">
-              <section
-                className="modal commit-diff-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-label={`Git diff for ${diffPath}`}
-                data-testid="commit-diff"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    setDiffPath(null);
-                    setDiff(null);
-                  }
-                }}
-              >
-                <div className="panel-title commit-diff-title" title={diffPath}>{diffPath}</div>
-              {diff ? (
-                <>
-                  {diff.diff ? <SideBySideDiff diff={diff.diff} staged={diff.staged} /> : <pre className="commit-diff">{diff.message || "No diff."}</pre>}
-                  {diff.truncated && <p className="menu-note">Diff truncated at the declared limit.</p>}
-                  {diff.state !== "ok" && <p className="menu-note">{diff.message}</p>}
-                </>
-              ) : (
-                <p className="menu-note">Loading diff…</p>
-              )}
-                <div className="actions">
-                  <button type="button" autoFocus onClick={() => { setDiffPath(null); setDiff(null); }}>Close diff</button>
-                </div>
-              </section>
-            </div>
-          )}
           <div className="commit-form">
             <label className="commit-message-field">
-              <span>Commit message</span>
               <textarea
+                placeholder="Commit Message"
                 data-testid="commit-message"
                 aria-label="Commit message"
                 value={message}
@@ -872,6 +787,7 @@ export function CommitPanel({
             >
               {busy ? "Committing…" : amend ? "Amend commit" : "Commit"}
             </button>
+            <button type="button" className="commit-push" disabled title="Combined commit and push is not available; push separately from the branch menu.">Commit and Push…</button>
             {(state || error) && (
               <p
                 role={error ? "alert" : "status"}
