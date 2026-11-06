@@ -31,7 +31,8 @@
 #
 # Requires macOS, a Developer ID + notarized bundle (--allow-unnotarized to measure another one)
 # and agent-desktop with accessibility and screen recording granted.
-# Usage: scripts/measure-first-open.sh [--app PATH] [--rounds N] [--click X,Y] [--timeout S] [--keep]
+# --check-only validates the arguments and preconditions and exits without launching anything.
+# Usage: scripts/measure-first-open.sh [--app PATH] [--rounds N] [--click X,Y] [--timeout S] [--keep] [--check-only]
 # END HELP
 set -eu
 
@@ -41,6 +42,7 @@ CLICK=
 TIMEOUT=120
 KEEP=no
 ALLOW_UNNOTARIZED=no
+CHECK_ONLY=no
 
 die() { printf 'measure-first-open: %s\n' "$*" >&2; exit 1; }
 
@@ -62,6 +64,7 @@ while [ "$#" -gt 0 ]; do
     --timeout) value "$1" "$#"; TIMEOUT=$2; shift 2 ;;
     --keep) KEEP=yes; shift ;;
     --allow-unnotarized) ALLOW_UNNOTARIZED=yes; shift ;;
+    --check-only) CHECK_ONLY=yes; shift ;;
     -h|--help) usage ;;
     *) die "unknown argument $1 (--help for usage)" ;;
   esac
@@ -102,6 +105,12 @@ fi
 
 # One instance at a time: a second launch lands on the single-instance plugin and measures nothing.
 pgrep -x openridr >/dev/null 2>&1 && die "OpenRidr is already running; quit it before measuring"
+
+if [ "$CHECK_ONLY" = yes ]; then
+  printf 'measure-first-open: check ok: app=%s rounds=%s click=%s timeout=%ss\n' \
+    "$APP" "$ROUNDS" "${CLICK:-none}" "$TIMEOUT"
+  exit 0
+fi
 
 STATE=$(mktemp -d "${TMPDIR:-/tmp}/openridr-first-open.XXXXXX")
 HOME_DIR="$STATE/home"

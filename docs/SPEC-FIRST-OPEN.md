@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 Data: 2026-11-06. Alvo medido: macOS 27.2 (build 26B118), Apple Silicon. Windows e Intel continuam fora.
-Issue-mãe: #45. Diagnóstico anterior: #42 (`docs/implementation-notes.md`, "Primeira abertura e verificação embutida").
+Issue-mãe: #45. Retro: `docs/RETRO-FIRST-OPEN.md`. Diagnóstico anterior: #42 (`docs/implementation-notes.md`, "Primeira abertura e verificação embutida").
 
 ## Problem Statement
 
