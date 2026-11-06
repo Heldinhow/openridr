@@ -11,6 +11,7 @@ pub mod hostroot;
 mod http;
 mod logbuf;
 mod lsp;
+mod netguard;
 mod nuget;
 mod outline;
 pub mod process;
