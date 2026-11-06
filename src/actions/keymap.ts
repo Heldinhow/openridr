@@ -1,7 +1,7 @@
 // Keymap model: shortcuts are key + modifiers, never a preformatted string. `primary` is
 // Command on macOS and Control elsewhere, matching the approved Rider/IntelliJ table.
 
-export type ProfileId = "rider-macos" | "intellij";
+export type ProfileId = "rider-macos" | "intellij" | "visual-studio";
 
 export type Shortcut = {
   key: string;
@@ -65,6 +65,7 @@ export const editorDefaults: EditorSettings = {
 export const profileOptions: { id: ProfileId; title: string }[] = [
   { id: "rider-macos", title: "Rider (macOS)" },
   { id: "intellij", title: "IntelliJ" },
+  { id: "visual-studio", title: "Visual Studio" },
 ];
 
 export function profileTitle(profile: ProfileId) {
@@ -120,7 +121,7 @@ function binding(mac: Shortcut[], windows: Shortcut[] = mac): Binding {
   return { mac, windows };
 }
 
-function both(shortcuts: Shortcut[]): Record<ProfileId, Binding> {
+function both(shortcuts: Shortcut[]): Partial<Record<ProfileId, Binding>> {
   return { "rider-macos": binding(shortcuts), intellij: binding(shortcuts) };
 }
 
@@ -259,6 +260,23 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
   "git.branchCreate": both([shortcut("n", { primary: true, alt: true })]),
 };
 
+const visualStudioDefaults: Record<string, Binding> = {
+  "build.start": binding([shortcut("b", { primary: true, shift: true })]),
+  "run.start": binding([shortcut("f5", { control: true })], [shortcut("f5", { primary: true })]),
+  "run.stop": binding([shortcut("f5", { shift: true })]),
+  "debug.start": binding([shortcut("f5")]),
+  "debug.restart": binding([shortcut("f5", { primary: true, shift: true })]),
+  "debug.continue": binding([shortcut("f5")]),
+  "debug.stepOver": binding([shortcut("f10")]),
+  "debug.stepInto": binding([shortcut("f11")]),
+  "debug.stepOut": binding([shortcut("f11", { shift: true })]),
+  "debug.toggleBreakpoint": binding([shortcut("f9")]),
+  "code.goToDeclaration": binding([shortcut("f12")]),
+  "code.findUsages": binding([shortcut("f12", { shift: true })]),
+  "code.contextActions": binding([shortcut(".", { primary: true })]),
+  "code.rename": binding([shortcut("f2")]),
+};
+
 export function shortcutsFor(
   id: string,
   keymap: Keymap,
@@ -267,7 +285,8 @@ export function shortcutsFor(
   const override = keymap.overrides[id];
   if (override && override.length > 0) return override;
   const defaults = keymapDefaults[id];
-  const selected = defaults?.[keymap.profile] ?? defaults?.["rider-macos"];
+  const selected = (keymap.profile === "visual-studio" ? visualStudioDefaults[id] : undefined)
+    ?? defaults?.[keymap.profile] ?? defaults?.["rider-macos"];
   if (!selected) return [];
   return platform === "macos" ? selected.mac : selected.windows;
 }
@@ -287,6 +306,7 @@ const chordTable: Partial<
     },
   },
 };
+chordTable["visual-studio"] = chordTable["rider-macos"];
 
 export function chordFor(id: string, profile: ProfileId): Shortcut[] {
   const table = chordTable[profile];
@@ -396,7 +416,8 @@ function parseShortcut(value: unknown): Shortcut | null {
 
 export function normalizeKeymap(raw: unknown): Keymap {
   const value = isRecord(raw) ? raw : {};
-  const profile: ProfileId = value.profile === "intellij" ? "intellij" : "rider-macos";
+  const profile: ProfileId = value.profile === "intellij" || value.profile === "visual-studio"
+    ? value.profile : "rider-macos";
   const overrides: Record<string, Shortcut[]> = {};
   if (isRecord(value.overrides)) {
     for (const [id, list] of Object.entries(value.overrides)) {

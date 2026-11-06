@@ -34,7 +34,7 @@ import {
 } from "./codeNavigation";
 import { ProblemsPanel } from "./ProblemsPanel";
 import { RunPanel } from "./RunPanel";
-import { BuildPanel, isBuildObsolete, runShortcutLabel } from "./BuildPanel";
+import { BuildPanel, isBuildObsolete } from "./BuildPanel";
 import {
   TestsPanel,
   failedTestIds,
@@ -986,7 +986,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const run = snapshot.run;
   const runRunning = run.state === "running";
   const runBuilding = run.state === "building";
-  const runShortcut = runShortcutLabel(snapshot.app.platform);
   const dap = snapshot.dap;
   const debugBuilding = dap.state === "building";
   const debugActive = ["building", "preparing", "running", "paused"].includes(dap.state);
@@ -3205,6 +3204,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         debugActive || runRunning || runBuilding ? null : "Nothing is running; there is no session to stop.",
     }),
     define({
+      id: "debug.restart",
+      title: "Restart Debugging",
+      group: "Debug",
+      execute: () => void restartDebug(),
+      disabledReason: debugActive ? null : "No debug session to restart.",
+    }),
+    define({
       id: "debug.stepOver",
       title: "Step Over",
       group: "Debug",
@@ -3679,7 +3685,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         chordPending.current = performance.now();
         return;
       }
-      const action = firstActionFor(actionsRef.current, event, snapshot.app.platform);
+      const action = firstActionFor(actionsRef.current, event, snapshot.app.platform, {
+        profile: settings.keymap.profile,
+        debugPaused: dap.state === "paused",
+      });
       if (!action) return;
       if (inEditor && !action.editor) return;
       // Capture, before CodeMirror: the app's shortcuts and chords outrank its keymap.
@@ -3716,7 +3725,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
     };
-  }, [snapshot.app.platform, settings.keymap.profile]);
+  }, [snapshot.app.platform, settings.keymap.profile, dap.state]);
 
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
@@ -3989,6 +3998,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             build={build}
             run={run}
             platform={snapshot.app.platform}
+            shortcuts={{ run: shortcutOf("run.start"), build: shortcutOf("build.start"), solution: shortcutOf("build.solution") }}
             dirtyCount={dirtyCount}
             runDisabledReason={runDisabledReason}
             onRun={requestRun}
@@ -4029,6 +4039,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           <div data-testid="debug-tab">
             <DebugPanel
               snapshot={snapshot}
+              shortcuts={{ start: shortcutOf("debug.start"), stop: settings.keymap.profile === "visual-studio" ? shortcutOf("run.stop") : shortcutOf("debug.stop"), resume: shortcutOf("debug.continue"), over: shortcutOf("debug.stepOver"), into: shortcutOf("debug.stepInto"), out: shortcutOf("debug.stepOut"), breakpoint: shortcutOf("debug.toggleBreakpoint") }}
               disabledReason={debugDisabledReason}
               trusted={trusted}
               onTrust={() => void grantTrust()}
@@ -4852,6 +4863,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   path={active.path}
                   platform={snapshot.app.platform}
                   profile={settings.keymap.profile}
+                  shortcutHint={`Ctrl+Space: completion · ${shortcutOf("code.goToDeclaration") ?? ""}: go to definition · ${shortcutOf("code.rename") ?? ""}: rename · ${shortcutOf("code.findUsages") ?? ""}: find usages · ${shortcutOf("code.contextActions") ?? ""}: code actions`}
                   revision={active.revision}
                   editor={settings.editor}
                   onChange={(value) => updateContent(active.path, value)}
@@ -5148,10 +5160,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               <p className="muted">Open a file from the solution explorer to start editing.</p>
               <dl className="shortcut-list">
                 <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd> <span className="muted">or Double Shift</span></dd>
-                <dt>Save file</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘S" : "Ctrl+S"}</kbd></dd>
-                <dt>Go to definition</dt><dd><kbd>{snapshot.app.platform === "macos" ? "⌘B" : "Ctrl+B"}</kbd></dd>
-                <dt>Rename symbol</dt><dd><kbd>Shift+F6</kbd></dd>
-                <dt>Run saved build</dt><dd><kbd>{runShortcut}</kbd></dd>
+                <dt>Save file</dt><dd><kbd>{actionById.get("file.save")?.shortcutLabels[0]}</kbd></dd>
+                <dt>Go to definition</dt><dd><kbd>{actionById.get("code.goToDeclaration")?.shortcutLabels[0]}</kbd></dd>
+                <dt>Rename symbol</dt><dd><kbd>{actionById.get("code.rename")?.shortcutLabels[0]}</kbd></dd>
+                <dt>Run saved build</dt><dd><kbd>{actionById.get("run.start")?.shortcutLabels[0]}</kbd></dd>
               </dl>
               <p className="hint">Text editing is always available. Analysis and execution require trust.</p>
             </div>
