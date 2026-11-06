@@ -8,6 +8,7 @@ Estado do produto: **OpenRidr 0.3.0-alpha.4**, macOS Apple Silicon. Onde fica ca
 |---|---|---|
 | [SPEC.md](SPEC.md) | contrato do produto (P0) | normativo |
 | [SPEC-MVP-RIDER.md](SPEC-MVP-RIDER.md) + [tickets-mvp/](tickets-mvp/README.md) | fatias F1–F9 e critérios de aceite | normativo |
+| [agents/](agents/issue-tracker.md) | onde o trabalho vira ticket: GitHub issues (`gh`), labels de triagem, docs de domínio | leia antes de criar/ler/fechar ticket |
 | [decisions.md](decisions.md) | por quê de cada decisão, em ordem cronológica (append) | `grep -n '^## ' docs/decisions.md \| grep -i <tema>`; entradas "Substituída…" já estão marcadas |
 | [implementation-notes.md](implementation-notes.md) | como cada ticket foi feito, contratos, **testids estáveis**, o que não foi verificado | busque por heading `## `; ~760 linhas, não leia inteiro |
 | [RELEASE-ALPHA.md](RELEASE-ALPHA.md) | notas da alpha atual (novidades, instalar, limitações, sha256) | reescrito a cada release |
@@ -17,7 +18,7 @@ Estado do produto: **OpenRidr 0.3.0-alpha.4**, macOS Apple Silicon. Onde fica ca
 
 ## Feature → docs
 
-Convenção para trabalho novo: `SPEC-<tema>.md`, `RETRO-<tema>.md`, evidência em `evidence/<tema>.md`, decisão nova em `decisions.md`. **Tickets novos vivem como issues do GitHub** (decisão do Helder de 2026-11-06, `decisions.md`), não em `tickets-<tema>/`; as pastas `tickets-*` abaixo são históricas.
+Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitHub issues** ligadas à issue-mãe da frente (sub-issue, ou `Part of #N` na primeira linha do corpo; bloqueio em `Blocked by: #M`), `RETRO-<tema>.md`, evidência em `evidence/<tema>.md`, decisão nova em `decisions.md`. O tracker e as operações de `gh` estão em [agents/issue-tracker.md](agents/issue-tracker.md); as pastas `tickets-*/` da tabela abaixo são histórico e não recebem tickets novos.
 
 | Feature / onda | Spec | Tickets | Retro / review | Evidência |
 |---|---|---|---|---|
@@ -43,12 +44,15 @@ Convenção para trabalho novo: `SPEC-<tema>.md`, `RETRO-<tema>.md`, evidência 
 | Solution Explorer visual (ícones/cores, sem chrome de avaliação) | [SPEC-SOLUTION-EXPLORER-VISUAL](SPEC-SOLUTION-EXPLORER-VISUAL.md) | [tickets-solution-explorer-visual/](tickets-solution-explorer-visual/README.md) (01–04) | [RETRO-SOLUTION-EXPLORER-VISUAL](RETRO-SOLUTION-EXPLORER-VISUAL.md) | [evidence/solution-explorer-visual](evidence/solution-explorer-visual.md) |
 | Ícones da Solution Explorer (glifos T3 Code/@pierre/trees, pasta só com chevron, guia e seleção) | [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md) | [tickets-solution-file-icons/](tickets-solution-file-icons/README.md) (01–03) | [RETRO-SOLUTION-FILE-ICONS](RETRO-SOLUTION-FILE-ICONS.md) | [evidence/solution-file-icons.md](evidence/solution-file-icons.md), `evidence/solution-file-icons/depois-*.png` |
 | Correções da aceitação do `main` (export de tests, progresso do setup, TFM, menu de folha, NuGet, AX) | — (`decisions.md`, 2026-11-05) | — | [RETRO-ACCEPTANCE-FIXES](RETRO-ACCEPTANCE-FIXES.md) | [evidence/acceptance-fixes.md](evidence/acceptance-fixes.md), `evidence/acceptance-fixes/*.png` |
+| Release assinado e notarizado pelo GitHub Actions (issue #44) | [SPEC-release-ci](SPEC-release-ci.md) | issues [#58](https://github.com/Heldinhow/openridr/issues/58), [#61](https://github.com/Heldinhow/openridr/issues/61), [#63](https://github.com/Heldinhow/openridr/issues/63), [#65](https://github.com/Heldinhow/openridr/issues/65), [#66](https://github.com/Heldinhow/openridr/issues/66), [#68](https://github.com/Heldinhow/openridr/issues/68) | [RETRO-release-ci](RETRO-release-ci.md) | [evidence/release-ci.md](evidence/release-ci.md) |
+| Primeira abertura com quarentena (Gatekeeper) | [SPEC-FIRST-OPEN](SPEC-FIRST-OPEN.md) | #71, #72 | [RETRO-FIRST-OPEN](RETRO-FIRST-OPEN.md) | [evidence/first-open.md](evidence/first-open.md) |
 | Setup de ferramentas + Tests/NuGet (paridade Rider) | [SPEC-TESTS-NUGET-TOOLS-SETUP](SPEC-TESTS-NUGET-TOOLS-SETUP.md) | [tickets-tests-nuget-tools-setup/](tickets-tests-nuget-tools-setup/README.md) (01–05) | [RETRO-TESTS-NUGET-TOOLS-SETUP](RETRO-TESTS-NUGET-TOOLS-SETUP.md) | [evidence/tests-nuget-tools-setup/desktop.md](evidence/tests-nuget-tools-setup/desktop.md) |
 | Suite de testes confiável (issue #43) | [SPEC-TEST-STABILITY](SPEC-TEST-STABILITY.md) | issues GitHub #57, #59, #62, #64, #67 | [RETRO-TEST-STABILITY](RETRO-TEST-STABILITY.md) | [evidence/test-stability.md](evidence/test-stability.md) |
 | E2E: smoke noturno + quarentena (issue #67) | [SPEC-TEST-STABILITY](SPEC-TEST-STABILITY.md) | issue #67 (#56 é o workflow) | — | [evidence/e2e-quarantine.md](evidence/e2e-quarantine.md) |
+| Debug: sessão que termina sem parar (#46) | [SPEC-DEBUG-NO-STOP](SPEC-DEBUG-NO-STOP.md) | #76, #78 (GitHub) | [RETRO-DEBUG-NO-STOP](RETRO-DEBUG-NO-STOP.md) | [evidence/debug-no-stop.md](evidence/debug-no-stop.md) |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
 
-Numeração de tickets **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta.
+Numeração de tickets nas pastas históricas **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta. Ticket novo é GitHub issue: cite pelo número (`#58`).
 
 ## Histórico (não use como estado atual)
 

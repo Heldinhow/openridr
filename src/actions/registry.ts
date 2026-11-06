@@ -6,6 +6,7 @@ import {
   shortcutsFor,
   signature,
   type Keymap,
+  type ProfileId,
   type Shortcut,
 } from "./keymap";
 
@@ -62,6 +63,8 @@ export function resolveActions(
       if (!action) continue;
       for (const other of ids) {
         if (other === id) continue;
+        if (keymap.profile === "visual-studio" && !keymap.overrides["debug.start"] && !keymap.overrides["debug.continue"] &&
+            ((id === "debug.start" && other === "debug.continue") || (id === "debug.continue" && other === "debug.start"))) continue;
         const title = resolved.find((item) => item.id === other)?.title ?? other;
         if (!action.conflicts.includes(title)) action.conflicts.push(title);
       }
@@ -80,14 +83,20 @@ export function requireAction(
   return action;
 }
 
-/** First registered action wins a collision; availability never reorders the registry. */
+/** First registered action wins, except the shared Visual Studio debug shortcut while paused. */
 export function firstActionFor(
   actions: ResolvedAction[],
   event: KeyboardEvent,
   platform: string,
+  context?: { profile: ProfileId; debugPaused: boolean },
 ): ResolvedAction | null {
   for (const action of actions) {
     if (action.shortcuts.some((shortcut) => matches(event, shortcut, platform))) {
+      if (context?.profile === "visual-studio" && context.debugPaused && action.id === "debug.start") {
+        const resume = actions.find((candidate) => candidate.id === "debug.continue" &&
+          candidate.shortcuts.some((shortcut) => matches(event, shortcut, platform)));
+        if (resume) return resume;
+      }
       return action;
     }
   }

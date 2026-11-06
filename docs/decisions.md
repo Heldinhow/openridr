@@ -946,3 +946,80 @@ lembrar do run — o mesmo erro voltaria no próximo leitor.
 - **Decisão do Helder (issue #67).** A suíte E2E deixa de ser gate de PR e deixa de ser ferramenta de verificação de sessão: sessão de agente prova UI com `agent-desktop`. O que sobra é um **smoke noturno automatizado**, cuja lista é `scripts/e2e-smoke.txt` (workspace, build, run, qa2-diagnostics: 25 testes, ~2,8 min) e cujo workflow pertence à issue #56.
 - **Quarentena com motivo, não conserto sem prova.** `debugger.spec.ts` (12 de 13 falhando, medido) testa o fluxo `debug.install` anterior ao bundle; fica `test.skip` no arquivo com o motivo. `csharp-ls.spec.ts:150`, `testsuite.spec.ts` (`tests-filter-count`), `tests.spec.ts:317` e `ui-layout` em 1440 px ficam na tabela como relatados e **não re-verificados** nesta rodada. A tabela vive em `docs/evidence/e2e-quarantine.md`.
 - **Spec desatualizada não é quarentena.** `workspace.spec.ts` esperava o texto do download (`osx-arm64 asset exists`); com o netcoredbg embutido a expectativa passou a "Bundled with OpenRidr" — corrigida, não pulada.
+## 2026-11-06 — Release CI: o script é o processo, o workflow só o chama
+
+- **Um script, dois invocadores.** `scripts/release-macos.sh` (preflight, build, auditoria de Mach-O, notarização, grampo, DMG, verificação, sha256) é chamado pelo workflow e pela máquina do Helder. "Artefato idêntico ao processo manual" só é verificável se não existirem dois processos: um YAML que reimplementa os passos do `release-signing.md` divergiria na primeira mudança. `tauri-apps/tauri-action` foi recusado pelo mesmo motivo (ele faz bundle/notarização próprios).
+- **A tag é a identidade da release.** O preflight exige `v<semver>` e igualdade com as cinco fontes de versão (`package.json`, `tauri.conf.json`, `src-tauri/Cargo.toml`, `crates/{host,host-http}/Cargo.toml`), mais o primeiro heading de `RELEASE-ALPHA.md`. Bump continua sendo um commit `chore(release)` antes da tag. A tag também precisa ser ancestral de `origin/main`: release de galho solto não passa.
+- **Credenciais: API key do App Store Connect, não Apple ID.** `notarytool --key/--key-id/--issuer` é revogável e não expõe o Apple ID pessoal em log de runner; `--issuer` só é passado quando `APPLE_API_ISSUER` existe (Team API Key; Individual não tem issuer). Nomes: secrets `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_API_KEY` (base64 do `.p8`), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`; variable `APPLE_SIGNING_IDENTITY` (pública, já nos docs). `NOTARY_KEYCHAIN_PROFILE` continua aceito no Mac, para não quebrar o ritual local com o keychain `notary`. O certificado entra num keychain temporário com senha gerada no runner e é removido em `if: always()`.
+- **Fail-fast antes de gastar runner.** Sem credenciais, o run falha em ~30 s listando os nomes ausentes; nenhum caminho publica artefato não assinado. `workflow_dispatch` com `publish=false` roda build+assinatura+notarização+verificação e para antes de publicar: é o ensaio com credenciais reais sem tag.
+- **Auditoria de todos os Mach-O, com uma exceção nominal.** Medido na alpha.11: 18 Mach-O no `.app` (1 binário, 15 do runtime .NET, 2 do netcoredbg); 17 com a identidade do Helder e `dotnet/shared/Microsoft.NETCore.App/10.0.14/createdump` com `Developer ID Application: Microsoft Corporation (UBF8T346G9)`. O script exige, por arquivo, `codesign --verify --strict`, `flags=0x10000(runtime)`, `Timestamp=` e `Authority` igual à nossa — exceto `createdump`, aceito só por esse nome e essa autoridade. Comparação por `Authority` porque dylib não tem `TeamIdentifier`. Foi o risco real da alpha.9.
+- **Publicação direta como pré-release.** O push da tag é o ato de aprovação; depois de verificado, `gh release create --prerelease` (sufixo `-` na versão) publica DMG + corpo gerado. Rerun da mesma tag edita a release e sobe o DMG com `--clobber` em vez de falhar.
+- **O corpo é gerado, não digitado.** `release-notes.sh` concatena `RELEASE-ALPHA.md` com um bloco `## Verificação` (sha256, bytes, resultados de `codesign`/`spctl`/`stapler` do run) e **recusa** notas que já contenham um SHA-256: um hash fixo no doc só pode estar errado. O hash manual saiu do `RELEASE-ALPHA.md`.
+- **O DMG não é reproduzível byte a byte.** Duas montagens do mesmo `.app` ad-hoc deram `69516096` e `69516278` bytes. O contrato "conteúdo idêntico" é sobre o caminho e a lista de verificações, não sobre o hash do arquivo; por isso o hash sempre vem do run.
+- **Sem E2E no release.** `bun run check` + `bun test tests/unit` rodam no workflow; a suíte E2E tem falhas conhecidas no HEAD e não bloqueia release. Limpeza e cache: só `~/.bun/install/cache`/registry cargo, nunca `target/` nem as árvores assinadas (cache assinado é atestação emprestada).
+
+## 2026-11-06 — Revisão do release CI: o que se publica é o commit da tag, assinado arquivo por arquivo
+
+Revisão externa (Pi, GPT-6.1 Terra) do diff de `feat/issue-44-release-ci` contra `origin/main`;
+todos os achados alto/médio foram corrigidos com teste que falha antes e passa depois.
+
+- **`HEAD` tem de ser o commit da tag.** O workflow faz checkout da própria tag (`ref: inputs.tag ||
+  github.ref`) e o preflight recusa `HEAD` diferente de `refs/tags/<tag>^{commit}`. Antes, um
+  `workflow_dispatch` na ponta de um branch passaria pelo preflight (a tag está em `main`) e buildaria
+  outro commit.
+- **O `.p8` é escrito no shell principal.** `notary_key_path` era chamado por substituição de comando
+  (`$(...)`), então `NOTARY_KEY_FILE` nascia dentro do subshell e o `trap EXIT` não removia o arquivo
+  no caminho manual. Agora `prepare_notary_key` grava a variável no processo do script, cria o arquivo
+  com `mktemp` sob `umask 077` (0600 desde o primeiro byte) e a remoção é garantida.
+- **Auditoria de Mach-O sem falso negativo.** A detecção por magic number cobria só três variantes e
+  podia confundir arquivo de dados com magic; passou a usar `file -b` (32/64 bits, duas endiannesses,
+  fat32/fat64). Cada arquivo também passou a ser verificado com `codesign --verify --strict`, não só
+  lido com `-dv`: assinatura inválida em binário aninhado agora aborta antes da notarização.
+- **`--dry-run` é sempre ad-hoc.** O ensaio limpava o ambiente? Não: herdava `APPLE_SIGNING_IDENTITY`
+  e os scripts de vendor/Tauri assinavam com Developer ID de verdade. O modo limpa a variável antes do
+  build e o ensaio não pode mais assinar nada real.
+- **Caminho manual sem `.p12`.** `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` só são exigidos no
+  caminho do CI; com `NOTARY_KEYCHAIN_PROFILE` (certificado no keychain do Mac) o preflight não pede
+  os `.p12` — antes pedia e o doc mandava exportar à toa.
+- **Uma release por vez, e nada de hash órfão.** `concurrency: group: release` (sem `github.ref`) para
+  um dispatch e um push da mesma tag não disputarem a release; ao republicar, o DMG sobe com
+  `--clobber` **antes** de editar o corpo, porque o texto anuncia um hash e nunca pode conviver com o
+  anexo anterior. O caminho do keychain é registrado antes de ser criado, para o `if: always()`
+  apagá-lo mesmo se o import falhar no meio.
+- **Heading e hash exatos.** A versão do primeiro heading é comparada palavra por palavra (antes,
+  prefixo: `0.3.0` aceitava as notas de `0.3.0-alpha.11`) e a procura de SHA-256 escrito à mão passou a
+  ser case-insensitive.
+- **Segunda rodada do re-check: magic bytes e chave no dono do `trap`.** `file` responde `data` para
+  cabeçalho fat64, então a auditoria passou a ler os quatro primeiros bytes (thin 32/64 bits nas duas
+  endiannesses, fat/fat64 e variantes trocadas) com `cafebabe` desambiguado do `.class` do Java pelo
+  `nfat_arch` (< 30 é fat; 45+ é versão de classe). E `notarize` — que captura a saída do `notarytool`
+  em `$(...)` — passou a chamar `prepare_notary_key` **antes** da captura: criar a chave dentro do
+  subshell deixava o arquivo órfão, porque o `trap EXIT` roda no shell principal.
+- **Terceira rodada (baixos do re-check): caminho da chave antes do arquivo, e recusar o que a
+  varredura não sabe ler.** `prepare_notary_key` define `NOTARY_KEY_FILE` num diretório privado
+  (`$RUNNER_TEMP/notary-key.<pid>`, 0700) **antes** de criar o arquivo, então o `trap` conhece o
+  caminho desde o primeiro instante — o `mktemp` dentro de `$(...)` deixava uma janela em que o arquivo
+  existia sem caminho registrado. Na auditoria: arquivo com menos de 8 bytes não é candidato a Mach-O,
+  caminho com quebra de linha faz falhar (a varredura é por linha) e symlink apontando para fora do
+  `.app` faz falhar; links internos (normais num bundle) continuam aceitos porque o alvo regular é
+  auditado.
+- **O bloco publicado não afirma o que não foi verificado.** O resultado de `codesign` no corpo passou
+  a dizer "app e app no DMG montado" (o DMG em si é verificado por `spctl`/`stapler`, não por
+  `codesign --deep`).
+## 2026-11-06 — Primeira abertura com quarentena: o atraso é o diálogo do macOS, não o bundle
+
+- **Diagnóstico anterior estava errado e foi corrigido com medição.** A leitura "15–18 s em `_dyld_start` porque o Gatekeeper verifica 18 Mach-O assinados" vinha de `sample` num processo suspenso pela quarentena: enquanto o diálogo "… é um app baixado da internet" está na tela o app **não é iniciado** (`launchInQuarantine`), então ele fica em `_dyld_start` por todo o tempo que ninguém clicar. Medido no alpha.11 notarizado/grampeado: diálogo em 0,40–0,53 s (0,17 s até a avaliação começar, 0,18 s até o XProtect terminar), código em 0,14–0,24 s depois do clique, janela em 0,97–1,42 s depois do clique. `spctl --assess` no bundle inteiro: 0,27 s.
+- **O teto do que o bundle pode economizar é sub-segundo.** Todo o trabalho do sistema antes do diálogo cabe em ≤ 0,53 s (app no disco); remover o ticket grampeado (`Contents/CodeResources`, consulta online) dá 0,32–0,38 s, mesma ordem. As variantes de bundle (runtime em `tar.gz` para 1 Mach-O, runtime em `Frameworks`, sem runtime) testariam esse custo: ficam **não medidas** porque nenhum marco nessa condição passou de 0,53 s (limite combinado ~2 s), não porque tenham sido esquecidas. Nas condições que abrem de dentro da imagem o intervalo clique→código passa de 2 s: o prompt ali aparece em 1,38–1,51 s e `ditto` da mesma cópia custa 1,95 s, então leitura da imagem é a explicação compatível — o split entre cópia e arranque não foi isolado. Encolher o payload é outra frente, fora de escopo.
+- **O caminho caro tem instrução, não conserto de código.** Abrir direto da janela do DMG custa 5,1–6,6 s de clique→janela, contra 0,97–1,42 s com o app copiado; copiar da imagem custa 1,95 s medidos (`ditto`) e a leitura dos 164 MB da imagem UDZO é a explicação compatível, não um split medido entre cópia e arranque. Arrastar para Aplicações antes de abrir elimina esse custo de leitura — o diálogo da primeira abertura continua existindo e continua sendo de um clique só. É isso que as notas de release e `install-app.md` passam a dizer.
+- **Aprovação é por caminho.** Reabrir a mesma cópia no mesmo diretório não mostra mais o diálogo (2ª/3ª abertura do app dentro do mesmo DMG: 0,19/0,22 s até o código). Medir de novo exige cópia nova + xattr de quarentena novo com UUID novo; limpar o cache do `syspolicyd` exige root, então "primeira avaliação de um cdhash nunca visto" ficou como limitação declarada. O harness reprodutível é `scripts/measure-first-open.sh`; números e limitações em [evidence/first-open.md](evidence/first-open.md).
+- **O diálogo é apresentado na frente e recebe teclado.** Capturado sobre Finder e sobre T3 Code maximizado, centralizado; com ele na tela o Return equivale a *Abrir* (app arrancou 0,25 s depois). Tela cheia em outro Space não foi medida, então "o diálogo aparece" vale para as condições testadas (terminal, Finder e janela maximizada na frente), não para qualquer arranjo de janelas.
+
+## 2026-11-06 — O fim sem parada é explicado pelo host, não inferido pela UI
+
+- **Decisão (grill da #46, rodada 1, aprovada pelo Helder).** Quando uma sessão termina sem ter parado nunca e nada estava configurado para fazê-la parar, a explicação vem pronta do host: `DapView` ganha `noStopExplanation` (`string | null`), derivado no ponto único de fim de sessão a partir dos fatos da própria sessão. O React só renderiza o texto. Motivo: a regra ficaria duplicada no painel e em qualquer outro leitor do snapshot, e a decisão de 2026-11-05 ("A UI não recalcula regra") mais o precedente da frase de falha de infraestrutura do test runner já colocam explicação de resultado no host.
+- **"Parou alguma vez" é fato da sessão, não geração de pausa.** Um booleano marcado no primeiro evento de parada do adaptador (breakpoint, exceção, pause, run-to-cursor) e zerado em cada lançamento; continuar depois não desfaz o fato. O contador de geração de pausa avança também em cada resume, então não responde essa pergunta.
+- **Só `terminated` explica.** Sessão cancelada pelo usuário já mostra o motivo da parada e sessão falha mostra a falha do adaptador; dizer "rodou até o fim" nos dois seria falso.
+- **Stop source silencia a frase; mute tem frase própria.** Breakpoints armazenados, break on thrown exceptions e run-to-cursor pendente contam como motivo de parada configurado. Com breakpoints mutados a frase é "Breakpoints are muted; …", porque afirmar que nenhum breakpoint foi setado seria mentira para quem mutou.
+- **Alternativas recusadas.** (a) Só reescrever a fase da sessão: o texto continuaria atenuado e concatenado à nota genérica, que é exatamente a leitura de "falha do depurador" que a issue quer corrigir. (b) Trocar a aba para Console e rolar o output: rouba a aba escolhida pelo usuário e esconde estado no React; a frase aponta para o Console, que já é o padrão. (c) Cobrir "breakpoints setados mas nunca atingidos": é um diagnóstico diferente (breakpoint não verificado, condição falsa) e ficou fora desta rodada.
+- **Consequência.** `dap-no-stop` é o testid novo do parágrafo de informação que substitui a nota atenuada de fim nesse caso; nenhum testid existente muda.
+- **Revisão de código (2026-11-06, rodada do #46).** Dois ajustes ao redor da mesma decisão: a frase exige que o adaptador tenha **reportado o exit do debuggee** — `terminated` também é o estado quando o adaptador morre sozinho, e a morte dele não é conclusão do programa; e "nenhum breakpoint" olha as **linhas** armazenadas, não o mapa de fontes, porque remover o último breakpoint deixa uma lista vazia para aquele arquivo (o mesmo que nenhum breakpoint). O campo "parou alguma vez" continua separado do exit do debuggee: parar e continuar não apaga o fato, e um adaptador que morre depois de uma parada não merece explicação de conclusão.

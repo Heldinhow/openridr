@@ -5,6 +5,7 @@ type Props = {
   build: Build;
   run: Run;
   platform: string;
+  shortcuts: { run?: string; build?: string; solution?: string };
   dirtyCount: number;
   runDisabledReason: string | null;
   onRun: () => void;
@@ -126,6 +127,7 @@ export function BuildPanel({
   build,
   run,
   platform,
+  shortcuts,
   dirtyCount,
   runDisabledReason,
   onRun,
@@ -162,9 +164,9 @@ export function BuildPanel({
       : evaluation.availableTfms;
   const running = build.state === "running";
   const runRunning = run.state === "running";
-  const shortcut = runShortcutLabel(platform);
-  const buildShortcut = platform === "macos" ? "Cmd+F9" : "Ctrl+F9";
-  const solutionShortcut = platform === "macos" ? "⇧⌘F9" : "Shift+Ctrl+F9";
+  const shortcut = shortcuts.run ?? "";
+  const buildShortcut = shortcuts.build ?? "";
+  const solutionShortcut = shortcuts.solution ?? "";
   const startup =
     candidates.find((project) => project.path === startupPath) ?? null;
 

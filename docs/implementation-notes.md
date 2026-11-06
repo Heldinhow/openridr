@@ -1373,3 +1373,116 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 - **Prova.** Ver `docs/evidence/test-stability.md` (tabela por item da issue, medições e o que não
   foi verificado). Não verificado: E2E (quarentenado; decisão do Playwright pendente), Windows e
   macOS Intel, e a falha de instalação do debugger relatada por outra sessão (não reproduzida aqui).
+## Keymap Visual Studio (2026-11-06)
+
+- O perfil Visual Studio é selecionável e persistido nas configurações; o Rider continua padrão e os overrides existentes têm precedência. As ações sem equivalente usam os atalhos e acordes Rider.
+- F5 inicia ou continua a depuração pausada, Ctrl+F5 executa (Ctrl literal no macOS, para não acionar o VoiceOver), Shift+F5 para, Cmd+Shift+F5 reinicia; F9/F10/F11/Shift+F11 e F12/Shift+F12 seguem o perfil. Build, ações de código e dicas visíveis usam o mesmo registro.
+- Rename usa F2: o suporte atual a acordes aceita uma tecla final sem modificador, não Ctrl+R, Ctrl+R. Completion permanece Ctrl+Space. Não há novas ações de comentar/descomentar.
+- Testes: `bun run check`, unitários 36/36, teste focado 2/2 e host settings 2/2. O segundo teste focado foi acrescentado após a execução unitária completa.
+- App Tauri ad-hoc no macOS ARM64 com fixture isolada: seleção persistida, status e dicas atualizadas, F9 no editor e F12 navegando de Program.cs para Order.cs. Evidência em `docs/evidence/keymap-vs.md`.
+- Não verificado: demais atalhos em execução real, Windows, macOS Intel e notarização. Playwright não foi usado.
+- Ajuste posterior: testes focados cobrem Ctrl+F5 em macOS/Windows e a escolha de iniciar ou continuar com F5; o fluxo de debug pausado não foi repetido no app real.
+
+## 2026-11-06 — Release CI (issues #58, #61, #63, #65, #66, #68)
+
+Spec: [SPEC-release-ci.md](SPEC-release-ci.md). Decisões: `decisions.md`, “Release CI”.
+
+- **Um script manda.** `scripts/release-macos.sh` é o processo do release; o workflow só o chama.
+  Modos: `--check` (preflight), `--dry-run` (build + DMG + plano, sem assinatura), `--dmg-only`
+  (monta/confere DMG de um `.app` existente), `--audit <app>` (só a auditoria de Mach-O) e o modo
+  completo. Saída: `version`/`dmg`/`sha256`/`bytes`/`verify_*` em `$GITHUB_OUTPUT` quando existe, e
+  linhas `dmg=`/`sha256=`/`bytes=` em stdout nos modos de ensaio.
+- **Seams, todos por ambiente:** `RELEASE_ROOT` (self-check aponta para um checkout plantado),
+  `RELEASE_APP` e `RELEASE_SKIP_BUILD` (pular build), `RELEASE_VERSION` (`--dmg-only` sem tag). Nenhum
+  deles muda o caminho de release.
+- **Preflight reprova, não avisa:** tag `v<semver>` (regex estrita), tag existente, `HEAD` igual ao
+  commit da tag, versão igual nas cinco fontes, tag ancestral de `origin/main`, primeiro heading de
+  `docs/RELEASE-ALPHA.md` com a versão exata (palavra por palavra), credenciais presentes (só nomes),
+  ferramentas (`bun cargo xcrun codesign hdiutil ditto shasum gh`) e `uname -m` = arm64. Identidade que
+  não comece com `Developer ID Application: ` é recusada (impede `-` ad-hoc entrar pela variável).
+- **Auditoria de Mach-O:** lista os alvos pelos quatro primeiros bytes (thin 32/64 bits nas duas
+  endiannesses, fat/fat64 e os de campos trocados; `cafebabe` desambiguado do `.class` do Java pelo
+  `nfat_arch`, porque `file` diz `data` para fat64); arquivo < 8 bytes é ignorado, caminho com
+  quebra de linha e symlink para fora do `.app` fazem a auditoria falhar) e exige por arquivo
+  `codesign --verify --strict`, `flags=0x10000(runtime)`, `Timestamp=` e
+  `Authority=Developer ID Application: <identidade>`. Exceção única: basename `createdump`, aceito só
+  com `Authority=Developer ID Application: Microsoft Corporation (UBF8T346G9)` e no máximo um.
+  Comparação por `Authority`, porque dylib não tem `TeamIdentifier` (medido na alpha.11: 18 Mach-O,
+  17 nossos + 1 `createdump`). A falha nomeia o caminho relativo e o motivo.
+- **Credenciais de notarização:** `APPLE_API_KEY` é base64 do `.p8`; `prepare_notary_key` grava o
+  caminho em `NOTARY_KEY_DIR`/`NOTARY_KEY_FILE` (diretório privado 0700 e caminho determinístico) **antes**
+  de criar o arquivo, no shell do script e chamada por `notarize` antes da captura de saída do
+  `notarytool` (nunca em `$(...)`, senão o `trap EXIT` não apagaria); o arquivo nasce 0600, só o
+  caminho vai para o `notarytool` e arquivo + diretório saem no `trap cleanup EXIT`. `--issuer` entra só quando
+  `APPLE_API_ISSUER` existe (Team API Key). `NOTARY_KEYCHAIN_PROFILE` é a alternativa local: dispensa
+  `APPLE_API_KEY*` **e** os `.p12` (o certificado já está no keychain do Mac).
+- **Ordem do caminho completo:** build → auditoria → zip do `.app` (`ditto --sequesterRsrc`) →
+  `notarytool submit --wait` → `stapler`/`validate` no `.app` → DMG (`hdiutil`) → `codesign` no DMG →
+  notarizar → grampear → verificação (codesign/spctl/stapler em app, app montado e DMG) → sha256.
+  Rejeição da Apple imprime `notarytool log <id>` e falha sem publicar.
+- **Notas:** `scripts/release-notes.sh` concatena `docs/RELEASE-ALPHA.md` com o bloco `## Verificação`
+  (nome do DMG, bytes, sha256, `shasum -a 256`, resultados de verificação quando definidos) e **recusa**
+  notas que já contenham um SHA-256. O hash/tamanho escritos à mão saíram do `RELEASE-ALPHA.md`.
+  O DMG não é reproduzível byte a byte (duas montagens ad-hoc do mesmo `.app`: 69.516.096 e
+  69.516.278 bytes), então o hash sempre vem do run.
+- **Workflow:** `.github/workflows/release.yml`, job único em `macos-15`, `timeout-minutes: 90`,
+  `permissions: contents: write`, `concurrency: group: release` (grupo único, sem cancelar). Passos:
+  checkout da própria tag (`ref: inputs.tag || github.ref`, `fetch-depth: 0`) → setup-bun 1.3.9 →
+  preflight → keychain temporário (senha `openssl rand`; caminho registrado **antes** da criação) →
+  deps + `bun run check` + `bun run test:unit` → `release-macos.sh` → limpeza do certificado em
+  `if: always()` → corpo das notas → `gh release create --prerelease` (`github.event_name == 'push' ||
+  inputs.publish == true`; rerun sobe o DMG com `--clobber` **antes** de editar o corpo) → artifact do
+  DMG por 14 dias. Actions pinadas por SHA; sem `tauri-apps/tauri-action`.
+- **Testes que rodam sem credenciais:** `scripts/release-selfcheck.sh` (cada regra do preflight
+  reprovando isoladamente, caso completo aprovado, `HEAD` fora da tag recusado, DMG montado de um
+  `.app` stub com nome/symlink/versão/`$GITHUB_OUTPUT`, auditoria aprovando `/Applications/OpenRidr.app`
+  e reprovando identidade trocada **e assinatura quebrada**, caminho completo parando na auditoria de
+  um bundle ad-hoc sem deixar arquivo em `RUNNER_TEMP`, e `--dry-run` com um `bun` de mentira
+  provando que o build recebe identidade vazia) e `scripts/release-notes-selfcheck.sh` (bloco,
+  resultados opcionais, heading exato, hash manual em maiúsculas, cada rejeição).
+  `actionlint` + `shellcheck -s sh` limpos; cada regra nova foi provada por mutação.
+- **Não verificado:** assinatura Developer ID real, notarização aceita, `stapler`, publicação da
+  pré-release e o workflow rodando no GitHub — tudo exige as credenciais que só o Helder cadastra.
+  macOS Intel e Windows continuam fora. Passo a passo do primeiro run:
+  [release-signing.md](release-signing.md).
+## 2026-11-06 — Primeira abertura com quarentena (#45)
+
+Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, tickets #71/#72.
+
+- **A medição corrige o diagnóstico da #42.** O processo fica em `_dyld_start` porque o macOS não
+  inicia app em quarentena até o diálogo ser respondido (`launchInQuarantine`), não porque o
+  Gatekeeper esteja verificando os 18 Mach-O. Marcos medidos no alpha.11 do release: diálogo em
+  0,40–0,53 s (cópia em disco), código 0,14–0,24 s e janela 0,97–1,42 s depois do clique.
+- **`scripts/measure-first-open.sh`** monta a condição (cópia nova, xattr `0083` com UUID novo,
+  `OPENRIDR_HOME` isolado por `launchctl setenv`), cronometra `exec`/`prompt`/`click`/`code`/
+  `window`, recusa rodar com o app aberto e restaura o ambiente no fim (trap instalado antes de
+  mexer no ambiente). A identidade é ancorada: marcador no argv por rodada, pid que não existia
+  antes e carrega o marcador (dois candidatos = falha), alerta só contado depois desse pid,
+  janela amarrada ao pid medido, e `--check-only` valida tudo sem abrir nada. `--click X,Y` dispensa o diálogo
+  automaticamente pelo `agent-desktop` (o `CoreServicesUIAgent` expõe zero superfícies de
+  acessibilidade); sem `--click`, espera alguém responder e reporta o total.
+- **Condições sem custo no bundle:** sem o ticket grampeado (consulta online) o diálogo aparece em
+  0,32–0,38 s; abrir direto de imagem fria é o caminho lento (clique→janela 6,6 s; `ditto` do app:
+  1,95 s). Nada muda assinatura, layout ou contagem de Mach-O.
+- **Documentação atualizada:** `install-app.md` (arraste para Aplicações antes de abrir; o diálogo
+  de primeira abertura), `RELEASE-ALPHA.md` (mesma instrução com números) e `decisions.md`.
+- **Verificado no script commitado:** `sh -n`, os caminhos de erro (`--rounds` fora de 1..5,
+  `--timeout` não numérico, app inexistente, flag sem valor, `--click` sem `Y`, bundle sem
+  Developer ID recusado) e **uma** rodada sem `--click` (o diálogo ficou 18,4 s na tela e o código
+  começou 18,5 s depois dele — reproduz o "18 s").
+- **Não verificado:** o modo `--click` do script commitado (a tabela da evidência veio do
+  protótipo), a captura por rodada, a falha em 5 s pós-clique, tela cheia em outro Space, cdhash
+  nunca visto (exigiria build novo + notarização), macOS 26, macOS Intel e Windows. Cursor de
+  espera (beachball) não é observável em captura do ScreenCaptureKit.
+
+## Sessão de debug que termina sem parar (2026-11-06, #76/#78)
+
+- Contrato novo no snapshot: `dap.noStopExplanation` (`Option<String>` / `string | null`). Nada existente mudou de nome ou de forma; o painel só renderiza o texto.
+- A regra mora num lugar só, `Data::finish` (`crates/host/src/dap.rs`): estado `terminated`, sem parada anterior, sem stop source configurado. `stop_seq` não servia (avança também em cada resume), então há um `stopped_once` por sessão, marcado no primeiro evento `stopped` e zerado em cada lançamento.
+- Texto literal: `No breakpoints were set; the program ran to completion (exit N). Its output is in the Console tab.` / `Breakpoints are muted; …` / sem `(exit N)` quando o exit não foi observado. Decisão em `docs/decisions.md` (2026-11-06), termos "stop source" e "no-stop session" no `GLOSSARY.md`, spec em `docs/SPEC-DEBUG-NO-STOP.md`.
+- Painel: `data-testid="dap-no-stop"` (classe `.info`) logo abaixo do estado/fase e acima das colunas; quando ele existe, a nota atenuada `dap-terminal-note` **não** é renderizada (um fim, uma frase). Nenhuma aba é trocada e nada rola sozinho.
+- Testids: `dap-no-stop` é novo; `dap-terminal-note`, `dap-state`, `dap-phase`, `dap-output`, `dap-log` e os demais seguem intactos.
+- Testes: 11 novos de host (19 no módulo `dap::tests`) dirigidos por mensagens DAP reais; falha-antes provada revertendo só a atribuição do campo.
+- Dois apertos vieram da revisão de código: a frase só existe quando o adaptador **reportou o exit do debuggee** (`terminated` também é o estado de um adaptador que morre sozinho) e "nenhum breakpoint" conta **linhas** armazenadas, não entradas de fonte (remover o último breakpoint deixa a lista vazia daquela fonte). E2E: assert novo em `tests/e2e/debugger.spec.ts` (sessão sem breakpoint), mais negativos no teste de condição que nunca vale, no mute-all e no fluxo principal (“parou e continuou”).
+- App real macOS arm64 com `agent-desktop` (fixture OrderDesk em `/tmp`, uma instância): frase de "nenhum breakpoint" com exit 0 e output visível no Console; frase de mute-all com mudo ligado; e `Paused` real sem frase quando o breakpoint volta. Evidência em `docs/evidence/debug-no-stop.md`.
+- Não verificado: suíte Playwright de Debug — **falha pré-existente do harness**, não deste diff: o host de E2E roda com bundle falso e `debug.install` responde "netcoredbg is bundled with OpenRidr; there is nothing to download or install", já na linha 192 do `HEAD` (frente #43). Também não verificado: frase sobrevivendo à selagem por troca de workspace, Windows, macOS Intel.

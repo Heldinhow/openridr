@@ -357,6 +357,8 @@ test("debugs a real build with breakpoints, frames, locals, steps, continue and 
     await expect(page.getByTestId("dap-exit")).toHaveText("exit 0");
     await expect(page.getByTestId("dap-output")).toContainText("Order A-104");
     await expect(page.getByTestId("dap-log")).toContainText("event exited · exit 0");
+    // This session stopped at a breakpoint, so no "no breakpoint" explanation is shown.
+    await expect(page.getByTestId("dap-no-stop")).toHaveCount(0);
 
     // Second session from the Debug tab itself; stop while paused, with requested vs
     // observed termination.
@@ -656,6 +658,53 @@ test("a conditional breakpoint stops only when its condition is true", async ({ 
   }
 });
 
+test("a session with no breakpoints set explains that it ran to completion", async ({
+  page,
+  request,
+}) => {
+  test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-no-stop-"));
+  try {
+    await prepareDebugCopy(
+      page,
+      request,
+      base,
+      [
+        'var order = "A-104";',
+        'System.Console.WriteLine($"Order {order}");',
+        "System.Console.WriteLine(42);",
+        "",
+      ].join("\n"),
+      null,
+    );
+    await page.getByTestId("bottom-tab-debug").click();
+    await expect(page.getByTestId("debug-breakpoints-empty")).toBeVisible();
+    // A log tab the user picked must survive the end of the session.
+    await page.getByTestId("debug-tab-output").click();
+    await expect(page.getByTestId("debug-tab-output")).toHaveAttribute("aria-selected", "true");
+
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Terminated", { timeout: 60_000 });
+    // The ending is explained instead of only reported, and the generic note is replaced by it.
+    const explanation = page.getByTestId("dap-no-stop");
+    await expect(explanation).toBeVisible();
+    await expect(explanation).toHaveText(
+      "No breakpoints were set; the program ran to completion (exit 0). Its output is in the Console tab.",
+    );
+    await expect(page.getByTestId("dap-terminal-note")).toHaveCount(0);
+    await expect(page.getByTestId("debug-tab-output")).toHaveAttribute("aria-selected", "true");
+    // The output stays readable in the Console tab the sentence points at.
+    await page.getByTestId("debug-tab-console").click();
+    await expect(page.getByTestId("dap-output")).toBeVisible();
+    await expect(page.getByTestId("dap-output")).toContainText("Order A-104");
+    await expect(page.getByTestId("dap-output")).toContainText("42");
+    await page.screenshot({ path: path.join(screenshots, "46-dap-no-stop.png"), fullPage: true });
+  } finally {
+    await hostCall(request, "debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("a condition that never holds lets the program finish", async ({ page, request }) => {
   test.skip(!fs.existsSync(realAdapter), "the real netcoredbg install is not present");
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-condition-off-"));
@@ -671,6 +720,8 @@ test("a condition that never holds lets the program finish", async ({ page, requ
     await expect(page.getByTestId("dap-state")).toContainText("Terminated", { timeout: 60_000 });
     await expect(page.getByTestId("dap-state")).not.toContainText("Paused");
     await expect(page.getByTestId("dap-output")).toContainText("10");
+    // A breakpoint was set (its condition never held), so this is not "no breakpoint was set".
+    await expect(page.getByTestId("dap-no-stop")).toHaveCount(0);
   } finally {
     await hostCall(request, "debug.stop");
     fs.rmSync(base, { recursive: true, force: true });
@@ -690,6 +741,10 @@ test("mute all keeps breakpoints out of the run", async ({ page, request }) => {
     await expect(page.getByTestId("dap-state")).toContainText("Terminated", { timeout: 60_000 });
     await expect(page.getByTestId("dap-output")).toContainText("10");
     await expect(page.getByTestId("debug-breakpoints")).toContainText("Program.cs:4");
+    // Muted breakpoints get their own sentence; "none were set" would contradict the mute.
+    await expect(page.getByTestId("dap-no-stop")).toHaveText(
+      /^Breakpoints are muted; the program ran to completion \(exit \d+\)\. Its output is in the Console tab\.$/,
+    );
   } finally {
     await hostCall(request, "debug.stop");
     fs.rmSync(base, { recursive: true, force: true });
