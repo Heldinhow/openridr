@@ -1456,3 +1456,30 @@ Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, ticket
 - **Sete capturas** em `docs/evidence/debug-advanced/`. O app foi fechado por `desktop.sh down`; nenhuma instância ficou viva.
 - **Bug de rótulo observado (fora do escopo):** no painel Debug, a aba **Debug Output** (`data-testid="dap-log"`) e a aba **Console** (`data-testid="dap-output"`) estão com os rótulos trocados em relação ao conteúdo. Não foi corrigido nesta frente.
 - **Não verificado:** stdout do debuggee no app real (a aba certa não foi observada por causa do rótulo trocado; o E2E prova `dap-output`); Windows/macOS Intel.
+
+## Debug avançado — correções da revisão (2026-11-06)
+
+Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) sobre
+`7a6c3cb..e5a993d`; achados corrigidos antes do PR:
+
+- **Alto — auto-continue podia retomar uma pausa mais nova.** `resume_inner` agora recebe o
+  `stop_seq` esperado e confere dentro do lock que incrementa a geração; se uma pausa nova chegou,
+  não envia `continue`. `resume_hit_count` usava `require_paused=true` e falharia com o estado
+  adiado; o caminho de hit count passa `expected_stop` e dispensa `paused`.
+- **Médio — watch mostrava valor do frame anterior.** `Data.watch_frame_id` guarda o frame da
+  avaliação; o snapshot só publica resultados quando `watch_frame_id == selected_frame_id` e
+  `refresh_watches` descarta resposta cujo frame já não é o selecionado. Trocar de frame/thread
+  esconde o valor antigo na hora.
+- **Médio — pausa intermediária era publicada.** Com hit count armado, o evento `stopped` de
+  breakpoint fica em `running` com fase `Checking hit count · breakpoint` até o `stackTrace`
+  decidir; só a pausa real publica `paused`. `current()` passou a aceitar esse estado adiado
+  (senão o `load_pause` retornava cedo e a sessão ficava presa em `running`).
+- **Médio — teste de Restart não provava o restart.** O E2E agora arma hit count 3 antes do
+  Restart, espera o número de sessão aumentar e o watch mostrar `2` (não o `0` da sessão antiga).
+- **Baixos.** Contadores passaram a `u64` (não saturam em `u32::MAX` e voltam a parar); log de
+  `hit count k/N` só aparece até o alvo (depois é silencioso); novo E2E de condição que nunca vale
+  terminando com output 10.
+- **Resultado:** `cargo test -p openridr-host --lib` 296/296, `bun run check` verde, spec
+  `tests/e2e/debug-advanced.spec.ts` **7/7** com netcoredbg real. Cobertura que continua em falta,
+  registrada: troca de **frame** (não thread) para o watch, Stop + novo Debug separado do Restart,
+  limpeza ao fechar/trocar workspace e Pause manual durante auto-continue automatizado.

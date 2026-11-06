@@ -63,3 +63,17 @@ Trecho preservado no painel após o término (sessão 2, `exit 0`):
   espera `experimental_disabled` com bundle presente). Não foi corrigido aqui; o E2E desta frente
   usa host próprio com o adaptador real.
 - Windows e macOS Intel não foram executados; não são declarados suportados.
+
+## Re-verificação após a revisão (2026-11-06, bundle reconstruído)
+
+A revisão em subagente pediu mudanças no host (auto-continue preso à geração da pausa, watch
+ligado ao frame selecionado, pausa de hit count não publicada antes do alvo). O bundle debug foi
+reconstruído e a mesma sequência foi repetida numa instância nova, com as capturas acima
+substituídas por essa rodada:
+
+- Condição `index == 3` → `Paused`, Evaluate `index` = 3.
+- Hit count 3 + **Restart** → `Paused` com watch `index` = 2 (a sessão anterior parava em 3, então
+  o valor 2 prova a nova sessão), Evaluate `index` = 2.
+- Hit count 100 + **Resume** + **Pause** → `Paused · pause · 1 frame(s) · 2 thread(s)`.
+- **Resume** → `Terminated`; as capturas 03/04 mantêm o watch seguindo a thread selecionada.
+- App fechado por `desktop.sh down` (`stopped`), nenhuma instância viva.

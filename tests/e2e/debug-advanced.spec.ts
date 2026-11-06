@@ -268,14 +268,30 @@ test("a watch survives a restart with the same expressions", async ({ page }) =>
     await page.keyboard.press("Control+d");
     await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
     await expect(page.getByTestId("debug-watch-0")).toContainText("0");
+    const before = (await hostCall("debug.state")).data.dap.session as number;
+
+    // Arm a hit count so the restarted session stops on a different iteration: a stale pause
+    // from the old session would still show 0.
+    const hit = page.locator('input[data-testid^="debug-breakpoint-hit-"]');
+    await hit.fill("3");
+    await page.locator('button[data-testid^="debug-breakpoint-hit-save-"]').click();
+    await expect(hit).toHaveValue("3");
 
     await page.getByTestId("debug-restart").click();
-    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
-    // The same single watch is still there and evaluates against the new pause.
+    await expect
+      .poll(async () => {
+        const state = await hostCall("debug.state");
+        return [state.data.dap.session as number, state.data.dap.state as string];
+      }, { timeout: 90_000 })
+      .toEqual([expect.any(Number), "paused"]);
+    const after = (await hostCall("debug.state")).data.dap;
+    expect(after.session as number).toBeGreaterThan(before);
+
+    // The same single watch is still there and evaluates against the new pause (index 2).
     await expect(page.locator('[data-testid^="debug-watch-"]').filter({ hasText: "index" })).toHaveCount(1);
     await expect(page.getByTestId("debug-watch-0")).toContainText("index");
     await expect(page.getByTestId("debug-watch-0").locator(".warning")).toHaveCount(0);
-    await expect(page.getByTestId("debug-watch-0")).toContainText("0");
+    await expect(page.getByTestId("debug-watch-0")).toContainText("2");
   } finally {
     await hostCall("debug.stop");
     fs.rmSync(base, { recursive: true, force: true });
@@ -305,6 +321,26 @@ test("a watch follows the selected thread", async ({ page }) => {
     await page.getByTestId(`debug-thread-${paused.selectedThreadId}`).click();
     await expect(page.getByTestId("debug-watch-0")).toContainText("worker");
     await expect(page.getByTestId("debug-watch-0").locator(".warning")).toHaveCount(0);
+  } finally {
+    await hostCall("debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a condition that never holds lets the program finish", async ({ page }) => {
+  const base = await newBase("condition-off");
+  try {
+    await prepare(page, base, loopSource);
+    await page.getByTestId("bottom-tab-debug").click();
+    const condition = page.locator('input[data-testid^="debug-breakpoint-condition-"]');
+    await condition.fill("index > 10");
+    await page.locator('button[data-testid^="debug-breakpoint-condition-save-"]').click();
+    await expect(condition).toHaveValue("index > 10");
+
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Terminated", { timeout: 60_000 });
+    await expect(page.getByTestId("dap-state")).not.toContainText("Paused");
+    await expect(page.getByTestId("dap-output")).toContainText("10");
   } finally {
     await hostCall("debug.stop");
     fs.rmSync(base, { recursive: true, force: true });

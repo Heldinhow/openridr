@@ -308,8 +308,10 @@ struct Data {
     watches: Vec<String>,
     watch_results: Vec<EvaluationView>,
     watch_stop_seq: u64,
+    /// Frame the current watch results were evaluated against; a new selection hides them.
+    watch_frame_id: Option<i64>,
     /// Stops counted per source and line in this session, for breakpoints with a hit count.
-    hit_counts: BTreeMap<(String, i64), u32>,
+    hit_counts: BTreeMap<(String, i64), u64>,
     /// Last stop whose hit count was already evaluated; a re-entered pause never counts twice.
     hit_seen: u64,
     /// Set while the host is resuming through a hit count; drives the visible phase.
@@ -455,6 +457,7 @@ impl Dap {
                 watches: Vec::new(),
                 watch_results: Vec::new(),
                 watch_stop_seq: 0,
+                watch_frame_id: None,
                 hit_counts: BTreeMap::new(),
                 hit_seen: 0,
                 hit_wait: None,
@@ -637,6 +640,7 @@ impl Dap {
                 watches: launch.watches.clone(),
                 watch_results: Vec::new(),
                 watch_stop_seq: 0,
+                watch_frame_id: None,
                 hit_counts: BTreeMap::new(),
                 hit_seen: 0,
                 hit_wait: None,
@@ -774,6 +778,7 @@ impl Dap {
                         .iter()
                         .find(|result| result.expression == *expression)
                         .filter(|_| data.watch_stop_seq == data.stop_seq)
+                        .filter(|_| data.watch_frame_id == data.selected_frame_id)
                         .cloned(),
                 })
                 .collect(),
@@ -836,7 +841,7 @@ impl Dap {
             .collect();
         // A counter belongs to the exact breakpoint configuration that produced it: removing,
         // adding or changing a target in this source restarts counting from zero.
-        let kept: BTreeMap<(String, i64), u32> = data
+        let kept: BTreeMap<(String, i64), u64> = data
             .hit_counts
             .iter()
             .filter(|((counter_path, counter_line), _)| {
@@ -1146,7 +1151,10 @@ impl Dap {
         data.session == session
             && data.stop_seq == stop_seq
             && !data.sealed
-            && matches!(data.state, "paused" | "preparing")
+            // A breakpoint stop with an armed hit count stays `running` while its stack trace is
+            // fetched; it still belongs to this generation until proven otherwise.
+            && (matches!(data.state, "paused" | "preparing")
+                || (data.state == "running" && data.stopped.is_some()))
     }
 
     fn request(
@@ -1333,15 +1341,28 @@ impl Dap {
                         return;
                     }
                     data.stop_seq += 1;
-                    data.state = "paused";
+                    // A breakpoint stop may be only a hit-count stop. Until the stack trace says
+                    // whether the counted target is reached, the host keeps the session running
+                    // instead of publishing a pause that it is about to resume.
+                    let deferred = reason == "breakpoint"
+                        && !data.breakpoints_muted
+                        && data
+                            .breakpoints
+                            .values()
+                            .any(|items| items.iter().any(|item| item.hit_count.is_some()));
+                    data.state = if deferred { "running" } else { "paused" };
                     // A stop arrived: the previous hit-count run-through, if any, is over.
                     data.hit_wait = None;
-                    data.phase = format!(
-                        "Paused · {reason}{}",
-                        thread_id
-                            .map(|id| format!(" · thread {id}"))
-                            .unwrap_or_default()
-                    );
+                    data.phase = if deferred {
+                        format!("Checking hit count · {reason}")
+                    } else {
+                        format!(
+                            "Paused · {reason}{}",
+                            thread_id
+                                .map(|id| format!(" · thread {id}"))
+                                .unwrap_or_default()
+                        )
+                    };
                     data.stopped = Some(StoppedView {
                         reason: reason.clone(),
                         thread_id,
@@ -1566,7 +1587,7 @@ impl Dap {
                     return;
                 }
                 // Past the target the breakpoint no longer stops, so there is nothing to show.
-                data.hit_wait = (count < target).then(|| HitWait {
+                data.hit_wait = (count < u64::from(target)).then(|| HitWait {
                     path: path.clone(),
                     line,
                     count,
@@ -1574,10 +1595,13 @@ impl Dap {
                 });
                 data.phase = running_phase(data.hit_wait.as_ref());
             }
-            self.note(format!(
-                "[dap] hit count {count}/{target} · {path}:{line}; resuming"
-            ));
-            if let Err(error) = self.resume("continue", None) {
+            // Past the target the host resumes silently: only the counted stops are logged.
+            if count <= u64::from(target) {
+                self.note(format!(
+                    "[dap] hit count {count}/{target} · {path}:{line}; resuming"
+                ));
+            }
+            if let Err(error) = self.resume_hit_count(stop_seq) {
                 self.note(format!("[dap] hit count auto-continue failed: {error}"));
             }
             return;
@@ -1589,6 +1613,9 @@ impl Dap {
                     .push("[dap] late thread/frame response discarded (old stop generation)".to_string());
                 return;
             }
+            // Reached only when the stop is a real pause: publish it now (a hit-count stop
+            // deferred this in the `stopped` event).
+            data.state = "paused";
             data.threads = threads;
             data.frames = frames;
             data.selected_frame_id = data.frames.first().map(|frame| frame.id);
@@ -1725,8 +1752,14 @@ impl Dap {
                 .push("[dap] late watches discarded (old stop generation)".to_string());
             return;
         }
+        if data.selected_frame_id != frame_id {
+            data.log
+                .push("[dap] late watches discarded (frame selection changed)".to_string());
+            return;
+        }
         data.watch_results = results;
         data.watch_stop_seq = stop_seq;
+        data.watch_frame_id = frame_id;
     }
 
     /// Session, stop generation and selected frame, only while the debuggee is paused.
@@ -1966,9 +1999,26 @@ impl Dap {
     }
 
     fn resume(&self, command: &str, run_to: Option<(String, i64)>) -> HostResult<()> {
+        self.resume_inner(command, run_to, None, true)
+    }
+
+    /// Auto-continue for a hit count: resumes exactly the stop generation that was counted and
+    /// never a newer pause. The session is still `running` because the host deferred publishing
+    /// the stop until the target is reached.
+    fn resume_hit_count(&self, stop_seq: u64) -> HostResult<()> {
+        self.resume_inner("continue", None, Some(stop_seq), false)
+    }
+
+    fn resume_inner(
+        &self,
+        command: &str,
+        run_to: Option<(String, i64)>,
+        expected_stop: Option<u64>,
+        require_paused: bool,
+    ) -> HostResult<()> {
         let thread_id = {
             let data = self.data.lock().unwrap();
-            if data.state != "paused" || data.sealed {
+            if data.sealed || (require_paused && data.state != "paused") {
                 return Err(HostError::new(
                     "invalid_state",
                     "Continue/step is available only while the debuggee is paused.",
@@ -1983,7 +2033,16 @@ impl Dap {
         };
         let sent_seq = {
             let mut data = self.data.lock().unwrap();
-            if data.sealed || data.state != "paused" {
+            if data.sealed {
+                return Ok(());
+            }
+            if let Some(expected) = expected_stop {
+                if data.stop_seq != expected {
+                    // A newer pause replaced the stop this count belongs to: never resume it.
+                    return Ok(());
+                }
+            }
+            if require_paused && data.state != "paused" {
                 return Err(HostError::new(
                     "invalid_state",
                     "The debuggee is no longer paused.",
@@ -2434,7 +2493,7 @@ fn hit_count_action(
     reason: &str,
     frame: Option<(&str, i64)>,
     breakpoints: &BTreeMap<String, Vec<BreakpointView>>,
-    counts: &mut BTreeMap<(String, i64), u32>,
+    counts: &mut BTreeMap<(String, i64), u64>,
 ) -> HitCountAction {
     if reason != "breakpoint" {
         return HitCountAction::Stop;
@@ -2451,8 +2510,8 @@ fn hit_count_action(
         return HitCountAction::Stop;
     };
     let count = counts.entry((path.to_string(), line)).or_insert(0);
-    *count = count.saturating_add(1);
-    if *count == target {
+    *count += 1;
+    if *count == u64::from(target) {
         HitCountAction::Stop
     } else {
         HitCountAction::Continue {
@@ -2468,7 +2527,7 @@ enum HitCountAction {
     /// Show the pause: no armed hit count matched, or the target was reached.
     Stop,
     /// Count this stop and resume without showing a pause.
-    Continue { count: u32, target: u32 },
+    Continue { count: u64, target: u32 },
 }
 
 /// The hit count the host is currently running through, used only for the visible phase.
@@ -2476,7 +2535,7 @@ enum HitCountAction {
 struct HitWait {
     path: String,
     line: i64,
-    count: u32,
+    count: u64,
     target: u32,
 }
 
