@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildCommitRows, loadDiffMode, parseCommitPatch, projectUnified } from "../../src/CommitDiff";
+import { buildCommitRows, loadDiffMode, parseCommitPatch, projectUnified } from "../../src/commitDiffRows";
 
 describe("commit patch projection", () => {
   test("pairs replacements, preserves real line numbers and highlights only changed characters", () => {
