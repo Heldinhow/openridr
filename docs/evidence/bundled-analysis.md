@@ -124,7 +124,7 @@ HFS+), assinatura ad-hoc (`signingIdentity: "-"`), sem notarização.
 | Item | Alpha.8 (baseline) | Esta build | Delta |
 |---|---:|---:|---:|
 | `.app` release | 24,25 MiB | **163,29 MiB** | +139,04 MiB |
-| DMG | 10.699.101 B (10,20 MiB) | **61.774.547 B (58,91 MiB)** | **+51.075.446 B (+51,0 MiB, ~5,8×)** |
+| DMG | 10.699.101 B (10,20 MiB) | **61.774.338 B (58,91 MiB)** | **+51.075.237 B (+51,0 MiB, ~5,8×)** |
 | `Contents/Resources/dotnet` | — | 83 MiB | — |
 | `Contents/Resources/csharp-ls` | — | 57 MiB | — |
 

@@ -8,7 +8,7 @@ Onda: 2026-11-05, branch `feat/bundled-analysis-runtime` (base `eb3fe6f`, alpha.
 
 - 3 tickets, 1 commit de implementação + docs. 55 MB de artefatos baixados no build (não
   versionados), 140 MB extraídos no `.app`.
-- `.app` 24,25 → **163,29 MiB**; DMG 10.699.101 → **61.774.547 bytes** (+51,0 MiB, ~5,8×).
+- `.app` 24,25 → **163,29 MiB**; DMG 10.699.101 → **61.774.338 bytes** (+51,0 MiB, ~5,8×).
 - Testes: 400 no host (266 + 4 + 14 + 98 + 10 + 7 + 1), todos verdes; nenhum teste novo lento.
 
 ## O que funcionou
