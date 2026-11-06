@@ -1553,7 +1553,7 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
     if let Err(error) = validate_source_arg(source) {
         return failed(error);
     }
-    let agent = ureq::AgentBuilder::new()
+    let agent = crate::http::agent_builder()
         .timeout(std::time::Duration::from_secs(20))
         .redirects(0)
         .resolver(SafeResolver)
@@ -1566,7 +1566,7 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
             },
             Err(error) => return failed(format!("Could not read the NuGet source index: {error}")),
         },
-        Err(error) => return failed(format!("Could not read the NuGet source index: {error}")),
+        Err(error) => return failed(format!("Could not read the NuGet source index: {}", crate::http::describe_error(source, &error))),
     };
     let service = index
         .get("resources")
@@ -1602,7 +1602,7 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
             },
             Err(error) => return failed(format!("NuGet search failed: {error}")),
         },
-        Err(error) => return failed(format!("NuGet search failed: {error}")),
+        Err(error) => return failed(format!("NuGet search failed: {}", crate::http::describe_error(&url, &error))),
     };
     let items = body
         .get("data")
