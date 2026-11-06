@@ -73,7 +73,7 @@ O `submit` imprime `status: Accepted` e um `id`. O zip é só o transporte: o ti
 stage=$(mktemp -d)
 ditto "$app" "$stage/OpenRidr.app"
 ln -s /Applications "$stage/Applications"
-dmg=/tmp/OpenRidr_0.3.0-alpha.8_aarch64.dmg
+dmg=/tmp/OpenRidr_0.3.0-alpha.9_aarch64.dmg
 hdiutil create -volname OpenRidr -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dmg"
 codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg"
 xcrun notarytool submit "$dmg" --keychain-profile notary --wait
@@ -93,7 +93,7 @@ do Finder): volume `OpenRidr`, o app e o link para `/Applications`.
 
 ```sh
 app=src-tauri/target/aarch64-apple-darwin/release/bundle/macos/OpenRidr.app
-dmg=~/Downloads/OpenRidr_0.3.0-alpha.8_aarch64.dmg
+dmg=~/Downloads/OpenRidr_0.3.0-alpha.9_aarch64.dmg
 
 codesign --verify --deep --strict --verbose=2 "$app"
 codesign -dv --verbose=4 "$app" | grep -E "Authority|TeamIdentifier|flags"
@@ -115,3 +115,20 @@ hdiutil detach /tmp/OpenRidrDmg
 Se a notarização for rejeitada, o log vem de `xcrun notarytool log <id> --keychain-profile notary`
 e aponta o item exato (`signature`, `hardened runtime`, `entitlements`, binário aninhado sem
 assinatura). Corrija, refaça o build e notarize de novo — nunca publique com `stapler` pendente.
+
+## Abrir como quem baixou (quarentena)
+
+A prova que importa é o caminho do usuário: `xattr -w com.apple.quarantine` no DMG, montar, copiar o
+`.app` e abrir por `open`. No macOS 15+ isso (a) faz o app rodar **translocado**
+(`…/T/AppTranslocation/…/d/OpenRidr.app`, normal e esperado) e (b) apresenta **uma** confirmação de
+primeira abertura — "é um app baixado da internet… A Apple buscou por software malicioso e não
+detectou nenhum" + botão *Abrir*. Esse diálogo é do sistema, não uma recusa do Gatekeeper: confira
+`spctl --assess` = *accepted, source=Notarized Developer ID* e o log do `CoreServicesUIAgent`
+(`present code-evaluation prompt`, `XProtect suppress first launch warning: true`).
+
+Dois enganos comuns ao automatizar isso: o diálogo **não** aparece na árvore de acessibilidade de
+nenhum app (`CoreServicesUIAgent` expõe zero superfícies em `list-surfaces`), então é clique físico
+(`agent-desktop mouse-click --xy x,y --headed`); e enquanto ele está aberto o processo fica parado em
+`_dyld_start` com ~96 KB de footprint (`sample`), o que parece travamento do app mas é o kernel
+esperando a decisão. Sem o xattr de quarentena o app abre direto — compare os dois para não atribuir
+ao produto um comportamento do macOS.
