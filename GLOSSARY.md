@@ -10,3 +10,6 @@
 - **Trust decision**: escolha do usuário, uma vez por projeto, entre confiar (*trusted*) e abrir em modo restrito (*restricted*). Persiste entre sessões e pode ser mudada depois.
 - **Trust prompt**: a pergunta única que oferece a Trust decision na primeira abertura de um projeto. Não reaparece depois de decidida.
 - **Restricted mode**: abertura sem executar código do projeto (sem build, run, debug, análise); só edição de texto.
+- **Conditional breakpoint**: breakpoint que só para quando uma expressão C# do projeto é verdadeira no momento do hit.
+- **Hit count**: número de paradas no mesmo breakpoint antes de o debugger parar; conta só os hits aprovados pela condição. _Avoid_: hitCondition (nome do DAP no adaptador).
+- **Watch**: expressão C# fixada pelo usuário no painel Debug e reavaliada a cada pausa contra a thread/frame selecionados.
