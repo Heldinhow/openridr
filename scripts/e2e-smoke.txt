@@ -12,3 +12,4 @@ tests/e2e/workspace.spec.ts
 tests/e2e/build.spec.ts
 tests/e2e/run.spec.ts
 tests/e2e/qa2-diagnostics.spec.ts
+tests/e2e/solution-git-status.spec.ts

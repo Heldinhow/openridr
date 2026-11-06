@@ -856,6 +856,9 @@ pub fn ignored(root: &Path, paths: &[String]) -> GitIgnored {
         };
     }
     let mut args: Vec<&str> = vec![
+        // A pathname that starts with `:` is pathspec magic, and `*`, `?`, `[` are wildcards;
+        // the tree sends literal names, so the global flag keeps the pathspec literal.
+        "--literal-pathspecs",
         "status",
         "--porcelain=v1",
         "-z",
@@ -873,9 +876,9 @@ pub fn ignored(root: &Path, paths: &[String]) -> GitIgnored {
             };
         }
     };
-    // A killed child (truncated output) keeps the records already captured: a missing marker is
-    // safe, an invented one is not. `git status` itself only fails on a fatal error (128/129).
-    if matches!(captured.code, Some(128) | Some(129)) && !captured.truncated {
+    // A killed child (truncated output) keeps the complete records already captured: a missing
+    // marker is safe, an invented one is not. Any other non-zero exit is a real failure.
+    if !captured.truncated && captured.code != Some(0) {
         let stderr = mask_urls(captured.stderr.trim());
         return GitIgnored {
             state: "failed",
@@ -887,17 +890,7 @@ pub fn ignored(root: &Path, paths: &[String]) -> GitIgnored {
             ignored: Vec::new(),
         };
     }
-    let text = String::from_utf8_lossy(&captured.stdout);
-    let mut ignored_paths = HashSet::new();
-    for record in text.split('\0') {
-        if record.len() < 4 || !record.starts_with("!! ") {
-            continue;
-        }
-        let path = record[3..].trim_end_matches('/').replace('\\', "/");
-        if !path.is_empty() {
-            ignored_paths.insert(path);
-        }
-    }
+    let ignored_paths = ignored_records(&captured.stdout);
     let ignored = requested
         .into_iter()
         .filter(|(_, relative)| ignored_below(&ignored_paths, relative))
@@ -908,6 +901,28 @@ pub fn ignored(root: &Path, paths: &[String]) -> GitIgnored {
         message: None,
         ignored,
     }
+}
+
+/// Ignored paths from `git status --porcelain -z`. Only complete NUL-terminated records count: a
+/// capture killed at the output ceiling can end in the middle of a name, and a partial name must
+/// never become a directory that marks unrelated rows as ignored.
+fn ignored_records(bytes: &[u8]) -> HashSet<String> {
+    let mut records: Vec<&[u8]> = bytes.split(|byte| *byte == 0).collect();
+    if !bytes.is_empty() && !bytes.ends_with(&[0]) {
+        records.pop();
+    }
+    let mut ignored = HashSet::new();
+    for record in records {
+        if record.len() < 4 || !record.starts_with(b"!! ") {
+            continue;
+        }
+        let path = String::from_utf8_lossy(&record[3..]);
+        let path = path.trim_end_matches('/').replace('\\', "/");
+        if !path.is_empty() {
+            ignored.insert(path);
+        }
+    }
+    ignored
 }
 
 fn parse_track(track: &str) -> (u64, u64, bool) {
@@ -2252,6 +2267,63 @@ mod tests {
         let answer = ignored(&root, &paths);
         assert_eq!(answer.state, "ok");
         assert!(answer.ignored.is_empty(), "the 257th path is never queried");
+    }
+
+    #[test]
+    fn ignored_treats_pathspecs_as_literal_names() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join(".gitignore"), "*.log\n").unwrap();
+        // Pathspec magic and wildcards would match something else (or nothing) without the
+        // literal flag; the tree sends real names, so the answer must be about these files.
+        let names = ["a[1].log", "q?.log", "star*.log", ":magic.log"];
+        for name in names {
+            fs::write(root.join(name), "x\n").unwrap();
+        }
+        git(&root, &["add", ".gitignore"]);
+        git(&root, &["commit", "-qm", "initial"]);
+        let answer = ignored(&root, &names.map(str::to_string));
+        assert_eq!(answer.state, "ok", "{:?}", answer.message);
+        assert_eq!(answer.ignored, names.map(str::to_string));
+    }
+
+    #[test]
+    fn ignored_records_ignore_an_incomplete_trailing_name() {
+        let records = ignored_records(b"!! build/\0!! partial");
+        assert!(records.contains("build"));
+        assert!(!records.contains("partial"), "a truncated name is never a record");
+        assert_eq!(records.len(), 1);
+        assert!(ignored_records(b"").is_empty());
+        assert!(ignored_records(b"\0").is_empty());
+    }
+
+    #[test]
+    fn ignored_answers_change_when_the_rules_change_for_the_same_paths() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join(".gitignore"), "\n").unwrap();
+        fs::write(root.join("notes.log"), "x\n").unwrap();
+        git(&root, &["add", ".gitignore"]);
+        git(&root, &["commit", "-qm", "initial"]);
+        let paths = ["notes.log".to_string()];
+        assert!(ignored(&root, &paths).ignored.is_empty());
+        // A checkout/commit can change the rules without changing the list of visible paths: the
+        // read is not cached, so the same request answers differently.
+        fs::write(root.join(".gitignore"), "*.log\n").unwrap();
+        assert_eq!(ignored(&root, &paths).ignored, paths);
+    }
+
+    #[test]
+    fn ignored_reports_a_failing_git_as_an_error() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join(".gitignore"), "*.log\n").unwrap();
+        fs::write(root.join("a.log"), "x\n").unwrap();
+        git(&root, &["add", ".gitignore"]);
+        git(&root, &["commit", "-qm", "initial"]);
+        // A corrupt index makes `git status` fail; the read must say so instead of answering
+        // "nothing is ignored".
+        fs::write(root.join(".git/index"), b"not an index").unwrap();
+        let answer = ignored(&root, &["a.log".to_string()]);
+        assert_eq!(answer.state, "failed");
+        assert!(!answer.message.as_deref().unwrap_or_default().is_empty());
     }
 
     #[test]

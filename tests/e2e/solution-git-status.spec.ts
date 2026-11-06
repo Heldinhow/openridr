@@ -2,7 +2,7 @@
  * #49 — Git status and symlink markers in the Solution Explorer.
  *
  * Every repository here is disposable and created by the test; nothing runs git inside the app
- * checkout. Nightly smoke only (decision #67): this spec is written with the feature but is not
+ * checkout. Nightly smoke only (decision #67): the spec is in `scripts/e2e-smoke.txt` and is never
  * part of the per-PR or per-session verification.
  */
 import { expect, test, type Page } from "@playwright/test";
@@ -119,11 +119,13 @@ test("symlinks are marked and a symlinked folder is not expanded", async ({ page
   await expect(linked).toHaveAttribute("data-symlink", "true");
   await expect(linked.locator(".symlink-mark")).toHaveCount(1);
 
-  // "Show all files": the folder link has no chevron and never lists its level.
+  // "Show all files": a link is its own object (no chevron, link glyph) and never expands. The
+  // listing never stats the target, so a link to a folder is listed exactly like a link to a file.
   await page.getByTestId("tree-show-all").click();
-  const linkDir = page.getByTestId("tree-dir-LinkDir");
+  const linkDir = page.getByTestId("tree-file-LinkDir");
   await expect(linkDir).toHaveAttribute("data-symlink", "true");
   await expect(linkDir.locator(".tree-chevron.open")).toHaveCount(0);
+  await expect(linkDir.locator(".icon-link")).toHaveCount(1);
   await linkDir.click();
   await expect(page.getByTestId("tree-file-LinkDir/Order.cs")).toHaveCount(0);
 });

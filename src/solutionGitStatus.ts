@@ -83,3 +83,17 @@ export function mergeIgnored(
   }
   return next;
 }
+
+/**
+ * Identity of one tree query (ignore rules or symlink metadata). The Git revision and the
+ * workspace are part of it, so the same paths under a fresh snapshot or another workspace are a
+ * new request; JSON keeps names verbatim, where a newline-joined string would turn a valid file
+ * name into a separator.
+ */
+export function treeQueryId(
+  scope: string,
+  revision: number,
+  paths: readonly string[],
+): string {
+  return JSON.stringify([scope, revision, paths]);
+}

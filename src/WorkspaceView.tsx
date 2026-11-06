@@ -79,6 +79,7 @@ import {
   type GitIntent,
   type GitStatus,
 } from "./git";
+import { createGitRefresher, type GitRefreshContext } from "./gitRefresh";
 import { NuGetPanel } from "./NuGetPanel";
 import { CommitDiff } from "./CommitDiff";
 import { useExecutionFlow } from "./useExecutionFlow";
@@ -402,47 +403,37 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const testDiscoveryAutoStarted = useRef<string | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [gitStatusError, setGitStatusError] = useState<string | null>(null);
+  // Bumped for every applied snapshot: the tree re-asks `.gitignore` and symlink metadata for the
+  // same paths, which a commit/checkout can change without changing the list of paths.
+  const [gitRevision, setGitRevision] = useState(0);
   const [gitIntent, setGitIntent] = useState<GitIntent | null>(null);
   const [commitFocusPath, setCommitFocusPath] = useState<string | null>(null);
-  // A refresh that outlives a workspace or trust change must not paint another project's status,
-  // and one Git run at a time is enough: a call made while another is in flight queues one rerun.
-  const gitIdentity = useRef(`${workspace.id}:${trusted}`);
-  gitIdentity.current = `${workspace.id}:${trusted}`;
-  const gitRefresh = useRef({ inFlight: false, queued: false });
-  const refreshGit = useCallback(async () => {
-    if (!trusted) {
-      setGitStatus(null);
-      setGitStatusError(null);
-      return;
-    }
-    const state = gitRefresh.current;
-    if (state.inFlight) {
-      state.queued = true;
-      return;
-    }
-    state.inFlight = true;
-    const identity = `${workspace.id}:${trusted}`;
-    try {
-      do {
-        state.queued = false;
-        try {
-          const next = await call<GitStatus>("git.status");
-          if (gitIdentity.current !== identity) return;
-          setGitStatus(next);
-          setGitStatusError(null);
-        } catch (error) {
-          if (gitIdentity.current !== identity) return;
-          setGitStatusError(messageOf(error));
-        }
-      } while (state.queued);
-    } finally {
-      state.inFlight = false;
-    }
-  }, [trusted, workspace.id]);
+  // One Git read at a time; a call made while another is in flight queues one rerun, and the
+  // rerun always uses the workspace/trust that is current when it starts (never a stale closure).
+  const gitContext = useRef<GitRefreshContext>({ workspaceId: workspace.id, trusted });
+  gitContext.current = { workspaceId: workspace.id, trusted };
+  const gitRefresher = useRef<ReturnType<typeof createGitRefresher<GitStatus>> | null>(null);
+  if (!gitRefresher.current) {
+    gitRefresher.current = createGitRefresher<GitStatus>({
+      context: () => gitContext.current,
+      fetch: () => call<GitStatus>("git.status"),
+      apply: (next) => {
+        setGitStatus(next);
+        setGitStatusError(null);
+        setGitRevision((revision) => revision + 1);
+      },
+      clear: () => {
+        setGitStatus(null);
+        setGitStatusError(null);
+      },
+      fail: (error) => setGitStatusError(messageOf(error)),
+    });
+  }
+  const refreshGit = useCallback(() => gitRefresher.current!.run(), []);
   useEffect(() => {
     // Refresh on workspace/trust changes; tool windows refresh on open and after operations.
     void refreshGit();
-  }, [refreshGit, workspace.id]);
+  }, [refreshGit, workspace.id, trusted]);
   useEffect(() => {
     // A commit or checkout run in a terminal is invisible to the app; coming back to the window is
     // the cheap moment to look again. Debounced, and `refreshGit` dedupes the calls itself.
@@ -4714,6 +4705,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             filter={treeFilter}
             gitStatus={gitStatus}
             workspaceDir={workspaceDir}
+            gitRevision={gitRevision}
             onMenu={openTreeMenu}
           />
         </nav>

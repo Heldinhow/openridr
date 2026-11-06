@@ -3,6 +3,7 @@ import type { GitFile, GitStatus } from "../../src/git";
 import {
   mergeIgnored,
   treeGitStatusMap,
+  treeQueryId,
   treeStatusOf,
   workspacePathOf,
 } from "../../src/solutionGitStatus";
@@ -126,5 +127,24 @@ describe("mergeIgnored", () => {
     const base = treeGitStatusMap(snapshot([file("src/App.cs", { worktree: "M" })]), "/repo");
     mergeIgnored(base, ["build/app.log"]);
     expect(base.has("build/app.log")).toBe(false);
+  });
+});
+
+describe("treeQueryId", () => {
+  test("the same paths under a new revision are a new request", () => {
+    const paths = ["src/App.cs", "build/app.log"];
+    expect(treeQueryId("ignored", 1, paths)).not.toBe(treeQueryId("ignored", 2, paths));
+    expect(treeQueryId("ignored", 1, paths)).toBe(treeQueryId("ignored", 1, [...paths]));
+  });
+
+  test("the workspace scope keeps the same paths apart", () => {
+    expect(treeQueryId("/work/a", 1, ["App.cs"])).not.toBe(treeQueryId("/work/b", 1, ["App.cs"]));
+  });
+
+  test("a newline in a name is data, not a separator", () => {
+    const newline = "line\nbreak.cs";
+    const id = treeQueryId("symlink", 1, [newline]);
+    expect(JSON.parse(id)[2]).toEqual([newline]);
+    expect(id).not.toBe(treeQueryId("symlink", 1, ["line", "break.cs"]));
   });
 });

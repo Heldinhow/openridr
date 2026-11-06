@@ -8782,7 +8782,7 @@ mod tests {
             .find(|entry| entry["name"] == "LinkDir")
             .expect("the link is listed");
         assert_eq!(link["symlink"], true);
-        assert_eq!(link["dir"], true, "the glyph still shows a folder");
+        assert_eq!(link["dir"], false, "a link is its own object, never the target");
         // Every symlinked directory is refused without being listed. A link that resolves outside
         // is refused by `confine` first (`outside_workspace`, the existing contract); a link that
         // resolves inside, and a loop, answer `invalid_state` here and the tree never expands one.
@@ -8795,6 +8795,62 @@ mod tests {
         // A path below a link is decided by `confine` (missing inside the link target here).
         let below = host.dispatch("workspace.tree", json!({ "dir": "LinkDir/anything" })).unwrap_err();
         assert_eq!(below.code, "not_found");
+    }
+
+    #[test]
+    fn workspace_tree_lists_links_as_objects_without_reading_the_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside = fs::canonicalize(outside.path()).unwrap();
+        fs::write(outside.join("secret.cs"), "class Secret {}\n").unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.cs"), root.join("LinkFile")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("LinkDir")).unwrap();
+        std::os::unix::fs::symlink(outside.join("missing"), root.join("Dangling")).unwrap();
+
+        // Restricted: no trust is granted, and the listing is still read-only metadata.
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let tree = host.dispatch("workspace.tree", json!({})).unwrap();
+        for name in ["LinkFile", "LinkDir", "Dangling"] {
+            let entry = tree["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["name"] == name)
+                .unwrap_or_else(|| panic!("{name} is listed"));
+            assert_eq!(entry["symlink"], true, "{name} is a link");
+            // The target is never consulted: a link to a file, a link to a directory and a
+            // dangling link all describe the link object, so the tree has no external oracle.
+            assert_eq!(entry["dir"], false, "{name} is not a directory object");
+        }
+        assert_eq!(host.dispatch("workspace.tree", json!({ "dir": "LinkDir" })).unwrap_err().code, "outside_workspace");
+        assert_eq!(host.dispatch("workspace.tree", json!({ "dir": "LinkFile" })).unwrap_err().code, "outside_workspace");
+    }
+
+    #[test]
+    fn workspace_symlinks_sees_a_link_replaced_by_a_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let project = root.join("App.csproj");
+        fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
+        let target = root.join("Order.cs");
+        fs::write(&target, "class Order {}\n").unwrap();
+        std::os::unix::fs::symlink(&target, root.join("Linked.cs")).unwrap();
+
+        let host = Host::default();
+        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        let before = host.dispatch("workspace.symlinks", json!({ "paths": ["Linked.cs"] })).unwrap();
+        assert_eq!(before["entries"][0]["symlink"], true);
+
+        // A checkout can swap the link for a regular file at the same path; the next read must
+        // answer for what is there now (no cache keyed only by the path list).
+        fs::remove_file(root.join("Linked.cs")).unwrap();
+        fs::write(root.join("Linked.cs"), "class Linked {}\n").unwrap();
+        let after = host.dispatch("workspace.symlinks", json!({ "paths": ["Linked.cs"] })).unwrap();
+        assert_eq!(after["entries"][0]["symlink"], false);
     }
 
     #[test]
