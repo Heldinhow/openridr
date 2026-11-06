@@ -60,7 +60,7 @@ ambiente de trabalho do agente**, não sobre o produto.
    ensaio. A opção foi aceitar o risco e escrever no doc que a aplicação é do Helder.
    → **Proposta:** aplicar primeiro num repo de teste (ou num branch de teste do ruleset) e só depois
    na `main`, quando o Helder decidir aplicar.
-7. **Os runs reais acharam cinco coisas que nenhuma validação local pegaria.** (a) O `zizmor` da
+7. **Os runs reais acharam seis coisas que nenhuma validação local pegaria.** (a) O `zizmor` da
    action audita o repo inteiro (modo de coleta padrão, inclui `dependabot.yml`), enquanto eu rodei
    `zizmor .github/workflows` e vi zero achados: no CI apareceram 4 `dependabot-cooldown` (medium).
    (b) Um teste do host só falha em máquina limpa: `verify_installed` rodava o launcher com
@@ -75,7 +75,7 @@ ambiente de trabalho do agente**, não sobre o produto.
    — é um comando e transforma "passa no Mac" em "passa em máquina limpa"; (c) asserção sobre
    sequência de estados transitórios é asserção sobre a velocidade da máquina — afirme ordem e estado
    final, não a lista completa.
-   A regra "check obrigatório só depois do primeiro run verde" se pagou exatamente aqui: durante seis
+   A regra "check obrigatório só depois do primeiro run verde" se pagou exatamente aqui: durante cinco
    runs o Rust esteve vermelho e nenhum deles bloqueou merge.
 
 ## Números
@@ -89,7 +89,8 @@ ambiente de trabalho do agente**, não sobre o produto.
   40 s na bateria final); `tsc --noEmit` 0 erros; `bun test tests/unit` 39/39;
   `scripts/ci-pr-body-selfcheck.sh` 13 casos; `actionlint 1.7.12` e `zizmor 1.32.0` (`--min-severity
   low`) sem achado.
-- O run final do PR #90 (`2ef7d41`) passou nos cinco checks no runner, ~5,5 min por PR: TS 19 s,
-  governance 18 s, security 13 s, Rust 5 min. Não verificado: o `e2e-smoke.yml` (schedule/dispatch,
+- O run do HEAD do PR #90 (`d8ac8ff`, run `42288826870`) passou nos cinco checks: TS 23 s, governance
+  17 s, security 15 s, Rust 3 min 50 s, agregador 3 s (`2ef7d41` também tinha passado; `04409bf`, só
+  docs, reprovou por um flake e `d8ac8ff` fechou verde). Não verificado: o `e2e-smoke.yml` (schedule/dispatch,
   nunca rodou), `shellcheck` sobre os `run:`, a aceitação do ruleset pela API e o comportamento real do
   `release.yml` depois das duas linhas (`persist-credentials`, `no-cache`).

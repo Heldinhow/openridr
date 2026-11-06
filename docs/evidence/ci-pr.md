@@ -75,18 +75,21 @@ Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `SDK .
 
 ### Runs reais no GitHub (PR #90)
 
-O workflow rodou de verdade enquanto o PR não era obrigatório. O primeiro run (`42265605184`) falhou
-em três pontos; o run final (`42285400316`, `2ef7d41`) passou **nos cinco checks**:
+O workflow rodou de verdade enquanto o PR não era obrigatório, e rodou de novo a cada correção. O
+**HEAD `d8ac8ff` (run `42288826870`) passou nos cinco checks**:
 
-| Job | Run final | Tempo |
+| Job | `d8ac8ff` | Tempo |
 |---|---|---|
-| `TypeScript (tsc + unit)` | pass | 19 s |
-| `security` (gitleaks) | pass | 13 s |
-| `Governance (workflows, PR title, PR body)` | pass | 18 s |
-| `Rust (fmt, clippy, host tests)` | pass | 5 min 00 s |
+| `TypeScript (tsc + unit)` | pass | 23 s |
+| `security` (gitleaks) | pass | 15 s |
+| `Governance (workflows, PR title, PR body)` | pass | 17 s |
+| `Rust (fmt, clippy, host tests)` | pass | 3 min 50 s |
 | `ci` (agregador) | pass | 3 s |
 
-Paredes de ~5,5 min por PR, com TS, governança e segredos rodando em paralelo ao Rust. O `zizmor`
+Histórico curto, para o número não ser lido fora de contexto: `42265605184` (primeiro run) falhou em
+três pontos; `42285400316` (`2ef7d41`) passou nos cinco; `42287114742` (`04409bf`, só docs) voltou a
+falhar por um flake de teste; `42288826870` (`d8ac8ff`) passou nos cinco. Paredes de 4–6 min por PR,
+com TS, governança e segredos em paralelo ao Rust. O `zizmor`
 antes disso reprovava o `release.yml` que já estava em `main` (credencial persistida e cache de bun no
 workflow que assina), e o `security` rodou sem `GITLEAKS_LICENSE` (repo de conta de usuário).
 
@@ -119,6 +122,10 @@ O que os runs acharam, em ordem — nada disso era visível no Mac:
    a sequência observada foi `downloading → installing → ready`. Correção: uma asserção compartilhada
    em `support::assert_install_progress` — o pipeline só andou para frente, passou por downloading e
    installing, terminou `ready`; nenhum estado intermediário é exigido.
+6. **Leitura parcial de arquivo em teste de `runInTerminal` (último run).** O teste esperava o
+   arquivo-marcador *existir*; o script o cria na primeira das quatro linhas, então a leitura podia
+   pegar só `cwd=`. Correção: esperar a última linha (`env=`) em vez da existência do arquivo. O job
+   Rust voltou verde no push seguinte (`d8ac8ff`).
 
 ### TypeScript (não tocado, medido para o CI)
 
