@@ -65,9 +65,13 @@ Rust: os pacotes se chamam `openridr-host` e `openridr-host-http` (não `host`).
 
 ### Falhas conhecidas (não são suas)
 
-Presentes no HEAD sem mudanças: E2E `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts`, e **todo o `debugger.spec.ts`** (o setup do spec chama `debug.install`, que o adaptador embutido do host de E2E recusa com `invalid_state`; a correção é da frente #43, não sua). Qualquer outra falha é sua: investigue. Detalhes em `docs/RETRO-DEVFLOW-2026-11-02.md` e `docs/RETRO-DEBUG-NO-STOP.md`.
+A fonte única é a tabela de [`docs/evidence/test-stability.md`](docs/evidence/test-stability.md): teste, sintoma, causa, status e ambiente. Resumo de 2026-11-06:
 
-Os dois testes Rust que falhavam no `main` (`file_access_is_confined_to_the_workspace` e `evaluation_returns_the_real_msbuild_model_for_every_project`) foram corrigidos: causa, classificação e prova em `docs/evidence/file-access-confinement.md`. Se algum dos dois voltar a falhar, é regressão sua.
+**`debugger.spec.ts` foi medido na issue #43** (12 de 13 falhando, 20,8 min): o setup do spec chama `debug.install`, que o adaptador embutido do host de E2E recusa com `invalid_state` — a causa é a mesma que o `docs/RETRO-DEBUG-NO-STOP.md` (#92) registrou. O spec ficou quarentenado com esse motivo em [`docs/evidence/e2e-quarantine.md`](docs/evidence/e2e-quarantine.md) (skip no arquivo), e os asserts novos do #92 continuam lá para quando ele for reescrito.
+
+- **Rust (`cargo test -p openridr-host`): nenhuma falha conhecida.** Os dois testes que falhavam no `main` (`file_access_is_confined_to_the_workspace` e `evaluation_returns_the_real_msbuild_model_for_every_project`) foram corrigidos em `docs/evidence/file-access-confinement.md`; o do launch profile (usava o `dotnet` do PATH) e a corrida de `OPENRIDR_ENABLE_PROBE` foram corrigidos na issue #43. Qualquer falha em Rust agora é sua: investigue.
+- **E2E: quarentenado, não consertado.** `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts` (relatados em `docs/RETRO-DEVFLOW-2026-11-02.md`) e o bloco da issue #43 — `debugger.spec.ts` no fluxo antigo de `debug.install` (o netcoredbg virou bundle), `csharp-ls.spec.ts:150`, `testsuite.spec.ts` (`tests-filter-count`), `tests.spec.ts:317`, `ui-layout` em 1440 px — seguem fora do verde e bloqueados pela decisão do Helder sobre o Playwright (issue #67). Não os conserte por conta própria nem os trate como passe.
+- **Ambiente não muda mais o resultado do Rust.** O harness limpa `OPENRIDR_*` herdado, isola a home e não usa nome fixo em `/tmp`. Se um teste do host falhar só na sua máquina, é um vazamento novo: registre na tabela em vez de exportar variável.
 
 ## .NET SDK 8.0.408
 
@@ -79,7 +83,8 @@ Os dois testes Rust que falhavam no `main` (`file_access_is_confined_to_the_work
 
 ## E2E
 
-- `bun run test:e2e` sobe o host e o Vite sozinho, na 1420 (UI) e 4317 (host). Portas alternativas: `OPENRIDR_E2E_UI_PORT` e `OPENRIDR_E2E_HOST_PORT`.
+- **Playwright é só smoke noturno** (decisão do Helder, issue #67): nunca em PR, nunca como verificação de UI por sessão de agente — sessão verifica UI com `agent-desktop`. A lista do smoke é [`scripts/e2e-smoke.txt`](scripts/e2e-smoke.txt) (`bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)`); a quarentena com motivos está em [`docs/evidence/e2e-quarantine.md`](docs/evidence/e2e-quarantine.md). O workflow noturno é a issue #56.
+- `bun run test:e2e` roda a suíte inteira e sobe o host e o Vite sozinho, na 1420 (UI) e 4317 (host). Portas alternativas: `OPENRIDR_E2E_UI_PORT` e `OPENRIDR_E2E_HOST_PORT`. Não use `OPENRIDR_SCREENSHOT_DIR` default se não quiser reescrever `docs/evidence/screenshots/`.
 - No Mac com o SDK em `~/.dotnet`, rode com `PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet DOTNET_CLI_UI_LANGUAGE=en bun run test:e2e` (ou `bunx playwright test tests/e2e/<spec>.ts` para um spec).
 - `playwright.config.ts` usa `channel: "chrome"` por padrão. Sem Chrome (ex.: VPS Linux), rode `PLAYWRIGHT_CHANNEL=chromium bun run test:e2e`.
 - Os specs usam `fixtures/OrderDesk` de verdade e restauram o arquivo; workers = 1 porque host e arquivos são estado compartilhado.
@@ -112,7 +117,7 @@ O que o CI (`.github/workflows/ci.yml`) roda em todo PR para `main`:
 | `security` | `gitleaks` no histórico do PR |
 | `ci` | agregador; é o check obrigatório do ruleset |
 
-O smoke E2E é noturno e não bloqueia PR: a lista de specs está em `scripts/e2e-smoke.txt` e quem manda nela é a quarentena da #67.
+O smoke E2E é noturno e não bloqueia PR: a lista de specs está em `scripts/e2e-smoke.txt` (caminho relativo à raiz, um por linha) e quem manda nela é a quarentena da #67.
 
 ### O que o CI não cobre
 

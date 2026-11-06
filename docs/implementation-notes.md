@@ -1330,6 +1330,49 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   verificado: notarização do novo build, status visual transitório (a verificação terminou antes
   da captura), Windows e macOS Intel. Sem Playwright, conforme escopo solicitado.
 
+## 2026-11-06 — Suite de testes confiável (issue #43)
+
+- **Harness compartilhado (`crates/host/tests/support`).** Um único ponto por binário de teste:
+  lista das variáveis `OPENRIDR_*` que o host lê, purga única das herdadas (`Once`), `EnvVar` que
+  purga antes de gravar e restaura no `Drop`, `env_guard()` tolerante a envenenamento,
+  `enable_probe()` e `host()` (host cuja configuração não vem do shell). Os seis binários de teste
+  do host usam `support::host()`; `Host::new()` cru sobrou só dentro do próprio módulo.
+- **`enable_probe()` é decisão do binário.** Os 14 testes do host que ligavam
+  `OPENRIDR_ENABLE_PROBE` por escopo passaram a chamar `support::enable_probe()`; um `Drop` não
+  pode mais restaurar "unset" por baixo de outro teste. O `debugger.rs` mantém `0`/`1` por teste
+  porque precisa dos dois estados, e todos lá já tomam `env_guard()`.
+- **Caminhos globais.** `/tmp/openridr-evil.txt` (zip de escape) e `/tmp/openridr-created.txt`
+  (criação fora do workspace) viraram alvos dentro de `tempfile` e `openridr-created-<pid>.txt`.
+  `tools::app_home()` já devolvia home temporária por processo; o teste existente que proíbe a
+  Application Support real continua valendo.
+- **Launch profile.** O teste de integração resolve o SDK pelo `global.json` do fixture
+  (`sdk::resolve` sobre `sdk::inventory`) e lança pelo muxer da raiz resolvida com `DOTNET_ROOT`,
+  `DOTNET_MULTILEVEL_LOOKUP=0` e as mesmas variáveis de `dotnet_command` da produção. Sem raiz que
+  satisfaça o pin, imprime skip com a versão e as raízes vistas.
+- **Re-checks do `/code-review` (2026-11-06).** O ambiente do processo de teste passou a ser
+  imutável: `support::prepare()` (integração) e `test_harness::prepare()` (unidade da lib) definem
+  uma vez a home temporária, o probe (integração) e a purga das `OPENRIDR_*`; nenhum teste escreve
+  env depois. Os testes que precisam de valores diferentes viraram folhas `#[ignore]` (`*_isolated`)
+  executadas por um processo-filho dedicado (`run_isolated_leaf`, que exige `1 passed`), com ambiente
+  controlado (`env_clear` + `PATH`/`HOME`/`TMPDIR`/`LANG`/`LC_ALL`): 27 no binário do host, 14 no do
+  debugger, 11 no da análise embutida, 11 na lib, 1 no `trust_model`. Os helpers que escrevem env
+  moraram para `test_harness`/`support` (`with_home`, `EnvVar`), e o `Seam` do debugger virou
+  `Seam::seam_isolated`. O teste-guard `env_writes_are_confined_to_isolated_leaves` varre
+  `src/**` e `tests/**` recursivamente e exige: escrita de env só em folha isolada ou no harness;
+  `#[ignore]` em toda folha de teste; wrapper para cada folha; `prepare`/`host` antes de tocar no
+  host em teste não isolado. Saíram `RwLock`, `env_guard`, `TestHost` e o `ShellEnv` local. O skip do
+  launch profile só acontece quando nenhuma raiz satisfaz o pin (muxer ausente ou que não inicia é
+  falha; `OPENRIDR_REQUIRE_DOTNET=1` proíbe skip). O alvo de escape usa `tempfile::tempdir()`.
+- **Carga dos filhos e mtimes do fixture.** Isolar cada corpo em processo próprio fez 27 filhos
+  disputarem dotnet/MSBuild ao mesmo tempo: `csharp-ls did not answer within 5 seconds` apareceu.
+  O harness limita a **1 processo-filho por vez** por binário (semáforo; com 2 a falha de 5 s ainda
+  apareceu em 1 de 3 rodadas). E a cópia do fixture
+  agora tem mtimes normalizados para 2020, porque `restore` compara `project.assets.json` com o
+  `.csproj` por mtime em milissegundos e a cópia podia empatar sob carga (`restore_required` em vez
+  de `invalid_state`).
+- **Prova.** Ver `docs/evidence/test-stability.md` (tabela por item da issue, medições e o que não
+  foi verificado). Não verificado: E2E (quarentenado; decisão do Playwright pendente), Windows e
+  macOS Intel, e a falha de instalação do debugger relatada por outra sessão (não reproduzida aqui).
 ## Keymap Visual Studio (2026-11-06)
 
 - O perfil Visual Studio é selecionável e persistido nas configurações; o Rider continua padrão e os overrides existentes têm precedência. As ações sem equivalente usam os atalhos e acordes Rider.

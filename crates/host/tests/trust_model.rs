@@ -4,10 +4,14 @@
 //! host must agree with the model on the invariants listed there. No new dependency: a fixed-seed
 //! generator keeps failures reproducible (the seed and the sequence are in the panic message).
 
+#[path = "support/mod.rs"]
+mod support;
+
 use openridr_host::{Host, HostError};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use support::EnvVar;
 
 const PATHS: usize = 2;
 const WALKS: u64 = 60;
@@ -192,17 +196,18 @@ fn check(host: &Host, model: &Model, paths: &[PathBuf], home: &Path, context: &s
 }
 
 #[test]
-fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+fn trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated() {
     let dir = tempfile::tempdir().unwrap();
     let paths: Vec<PathBuf> = (0..PATHS)
         .map(|i| project(dir.path(), &format!("p{i}")))
         .collect();
-    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let _no_store = EnvVar::remove("OPENRIDR_TRUST_STORE");
 
     for walk in 0..WALKS {
         let home = tempfile::tempdir().unwrap();
-        std::env::set_var("OPENRIDR_HOME", home.path());
-        let host = Host::new();
+        let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+        let host = support::host();
         let mut model = Model::default();
         let mut seed = walk + 1;
         let mut trace: Vec<Op> = Vec::new();
@@ -225,7 +230,7 @@ fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
             // A restart (new Host, same home) keeps only what was persisted: reopening the open path
             // is trusted exactly when the stored decision says trusted.
             if let (Op::Open(i), true) = (op, walk % 3 == 0) {
-                let restarted = Host::new();
+                let restarted = support::host();
                 restarted
                     .dispatch("workspace.open", json!({ "path": paths[i] }))
                     .unwrap();
@@ -240,5 +245,11 @@ fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
             }
         }
     }
-    std::env::remove_var("OPENRIDR_HOME");
+}
+
+#[test]
+fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
+    support::run_isolated_leaf(
+        "trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated",
+    );
 }

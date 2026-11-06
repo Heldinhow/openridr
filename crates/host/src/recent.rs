@@ -96,16 +96,7 @@ pub fn remove(workspace_path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trusted::tests::ENV;
-
-    fn with_home(run: impl FnOnce(&Path)) {
-        let _guard = ENV.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let home = tempfile::tempdir().unwrap();
-        std::env::set_var("OPENRIDR_HOME", home.path());
-        std::env::remove_var("OPENRIDR_TRUST_STORE");
-        run(home.path());
-        std::env::remove_var("OPENRIDR_HOME");
-    }
+    use crate::test_harness::with_home;
 
     fn paths(listed: &Value) -> Vec<&str> {
         listed["projects"]
@@ -117,7 +108,8 @@ mod tests {
     }
 
     #[test]
-    fn old_list_format_reads_without_dates_and_upgrades_on_record() {
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn old_list_format_reads_without_dates_and_upgrades_on_record_isolated() {
         with_home(|home| {
             let a = tempfile::tempdir().unwrap();
             let b = tempfile::tempdir().unwrap();
@@ -138,7 +130,8 @@ mod tests {
     }
 
     #[test]
-    fn record_dedupes_and_caps_at_the_limit() {
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn record_dedupes_and_caps_at_the_limit_isolated() {
         with_home(|_| {
             let dir = tempfile::tempdir().unwrap();
             let base = dir.path().to_str().unwrap();
@@ -159,7 +152,8 @@ mod tests {
     }
 
     #[test]
-    fn remove_forgets_the_entry_but_keeps_its_decision() {
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn remove_forgets_the_entry_but_keeps_its_decision_isolated() {
         with_home(|_| {
             let a = tempfile::tempdir().unwrap();
             let b = tempfile::tempdir().unwrap();
@@ -177,7 +171,8 @@ mod tests {
     }
 
     #[test]
-    fn unreadable_file_is_not_overwritten() {
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn unreadable_file_is_not_overwritten_isolated() {
         with_home(|home| {
             std::fs::write(home.join("recent.json"), "{ not json").unwrap();
             assert!(list()["projects"].as_array().unwrap().is_empty());
@@ -189,4 +184,32 @@ mod tests {
             );
         });
     }
+}
+
+#[test]
+fn old_list_format_reads_without_dates_and_upgrades_on_record() {
+    crate::test_harness::run_isolated_leaf(
+        "recent::tests::old_list_format_reads_without_dates_and_upgrades_on_record_isolated",
+    );
+}
+
+#[test]
+fn record_dedupes_and_caps_at_the_limit() {
+    crate::test_harness::run_isolated_leaf(
+        "recent::tests::record_dedupes_and_caps_at_the_limit_isolated",
+    );
+}
+
+#[test]
+fn remove_forgets_the_entry_but_keeps_its_decision() {
+    crate::test_harness::run_isolated_leaf(
+        "recent::tests::remove_forgets_the_entry_but_keeps_its_decision_isolated",
+    );
+}
+
+#[test]
+fn unreadable_file_is_not_overwritten() {
+    crate::test_harness::run_isolated_leaf(
+        "recent::tests::unreadable_file_is_not_overwritten_isolated",
+    );
 }

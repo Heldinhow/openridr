@@ -24,6 +24,9 @@ mod settings;
 mod terminal;
 #[path = "test_discovery.rs"]
 mod test_discovery;
+#[cfg(test)]
+#[path = "test_harness.rs"]
+mod test_harness;
 #[path = "test_run.rs"]
 mod test_run;
 pub mod tools;

@@ -110,9 +110,10 @@ GitHub", não "verde no Mac de alguém".
 - **Job `ci`**: agregador `needs:` dos quatro, `if: always()`, falha se qualquer um falhou. É o nome
   estável do check obrigatório — renomear job interno não mexe no ruleset.
 - **Smoke E2E noturno** (workflow separado, `schedule` + `workflow_dispatch`, macos-15): lê a lista de
-  specs de `scripts/e2e-smoke.txt` (uma linha por spec, `#` comentário), semeada com `shell`,
-  `workspace` e `trust-prompt`, com cabeçalho dizendo que a lista é da #67. Nunca roda em PR. Sem
-  Chrome no runner, usa o Chromium do Playwright (`PLAYWRIGHT_CHANNEL=chromium`).
+  specs de `scripts/e2e-smoke.txt`, que é da quarentena da #67 e já chegou pronta (`workspace`,
+  `build`, `run`, `qa2-diagnostics`, 25 testes, ~2,8 min medidos lá). Uma linha por spec, caminho
+  relativo à raiz, `#` comentário; lista vazia ou caminho que não existe falha com mensagem. Nunca
+  roda em PR. Sem Chrome no runner, usa o Chromium do Playwright (`PLAYWRIGHT_CHANNEL=chromium`).
 - **Pin de toolchain**: `rust-toolchain.toml` com `channel = "1.99.0"` (a versão em que o repo
   compila), componentes `rustfmt` e `clippy`, e `rust-version = "1.99"` nos três crates. Decisão
   registrada: MSRV = a toolchain pinada; baixá-la exige medição, não é promessa.

@@ -65,9 +65,11 @@ Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `SDK .
   `release.yml`: só os 8 `info[template-injection]` (todos expansão de `steps.*.outputs.*` do nosso
   `release-macos.sh` dentro de `run:`). Com `--min-severity low` (o que o job usa): **0 achados, exit
   0**; com `--min-severity medium`: também 0.
-- Lista do smoke E2E, lida com o mesmo `sed`/`while read` do workflow: `shell workspace trust-prompt`
-  → `running: tests/e2e/shell.spec.ts tests/e2e/workspace.spec.ts tests/e2e/trust-prompt.spec.ts`
-  (exit 0); lista só com comentários → `list is empty`, exit 1; nome sem `.spec.ts` → exit 1.
+- Lista do smoke E2E: a #67 entregou `scripts/e2e-smoke.txt` (caminho relativo à raiz, quatro specs,
+  25 testes, ~2,8 min medidos lá) e o workflow passou a consumir esse formato — lido com o mesmo
+  `sed`/`while read` do YAML: `running: tests/e2e/workspace.spec.ts tests/e2e/build.spec.ts
+  tests/e2e/run.spec.ts tests/e2e/qa2-diagnostics.spec.ts` (exit 0); lista só com comentários →
+  `list is empty`, exit 1; caminho inexistente → exit 1.
 - `.github/rulesets/main.json`: `json.load` ok, regras `deletion`, `non_fast_forward`,
   `required_linear_history`, `pull_request`, `required_status_checks` com contextos `ci` e `security`.
 

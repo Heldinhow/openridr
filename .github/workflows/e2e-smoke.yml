@@ -3,8 +3,9 @@ name: e2e-smoke
 # A nightly subset of the Playwright suite. The full suite is 61 specs, workers: 1, with a real host
 # and a real fixture: too slow and too flaky for a pull request, but zero E2E would be worse.
 #
-# The list of specs lives in scripts/e2e-smoke.txt, not here, so the E2E quarantine issue (#67) edits
-# one file instead of this workflow. Nothing in this workflow is a required check.
+# The list of specs lives in scripts/e2e-smoke.txt, not here: one spec per line, path relative to the
+# repository root, `#` starts a comment. The E2E quarantine work (#67) owns that file, so it changes
+# which specs run without touching this workflow. Nothing here is a required check.
 on:
   schedule:
     # 03:30 UTC every day: after the nightly dependency and release work, before the European morning.
@@ -59,11 +60,11 @@ jobs:
         run: |
           specs=()
           while IFS= read -r spec; do
-            if [ ! -f "tests/e2e/$spec.spec.ts" ]; then
-              echo "::error::scripts/e2e-smoke.txt names $spec, which has no tests/e2e/$spec.spec.ts"
+            if [ ! -f "$spec" ]; then
+              echo "::error::scripts/e2e-smoke.txt names $spec, which is not a file in this revision"
               exit 1
             fi
-            specs+=("tests/e2e/$spec.spec.ts")
+            specs+=("$spec")
           done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' scripts/e2e-smoke.txt)
           if [ ${#specs[@]} -eq 0 ]; then
             echo "::error::scripts/e2e-smoke.txt lists no spec; refusing to guess which ones to run"

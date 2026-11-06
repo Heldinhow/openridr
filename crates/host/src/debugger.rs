@@ -1802,37 +1802,7 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsString;
-
-    static BUNDLE_ENV: Mutex<()> = Mutex::new(());
-
-    struct EnvScope {
-        key: &'static str,
-        old: Option<OsString>,
-    }
-
-    impl EnvScope {
-        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-            let old = std::env::var_os(key);
-            std::env::set_var(key, value);
-            Self { key, old }
-        }
-
-        fn remove(key: &'static str) -> Self {
-            let old = std::env::var_os(key);
-            std::env::remove_var(key);
-            Self { key, old }
-        }
-    }
-
-    impl Drop for EnvScope {
-        fn drop(&mut self) {
-            match &self.old {
-                Some(value) => std::env::set_var(self.key, value),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
+    use crate::test_harness::EnvVar;
 
     #[cfg(unix)]
     fn fake_adapter(dir: &Path, body: &str) -> PathBuf {
@@ -1993,13 +1963,13 @@ mod tests {
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
     #[test]
-    fn bundled_resolution_prefers_the_override_and_falls_back_to_tools() {
-        let _guard = BUNDLE_ENV.lock().unwrap_or_else(|error| error.into_inner());
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn bundled_resolution_prefers_the_override_and_falls_back_to_tools_isolated() {
         let bundle = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let _bundle = EnvScope::set(BUNDLED_OVERRIDE, bundle.path());
-        let _home = EnvScope::set("OPENRIDR_HOME", home.path());
-        let _probe = EnvScope::remove("OPENRIDR_ENABLE_PROBE");
+        let _bundle = EnvVar::set(BUNDLED_OVERRIDE, bundle.path());
+        let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+        let _probe = EnvVar::remove("OPENRIDR_ENABLE_PROBE");
 
         assert_eq!(bundled_binary(), None);
         assert_eq!(existing_binary("osx-arm64"), None);
@@ -2016,23 +1986,23 @@ mod tests {
         );
         assert_eq!(existing_binary("osx-arm64"), Some(bundled));
         drop(_bundle);
-        let _no_bundle = EnvScope::remove(BUNDLED_OVERRIDE);
+        let _no_bundle = EnvVar::remove(BUNDLED_OVERRIDE);
         assert_eq!(existing_binary("osx-arm64"), Some(installed));
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
     #[test]
-    fn ready_adapter_verifies_the_bundled_binary_before_launch() {
-        let _guard = BUNDLE_ENV.lock().unwrap_or_else(|error| error.into_inner());
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn ready_adapter_verifies_the_bundled_binary_before_launch_isolated() {
         let bundle = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let binary = fake_adapter(
             bundle.path(),
             "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n",
         );
-        let _bundle = EnvScope::set(BUNDLED_OVERRIDE, bundle.path());
-        let _home = EnvScope::set("OPENRIDR_HOME", home.path());
-        let _probe = EnvScope::remove("OPENRIDR_ENABLE_PROBE");
+        let _bundle = EnvVar::set(BUNDLED_OVERRIDE, bundle.path());
+        let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+        let _probe = EnvVar::remove("OPENRIDR_ENABLE_PROBE");
 
         let ready = ready_adapter("macos", "aarch64", true).unwrap();
         assert_eq!(ready.binary, binary);
@@ -2050,4 +2020,20 @@ mod tests {
             .message
             .contains("bundled netcoredbg did not verify"));
     }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
+#[test]
+fn bundled_resolution_prefers_the_override_and_falls_back_to_tools() {
+    crate::test_harness::run_isolated_leaf(
+        "debugger::tests::bundled_resolution_prefers_the_override_and_falls_back_to_tools_isolated",
+    );
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
+#[test]
+fn ready_adapter_verifies_the_bundled_binary_before_launch() {
+    crate::test_harness::run_isolated_leaf(
+        "debugger::tests::ready_adapter_verifies_the_bundled_binary_before_launch_isolated",
+    );
 }

@@ -1,6 +1,9 @@
 //! Boundary tests for real VSTest discovery: explicit scope, restore/trust gates, MTP and
 //! adapter preflights, empty/failure distinction and observed cancellation/sealing.
 
+#[path = "support/mod.rs"]
+mod support;
+
 use openridr_host::{Host, HostError};
 use serde_json::{json, Value};
 use std::fs;
@@ -178,7 +181,7 @@ fn discovery_is_denied_before_trust_and_before_the_explicit_restore() {
         ADAPTER_PACKAGES,
         "public sealed class C { }\n",
     );
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Policy.csproj"));
 
     let denied = host
@@ -212,7 +215,7 @@ fn discovery_is_denied_before_trust_and_before_the_explicit_restore() {
 fn discovery_requires_an_explicit_test_project_and_a_matching_evaluated_tfm() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk scope");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     prepare(&host, Some("net8.0"));
@@ -253,7 +256,7 @@ fn a_single_target_project_is_discovered_on_its_evaluated_tfm() {
     // names it instead of leaving every test row and the panel at "TFM not selected".
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk single tfm");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     let evaluated = prepare(&host, None);
@@ -320,7 +323,7 @@ fn a_multi_target_project_needs_an_explicit_tfm_before_any_command() {
     )
     .unwrap();
     fs::write(root.join("Multi.cs"), "public sealed class C { }\n").unwrap();
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Multi.csproj"));
     grant(&host);
     prepare(&host, None);
@@ -340,7 +343,7 @@ fn real_vstest_discovery_lists_the_fixture_tests_with_stable_identities() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk discovery");
     let canonical = fs::canonicalize(&copy).unwrap();
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     prepare(&host, Some("net8.0"));
@@ -465,7 +468,7 @@ fn mtp_is_refused_without_spawning_any_vstest_process() {
         "<PropertyGroup><UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner></PropertyGroup>",
         "public sealed class C { }\n",
     );
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Mtp.csproj"));
     grant(&host);
     prepare(&host, None);
@@ -493,7 +496,7 @@ fn a_project_without_a_vstest_adapter_is_adapter_missing_not_empty() {
     let temp = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(temp.path()).unwrap();
     test_project(&root, "NoAdapter", "", "public sealed class C { }\n");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("NoAdapter.csproj"));
     grant(&host);
     prepare(&host, None);
@@ -526,7 +529,7 @@ fn an_adapter_with_no_tests_is_empty_distinct_from_failure() {
         ADAPTER_PACKAGES,
         "public sealed class C { }\n",
     );
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Empty.csproj"));
     grant(&host);
     prepare(&host, None);
@@ -574,7 +577,7 @@ fn cancelling_a_hanging_discovery_keeps_partial_state() {
         ),
         "public sealed class C { }\n",
     );
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Hang.csproj"));
     grant(&host);
     prepare(&host, None);
@@ -639,7 +642,7 @@ fn revoking_trust_seals_a_running_discovery_and_keeps_its_log() {
         ),
         "public sealed class C { }\n",
     );
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Hang.csproj"));
     grant(&host);
     prepare(&host, None);

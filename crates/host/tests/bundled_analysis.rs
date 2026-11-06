@@ -1,40 +1,11 @@
+#[path = "support/mod.rs"]
+mod support;
+
 use openridr_host::{bundled, sdk, Host};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-
-/// The bundled-analysis tests share the app home and the two override variables with every
-/// other tool/LSP test, so they hold the same lock and run one at a time.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-struct EnvVar {
-    key: &'static str,
-    old: Option<std::ffi::OsString>,
-}
-
-impl EnvVar {
-    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let old = std::env::var_os(key);
-        std::env::set_var(key, value);
-        Self { key, old }
-    }
-
-    fn remove(key: &'static str) -> Self {
-        let old = std::env::var_os(key);
-        std::env::remove_var(key);
-        Self { key, old }
-    }
-}
-
-impl Drop for EnvVar {
-    fn drop(&mut self) {
-        match &self.old {
-            Some(value) => std::env::set_var(self.key, value),
-            None => std::env::remove_var(self.key),
-        }
-    }
-}
+use support::EnvVar;
 
 fn fixture() -> PathBuf {
     fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OrderDesk"))
@@ -91,8 +62,8 @@ fn fake_pair(root: &Path) -> (PathBuf, PathBuf) {
 
 #[cfg(unix)]
 #[test]
-fn a_bundled_pair_is_ready_without_installing_or_downloading() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_bundled_pair_is_ready_without_installing_or_downloading_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -101,7 +72,7 @@ fn a_bundled_pair_is_ready_without_installing_or_downloading() {
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
 
     let state = snapshot(&host);
@@ -163,8 +134,8 @@ fn a_bundled_pair_is_ready_without_installing_or_downloading() {
 
 #[cfg(unix)]
 #[test]
-fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn repeated_snapshots_and_hosts_reuse_one_bundled_verification_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -180,10 +151,10 @@ fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
-    let other = Host::new();
+    let other = support::host();
     open(&other, &fixture());
     for _ in 0..10 {
         assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
@@ -194,8 +165,8 @@ fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
 
 #[cfg(unix)]
 #[test]
-fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn snapshots_report_verifying_without_waiting_for_the_bundled_process_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -208,7 +179,7 @@ fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
-    let host = Host::new();
+    let host = support::host();
     let start = std::time::Instant::now();
     for _ in 0..5 {
         let state = host.dispatch("app.state", json!({})).unwrap();
@@ -221,8 +192,8 @@ fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
 
 #[cfg(unix)]
 #[test]
-fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_modified_bundled_entry_does_not_repeat_the_session_check_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -231,7 +202,7 @@ fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
 
@@ -242,8 +213,8 @@ fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
 }
 
 #[test]
-fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory_isolated() {
     #[cfg(unix)]
     {
         let temp = tempfile::tempdir().unwrap();
@@ -270,7 +241,8 @@ fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10_isolated() {
     // Requires `sh scripts/vendor-analysis.sh`; without resources there is nothing to compose.
     let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/resources");
     let runtime = resources.join("dotnet");
@@ -278,7 +250,6 @@ fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10() {
         eprintln!("skip: {runtime:?} is not vendored (run scripts/vendor-analysis.sh)");
         return;
     }
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let temp = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", temp.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -299,8 +270,8 @@ fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10() {
 /// that stands in for "this binary lives inside OpenRidr.app".
 #[cfg(unix)]
 #[test]
-fn a_distributed_app_without_the_bundle_fails_closed() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_distributed_app_without_the_bundle_fails_closed_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -316,7 +287,7 @@ fn a_distributed_app_without_the_bundle_fails_closed() {
         temp.path().join("missing-runtime"),
     );
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     host.dispatch("setup.start", json!({})).unwrap();
     let state = snapshot(&host);
@@ -375,8 +346,8 @@ fn a_distributed_app_without_the_bundle_fails_closed() {
 
 #[cfg(unix)]
 #[test]
-fn a_distributed_app_with_a_partial_bundle_fails_closed() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_distributed_app_with_a_partial_bundle_fails_closed_isolated() {
     for half in ["tool-only", "runtime-only"] {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join(format!("home-{half}"));
@@ -392,7 +363,7 @@ fn a_distributed_app_with_a_partial_bundle_fails_closed() {
         let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tool_override);
         let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime_override);
 
-        let host = Host::new();
+        let host = support::host();
         open(&host, &fixture());
         host.dispatch("setup.start", json!({})).unwrap();
         let state = snapshot(&host);
@@ -415,8 +386,8 @@ fn a_distributed_app_with_a_partial_bundle_fails_closed() {
 }
 
 #[test]
-fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_dev_binary_without_the_bundle_keeps_the_download_plan_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -425,7 +396,7 @@ fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
     let _tool = EnvVar::remove(bundled::CSHARP_LS_OVERRIDE);
     let _runtime = EnvVar::remove(bundled::RUNTIME_OVERRIDE);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     let tool = host
         .dispatch("tools.plan", json!({ "tool": "csharp-ls" }))
@@ -440,8 +411,8 @@ fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
 }
 
 #[test]
-fn a_build_without_a_pair_never_reports_verifying() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_build_without_a_pair_never_reports_verifying_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -452,15 +423,15 @@ fn a_build_without_a_pair_never_reports_verifying() {
 
     // `setup` treats "verifying" as an install in progress; a dev/Windows/Intel build has no
     // pair, so it must stay absent and let the download plan start.
-    let host = Host::new();
+    let host = support::host();
     let state = host.dispatch("app.state", json!({})).unwrap();
     assert_eq!(state["tools"]["csharp-ls"]["state"], "absent");
 }
 
 #[cfg(unix)]
 #[test]
-fn bundled_result_is_cached_for_the_session() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn bundled_result_is_cached_for_the_session_isolated() {
     let targets = ["dependency", "muxer", "runtime-component", "entry"];
     for target in targets {
         let temp = tempfile::tempdir().unwrap();
@@ -482,7 +453,7 @@ fn bundled_result_is_cached_for_the_session() {
         let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
         let _runtime_env = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
 
-        let host = Host::new();
+        let host = support::host();
         open(&host, &fixture());
         assert_eq!(
             snapshot(&host)["tools"]["csharp-ls"]["state"],
@@ -506,4 +477,81 @@ fn bundled_result_is_cached_for_the_session() {
         // `allow_setup_for_tests` overrides setup readiness; the tool state is the signal here.
         assert_eq!(tool["plan"], Value::Null, "{target}");
     }
+}
+
+// Each leaf below writes `OPENRIDR_*` for its host, so it runs in its own process: the
+// shared test process never changes its environment.
+#[cfg(unix)]
+#[test]
+fn a_bundled_pair_is_ready_without_installing_or_downloading() {
+    support::run_isolated_leaf(
+        "a_bundled_pair_is_ready_without_installing_or_downloading_isolated",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
+    support::run_isolated_leaf(
+        "repeated_snapshots_and_hosts_reuse_one_bundled_verification_isolated",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
+    support::run_isolated_leaf(
+        "snapshots_report_verifying_without_waiting_for_the_bundled_process_isolated",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
+    support::run_isolated_leaf(
+        "a_modified_bundled_entry_does_not_repeat_the_session_check_isolated",
+    );
+}
+
+#[test]
+fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory() {
+    support::run_isolated_leaf(
+        "analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory_isolated",
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10() {
+    support::run_isolated_leaf(
+        "the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10_isolated",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_distributed_app_without_the_bundle_fails_closed() {
+    support::run_isolated_leaf("a_distributed_app_without_the_bundle_fails_closed_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_distributed_app_with_a_partial_bundle_fails_closed() {
+    support::run_isolated_leaf("a_distributed_app_with_a_partial_bundle_fails_closed_isolated");
+}
+
+#[test]
+fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
+    support::run_isolated_leaf("a_dev_binary_without_the_bundle_keeps_the_download_plan_isolated");
+}
+
+#[test]
+fn a_build_without_a_pair_never_reports_verifying() {
+    support::run_isolated_leaf("a_build_without_a_pair_never_reports_verifying_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn bundled_result_is_cached_for_the_session() {
+    support::run_isolated_leaf("bundled_result_is_cached_for_the_session_isolated");
 }

@@ -73,23 +73,11 @@ pub fn set(workspace_path: &str, decision: &str) -> HostResult<()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // The store reads process-wide env vars, so the tests take turns.
-    pub(crate) static ENV: Mutex<()> = Mutex::new(());
-
-    fn with_home(run: impl FnOnce(&std::path::Path)) {
-        let _guard = ENV.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let home = tempfile::tempdir().unwrap();
-        std::env::set_var("OPENRIDR_HOME", home.path());
-        std::env::remove_var("OPENRIDR_TRUST_STORE");
-        run(&home.path().join("trusted.json"));
-        std::env::remove_var("OPENRIDR_HOME");
-        std::env::remove_var("OPENRIDR_TRUST_STORE");
-    }
+    use crate::test_harness::with_home;
 
     #[test]
-    fn set_then_get_and_never_decided_is_none() {
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn set_then_get_and_never_decided_is_none_isolated() {
         with_home(|_| {
             assert_eq!(get("/a"), None);
             set("/a", TRUSTED).unwrap();
@@ -103,14 +91,16 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn old_list_format_reads_as_trusted_and_migrates_on_write() {
-        with_home(|file| {
-            std::fs::write(file, r#"["/old","/older"]"#).unwrap();
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn old_list_format_reads_as_trusted_and_migrates_on_write_isolated() {
+        with_home(|home| {
+            let file = home.join("trusted.json");
+            std::fs::write(&file, r#"["/old","/older"]"#).unwrap();
             assert_eq!(get("/old"), Some(TRUSTED));
             assert_eq!(get("/older"), Some(TRUSTED));
             set("/new", RESTRICTED).unwrap();
             let stored: Value =
-                serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+                serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
             assert_eq!(
                 stored,
                 json!({ "/old": "trusted", "/older": "trusted", "/new": "restricted" })
@@ -119,26 +109,59 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn unreadable_file_is_not_overwritten() {
-        with_home(|file| {
-            std::fs::write(file, "{ not json").unwrap();
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn unreadable_file_is_not_overwritten_isolated() {
+        with_home(|home| {
+            let file = home.join("trusted.json");
+            std::fs::write(&file, "{ not json").unwrap();
             assert_eq!(get("/a"), None);
             assert_eq!(set("/a", TRUSTED).unwrap_err().code, "trusted_unreadable");
-            assert_eq!(std::fs::read_to_string(file).unwrap(), "{ not json");
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), "{ not json");
         });
     }
 
     #[test]
-    fn store_off_reads_nothing_and_writes_nothing() {
-        with_home(|file| {
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn store_off_reads_nothing_and_writes_nothing_isolated() {
+        with_home(|home| {
+            let file = home.join("trusted.json");
             set("/a", TRUSTED).unwrap();
-            std::env::set_var("OPENRIDR_TRUST_STORE", "off");
-            assert_eq!(get("/a"), None);
-            set("/b", TRUSTED).unwrap();
-            std::env::remove_var("OPENRIDR_TRUST_STORE");
+            {
+                let _off = crate::test_harness::EnvVar::set("OPENRIDR_TRUST_STORE", "off");
+                assert_eq!(get("/a"), None);
+                set("/b", TRUSTED).unwrap();
+            }
             assert_eq!(get("/b"), None);
             assert_eq!(get("/a"), Some(TRUSTED));
             assert!(file.exists());
         });
     }
+}
+
+#[test]
+fn set_then_get_and_never_decided_is_none() {
+    crate::test_harness::run_isolated_leaf(
+        "trusted::tests::set_then_get_and_never_decided_is_none_isolated",
+    );
+}
+
+#[test]
+fn old_list_format_reads_as_trusted_and_migrates_on_write() {
+    crate::test_harness::run_isolated_leaf(
+        "trusted::tests::old_list_format_reads_as_trusted_and_migrates_on_write_isolated",
+    );
+}
+
+#[test]
+fn unreadable_file_is_not_overwritten() {
+    crate::test_harness::run_isolated_leaf(
+        "trusted::tests::unreadable_file_is_not_overwritten_isolated",
+    );
+}
+
+#[test]
+fn store_off_reads_nothing_and_writes_nothing() {
+    crate::test_harness::run_isolated_leaf(
+        "trusted::tests::store_off_reads_nothing_and_writes_nothing_isolated",
+    );
 }
