@@ -1,0 +1,44 @@
+# Dependency updates. Grouped per ecosystem and weekly: one maintainer cannot triage thirty pull
+# requests a week, and a grouped bump is one review.
+#
+# `src-tauri` is its own workspace (it is not in the root `[workspace]` members), so it needs its own
+# cargo entry. GitHub Actions are pinned by full SHA in the workflows; Dependabot updates the pin and
+# the comment beside it.
+version: 2
+
+updates:
+  - package-ecosystem: bun
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      bun:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo-root:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: "/src-tauri"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      cargo-src-tauri:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
