@@ -2,8 +2,12 @@
 # Extract, verify and sign the analysis tools that ship inside the app bundle:
 #   * the private .NET 10 runtime that executes csharp-ls (never the project SDK);
 #   * the csharp-ls 0.28.0 payload (managed, no NuGet shim).
-# Both artifacts are pinned by SHA-512 of the official download; a mismatch fails the build
-# instead of shipping an unverified analyzer. Re-running is a no-op once the trees match.
+# Both artifacts are pinned by SHA-512 of the official download; a mismatch fails the build.
+#
+# Reuse is content-based, not marker-based: each generated tree carries the SHA-256 of every file
+# as it was extracted and signed. A missing, changed or extra file makes the next run rebuild that
+# tree from the pinned artifact (and re-sign it), so a damaged tree is never reported as current.
+# The manifest is taken *after* codesign: signatures change bytes, so it is meaningless before.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -63,17 +67,49 @@ sign() {
   fi
 }
 
-if [ -f "$RUNTIME_MARKER" ] && [ "$(cat "$RUNTIME_MARKER")" = "$STATE" ] \
-  && [ -x "$RUNTIME_DEST/dotnet" ] \
-  && [ -d "$RUNTIME_DEST/host/fxr/$RUNTIME_VERSION" ] \
-  && [ -d "$RUNTIME_DEST/shared/Microsoft.NETCore.App/$RUNTIME_VERSION" ]; then
-  echo "vendor-analysis: runtime $RUNTIME_VERSION is current; nothing to do."
+# Every file with its SHA-256, sorted by path; the tree is the unit of reuse.
+manifest() {
+  ( cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 )
+}
+
+# Reuse only when the marker pins the same inputs AND every file still hashes to the recorded
+# value (no extra or missing file). Anything else rebuilds from the verified artifact.
+is_current() {
+  marker=$1
+  dir=$2
+  [ -f "$marker" ] || return 1
+  [ "$(head -n 1 "$marker")" = "$STATE" ] || return 1
+  [ "$(sed -n 2p "$marker")" = "manifest:" ] || return 1
+  [ "$(tail -n +3 "$marker")" = "$(manifest "$dir")" ]
+}
+
+write_marker() {
+  marker=$1
+  dir=$2
+  {
+    printf '%s\n' "$STATE"
+    printf 'manifest:\n'
+    manifest "$dir"
+  } >"$marker.tmp"
+  mv "$marker.tmp" "$marker"
+}
+
+if is_current "$RUNTIME_MARKER" "$RUNTIME_DEST" && [ -x "$RUNTIME_DEST/dotnet" ]; then
+  echo "vendor-analysis: runtime $RUNTIME_VERSION is current (content verified); nothing to do."
 else
+  if [ -f "$RUNTIME_MARKER" ]; then
+    echo "vendor-analysis: runtime $RUNTIME_VERSION tree is missing or changed; rebuilding it from the pinned artifact."
+  fi
   fetch "$RUNTIME_URL" "$RUNTIME_CACHE" "$RUNTIME_SHA512"
   TMP="$RUNTIME_DEST.extract"
   rm -rf "$TMP"
   mkdir -p "$TMP"
   tar -xzf "$RUNTIME_CACHE" -C "$TMP"
+  if [ ! -f "$TMP/dotnet" ] || [ ! -d "$TMP/host/fxr/$RUNTIME_VERSION" ] \
+    || [ ! -d "$TMP/shared/Microsoft.NETCore.App/$RUNTIME_VERSION" ]; then
+    echo "vendor-analysis: $RUNTIME_CACHE has no usable runtime layout" >&2
+    exit 1
+  fi
   rm -rf "$RUNTIME_DEST"
   mkdir -p "$RUNTIME_DEST"
   mv "$TMP"/* "$RUNTIME_DEST"/
@@ -92,20 +128,23 @@ else
     codesign --verify --strict "$binary"
   done
   codesign --verify --strict "$RUNTIME_DEST/dotnet"
-  printf '%s\n' "$STATE" >"$RUNTIME_MARKER"
+  write_marker "$RUNTIME_MARKER" "$RUNTIME_DEST"
   echo "vendor-analysis: extracted runtime $RUNTIME_VERSION to $RUNTIME_DEST"
 fi
 
-if [ -f "$CSHARP_MARKER" ] && [ "$(cat "$CSHARP_MARKER")" = "$STATE" ] \
-  && [ -f "$CSHARP_DEST/CSharpLanguageServer.dll" ]; then
-  echo "vendor-analysis: csharp-ls $CSHARP_VERSION is current; nothing to do."
+if is_current "$CSHARP_MARKER" "$CSHARP_DEST" && [ -f "$CSHARP_DEST/CSharpLanguageServer.dll" ]; then
+  echo "vendor-analysis: csharp-ls $CSHARP_VERSION is current (content verified); nothing to do."
 else
+  if [ -f "$CSHARP_MARKER" ]; then
+    echo "vendor-analysis: csharp-ls $CSHARP_VERSION tree is missing or changed; rebuilding it from the pinned artifact."
+  fi
   fetch "$CSHARP_URL" "$CSHARP_CACHE" "$CSHARP_SHA512"
   TMP="$CSHARP_DEST.extract"
   rm -rf "$TMP"
   mkdir -p "$TMP"
   unzip -q "$CSHARP_CACHE" -d "$TMP"
-  if [ ! -f "$TMP/tools/net10.0/any/CSharpLanguageServer.dll" ]; then
+  if [ ! -f "$TMP/tools/net10.0/any/CSharpLanguageServer.dll" ] \
+    || [ ! -f "$TMP/tools/net10.0/any/CSharpLanguageServer.deps.json" ]; then
     echo "vendor-analysis: $CSHARP_CACHE has no tools/net10.0/any payload" >&2
     exit 1
   fi
@@ -118,7 +157,7 @@ else
   for binary in $(find "$CSHARP_DEST" -type f \( -name "*.dylib" -o -name "*.so" \) | sort); do
     sign "$binary"
   done
-  printf '%s\n' "$STATE" >"$CSHARP_MARKER"
+  write_marker "$CSHARP_MARKER" "$CSHARP_DEST"
   echo "vendor-analysis: extracted csharp-ls $CSHARP_VERSION to $CSHARP_DEST"
 fi
 
