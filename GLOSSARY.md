@@ -12,3 +12,8 @@
 - **Restricted mode**: abertura sem executar código do projeto (sem build, run, debug, análise); só edição de texto.
 - **Stop source**: qualquer motivo configurado para o depurador pausar o programa em execução — um breakpoint (quando não mutado), a parada em exceções lançadas, o pause manual ou o run-to-cursor. Sem stop source, a sessão roda até o fim sem parar.
 - **No-stop session**: sessão de debug que terminou sem nunca ter pausado. O fim dela precisa ser explicado, porque não há threads, frames nem locals para mostrar.
+
+- **Working-tree diff**: o diff que o painel Git mostra de um arquivo alterado da árvore de trabalho; a base é o index (arquivo sem stage) ou o `HEAD` (arquivo todo em stage). Nunca é um diff de commit.
+- **Diff base**: o lado esquerdo do diff — a versão contra a qual o lado atual é comparado. A do working-tree diff é o index ou o `HEAD`, nunca os dois.
+- **Diff mode**: a forma de mostrar o working-tree diff: *split* (dois editores lado a lado) ou *unified* (um editor só, com prefixos `-`/`+`). A escolha é do painel, não do arquivo.
+- **HEAD commit**: o commit para onde o `HEAD` aponta; é o hash mostrado no diff como contexto da comparação. Não confundir com o blob hash do index, que identifica conteúdo e não revisão.
