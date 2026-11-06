@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use std::ops::Deref;
 
 fn fixture() -> PathBuf {
     fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OrderDesk"))
@@ -64,7 +65,7 @@ const ADAPTER_PACKAGES: &str = "<ItemGroup>\
 <PackageReference Include=\"xunit.runner.visualstudio\" Version=\"2.8.2\" />\
 </ItemGroup>";
 
-fn open(host: &Host, path: &Path) -> Value {
+fn open(host: &impl Deref<Target = Host>, path: &Path) -> Value {
     let opened = host
         .dispatch("workspace.open", json!({ "path": path }))
         .expect("workspace opens");
@@ -72,12 +73,12 @@ fn open(host: &Host, path: &Path) -> Value {
     opened
 }
 
-fn grant(host: &Host) -> Value {
+fn grant(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch("trust.grant", json!({}))
         .expect("trust is granted")
 }
 
-fn snapshot(host: &Host) -> Value {
+fn snapshot(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch("workspace.state", json!({})).unwrap()
 }
 
@@ -85,7 +86,7 @@ fn error_code(result: Result<Value, HostError>) -> String {
     result.expect_err("expected host error").code
 }
 
-fn wait_for_restore(host: &Host, timeout: Duration) -> Value {
+fn wait_for_restore(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let restore = snapshot(host)["restore"].clone();
@@ -102,7 +103,7 @@ fn wait_for_restore(host: &Host, timeout: Duration) -> Value {
 }
 
 /// Explicit restore + evaluation, exactly what a user does before discovery.
-fn prepare(host: &Host, target_framework: Option<&str>) -> Value {
+fn prepare(host: &impl Deref<Target = Host>, target_framework: Option<&str>) -> Value {
     let started = host.dispatch("restore.start", json!({})).unwrap();
     assert_eq!(started["restore"]["state"], "running");
     let restored = wait_for_restore(host, Duration::from_secs(90));
@@ -121,7 +122,7 @@ fn prepare(host: &Host, target_framework: Option<&str>) -> Value {
     state
 }
 
-fn wait_for_discovery(host: &Host, timeout: Duration) -> Value {
+fn wait_for_discovery(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let discovery = snapshot(host)["tests"]["discovery"].clone();
@@ -137,7 +138,7 @@ fn wait_for_discovery(host: &Host, timeout: Duration) -> Value {
     }
 }
 
-fn wait_for_run(host: &Host, timeout: Duration) -> Value {
+fn wait_for_run(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let run = snapshot(host)["tests"]["run"].clone();

@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use std::ops::Deref;
 
 fn fixture() -> PathBuf {
     fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OrderDesk"))
@@ -64,7 +65,7 @@ fn test_project(dir: &Path, name: &str, extra: &str, source: &str) {
     fs::write(dir.join(format!("{name}.cs")), source).unwrap();
 }
 
-fn open(host: &Host, path: &Path) -> Value {
+fn open(host: &impl Deref<Target = Host>, path: &Path) -> Value {
     let opened = host
         .dispatch("workspace.open", json!({ "path": path }))
         .expect("workspace opens");
@@ -72,16 +73,16 @@ fn open(host: &Host, path: &Path) -> Value {
     opened
 }
 
-fn grant(host: &Host) -> Value {
+fn grant(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch("trust.grant", json!({}))
         .expect("trust is granted")
 }
 
-fn snapshot(host: &Host) -> Value {
+fn snapshot(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch("workspace.state", json!({})).unwrap()
 }
 
-fn wait_for_restore(host: &Host, timeout: Duration) -> Value {
+fn wait_for_restore(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let restore = snapshot(host)["restore"].clone();
@@ -97,7 +98,7 @@ fn wait_for_restore(host: &Host, timeout: Duration) -> Value {
     }
 }
 
-fn prepare(host: &Host, target_framework: Option<&str>) -> Value {
+fn prepare(host: &impl Deref<Target = Host>, target_framework: Option<&str>) -> Value {
     let started = host.dispatch("restore.start", json!({})).unwrap();
     assert_eq!(started["restore"]["state"], "running");
     let restored = wait_for_restore(host, Duration::from_secs(90));
@@ -112,7 +113,7 @@ fn prepare(host: &Host, target_framework: Option<&str>) -> Value {
 
 const DISCOVER: &str = "tests/OrderDesk.Tests/OrderDesk.Tests.csproj";
 
-fn discover_fixture(host: &Host) -> Value {
+fn discover_fixture(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch(
         "tests.discover",
         json!({ "project": DISCOVER, "targetFramework": "net8.0" }),
@@ -134,7 +135,7 @@ fn discover_fixture(host: &Host) -> Value {
     }
 }
 
-fn wait_for_run(host: &Host, timeout: Duration) -> Value {
+fn wait_for_run(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let run = snapshot(host)["tests"]["run"].clone();
@@ -561,7 +562,7 @@ fn duplicate_display_names_are_one_ambiguous_identity_never_a_selected_run() {
     assert!(names.contains(&"Disp.B.Two"), "{names:?}");
 }
 
-fn wait_for_run_discovery(host: &Host) -> Value {
+fn wait_for_run_discovery(host: &impl Deref<Target = Host>) -> Value {
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         let discovery = snapshot(host)["tests"]["discovery"].clone();

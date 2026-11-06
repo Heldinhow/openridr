@@ -11,8 +11,10 @@
 #![allow(dead_code)]
 
 use openridr_host::Host;
+use std::cell::Cell;
 use std::ffi::{OsStr, OsString};
-use std::sync::{Mutex, MutexGuard, Once};
+use std::ops::Deref;
+use std::sync::{Once, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Every `OPENRIDR_*` variable the host crate reads. A new one belongs here or the suite starts
 /// depending on whichever shell ran it.
@@ -37,16 +39,36 @@ const AMBIENT: &[&str] = &[
 
 static PURGE: Once = Once::new();
 static PROBE: Once = Once::new();
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+/// Readers (a host being created or used by a test) share it; a test that writes the process
+/// environment needs it exclusively. Without the read side, a host could read `OPENRIDR_HOME`
+/// from another test's scope. Poisoning is ignored: one failed test must not fail the rest.
+static ENV_LOCK: RwLock<()> = RwLock::new(());
 
-/// Serializes the tests that write process environment, and removes the ambient values first.
-/// Poisoning is ignored: one failed test must not fail every test that runs after it.
-pub fn env_guard() -> MutexGuard<'static, ()> {
+thread_local! {
+    static WRITES_ENV: Cell<bool> = const { Cell::new(false) };
+    static READS_ENV: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Holds the environment exclusively for as long as the binding lives. Every test that writes a
+/// process variable takes this first, so no host can be created or used under a half-swapped
+/// environment. Removes the ambient values before yielding.
+pub struct EnvGuard {
+    _guard: RwLockWriteGuard<'static, ()>,
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        WRITES_ENV.with(|flag| flag.set(false));
+    }
+}
+
+pub fn env_guard() -> EnvGuard {
     let guard = ENV_LOCK
-        .lock()
+        .write()
         .unwrap_or_else(|poison| poison.into_inner());
     purge_locked();
-    guard
+    WRITES_ENV.with(|flag| flag.set(true));
+    EnvGuard { _guard: guard }
 }
 
 /// The development-only probe switch is one decision for the whole binary, not a per-test scope.
@@ -58,16 +80,87 @@ pub fn enable_probe() {
 }
 
 /// A host that cannot be configured by the shell that ran the test.
-pub fn host() -> Host {
+///
+/// The returned host holds the shared side of the environment lock until it is dropped, so no test
+/// can be swapping a variable while this host is created *or used*. A test that already holds the
+/// exclusive side (it writes the environment itself) reuses that permission: taking the shared
+/// side there would deadlock.
+pub fn host() -> TestHost {
     purge_if_pending();
-    Host::new()
+    if WRITES_ENV.with(Cell::get) {
+        return TestHost {
+            host: Host::new(),
+            guard: None,
+        };
+    }
+    // One shared guard is enough per thread; a second `host()` in the same test would take a
+    // second read lock that a waiting writer could deadlock against.
+    if READS_ENV.with(Cell::get) {
+        return TestHost {
+            host: Host::new(),
+            guard: None,
+        };
+    }
+    let guard = ENV_LOCK
+        .read()
+        .unwrap_or_else(|poison| poison.into_inner());
+    READS_ENV.with(|flag| flag.set(true));
+    TestHost {
+        host: Host::new(),
+        guard: Some(guard),
+    }
+}
+
+/// A host from [`host`] plus the shared environment lock it holds for the test's lifetime.
+/// Dereferences to the host, so `host.dispatch(...)` and `&host` helpers keep working.
+pub struct TestHost {
+    host: Host,
+    guard: Option<RwLockReadGuard<'static, ()>>,
+}
+
+impl Deref for TestHost {
+    type Target = Host;
+
+    fn deref(&self) -> &Host {
+        &self.host
+    }
+}
+
+impl Drop for TestHost {
+    fn drop(&mut self) {
+        if self.guard.is_some() {
+            READS_ENV.with(|flag| flag.set(false));
+        }
+    }
+}
+
+/// Runs one leaf test of this same binary in a fresh process, with `envs` set on top of the current
+/// environment. The purge runs once per binary, so only a new process can prove it.
+pub fn assert_leaf_passes_in_a_fresh_process(test: &str, envs: &[(&str, &OsStr)]) {
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command.args(["--test-threads=1", "--exact", test]);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let done = command.output().unwrap();
+    let stdout = String::from_utf8_lossy(&done.stdout);
+    let stderr = String::from_utf8_lossy(&done.stderr);
+    assert!(
+        done.status.success(),
+        "`{test}` failed in a fresh process with {envs:?}:\n{stdout}{stderr}"
+    );
+    // A filter that matches nothing reports `0 passed`, which would make this guard vacuous.
+    assert!(
+        stdout.contains("1 passed"),
+        "the fresh process did not run exactly `{test}`:\n{stdout}{stderr}"
+    );
 }
 
 /// Removes the ambient values once. Called by every helper, so it runs before the first test can
 /// observe them, and never removes a value a test set through [`EnvVar`].
 pub fn purge_ambient() {
     let _guard = ENV_LOCK
-        .lock()
+        .write()
         .unwrap_or_else(|poison| poison.into_inner());
     purge_locked();
 }

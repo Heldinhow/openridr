@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use support::{env_guard, EnvVar};
+use std::ops::Deref;
 
 // Tool installation and LSP tests share the app home (or `OPENRIDR_HOME`) and child processes, so
 // they run one at a time. The guard also removes the ambient `OPENRIDR_*` values of whoever ran
@@ -33,7 +34,7 @@ fn temp_workspace(projects: &[&str]) -> tempfile::TempDir {
     dir
 }
 
-fn open(host: &Host, path: &Path) -> Value {
+fn open(host: &impl Deref<Target = Host>, path: &Path) -> Value {
     let opened = host
         .dispatch("workspace.open", json!({ "path": path }))
         .expect("workspace opens");
@@ -298,11 +299,13 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     let (_outer, root, outside) = nested_workspace();
     let outside_file = outside.join("outside.txt");
     let created = outside.join("created.txt");
-    // A root-escaping relative path that lands on a fixed name in /tmp would let two runs step on
-    // each other; the target is unique per process and never exists before the attempt.
-    let leaked = std::env::temp_dir().join(format!("openridr-created-{}.txt", std::process::id()));
+    // The escape target is a fresh temporary directory, never a predictable name that two runs
+    // could share; the relative path climbs out of the workspace and lands on it.
+    let leaked_dir = tempfile::tempdir().unwrap();
+    let leaked = leaked_dir.path().join("created.txt");
     let traversal = format!(
-        "../../../../../../../../{}",
+        "{}{}",
+        "../".repeat(12),
         leaked.strip_prefix("/").unwrap().display()
     );
     let host = support::host();
@@ -645,7 +648,7 @@ fn utf16_bytes(text: &str, little_endian: bool) -> Vec<u8> {
     bytes
 }
 
-fn read_file(host: &Host, path: &str) -> Value {
+fn read_file(host: &impl Deref<Target = Host>, path: &str) -> Value {
     host.dispatch("file.read", json!({ "path": path }))
         .expect("file reads")
 }
@@ -930,11 +933,11 @@ fn one_workspace_at_a_time_and_awkward_names_work() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "after\n");
 }
 
-fn snapshot(host: &Host) -> Value {
+fn snapshot(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch("workspace.state", json!({})).unwrap()
 }
 
-fn grant(host: &Host) -> Value {
+fn grant(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch("trust.grant", json!({})).expect("trust is granted")
 }
 
@@ -2502,7 +2505,7 @@ fn write_hanging_project(dir: &Path, source: &str) {
     );
 }
 
-fn wait_for_restore(host: &Host, timeout: Duration) -> Value {
+fn wait_for_restore(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -2939,13 +2942,13 @@ fn runtime_10() -> sdk::RuntimeInstall {
         .expect("a .NET 10 runtime exists")
 }
 
-fn tool_plan(host: &Host) -> Value {
+fn tool_plan(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch("tools.plan", json!({ "tool": "csharp-ls" }))
         .expect("the install plan is built")["tools"]["csharp-ls"]
         .clone()
 }
 
-fn wait_tool(host: &Host, timeout: Duration) -> Value {
+fn wait_tool(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let tool = snapshot(host)["tools"]["csharp-ls"].clone();
@@ -2964,7 +2967,7 @@ fn wait_tool(host: &Host, timeout: Duration) -> Value {
     }
 }
 
-fn ensure_tool(host: &Host) {
+fn ensure_tool(host: &impl Deref<Target = Host>) {
     let tool = tool_plan(host);
     if tool["state"] == "ready" {
         return;
@@ -2979,7 +2982,7 @@ fn ensure_tool(host: &Host) {
     assert_eq!(done["state"], "ready", "{}", done["log"]);
 }
 
-fn wait_lsp(host: &Host, timeout: Duration, states: &[&str]) -> Value {
+fn wait_lsp(host: &impl Deref<Target = Host>, timeout: Duration, states: &[&str]) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let lsp = snapshot(host)["lsp"].clone();
@@ -2996,7 +2999,7 @@ fn wait_lsp(host: &Host, timeout: Duration, states: &[&str]) -> Value {
     }
 }
 
-fn wait_publication(host: &Host, timeout: Duration, predicate: impl Fn(&Value) -> bool) -> Value {
+fn wait_publication(host: &impl Deref<Target = Host>, timeout: Duration, predicate: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -4431,7 +4434,7 @@ fn write_console_project(dir: &Path, name: &str, extra: &str) {
     .unwrap();
 }
 
-fn wait_for_build(host: &Host, timeout: Duration) -> Value {    let deadline = Instant::now() + timeout;
+fn wait_for_build(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {    let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
         let build = state["build"].clone();
@@ -4448,7 +4451,7 @@ fn wait_for_build(host: &Host, timeout: Duration) -> Value {    let deadline = I
 }
 
 /// Waits until the DAP record leaves `building`/`preparing`: the session has real state.
-fn wait_for_dap(host: &Host, timeout: Duration) -> Value {
+fn wait_for_dap(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let dap = snapshot(host)["dap"].clone();
@@ -4464,7 +4467,7 @@ fn wait_for_dap(host: &Host, timeout: Duration) -> Value {
     }
 }
 
-fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
+fn wait_for_build_output(host: &impl Deref<Target = Host>, needle: &str, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -4720,7 +4723,7 @@ fn hanging_build_workspace() -> tempfile::TempDir {
 }
 
 #[cfg(unix)]
-fn ready_project(host: &Host, root: &Path, project: &str) {
+fn ready_project(host: &impl Deref<Target = Host>, root: &Path, project: &str) {
     open(host, &root.join(project));
     grant(host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -4730,7 +4733,7 @@ fn ready_project(host: &Host, root: &Path, project: &str) {
 }
 
 #[cfg(unix)]
-fn ready_for_build(host: &Host, root: &Path) {
+fn ready_for_build(host: &impl Deref<Target = Host>, root: &Path) {
     ready_project(host, root, "Slow.csproj");
 }
 
@@ -4938,7 +4941,7 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     assert_ne!(rerun["buildId"], build_id);
 
     // A failed implicit build never runs and keeps its diagnostics in the Build tab.
-    let run_processes = |host: &Host| {
+    let run_processes = |host: &support::TestHost| {
         snapshot(host)["processes"]
             .as_array()
             .unwrap()
@@ -5215,7 +5218,7 @@ fn sleeper_project(dir: &Path) {
 }
 
 #[cfg(unix)]
-fn wait_for_run(host: &Host, timeout: Duration) -> Value {
+fn wait_for_run(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -5234,7 +5237,7 @@ fn wait_for_run(host: &Host, timeout: Duration) -> Value {
 }
 
 #[cfg(unix)]
-fn wait_for_run_output(host: &Host, needle: &str, timeout: Duration) -> String {
+fn wait_for_run_output(host: &impl Deref<Target = Host>, needle: &str, timeout: Duration) -> String {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -5664,7 +5667,7 @@ fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
     let _ = host.dispatch("debug.stop", json!({}));
 }
 
-fn wait_for_terminal_output(host: &Host, needle: &str, timeout: Duration) -> String {
+fn wait_for_terminal_output(host: &impl Deref<Target = Host>, needle: &str, timeout: Duration) -> String {
     let deadline = Instant::now() + timeout;
     loop {
         let log = snapshot(host)["terminal"]["log"]
@@ -6188,7 +6191,7 @@ fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
     let _store = EnvVar::remove("OPENRIDR_TRUST_STORE");
     let workspace = temp_workspace(&["Remember.csproj"]);
     let project = workspace.path().join("Remember.csproj");
-    let granted = |host: &Host| host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
+    let granted = |host: &support::TestHost| host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
 
     // A grant without `remember` is session-only.
     let first = support::host();
@@ -6357,37 +6360,44 @@ fn an_ambient_bundled_override_never_reaches_the_host() {
         fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    let done = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--test-threads=1",
-            "--exact",
-            "trust_grant_needs_an_open_workspace_and_gates_every_direct_call",
-        ])
-        .env("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path())
-        .env_remove("OPENRIDR_HOME")
-        .output()
-        .unwrap();
-    assert!(
-        done.status.success(),
-        "with an ambient bundled override the host test failed:\n{}{}",
-        String::from_utf8_lossy(&done.stdout),
-        String::from_utf8_lossy(&done.stderr)
+    support::assert_leaf_passes_in_a_fresh_process(
+        "trust_grant_needs_an_open_workspace_and_gates_every_direct_call",
+        &[("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path().as_os_str())],
     );
 }
 
-/// The old pattern was a per-test binding: its `Drop` restored "unset" and a later test that
-/// needed the probe got `trust_required` unless the variable was exported before `cargo test`.
-/// The switch is now one decision for the binary, so no scope can turn it off under another test.
+/// #59: a test that swaps the environment under the guard must not be able to turn the probe off
+/// under a test that runs at the same time. The writer holds the environment exclusively, so the
+/// reader's host waits for it instead of observing a half-swapped environment; when the writer
+/// ends, the probe is still on for this test.
 #[test]
-fn the_probe_switch_survives_every_env_scope() {
+fn a_concurrent_env_scope_cannot_disable_the_probe_for_another_test() {
     support::enable_probe();
-    {
-        let _scoped = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
-        let _home = EnvVar::set("OPENRIDR_HOME", tempfile::tempdir().unwrap().path().to_path_buf());
-    }
-    assert_eq!(
-        std::env::var("OPENRIDR_ENABLE_PROBE").as_deref(),
-        Ok("1"),
-        "a scoped binding removed the probe switch another test depends on"
-    );
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+
+    let swap = {
+        let barrier = std::sync::Arc::clone(&barrier);
+        std::thread::spawn(move || {
+            // Without this guard the probe below is read as "0" and `processes.probe` is refused.
+            let _guard = env_guard();
+            let home = tempfile::tempdir().unwrap();
+            let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+            let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
+            barrier.wait();
+            // Long enough that a reader outside the guard would see the swapped environment.
+            std::thread::sleep(Duration::from_millis(150));
+        })
+    };
+
+    barrier.wait();
+    // The shared side of the lock: this waits for the writer above and then holds it for the test.
+    let host = support::host();
+    let workspace = temp_workspace(&["Probe.csproj"]);
+    open(&host, &workspace.path().join("Probe.csproj"));
+    grant(&host);
+    let probed = host
+        .dispatch("processes.probe", json!({ "kind": "quick" }))
+        .expect("the probe switch is still on for this test");
+    assert_eq!(probed["processes"][0]["state"], "running");
+    swap.join().unwrap();
 }

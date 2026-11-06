@@ -6,13 +6,14 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use support::{env_guard, EnvVar};
+use std::ops::Deref;
 
 fn fixture() -> PathBuf {
     fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OrderDesk"))
         .expect("fixture OrderDesk exists")
 }
 
-fn open(host: &Host, path: &Path) -> Value {
+fn open(host: &impl Deref<Target = Host>, path: &Path) -> Value {
     let opened = host
         .dispatch("workspace.open", json!({ "path": path }))
         .expect("workspace opens");
@@ -20,7 +21,7 @@ fn open(host: &Host, path: &Path) -> Value {
     opened
 }
 
-fn snapshot(host: &Host) -> Value {
+fn snapshot(host: &impl Deref<Target = Host>) -> Value {
     for _ in 0..500 {
         let state = host.dispatch("workspace.state", json!({})).unwrap();
         if state["tools"]["csharp-ls"]["state"] != "verifying" {

@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use support::{env_guard, EnvVar};
+use std::ops::Deref;
 
 const ARTIFACT: &[u8] =
     b"#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1 (controlled test artifact, Release)\\n'\n";
@@ -36,7 +37,7 @@ fn temp_workspace() -> tempfile::TempDir {
     dir
 }
 
-fn open(host: &Host, dir: &Path) -> Value {
+fn open(host: &impl Deref<Target = Host>, dir: &Path) -> Value {
     let opened = host
         .dispatch("workspace.open", json!({ "path": dir.join("Debug.csproj") }))
         .expect("workspace opens");
@@ -44,7 +45,7 @@ fn open(host: &Host, dir: &Path) -> Value {
     opened
 }
 
-fn state(host: &Host) -> Value {
+fn state(host: &impl Deref<Target = Host>) -> Value {
     host.dispatch("debug.state", json!({})).unwrap()["debug"].clone()
 }
 
@@ -52,7 +53,7 @@ fn error_code(result: Result<Value, openridr_host::HostError>) -> String {
     result.expect_err("expected host error").code
 }
 
-fn wait_for(host: &Host, states: &[&str], timeout: Duration) -> Value {
+fn wait_for(host: &impl Deref<Target = Host>, states: &[&str], timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let debug = state(host);
@@ -1219,20 +1220,8 @@ fn an_ambient_bundled_override_never_reaches_the_controlled_installer() {
         fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    let done = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--test-threads=1",
-            "--exact",
-            "install_requires_trust_confirmation_and_an_unchanged_plan",
-        ])
-        .env("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path())
-        .env_remove("OPENRIDR_HOME")
-        .output()
-        .unwrap();
-    assert!(
-        done.status.success(),
-        "with an ambient bundled override the controlled install failed:\n{}{}",
-        String::from_utf8_lossy(&done.stdout),
-        String::from_utf8_lossy(&done.stderr)
+    support::assert_leaf_passes_in_a_fresh_process(
+        "install_requires_trust_confirmation_and_an_unchanged_plan",
+        &[("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path().as_os_str())],
     );
 }

@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use support::EnvVar;
+use std::ops::Deref;
 
 const PATHS: usize = 2;
 const WALKS: u64 = 60;
@@ -85,7 +86,7 @@ fn random_op(seed: &mut u64) -> Op {
     }
 }
 
-fn call(host: &Host, op: Op, paths: &[PathBuf]) -> Result<Value, HostError> {
+fn call(host: &impl Deref<Target = Host>, op: Op, paths: &[PathBuf]) -> Result<Value, HostError> {
     match op {
         Op::Open(i) => host.dispatch("workspace.open", json!({ "path": paths[i] })),
         Op::Close => host.dispatch("workspace.close", json!({})),
@@ -120,7 +121,7 @@ fn project(dir: &Path, name: &str) -> PathBuf {
 }
 
 /// Invariants I1-I5 of docs/VERIFICACAO-FORMAL.md, checked against the real host after each step.
-fn check(host: &Host, model: &Model, paths: &[PathBuf], home: &Path, context: &str) {
+fn check(host: &impl Deref<Target = Host>, model: &Model, paths: &[PathBuf], home: &Path, context: &str) {
     let state = host.dispatch("workspace.state", json!({})).unwrap();
     let granted = state["trust"]["granted"] == true;
     // I1: the host flag is exactly the model flag, and a trusted flag needs an open workspace.
