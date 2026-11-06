@@ -191,13 +191,18 @@ jobs:
       - name: Fail when a required job did not pass
         env:
           NEEDS: ${{ toJSON(needs) }}
+          # Passed as data, not interpolated into the script: a skipped job is only acceptable when the
+          # reason is "this job does not run for this event", which is the PR-only `governance`.
+          EVENT: ${{ github.event_name }}
         run: |
-          # `governance` only runs on a pull request, so a push to main leaves it skipped. Every other
-          # dependency must really have passed: a job that is skipped by accident (a bad `if`, a
-          # renamed job) must not read as green.
-          failed=$(printf '%s' "$NEEDS" | jq -r 'to_entries[]
+          # `governance` runs only on a pull request, so a push to main leaves it skipped. Every other
+          # dependency must really have passed, and a skipped `governance` on a pull request is a bug:
+          # a job that is skipped by accident (a bad `if`, a renamed job) must never read as green.
+          failed=$(printf '%s' "$NEEDS" | jq -r --arg event "$EVENT" 'to_entries[]
             | select(.value.result != "success"
-                and ((.key != "governance") or (.value.result != "skipped")))
+                and ((.key != "governance")
+                  or (.value.result != "skipped")
+                  or ($event == "pull_request")))
             | "\(.key): \(.value.result)"')
           if [ -n "$failed" ]; then
             printf 'required jobs did not pass:\n%s\n' "$failed" >&2

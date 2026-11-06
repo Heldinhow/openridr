@@ -131,6 +131,38 @@ O que os runs acharam, em ordem — nada disso era visível no Mac:
 
 `bunx tsc --noEmit` → 0 erros; `bun test tests/unit` → 39 testes, 151 asserts, 497 ms.
 
+## Segunda rodada de review (`704af9f`) e correções
+
+Revisão independente (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre `704af9f`: Standards 0,
+Spec 1 médio + 1 baixo. Os dois foram corrigidos aqui.
+
+- **Médio — o gate achava `## Evidence` dentro de bloco de código.** Os headings eram procurados no texto
+  com os comentários já removidos, mas ainda com as cercas: um `## Evidence` escrito dentro de ``` ou
+  ~~~ virava seção, e uma seção contendo só cercas vazias contava como evidência. Correção em
+  `scripts/ci-pr-body.sh`: um único filtro de cercas gera duas visões com a **mesma numeração de
+  linhas** — `outside` (cerca e conteúdo apagados, usada para a referência à issue e para achar
+  headings) e `body` (só os delimitadores apagados, então comando real dentro da Evidência continua
+  valendo). Fecha pelo **mesmo caractere** e por comprimento **maior ou igual** ao da abertura: `~~~`
+  não fecha uma cerca de ```, e uma cerca mais longa pode conter uma mais curta. A seção termina no
+  próximo heading **fora de cerca**.
+- **Baixo — exceção do agregador ignorava o evento.** `governance: skipped` era aceito em qualquer
+  evento; agora só quando `github.event_name != pull_request` (o `if` do job é exatamente isso), com o
+  evento passado ao `jq` por `env`, nunca interpolado no script.
+
+Prova desta rodada:
+
+- `sh scripts/ci-pr-body-selfcheck.sh` → **18 casos, 18 ok**, com cinco novos: heading dentro de cerca de
+  ``` e de ~~~ (reprovados), seção só com cercas vazias (reprovada), ~~~ não fechando cerca de ```
+  (reprovado, o heading depois continua "dentro" do código) e **comando real dentro de cerca como
+  Evidência (aceito)**.
+- Falha-antes: o gate do commit anterior aceita o primeiro caso novo —
+  `FAIL evidence-heading-inside-backtick-fence: expected rejected, got accepted`.
+- Agregador, lógica do `jq` com o evento como dado, seis combinações: todos `success` (passa), PR com
+  `governance: skipped` (**falha** — não pode acontecer), `push` com `governance: skipped` (passa),
+  PR com `rust: failure` (falha), `push` com `rust: skipped` por acidente (**falha**) e
+  `workflow_dispatch` com `governance: skipped` (passa, é o mesmo caso do push).
+- `actionlint` e `zizmor` (`--offline --min-severity low .`) continuam sem achado.
+
 ## verify-openridr
 
 Não se aplica: nenhuma feature de produto foi tocada (nenhum arquivo de `src/`, `crates/` além de
