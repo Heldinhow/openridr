@@ -51,11 +51,17 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           fetch-tags: true
+          # The token stays out of .git/config: nothing here pushes, and a persisted credential is how
+          # a later step (or an artifact) carries it out of the job.
+          persist-credentials: false
 
       - name: Set up bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.9"
+          # No cache in a workflow that signs and publishes: a poisoned cache entry would be bundled
+          # into the released app, and the runner starts empty on every release anyway.
+          no-cache: true
 
       # Fails in seconds when the tag is not vX.Y.Z, the five version sources disagree, the tag is
       # not on main, the notes point at another version or a credential is missing. Nothing is

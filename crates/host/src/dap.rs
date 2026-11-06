@@ -3039,11 +3039,20 @@ mod tests {
                 "env": { "MARKER": marker.to_string_lossy(), "OPENRIDR_TEST": "exact" }
             }
         }));
+        // Wait for the last line the script writes, not for the file to exist: the four `printf`s
+        // create it with the first line, so reading on existence can see a partial file.
         let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline && !marker.is_file() {
+        let mut observed = String::new();
+        while Instant::now() < deadline {
+            if let Ok(text) = std::fs::read_to_string(&marker) {
+                if text.contains("env=") {
+                    observed = text;
+                    break;
+                }
+            }
             std::thread::sleep(Duration::from_millis(20));
         }
-        let observed = std::fs::read_to_string(&marker).expect("the exact argv ran");
+        assert!(!observed.is_empty(), "the exact argv ran");
         assert!(observed.contains("cwd="), "{observed}");
         assert!(
             observed.contains("arg1=<two words; not a shell>"),

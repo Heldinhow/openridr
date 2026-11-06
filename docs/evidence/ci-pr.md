@@ -1,0 +1,251 @@
+# Evidência — CI em pull requests (issue #56)
+
+Spec: [SPEC-CI-PR.md](../SPEC-CI-PR.md). Decisões: `docs/decisions.md` (2026-11-06, "CI em PR").
+Tickets: #80 (fmt), #81 (clippy), #82 (workflow), #83 (governança), #84 (segredos), #85 (Dependabot),
+#86 (smoke noturno), #87 (ruleset preparado), #88 (AGENTS.md).
+Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `SDK .NET 8.0.408`,
+`actionlint 1.7.12` (compilado de `github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`),
+`zizmor 1.32.0` (`uvx --from zizmor==1.32.0`). Base: `4df5c1a` (`origin/main`).
+
+## PR mecânico (`ci/issue-56-fmt`, #80 e #81)
+
+| Antes | Depois | Comando |
+|---|---|---|
+| 596 hunks de `fmt` em 33 arquivos (32 no workspace + 1 em `src-tauri`) | `cargo fmt --all -- --check` e `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` limpos | `cargo fmt` |
+| 51 linhas de `warning` do clippy (~40 avisos distintos, 22 tipos de lint) | `cargo clippy --workspace --all-targets -- -D warnings` limpo | idem |
+
+- O commit de formatação (`style: format the repository with cargo fmt`) tem 2808 inserções e 1277
+  remoções, todas saídas do `cargo fmt`: nenhuma edição manual. O hash completo está em
+  `.git-blame-ignore-revs`; `git config blame.ignoreRevsFile` aplicado e conferido com
+  `git blame -L 1,1 crates/host/src/build.rs` (linha atribuída ao commit original de 2026-10-28, não
+  ao de formatação).
+- Clippy: `--fix` resolveu o mecânico (22 dos 40 avisos, 15 arquivos) e o resto foi a mão. Revisão do
+  diff de `--fix`: `map(...).flatten()` → `and_then`, `if let/else return` → `?`, `chunks_exact(2)` →
+  `as_chunks::<2>()`, `map_or(true, …)` → `is_none_or`, `sort_by(cmp)` → `sort_by_key`,
+  `io::Error::new(Other, …)` → `io::Error::other`, `map.values()` e `slice::from_ref` em testes — todas
+  equivalências diretas, nenhuma mudança de comportamento. Os quatro `too_many_arguments` e o
+  `large_enum_variant` de `build::Line` ficaram `#[allow(...)]` com comentário de uma linha; `Default`
+  para `Tools` e `Registry` virou `impl` real.
+- Suíte depois do clippy: `cargo test -p openridr-host` → 7 binários, **427 testes passando, 0
+  falhando** (`lib` 286, `host` 98, `debugger` 14, `bundled_analysis` 11, `test_discovery` 10,
+  `test_run` 7, `trust_model` 1), 3 min 59 s de parede com build quente. Depois de trazer `main` para
+  o branch (o #92 acrescentou testes em `dap.rs`): **438 testes, 0 falhando**, 4 min 26 s.
+
+## PR de CI (`ci/issue-56-pr-checks`)
+
+### Gate do corpo do PR (#83)
+
+- `sh scripts/ci-pr-body-selfcheck.sh` → **13 casos, 13 ok**: corpo completo (aceito), heading em
+  português (aceito), `Refs #N` sem fechar (aceito), sem issue (reprovado), issue dentro de bloco de
+  código (reprovado), comentário HTML de várias linhas como Evidência (reprovado), comando dentro de
+  bloco de código como Evidência (aceito), com issue e sem Evidência (reprovado), só `n/a`
+  (reprovado), só o comentário-placeholder do template (reprovado), `dependabot[bot]` e
+  `renovate[bot]` (isentos) e o **template real** preenchido só com o número da issue (reprovado).
+- Mesmo resultado com `LC_ALL=C` (o heading acentuado não depende de locale).
+- O self-check não é vazio: com um gate falso (`exit 0`) no lugar do script, ele falha no terceiro
+  caso (`no-issue: expected rejected, got accepted`). Com o gate anterior à revisão, falha em
+  `issue-inside-code-fence: expected rejected, got accepted` — as falhas-antes de cada rodada de
+  aperto do gate ficam registradas aqui.
+- O caso `template-with-issue` lê `.github/pull_request_template.md` de verdade: se alguém transformar
+  de novo uma instrução em texto solto, o caso começa a aceitar e reprova.
+- Agregador (`ci`): lógica testada com `jq` sobre os quatro resultados possíveis — PR tudo verde
+  (passa), `push` com `governance` `skipped` (passa), PR com `rust` falhando (reprova, `rust:
+  failure`), `push` com `rust` `skipped` por acidente (reprova, `rust: skipped`). A versão anterior
+  aceitava qualquer `skipped`.
+
+### Workflows (#82, #83, #84, #86)
+
+- `actionlint 1.7.12`: `actionlint -oneline` sobre `.github/workflows/` → exit 0, sem achado.
+  `shellcheck` não está instalado nesta máquina, então a análise de shell do `run:` **não rodou aqui**
+  (o job do CI liga shellcheck por padrão; ver "Não verificado").
+- `zizmor 1.32.0`, antes das correções no `release.yml`: `error[cache-poisoning]` (cache de bun em
+  workflow que publica), `warning[artipacked]` (checkout sem `persist-credentials: false`) e 8
+  `info[template-injection]`; exit 14.
+- Depois de `persist-credentials: false` no checkout e `no-cache: true` no `setup-bun` do
+  `release.yml`: só os 8 `info[template-injection]` (todos expansão de `steps.*.outputs.*` do nosso
+  `release-macos.sh` dentro de `run:`). Com `--min-severity low` (o que o job usa): **0 achados, exit
+  0**; com `--min-severity medium`: também 0.
+- Lista do smoke E2E: a #67 entregou `scripts/e2e-smoke.txt` (caminho relativo à raiz, quatro specs,
+  25 testes, ~2,8 min medidos lá) e o workflow passou a consumir esse formato — lido com o mesmo
+  `sed`/`while read` do YAML: `running: tests/e2e/workspace.spec.ts tests/e2e/build.spec.ts
+  tests/e2e/run.spec.ts tests/e2e/qa2-diagnostics.spec.ts` (exit 0); lista só com comentários →
+  `list is empty`, exit 1; caminho inexistente → exit 1.
+- `.github/rulesets/main.json`: `json.load` ok, regras `deletion`, `non_fast_forward`,
+  `required_linear_history`, `pull_request`, `required_status_checks` com contextos `ci` e `security`.
+
+### Runs reais no GitHub (PR #90)
+
+O workflow rodou de verdade enquanto o PR não era obrigatório, e rodou de novo a cada correção. O
+**HEAD `d8ac8ff` (run `42288826870`) passou nos cinco checks**:
+
+| Job | `d8ac8ff` | Tempo |
+|---|---|---|
+| `TypeScript (tsc + unit)` | pass | 23 s |
+| `security` (gitleaks) | pass | 15 s |
+| `Governance (workflows, PR title, PR body)` | pass | 17 s |
+| `Rust (fmt, clippy, host tests)` | pass | 3 min 50 s |
+| `ci` (agregador) | pass | 3 s |
+
+Histórico curto, para o número não ser lido fora de contexto: `42265605184` (primeiro run) falhou em
+três pontos; `42285400316` (`2ef7d41`) passou nos cinco; `42287114742` (`04409bf`, só docs) voltou a
+falhar por um flake de teste; `42288826870` (`d8ac8ff`) passou nos cinco. Paredes de 4–6 min por PR,
+com TS, governança e segredos em paralelo ao Rust. O `zizmor`
+antes disso reprovava o `release.yml` que já estava em `main` (credencial persistida e cache de bun no
+workflow que assina), e o `security` rodou sem `GITLEAKS_LICENSE` (repo de conta de usuário).
+
+O que os runs acharam, em ordem — nada disso era visível no Mac:
+
+1. **`zizmor` audita o repo inteiro, não só `.github/workflows/`.** Localmente eu rodei
+   `zizmor .github/workflows` (0 achados); a action usa o modo de coleta padrão, inclui o
+   `dependabot.yml` e reprovou com 4 `warning[dependabot-cooldown]` (medium). Correção: `cooldown:
+   default-days: 7` nos quatro ecossistemas. Reprodução local com o modo da action:
+   `zizmor --offline --min-severity low .` → 0 achados.
+2. **Bug de produto em máquina limpa ([#93](https://github.com/Heldinhow/openridr/issues/93)).**
+   `tools::tests::staged_verification_…` falhou no runner: `verify_installed` rodava o launcher com
+   `current_dir($TMPDIR/openridr-neutral)`, diretório que ninguém cria nesse caminho; o spawn falhava
+   com `ENOENT` antes do launcher rodar, e na primeira instalação de ferramenta de uma máquina nova o
+   tool saía como `invalid`. Passava no Mac porque o diretório já existia. Reprodução determinística:
+   `fresh=$(mktemp -d); TMPDIR="$fresh" cargo test -p openridr-host --lib
+   tools::tests::staged_verification` — falhava antes, passa depois (o `verify_bundled` já criava o
+   diretório; era a única diferença entre os dois caminhos).
+3. **`dotnet restore` no runner sem configuração NuGet.** `a_failed_restore_keeps_its_log_…` falhou
+   com `NU1100` em 133 ms: numa máquina nova o `~/.nuget/NuGet/NuGet.Config` ainda não existe e vários
+   testes restauram ao mesmo tempo. Correção no workflow: um `dotnet restore
+   fixtures/OrderDesk/OrderDesk.sln` antes da suíte (falha alto se rede ou SDK faltarem, em vez de
+   virar teste instável). O caminho do passo também foi corrigido depois de o próprio run provar que
+   `fixtures/OrderDesk/OrderDesk.csproj` não existe (é `OrderDesk.sln`).
+4. **A guarda de folhas isoladas da #97 dependia de formatação.** `env_writes_are_confined_to_…`
+   procurava o literal `run_isolated_leaf("`; depois do `cargo fmt` o nome do spec fica na linha
+   seguinte e a guarda passou a ver 46 órfãos. Correção: procurar `run_isolated_leaf(` e tirar o
+   primeiro literal depois do parêntese.
+5. **Duas asserções exigiam que um poll de 10 ms pegasse o estado transitório `verifying`.** No runner
+   a sequência observada foi `downloading → installing → ready`. Correção: uma asserção compartilhada
+   em `support::assert_install_progress` — o pipeline só andou para frente, passou por downloading e
+   installing, terminou `ready`; nenhum estado intermediário é exigido.
+6. **Leitura parcial de arquivo em teste de `runInTerminal` (último run).** O teste esperava o
+   arquivo-marcador *existir*; o script o cria na primeira das quatro linhas, então a leitura podia
+   pegar só `cwd=`. Correção: esperar a última linha (`env=`) em vez da existência do arquivo. O job
+   Rust voltou verde no push seguinte (`d8ac8ff`).
+
+### TypeScript (não tocado, medido para o CI)
+
+`bunx tsc --noEmit` → 0 erros; `bun test tests/unit` → 39 testes, 151 asserts, 497 ms.
+
+## Integração com `origin/main` `5faaff7` (#102 e #103)
+
+O `main` avançou duas vezes depois da última integração (`88613b0` #102, hit counts e watches com
+seleção de frame; `5faaff7` #103, diff de arquivo inteiro com modo unificado). Os dois PRs voltaram a
+`CONFLICTING`; esta seção registra como os conflitos foram resolvidos.
+
+**Branch A (`ci/issue-56-fmt`), merge `5297227`:**
+- `crates/host/src/dap.rs`, um hunk: o lado desta branch era a expressão de antes do #102
+  (`data.frames.first()`); o do `main` acrescenta a regra do frame selecionado
+  (`selected_frame_id` filtrado pelos frames atuais, com fallback para o primeiro). Ficou o lado do
+  `main` — não havia nada desta branch ali além de formatação.
+- `crates/host/src/git.rs`, um hunk: o lado desta branch era o bloco `let output = if tracked.ok()`,
+  que o #103 **moveu** para `diff_output(...)` (já presente no trecho auto-mesclado); o do `main` traz
+  só a checagem `!output.truncated && code != 0 && code != 1`. Ficou o do `main`: manter o bloco
+  antigo duplicaria a invocação do git.
+- `crates/host/src/lib.rs` e `tests/debugger.rs`: auto-mesclados; em `lib.rs` a diferença contra o
+  `main` é formatação (inclusive `reorder_modules` do `rustfmt`).
+- `cargo fmt` sobre o código novo de #102/#103 (eles entraram sem formatação, como todo o repo até o
+  #80) e três avisos **novos** de clippy em testes do `git.rs` (`permissions_set_readonly_false`, de
+  `permissions.set_readonly(false)`): virou o helper `make_writable`, que no Unix ajusta o **modo**
+  (`| 0o600`) — que é o que o teste realmente precisa — e mantém `set_readonly(false)` no caminho não
+  Unix. Nenhuma asserção foi afrouxada.
+- Prova: `cargo fmt --all -- --check` limpo; `cargo clippy --workspace --all-targets -- -D warnings`
+  limpo; `cargo test -p openridr-host --lib git::` **27 passando**, `--lib dap::` **29 passando**; os
+  símbolos do #102/#103 (`selected_frame_id`, `hit_counts`, `diff_output`, `truncated`, `GitFileDiff`,
+  `fn commit`) presentes nos arquivos mesclados.
+- Este merge **não** entra em `.git-blame-ignore-revs`: diferente dos merges anteriores (que só
+  reformatavam), ele contém edição real (`make_writable`), e escondê-la do blame seria mentira.
+
+**Branch B (`ci/issue-56-pr-checks`), merge `86f0f79`:**
+- `docs/README.md`: as duas linhas convivem — a desta frente (`CI em PR …`) e a do `main`
+  (`Debug avançado: hit count, watches persistentes`), ambas depois de "Primeira abertura".
+- `docs/decisions.md`: ficaram as duas entradas do `main` da #48 (decisão do diff e correções da
+  revisão) e a entrada desta frente (`CI em PR: dois PRs …`), nessa ordem.
+- Nada de Rust foi reescrito neste merge: a árvore de Rust do B vem inteira do A (`git diff` do merge
+  é só docs).
+- `bunx tsc --noEmit`: 0 erros; `bun run test:unit`: **51 testes, 0 falhas** (o `main` trouxe
+  `commitDiff.test.ts`).
+
+## Integração final: `7984adc` (#115), squash do #89 `92722bc`, e o blame-ignore
+
+- **#115 (`7984adc`)** entrou pelo merge `847f5b0` na A e `d7677d6` na B (docs do remoto bare + fixture
+  `scripts/git-remote-fixture.sh` + `tests/shell/…`, sem código Rust/TS de produto). Conflito só de
+  docs: `docs/README.md` passou a ter as três linhas (CI, "Debug avançado" do #102, "Aceitação Git com
+  remoto (#50)") e `docs/decisions.md` manteve a entrada da #50 **e** a desta frente.
+- **#89 mesclado por squash na `main` como `92722bc`** (head `847f5b0`, confirmado `MERGED`). A B
+  integrou esse `main` no merge `86cd8a0`: sem conflito, porque o squash traz o mesmo conteúdo que a A
+  já tinha.
+- **`.git-blame-ignore-revs` foi esvaziado, de propósito.** Verificado: os três hashes que estavam
+  listados (`7069beb`, `2f54988`, `f4a06a2`) **não são alcançáveis de `origin/main`**
+  (`git merge-base --is-ancestor` falha), então um clone só de `main` quebraria com
+  `fatal: bad object`. E o squash `92722bc` **não** pode ser listado: ele agrega formatação, clippy e
+  duas edições reais (a guarda de folhas isoladas e o helper `make_writable`) — ignorá-lo esconderia a
+  edição do blame. O arquivo ficou válido e curto explicando os dois motivos; o limite (o blame das
+  linhas remanejadas aponta para `92722bc`) está no próprio arquivo, em `AGENTS.md` ("Pull request e
+  CI") e aqui.
+- **`make_writable`**: comentário corrigido. `set_readonly(false)` no Unix **não** é no-op — ele liga
+  todos os bits de escrita (`0o222`), inclusive grupo e outros; o helper já estava correto ao somar só
+  o bit do dono (`mode | 0o600`). Clippy recusa a forma `set_readonly(false)` exatamente por isso.
+
+Validação desta rodada (focada): `git blame --ignore-revs-file=.git-blame-ignore-revs` roda sem
+`fatal`; `cargo fmt --all -- --check` e `cargo clippy --workspace --all-targets -- -D warnings`
+limpos; `bun run check` no commit (hook); os testes de Git/DAP já rodados pelo orquestrador no B
+(27/29) continuam válidos porque esta rodada não toca código de produto além do comentário.
+
+## Segunda rodada de review (`704af9f`) e correções
+
+Revisão independente (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre `704af9f`: Standards 0,
+Spec 1 médio + 1 baixo. Os dois foram corrigidos aqui.
+
+- **Médio — o gate achava `## Evidence` dentro de bloco de código.** Os headings eram procurados no texto
+  com os comentários já removidos, mas ainda com as cercas: um `## Evidence` escrito dentro de ``` ou
+  ~~~ virava seção, e uma seção contendo só cercas vazias contava como evidência. Correção em
+  `scripts/ci-pr-body.sh`: um único filtro de cercas gera duas visões com a **mesma numeração de
+  linhas** — `outside` (cerca e conteúdo apagados, usada para a referência à issue e para achar
+  headings) e `body` (só os delimitadores apagados, então comando real dentro da Evidência continua
+  valendo). Fecha pelo **mesmo caractere** e por comprimento **maior ou igual** ao da abertura: `~~~`
+  não fecha uma cerca de ```, e uma cerca mais longa pode conter uma mais curta. A seção termina no
+  próximo heading **fora de cerca**.
+- **Baixo — exceção do agregador ignorava o evento.** `governance: skipped` era aceito em qualquer
+  evento; agora só quando `github.event_name != pull_request` (o `if` do job é exatamente isso), com o
+  evento passado ao `jq` por `env`, nunca interpolado no script.
+
+Prova desta rodada:
+
+- `sh scripts/ci-pr-body-selfcheck.sh` → **18 casos, 18 ok**, com cinco novos: heading dentro de cerca de
+  ``` e de ~~~ (reprovados), seção só com cercas vazias (reprovada), ~~~ não fechando cerca de ```
+  (reprovado, o heading depois continua "dentro" do código) e **comando real dentro de cerca como
+  Evidência (aceito)**.
+- Falha-antes: o gate do commit anterior aceita o primeiro caso novo —
+  `FAIL evidence-heading-inside-backtick-fence: expected rejected, got accepted`.
+- Agregador, lógica do `jq` com o evento como dado, seis combinações: todos `success` (passa), PR com
+  `governance: skipped` (**falha** — não pode acontecer), `push` com `governance: skipped` (passa),
+  PR com `rust: failure` (falha), `push` com `rust: skipped` por acidente (**falha**) e
+  `workflow_dispatch` com `governance: skipped` (passa, é o mesmo caso do push).
+- `actionlint` e `zizmor` (`--offline --min-severity low .`) continuam sem achado.
+
+## verify-openridr
+
+Não se aplica: nenhuma feature de produto foi tocada (nenhum arquivo de `src/`, `crates/` além de
+formatação/clippy, nenhum `data-testid`). O `verify-openridr` existe para provar UI; aqui a superfície
+verificável é shell + YAML, e ela foi exercitada de verdade — `scripts/ci-pr-body-selfcheck.sh` (13
+casos), `actionlint`, `zizmor`, a leitura da lista do smoke e `cargo test -p openridr-host`. Nenhum
+app Tauri foi aberto: abrir o app não provaria nada sobre um workflow que só roda no GitHub.
+
+## O que não foi verificado
+
+- **`e2e-smoke.yml` nunca rodou**: é `schedule`/`workflow_dispatch`, então depende de um dispatch
+  manual ou da primeira madrugada. Os outros cinco checks rodaram e passaram no runner (`2ef7d41`).
+- **`shellcheck` sobre os `run:`**: indisponível localmente. É o único check do `actionlint` que não
+  rodou.
+- **`min-severity: low` no zizmor** é o que o job usa; o efeito no *exit code* foi medido pela CLI
+  (`zizmor --min-severity low` → 0), não pela action.
+- **Ruleset não aplicado** e não validado pela API: o JSON é parseável e segue a forma documentada,
+  mas o `POST` não foi feito (decisão do Helder) e não há dry-run na API para conferir antes.
+- **`src-tauri` fica fora do clippy** no CI (compila o Tauri inteiro); o `fmt` dele entra.
+- **Release**: as duas linhas mexidas no `release.yml` (`persist-credentials: false`, `no-cache: true`)
+  não foram exercitadas — o próximo release por tag é a primeira execução real.

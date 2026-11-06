@@ -1,0 +1,74 @@
+name: e2e-smoke
+
+# A nightly subset of the Playwright suite. The full suite is 61 specs, workers: 1, with a real host
+# and a real fixture: too slow and too flaky for a pull request, but zero E2E would be worse.
+#
+# The list of specs lives in scripts/e2e-smoke.txt, not here: one spec per line, path relative to the
+# repository root, `#` starts a comment. The E2E quarantine work (#67) owns that file, so it changes
+# which specs run without touching this workflow. Nothing here is a required check.
+on:
+  schedule:
+    # 03:30 UTC every day: after the nightly dependency and release work, before the European morning.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-smoke
+  # Never cancel a smoke in flight: a half-killed run leaves the shared fixture and the host home
+  # behind and the next night starts from a dirty state.
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Playwright smoke
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      # The runner has no Google Chrome; the specs run on the Playwright Chromium instead.
+      PLAYWRIGHT_CHANNEL: chromium
+      DOTNET_CLI_UI_LANGUAGE: en
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.9"
+
+      # The host harness resolves the SDK the fixtures pin (8.0.408, rollForward: disable).
+      - name: Set up the fixture .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "8.0.408"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install the Playwright browser
+        run: bunx playwright install chromium
+
+      # The E2E bootstrap (tests/e2e/global-setup.ts) downloads csharp-ls from nuget.org and runs
+      # `dotnet tool install`, so this job needs the network and costs ~15 min for the full suite;
+      # the subset keeps it to a few minutes when it is healthy.
+      - name: Run the specs listed in scripts/e2e-smoke.txt
+        run: |
+          specs=()
+          while IFS= read -r spec; do
+            if [ ! -f "$spec" ]; then
+              echo "::error::scripts/e2e-smoke.txt names $spec, which is not a file in this revision"
+              exit 1
+            fi
+            specs+=("$spec")
+          done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' scripts/e2e-smoke.txt)
+          if [ ${#specs[@]} -eq 0 ]; then
+            echo "::error::scripts/e2e-smoke.txt lists no spec; refusing to guess which ones to run"
+            exit 1
+          fi
+          printf 'running: %s\n' "${specs[*]}"
+          bunx playwright test "${specs[@]}"
