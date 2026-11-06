@@ -17,9 +17,19 @@ Windows e macOS Intel não foram executados.
 | Skip do launch profile virando passe silencioso (achado do re-check) | `--lib` | Skip só quando `sdk::resolve` não acha raiz para o pin, com versão e raízes na mensagem; muxer resolvido ausente ou que não inicia **falha** o teste; `OPENRIDR_REQUIRE_DOTNET=1` troca o skip por falha | Skip era aceito também para uma instalação detectada e quebrada | **Corrigido** (#62, re-check) |
 | `run_configs::tests::launch_profile_runs_fixture_with_effective_environment_and_arguments` falha quando o muxer do PATH não tem o SDK do fixture | `--lib` | Antes: `A compatible .NET SDK was not found. Requested SDK version: 8.0.408` (`dotnet` do PATH = 8.0.416 + 10.0.100). Como era a única falha do binário `lib`, `cargo test -p openridr-host` abortava e **não rodava os outros seis binários** | O teste chamava o `dotnet` do PATH; Run/Debug de produção já usam o muxer do SDK resolvido (`project_muxer` + `dotnet_command`) | **Corrigido** (#62, `7a662dc`) — passa resolvendo 8.0.408 de `~/.dotnet`, com o PATH sem esse SDK |
 | `keep_leaves…` "falha no run completo a menos que `OPENRIDR_ENABLE_PROBE=1` esteja exportado" | `--test host` | Mecanismo demonstrado (patch temporário não commitado que solta o binding do probe no meio do teste): `processes.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.` — exatamente o sintoma relatado | O probe era ligado/desligado por escopo; o `Drop` de um teste restaurava "unset" | **Corrigido** (#59): o probe é definido uma vez por processo pelo `prepare()` e os testes de processo rodam em folha isolada |
-| Restore/LSP do host falham "ocasionalmente" no run completo e passam isolados | `--test host` | Não reproduzido: 6 rodadas completas do pacote (3 antes e 3 depois das mudanças) sem nenhuma falha em `--test host` | Não determinada; o harness agora isola ambiente, home por processo e nomes de `/tmp` | **Não reproduzido** (classe fechada por #57) |
+| Restore/LSP do host falham "ocasionalmente" no run completo e passam isolados | `--test host` | Não reproduzido nas 6 rodadas da #43 (3 antes e 3 depois das mudanças); **reincidiu** em 2026-11-06 (sessão da #74): 1 de 3 runs completos, ver abaixo | Não determinada; o harness agora isola ambiente, home por processo e nomes de `/tmp` | **Não reproduzido na #43; reincidência aberta (2026-11-06)** |
 | Debug E2E no fluxo legado `debug.install` (1/13) | `tests/e2e/debugger.spec.ts` | Não executado (decisão do Helder sobre Playwright pendente) | Spec escrito para o download do netcoredbg; o adaptador agora vem no bundle | **Quarentenado** (#67) |
 | `csharp-ls.spec.ts:150`, `testsuite.spec.ts` (`tests-filter-count`), `tests.spec.ts:317`, `ui-layout` em 1440 px | `tests/e2e/*` | Não re-verificado nesta rodada | Não investigado | **Quarentenado com motivo** (#67) |
+
+**Reincidência da classe "restore/LSP falham no run completo" (2026-11-06, sessão da issue #74, branch
+`ci/issue-74-risk-tiers`).** O run completo de `cargo test -p openridr-host` falhou 1 de 3 vezes em
+`lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke`: a folha isolada parou em
+`ensure_tool` — `tools.install` terminou em `failed` com **log vazio**
+(`assert_eq!(done["state"], "ready", "{}", done["log"])` → `left: "failed"`, `right: "ready"`), 120 s de
+espera. O mesmo teste rodado sozinho em seguida passa (75,6 s) e os outros dois runs completos ficaram
+verdes. O diff do branch não toca `crates/` (é CI + docs), então não há evidência de relação com ele; a
+hipótese é a instalação do csharp-ls (rede/NuGet) falhando sem registrar motivo. Não corrigido nesta
+frente: registrado aqui, não mascarado com skip.
 
 ## Medições
 
