@@ -11,7 +11,7 @@
 # unknown tier and the missing inputs.
 set -eu
 
-repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 script="$repo/scripts/ci-risk-gate.sh"
 
 failures=0
@@ -79,7 +79,6 @@ run() {
 
 # expect <pass|fail> <exit> <name> <tier> <stdout fragment> <stderr fragment> [env assignment...]
 expect() {
-  want=$1
   want_code=$2
   name=$3
   tier=$4

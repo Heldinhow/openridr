@@ -28,7 +28,7 @@ token e não roda no CI.
 | Mês | Mergeados | Revertidos | Taxa |
 |---|---|---|---|
 | 2026-10 | 1 | 0 | 0.0% |
-| 2026-11 (em curso, medido em 2026-11-06) | 55 | 0 | 0.0% |
+| 2026-11 (em curso, medido em 2026-11-06) | 56 | 0 | 0.0% |
 
 Comandos e saída medidos em 2026-11-06 (`gh` 2.83.1, autenticado):
 
@@ -38,8 +38,8 @@ $ sh scripts/revert-rate.sh --month 2026-10
 revert-rate: merged=1 reverted=0 unattributed=0 (2026-10)
 
 $ sh scripts/revert-rate.sh --month 2026-11
-| 2026-11 | 55 | 0 | 0.0% |
-revert-rate: merged=55 reverted=0 unattributed=0 (2026-11)
+| 2026-11 | 56 | 0 | 0.0% |
+revert-rate: merged=56 reverted=0 unattributed=0 (2026-11)
 ```
 
 Leitura: o repositório não tem **nenhum** commit de revert na `main` (493 commits em 2026-11-06,

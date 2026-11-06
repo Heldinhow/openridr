@@ -10,7 +10,7 @@
 # the missing-input errors.
 set -eu
 
-repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 script="$repo/scripts/ci-aggregate.sh"
 
 failures=0

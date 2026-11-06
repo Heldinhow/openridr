@@ -48,10 +48,11 @@ done
 if [ -z "$month" ]; then
   this_year=$(date -u +%Y)
   this_month=$(date -u +%m)
+  # `${var#0}` instead of `10#`: base conversion is undefined in POSIX sh and the runner's sh is dash.
   if [ "$this_month" = 01 ]; then
     month=$((this_year - 1))-12
   else
-    month=$this_year-$(printf '%02d' $((10#$this_month - 1)))
+    month=$this_year-$(printf '%02d' $((${this_month#0} - 1)))
   fi
 fi
 
@@ -68,7 +69,7 @@ mm=${month#*-}
 if [ "$mm" = 12 ]; then
   end=$((year + 1))-01-01T00:00:00Z
 else
-  end=$year-$(printf '%02d' $((10#$mm + 1)))-01T00:00:00Z
+  end=$year-$(printf '%02d' $((${mm#0} + 1)))-01T00:00:00Z
 fi
 start=$month-01T00:00:00Z
 

@@ -8,7 +8,7 @@
 # Usage: sh scripts/ci-risk-tier-selfcheck.sh
 set -eu
 
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 tier="$here/ci-risk-tier.sh"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/openridr-risk-tier.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT

@@ -221,7 +221,7 @@ jobs:
           fi
           echo "tier=$tier" >>"$GITHUB_OUTPUT"
           {
-            echo "### Risk tier: `$tier`"
+            printf '### Risk tier: %s\n' "$tier"
             echo
             sed 's/^/- /' "$RUNNER_TEMP/risk-reasons.txt"
           } >>"$GITHUB_STEP_SUMMARY"
@@ -272,7 +272,7 @@ jobs:
           # repository setting allow_auto_merge, which is a maintainer decision; until it is on this
           # call fails and the pull request simply does not merge by itself, as today.
           if gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --auto; then
-            echo 'auto-merge armed: merges in squash when `ci` and `security` are green'
+            echo 'auto-merge armed: merges in squash when the required checks are green'
           else
             echo "::warning::auto-merge not armed: the repository needs allow_auto_merge (maintainer setting): gh api --method PATCH repos/$REPO -F allow_auto_merge=true"
           fi

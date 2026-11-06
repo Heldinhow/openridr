@@ -73,7 +73,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo
     echo '**Merge blocked by the risk gate**: this revision (`'"$latest"'`) still needs a maintainer approval.'
     echo
-    echo 'Approve the pull request, then re-run the failed jobs (`gh run rerun --failed <run-id>`).'
+    echo 'Approve the pull request, then re-run the failed jobs: gh run rerun --failed <run-id>'
   } >>"$GITHUB_STEP_SUMMARY"
 fi
 exit 1
