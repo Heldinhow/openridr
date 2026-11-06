@@ -1333,8 +1333,9 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 ## Keymap Visual Studio (2026-11-06)
 
 - O perfil Visual Studio é selecionável e persistido nas configurações; o Rider continua padrão e os overrides existentes têm precedência. As ações sem equivalente usam os atalhos e acordes Rider.
-- F5 inicia ou continua a depuração pausada, Cmd+F5 executa, Shift+F5 para, Cmd+Shift+F5 reinicia; F9/F10/F11/Shift+F11 e F12/Shift+F12 seguem o perfil. Build, ações de código e dicas visíveis usam o mesmo registro.
+- F5 inicia ou continua a depuração pausada, Ctrl+F5 executa (Ctrl literal no macOS, para não acionar o VoiceOver), Shift+F5 para, Cmd+Shift+F5 reinicia; F9/F10/F11/Shift+F11 e F12/Shift+F12 seguem o perfil. Build, ações de código e dicas visíveis usam o mesmo registro.
 - Rename usa F2: o suporte atual a acordes aceita uma tecla final sem modificador, não Ctrl+R, Ctrl+R. Completion permanece Ctrl+Space. Não há novas ações de comentar/descomentar.
 - Testes: `bun run check`, unitários 36/36, teste focado 2/2 e host settings 2/2. O segundo teste focado foi acrescentado após a execução unitária completa.
 - App Tauri ad-hoc no macOS ARM64 com fixture isolada: seleção persistida, status e dicas atualizadas, F9 no editor e F12 navegando de Program.cs para Order.cs. Evidência em `docs/evidence/keymap-vs.md`.
 - Não verificado: demais atalhos em execução real, Windows, macOS Intel e notarização. Playwright não foi usado.
+- Ajuste posterior: testes focados cobrem Ctrl+F5 em macOS/Windows e a escolha de iniciar ou continuar com F5; o fluxo de debug pausado não foi repetido no app real.

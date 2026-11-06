@@ -3192,11 +3192,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       id: "debug.start",
       title: "Debug",
       group: "Debug",
-      execute: () => {
-        if (settings.keymap.profile === "visual-studio" && dap.state === "paused") void debugAction("debug.continue");
-        else void prepareAndDebug();
-      },
-      disabledReason: settings.keymap.profile === "visual-studio" && dap.state === "paused" ? null : debugDisabledReason,
+      execute: () => void prepareAndDebug(),
+      disabledReason: debugDisabledReason,
     }),
     define({
       id: "run.stop",
@@ -3688,7 +3685,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         chordPending.current = performance.now();
         return;
       }
-      const action = firstActionFor(actionsRef.current, event, snapshot.app.platform);
+      const action = firstActionFor(actionsRef.current, event, snapshot.app.platform, {
+        profile: settings.keymap.profile,
+        debugPaused: dap.state === "paused",
+      });
       if (!action) return;
       if (inEditor && !action.editor) return;
       // Capture, before CodeMirror: the app's shortcuts and chords outrank its keymap.
@@ -3725,7 +3725,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
     };
-  }, [snapshot.app.platform, settings.keymap.profile]);
+  }, [snapshot.app.platform, settings.keymap.profile, dap.state]);
 
   function requestCloseWorkspace() {
     if (dirtyCount > 0) {
@@ -4039,7 +4039,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           <div data-testid="debug-tab">
             <DebugPanel
               snapshot={snapshot}
-              shortcuts={{ start: shortcutOf("debug.start"), stop: settings.keymap.profile === "visual-studio" ? shortcutOf("run.stop") : shortcutOf("debug.stop"), resume: settings.keymap.profile === "visual-studio" ? shortcutOf("debug.start") : shortcutOf("debug.continue"), over: shortcutOf("debug.stepOver"), into: shortcutOf("debug.stepInto"), out: shortcutOf("debug.stepOut"), breakpoint: shortcutOf("debug.toggleBreakpoint") }}
+              shortcuts={{ start: shortcutOf("debug.start"), stop: settings.keymap.profile === "visual-studio" ? shortcutOf("run.stop") : shortcutOf("debug.stop"), resume: shortcutOf("debug.continue"), over: shortcutOf("debug.stepOver"), into: shortcutOf("debug.stepInto"), out: shortcutOf("debug.stepOut"), breakpoint: shortcutOf("debug.toggleBreakpoint") }}
               disabledReason={debugDisabledReason}
               trusted={trusted}
               onTrust={() => void grantTrust()}

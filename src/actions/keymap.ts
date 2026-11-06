@@ -262,11 +262,11 @@ export const keymapDefaults: Record<string, Partial<Record<ProfileId, Binding>>>
 
 const visualStudioDefaults: Record<string, Binding> = {
   "build.start": binding([shortcut("b", { primary: true, shift: true })]),
-  "run.start": binding([shortcut("f5", { primary: true })]),
+  "run.start": binding([shortcut("f5", { control: true })], [shortcut("f5", { primary: true })]),
   "run.stop": binding([shortcut("f5", { shift: true })]),
   "debug.start": binding([shortcut("f5")]),
   "debug.restart": binding([shortcut("f5", { primary: true, shift: true })]),
-  "debug.continue": binding([]),
+  "debug.continue": binding([shortcut("f5")]),
   "debug.stepOver": binding([shortcut("f10")]),
   "debug.stepInto": binding([shortcut("f11")]),
   "debug.stepOut": binding([shortcut("f11", { shift: true })]),
