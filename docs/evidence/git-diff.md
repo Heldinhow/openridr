@@ -39,3 +39,15 @@ Bundle de debug construído do HEAD desta sessão (`src-tauri/target/debug/bundl
 - No app real não foram abertos, um por um, os casos de arquivo **adicionado**, **deletado** e **binário** (só E2E). O caminho de arquivo grande (>1 MiB / >30.000 linhas) só foi provado no host, não na tela.
 - O fallback `unreadable` (arquivo existe mas não pode ser lido) não tem fixture: é um ramo defensivo sem prova de ponta a ponta.
 - O diff a partir do Git log continua fora de escopo (issue #101).
+
+## Rodada 1 da revisão independente
+
+| Achado | Correção | Prova |
+|---|---|---|
+| Symlink fora do repo lido pela worktree (e pelo `--no-index`) | confinamento do diretório real antes de ler/diffar; symlink é objeto link (alvo em texto) | `git::tests::file_diff_refuses_symlinks_that_leave_the_repository`: diretório symlink recusado (`failed`, sem patch), arquivo sob diretório trocado por symlink recusado sem o segredo externo, symlink solto mostra o alvo (não o conteúdo) |
+| Captura sem limite (`Command::output`, `fs::read`) | `spawn_bounded` com teto e kill, stderr drenado em thread, blob por tamanho declarado, teste de 6.000 linhas reescritas | `patch_capture_is_bounded_and_the_ranges_still_align_the_full_texts`, `full_file_sides_stop_at_the_limit_without_collecting_the_file` |
+| Contexto com mesmo tamanho e texto diferente era aceito | comparação par a par nos gaps e na cauda → `null` + `unaligned` no painel | `tests/unit/commitDiff.test.ts`: "refuses context lines whose two texts disagree" (antes/entre/depois/zero hunks) |
+| UTF-16 caía em `unaligned` | ranges do `git diff --no-index` sobre o texto decodificado em temporários privados 0600 com `Drop` | `hunk_ranges_are_read_from_the_decoded_text_for_utf16` (LE e BE, staged e unstaged), `decoded_diff_temporaries_are_private_and_removed` (0600 e limpeza) |
+| Erro de blob virava ausência | `rev-parse --verify --quiet` separa ausência de erro; conteúdo só depois de `cat-file -s`; vazio + ilegível = `failed` | `blob_reads_tell_absence_apart_from_a_read_error` (ausência em HEAD e no index, blob corrompido → `unreadable`, estado `failed` sem inventar adição) |
+
+Limites desta rodada: app Tauri real não foi reaberto (correções sem mudança visível; a verificação anterior de split/unificado/hash continua); Windows/macOS Intel não executados; a janela TOCTOU entre confinamento e uso não foi fechada (declarada).
