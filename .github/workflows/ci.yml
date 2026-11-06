@@ -188,23 +188,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Only for scripts/ci-aggregate.sh, which is where the rule lives. It is a script, not YAML inline,
+      # because tests/shell/ci-aggregate.test.sh exercises every combination of results locally.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Fail when a required job did not pass
         env:
           NEEDS: ${{ toJSON(needs) }}
           # Passed as data, not interpolated into the script: a skipped job is only acceptable when the
-          # reason is "this job does not run for this event", which is the PR-only `governance`.
+          # reason is "this job does not run for this event", which is what PR_ONLY lists.
           EVENT: ${{ github.event_name }}
-        run: |
-          # `governance` runs only on a pull request, so a push to main leaves it skipped. Every other
-          # dependency must really have passed, and a skipped `governance` on a pull request is a bug:
-          # a job that is skipped by accident (a bad `if`, a renamed job) must never read as green.
-          failed=$(printf '%s' "$NEEDS" | jq -r --arg event "$EVENT" 'to_entries[]
-            | select(.value.result != "success"
-                and ((.key != "governance")
-                  or (.value.result != "skipped")
-                  or ($event == "pull_request")))
-            | "\(.key): \(.value.result)"')
-          if [ -n "$failed" ]; then
-            printf 'required jobs did not pass:\n%s\n' "$failed" >&2
-            exit 1
-          fi
+          # Jobs that only run for a pull request: `skipped` is expected outside one, and a bug inside
+          # one. On a pull request every name here must also be present in `needs`, so dropping the gate
+          # from the list cannot silently disable it.
+          PR_ONLY: "governance"
+        run: sh scripts/ci-aggregate.sh
