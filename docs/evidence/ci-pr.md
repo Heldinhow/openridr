@@ -74,6 +74,14 @@ Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `SDK .
 
 `bunx tsc --noEmit` → 0 erros; `bun test tests/unit` → 39 testes, 151 asserts, 497 ms.
 
+## verify-openridr
+
+Não se aplica: nenhuma feature de produto foi tocada (nenhum arquivo de `src/`, `crates/` além de
+formatação/clippy, nenhum `data-testid`). O `verify-openridr` existe para provar UI; aqui a superfície
+verificável é shell + YAML, e ela foi exercitada de verdade — `scripts/ci-pr-body-selfcheck.sh` (13
+casos), `actionlint`, `zizmor`, a leitura da lista do smoke e `cargo test -p openridr-host`. Nenhum
+app Tauri foi aberto: abrir o app não provaria nada sobre um workflow que só roda no GitHub.
+
 ## O que não foi verificado
 
 - **Nenhum workflow rodou no GitHub.** Não houve push nesta sessão até o fim dela: os nomes `ci` e
