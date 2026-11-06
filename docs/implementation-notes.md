@@ -1475,6 +1475,58 @@ Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, ticket
   nunca visto (exigiria build novo + notarização), macOS 26, macOS Intel e Windows. Cursor de
   espera (beachball) não é observável em captura do ScreenCaptureKit.
 
+## Debug avançado — hit count no host (issue #94, 2026-11-06)
+
+- **Escopo:** issue #94, [SPEC-DEBUG-ADVANCED](SPEC-DEBUG-ADVANCED.md) e decisão de 2026-11-06 em `decisions.md`. O adaptador foi medido antes: netcoredbg 3.2.0-1092 não anuncia `supportsHitConditionalBreakpoints`, ignora `hitCondition` no `setBreakpoints` e não manda `hitBreakpointIds`; `hitCondition` nunca é enviado.
+- **Host (`crates/host/src/dap.rs`):** `BreakpointView.hitCount: Option<u32>`; `Data.hit_counts` (por `(path relativo, linha)`, só da sessão), `Data.hit_seen` (stop já avaliado, para trocar de thread não contar de novo) e `Data.hit_wait` (fase visível). Função pura `hit_count_action(reason, frame, breakpoints, counts)`: só `reason == "breakpoint"` conta; casa caminho canônico relativo ao root + linha; sem alvo/motivo diferente/caminho fora → `Stop`; abaixo do alvo → `Continue`; no alvo → `Stop`; acima do alvo → `Continue` silencioso (o breakpoint não para mais nesta sessão, sem fase). `load_pause` decide depois do `stackTrace`, antes de publicar frames/locals, e chama `resume("continue")`; `continued`/`resume` usam `running_phase` para mostrar `Running · hit count k/N · arquivo:linha`. `set_breakpoints` preserva o alvo e o contador só para a mesma configuração; `set_condition` e `set_hit_count` zeram o contador daquela linha; `set_hit_count` recusa alvo 0, exige breakpoint existente e reenvia a fonte. `debug.setBreakpointHitCount { path, line, hitCount }` (nulo limpa) entrou em `EXECUTABLE_METHODS`, com o mesmo gate de trust.
+- **UI:** `DapBreakpoint.hitCount` em `client.ts`; `DebugBreakpoint` ganhou input + botão `debug-breakpoint-hit-<path:line>` / `debug-breakpoint-hit-save-<path:line>` (vazio limpa; não numérico mostra "The hit count must be a positive whole number." no `app-log`); `debug-breakpoints-unsupported` agora fala só de log message. Testids antigos preservados.
+- **Testes:** 9 unidade novos em `dap.rs` (sem alvo, N-ésima, só breakpoint conta, sem match, alvo 0, caminho fora do workspace, contador reinicia ao redefinir, sobrevive ao reenvio e cai com alvo removido, alvo exige breakpoint). Novo `tests/e2e/debug-advanced.spec.ts` **4/4** com netcoredbg real: hit count 3 para em `index == 2` com log `hit count 1/3`/`2/3` e continua sem parar; alvo 10 deixa terminar com output 10; condição `index >= 1` + hit count 2 para no índice 2; hit count `1.5` é recusado. O spec sobe host próprio (`hostPort + 4`) cujo bundled adapter é o netcoredbg instalado, porque o host compartilhado dos E2E usa o adapter falso de `seedVerifiedTools`.
+- **Falha pré-existente encontrada:** `tests/e2e/debugger.spec.ts` está quebrado no HEAD por causa do netcoredbg embutido — `prepareDebugCopy` copia o adapter real para `tools/netcoredbg` e chama `debug.install`, que agora responde `netcoredbg is bundled with OpenRidr; there is nothing to download or install.`; e o teste "host gates consent, trust and plan identity" espera `experimental_disabled` com um bundle presente (recebe `ready`). Rodado sem mudanças nossas: 1 falha no gates e a condicional falha na mesma linha 496. **Não corrigido aqui** (fora do ticket); o novo spec não depende dele.
+- **Não verificado:** app Tauri real (ticket #96), Pause manual durante um auto-continue no adaptador real (coberto por desenho no código, sem teste), Windows/macOS Intel. `cargo test -p openridr-host --lib` 295/295 e `bun run check` verdes com `DOTNET_ROOT`/PATH do SDK 8.0.408.
+
+## Debug avançado — watches do usuário (issue #95, 2026-11-06)
+
+- **Escopo:** issue #95 e [SPEC-DEBUG-ADVANCED](SPEC-DEBUG-ADVANCED.md). Host apenas; nenhuma dependência nova, nenhum testid novo.
+- **Host (`crates/host/src/dap.rs`, `lib.rs`):** `Launch.watches` leva as expressões para o novo `Dap` (como breakpoints/mute/filtros), `Dap::watches()` expõe a lista e `debug.start` a captura do snapshot atual; `Restart` e novo Debug mantêm a lista, fechar/trocar workspace continua zerando via `Dap::idle()`. `refresh_watches` passou a usar o frame **selecionado** (`selected_frame_id`, com fallback no topo só se ele não pertencer à pausa) e `load_locals` reavalia os watches depois de trocar de frame; `select_thread` já passa por `load_pause`, que reavalia. Resultados tardios continuam presos a `watch_stop_seq == stop_seq`.
+- **UI:** inalterada; a lista e os valores já vinham de `snapshot.dap.watches`. Restart usa os mesmos `debug-watch-*`.
+- **Testes:** unidade `watches_live_in_the_host_and_are_deduplicated`; em `tests/e2e/debug-advanced.spec.ts`, "a watch survives a restart with the same expressions" (watch `index` sobrevive ao Restart com um único item e valor no novo pause) e "a watch follows the selected thread" (watch `label` mostra `worker` na thread parada e erro ao selecionar a thread principal, voltando ao valor ao reselecionar a thread). Spec completo 6/6 com netcoredbg real.
+- **Não verificado:** app Tauri real (ticket #96); Windows/macOS Intel.
+
+## Debug avançado — verificação no app real (issue #96, 2026-11-06)
+
+- **Escopo:** issue #96 (bloqueada por #94/#95), evidência em [evidence/debug-advanced.md](evidence/debug-advanced.md).
+- **Método:** bundle debug 0.3.0-alpha.11 deste worktree, `OPENRIDR_HOME` isolado, cópia da fixture OrderDesk com um laço de 5 iterações e `Thread.Sleep(3000)` entre elas, uma instância, dirigida por `agent-desktop`. Três tickets ficaram provados no app: condição (`index == 3` → `index · int = 3`), hit count (3 → `index · int = 2` com `hit count 1/3`/`2/3` no log), Pause manual com hit count armado (`Paused · pause`), watch sobrevivendo ao Restart e seguindo a thread selecionada (erro na main thread, valor de volta na worker).
+- **Sete capturas** em `docs/evidence/debug-advanced/`. O app foi fechado por `desktop.sh down`; nenhuma instância ficou viva.
+- **Bug de rótulo observado (fora do escopo):** no painel Debug, a aba **Debug Output** (`data-testid="dap-log"`) e a aba **Console** (`data-testid="dap-output"`) estão com os rótulos trocados em relação ao conteúdo. Não foi corrigido nesta frente.
+- **Não verificado:** stdout do debuggee no app real (a aba certa não foi observada por causa do rótulo trocado; o E2E prova `dap-output`); Windows/macOS Intel.
+
+## Debug avançado — correções da revisão (2026-11-06)
+
+Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) sobre
+`7a6c3cb..e5a993d`; achados corrigidos antes do PR:
+
+- **Alto — auto-continue podia retomar uma pausa mais nova.** `resume_inner` agora recebe o
+  `stop_seq` esperado e confere dentro do lock que incrementa a geração; se uma pausa nova chegou,
+  não envia `continue`. `resume_hit_count` usava `require_paused=true` e falharia com o estado
+  adiado; o caminho de hit count passa `expected_stop` e dispensa `paused`.
+- **Médio — watch mostrava valor do frame anterior.** `Data.watch_frame_id` guarda o frame da
+  avaliação; o snapshot só publica resultados quando `watch_frame_id == selected_frame_id` e
+  `refresh_watches` descarta resposta cujo frame já não é o selecionado. Trocar de frame/thread
+  esconde o valor antigo na hora.
+- **Médio — pausa intermediária era publicada.** Com hit count armado, o evento `stopped` de
+  breakpoint fica em `running` com fase `Checking hit count · breakpoint` até o `stackTrace`
+  decidir; só a pausa real publica `paused`. `current()` passou a aceitar esse estado adiado
+  (senão o `load_pause` retornava cedo e a sessão ficava presa em `running`).
+- **Médio — teste de Restart não provava o restart.** O E2E agora arma hit count 3 antes do
+  Restart, espera o número de sessão aumentar e o watch mostrar `2` (não o `0` da sessão antiga).
+- **Baixos.** Contadores passaram a `u64` (não saturam em `u32::MAX` e voltam a parar); log de
+  `hit count k/N` só aparece até o alvo (depois é silencioso); novo E2E de condição que nunca vale
+  terminando com output 10.
+- **Resultado:** `cargo test -p openridr-host --lib` 296/296, `bun run check` verde, spec
+  `tests/e2e/debug-advanced.spec.ts` **7/7** com netcoredbg real. Cobertura que continua em falta,
+  registrada: troca de **frame** (não thread) para o watch, Stop + novo Debug separado do Restart,
+  limpeza ao fechar/trocar workspace e Pause manual durante auto-continue automatizado.
+
 ## Sessão de debug que termina sem parar (2026-11-06, #76/#78)
 
 - Contrato novo no snapshot: `dap.noStopExplanation` (`Option<String>` / `string | null`). Nada existente mudou de nome ou de forma; o painel só renderiza o texto.
