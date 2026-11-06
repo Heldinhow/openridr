@@ -1301,3 +1301,10 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 - Fixture web nova e testes de parsing, persistência e processo real; Run, Debug, erro e
   recuperação verificados no app macOS ARM64. Resultados, limites e capturas em
   [evidence/launch-settings.md](evidence/launch-settings.md).
+- Revisão posterior: o host aceita BOM, comentários e vírgulas finais fora de strings; valores
+  explícitos em `environmentVariables` prevalecem sobre `applicationUrl`. A escolha de perfil
+  usa o caminho canônico do projeto, com leitura das chaves antigas. Projetos de perfis são
+  conferidos contra a avaliação atual antes da leitura ou execução; a própria avaliação ainda
+  rejeita projetos que resolvem fora da raiz do workspace.
+- Argumentos entre aspas preservam argumentos vazios e aspas escapadas. `%VAR%` e `$(...)` não
+  são expandidos; outros casos de compatibilidade de escapes com o CLI .NET não foram exauridos.
