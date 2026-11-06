@@ -16,9 +16,9 @@ use sha2::{Digest, Sha256, Sha512};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const TOOL: &str = "csharp-ls";
 pub const VERSION: &str = "0.28.0";
@@ -27,6 +27,9 @@ pub const NUGET_PACKAGE: &str = "https://www.nuget.org/packages/csharp-ls/0.28.0
 const PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.28.0/csharp-ls.0.28.0.nupkg";
 const PACKAGE_SHA512: &str = "a138b9c8f9de9dd6343e9b0d0c8f4d51637bba7e38606b7c2b08b1d91e8eefa39f12123057f6625f425812b4361e52841bd2856704ec127ff50144ce05170a99";
 const PACKAGE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// A stuck launcher must fail visibly instead of keeping setup on "Preparando…" forever.
+const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The pinned package: URL and expected SHA-512. A debug build may point both at a local server so
 /// the installer's real download path (measured progress, size limit, hash check) can be exercised
@@ -703,6 +706,7 @@ struct BundledTool {
 enum BundledResult {
     Absent,
     Damaged(String),
+    Failed(String),
     Checked(bundled::Analysis, Result<BundledTool, String>),
 }
 
@@ -713,7 +717,19 @@ impl BundledCheck {
         let result = Arc::new(Mutex::new(None));
         let target = result.clone();
         std::thread::spawn(move || {
-            let checked = check();
+            // A panic must still fill the slot: leaving it empty would keep setup in
+            // "verifying" forever instead of showing a failure.
+            let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(check))
+                .unwrap_or_else(|panic| {
+                    let reason = panic
+                        .downcast_ref::<&str>()
+                        .map(|text| text.to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "no message".to_string());
+                    BundledResult::Failed(format!(
+                        "The bundled analysis check stopped unexpectedly: {reason}"
+                    ))
+                });
             *target.lock().unwrap() = Some(checked);
         });
         Self(result)
@@ -839,7 +855,7 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
     let cwd = neutral_cwd();
     let _ = fs::create_dir_all(&cwd);
     let muxer = bundled::muxer(&analysis.runtime.root);
-    let output = Command::new(&muxer)
+    let child = Command::new(&muxer)
         .arg(&analysis.entry)
         .arg("--version")
         .current_dir(&cwd)
@@ -852,13 +868,16 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
         .env_remove("NUGET_PACKAGES")
         .env_remove("NUGET_HTTP_CACHE_PATH")
         .env_remove("DOTNET_CLI_HOME")
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| {
             format!(
                 "Could not run the bundled csharp-ls {}: {error}",
                 analysis.entry.to_string_lossy()
             )
         })?;
+    let output = output_with_timeout(child, VERIFY_TIMEOUT)?;
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -885,6 +904,31 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
         file_count: fingerprint(&analysis.tool_dir, &analysis.runtime.root).len(),
         content_sha256,
     })
+}
+
+/// Waits for the probe, killing it at the deadline so a hung launcher cannot leave setup in
+/// `verifying` forever.
+fn output_with_timeout(mut child: Child, timeout: Duration) -> Result<Output, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {}
+            Err(error) => return Err(format!("Could not wait for the bundled csharp-ls: {error}")),
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "The bundled csharp-ls did not report {VERSION} within {} s and was stopped.",
+                timeout.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    child
+        .wait_with_output()
+        .map_err(|error| format!("Could not read the bundled csharp-ls output: {error}"))
 }
 
 impl Tools {
@@ -1014,10 +1058,14 @@ impl Tools {
         let result = bundled_check().result();
         let (analysis, result) = match result {
             None => {
-                let mut data = self.data.lock().unwrap();
-                if data.state == "absent" {
-                    data.state = "verifying";
-                    data.bundle_expected = bundled::required();
+                // `setup` reads "verifying" as an install already in progress; a build that
+                // ships no pair would then skip `begin_install` until the check finishes.
+                if bundled::pair_expected() {
+                    let mut data = self.data.lock().unwrap();
+                    if data.state == "absent" {
+                        data.state = "verifying";
+                        data.bundle_expected = true;
+                    }
                 }
                 return;
             }
@@ -1027,6 +1075,19 @@ impl Tools {
                 if data.state == "verifying" {
                     data.state = "absent";
                 }
+                return;
+            }
+            Some(BundledResult::Failed(reason)) => {
+                let mut data = self.data.lock().unwrap();
+                data.bundled_attempted = true;
+                data.state = "failed";
+                data.progress = None;
+                data.error = Some(reason.clone());
+                data.note = Some(
+                    "The analysis setup could not be checked in this session; no download or runtime was used."
+                        .to_string(),
+                );
+                data.log.push(reason);
                 return;
             }
             Some(BundledResult::Checked(analysis, result)) => (analysis, result),
@@ -2067,6 +2128,48 @@ mod tests {
         assert!(matches!(check.result(), Some(BundledResult::Absent)));
         assert!(matches!(check.result(), Some(BundledResult::Absent)));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn bundled_check_records_a_panic_as_a_visible_failure() {
+        use std::time::Duration;
+
+        let check = BundledCheck::start(|| panic!("verification exploded"));
+        for _ in 0..1000 {
+            if check.result().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        match check.result() {
+            Some(BundledResult::Failed(reason)) => {
+                assert!(reason.contains("verification exploded"), "{reason}");
+            }
+            _ => panic!("a panicking check must still fill the result slot"),
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn bundled_output_timeout_kills_the_probe() {
+        use std::time::{Duration, Instant};
+
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join("finished");
+        let child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 1; touch \"$0\"")
+            .arg(&marker)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        let error = output_with_timeout(child, Duration::from_millis(100)).unwrap_err();
+        assert!(error.contains("within 0 s"), "{error}");
+        assert!(started.elapsed() < Duration::from_millis(900));
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(!marker.exists(), "the timed-out child must not keep running");
     }
 
     #[test]

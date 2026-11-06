@@ -1314,8 +1314,13 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 - O snapshot inicia uma verificação em segundo plano, compartilhada no processo, e retorna
   `verifying` ou o resultado em cache. A verificação e o SHA-256 informativo não são repetidos;
   a assinatura e notarização do app são a referência de integridade, não o fingerprint anterior.
-- `host_call` executa o dispatch fora da thread principal. A Welcome sinaliza preparação enquanto
-  aguarda; o gate existente acompanha a verificação antes de liberar o projeto.
+- `host_call` executa o dispatch fora da thread principal, serializado por um `Mutex` assíncrono
+  FIFO: `lsp.didOpen`/`lsp.didChange` e `session.write` continuam chegando na ordem de envio,
+  sem o dispatch bloquear a thread principal. A verificação embutida tem timeout de 60 s (mata
+  o processo) e registra panic como estado `failed`; sem par embutido ela não anuncia
+  `verifying`, para o setup não esperar uma instalação que não existe.
+- A Welcome sinaliza preparação enquanto aguarda; o gate existente acompanha a verificação antes
+  de liberar o projeto.
 - No macOS ARM64, o DMG alpha.11 em quarentena ficou em `_dyld_start` por pelo menos 15 s; o
   `syspolicyd` registrou verificação e proveniência. A segunda abertura mostrou Welcome em 6,60 s
   e amostrou hash na thread principal. No app recompilado ad-hoc, a segunda mostrou Welcome em

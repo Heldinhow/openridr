@@ -2,7 +2,7 @@
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use openridr_host::{Host, HostError};
 use serde_json::Value;
@@ -16,6 +16,10 @@ const QUIT_EVENT: &str = "openridr-quit";
 const QUIT_MENU_ID: &str = "quit";
 /// Set once the UI approved the quit, so the `ExitRequested` it causes is let through.
 static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// Serializes host dispatches: the UI fires `lsp.didOpen`, `lsp.didChange` and `session.write`
+/// without awaiting them, so the host must receive them in the order they were sent.
+static HOST_CALL: OnceLock<tauri::async_runtime::Mutex<()>> = OnceLock::new();
 
 /// Path handed over by Finder, the Dock or the command line until the UI takes it; the last one wins.
 #[derive(Default)]
@@ -32,6 +36,10 @@ async fn host_call(
     host: State<'_, Arc<Host>>,
 ) -> Result<Value, HostError> {
     let host = Arc::clone(&host);
+    // Tokio's Mutex is FIFO, so this keeps the old synchronous ordering without running the
+    // dispatch on the main thread.
+    let lock = HOST_CALL.get_or_init(|| tauri::async_runtime::Mutex::new(()));
+    let _guard = lock.lock().await;
     tauri::async_runtime::spawn_blocking(move || host.dispatch(&method, params))
         .await
         .map_err(|error| HostError::new("internal_error", format!("Host task failed: {error}")))?

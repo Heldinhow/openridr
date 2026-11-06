@@ -428,6 +428,24 @@ fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
     assert_eq!(tool["bundled"], false);
 }
 
+#[test]
+fn a_build_without_a_pair_never_reports_verifying() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _required = EnvVar::remove(bundled::REQUIRED_OVERRIDE);
+    let _tool = EnvVar::remove(bundled::CSHARP_LS_OVERRIDE);
+    let _runtime = EnvVar::remove(bundled::RUNTIME_OVERRIDE);
+
+    // `setup` treats "verifying" as an install in progress; a dev/Windows/Intel build has no
+    // pair, so it must stay absent and let the download plan start.
+    let host = Host::new();
+    let state = host.dispatch("app.state", json!({})).unwrap();
+    assert_eq!(state["tools"]["csharp-ls"]["state"], "absent");
+}
+
 #[cfg(unix)]
 #[test]
 fn bundled_result_is_cached_for_the_session() {
