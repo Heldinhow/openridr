@@ -11,7 +11,21 @@ IDE C# inspirada no Rider: Tauri 2 + Rust (host) + React/TS (UI). Alvo verificad
 - `docs/decisions.md` — decisões incrementais; siga-as e registre uma nova em vez de reabrir uma antiga.
 - `docs/implementation-notes.md` — como cada ticket foi feito e o que não foi verificado.
 - `docs/REVIEW-MVP-RIDER.md` e `docs/RETRO-MVP-RIDER.md` — dívida e lições conhecidas.
-- Trabalho novo segue a convenção de `docs/README.md`: `SPEC-<tema>.md`, `tickets-<tema>/NN-slug.md`, `RETRO-<tema>.md`, `evidence/<tema>.md`.
+- Trabalho novo segue a convenção de `docs/README.md`: `SPEC-<tema>.md`, **tickets como GitHub issues**, `RETRO-<tema>.md`, `evidence/<tema>.md`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues e tickets vivem como GitHub issues em `Heldinhow/openridr`, via `gh`. Ver `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Cinco papéis canônicos com o mesmo nome do label (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) mais `bug`/`enhancement`. Ver `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` na raiz + `docs/decisions.md` (o log de decisões faz o papel de `docs/adr/`) e o índice em `docs/README.md`. Ver `docs/agents/domain.md`.
 
 ## Estrutura
 
@@ -24,7 +38,8 @@ tests/e2e/           specs Playwright contra host real + fixture real
 fixtures/            soluções C# de teste (OrderDesk, MissingSdk, ...)
 scripts/             install-app.sh, openridr (CLI abrir com), selfcheck
 .scratch/            rascunho de sessões — não é fonte
-docs/                SPECs, decisões, tickets, notas, evidência
+docs/                SPECs, decisões, notas, evidência (tickets novos: GitHub issues)
+docs/agents/         config das skills: issue tracker, labels, docs de domínio
 ```
 
 A UI fala com o host por `dispatch`; não duplique lógica de host no React.
@@ -87,6 +102,7 @@ Resto do fluxo (grill → spec → tickets → implement → retro) segue igual.
 - **Zero dependência nova** de UI/runtime sem decisão registrada e aprovação explícita.
 - Um componente por arquivo; comentários em inglês; uma função de erro por fronteira (use `messageOf`/`requireAction` em vez de repetir mapeamento).
 - **Prova real, não inventada**: o que o ambiente não permitiu executar vai como "não verificado" no `implementation-notes.md` e no ticket.
+- **Ticket**: trabalho novo nasce como GitHub issue ligada à issue-mãe da frente (sub-issue, ou `Part of #N` na primeira linha do corpo), com bloqueio em `Blocked by: #M`. `docs/SPEC-<tema>.md`, `docs/RETRO-<tema>.md` e `docs/evidence/<tema>.md` continuam em `docs/`. Tickets antigos em `docs/tickets-*/` são histórico: não migre, não crie pasta nova no molde deles.
 - **Commit**: um por ticket/fatia, mensagem convencional (`feat(git): ...`, `fix(search): ...`, `docs: ...`, `chore: ...`), com código, testes e checklist atualizado.
 - **Stage explícito**: use `scripts/commit-only.sh "msg" <paths>` (faz o `git add -N` dos novos e `git commit --only -m "msg" -- <paths>`); à mão, é `git commit --only -m "msg" -- <paths>`; nunca use `git add -A` nem altere o index do usuário. Duas armadilhas que falharam 38 vezes em 10 sessões: (1) `-m` vai **antes** do `--` (depois dele vira pathspec); (2) arquivo/pasta **novo** precisa de `git add -N <paths>` antes (só marca intenção), senão dá `pathspec ... did not match`. Deixe `dist/`, `target/`, `test-results/` e afins fora (ver `.gitignore`).
 - **Sem push, remote ou PR** a partir de sessão de agente. O hook de pre-commit roda `bun run check`; não use `--no-verify`.
