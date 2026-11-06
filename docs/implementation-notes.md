@@ -1339,3 +1339,14 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 - App Tauri ad-hoc no macOS ARM64 com fixture isolada: seleção persistida, status e dicas atualizadas, F9 no editor e F12 navegando de Program.cs para Order.cs. Evidência em `docs/evidence/keymap-vs.md`.
 - Não verificado: demais atalhos em execução real, Windows, macOS Intel e notarização. Playwright não foi usado.
 - Ajuste posterior: testes focados cobrem Ctrl+F5 em macOS/Windows e a escolha de iniciar ou continuar com F5; o fluxo de debug pausado não foi repetido no app real.
+
+## Sessão de debug que termina sem parar (2026-11-06, #76/#78)
+
+- Contrato novo no snapshot: `dap.noStopExplanation` (`Option<String>` / `string | null`). Nada existente mudou de nome ou de forma; o painel só renderiza o texto.
+- A regra mora num lugar só, `Data::finish` (`crates/host/src/dap.rs`): estado `terminated`, sem parada anterior, sem stop source configurado. `stop_seq` não servia (avança também em cada resume), então há um `stopped_once` por sessão, marcado no primeiro evento `stopped` e zerado em cada lançamento.
+- Texto literal: `No breakpoints were set; the program ran to completion (exit N). Its output is in the Console tab.` / `Breakpoints are muted; …` / sem `(exit N)` quando o exit não foi observado. Decisão em `docs/decisions.md` (2026-11-06), termos "stop source" e "no-stop session" no `GLOSSARY.md`, spec em `docs/SPEC-DEBUG-NO-STOP.md`.
+- Painel: `data-testid="dap-no-stop"` (classe `.info`) logo abaixo do estado/fase e acima das colunas; quando ele existe, a nota atenuada `dap-terminal-note` **não** é renderizada (um fim, uma frase). Nenhuma aba é trocada e nada rola sozinho.
+- Testids: `dap-no-stop` é novo; `dap-terminal-note`, `dap-state`, `dap-phase`, `dap-output`, `dap-log` e os demais seguem intactos.
+- Testes: 9 novos de host (17 no módulo `dap::tests`) dirigidos por mensagens DAP reais; falha-antes provada revertendo só a atribuição do campo. E2E: assert novo em `tests/e2e/debugger.spec.ts` (sessão sem breakpoint), mais negativos no teste de condição que nunca vale, no mute-all e no fluxo principal (“parou e continuou”).
+- App real macOS arm64 com `agent-desktop` (fixture OrderDesk em `/tmp`, uma instância): frase de "nenhum breakpoint" com exit 0 e output visível no Console; frase de mute-all com mudo ligado; e `Paused` real sem frase quando o breakpoint volta. Evidência em `docs/evidence/debug-no-stop.md`.
+- Não verificado: suíte Playwright de Debug — **falha pré-existente do harness**, não deste diff: o host de E2E roda com bundle falso e `debug.install` responde "netcoredbg is bundled with OpenRidr; there is nothing to download or install", já na linha 192 do `HEAD` (frente #43). Também não verificado: frase sobrevivendo à selagem por troca de workspace, Windows, macOS Intel.
