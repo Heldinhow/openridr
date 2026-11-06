@@ -735,7 +735,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       ? { text: `Analysis: ${lspStateLabel(lsp.state)}`, action: null }
       : toolState !== "ready"
         ? ["downloading", "installing", "verifying"].includes(toolState)
-          ? { text: "Analysis: installing…", action: null }
+          ? {
+              text: snapshot.tools["csharp-ls"].bundled
+                ? "Analysis: verifying the bundled tool…"
+                : "Analysis: installing…",
+              action: null,
+            }
           : {
               text: "Analysis: not installed",
               action: { label: "Open tool diagnostics", disabledReason: null, onClick: () => setToolsOpen(true) },

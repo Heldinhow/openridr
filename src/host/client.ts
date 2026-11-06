@@ -39,6 +39,8 @@ export type AnalysisRuntime = {
   sdkPath: string | null;
   instructionsUrl: string;
   message: string | null;
+  /** True when the runtime ships inside the app bundle instead of being detected/installed. */
+  bundled: boolean;
 };
 
 export type ProjectSdk = {
@@ -500,6 +502,8 @@ export type ToolInstall = {
   staleReason: string | null;
   stagingPresent: boolean;
   destinationPresent: boolean;
+  /** True when the tool ships inside the app bundle: no plan, no download, no reinstall. */
+  bundled: boolean;
 };
 
 export type Setup = {

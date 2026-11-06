@@ -45,6 +45,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | Módulo | Responsabilidade |
 |---|---|
 | `evaluation.rs`, `outline.rs`, `sdk.rs`, `hostroot.rs` | avaliação MSBuild, outline de texto e scan de tipo C# (`workspace.symbolKinds`), inventário de SDKs, `DOTNET_ROOT` do csharp-ls |
+| `bundled.rs` | o par embutido em `Contents/Resources` (`csharp-ls/CSharpLanguageServer.dll` + runtime privado `dotnet/`); overrides de debug `OPENRIDR_BUNDLED_CSHARP_LS`/`OPENRIDR_BUNDLED_DOTNET_ROOT`. Quem verifica o par é `tools::sync_bundled` |
 | `restore.rs`, `build.rs`, `run.rs`, `run_configs.rs` | restore explícito, build, run, configurações salvas |
 | `lsp.rs`, `diagnostics.rs` | cliente LSP (csharp-ls), snapshots de diagnóstico |
 | `dap.rs`, `debugger.rs` | cliente DAP; instalação/gates do netcoredbg |
@@ -60,7 +61,7 @@ Estado do app: `~/Library/Application Support/OpenRidr` (`OPENRIDR_HOME` troca; 
 | Pasta | O que é |
 |---|---|
 | `crates/host-http/` | ponte HTTP **só de dev/E2E** (127.0.0.1:4317) |
-| `src-tauri/` | janela Tauri; `src/main.rs` expõe `host_call` e a recepção de "abrir com"; `tauri.conf.json` tem versão e bundle |
+| `src-tauri/` | janela Tauri; `src/main.rs` expõe `host_call` e a recepção de "abrir com"; `tauri.conf.json` tem versão e bundle. `resources/{netcoredbg,csharp-ls,dotnet}/` são gerados no build (`scripts/vendor-*.sh`) a partir de artefatos pinados em `vendor/` |
 | `tests/e2e/` | Playwright contra host real; arquivos `medium-*`, `qa-*`, `zz-acceptance` etc. por onda de trabalho; helpers `.ts` sem `.spec` |
 | `fixtures/` | `OrderDesk` (principal), `MultiConsole`, `BrokenImport`, `MissingSdk`, `CrashApp` |
 | `scripts/` | `install-app.sh` (`bun run app:install`), `openridr` (CLI "abrir com"), `openridr-selfcheck.sh`, `commit-only.sh` (`scripts/commit-only.sh "msg" <paths>`: `add -N` nos novos + `commit --only`) |

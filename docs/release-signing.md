@@ -33,11 +33,25 @@ bun run tauri build --target aarch64-apple-darwin --bundles app
   precisa morar no repositório.
 - **Hardened runtime** está ligado: é o padrão do Tauri 2 e está explícito em
   `bundle.macOS.hardenedRuntime`.
-- **Sem arquivo de entitlements.** O app não usa JIT próprio (o WKWebView roda o JavaScript no
+- **Sem arquivo de entitlements no app.** O app não usa JIT próprio (o WKWebView roda o JavaScript no
   `com.apple.WebKit.WebContent`, assinado pela Apple), não carrega dylib de terceiro e só dá
   `spawn` em `dotnet`, `csharp-ls` e `netcoredbg` como processos filhos. Sandbox do Mac App Store
   não se aplica. Se um dia precisar, o caminho é `bundle.macOS.entitlements` com o mínimo
   (ex.: `com.apple.security.cs.disable-library-validation`), nunca um plist inteiro copiado.
+- **O runtime privado embutido tem entitlements próprios.** `scripts/vendor-analysis.sh` assina o
+  muxer `Contents/Resources/dotnet/dotnet` com `src-tauri/resources/dotnet.entitlements`
+  (`allow-jit` + `disable-library-validation`) e os 13 dylibs do runtime sem entitlements, todos
+  com hardened runtime; com `APPLE_SIGNING_IDENTITY` definido usa Developer ID + timestamp (é o
+  mesmo script usado no build de release). Isso é exigência do processo filho, não do app: sem
+  `disable-library-validation` o `libhostfxr` ad-hoc não carrega sob hardened runtime, e sem
+  `allow-jit` o CLR não JITa. O netcoredbg embutido já tinha o mesmo desenho
+  (`vendor-netcoredbg.sh`).
+- **A referência de integridade do par embutido é a assinatura do app.** csharp-ls e o runtime
+  privado viajam em `Contents/Resources` e são cobertos pela assinatura Developer ID +
+  notarização do `.app`/DMG (o selo de recursos que o Gatekeeper valida na instalação). O host
+  **não** compara contra hash fixado em runtime; o fingerprint (tamanho/mtime) só detecta mudança
+  durante a sessão, e o SHA-256 exibido no SetupGate/Workspace tools é **informativo**. Build
+  ad-hoc local não é assinatura confiável: distribuir exige Developer ID + notarização.
 - Só `--bundles app` aqui: o bundler de DMG refaz o `.app` a partir do binário e descartaria o
   ticket grampeado. O DMG é montado no passo seguinte, depois do `stapler`.
 

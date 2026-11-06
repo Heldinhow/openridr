@@ -2,7 +2,8 @@
 
 OpenRidr distributes the following third-party components inside the app bundle. Each section names its license; the full text of each license follows its components.
 
-The components in the first group (netcoredbg, Roslyn, dbgshim) are MIT-licensed.
+The components in the first group (netcoredbg, Roslyn, dbgshim, csharp-ls and the private
+.NET runtime) are MIT-licensed.
 
 ## netcoredbg 3.2.0-1092 (osx-arm64)
 
@@ -25,6 +26,27 @@ Copyright (c) Microsoft Corporation. All rights reserved.
 
 `libdbgshim.dylib` and `ManagedPart.dll`, as shipped in the netcoredbg asset
 above.
+
+Copyright (c) .NET Foundation and Contributors. All rights reserved.
+
+## csharp-ls 0.28.0
+
+Bundled from the official NuGet package `csharp-ls` 0.28.0 (21,643,814 bytes,
+SHA-512 `a138b9c8f9de9dd6343e9b0d0c8f4d51637bba7e38606b7c2b08b1d91e8eefa39f12123057f6625f425812b4361e52841bd2856704ec127ff50144ce05170a99`),
+which declares `MIT` as its license expression. `Contents/Resources/csharp-ls`
+carries its runnable payload, including the F# and Roslyn assemblies the
+package ships.
+
+Copyright (c) Saulius Menkevičius and contributors
+
+## Private .NET runtime 10.0.14 (osx-arm64)
+
+Bundled from the official `dotnet-runtime-10.0.14-osx-arm64.tar.gz`
+(33,251,887 bytes, SHA-512
+`19c5781dc2f87600865886b8774a4c5851caf1f5cf3f591185b922b0e51dea6b8c0ed0bf80ae4d3be2e083db662124258743e779fab6885322d641eff52b0382`)
+and contains no SDK. It runs csharp-ls only; project builds use the SDK the
+project pins. Its `LICENSE.txt` and `ThirdPartyNotices.txt` ship unmodified next
+to the runtime in `Contents/Resources/dotnet/`.
 
 Copyright (c) .NET Foundation and Contributors. All rights reserved.
 
