@@ -22,8 +22,12 @@
 # Killing the app does not dismiss the alert when the app never started: the alert belongs to
 # CoreServicesUIAgent, so a failed round is followed by Escape (with --click) or a warning.
 #
-# Sampling runs at roughly 0,15-0,25 s per observation (pgrep/ps/perl/agent-desktop), so the
-# printed hundredths are a lower bound of the real instant, not a microbenchmark.
+# Sampling runs at roughly 0,15-0,25 s per observation (pgrep/ps/perl/agent-desktop) and each
+# mark is timestamped when the observation arrives, i.e. up to one sampling period AFTER the real
+# event: the printed hundredths are late by that much, not a microbenchmark. The per-round marker
+# (--openridr-measure-round=N in argv) is what binds the pid to this round; a system-wide
+# Gatekeeper alert only counts once that pid exists, and a click that answers another app's alert
+# fails the round in 5 s instead of reporting a number.
 #
 # The script never mounts anything: it copies --app (default /Applications/OpenRidr.app, or
 # $OPENRIDR_APP) into a temporary directory, so it reproduces the "app already on disk" condition,
@@ -78,7 +82,12 @@ is_number "$ROUNDS" || die "--rounds must be a number"
 is_number "$TIMEOUT" || die "--timeout must be a number of seconds"
 [ "$TIMEOUT" -ge 5 ] || die "--timeout must be at least 5 seconds"
 if [ -n "$CLICK" ]; then
-  case $CLICK in *,*) ;; *) die "--click wants X,Y" ;; esac
+  case $CLICK in
+    *,*) ;;
+    *) die "--click wants X,Y" ;;
+  esac
+  click_x=${CLICK%%,*}; click_y=${CLICK#*,}
+  is_number "$click_x" && is_number "$click_y" || die "--click wants two numbers: X,Y"
 fi
 
 if [ "$ALLOW_UNNOTARIZED" = no ]; then
@@ -118,10 +127,10 @@ LOG="$STATE/uia.log"
 LOG_PID=
 APP_PID=
 mkdir -p "$HOME_DIR"
-
-# The app reads its state directory from the environment, and `open` does not forward ours.
 PREV_HOME=$(launchctl getenv OPENRIDR_HOME || true)
-launchctl setenv OPENRIDR_HOME "$HOME_DIR"
+
+# The trap goes in before the environment changes: an interrupt in between must not leave
+# OPENRIDR_HOME pointing at a directory that is about to be deleted.
 cleanup() {
   [ -n "$LOG_PID" ] && kill "$LOG_PID" 2>/dev/null || true
   # Only the instance this script launched: a real OpenRidr the user starts meanwhile is not ours.
@@ -140,13 +149,26 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
+# The app reads its state directory from the environment, and `open` does not forward ours.
+launchctl setenv OPENRIDR_HOME "$HOME_DIR"
+
 now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
 delta() { [ -n "$1" ] && [ -n "$2" ] && perl -e "printf '%.2f', $2 - $1" || printf -- '-'; }
 since() { [ -n "$1" ] && perl -e "printf '%.2f', $1 - $T0" || printf -- '-'; }
 
-# The dialog and the window are read from JSON text; accept both compact and spaced output.
+# A window counts only when it is OpenRidr's, visible, and owned by the process this round launched.
 has_window() {
-  printf '%s' "$1" | grep -Eq '"app_name": *"OpenRidr"' && printf '%s' "$1" | grep -Eq '"visible": *true'
+  printf '%s' "$1" | python3 -c '
+import json, sys
+pid = int(sys.argv[1])
+try:
+    windows = json.load(sys.stdin)["data"]
+except Exception:
+    sys.exit(1)
+for window in windows:
+    if window.get("app_name") == "OpenRidr" and window.get("visible") is True and window.get("pid") == pid:
+        sys.exit(0)
+sys.exit(1)' "$2"
 }
 
 printf 'measure-first-open: app=%s rounds=%s%s\n' "$APP" "$ROUNDS" \
@@ -182,7 +204,9 @@ while [ "$round" -lt "$ROUNDS" ]; do
   kill -0 "$LOG_PID" 2>/dev/null || die "log stream died; nothing would be observed"
 
   T0=$(now)
-  if ! open -n "$copy" 2>"$STATE/r$round/open.err"; then
+  # The marker makes the pid traceable to this round; the app ignores unknown flags.
+  marker="--openridr-measure-round=$round"
+  if ! open -n "$copy" --args "$marker" 2>"$STATE/r$round/open.err"; then
     kill "$LOG_PID" 2>/dev/null || true; LOG_PID=
     printf '%7s  failed: open refused (%s)\n' "$round" "$(cat "$STATE/r$round/open.err")"
     failed=$((failed + 1))
@@ -194,28 +218,45 @@ while [ "$round" -lt "$ROUNDS" ]; do
   verdict=
   while [ "$(perl -e "print($(now) < $deadline ? 1 : 0)")" = 1 ]; do
     if [ -z "$t_exec" ]; then
+      found=
       for candidate in $(pgrep -x openridr 2>/dev/null || true); do
         case " $before " in *" $candidate "*) continue ;; esac
-        pid=$candidate; break
+        cmdline=$(ps -o command= -p "$candidate" 2>/dev/null || true)
+        case $cmdline in *"$marker"*) found="$found $candidate" ;; esac
       done
-      if [ -n "${pid:-}" ]; then t_exec=$(now); APP_PID=$pid; fi
+      # shellcheck disable=SC2086
+      set -- $found
+      if [ "$#" -gt 1 ]; then
+        verdict="ambiguous identity: $# new processes carry the marker"
+      elif [ "$#" -eq 1 ]; then
+        pid=$1; t_exec=$(now); APP_PID=$pid
+      fi
     fi
-    if [ -z "$t_prompt" ] && grep -q "code-evaluation prompt" "$LOG" 2>/dev/null; then
+    # The alert is system-wide (CoreServicesUIAgent), so it only counts as this round's when our
+    # own suspended process exists: a prompt seen before is remembered and acted on right after.
+    if [ -z "$t_prompt" ] && [ -n "$pid" ] && grep -q "code-evaluation prompt" "$LOG" 2>/dev/null; then
       t_prompt=$(now)
+    fi
+    if [ -n "$t_prompt" ] && [ -n "$pid" ] && [ -z "$t_click" ]; then
       if [ -n "$CLICK" ]; then
         sleep 0.1
-        agent-desktop screenshot "$STATE/r$round/alert.png" --screen 0 >/dev/null 2>&1 || true
-        agent-desktop mouse-click --xy "$CLICK" --headed >/dev/null 2>"$STATE/r$round/click.err" \
-          || verdict="click failed: $(cat "$STATE/r$round/click.err")"
+        if agent-desktop screenshot "$STATE/r$round/alert.png" --screen 0 >/dev/null 2>&1; then
+          agent-desktop mouse-click --xy "$CLICK" --headed >/dev/null 2>"$STATE/r$round/click.err" \
+            || verdict="click failed: $(cat "$STATE/r$round/click.err")"
+        else
+          verdict="capture failed; the dialog was not clicked"
+        fi
         t_click=$(now)
+      else
+        t_click=
       fi
     fi
     if [ -z "$t_code" ] && [ -n "$pid" ]; then
       rss=$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ' || true)
       [ -n "$rss" ] && [ "$rss" -gt 20000 ] && t_code=$(now)
     fi
-    if [ -z "$t_window" ]; then
-      if has_window "$(agent-desktop list-windows --app OpenRidr 2>/dev/null || true)"; then
+    if [ -z "$t_window" ] && [ -n "$pid" ]; then
+      if has_window "$(agent-desktop list-windows --app OpenRidr 2>/dev/null || true)" "$pid"; then
         t_window=$(now)
       fi
     fi

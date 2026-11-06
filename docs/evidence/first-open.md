@@ -45,8 +45,10 @@ Dispensa do diálogo: clique físico em *Abrir* via `agent-desktop mouse-click` 
 `{"surfaces":[]}`, como o `../release-signing.md` já registrava).
 
 Resolução: cada iteração do harness custa ~0,1–0,2 s (`pgrep`, `ps`, `perl`, `log`, `agent-desktop
-list-windows`), então os centésimos tabelados são o limite inferior do instante real e a
-granularidade dos marcos é essa — não é microbenchmark.
+list-windows`) e cada marco é carimbado **quando a observação chega**, ou seja, até um período de
+amostragem *depois* do evento real. Os centésimos tabelados estão atrasados nessa ordem de
+grandeza (não é microbenchmark); por isso as conclusões usam faixas e ordem de grandeza, nunca
+comparações de 10 ms.
 
 ### Invalidar entre rodadas
 
@@ -164,8 +166,11 @@ clique no app é o path translocado acima, não a cópia original.
    A conclusão da #45 é essa: o atraso **não** está no bundle (teto de 0,53 s), e sim no clique que
    o macOS espera e, quando o app é aberto de dentro do DMG, na leitura da imagem.
 3. **O caminho "abrir direto do DMG" é caro e é redutível por instrução, não por código:** clique
-   → janela leva **5,1–6,6 s** porque o sistema lê 164 MB da imagem comprimida (o `ditto` do
-   mesmo app leva 1,95 s). Arrastar para Aplicações e abrir de lá é o caminho de ~1,4 s.
+   → janela leva **5,1–6,6 s**, contra 0,97–1,42 s com o app copiado para o disco. O que está
+   medido: copiar o app de dentro da imagem leva 1,95 s (`ditto`), e ler os 164 MB da imagem
+   comprimida é a explicação **compatível** com os 5,1–6,6 s — não foi isolado quanto desse tempo é
+   cópia e quanto é o nosso arranque lendo resources da imagem translocada. Arrastar para
+   Aplicações antes de abrir evita o caminho inteiro.
 4. **Regra de corte aplicada apenas onde ela mede o bundle.** As variantes de bundle (runtime em
    `tar.gz` para 1 Mach-O, runtime em `Contents/Frameworks`, bundle sem runtime) testariam o custo
    de avaliação, então a condição é o app **no disco**: ali nenhum marco passou de 0,53 s até o

@@ -1411,8 +1411,11 @@ Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, ticket
   Gatekeeper esteja verificando os 18 Mach-O. Marcos medidos no alpha.11 do release: diálogo em
   0,40–0,53 s (cópia em disco), código 0,14–0,24 s e janela 0,97–1,42 s depois do clique.
 - **`scripts/measure-first-open.sh`** monta a condição (cópia nova, xattr `0083` com UUID novo,
-  `OPENRIDR_HOME` isolado por `launchctl setenv`), cronometra `exec`/`prompt`/`code`/`window`,
-  recusa rodar com o app aberto e restaura o ambiente no fim. `--click X,Y` dispensa o diálogo
+  `OPENRIDR_HOME` isolado por `launchctl setenv`), cronometra `exec`/`prompt`/`click`/`code`/
+  `window`, recusa rodar com o app aberto e restaura o ambiente no fim (trap instalado antes de
+  mexer no ambiente). A identidade é ancorada: marcador no argv por rodada, pid que não existia
+  antes e carrega o marcador (dois candidatos = falha), alerta só contado depois desse pid,
+  janela amarrada ao pid medido, e `--check-only` valida tudo sem abrir nada. `--click X,Y` dispensa o diálogo
   automaticamente pelo `agent-desktop` (o `CoreServicesUIAgent` expõe zero superfícies de
   acessibilidade); sem `--click`, espera alguém responder e reporta o total.
 - **Condições sem custo no bundle:** sem o ticket grampeado (consulta online) o diálogo aparece em
