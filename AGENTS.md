@@ -105,6 +105,7 @@ A sessão que termina **empurra a própria branch e abre o PR**: `git push -u or
 
 - **Merge não é da sessão.** Com o CI verde, quem mergeia é o mantenedor/orquestrador. A sessão não faz merge, não dá `--force` na branch depois do PR aberto e nunca usa `--no-verify`.
 - **PR de risco alto pede o Helder**: `.github/workflows/**`, `scripts/release*`, assinatura/entitlements, `scripts/vendor-*`, o modelo de trust, o updater e mudança de dependência (`Cargo.toml`/`package.json`).
+- **Squash de PR misto não é ignorável no blame.** `.git-blame-ignore-revs` só pode listar commits que existem na `main`, e o squash agrega o PR inteiro num commit só: se ele mistura formatação com mudança real (foi o caso do #89, squash `92722bc`: `cargo fmt` + clippy + guarda de teste + `make_writable`), ignorá-lo esconderia a edição. Formatação em massa vai num PR **separado** e sem nenhuma edição manual; sem isso, o blame aponta para o squash.
 - **Settings do GitHub não são da sessão**: ruleset, labels e auto-merge ficam em `.github/rulesets/main.json` e [docs/ci-main-ruleset.md](docs/ci-main-ruleset.md), para o Helder aplicar.
 
 O que o CI (`.github/workflows/ci.yml`) roda em todo PR para `main`:

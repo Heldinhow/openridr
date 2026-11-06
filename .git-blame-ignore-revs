@@ -3,18 +3,15 @@
 # Para ativar neste clone (uma vez):
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
 #
-# A lista começa com o commit de `cargo fmt` de 2026-11-06: 33 arquivos, 2808 inserções e 1277
-# remoções que são só formatação, nenhuma edição manual. O GitHub respeita este arquivo no blame da
-# interface quando o repositório tem a configuração ligada (Settings > General > "Ignore commits in
-# the blame view"), e o `git blame` local quando o `git config` acima foi rodado.
-
-# style: format the repository with cargo fmt (Refs #80)
-7069beb63485fc4a08da5bc2a62c927047850cf6
-
-# The merge of main into the formatting branch (2026-11-06): it re-formats the lines `main` changed
-# after the big bang (crates/host/src/dap.rs), so the merge itself is formatting, not authorship.
-2f54988cffc44e90798f4bd1c2e3ce30d0222644
-
-# Second merge of main, after the hermetic test harness (#97) rewrote the host tests: it re-formats
-# what that merge brought in, so the merge is formatting rather than authorship.
-f4a06a27497849a9e97d3db87cbb29795665cd38
+# A lista está vazia de propósito. O #89 entrou na `main` por **squash** (`92722bc`), e esse commit
+# agrega três coisas: o `cargo fmt` do repositório inteiro, os fixes de clippy e duas mudanças reais (a
+# guarda de folhas isoladas dos testes do host e o helper `make_writable` do `git.rs`). Ignorá-lo no
+# blame esconderia a edição real, então ele não entra aqui.
+#
+# Os hashes dos commits de formatação e dos merges parciais existem só no histórico do branch: um
+# clone que só tem a `main` não os alcança e `git blame --ignore-revs-file` falharia com
+# `fatal: bad object`. Foi por isso que eles saíram.
+#
+# Limite conhecido: o blame das linhas que só mudaram de posição aponta para o squash `92722bc`. Um
+# ignore-revs de verdade exigiria um PR mecânico **separado** cair na `main` antes das mudanças reais;
+# está registrado em `AGENTS.md` (seção "Pull request e CI") e em `docs/evidence/ci-pr.md`.
