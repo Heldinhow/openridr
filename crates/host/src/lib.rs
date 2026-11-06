@@ -1,4 +1,5 @@
 mod build;
+pub mod bundled;
 mod dap;
 mod debugger;
 mod diagnostics;
@@ -934,7 +935,7 @@ impl Host {
         }
         let inventory = inner.inventory.as_ref().expect("inventory was initialized");
         let sdk = SdkView {
-            host: AnalysisRuntime::from_runtimes(&inventory.runtimes),
+            host: AnalysisRuntime::for_analysis(&inventory.runtimes),
             project: inner.project_sdk.clone(),
             roots: inventory.roots.clone(),
             inspected_at: Some(inventory.inspected_at),
@@ -3391,6 +3392,9 @@ impl Host {
     /// Removes only the app-home installation and runs the same verified installation again.
     /// It never touches the workspace and is refused while analysis is using the launcher.
     fn reinstall_setup(&self) -> HostResult<Value> {
+        if let Some(error) = bundled_damaged() {
+            return Err(error);
+        }
         let mut inner = self.inner.lock().unwrap();
         let workspace_id = inner
             .workspace
@@ -3417,8 +3421,14 @@ impl Host {
                 "An installation is already running.",
             ));
         }
+        if bundled::analysis().is_some() {
+            return Err(HostError::new(
+                "invalid_state",
+                "csharp-ls and its .NET runtime are bundled with OpenRidr; there is nothing to reinstall. Reinstall the app to replace them.",
+            ));
+        }
         inner.ensure_inventory();
-        let runtime = sdk::AnalysisRuntime::from_runtimes(
+        let runtime = sdk::AnalysisRuntime::for_analysis(
             &inner.inventory.as_ref().expect("inventory").runtimes,
         );
         if runtime.state != "found" {
@@ -3465,6 +3475,9 @@ impl Host {
     }
 
     fn install_tool(&self, params: Value) -> HostResult<Value> {
+        if let Some(error) = bundled_damaged() {
+            return Err(error);
+        }
         let token = self.require_trust("tools.install")?;
         if params.get("confirm") != Some(&Value::Bool(true)) {
             return Err(HostError::new(
@@ -3496,6 +3509,9 @@ impl Host {
     }
 
     fn retry_tool(&self) -> HostResult<Value> {
+        if let Some(error) = bundled_damaged() {
+            return Err(error);
+        }
         let token = self.require_trust("tools.retry")?;
         let mut inner = self.inner.lock().unwrap();
         inner.ensure_inventory();
@@ -4294,6 +4310,9 @@ impl Host {
     }
 
     fn start_analysis(&self, inner: &mut Inner, token: ContextToken) -> HostResult<Value> {
+        if let Some(error) = bundled_damaged() {
+            return Err(error);
+        }
         if let Some(lsp) = &inner.lsp {
             if lsp.is_active() {
                 return Err(HostError::with_details(
@@ -4342,7 +4361,7 @@ impl Host {
             ));
         }
         let installs = &inner.inventory.as_ref().expect("inventory").installs;
-        let runtime = AnalysisRuntime::from_runtimes(
+        let runtime = AnalysisRuntime::for_analysis(
             &inner.inventory.as_ref().expect("inventory").runtimes,
         );
         if runtime.state != "found" {
@@ -4429,19 +4448,35 @@ impl Host {
             }
         };
 
-        let binary = tools::destination().join(if cfg!(windows) {
-            "csharp-ls.exe"
-        } else {
-            "csharp-ls"
-        });
-        if !binary.is_file() {
-            return Err(HostError::with_details(
-                "tool_missing",
-                "The verified csharp-ls launcher disappeared from the destination; review the install plan.",
-                json!({ "action": { "method": "tools.plan", "params": { "tool": tools::TOOL } } }),
-            ));
-        }
-        let mut argv = vec![binary.to_string_lossy().to_string()];
+        // The bundled pair runs on the composed root's muxer (project SDK + private runtime 10).
+        // Without a bundle, the launcher installed into the app home runs against the same root.
+        let bundled_analysis = match bundled::availability() {
+            bundled::Availability::Bundled(analysis) => Some(analysis),
+            _ => None,
+        };
+        let (program, mut argv) = match &bundled_analysis {
+            Some(analysis) => (
+                hostroot::muxer(Path::new(&hostroot.path))
+                    .to_string_lossy()
+                    .to_string(),
+                vec![analysis.entry.to_string_lossy().to_string()],
+            ),
+            None => {
+                let binary = tools::destination().join(if cfg!(windows) {
+                    "csharp-ls.exe"
+                } else {
+                    "csharp-ls"
+                });
+                if !binary.is_file() {
+                    return Err(HostError::with_details(
+                        "tool_missing",
+                        "The verified csharp-ls launcher disappeared from the destination; review the install plan.",
+                        json!({ "action": { "method": "tools.plan", "params": { "tool": tools::TOOL } } }),
+                    ));
+                }
+                (binary.to_string_lossy().to_string(), Vec::new())
+            }
+        };
         if is_solution {
             argv.push("--solution".to_string());
             argv.push(workspace_path.to_string_lossy().to_string());
@@ -4449,9 +4484,9 @@ impl Host {
         argv.push("--loglevel".to_string());
         argv.push(log_level.to_string());
 
-        let mut command = Command::new(&argv[0]);
+        let mut command = Command::new(&program);
         command
-            .args(&argv[1..])
+            .args(&argv)
             .current_dir(&root)
             .env("DOTNET_ROOT", &hostroot.path)
             .env("DOTNET_MULTILEVEL_LOOKUP", "0")
@@ -4462,6 +4497,9 @@ impl Host {
             .env_remove("NUGET_HTTP_CACHE_PATH")
             .env_remove("DOTNET_CLI_HOME");
         let solution = is_solution.then(|| workspace_path.to_string_lossy().to_string());
+        // The view logs the whole command line, including the muxer that runs the bundled entry.
+        let mut displayed_argv = vec![program.clone()];
+        displayed_argv.extend(argv.iter().cloned());
         let spawned = inner
             .processes
             .lock()
@@ -4479,7 +4517,7 @@ impl Host {
                     hostroot.forced,
                     &hostroot.check,
                     solution,
-                    argv,
+                    displayed_argv,
                     root.to_string_lossy().to_string(),
                     verbose,
                     coverage,
@@ -4503,7 +4541,7 @@ impl Host {
             hostroot.forced,
             &hostroot.check,
             solution,
-            argv,
+            displayed_argv,
             root.to_string_lossy().to_string(),
             verbose,
             coverage,
@@ -6735,7 +6773,7 @@ impl Inner {
         }
         self.setup_finished_at = None;
         self.ensure_inventory();
-        let runtime = AnalysisRuntime::from_runtimes(
+        let runtime = AnalysisRuntime::for_analysis(
             &self.inventory.as_ref().expect("inventory").runtimes,
         );
         if runtime.state != "found" {
@@ -6756,6 +6794,28 @@ impl Inner {
                 "The debug adapter is not available: {}",
                 error.message
             ));
+        }
+        // The analysis pair ships with the app on macOS ARM64: there is no plan and nothing to
+        // download. A damaged bundle fails the setup here instead of falling back to the plan.
+        match bundled::availability() {
+            bundled::Availability::Damaged(reason) => {
+                self.tools.sync_bundled();
+                if self.setup_error.is_none() {
+                    self.setup_error = Some(reason);
+                }
+                return Ok(());
+            }
+            bundled::Availability::Bundled(_) => {
+                self.tools.sync_bundled();
+                let tool = self.tools.view();
+                if tool.state != "ready" && self.setup_error.is_none() {
+                    self.setup_error = tool.error.clone().or_else(|| {
+                        Some("The bundled analysis tool did not verify.".to_string())
+                    });
+                }
+                return Ok(());
+            }
+            bundled::Availability::Absent => {}
         }
         let plan = match tools::plan(self.inventory.as_ref().expect("inventory")) {
             Ok(plan) => plan,
@@ -6788,6 +6848,7 @@ impl Inner {
     }
 
     fn sync_tools(&mut self) {
+        self.tools.sync_bundled();
         self.tools.sync(&mut self.processes.lock().unwrap());
     }
 
@@ -7382,6 +7443,17 @@ fn restore_allowed(inner: &Inner, token: ContextToken) -> bool {
     inner.trusted && accept_locked(inner, token).is_ok()
 }
 
+/// Fail-closed answer for a distributed app whose bundle lost the analyzer: no plan, no download
+/// and no external runtime. `None` for a development binary, where the download flow still applies.
+fn bundled_damaged() -> Option<HostError> {
+    match bundled::availability() {
+        bundled::Availability::Damaged(reason) => {
+            Some(HostError::with_details("bundled_incomplete", reason, json!({})))
+        }
+        _ => None,
+    }
+}
+
 fn is_setup_ready(inner: &Inner) -> bool {
     if inner.setup_override {
         return true;
@@ -7392,7 +7464,7 @@ fn is_setup_ready(inner: &Inner) -> bool {
     let Some(inventory) = inner.inventory.as_ref() else {
         return false;
     };
-    if AnalysisRuntime::from_runtimes(&inventory.runtimes).state != "found" {
+    if AnalysisRuntime::for_analysis(&inventory.runtimes).state != "found" {
         return false;
     }
     inner.tools.still_ready()

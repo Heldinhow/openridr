@@ -469,6 +469,12 @@ fn muxer_name() -> &'static str {
     }
 }
 
+/// The muxer inside a composed root; the bundled csharp-ls runs through this one so it sees the
+/// project SDK and the private .NET 10 runtime at the same time.
+pub fn muxer(root: &Path) -> PathBuf {
+    root.join(muxer_name())
+}
+
 #[cfg(unix)]
 fn link_dir(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)

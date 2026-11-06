@@ -6,6 +6,13 @@ src-tauri/target/
 src-tauri/resources/netcoredbg/*
 !src-tauri/resources/netcoredbg/netcoredbg.entitlements
 src-tauri/resources/netcoredbg.vendor-state
+src-tauri/resources/dotnet/
+src-tauri/resources/dotnet.vendor-state
+!src-tauri/resources/dotnet.entitlements
+src-tauri/resources/csharp-ls/
+src-tauri/resources/csharp-ls.vendor-state
+vendor/dotnet-runtime/
+vendor/csharp-ls/
 test-results/
 playwright-report/
 .DS_Store
