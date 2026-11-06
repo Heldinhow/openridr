@@ -55,6 +55,10 @@ test_discovery / test_run / trust_model):
 | 2 | 2,44 | 1,32 | 5,64 | 80,23 | 5,14 | 24,44 | 2,97 | 124 |
 | 3 | 2,25 | 1,36 | 5,65 | 72,24 | 5,50 | 24,87 | 2,80 | 115 |
 
+Rodada extra depois das correções do re-check (HEAD `e6a1707`, código novo, paralelismo default):
+431/431, 133 s no total (host 90,12 s; lib 2,24; bundled 1,27; debugger 5,52; discovery 5,81;
+run 24,73; trust 2,78).
+
 ### Falha-antes/passa-depois por ticket
 
 | Ticket | Comando | Antes | Depois |
