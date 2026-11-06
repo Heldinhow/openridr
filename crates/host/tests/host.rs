@@ -1,13 +1,16 @@
+#[path = "support/mod.rs"]
+mod support;
+
 use openridr_host::{hostroot, sdk, Host, EXECUTABLE_METHODS};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use support::{env_guard, EnvVar};
 
-/// Tool installation and LSP tests share the app home (or `OPENRIDR_HOME`) and child
-/// processes, so they run one at a time.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+// Tool installation and LSP tests share the app home (or `OPENRIDR_HOME`) and child processes, so
+// they run one at a time. The guard also removes the ambient `OPENRIDR_*` values of whoever ran
+// `cargo test`, so a shell cannot change the result.
 
 fn fixture() -> PathBuf {
     fs::canonicalize(
@@ -103,7 +106,7 @@ fn app_home_never_points_at_the_real_application_support_directory() {
 
 #[test]
 fn text_outline_reads_solution_projects_without_evaluation() {
-    let host = Host::new();
+    let host = support::host();
     let snapshot = open(&host, &fixture());
 
     assert_eq!(snapshot["outline"]["source"], "text");
@@ -188,7 +191,7 @@ fn entry_names(dir: &Path) -> Vec<String> {
 fn file_access_is_confined_to_the_workspace() {
     let (_outer, root, outside) = nested_workspace();
     let outside_file = outside.join("outside.txt");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("App.csproj"));
 
     let read = host.dispatch("file.read", json!({ "path": "App.cs" })).unwrap();
@@ -295,13 +298,20 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     let (_outer, root, outside) = nested_workspace();
     let outside_file = outside.join("outside.txt");
     let created = outside.join("created.txt");
-    let host = Host::new();
+    // A root-escaping relative path that lands on a fixed name in /tmp would let two runs step on
+    // each other; the target is unique per process and never exists before the attempt.
+    let leaked = std::env::temp_dir().join(format!("openridr-created-{}.txt", std::process::id()));
+    let traversal = format!(
+        "../../../../../../../../{}",
+        leaked.strip_prefix("/").unwrap().display()
+    );
+    let host = support::host();
     open(&host, &root.join("App.csproj"));
 
     for target in [
         created.clone(),
         outside.join("created-deep.txt"),
-        Path::new("../../../../../../../../tmp/openridr-created.txt").to_path_buf(),
+        PathBuf::from(&traversal),
     ] {
         assert_eq!(
             error_code(host.dispatch(
@@ -324,7 +334,7 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     }
     assert_eq!(entry_names(&outside), vec!["outside.txt", "ws"]);
     assert!(!created.exists());
-    assert!(!Path::new("/tmp/openridr-created.txt").exists());
+    assert!(!leaked.exists(), "the escape created {}", leaked.display());
 
     for (from, to) in [
         ("App.cs".to_string(), text(&outside.join("moved.cs"))),
@@ -444,7 +454,7 @@ fn absolute_paths_reach_the_workspace_through_a_symlinked_prefix() {
     // `outside/alias` points at the workspace, so the textual prefix differs from the canonical
     // root while the target is the very same file.
     std::os::unix::fs::symlink(&root, outside.join("alias")).unwrap();
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("App.csproj"));
 
     let via_alias = outside.join("alias/App.cs");
@@ -498,7 +508,7 @@ fn absolute_paths_reach_the_workspace_through_a_symlinked_prefix() {
 #[test]
 fn the_directory_listing_refuses_escapes_by_shape() {
     let (_outer, root, outside) = nested_workspace();
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("App.csproj"));
 
     for dir in [
@@ -546,7 +556,7 @@ fn the_directory_listing_refuses_escapes_by_shape() {
 
 #[test]
 fn directory_resolution_requires_an_explicit_choice() {
-    let host = Host::new();
+    let host = support::host();
     let ambiguous = temp_workspace(&["First.csproj", "Second.csproj"]);
     let error = host
         .dispatch(
@@ -579,7 +589,7 @@ fn directory_resolution_requires_an_explicit_choice() {
 
 #[test]
 fn save_reports_conflict_instead_of_overwriting_disk() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["App.csproj"]);
     let file = workspace.path().join("App.cs");
     fs::write(&file, "original\n").unwrap();
@@ -642,7 +652,7 @@ fn read_file(host: &Host, path: &str) -> Value {
 
 #[test]
 fn save_preserves_crlf_lf_and_mixed_line_endings() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["App.csproj"]);
     open(&host, &workspace.path().join("App.csproj"));
     let crlf = workspace.path().join("Crlf.cs");
@@ -700,7 +710,7 @@ fn save_preserves_crlf_lf_and_mixed_line_endings() {
 
 #[test]
 fn save_preserves_utf16_and_utf8_bom_encodings() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["App.csproj"]);
     open(&host, &workspace.path().join("App.csproj"));
     let text = "olá 🌎\r\nfim\r\n";
@@ -782,7 +792,7 @@ fn save_preserves_utf16_and_utf8_bom_encodings() {
 
 #[test]
 fn conflict_hash_is_over_normalized_text() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["App.csproj"]);
     open(&host, &workspace.path().join("App.csproj"));
     let file = workspace.path().join("App.cs");
@@ -814,7 +824,7 @@ fn conflict_hash_is_over_normalized_text() {
 
 #[test]
 fn invalid_encodings_are_clear_errors_and_never_write() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["App.csproj"]);
     open(&host, &workspace.path().join("App.csproj"));
     let bad_utf8 = workspace.path().join("Bad.cs");
@@ -850,7 +860,7 @@ fn invalid_encodings_are_clear_errors_and_never_write() {
 
 #[test]
 fn executable_methods_fail_before_trust_and_spawn_nothing() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Probe.csproj"]);
     open(&host, &workspace.path().join("Probe.csproj"));
 
@@ -881,7 +891,7 @@ fn executable_methods_fail_before_trust_and_spawn_nothing() {
 
 #[test]
 fn one_workspace_at_a_time_and_awkward_names_work() {
-    let host = Host::new();
+    let host = support::host();
     let first = temp_workspace(&["First.csproj"]);
     let second = temp_workspace(&["Second.csproj"]);
     open(&host, &first.path().join("First.csproj"));
@@ -938,7 +948,7 @@ fn process_id(snapshot: &Value) -> u64 {
 
 #[test]
 fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
-    let without_workspace = Host::new();
+    let without_workspace = support::host();
     assert_eq!(
         error_code(without_workspace.dispatch("trust.grant", json!({}))),
         "invalid_state"
@@ -948,7 +958,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
         "invalid_state"
     );
 
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Gate.csproj"]);
     let opened = open(&host, &workspace.path().join("Gate.csproj"));
     assert_eq!(opened["trust"]["granted"], false);
@@ -1074,7 +1084,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
 
 #[test]
 fn nuget_update_requires_confirmation_and_a_current_plan_before_any_process() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["App.csproj"]);
     open(&host, &workspace.path().join("App.csproj"));
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -1095,7 +1105,7 @@ fn nuget_update_requires_confirmation_and_a_current_plan_before_any_process() {
 
 #[test]
 fn a_welcome_trust_decision_still_requires_setup_before_execution() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Welcome.csproj"]);
     let project = workspace.path().join("Welcome.csproj");
     // Welcome-screen decision, before any workspace is open.
@@ -1121,7 +1131,7 @@ fn a_welcome_trust_decision_still_requires_setup_before_execution() {
 
 #[test]
 fn trust_set_refuses_another_path_while_a_workspace_is_open() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Open.csproj"]);
     let other = temp_workspace(&["Other.csproj"]);
     let open = workspace.path().join("Open.csproj");
@@ -1159,7 +1169,7 @@ fn trust_set_refuses_another_path_while_a_workspace_is_open() {
 
 #[test]
 fn trust_and_executable_methods_are_refused_until_setup_is_ready() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Gate.csproj"]);
     host.dispatch(
         "workspace.open",
@@ -1194,7 +1204,7 @@ fn trust_and_executable_methods_are_refused_until_setup_is_ready() {
 
 #[test]
 fn a_cpm_item_fails_alone_instead_of_blocking_the_batch_plan() {
-    let host = Host::new();
+    let host = support::host();
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk cpm batch");
     fs::write(
@@ -1235,7 +1245,7 @@ fn a_cpm_item_fails_alone_instead_of_blocking_the_batch_plan() {
 
 #[test]
 fn nuget_list_rejects_a_source_that_is_not_configured_or_not_https() {
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture().join("OrderDesk.sln"));
     grant(&host);
     for source in ["https://evil.example/v3/index.json", "/tmp/local-feed", "http://127.0.0.1:1/v3/index.json"] {
@@ -1258,7 +1268,7 @@ fn nuget_list_rejects_a_source_that_is_not_configured_or_not_https() {
 
 #[test]
 fn discover_only_accepts_a_configured_https_source() {
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture().join("OrderDesk.sln"));
     grant(&host);
     let rejected = host
@@ -1287,7 +1297,7 @@ fn discover_only_accepts_a_configured_https_source() {
 
 #[test]
 fn a_failed_dotnet_add_is_counted_as_failed_in_the_batch() {
-    let host = Host::new();
+    let host = support::host();
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk broken batch");
     let project = copy.join("tests/OrderDesk.Tests/OrderDesk.Tests.csproj");
@@ -1324,7 +1334,7 @@ fn a_failed_dotnet_add_is_counted_as_failed_in_the_batch() {
 
 #[test]
 fn nuget_batch_plans_each_item_and_requires_confirmation_and_the_current_plan() {
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture().join("OrderDesk.sln"));
     host.dispatch("trust.grant", json!({})).unwrap();
     let project = "tests/OrderDesk.Tests/OrderDesk.Tests.csproj";
@@ -1378,7 +1388,7 @@ fn nuget_batch_plans_each_item_and_requires_confirmation_and_the_current_plan() 
 
 #[test]
 fn closing_a_trusted_workspace_clears_trust_and_the_executable_context() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Close.csproj"]);
     open(&host, &workspace.path().join("Close.csproj"));
     grant(&host);
@@ -1401,7 +1411,7 @@ fn closing_a_trusted_workspace_clears_trust_and_the_executable_context() {
 
 #[test]
 fn a_late_result_from_an_older_workspace_or_context_is_discarded() {
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     grant(&host);
     let old_token = host.context_token().unwrap();
@@ -1457,7 +1467,7 @@ fn sdk_inventory_reads_the_real_roots_and_reports_a_runtime_and_the_project_sdk(
     let runtime_version = runtime.version.as_deref().expect("runtime version");
     assert!(runtime_version.starts_with("10."), "{runtime_version}");
 
-    let host = Host::new();
+    let host = support::host();
     let opened = open(&host, &fixture());
     assert_eq!(
         opened["sdk"]["host"]["version"].as_str(),
@@ -1493,7 +1503,7 @@ fn project_sdk_missing_keeps_a_distinct_state_and_does_not_rewrite_global_json()
     let global_json = fixture.join("global.json");
     let before = fs::read(&global_json).unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture.join("MissingSdk.csproj"));
     let trusted = grant(&host);
     assert_eq!(trusted["sdk"]["host"]["state"], "found");
@@ -1511,7 +1521,7 @@ fn project_sdk_missing_keeps_a_distinct_state_and_does_not_rewrite_global_json()
 
 #[test]
 fn redetect_is_allowed_before_and_after_trust_and_touches_no_project_file() {
-    let host = Host::new();
+    let host = support::host();
     let before = snapshot(&host);
     assert_eq!(before["workspace"], Value::Null);
     assert_eq!(before["sdk"]["host"]["state"], "found");
@@ -1538,8 +1548,8 @@ fn redetect_is_allowed_before_and_after_trust_and_touches_no_project_file() {
 #[cfg(unix)]
 #[test]
 fn revoke_marks_a_real_child_and_terminate_reports_the_observed_exit() {
-    std::env::set_var("OPENRIDR_ENABLE_PROBE", "1");
-    let host = Host::new();
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let host = support::host();
     let workspace = temp_workspace(&["Probe.csproj"]);
     open(&host, &workspace.path().join("Probe.csproj"));
 
@@ -1582,8 +1592,8 @@ fn revoke_marks_a_real_child_and_terminate_reports_the_observed_exit() {
 #[cfg(unix)]
 #[test]
 fn keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_period() {
-    std::env::set_var("OPENRIDR_ENABLE_PROBE", "1");
-    let host = Host::new();
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let host = support::host();
     let workspace = temp_workspace(&["ProbeKeep.csproj"]);
     open(&host, &workspace.path().join("ProbeKeep.csproj"));
     grant(&host);
@@ -1642,8 +1652,8 @@ fn keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_perio
 #[cfg(unix)]
 #[test]
 fn switching_workspaces_marks_processes_pending_and_drops_trust() {
-    std::env::set_var("OPENRIDR_ENABLE_PROBE", "1");
-    let host = Host::new();
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let host = support::host();
     let first = temp_workspace(&["First.csproj"]);
     let second = temp_workspace(&["Second.csproj"]);
     open(&host, &first.path().join("First.csproj"));
@@ -1676,7 +1686,7 @@ fn switching_workspaces_marks_processes_pending_and_drops_trust() {
 
 #[test]
 fn evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["NoSdk.csproj"]);
     open(&host, &workspace.path().join("NoSdk.csproj"));
 
@@ -1724,7 +1734,7 @@ fn evaluation_with_a_missing_project_sdk_reports_sdk_missing() {
     let global_json = fixture.join("global.json");
     let before = fs::read(&global_json).unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture.join("MissingSdk.csproj"));
     grant(&host);
     let error = host
@@ -1745,7 +1755,7 @@ fn evaluation_returns_the_real_msbuild_model_for_every_project() {
     let workspace = fixture_copy(temp.path(), "OrderDesk");
     stage_restore_artifacts(&workspace);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &workspace.join("OrderDesk.sln"));
     grant(&host);
     let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
@@ -1837,7 +1847,7 @@ fn evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk ; & copy");
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
@@ -1880,7 +1890,7 @@ fn multi_tfm_needs_an_explicit_selection_for_target_path_and_sources() {
     .unwrap();
     fs::write(root.join("C.cs"), "class C {}\n").unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Multi.csproj"));
     grant(&host);
     let first = host.dispatch("evaluation.run", json!({})).unwrap();
@@ -1949,7 +1959,7 @@ Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug
     )
     .unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Mixed.sln"));
     grant(&host);
     let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
@@ -2001,7 +2011,7 @@ fn revoking_trust_while_msbuild_runs_drops_the_late_result() {
     }
     fs::write(root.join("Many.sln"), sln).unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Many.sln"));
     grant(&host);
     std::thread::scope(|scope| {
@@ -2032,7 +2042,7 @@ fn revoking_trust_while_msbuild_runs_drops_the_late_result() {
 
 #[test]
 fn file_operations_create_rename_and_delete_inside_the_workspace() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["App.csproj"]);
     open(&host, &workspace.path().join("App.csproj"));
 
@@ -2094,7 +2104,7 @@ fn file_operations_create_rename_and_delete_inside_the_workspace() {
 
 #[test]
 fn file_operations_refuse_traversal_missing_parents_and_the_workspace_root() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["App.csproj"]);
     open(&host, &workspace.path().join("App.csproj"));
     let outside = tempfile::tempdir().unwrap();
@@ -2201,7 +2211,7 @@ fn file_operations_refuse_traversal_missing_parents_and_the_workspace_root() {
 fn file_operations_mark_the_evaluated_model_stale() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "OrderDesk file ops");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     let first = host.dispatch("evaluation.run", json!({})).unwrap();
@@ -2227,7 +2237,7 @@ fn file_operations_mark_the_evaluated_model_stale() {
 fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "OrderDesk stale");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     let first = host.dispatch("evaluation.run", json!({})).unwrap();
@@ -2316,7 +2326,7 @@ fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {
 fn external_source_changes_make_the_evaluation_stale_and_reappear_in_the_evaluated_sources() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "OrderDesk external sources");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     let first = host.dispatch("evaluation.run", json!({})).unwrap();
@@ -2407,7 +2417,7 @@ fn a_late_evaluation_does_not_replace_a_newer_selection() {
     }
     fs::write(root.join("Many.sln"), sln).unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Many.sln"));
     grant(&host);
     std::thread::scope(|scope| {
@@ -2508,7 +2518,7 @@ fn wait_for_restore(host: &Host, timeout: Duration) -> Value {
 
 #[test]
 fn restore_start_and_retry_are_denied_before_trust() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["RestoreGate.csproj"]);
     open(&host, &workspace.path().join("RestoreGate.csproj"));
 
@@ -2525,7 +2535,7 @@ fn restore_start_and_retry_are_denied_before_trust() {
 
 #[test]
 fn build_start_reports_restore_required_with_the_explicit_action() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Policy.csproj"]);
     open(&host, &workspace.path().join("Policy.csproj"));
     // Cancellation is a safety action: it is not blocked by the trust gate, only by the
@@ -2574,7 +2584,7 @@ fn restore_reports_the_exact_command_and_creates_real_assets() {
     global_json_8(&root);
     write_project(&root, "Honest", "");
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Honest.csproj"));
     grant(&host);
     let started = host.dispatch("restore.start", json!({})).unwrap();
@@ -2630,7 +2640,7 @@ fn restore_reports_the_exact_command_and_creates_real_assets() {
 fn opening_and_evaluating_never_start_a_restore() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk no restore");
-    let host = Host::new();
+    let host = support::host();
     let opened = open(&host, &copy.join("OrderDesk.sln"));
     assert_eq!(opened["restore"]["state"], "idle");
     grant(&host);
@@ -2655,7 +2665,7 @@ fn cancelling_a_real_hanging_restore_reports_requested_and_observed_termination(
     let source = holding_server();
     write_hanging_project(&root, &source);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Hang.csproj"));
     grant(&host);
     let started = host.dispatch("restore.start", json!({})).unwrap();
@@ -2710,7 +2720,7 @@ fn revoking_trust_seals_a_running_restore_and_drops_late_results() {
     let source = holding_server();
     write_hanging_project(&root, &source);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Hang.csproj"));
     grant(&host);
     let started = host.dispatch("restore.start", json!({})).unwrap();
@@ -2775,7 +2785,7 @@ fn a_failed_restore_keeps_its_log_and_retry_succeeds_after_the_fix() {
         "<ItemGroup><PackageReference Include=\"xunit\" Version=\"9.9.999\" /></ItemGroup>",
     );
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Broken.csproj"));
     grant(&host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -2832,7 +2842,7 @@ Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug
     )
     .unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Pair.sln"));
     grant(&host);
     let started = host
@@ -2869,7 +2879,7 @@ fn switching_workspaces_stops_a_running_restore_and_drops_its_record() {
     write_hanging_project(&root, &source);
     let other = temp_workspace(&["Other.csproj"]);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Hang.csproj"));
     grant(&host);
     let started = host.dispatch("restore.start", json!({})).unwrap();
@@ -2904,34 +2914,6 @@ fn switching_workspaces_stops_a_running_restore_and_drops_its_record() {
         error_code(host.dispatch("restore.start", json!({}))),
         "trust_required"
     );
-}
-
-struct EnvVar {
-    key: &'static str,
-    old: Option<std::ffi::OsString>,
-}
-
-impl EnvVar {
-    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let old = std::env::var_os(key);
-        std::env::set_var(key, value);
-        Self { key, old }
-    }
-
-    fn remove(key: &'static str) -> Self {
-        let old = std::env::var_os(key);
-        std::env::remove_var(key);
-        Self { key, old }
-    }
-}
-
-impl Drop for EnvVar {
-    fn drop(&mut self) {
-        match &self.old {
-            Some(value) => std::env::set_var(self.key, value),
-            None => std::env::remove_var(self.key),
-        }
-    }
 }
 
 fn real_install(version: &str) -> sdk::Install {
@@ -3034,11 +3016,11 @@ fn wait_publication(host: &Host, timeout: Duration, predicate: impl Fn(&Value) -
 
 #[test]
 fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Tool.csproj"]);
     open(&host, &workspace.path().join("Tool.csproj"));
 
@@ -3145,11 +3127,11 @@ fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
 
 #[test]
 fn tools_install_is_real_verified_and_reused() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Install.csproj"]);
     open(&host, &workspace.path().join("Install.csproj"));
     grant(&host);
@@ -3237,7 +3219,7 @@ fn tools_install_is_real_verified_and_reused() {
     );
     assert!(destination.join("csharp-ls").is_file());
 
-    let reopened = Host::new();
+    let reopened = support::host();
     open(&reopened, &workspace.path().join("Install.csproj"));
     grant(&reopened);
     let reopened_plan = tool_plan(&reopened);
@@ -3254,7 +3236,7 @@ fn tools_install_is_real_verified_and_reused() {
 #[test]
 fn setup_starts_before_trust_without_running_project_code() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let adapter = temp.path().join("netcoredbg");
     fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
@@ -3266,7 +3248,7 @@ fn setup_starts_before_trust_without_running_project_code() {
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Tools.csproj"]);
     host.dispatch("workspace.open", json!({ "path": workspace.path().join("Tools.csproj") })).unwrap();
     let setup = host.dispatch("setup.start", json!({})).unwrap();
@@ -3281,7 +3263,7 @@ fn setup_starts_before_trust_without_running_project_code() {
 #[test]
 fn setup_reuses_the_verified_installation_and_never_asks_again() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let adapter = temp.path().join("netcoredbg");
     fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
@@ -3307,7 +3289,7 @@ exit 0
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Setup.csproj"]);
     let opened = host.dispatch("workspace.open", json!({ "path": workspace.path().join("Setup.csproj") })).unwrap();
     assert_eq!(opened["setup"]["state"], "idle");
@@ -3344,7 +3326,7 @@ exit 0
 #[test]
 fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let empty = temp.path().join("no-adapter");
     fs::create_dir_all(&empty).unwrap();
@@ -3355,7 +3337,7 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Setup.csproj"]);
     host.dispatch("workspace.open", json!({ "path": workspace.path().join("Setup.csproj") })).unwrap();
     host.dispatch("setup.start", json!({})).unwrap();
@@ -3380,7 +3362,7 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
 #[test]
 fn failed_reinstall_keeps_the_previous_verified_tool_ready() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let adapter = temp.path().join("netcoredbg");
     fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
@@ -3409,7 +3391,7 @@ exit 0
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Reinstall.csproj"]);
     host.dispatch(
         "workspace.open",
@@ -3459,7 +3441,7 @@ exit 0
 #[test]
 fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let adapter = temp.path().join("netcoredbg");
     fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
@@ -3482,7 +3464,7 @@ exit 0
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Tools.csproj"]);
     let other = temp_workspace(&["Other.csproj"]);
     let project = workspace.path().join("Tools.csproj");
@@ -3538,7 +3520,7 @@ exit 0
 #[test]
 fn tools_download_does_not_block_host_calls() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let installer = home.path().join("installer");
     fs::write(&installer, "#!/bin/sh\nexit 1\n").unwrap();
@@ -3547,7 +3529,7 @@ fn tools_download_does_not_block_host_calls() {
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _delay = EnvVar::set("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS", "1500");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Tools.csproj"]);
     open(&host, &workspace.path().join("Tools.csproj"));
     grant(&host);
@@ -3586,7 +3568,7 @@ fn a_download_without_content_length_keeps_the_measured_bytes() {
     use std::net::TcpListener;
     use std::os::unix::fs::PermissionsExt;
 
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let installer = home.path().join("slow-installer");
     // A package the size of nothing that matters, and an installer that copies 400 KiB into the
@@ -3634,7 +3616,7 @@ exit 1
         "OPENRIDR_TOOLS_PACKAGE_SHA512",
         "2acda2d1386c8cd9ef01c797cfd154b073e7ea26e4c5741e9f2aee089dc8106cb887526d5bbb04920c2b742b2dab945e2a8db4cd31f58ac945aec9df89b1f18d",
     );
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Tools.csproj"]);
     open(&host, &workspace.path().join("Tools.csproj"));
     grant(&host);
@@ -3686,7 +3668,7 @@ exit 1
 fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging() {
     use std::os::unix::fs::PermissionsExt;
 
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let probe = tempfile::tempdir().unwrap();
     let installer = probe.path().join("probe-installer");
@@ -3715,7 +3697,7 @@ exit 1
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Tools.csproj"]);
     open(&host, &workspace.path().join("Tools.csproj"));
     grant(&host);
@@ -3791,7 +3773,7 @@ exit 1
 #[cfg(target_os = "macos")]
 #[test]
 fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -3856,13 +3838,13 @@ fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempote
 
 #[test]
 fn lsp_start_requires_tool_sdk_and_current_restore() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
 
     // No verified tool: the host says tool_missing and points to the plan.
     let no_tool_home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", no_tool_home.path());
-    let host = Host::new();
+    let host = support::host();
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Lsp no tool");
     open(&host, &copy.join("OrderDesk.sln"));
@@ -3875,7 +3857,7 @@ fn lsp_start_requires_tool_sdk_and_current_restore() {
     drop(_home);
 
     // With the real tool: unresolved project SDK and missing restore are distinct.
-    let host = Host::new();
+    let host = support::host();
     let missing = fs::canonicalize(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"),
     )
@@ -3906,7 +3888,7 @@ fn lsp_start_requires_tool_sdk_and_current_restore() {
 #[cfg(target_os = "macos")]
 #[test]
 fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk lsp");
@@ -3915,7 +3897,7 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     let broken = format!("{clean}\nvar report = new OrderReport();\n");
     fs::write(&program, &broken).unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     ensure_tool(&host);
@@ -4131,7 +4113,7 @@ exec sleep 60
 #[test]
 fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
@@ -4150,7 +4132,7 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
     fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
 
     let copy = fixture_copy(temp.path(), "Order Desk lsp failure");
-    let host_api = Host::new();
+    let host_api = support::host();
     open(&host_api, &copy.join("OrderDesk.sln"));
     grant(&host_api);
     let tool = tool_plan(&host_api);
@@ -4202,7 +4184,7 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
 
 #[test]
 fn cancelling_a_running_install_reports_termination_and_never_ready() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -4212,7 +4194,7 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["CancelInstall.csproj"]);
     open(&host, &workspace.path().join("CancelInstall.csproj"));
     grant(&host);
@@ -4264,14 +4246,14 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
 #[cfg(target_os = "macos")]
 #[test]
 fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk complete");
     let program = "using OrderDesk.Core;\n\nvar order = new Order(\"A-104\", 42m);\norder.\n";
     let path = "src/OrderDesk.Cli/Program.cs";
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     ensure_tool(&host);
@@ -4501,7 +4483,7 @@ fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
 fn build_start_needs_the_current_evaluation_and_accepts_an_explicit_library() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk build gate");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -4564,7 +4546,7 @@ fn build_reports_the_exact_command_raw_log_exit_and_real_problems() {
     write_console_project(&root, "Honest", "");
     let source = root.join("Honest.cs");
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Honest.csproj"));
     grant(&host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -4692,7 +4674,7 @@ Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug
     )
     .unwrap();
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Pair.sln"));
     grant(&host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -4755,7 +4737,7 @@ fn ready_for_build(host: &Host, root: &Path) {
 fn cancelling_a_real_hanging_build_reports_requested_and_observed_termination() {
     let temp = hanging_build_workspace();
     let root = fs::canonicalize(temp.path()).unwrap();
-    let host = Host::new();
+    let host = support::host();
     ready_for_build(&host, &root);
     let started = host.dispatch("build.start", json!({})).unwrap();
     let process_id = started["build"]["processId"].as_u64().unwrap_or_else(|| panic!("no build process: {}", started["build"]));
@@ -4792,7 +4774,7 @@ fn cancelling_a_real_hanging_build_reports_requested_and_observed_termination() 
 fn revoking_trust_seals_a_running_build_and_drops_its_late_exit() {
     let temp = hanging_build_workspace();
     let root = fs::canonicalize(temp.path()).unwrap();
-    let host = Host::new();
+    let host = support::host();
     ready_for_build(&host, &root);
     host.dispatch("build.start", json!({})).unwrap();
     wait_for_build_output(&host, "Slow.dll", Duration::from_secs(30));
@@ -4824,7 +4806,7 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     let copy = fixture_copy(temp.path(), "Order Desk run");
     let program = copy.join("src/OrderDesk.Cli/Program.cs");
     let dll = copy.join("src/OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -5015,7 +4997,7 @@ fn run_implicitly_builds_and_runs_when_there_is_no_build() {
     let root = fs::canonicalize(temp.path()).unwrap();
     global_json_8(&root);
     write_console_project(&root, "Implicit", "");
-    let host = Host::new();
+    let host = support::host();
     ready_project(&host, &root, "Implicit.csproj");
     assert_eq!(snapshot(&host)["build"]["revision"], 0);
 
@@ -5063,7 +5045,7 @@ fn a_failed_implicit_build_fails_the_run_and_keeps_its_diagnostics() {
     global_json_8(&root);
     write_console_project(&root, "BrokenRun", "");
     fs::write(root.join("BrokenRun.cs"), "class Broken {\n").unwrap();
-    let host = Host::new();
+    let host = support::host();
     ready_project(&host, &root, "BrokenRun.csproj");
 
     let started = host.dispatch("run.start", json!({})).unwrap();
@@ -5106,7 +5088,7 @@ fn a_failed_implicit_build_fails_the_run_and_keeps_its_diagnostics() {
 fn cancelling_a_run_waiting_for_its_build_stops_the_build_and_never_launches() {
     let temp = hanging_build_workspace();
     let root = fs::canonicalize(temp.path()).unwrap();
-    let host = Host::new();
+    let host = support::host();
     ready_for_build(&host, &root);
 
     let started = host.dispatch("run.start", json!({})).unwrap();
@@ -5142,7 +5124,7 @@ fn cancelling_a_run_waiting_for_its_build_stops_the_build_and_never_launches() {
 fn a_second_run_start_while_waiting_for_the_build_does_not_start_another() {
     let temp = hanging_build_workspace();
     let root = fs::canonicalize(temp.path()).unwrap();
-    let host = Host::new();
+    let host = support::host();
     ready_for_build(&host, &root);
 
     let first = host.dispatch("run.start", json!({})).unwrap();
@@ -5178,7 +5160,7 @@ fn run_start_reports_restore_required_when_assets_are_invalidated_after_a_build(
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk run restore");
     let assets = copy.join("src/OrderDesk.Cli/obj/project.assets.json");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -5281,7 +5263,7 @@ fn cancelling_a_real_run_observes_termination_of_the_group_including_its_child()
     let temp = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(temp.path()).unwrap();
     sleeper_project(&root);
-    let host = Host::new();
+    let host = support::host();
     ready_project(&host, &root, "Sleeper.csproj");
     host.dispatch("build.start", json!({})).unwrap();
     let built = wait_for_build(&host, Duration::from_secs(60));
@@ -5355,7 +5337,7 @@ fn revoking_trust_seals_a_running_program_and_drops_its_late_exit() {
     let temp = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(temp.path()).unwrap();
     sleeper_project(&root);
-    let host = Host::new();
+    let host = support::host();
     ready_project(&host, &root, "Sleeper.csproj");
     host.dispatch("build.start", json!({})).unwrap();
     let built = wait_for_build(&host, Duration::from_secs(60));
@@ -5403,7 +5385,7 @@ fn write_netcoredbg(path: &Path, version: &str) {
 #[cfg(target_os = "macos")]
 #[test]
 fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     if std::env::consts::ARCH != "aarch64" {
         return;
     }
@@ -5419,7 +5401,7 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     global_json_8(&root);
     write_console_project(&root, "Debugged", "");
     let source = root.join("Debugged.cs");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Debugged.csproj"));
     grant(&host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -5556,7 +5538,7 @@ fn copy_dir(source: &Path, destination: &Path) {
 #[cfg(target_os = "macos")]
 #[test]
 fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     if std::env::consts::ARCH != "aarch64" {
         return;
     }
@@ -5569,7 +5551,7 @@ fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
 
     let temp = hanging_build_workspace();
     let root = fs::canonicalize(temp.path()).unwrap();
-    let host = Host::new();
+    let host = support::host();
     ready_for_build(&host, &root);
     host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
         .unwrap();
@@ -5609,7 +5591,7 @@ fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
 #[cfg(target_os = "macos")]
 #[test]
 fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     if std::env::consts::ARCH != "aarch64" {
         return;
     }
@@ -5634,7 +5616,7 @@ fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
     let root = fs::canonicalize(temp.path()).unwrap();
     global_json_8(&root);
     write_console_project(&root, "ImplicitDebug", "");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("ImplicitDebug.csproj"));
     grant(&host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -5731,7 +5713,7 @@ impl Drop for ShellEnv {
 
 #[test]
 fn terminal_start_needs_trust_and_spawns_no_shell() {
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace(&["Gate.csproj"]);
     open(&host, &workspace.path().join("Gate.csproj"));
 
@@ -5754,7 +5736,7 @@ fn terminal_start_needs_trust_and_spawns_no_shell() {
 #[cfg(unix)]
 #[test]
 fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let _env = ShellEnv::use_posix_sh();
     let temp = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(temp.path()).unwrap();
@@ -5763,7 +5745,7 @@ fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() 
         "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
     )
     .unwrap();
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Pty.csproj"));
     grant(&host);
     let _cleanup = TerminalCleanup(&host);
@@ -5896,8 +5878,8 @@ fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() 
 #[cfg(unix)]
 #[test]
 fn terminal_read_returns_raw_pty_bytes_by_offset_and_keeps_them_after_seal() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
-    let host = Host::new();
+    let _guard = env_guard();
+    let host = support::host();
     let workspace = temp_workspace(&["Raw.csproj"]);
     open(&host, &workspace.path().join("Raw.csproj"));
     grant(&host);
@@ -5941,8 +5923,8 @@ fn terminal_read_returns_raw_pty_bytes_by_offset_and_keeps_them_after_seal() {
 #[cfg(unix)]
 #[test]
 fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_it() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
-    let host = Host::new();
+    let _guard = env_guard();
+    let host = support::host();
     let first = temp_workspace(&["A.csproj"]);
     let second = temp_workspace(&["B.csproj"]);
     open(&host, &first.path().join("A.csproj"));
@@ -5986,10 +5968,10 @@ fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_
 
 #[test]
 fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _lock = env_guard();
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-    let host = Host::new();
+    let host = support::host();
 
     // No workspace and no trust: settings are app-scoped, not workspace-scoped.
     let empty = host.dispatch("settings.read", json!({})).unwrap();
@@ -6035,7 +6017,7 @@ fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
 
 #[test]
 fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _lock = env_guard();
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let workspaces = tempfile::tempdir().unwrap();
@@ -6044,7 +6026,7 @@ fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust() {
     )
     .unwrap();
     let other = fixture_copy(workspaces.path(), "Other");
-    let host = Host::new();
+    let host = support::host();
 
     // No workspace and no trust: the store is app-scoped but keyed by the solution.
     let empty = host
@@ -6160,7 +6142,7 @@ fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust() {
 fn run_and_debug_validate_launch_options_before_any_process() {
     let temp = temp_workspace(&["App.csproj"]);
     fs::write(temp.path().join("bad.env"), "NOT A LINE\n").unwrap();
-    let host = Host::new();
+    let host = support::host();
     open(&host, &temp.path().join("App.csproj"));
     grant(&host);
 
@@ -6198,7 +6180,7 @@ fn run_and_debug_validate_launch_options_before_any_process() {
 
 #[test]
 fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _store = EnvVar::remove("OPENRIDR_TRUST_STORE");
@@ -6207,16 +6189,16 @@ fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
     let granted = |host: &Host| host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
 
     // A grant without `remember` is session-only.
-    let first = Host::new();
+    let first = support::host();
     open(&first, &project);
     first.dispatch("trust.grant", json!({})).unwrap();
-    let second = Host::new();
+    let second = support::host();
     open(&second, &project);
     assert!(!granted(&second));
 
     // `remember` persists per path; a new host (app restart) opens it trusted, other paths do not.
     second.dispatch("trust.grant", json!({ "remember": true })).unwrap();
-    let third = Host::new();
+    let third = support::host();
     open(&third, &project);
     assert!(granted(&third));
     let other = temp_workspace(&["Other.csproj"]);
@@ -6226,20 +6208,20 @@ fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
     // Revoking forgets the decision.
     open(&third, &project);
     third.dispatch("trust.revoke", json!({})).unwrap();
-    let fourth = Host::new();
+    let fourth = support::host();
     open(&fourth, &project);
     assert!(!granted(&fourth));
 }
 
 #[test]
 fn trust_decision_persists_per_project_and_gates_workspace_open() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
-    std::env::set_var("OPENRIDR_HOME", home.path());
-    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _trust = EnvVar::remove("OPENRIDR_TRUST_STORE");
     let workspace = temp_workspace(&["App.csproj"]);
     let path = fs::canonicalize(workspace.path()).unwrap();
-    let host = Host::new();
+    let host = support::host();
 
     // Never decided: opens restricted with a null decision.
     let opened = open(&host, &path);
@@ -6284,18 +6266,17 @@ fn trust_decision_persists_per_project_and_gates_workspace_open() {
         error_code(host.dispatch("trust.set", json!({ "path": other_path, "decision": "maybe" }))),
         "invalid_params"
     );
-    std::env::remove_var("OPENRIDR_HOME");
 }
 
 #[test]
 fn recent_list_carries_decision_and_remove_keeps_it() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
-    std::env::set_var("OPENRIDR_HOME", home.path());
-    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _trust = EnvVar::remove("OPENRIDR_TRUST_STORE");
     let workspace = temp_workspace(&["App.csproj"]);
     let path = fs::canonicalize(workspace.path()).unwrap();
-    let host = Host::new();
+    let host = support::host();
     let key = open(&host, &path)["workspace"]["path"].as_str().unwrap().to_string();
     host.dispatch("trust.set", json!({ "path": key, "decision": "trusted" })).unwrap();
 
@@ -6307,17 +6288,16 @@ fn recent_list_carries_decision_and_remove_keeps_it() {
     let after = host.dispatch("recent.remove", json!({ "path": key })).unwrap();
     assert_eq!(after["projects"].as_array().unwrap().len(), 0);
     assert_eq!(host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"], "trusted");
-    std::env::remove_var("OPENRIDR_HOME");
 }
 
 #[test]
 fn undecided_open_leaves_no_trace_until_decided() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
-    std::env::set_var("OPENRIDR_HOME", home.path());
-    std::env::remove_var("OPENRIDR_TRUST_STORE");
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _trust = EnvVar::remove("OPENRIDR_TRUST_STORE");
     let workspace = temp_workspace(&["App.csproj"]);
-    let host = Host::new();
+    let host = support::host();
     let key = open(&host, &fs::canonicalize(workspace.path()).unwrap())["workspace"]["path"]
         .as_str()
         .unwrap()
@@ -6332,16 +6312,15 @@ fn undecided_open_leaves_no_trace_until_decided() {
     open(&host, &fs::canonicalize(workspace.path()).unwrap());
     host.dispatch("trust.revoke", json!({})).unwrap();
     assert_eq!(host.dispatch("recent.list", json!({})).unwrap()["projects"][0]["path"], key.as_str());
-    std::env::remove_var("OPENRIDR_HOME");
 }
 
 #[test]
 fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
-    std::env::set_var("OPENRIDR_HOME", home.path());
-    std::env::remove_var("OPENRIDR_TRUST_STORE");
-    let host = Host::new();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _trust = EnvVar::remove("OPENRIDR_TRUST_STORE");
+    let host = support::host();
     let missing = home.path().join("does-not-exist");
     assert_eq!(
         error_code(host.dispatch("trust.set", json!({ "path": missing, "decision": "trusted" }))),
@@ -6361,5 +6340,35 @@ fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions() {
         "trusted_unreadable"
     );
     assert_eq!(fs::read_to_string(home.path().join("trusted.json")).unwrap(), "{ not json");
-    std::env::remove_var("OPENRIDR_HOME");
+}
+
+/// The ambient purge runs once per binary, so the only honest way to test it is a fresh process:
+/// an exported bundled adapter must not reach a host whose test never asked for one.
+#[test]
+fn an_ambient_bundled_override_never_reaches_the_host() {
+    let bundle = tempfile::tempdir().unwrap();
+    let adapter = bundle.path().join("netcoredbg");
+    fs::write(&adapter, "#!/bin/sh\nprintf 'netcoredbg 3.2.0-1092\\n'\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let done = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--test-threads=1",
+            "--exact",
+            "trust_grant_needs_an_open_workspace_and_gates_every_direct_call",
+        ])
+        .env("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path())
+        .env_remove("OPENRIDR_HOME")
+        .output()
+        .unwrap();
+    assert!(
+        done.status.success(),
+        "with an ambient bundled override the host test failed:\n{}{}",
+        String::from_utf8_lossy(&done.stdout),
+        String::from_utf8_lossy(&done.stderr)
+    );
 }

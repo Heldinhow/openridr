@@ -1,40 +1,11 @@
+#[path = "support/mod.rs"]
+mod support;
+
 use openridr_host::{bundled, sdk, Host};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-
-/// The bundled-analysis tests share the app home and the two override variables with every
-/// other tool/LSP test, so they hold the same lock and run one at a time.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-struct EnvVar {
-    key: &'static str,
-    old: Option<std::ffi::OsString>,
-}
-
-impl EnvVar {
-    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let old = std::env::var_os(key);
-        std::env::set_var(key, value);
-        Self { key, old }
-    }
-
-    fn remove(key: &'static str) -> Self {
-        let old = std::env::var_os(key);
-        std::env::remove_var(key);
-        Self { key, old }
-    }
-}
-
-impl Drop for EnvVar {
-    fn drop(&mut self) {
-        match &self.old {
-            Some(value) => std::env::set_var(self.key, value),
-            None => std::env::remove_var(self.key),
-        }
-    }
-}
+use support::{env_guard, EnvVar};
 
 fn fixture() -> PathBuf {
     fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OrderDesk"))
@@ -92,7 +63,7 @@ fn fake_pair(root: &Path) -> (PathBuf, PathBuf) {
 #[cfg(unix)]
 #[test]
 fn a_bundled_pair_is_ready_without_installing_or_downloading() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -101,7 +72,7 @@ fn a_bundled_pair_is_ready_without_installing_or_downloading() {
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
 
     let state = snapshot(&host);
@@ -164,7 +135,7 @@ fn a_bundled_pair_is_ready_without_installing_or_downloading() {
 #[cfg(unix)]
 #[test]
 fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -177,10 +148,10 @@ fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
-    let other = Host::new();
+    let other = support::host();
     open(&other, &fixture());
     for _ in 0..10 {
         assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
@@ -192,7 +163,7 @@ fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
 #[cfg(unix)]
 #[test]
 fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -205,7 +176,7 @@ fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
-    let host = Host::new();
+    let host = support::host();
     let start = std::time::Instant::now();
     for _ in 0..5 {
         let state = host.dispatch("app.state", json!({})).unwrap();
@@ -219,7 +190,7 @@ fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
 #[cfg(unix)]
 #[test]
 fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -228,7 +199,7 @@ fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "ready");
 
@@ -240,7 +211,7 @@ fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
 
 #[test]
 fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     #[cfg(unix)]
     {
         let temp = tempfile::tempdir().unwrap();
@@ -275,7 +246,7 @@ fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10() {
         eprintln!("skip: {runtime:?} is not vendored (run scripts/vendor-analysis.sh)");
         return;
     }
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", temp.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -297,7 +268,7 @@ fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10() {
 #[cfg(unix)]
 #[test]
 fn a_distributed_app_without_the_bundle_fails_closed() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -307,7 +278,7 @@ fn a_distributed_app_without_the_bundle_fails_closed() {
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, temp.path().join("missing-tool"));
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, temp.path().join("missing-runtime"));
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     host.dispatch("setup.start", json!({})).unwrap();
     let state = snapshot(&host);
@@ -363,7 +334,7 @@ fn a_distributed_app_without_the_bundle_fails_closed() {
 #[cfg(unix)]
 #[test]
 fn a_distributed_app_with_a_partial_bundle_fails_closed() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     for half in ["tool-only", "runtime-only"] {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join(format!("home-{half}"));
@@ -379,7 +350,7 @@ fn a_distributed_app_with_a_partial_bundle_fails_closed() {
         let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tool_override);
         let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime_override);
 
-        let host = Host::new();
+        let host = support::host();
         open(&host, &fixture());
         host.dispatch("setup.start", json!({})).unwrap();
         let state = snapshot(&host);
@@ -405,7 +376,7 @@ fn a_distributed_app_with_a_partial_bundle_fails_closed() {
 
 #[test]
 fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -414,7 +385,7 @@ fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
     let _tool = EnvVar::remove(bundled::CSHARP_LS_OVERRIDE);
     let _runtime = EnvVar::remove(bundled::RUNTIME_OVERRIDE);
 
-    let host = Host::new();
+    let host = support::host();
     open(&host, &fixture());
     let tool = host
         .dispatch("tools.plan", json!({ "tool": "csharp-ls" }))
@@ -430,7 +401,7 @@ fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
 
 #[test]
 fn a_build_without_a_pair_never_reports_verifying() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -441,7 +412,7 @@ fn a_build_without_a_pair_never_reports_verifying() {
 
     // `setup` treats "verifying" as an install in progress; a dev/Windows/Intel build has no
     // pair, so it must stay absent and let the download plan start.
-    let host = Host::new();
+    let host = support::host();
     let state = host.dispatch("app.state", json!({})).unwrap();
     assert_eq!(state["tools"]["csharp-ls"]["state"], "absent");
 }
@@ -449,7 +420,7 @@ fn a_build_without_a_pair_never_reports_verifying() {
 #[cfg(unix)]
 #[test]
 fn bundled_result_is_cached_for_the_session() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = env_guard();
     let targets = [
         "dependency",
         "muxer",
@@ -472,7 +443,7 @@ fn bundled_result_is_cached_for_the_session() {
         let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
         let _runtime_env = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
 
-        let host = Host::new();
+        let host = support::host();
         open(&host, &fixture());
         assert_eq!(
             snapshot(&host)["tools"]["csharp-ls"]["state"],

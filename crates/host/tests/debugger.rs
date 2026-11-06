@@ -6,6 +6,9 @@
 //! prints `NET Core debugger 3.2.0-1 (controlled test artifact)`. It is executed only here, to
 //! exercise extraction and verification; it is not an official Samsung asset.
 
+#[path = "support/mod.rs"]
+mod support;
+
 use openridr_host::{Host, EXECUTABLE_METHODS};
 use serde_json::{json, Value};
 use std::fs;
@@ -13,15 +16,9 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-/// A failing test must not poison the environment guard for the whole binary.
-fn env_guard() -> std::sync::MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner())
-}
+use support::{env_guard, EnvVar};
 
 const ARTIFACT: &[u8] =
     b"#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1 (controlled test artifact, Release)\\n'\n";
@@ -300,34 +297,6 @@ fn artifact_zip(executable: &[u8]) -> Vec<u8> {
     ])
 }
 
-struct EnvVar {
-    key: &'static str,
-    old: Option<std::ffi::OsString>,
-}
-
-impl EnvVar {
-    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let old = std::env::var_os(key);
-        std::env::set_var(key, value);
-        Self { key, old }
-    }
-
-    fn remove(key: &'static str) -> Self {
-        let old = std::env::var_os(key);
-        std::env::remove_var(key);
-        Self { key, old }
-    }
-}
-
-impl Drop for EnvVar {
-    fn drop(&mut self) {
-        match &self.old {
-            Some(value) => std::env::set_var(self.key, value),
-            None => std::env::remove_var(self.key),
-        }
-    }
-}
-
 struct Seam {
     _home: EnvVar,
     _probe: EnvVar,
@@ -381,7 +350,7 @@ fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     let opened = open(&host, workspace.path());
     let debug = &opened["debug"];
@@ -475,7 +444,7 @@ fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
     ]);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -554,7 +523,7 @@ fn install_requires_trust_confirmation_and_an_unchanged_plan() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
 
@@ -597,7 +566,7 @@ fn a_changed_plan_after_confirmation_downloads_nothing() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -628,7 +597,7 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -719,7 +688,7 @@ fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_block
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
     let workspace = temp_workspace();
-    let first = Host::new();
+    let first = support::host();
     open(&first, workspace.path());
     first.dispatch("trust.grant", json!({})).unwrap();
     first
@@ -742,7 +711,7 @@ fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_block
 
     // A new host process starts with the experimental flag off and no in-memory install. The
     // adapter on disk is still reported, and the plan names the flag as the remaining gate.
-    let second = Host::new();
+    let second = support::host();
     open(&second, workspace.path());
     let view = state(&second);
     assert_eq!(view["adapterState"], "experimental_disabled");
@@ -788,7 +757,7 @@ fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
         Route::FailOnce(zip.clone(), Arc::clone(&fail)),
     )]);
     let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -831,7 +800,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
     {
         let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
         let seam = Seam::new(&server.url("/asset.zip"), &"1".repeat(64));
-        let host = Host::new();
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -852,7 +821,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
         let wrong = artifact_zip(WRONG_VERSION);
         let server = Server::start(vec![("/asset.zip", Route::Ok(wrong.clone()))]);
         let seam = Seam::new(&server.url("/asset.zip"), &sha256(&wrong));
-        let host = Host::new();
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -874,7 +843,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
         let corrupt = b"this is not a zip archive".to_vec();
         let server = Server::start(vec![("/asset.zip", Route::Ok(corrupt.clone()))]);
         let seam = Seam::new(&server.url("/asset.zip"), &sha256(&corrupt));
-        let host = Host::new();
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -894,7 +863,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
         let evil = zip_bytes(&[("../escape.txt", b"escaped\n", Some(0o644))]);
         let server = Server::start(vec![("/asset.zip", Route::Ok(evil.clone()))]);
         let seam = Seam::new(&server.url("/asset.zip"), &sha256(&evil));
-        let host = Host::new();
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -923,7 +892,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
         let link = raw_zip("link", b"/etc/passwd", 0o120777);
         let server = Server::start(vec![("/asset.zip", Route::Ok(link.clone()))]);
         let seam = Seam::new(&server.url("/asset.zip"), &sha256(&link));
-        let host = Host::new();
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -942,12 +911,15 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
     }
 
-    // 6. Absolute path entry: rejected as an escape.
+    // 6. Absolute path entry: rejected as an escape. The target lives under a fresh temporary
+    // directory, never a fixed name in /tmp that a concurrent run could create or remove.
+    let outside = tempfile::tempdir().unwrap();
     {
-        let absolute = raw_zip("/tmp/openridr-evil.txt", b"x", 0o100644);
+        let evil = outside.path().join("openridr-evil.txt");
+        let absolute = raw_zip(&evil.to_string_lossy(), b"x", 0o100644);
         let server = Server::start(vec![("/asset.zip", Route::Ok(absolute.clone()))]);
         let seam = Seam::new(&server.url("/asset.zip"), &sha256(&absolute));
-        let host = Host::new();
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -963,7 +935,7 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
             "{}",
             failed["error"]
         );
-        assert!(!Path::new("/tmp/openridr-evil.txt").exists());
+        assert!(!evil.exists());
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
     }
 }
@@ -976,7 +948,7 @@ fn origins_and_redirects_are_checked_before_any_download() {
     // A URL that is not the official host and not the loopback test seam is refused.
     {
         let seam = Seam::new("https://example.invalid/netcoredbg-win64.zip", &sha256(&zip));
-        let host = Host::new();
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -1002,7 +974,7 @@ fn origins_and_redirects_are_checked_before_any_download() {
             Route::Redirect("https://example.invalid/payload.zip"),
         )]);
         let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-        let host = Host::new();
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -1031,7 +1003,7 @@ fn cancel_keeps_partial_state_and_retry_completes() {
         ("/asset.zip", Route::Ok(zip.clone())),
     ]);
     let seam = Seam::new(&server.url("/slow.zip"), &sha256(&zip));
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
 
@@ -1106,7 +1078,7 @@ fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     for method in EXECUTABLE_METHODS.iter().filter(|method| method.starts_with("debug.")) {
@@ -1142,7 +1114,7 @@ fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
     let _bundle = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path());
 
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -1191,7 +1163,7 @@ fn without_a_bundle_the_tools_install_is_reused() {
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
     let _bundle = EnvVar::remove("OPENRIDR_BUNDLED_NETCOREDBG");
 
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -1221,7 +1193,7 @@ fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
     let _bundle = EnvVar::remove("OPENRIDR_BUNDLED_NETCOREDBG");
 
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
@@ -1232,4 +1204,35 @@ fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
     assert_ne!(debug["adapterState"], "ready");
     assert_eq!(debug["plan"]["existing"]["state"], "absent");
     assert!(!tool_dir(home.path()).exists());
+}
+
+/// The ambient purge runs once per binary, so only a fresh process can prove that an exported
+/// `OPENRIDR_BUNDLED_NETCOREDBG` no longer turns the controlled installer away.
+#[test]
+fn an_ambient_bundled_override_never_reaches_the_controlled_installer() {
+    let bundle = tempfile::tempdir().unwrap();
+    let adapter = bundle.path().join("netcoredbg");
+    fs::write(&adapter, ARTIFACT).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let done = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--test-threads=1",
+            "--exact",
+            "install_requires_trust_confirmation_and_an_unchanged_plan",
+        ])
+        .env("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path())
+        .env_remove("OPENRIDR_HOME")
+        .output()
+        .unwrap();
+    assert!(
+        done.status.success(),
+        "with an ambient bundled override the controlled install failed:\n{}{}",
+        String::from_utf8_lossy(&done.stdout),
+        String::from_utf8_lossy(&done.stderr)
+    );
 }
