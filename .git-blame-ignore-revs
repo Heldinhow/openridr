@@ -10,3 +10,7 @@
 
 # style: format the repository with cargo fmt (Refs #80)
 7069beb63485fc4a08da5bc2a62c927047850cf6
+
+# The merge of main into the formatting branch (2026-11-06): it re-formats the lines `main` changed
+# after the big bang (crates/host/src/dap.rs), so the merge itself is formatting, not authorship.
+2f54988cffc44e90798f4bd1c2e3ce30d0222644
