@@ -122,6 +122,13 @@ quanto tempo ninguém clicar. Numa rodada sem `--click` em que a resposta demoro
 reproduzido de propósito. O `sample` que mediu "15–18 s em `_dyld_start`" estava olhando essa
 espera, não verificação de assinatura — a avaliação inteira antes do diálogo levou 0,52 s (0,53 no relógio do harness).
 
+## Sobre matar o app no meio
+
+Killing the OpenRidr process does **not** dismiss the alert when the app never started: the alert
+belongs to `CoreServicesUIAgent`, so it stayed on screen after a round was interrupted (visto às
+13:58). O script passou a mandar `Escape` no fim de uma rodada sem `code` no modo `--click`, e a
+avisar o operador no modo manual. Fechar o diálogo com *Cancelar* não inicia o app.
+
 ## Provas auxiliares
 
 App translocado (é assim que o macOS roda um app em quarentena fora de `/Applications`):

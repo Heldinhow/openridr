@@ -19,6 +19,8 @@
 # prompt only. A click that does not start the app within 5 s fails the round.
 #
 # Interrupting a round can leave the app (and the dialog) on screen; quit it before measuring again.
+# Killing the app does not dismiss the alert when the app never started: the alert belongs to
+# CoreServicesUIAgent, so a failed round is followed by Escape (with --click) or a warning.
 #
 # Sampling runs at roughly 0,15-0,25 s per observation (pgrep/ps/perl/agent-desktop), so the
 # printed hundredths are a lower bound of the real instant, not a microbenchmark.
@@ -221,7 +223,15 @@ while [ "$round" -lt "$ROUNDS" ]; do
   done
 
   kill "$LOG_PID" 2>/dev/null || true; LOG_PID=
-  # Killing the app is what dismisses a dialog left on screen by a round that timed out.
+  # A round that never got `code` leaves the alert on screen even after the process is gone (the
+  # alert belongs to CoreServicesUIAgent). Dismiss it, or the next round starts behind it.
+  if [ -n "$t_prompt" ] && [ -z "$t_code" ]; then
+    if [ -n "$CLICK" ]; then
+      agent-desktop press escape --headed >/dev/null 2>&1 || true
+    else
+      printf 'measure-first-open: dismiss the Gatekeeper dialog on screen before the next round\n' >&2
+    fi
+  fi
   if [ -n "$APP_PID" ]; then
     kill "$APP_PID" 2>/dev/null || true
     waited=0
