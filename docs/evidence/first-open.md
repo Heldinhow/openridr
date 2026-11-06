@@ -16,8 +16,9 @@ espera, e isso é redutível pelo nosso bundle?"
   (`gh release download v0.3.0-alpha.11`), DMG `OpenRidr_0.3.0-alpha.11_aarch64.dmg`,
   sha256 `15bf37e8355127796ac0cf03b2c767f31495275ebc9847d623dd60c027880510` (confere com o
   digest do release).
-- Bundle: 164 MB, 18 Mach-O (14 dylibs do runtime .NET 10 + `dotnet`, `netcoredbg`,
-  `libdbgshim.dylib`, `openridr`), 423 arquivos, 192 na árvore `Resources/dotnet`.
+- Bundle: 164 MB, 18 Mach-O: 13 dylibs do runtime .NET 10 + `createdump` + o muxer `dotnet`
+  (= 15 em `Resources/dotnet`), mais `netcoredbg`, `libdbgshim.dylib` e `openridr`. 423 arquivos no
+  total, 192 na árvore `Resources/dotnet`.
 - Assinatura: `Developer ID Application: Helder Santos (K6M85697D4)`, hardened runtime,
   notarizado e grampeado (`spctl --assess --type execute` = *accepted, source=Notarized
   Developer ID*; `stapler validate` = ok).
@@ -59,8 +60,8 @@ Dispensa do diálogo: clique físico em *Abrir* via `agent-desktop mouse-click` 
 
 | condição | exec | prompt | click | code | window | click→code | click→window |
 |---|---|---|---|---|---|---|---|
-| **E0** sem quarentena, cópia em disco (2 rodadas, 1ª com cache frio) | 0,06 / 0,12 | — | — | 0,13 / 0,55 | 1,00 / — | — | — |
-| **E1** quarentena `0083`, cópia em disco (3) | 0,19 / 0,24 / 0,28 | **0,40 / 0,42 / 0,53** | 1,04 / 1,05 / 1,21 | 1,27 / 1,28 / 1,35 | 2,01 / 2,42 / 2,63 | **0,14–0,24** | **0,97–1,42** |
+| **E0** sem quarentena, cópia em disco (2 rodadas; a 1ª com cache de página frio) | 0,12 / 0,06 | — | — | 0,55 / 0,13 | — / 1,00 | — | — |
+| **E1** quarentena `0083`, cópia em disco (3) | 0,19 / 0,24 / 0,28 | **0,40 / 0,42 / 0,53** | 1,04 / 1,05 / 1,21 | 1,27 / 1,28 / 1,35 | 2,01 / 2,42 / 2,63 | **0,14–0,23** | **0,97–1,42** |
 | **E4** sem `Contents/CodeResources` (ticket online, 2) | 0,16 / 0,21 | 0,32 / 0,38 | 0,76 / 2,04 | 0,97 / 2,26 | 2,35 / 3,40 | 0,21 / 0,22 | 1,36 / 1,60 |
 | **E3** cópia de dentro do DMG montado (2) | 0,14 / 0,21 | 0,26 / 0,35 | 0,67 / 0,90 | 0,88 / 1,08 | 1,22 / 1,47 | 0,18 / 0,21 | 0,54 / 0,58 |
 | **E3m** abrir direto do DMG montado, 1ª vez | 0,19 | 1,38 | 1,78 | 6,21 | 6,90 | 4,43 | 5,12 |
@@ -75,42 +76,79 @@ Referências auxiliares:
   quarentenado não apresenta diálogo.
 - `ditto` do app de dentro do DMG montado para o disco: **1,95 s** (é o custo do arrasto).
 
-## O que o log do sistema mostra (rodada E1, 13:15:28)
+## O que o log do sistema mostra
+
+Linhas reais da rodada E1-1 (`open` às 13:21:05.844), com a origem de cada timestamp:
 
 ```
-13:15:28.132  open -n .../OpenRidr.app            (t0)
-13:15:29.33   syspolicyd  GK performScan ...      (+1,20)   ← início da avaliação
-13:15:29.61   CoreServicesUIAgent  present code-evaluation prompt   (+1,48)
-13:15:29.61   XProtect finished executable analysis / suppress first launch warning: true
-              (o processo fica parado em _dyld_start; LS: "launched with launchInQuarantine == true,
-               so not starting the application")
-13:15:52.5    clique em Abrir                      (+24,4)   ← latência do operador, não do sistema
-13:15:52.6    CoreServicesUIAgent  progressed to 2% … 100%
-13:15:52.8    nosso código roda
++0,17  syspolicyd          GK performScan (team K6M85697D4)      ← avaliação começa
++0,18  CoreServicesUIAgent XProtect finished executable analysis ← malware/signature check pronto
++0,52  CoreServicesUIAgent present code-evaluation prompt        ← diálogo na tela (0,52 s no total)
++1,05  clique em Abrir (agent-desktop)                           ← decisão
++1,07  CoreServicesUIAgent progressed to 0% … 100%               ← quarentena processada
++1,28  nosso código roda (RSS > 20 MB)
++2,01  janela do OpenRidr visível
 ```
 
-O `sample` que registrou "15–18 s em `_dyld_start`" estava olhando justamente esse intervalo de
-espera do diálogo — um processo suspenso por quarentena fica em `_dyld_start` até alguém
-responder, por mais tempo que se queira.
+E a linha que explica o `_dyld_start` (rodada de protótipo, 13:10:01.244, mesmo app):
+
+```
+CoreServicesUIAgent  LAUNCH: 0x0-0x4af4af com.openridr.desktop launched with
+                     launchInQuarantine == true, so not starting the application
+```
+
+O processo é criado e **fica parado em `_dyld_start` enquanto o diálogo espera resposta** — por
+quanto tempo ninguém clicar. Numa rodada sem `--click` em que a resposta demorou, o diálogo ficou
+18,4 s na tela e o código só começou 18,5 s depois dele aparecer: é o "18 s" relatado,
+reproduzido de propósito. O `sample` que mediu "15–18 s em `_dyld_start`" estava olhando essa
+espera, não verificação de assinatura — a avaliação inteira antes do diálogo levou 0,52 s.
+
+## Provas auxiliares
+
+App translocado (é assim que o macOS roda um app em quarentena fora de `/Applications`):
+
+```
+$ ps -o command -p <pid>
+/private/var/folders/n4/.../T/AppTranslocation/77F40975-6564-45D8-9513-A3AB52C4AF33/d/OpenRidr.app/Contents/MacOS/openridr
+```
+
+Layout do DMG publicado (atalho para Aplicações ao lado do app — a mitigação de empacotamento):
+
+```
+$ hdiutil attach OpenRidr_0.3.0-alpha.11_aarch64.dmg -nobrowse -mountpoint mnt4
+$ ls -la mnt4
+lrwxr-xr-x  Applications -> /Applications
+drwxr-xr-x  OpenRidr.app
+```
+
+O diálogo do Gatekeeper não expõe acessibilidade (`agent-desktop list-surfaces --app
+CoreServicesUIAgent` → `{"surfaces":[]}`), por isso a dispensa é clique físico; o `data` do
+clique no app é o path translocado acima, não a cópia original.
 
 ## Conclusão
 
-1. **O atraso não está no bundle.** O diálogo do Gatekeeper aparece em **0,40–0,53 s** com o app
-   notarizado/grampeado no disco, e o nosso código roda **0,14–0,24 s** depois do clique. Remover
-   o ticket grampeado (E4) não melhora: 0,32–0,38 s até o diálogo. Os 18 Mach-O e o layout em
-   `Contents/Resources` não aparecem como custo mensurável antes da decisão.
-2. **O que o usuário percebe como travamento é, na maior parte, o diálogo esperando clique.** É
-   comportamento do macOS para qualquer app baixado: não é redutível por assinatura, layout ou
-   quantidade de Mach-O.
+1. **O trabalho do sistema antes do diálogo é sub-segundo.** Com o app notarizado/grampeado no
+   disco, o Gatekeeper leva **0,52 s** até pôr o diálogo na tela (0,17 s até começar a avaliação,
+   0,18 s até o XProtect terminar). Tudo o que o bundle poderia economizar está, portanto,
+   **limitado a menos de meio segundo** — inclusive número de Mach-O e layout. Remover o ticket
+   grampeado (E4) não muda a ordem de grandeza: 0,32–0,38 s.
+2. **O que o usuário percebe como travamento é o diálogo esperando clique**, e não o app. É
+   comportamento do macOS para qualquer app baixado: o processo fica suspenso (`_dyld_start`) até
+   alguém responder. Medido: 0,14–0,23 s do clique até o nosso código e 0,97–1,42 s até a janela.
 3. **O caminho "abrir direto do DMG" é caro e é redutível por instrução, não por código:** clique
    → janela leva **5,1–6,6 s** porque o sistema lê 164 MB da imagem comprimida (o `ditto` do
    mesmo app leva 1,95 s). Arrastar para Aplicações e abrir de lá é o caminho de ~1,4 s.
-4. **Regra de corte aplicada:** as variantes de bundle (runtime em `tar.gz` para 1 Mach-O, runtime
-   em `Contents/Frameworks`, bundle sem runtime) só seriam medidas se `prompt` ou `click→code`
-   passassem de ~2 s. Não passaram em nenhuma condição, então **não foram medidas**.
-5. **Diálogo visível e focável.** Com Finder e com T3 Code na frente (janela maximizada no
-   centro), o diálogo apareceu **na frente e centralizado** em todas as rodadas com captura; e
-   quando ele está na tela o *Return* equivale a *Abrir* (app arrancou 0,25 s depois do Return).
+4. **Regra de corte aplicada apenas onde ela mede o bundle.** As variantes de bundle (runtime em
+   `tar.gz` para 1 Mach-O, runtime em `Contents/Frameworks`, bundle sem runtime) testariam o custo
+   de avaliação, então a condição é o app **no disco**: ali nenhum marco passou de 0,53 s até o
+   diálogo e 0,24 s depois do clique, muito abaixo do limite de ~2 s combinado — por isso **não
+   foram medidas**. Nas condições que abrem de dentro da imagem (E3m/E3c) `click→code` passou de
+   2 s, mas o custo ali é leitura da imagem (`ditto` 1,95 s), não avaliação de assinatura: variante
+   de bundle não mudaria esse número.
+5. **Diálogo visível e focável nas condições testadas.** Com Finder e com T3 Code na frente
+   (janela maximizada no centro), o diálogo apareceu **na frente e centralizado** em todas as
+   rodadas com captura; e quando ele está na tela o *Return* equivale a *Abrir* (app arrancou
+   0,25 s depois do Return). Tela cheia em outro Space não foi medida (ver abaixo).
 
 ## Não verificado
 
@@ -127,12 +165,14 @@ responder, por mais tempo que se queira.
   tela, e nenhum estado do processo em que ele esteja bloqueado *sem* o diálogo à vista — o
   processo fica suspenso pela quarentena, e o diálogo é a interface dessa suspensão.
 - **macOS 26 e anterior, macOS Intel, Windows**: não executados.
-- **E0 (sem quarentena) e E3c (imagem fria)**: 1 rodada válida cada (a 2ª de cada condição falhou
-  por clique errado/timeout); os números servem de referência, não de distribuição.
-- **Execução do script commitado**: a medição usou o protótipo; o script final foi validado em
-  `sh -n` e nos caminhos de erro (sem `agent-desktop`, `--rounds` fora de 1..5, app inexistente),
-  mas não foi rodado ponta a ponta depois de commitado (janela de GUI combinada com o
-  orquestrador).
+- **E0 (sem quarentena)**: 2 rodadas, mas a primeira só tem `exec`/`code` (sem captura de janela) e
+  a segunda reaproveita o cache de página da cópia; **E3c (imagem fria)**: 1 rodada válida (a 2ª
+  falhou no clique). Servem de referência, não de distribuição.
+- **Execução ponta a ponta do script commitado com `--click`**: não feita (janela de GUI combinada
+  com o orquestrador). A medição da tabela usou o protótipo que virou o script. O script commitado
+  rodou uma rodada **sem** `--click` (diálogo respondido por alguém, código 18,5 s depois do
+  prompt) e passou nos caminhos de erro (`sh -n`, `--rounds` fora de 1..5, `--timeout` não
+  numérico, app inexistente, flag sem valor, `--click` sem `Y`).
 
 ## Como reproduzir
 

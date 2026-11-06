@@ -19,7 +19,7 @@ Sem números separados, a próxima pessoa que investigar "primeira abertura lent
 
 1. **Medir e documentar as fases, não o total.** A primeira abertura passa a ter quatro marcos medidos: `exec` (processo criado), `prompt` (diálogo do Gatekeeper na tela), `code` (o nosso código começa a rodar) e `window` (janela do OpenRidr visível). O número que importa para o produto é `prompt` + `click→window`; a espera humana entre os dois não é atributo do app.
 2. **Deixar a medição reproduzível.** Um script único (`scripts/measure-first-open.sh`) monta a condição (cópia nova, quarentena nova, `OPENRIDR_HOME` isolado), dispara a abertura, cronometra os quatro marcos e imprime uma linha por rodada. Sem ele, o próximo diagnóstico repete a leitura errada.
-3. **Mitigar por documentação, não por código.** A primeira abertura de um app baixado sempre mostra o diálogo do sistema — é o preço de distribuir fora da App Store, e não há build que o evite. O que dá para dizer ao usuário é o que fazer: **arraste o app para Aplicações antes de abrir** e, na primeira abertura, **clique em Abrir** (ou tecle Enter). O layout de instalação já está correto (o DMG publicado tem o atalho `Applications -> /Applications` ao lado do app), então não há mudança de empacotamento nesta frente.
+3. **Mitigar por documentação, não por código.** A primeira abertura de um app baixado mostra o diálogo do sistema — é o preço de distribuir fora da App Store, e não há build que o evite (medido nas condições abaixo; tela cheia em outro Space não foi testada). O que dá para dizer ao usuário é o que fazer: **arraste o app para Aplicações antes de abrir** e, na primeira abertura, **clique em Abrir** (ou tecle Enter). O layout de instalação já está correto (o DMG publicado tem o atalho `Applications -> /Applications` ao lado do app), então não há mudança de empacotamento nesta frente.
 4. **Registrar o que não se reduz.** A conclusão "não redutível pelo bundle" vai para `docs/evidence/first-open.md` com a tabela de rodadas, para `docs/decisions.md` e para as notas de release, junto com o que ficou sem medição (tela cheia em outro Space, macOS 26, Intel, Windows).
 
 ## User Stories
@@ -37,7 +37,7 @@ Sem números separados, a próxima pessoa que investigar "primeira abertura lent
 11. Como mantenedor, quero saber o que **não** está sendo pago: o número de Mach-O (18) e o layout em `Contents/Resources` não aparecem como custo mensurável antes do diálogo.
 12. Como mantenedor, quero um script que reproduza a medição sem eu lembrar a receita de cópia, quarentena, `launchctl setenv` e clique.
 13. Como mantenedor, quero que o script recuse rodar se já existir uma instância do app, para não medir o plugin de instância única nem atrapalhar outra sessão.
-14. Como mantenedor, quero que o script me diga quantas rodadas fez e qual foi a dispersão, em vez de um número solitário.
+14. Como mantenedor, quero uma linha por rodada e a contagem de quantas chegaram à janela, para ver a dispersão em vez de confiar num número solitário.
 15. Como mantenedor, quero que o script documente como invalidar o cache entre rodadas, porque repetir na mesma cópia/caminho deixa de mostrar o diálogo.
 16. Como mantenedor, quero que as notas de release da próxima alpha expliquem o diálogo de primeira abertura, para reduzir relato de "travou".
 17. Como pessoa que lê `docs/install-app.md`, quero a instrução de arrastar para Aplicações antes de abrir, com o motivo e o número.
@@ -49,14 +49,15 @@ Sem números separados, a próxima pessoa que investigar "primeira abertura lent
 
 ## Implementation Decisions
 
+- **Precondição de assinatura.** O script recusa um bundle que não seja `Developer ID` e aceito pelo Gatekeeper (`--allow-unnotarized` para medir outro), porque o default `/Applications/OpenRidr.app` também é o destino do `bun run app:install` ad-hoc, e medir esse build descreveria outro diálogo.
 - **Marcos e definições.** `exec` = processo do app aparece; `prompt` = linha `present code-evaluation prompt` do `CoreServicesUIAgent` no log unificado; `code` = RSS do processo passa de 20 MB (o processo fica suspenso pela quarentena até a decisão); `window` = janela do OpenRidr listada como visível. O relógio de cada rodada começa imediatamente antes da chamada de abertura.
 - **Condições medidas** (todas com o app alpha.11 do release publicado, sem builds novos):
   - **E0 sem quarentena** — cópia em diretório gravável, xattr removido: isola o nosso arranque.
-  - **E1 quarentena, cópia em disco** (`0083` + UUID novo, caminho novo): o caminho de quem arrastou para Aplicações; o app roda translocado.
+  - **E1 quarentena, cópia em disco** (`0083` + UUID novo, caminho novo): o caminho de quem arrastou para Aplicações; o app roda translocado (`AppTranslocation` no path do processo).
   - **E3 cópia de dentro do DMG montado** (a cópia herda `00c3` do volume): equivalente a arrastar do DMG para o disco.
   - **E4 sem `Contents/CodeResources`** (ticket online, mesma assinatura): separa "grampeado" de "online".
   - **E3m/E3c abrir direto da imagem** (app dentro do DMG, sem cópia): o caminho lento.
-- **Regra de corte.** As variantes de bundle (runtime em `tar.gz` para 1 Mach-O, runtime em `Contents/Frameworks`, bundle sem runtime) só seriam medidas se `prompt` ou `click→code` passassem de ~2 s. Não passaram em nenhuma condição: as variantes ficam fora, com essa justificativa registrada.
+- **Regra de corte.** As variantes de bundle (runtime em `tar.gz` para 1 Mach-O, runtime em `Contents/Frameworks`, bundle sem runtime) testariam o custo de avaliação, e a condição para isso é o app **no disco**. Ali nenhum marco passou de 0,53 s até o diálogo e 0,24 s depois do clique, então as variantes ficam fora — não haveria o que economizar que coubesse no limite de ~2 s combinado. Nas condições que abrem de dentro da imagem (E3m/E3c) `click→code` passou de 2 s, mas o custo ali é leitura da imagem (`ditto` 1,95 s), que variante de bundle não muda.
 - **Cache e aprovação do sistema.** Medir de novo a mesma cópia no mesmo caminho **não** repete o diálogo: o macOS memoriza a aprovação. Cada rodada usa caminho novo + xattr de quarentena novo (UUID novo). O cache do `syspolicyd` não pode ser limpo nesta máquina (exige root); "primeira avaliação de um cdhash nunca visto" só é medível com build novo — e esta frente **não** faz notarização nova (decisão do Helder), então isso entra como limitação declarada.
 - **Clique.** O diálogo do `CoreServicesUIAgent` não expõe superfícies de acessibilidade (`list-surfaces` vazio), então a dispensa é clique físico via `agent-desktop` nas coordenadas do botão *Abrir*, com uma captura de tela por rodada como prova. O script não deve tentar "Enter" às cegas: quando o diálogo está focado, Enter equivale a *Abrir* (verificado), mas sem foco o Enter vai para o app da frente.
 - **Instância única.** O script aborta se houver `openridr` rodando; abrir duas vezes cai no plugin de instância única e mede outra coisa.
@@ -87,11 +88,11 @@ Medição de 2026-11-06, app `0.3.0-alpha.11` (DMG do release, sha256 `15bf37e8�
 
 | condição | marcos (s) | clique→código | clique→janela |
 |---|---|---|---|
-| E0 sem quarentena | exec 0,06 · code 0,13 | — | janela em 1,00 |
-| E1 quarentena, cópia em disco (3 rodadas) | exec 0,19–0,28 · prompt 0,40–0,53 | 0,14–0,24 | 0,97–1,42 |
+| E0 sem quarentena | exec 0,06–0,12 · code 0,13–0,55 | — | janela em 1,00 |
+| E1 quarentena, cópia em disco (3 rodadas) | exec 0,19–0,28 · prompt 0,40–0,53 | 0,14–0,23 | 0,97–1,42 |
 | E4 sem ticket grampeado (2 rodadas) | prompt 0,32–0,38 | 0,21–0,22 | 1,36–1,60 |
 | E3 cópia de dentro do DMG (2 rodadas) | prompt 0,26–0,35 | 0,18–0,21 | 0,54–0,58 |
 | E3m abrir direto do DMG (1ª vez) | prompt 1,38 | 4,43 | 5,12 |
 | E3c abrir direto de imagem fria (1 rodada) | prompt 1,51 | 5,44 | 6,57 |
 
-O "18 s" original é a soma de 1,5 s até o diálogo + tempo de reação humana + 5–7 s de leitura da imagem quando o app é aberto de dentro do DMG; com o app copiado para o disco, a janela aparece ~1,4 s depois do clique. `ditto` do mesmo app a partir da imagem montada leva 1,95 s, o que dimensiona a leitura.
+O "18 s" original é a soma de ~1,5 s até o diálogo + tempo de reação humana + ~4–5 s de leitura da imagem quando o app é aberto de dentro do DMG; com o app copiado para o disco, a janela aparece ~1,4 s depois do clique. `ditto` do mesmo app a partir da imagem montada leva 1,95 s, o que dimensiona a leitura. Como o limite superior do trabalho do sistema antes do diálogo é ~0,5 s (app no disco), nenhuma mudança de assinatura, layout ou contagem de Mach-O poderia devolver mais que isso.
