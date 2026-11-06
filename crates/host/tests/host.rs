@@ -6,8 +6,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use support::{env_guard, EnvVar};
-use std::ops::Deref;
+use support::EnvVar;
 
 // Tool installation and LSP tests share the app home (or `OPENRIDR_HOME`) and child processes, so
 // they run one at a time. The guard also removes the ambient `OPENRIDR_*` values of whoever ran
@@ -34,7 +33,7 @@ fn temp_workspace(projects: &[&str]) -> tempfile::TempDir {
     dir
 }
 
-fn open(host: &impl Deref<Target = Host>, path: &Path) -> Value {
+fn open(host: &Host, path: &Path) -> Value {
     let opened = host
         .dispatch("workspace.open", json!({ "path": path }))
         .expect("workspace opens");
@@ -648,7 +647,7 @@ fn utf16_bytes(text: &str, little_endian: bool) -> Vec<u8> {
     bytes
 }
 
-fn read_file(host: &impl Deref<Target = Host>, path: &str) -> Value {
+fn read_file(host: &Host, path: &str) -> Value {
     host.dispatch("file.read", json!({ "path": path }))
         .expect("file reads")
 }
@@ -933,11 +932,11 @@ fn one_workspace_at_a_time_and_awkward_names_work() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "after\n");
 }
 
-fn snapshot(host: &impl Deref<Target = Host>) -> Value {
+fn snapshot(host: &Host) -> Value {
     host.dispatch("workspace.state", json!({})).unwrap()
 }
 
-fn grant(host: &impl Deref<Target = Host>) -> Value {
+fn grant(host: &Host) -> Value {
     host.dispatch("trust.grant", json!({})).expect("trust is granted")
 }
 
@@ -1551,8 +1550,6 @@ fn redetect_is_allowed_before_and_after_trust_and_touches_no_project_file() {
 #[cfg(unix)]
 #[test]
 fn revoke_marks_a_real_child_and_terminate_reports_the_observed_exit() {
-    let _guard = env_guard();
-    support::enable_probe();
     let host = support::host();
     let workspace = temp_workspace(&["Probe.csproj"]);
     open(&host, &workspace.path().join("Probe.csproj"));
@@ -1596,8 +1593,6 @@ fn revoke_marks_a_real_child_and_terminate_reports_the_observed_exit() {
 #[cfg(unix)]
 #[test]
 fn keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_period() {
-    let _guard = env_guard();
-    support::enable_probe();
     let host = support::host();
     let workspace = temp_workspace(&["ProbeKeep.csproj"]);
     open(&host, &workspace.path().join("ProbeKeep.csproj"));
@@ -1657,8 +1652,6 @@ fn keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_perio
 #[cfg(unix)]
 #[test]
 fn switching_workspaces_marks_processes_pending_and_drops_trust() {
-    let _guard = env_guard();
-    support::enable_probe();
     let host = support::host();
     let first = temp_workspace(&["First.csproj"]);
     let second = temp_workspace(&["Second.csproj"]);
@@ -2505,7 +2498,7 @@ fn write_hanging_project(dir: &Path, source: &str) {
     );
 }
 
-fn wait_for_restore(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
+fn wait_for_restore(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -2942,13 +2935,13 @@ fn runtime_10() -> sdk::RuntimeInstall {
         .expect("a .NET 10 runtime exists")
 }
 
-fn tool_plan(host: &impl Deref<Target = Host>) -> Value {
+fn tool_plan(host: &Host) -> Value {
     host.dispatch("tools.plan", json!({ "tool": "csharp-ls" }))
         .expect("the install plan is built")["tools"]["csharp-ls"]
         .clone()
 }
 
-fn wait_tool(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
+fn wait_tool(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let tool = snapshot(host)["tools"]["csharp-ls"].clone();
@@ -2967,7 +2960,7 @@ fn wait_tool(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     }
 }
 
-fn ensure_tool(host: &impl Deref<Target = Host>) {
+fn ensure_tool(host: &Host) {
     let tool = tool_plan(host);
     if tool["state"] == "ready" {
         return;
@@ -2982,7 +2975,7 @@ fn ensure_tool(host: &impl Deref<Target = Host>) {
     assert_eq!(done["state"], "ready", "{}", done["log"]);
 }
 
-fn wait_lsp(host: &impl Deref<Target = Host>, timeout: Duration, states: &[&str]) -> Value {
+fn wait_lsp(host: &Host, timeout: Duration, states: &[&str]) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let lsp = snapshot(host)["lsp"].clone();
@@ -2999,7 +2992,7 @@ fn wait_lsp(host: &impl Deref<Target = Host>, timeout: Duration, states: &[&str]
     }
 }
 
-fn wait_publication(host: &impl Deref<Target = Host>, timeout: Duration, predicate: impl Fn(&Value) -> bool) -> Value {
+fn wait_publication(host: &Host, timeout: Duration, predicate: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -3021,8 +3014,8 @@ fn wait_publication(host: &impl Deref<Target = Host>, timeout: Duration, predica
 }
 
 #[test]
-fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -3132,8 +3125,8 @@ fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
 }
 
 #[test]
-fn tools_install_is_real_verified_and_reused() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn tools_install_is_real_verified_and_reused_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -3240,9 +3233,9 @@ fn tools_install_is_real_verified_and_reused() {
 
 #[cfg(unix)]
 #[test]
-fn setup_starts_before_trust_without_running_project_code() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn setup_starts_before_trust_without_running_project_code_isolated() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let adapter = temp.path().join("netcoredbg");
     fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
@@ -3251,7 +3244,6 @@ fn setup_starts_before_trust_without_running_project_code() {
     fs::write(&installer, "#!/bin/sh\nsleep 2\nexit 1\n").unwrap();
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", temp.path().join("home"));
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
@@ -3267,9 +3259,9 @@ fn setup_starts_before_trust_without_running_project_code() {
 
 #[cfg(unix)]
 #[test]
-fn setup_reuses_the_verified_installation_and_never_asks_again() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn setup_reuses_the_verified_installation_and_never_asks_again_isolated() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let adapter = temp.path().join("netcoredbg");
     fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
@@ -3292,7 +3284,6 @@ exit 0
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
@@ -3330,9 +3321,9 @@ exit 0
 
 #[cfg(unix)]
 #[test]
-fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed_isolated() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let empty = temp.path().join("no-adapter");
     fs::create_dir_all(&empty).unwrap();
@@ -3341,7 +3332,6 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
     let installer = temp.path().join("installer");
     fs::write(&installer, "#!/bin/sh\nexit 1\n").unwrap();
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let host = support::host();
     let workspace = temp_workspace(&["Setup.csproj"]);
@@ -3366,9 +3356,9 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
 
 #[cfg(unix)]
 #[test]
-fn failed_reinstall_keeps_the_previous_verified_tool_ready() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn failed_reinstall_keeps_the_previous_verified_tool_ready_isolated() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let adapter = temp.path().join("netcoredbg");
     fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
@@ -3394,7 +3384,6 @@ exit 0
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
@@ -3445,9 +3434,9 @@ exit 0
 
 #[cfg(unix)]
 #[test]
-fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies_isolated() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let adapter = temp.path().join("netcoredbg");
     fs::write(&adapter, "#!/bin/sh\necho 'netcoredbg 3.2.0-1092'\n").unwrap();
@@ -3467,7 +3456,6 @@ exit 0
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
@@ -3524,15 +3512,14 @@ exit 0
 
 #[cfg(unix)]
 #[test]
-fn tools_download_does_not_block_host_calls() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn tools_download_does_not_block_host_calls_isolated() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let installer = home.path().join("installer");
     fs::write(&installer, "#!/bin/sh\nexit 1\n").unwrap();
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _delay = EnvVar::set("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS", "1500");
     let host = support::host();
@@ -3569,12 +3556,11 @@ fn tools_download_does_not_block_host_calls() {
 /// server that never sends `Content-Length`, which is the case the disk fallback used to take over.
 #[cfg(all(unix, debug_assertions))]
 #[test]
-fn a_download_without_content_length_keeps_the_measured_bytes() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_download_without_content_length_keeps_the_measured_bytes_isolated() {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::os::unix::fs::PermissionsExt;
-
-    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let installer = home.path().join("slow-installer");
     // A package the size of nothing that matters, and an installer that copies 400 KiB into the
@@ -3612,7 +3598,6 @@ exit 1
     });
 
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _url = EnvVar::set(
         "OPENRIDR_TOOLS_PACKAGE_URL",
@@ -3671,10 +3656,9 @@ exit 1
 
 #[cfg(unix)]
 #[test]
-fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging_isolated() {
     use std::os::unix::fs::PermissionsExt;
-
-    let _guard = env_guard();
     let home = tempfile::tempdir().unwrap();
     let probe = tempfile::tempdir().unwrap();
     let installer = probe.path().join("probe-installer");
@@ -3700,7 +3684,6 @@ exit 1
     .unwrap();
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let host = support::host();
@@ -3778,8 +3761,8 @@ exit 1
 
 #[cfg(target_os = "macos")]
 #[test]
-fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -3843,8 +3826,8 @@ fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempote
 }
 
 #[test]
-fn lsp_start_requires_tool_sdk_and_current_restore() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn lsp_start_requires_tool_sdk_and_current_restore_isolated() {
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
 
     // No verified tool: the host says tool_missing and points to the plan.
@@ -3893,8 +3876,8 @@ fn lsp_start_requires_tool_sdk_and_current_restore() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isolated() {
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk lsp");
@@ -4035,7 +4018,6 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     assert_eq!(current_session["items"], json!([]));
 
     // Developer boundary: a publication without a range must not invent a position.
-    support::enable_probe();
     let probed = host
         .dispatch(
             "diagnostics.probe",
@@ -4116,9 +4098,9 @@ exec sleep 60
 
 #[cfg(unix)]
 #[test]
-fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process_isolated() {
     use std::os::unix::fs::PermissionsExt;
-    let _guard = env_guard();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
@@ -4127,7 +4109,6 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
     let noop = temp.path().join("noop-installer");
     fs::write(&noop, "#!/bin/sh\nexit 1\n").unwrap();
     fs::set_permissions(&noop, fs::Permissions::from_mode(0o755)).unwrap();
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &noop);
     // The stub stands in for csharp-ls, so the contract does not depend on the real server or the machine's SDKs.
     let destination = home.join("tools/csharp-ls/0.28");
@@ -4188,8 +4169,8 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
 }
 
 #[test]
-fn cancelling_a_running_install_reports_termination_and_never_ready() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn cancelling_a_running_install_reports_termination_and_never_ready_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
@@ -4197,7 +4178,6 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
     fs::write(&installer, "#!/bin/sh\nsleep 30\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
-    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let host = support::host();
     let workspace = temp_workspace(&["CancelInstall.csproj"]);
@@ -4250,8 +4230,8 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents_isolated() {
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk complete");
@@ -4434,7 +4414,7 @@ fn write_console_project(dir: &Path, name: &str, extra: &str) {
     .unwrap();
 }
 
-fn wait_for_build(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {    let deadline = Instant::now() + timeout;
+fn wait_for_build(host: &Host, timeout: Duration) -> Value {    let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
         let build = state["build"].clone();
@@ -4451,7 +4431,7 @@ fn wait_for_build(host: &impl Deref<Target = Host>, timeout: Duration) -> Value 
 }
 
 /// Waits until the DAP record leaves `building`/`preparing`: the session has real state.
-fn wait_for_dap(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
+fn wait_for_dap(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let dap = snapshot(host)["dap"].clone();
@@ -4467,7 +4447,7 @@ fn wait_for_dap(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
     }
 }
 
-fn wait_for_build_output(host: &impl Deref<Target = Host>, needle: &str, timeout: Duration) {
+fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -4723,7 +4703,7 @@ fn hanging_build_workspace() -> tempfile::TempDir {
 }
 
 #[cfg(unix)]
-fn ready_project(host: &impl Deref<Target = Host>, root: &Path, project: &str) {
+fn ready_project(host: &Host, root: &Path, project: &str) {
     open(host, &root.join(project));
     grant(host);
     host.dispatch("evaluation.run", json!({})).unwrap();
@@ -4733,7 +4713,7 @@ fn ready_project(host: &impl Deref<Target = Host>, root: &Path, project: &str) {
 }
 
 #[cfg(unix)]
-fn ready_for_build(host: &impl Deref<Target = Host>, root: &Path) {
+fn ready_for_build(host: &Host, root: &Path) {
     ready_project(host, root, "Slow.csproj");
 }
 
@@ -4941,7 +4921,7 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     assert_ne!(rerun["buildId"], build_id);
 
     // A failed implicit build never runs and keeps its diagnostics in the Build tab.
-    let run_processes = |host: &support::TestHost| {
+    let run_processes = |host: &Host| {
         snapshot(host)["processes"]
             .as_array()
             .unwrap()
@@ -5218,7 +5198,7 @@ fn sleeper_project(dir: &Path) {
 }
 
 #[cfg(unix)]
-fn wait_for_run(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
+fn wait_for_run(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -5237,7 +5217,7 @@ fn wait_for_run(host: &impl Deref<Target = Host>, timeout: Duration) -> Value {
 }
 
 #[cfg(unix)]
-fn wait_for_run_output(host: &impl Deref<Target = Host>, needle: &str, timeout: Duration) -> String {
+fn wait_for_run_output(host: &Host, needle: &str, timeout: Duration) -> String {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
@@ -5389,8 +5369,8 @@ fn write_netcoredbg(path: &Path, version: &str) {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources_isolated() {
     if std::env::consts::ARCH != "aarch64" {
         return;
     }
@@ -5542,8 +5522,8 @@ fn copy_dir(source: &Path, destination: &Path) {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn stopping_a_debug_session_waiting_for_its_build_stops_the_build_isolated() {
     if std::env::consts::ARCH != "aarch64" {
         return;
     }
@@ -5595,8 +5575,8 @@ fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build_isolated() {
     if std::env::consts::ARCH != "aarch64" {
         return;
     }
@@ -5667,7 +5647,7 @@ fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
     let _ = host.dispatch("debug.stop", json!({}));
 }
 
-fn wait_for_terminal_output(host: &impl Deref<Target = Host>, needle: &str, timeout: Duration) -> String {
+fn wait_for_terminal_output(host: &Host, needle: &str, timeout: Duration) -> String {
     let deadline = Instant::now() + timeout;
     loop {
         let log = snapshot(host)["terminal"]["log"]
@@ -5696,26 +5676,6 @@ impl Drop for TerminalCleanup<'_> {
     }
 }
 
-/// Restores `SHELL` after the test, before the environment lock is released.
-struct ShellEnv(Option<String>);
-
-impl ShellEnv {
-    fn use_posix_sh() -> Self {
-        let previous = std::env::var("SHELL").ok();
-        std::env::set_var("SHELL", "/bin/sh");
-        Self(previous)
-    }
-}
-
-impl Drop for ShellEnv {
-    fn drop(&mut self) {
-        match &self.0 {
-            Some(value) => std::env::set_var("SHELL", value),
-            None => std::env::remove_var("SHELL"),
-        }
-    }
-}
-
 #[test]
 fn terminal_start_needs_trust_and_spawns_no_shell() {
     let host = support::host();
@@ -5740,9 +5700,9 @@ fn terminal_start_needs_trust_and_spawns_no_shell() {
 
 #[cfg(unix)]
 #[test]
-fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() {
-    let _guard = env_guard();
-    let _env = ShellEnv::use_posix_sh();
+#[ignore = "isolated leaf: it sets SHELL for its own shell, so it runs in its own process"]
+fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child_isolated() {
+    let _shell = EnvVar::set("SHELL", "/bin/sh");
     let temp = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(temp.path()).unwrap();
     fs::write(
@@ -5883,7 +5843,6 @@ fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() 
 #[cfg(unix)]
 #[test]
 fn terminal_read_returns_raw_pty_bytes_by_offset_and_keeps_them_after_seal() {
-    let _guard = env_guard();
     let host = support::host();
     let workspace = temp_workspace(&["Raw.csproj"]);
     open(&host, &workspace.path().join("Raw.csproj"));
@@ -5928,7 +5887,6 @@ fn terminal_read_returns_raw_pty_bytes_by_offset_and_keeps_them_after_seal() {
 #[cfg(unix)]
 #[test]
 fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_it() {
-    let _guard = env_guard();
     let host = support::host();
     let first = temp_workspace(&["A.csproj"]);
     let second = temp_workspace(&["B.csproj"]);
@@ -5972,8 +5930,8 @@ fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_
 }
 
 #[test]
-fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
-    let _lock = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let host = support::host();
@@ -6021,8 +5979,8 @@ fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
 }
 
 #[test]
-fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust() {
-    let _lock = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let workspaces = tempfile::tempdir().unwrap();
@@ -6184,14 +6142,14 @@ fn run_and_debug_validate_launch_options_before_any_process() {
 }
 
 #[test]
-fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn remembered_trust_survives_a_new_host_and_revoke_forgets_it_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _store = EnvVar::remove("OPENRIDR_TRUST_STORE");
     let workspace = temp_workspace(&["Remember.csproj"]);
     let project = workspace.path().join("Remember.csproj");
-    let granted = |host: &support::TestHost| host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
+    let granted = |host: &Host| host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
 
     // A grant without `remember` is session-only.
     let first = support::host();
@@ -6219,8 +6177,8 @@ fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
 }
 
 #[test]
-fn trust_decision_persists_per_project_and_gates_workspace_open() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn trust_decision_persists_per_project_and_gates_workspace_open_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _trust = EnvVar::remove("OPENRIDR_TRUST_STORE");
@@ -6274,8 +6232,8 @@ fn trust_decision_persists_per_project_and_gates_workspace_open() {
 }
 
 #[test]
-fn recent_list_carries_decision_and_remove_keeps_it() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn recent_list_carries_decision_and_remove_keeps_it_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _trust = EnvVar::remove("OPENRIDR_TRUST_STORE");
@@ -6296,8 +6254,8 @@ fn recent_list_carries_decision_and_remove_keeps_it() {
 }
 
 #[test]
-fn undecided_open_leaves_no_trace_until_decided() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn undecided_open_leaves_no_trace_until_decided_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _trust = EnvVar::remove("OPENRIDR_TRUST_STORE");
@@ -6320,8 +6278,8 @@ fn undecided_open_leaves_no_trace_until_decided() {
 }
 
 #[test]
-fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _trust = EnvVar::remove("OPENRIDR_TRUST_STORE");
@@ -6366,38 +6324,212 @@ fn an_ambient_bundled_override_never_reaches_the_host() {
     );
 }
 
-/// #59: a test that swaps the environment under the guard must not be able to turn the probe off
-/// under a test that runs at the same time. The writer holds the environment exclusively, so the
-/// reader's host waits for it instead of observing a half-swapped environment; when the writer
-/// ends, the probe is still on for this test.
+
+// Each leaf below writes `OPENRIDR_*` for its host, so it runs in its own process: the
+// shared test process never changes its environment.
 #[test]
-fn a_concurrent_env_scope_cannot_disable_the_probe_for_another_test() {
-    support::enable_probe();
-    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
+    support::run_isolated_leaf("tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated");
+}
 
-    let swap = {
-        let barrier = std::sync::Arc::clone(&barrier);
-        std::thread::spawn(move || {
-            // Without this guard the probe below is read as "0" and `processes.probe` is refused.
-            let _guard = env_guard();
-            let home = tempfile::tempdir().unwrap();
-            let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-            let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
-            barrier.wait();
-            // Long enough that a reader outside the guard would see the swapped environment.
-            std::thread::sleep(Duration::from_millis(150));
-        })
-    };
+#[test]
+fn tools_install_is_real_verified_and_reused() {
+    support::run_isolated_leaf("tools_install_is_real_verified_and_reused_isolated");
+}
 
-    barrier.wait();
-    // The shared side of the lock: this waits for the writer above and then holds it for the test.
-    let host = support::host();
-    let workspace = temp_workspace(&["Probe.csproj"]);
-    open(&host, &workspace.path().join("Probe.csproj"));
-    grant(&host);
-    let probed = host
-        .dispatch("processes.probe", json!({ "kind": "quick" }))
-        .expect("the probe switch is still on for this test");
-    assert_eq!(probed["processes"][0]["state"], "running");
-    swap.join().unwrap();
+#[cfg(unix)]
+#[test]
+fn setup_starts_before_trust_without_running_project_code() {
+    support::run_isolated_leaf("setup_starts_before_trust_without_running_project_code_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_reuses_the_verified_installation_and_never_asks_again() {
+    support::run_isolated_leaf("setup_reuses_the_verified_installation_and_never_asks_again_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
+    support::run_isolated_leaf("setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_reinstall_keeps_the_previous_verified_tool_ready() {
+    support::run_isolated_leaf("failed_reinstall_keeps_the_previous_verified_tool_ready_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies() {
+    support::run_isolated_leaf("a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn tools_download_does_not_block_host_calls() {
+    support::run_isolated_leaf("tools_download_does_not_block_host_calls_isolated");
+}
+
+#[cfg(all(unix, debug_assertions))]
+#[test]
+fn a_download_without_content_length_keeps_the_measured_bytes() {
+    support::run_isolated_leaf("a_download_without_content_length_keeps_the_measured_bytes_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging() {
+    support::run_isolated_leaf("tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging_isolated");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent() {
+    support::run_isolated_leaf("hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent_isolated");
+}
+
+#[test]
+fn lsp_start_requires_tool_sdk_and_current_restore() {
+    support::run_isolated_leaf("lsp_start_requires_tool_sdk_and_current_restore_isolated");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
+    support::run_isolated_leaf("lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isolated");
+}
+
+#[cfg(unix)]
+#[test]
+fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
+    support::run_isolated_leaf("initialize_failure_surfaces_the_sdk_message_and_kills_the_process_isolated");
+}
+
+#[test]
+fn cancelling_a_running_install_reports_termination_and_never_ready() {
+    support::run_isolated_leaf("cancelling_a_running_install_reports_termination_and_never_ready_isolated");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
+    support::run_isolated_leaf("stopping_a_debug_session_waiting_for_its_build_stops_the_build_isolated");
+}
+
+#[test]
+fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
+    support::run_isolated_leaf("settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads_isolated");
+}
+
+#[test]
+fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust() {
+    support::run_isolated_leaf("run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust_isolated");
+}
+
+#[test]
+fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
+    support::run_isolated_leaf("remembered_trust_survives_a_new_host_and_revoke_forgets_it_isolated");
+}
+
+#[test]
+fn trust_decision_persists_per_project_and_gates_workspace_open() {
+    support::run_isolated_leaf("trust_decision_persists_per_project_and_gates_workspace_open_isolated");
+}
+
+#[test]
+fn recent_list_carries_decision_and_remove_keeps_it() {
+    support::run_isolated_leaf("recent_list_carries_decision_and_remove_keeps_it_isolated");
+}
+
+#[test]
+fn undecided_open_leaves_no_trace_until_decided() {
+    support::run_isolated_leaf("undecided_open_leaves_no_trace_until_decided_isolated");
+}
+
+#[test]
+fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions() {
+    support::run_isolated_leaf("trust_set_rejects_missing_paths_and_reports_unsaved_decisions_isolated");
+}
+
+
+#[cfg(target_os = "macos")]
+#[test]
+fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents() {
+    support::run_isolated_leaf("lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents_isolated");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources() {
+    support::run_isolated_leaf("debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources_isolated");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
+    support::run_isolated_leaf("debug_implicitly_builds_and_starts_the_session_when_there_is_no_build_isolated");
+}
+
+/// The test process is shared, so no test may write its environment: a test that needs different
+/// values runs its body in its own process (`support::run_isolated_leaf`). This guard reads the
+/// sources so a new `set_var` cannot quietly reintroduce the race the harness removed.
+#[test]
+fn env_writes_are_confined_to_isolated_leaves() {
+    // Built at runtime so this test's own source does not match its needles.
+    let needles = [
+        format!("std::env::{}_var(", "set"),
+        format!("std::env::{}_var(", "remove"),
+    ];
+    let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut offenders = Vec::new();
+    let mut leaves = Vec::new();
+    let mut wrappers = Vec::new();
+    for entry in fs::read_dir(&tests).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).unwrap();
+        let mut current = String::new();
+        for (number, line) in text.lines().enumerate() {
+            if let Some(rest) = line.trim_start().strip_prefix("fn ") {
+                current = rest.split('(').next().unwrap_or("").to_string();
+                if current.ends_with("_isolated") {
+                    leaves.push(current.clone());
+                }
+            }
+            if needles.iter().any(|needle| line.contains(needle.as_str()))
+                && !current.ends_with("_isolated")
+            {
+                offenders.push(format!("{}:{} in `{current}`", path.display(), number + 1));
+            }
+            if let Some(rest) = line.split("run_isolated_leaf(\"").nth(1) {
+                if let Some(name) = rest.split('"').next() {
+                    wrappers.push(name.to_string());
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "tests write the shared process environment; move the body to an `_isolated` leaf:\n{}",
+        offenders.join("\n")
+    );
+    let orphans: Vec<&String> = leaves
+        .iter()
+        .filter(|leaf| !wrappers.contains(leaf))
+        .collect();
+    assert!(
+        orphans.is_empty(),
+        "these isolated leaves have no `run_isolated_leaf` wrapper: {orphans:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() {
+    support::run_isolated_leaf("a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child_isolated");
 }

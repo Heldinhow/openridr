@@ -12,11 +12,11 @@ Windows e macOS Intel não foram executados.
 |---|---|---|---|---|
 | 3–4 testes de instalação do `crates/host/tests/debugger.rs` falham "mesmo com `--test-threads=1`" | `--test debugger` | Não reproduzido aqui: 14/14 verdes no HEAD `1921508` **e** no base `196e3b3`, com e sem `~/.dotnet` no PATH, com `--test-threads=1` e default. A sessão que relatou rodava em paralelo com outras (app aberto, `CARGO_TARGET_DIR` compartilhado, alpha.11 em `/Applications`) | Não determinada na origem; a classe "ambiente herdado decide o teste" foi reproduzida e fechada (linha abaixo) | **Não reproduzido** + classe fechada (#57, `55fbdd7`) |
 | Adaptador embutido apontado pelo ambiente muda o resultado | `--test debugger` com `OPENRIDR_BUNDLED_NETCOREDBG=/tmp/fakebundle` | Antes: `4 passed; 10 failed` (`netcoredbg is bundled with OpenRidr; there is nothing to download or install`). Depois: `15 passed; 0 failed` | O harness não decidia o ambiente do host que cria | **Corrigido** (#57) |
-| Host lendo `OPENRIDR_HOME` enquanto outro teste escreve sob guard | `--test host` | Antes: só o escritor era serializado; o host de um teste sem guard podia ler a home de outro teste no meio do corpo | Falta de coordenação do lado leitor | **Corrigido** (#59, re-check): o lock virou `RwLock`, o host de teste segura o lado compartilhado durante criação *e* uso, e o escritor toma o lado exclusivo |
+| Testes lendo/escrevendo o ambiente do processo compartilhado | `--test host`, `--test debugger`, `--test bundled_analysis` | Ao converter, 3 testes que ainda escreviam env no processo compartilhado falharam de imediato (`tool_missing: the verified csharp-ls launcher disappeared`, probe desligado) por estado deixado por outro teste | O env do processo era escrito por vários testes e lido por todos, sem dono | **Corrigido** (#59, 2º re-check): `support::prepare()` define o ambiente uma única vez e **nenhum teste o escreve depois**; quem precisa de valores diferentes roda o corpo num processo-filho (`*_isolated` + `run_isolated_leaf`); teste-guard `env_writes_are_confined_to_isolated_leaves` lê os fontes e falha se voltar `set_var`/`remove_var` fora de folha isolada |
 | O mesmo ambiente hostil no binário do host | `--test host` com `OPENRIDR_BUNDLED_NETCOREDBG`/`OPENRIDR_HOME`/`OPENRIDR_FORCE_HOSTROOT`/`OPENRIDR_TRUST_STORE` exportados | Antes: `96 passed; 2 failed` (`debug_start_gates_…`, `trust_grant_needs_an_open_workspace_…`). Depois: `100 passed; 0 failed` | Idem | **Corrigido** (#57) |
 | Skip do launch profile virando passe silencioso (achado do re-check) | `--lib` | Skip só quando `sdk::resolve` não acha raiz para o pin, com versão e raízes na mensagem; muxer resolvido ausente ou que não inicia **falha** o teste; `OPENRIDR_REQUIRE_DOTNET=1` troca o skip por falha | Skip era aceito também para uma instalação detectada e quebrada | **Corrigido** (#62, re-check) |
 | `run_configs::tests::launch_profile_runs_fixture_with_effective_environment_and_arguments` falha quando o muxer do PATH não tem o SDK do fixture | `--lib` | Antes: `A compatible .NET SDK was not found. Requested SDK version: 8.0.408` (`dotnet` do PATH = 8.0.416 + 10.0.100). Como era a única falha do binário `lib`, `cargo test -p openridr-host` abortava e **não rodava os outros seis binários** | O teste chamava o `dotnet` do PATH; Run/Debug de produção já usam o muxer do SDK resolvido (`project_muxer` + `dotnet_command`) | **Corrigido** (#62, `7a662dc`) — passa resolvendo 8.0.408 de `~/.dotnet`, com o PATH sem esse SDK |
-| `keep_leaves…` "falha no run completo a menos que `OPENRIDR_ENABLE_PROBE=1` esteja exportado" | `--test host` | Mecanismo demonstrado (patch temporário não commitado que solta o binding do probe no meio do teste): `processes.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.` — exatamente o sintoma relatado | O probe era ligado/desligado por escopo; o `Drop` de um teste restaurava "unset" | **Corrigido** (#59, `24ca412`): probe é uma decisão do binário e os testes de processo tomam o guard |
+| `keep_leaves…` "falha no run completo a menos que `OPENRIDR_ENABLE_PROBE=1` esteja exportado" | `--test host` | Mecanismo demonstrado (patch temporário não commitado que solta o binding do probe no meio do teste): `processes.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.` — exatamente o sintoma relatado | O probe era ligado/desligado por escopo; o `Drop` de um teste restaurava "unset" | **Corrigido** (#59): o probe é definido uma vez por processo pelo `prepare()` e os testes de processo rodam em folha isolada |
 | Restore/LSP do host falham "ocasionalmente" no run completo e passam isolados | `--test host` | Não reproduzido: 6 rodadas completas do pacote (3 antes e 3 depois das mudanças) sem nenhuma falha em `--test host` | Não determinada; o harness agora isola ambiente, home por processo e nomes de `/tmp` | **Não reproduzido** (classe fechada por #57) |
 | Debug E2E no fluxo legado `debug.install` (1/13) | `tests/e2e/debugger.spec.ts` | Não executado (decisão do Helder sobre Playwright pendente) | Spec escrito para o download do netcoredbg; o adaptador agora vem no bundle | **Quarentenado** (#67) |
 | `csharp-ls.spec.ts:150`, `testsuite.spec.ts` (`tests-filter-count`), `tests.spec.ts:317`, `ui-layout` em 1440 px | `tests/e2e/*` | Não executado | Não investigado (E2E fora de escopo nesta rodada) | **Quarentenado** (#67) |
@@ -55,20 +55,32 @@ test_discovery / test_run / trust_model):
 | 2 | 2,44 | 1,32 | 5,64 | 80,23 | 5,14 | 24,44 | 2,97 | 124 |
 | 3 | 2,25 | 1,36 | 5,65 | 72,24 | 5,50 | 24,87 | 2,80 | 115 |
 
-Rodada extra depois das correções do re-check (HEAD `e6a1707`, código novo, paralelismo default):
-431/431, 133 s no total (host 90,12 s; lib 2,24; bundled 1,27; debugger 5,52; discovery 5,81;
-run 24,73; trust 2,78).
+### Modelo atual (2º re-check do #59): processo compartilhado sem escrita de env
+
+Cada folha `*_isolated` aparece como ignorada no processo compartilhado e é executada pelo wrapper
+num processo-filho. 3 rodadas seguidas, paralelismo default:
+
+| Rodada | lib | bundled (exec/ign) | debugger (exec/ign) | host (exec/ign) | discovery | run | trust | total do host |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 287 ok | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok | 40,10 s |
+| 2 | 287 ok | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok | 45,78 s |
+| 3 | 287 ok | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok | 46,35 s |
+
+Total por rodada: ~85–100 s (os filhos rodam em paralelo; o host ficou ~2× mais rápido que o
+modelo anterior). Com `OPENRIDR_BUNDLED_NETCOREDBG`, `OPENRIDR_HOME`, `OPENRIDR_FORCE_HOSTROOT`,
+`OPENRIDR_TRUST_STORE` e `OPENRIDR_ENABLE_PROBE=0` exportados: `--test debugger` 15 ok + 14 ign,
+`--test bundled_analysis` 11 ok + 11 ign — o ambiente herdado não chega ao host.
 
 ### Falha-antes/passa-depois por ticket
 
+| #59 | testes que escreviam env no processo compartilhado (3 casos) ao rodarem juntos no mesmo binário | `FAILED` (`tool_missing`, probe desligado) | corpo em `*_isolated` + wrapper: verdes; guard de fontes verde |
+| #59 | `env_writes_are_confined_to_isolated_leaves` (teste-guard) | — | passa; falharia se um `set_var` voltasse para um teste compartilhado |
 | Ticket | Comando | Antes | Depois |
 |---|---|---|---|
 | #57 | `OPENRIDR_BUNDLED_NETCOREDBG=/tmp/fakebundle cargo test -p openridr-host --test debugger` | `4 passed; 10 failed` | `15 passed; 0 failed` |
 | #57 | idem, `--test host` (+ `OPENRIDR_HOME`, `OPENRIDR_FORCE_HOSTROOT`, `OPENRIDR_TRUST_STORE`) | `96 passed; 2 failed` | `100 passed; 0 failed` |
 | #57 | novo teste `an_ambient_bundled_override_never_reaches_the_host` no base `196e3b3` (`--exact trust_grant_needs_an_open_workspace_and_gates_every_direct_call` com o override) | `FAILED` (`debug.install must fail without starting a process: left "invalid_state", right "confirmation_required"`) | verde |
 | #57 | novo teste `an_ambient_bundled_override_never_reaches_the_controlled_installer` no base | `FAILED` (`left "invalid_state", right "confirmation_required"`) | verde |
-| #59 | `a_concurrent_env_scope_cannot_disable_the_probe_for_another_test` com o `env_guard()` do lado escritor removido (patch temporário, 3 execuções) | `FAILED` nas 3, sempre com `processes.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.` | com o guard: `1 passed` em 0,18–0,19 s; o escritor segura o ambiente e a leitura do host espera por ele |
-| #59 | patch temporário soltando o binding do probe no `keep_leaves…` (padrão antigo por escopo) | mesma mensagem de probe desligado | `support::enable_probe()`: o switch não é restaurado por escopo; 100/100 |
 | #62 | `cargo test -p openridr-host --lib launch_profile` | `A compatible .NET SDK was not found. Requested SDK version: 8.0.408` (binário `lib` inteiro abortado) | `287 passed`, com `launch profile fixture ran on SDK 8.0.408 from /Users/helder/.dotnet` |
 
 ## O que não foi verificado

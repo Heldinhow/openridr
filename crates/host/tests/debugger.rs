@@ -18,8 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use support::{env_guard, EnvVar};
-use std::ops::Deref;
+use support::EnvVar;
 
 const ARTIFACT: &[u8] =
     b"#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1 (controlled test artifact, Release)\\n'\n";
@@ -37,7 +36,7 @@ fn temp_workspace() -> tempfile::TempDir {
     dir
 }
 
-fn open(host: &impl Deref<Target = Host>, dir: &Path) -> Value {
+fn open(host: &Host, dir: &Path) -> Value {
     let opened = host
         .dispatch("workspace.open", json!({ "path": dir.join("Debug.csproj") }))
         .expect("workspace opens");
@@ -45,7 +44,7 @@ fn open(host: &impl Deref<Target = Host>, dir: &Path) -> Value {
     opened
 }
 
-fn state(host: &impl Deref<Target = Host>) -> Value {
+fn state(host: &Host) -> Value {
     host.dispatch("debug.state", json!({})).unwrap()["debug"].clone()
 }
 
@@ -53,7 +52,7 @@ fn error_code(result: Result<Value, openridr_host::HostError>) -> String {
     result.expect_err("expected host error").code
 }
 
-fn wait_for(host: &impl Deref<Target = Host>, states: &[&str], timeout: Duration) -> Value {
+fn wait_for(host: &Host, states: &[&str], timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
         let debug = state(host);
@@ -346,8 +345,8 @@ fn fake_netcoredbg(path: &Path) {
 }
 
 #[test]
-fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
@@ -436,8 +435,8 @@ fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
 }
 
 #[test]
-fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in_isolated() {
     // The official macOS zip nests the executable and ships AppleDouble metadata.
     let zip = zip_bytes(&[
         ("netcoredbg/netcoredbg", ARTIFACT, Some(0o755)),
@@ -519,8 +518,8 @@ fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
 }
 
 #[test]
-fn install_requires_trust_confirmation_and_an_unchanged_plan() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn install_requires_trust_confirmation_and_an_unchanged_plan_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
@@ -562,8 +561,8 @@ fn install_requires_trust_confirmation_and_an_unchanged_plan() {
 }
 
 #[test]
-fn a_changed_plan_after_confirmation_downloads_nothing() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_changed_plan_after_confirmation_downloads_nothing_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
@@ -593,8 +592,8 @@ fn a_changed_plan_after_confirmation_downloads_nothing() {
 }
 
 #[test]
-fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
@@ -683,8 +682,8 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
 }
 
 #[test]
-fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it_isolated() {
     let zip = zip_bytes(&[("netcoredbg/netcoredbg", ARTIFACT, Some(0o755))]);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
     let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
@@ -749,8 +748,8 @@ fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_block
 }
 
 #[test]
-fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let fail = Arc::new(AtomicBool::new(true));
     let server = Server::start(vec![(
@@ -793,8 +792,8 @@ fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
 }
 
 #[test]
-fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated() {
     let zip = artifact_zip(ARTIFACT);
 
     // 1. Hash mismatch: the controlled expected digest is wrong on purpose.
@@ -942,8 +941,8 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
 }
 
 #[test]
-fn origins_and_redirects_are_checked_before_any_download() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn origins_and_redirects_are_checked_before_any_download_isolated() {
     let zip = artifact_zip(ARTIFACT);
 
     // A URL that is not the official host and not the loopback test seam is refused.
@@ -996,8 +995,8 @@ fn origins_and_redirects_are_checked_before_any_download() {
 }
 
 #[test]
-fn cancel_keeps_partial_state_and_retry_completes() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn cancel_keeps_partial_state_and_retry_completes_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![
         ("/slow.zip", Route::Slow(zip.clone())),
@@ -1074,8 +1073,8 @@ fn cancel_keeps_partial_state_and_retry_completes() {
 }
 
 #[test]
-fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn the_debugger_methods_are_gated_before_trust_like_the_other_executables_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
@@ -1103,8 +1102,8 @@ fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
-fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_bundled_adapter_is_ready_and_refuses_install_and_retry_isolated() {
     let home = tempfile::tempdir().unwrap();
     let bundle = tempfile::tempdir().unwrap();
     let bundled_binary = bundle.path().join("netcoredbg");
@@ -1155,8 +1154,8 @@ fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
-fn without_a_bundle_the_tools_install_is_reused() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn without_a_bundle_the_tools_install_is_reused_isolated() {
     let home = tempfile::tempdir().unwrap();
     let installed = tool_dir(home.path()).join("3.2.0-1092/netcoredbg/netcoredbg");
     fake_netcoredbg(&installed);
@@ -1187,8 +1186,8 @@ fn without_a_bundle_the_tools_install_is_reused() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
-fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
@@ -1225,3 +1224,79 @@ fn an_ambient_bundled_override_never_reaches_the_controlled_installer() {
         &[("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path().as_os_str())],
     );
 }
+
+// Each leaf below writes `OPENRIDR_*` for its host, so it runs in its own process: the
+// shared test process never changes its environment.
+#[test]
+fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
+    support::run_isolated_leaf("macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it_isolated");
+}
+
+#[test]
+fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
+    support::run_isolated_leaf("macos_arm64_installs_the_controlled_artifact_only_after_opt_in_isolated");
+}
+
+#[test]
+fn install_requires_trust_confirmation_and_an_unchanged_plan() {
+    support::run_isolated_leaf("install_requires_trust_confirmation_and_an_unchanged_plan_isolated");
+}
+
+#[test]
+fn a_changed_plan_after_confirmation_downloads_nothing() {
+    support::run_isolated_leaf("a_changed_plan_after_confirmation_downloads_nothing_isolated");
+}
+
+#[test]
+fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
+    support::run_isolated_leaf("a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolated");
+}
+
+#[test]
+fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it() {
+    support::run_isolated_leaf("a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it_isolated");
+}
+
+#[test]
+fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
+    support::run_isolated_leaf("a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan_isolated");
+}
+
+#[test]
+fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
+    support::run_isolated_leaf("hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated");
+}
+
+#[test]
+fn origins_and_redirects_are_checked_before_any_download() {
+    support::run_isolated_leaf("origins_and_redirects_are_checked_before_any_download_isolated");
+}
+
+#[test]
+fn cancel_keeps_partial_state_and_retry_completes() {
+    support::run_isolated_leaf("cancel_keeps_partial_state_and_retry_completes_isolated");
+}
+
+#[test]
+fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
+    support::run_isolated_leaf("the_debugger_methods_are_gated_before_trust_like_the_other_executables_isolated");
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
+    support::run_isolated_leaf("a_bundled_adapter_is_ready_and_refuses_install_and_retry_isolated");
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn without_a_bundle_the_tools_install_is_reused() {
+    support::run_isolated_leaf("without_a_bundle_the_tools_install_is_reused_isolated");
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
+    support::run_isolated_leaf("without_a_bundle_or_a_tools_install_the_adapter_is_not_ready_isolated");
+}
+
