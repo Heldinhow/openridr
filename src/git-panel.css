@@ -46,8 +46,20 @@
 .git-diff-editors .git-diff-line-empty { background: #27292e; }
 .git-diff-editors .git-diff-intraline { background: #5377ac; }
 
+.git-diff-toolbar .git-diff-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.git-diff-toolbar .git-diff-mode button { width: auto; height: 22px; padding: 0 8px; border-radius: 0; color: var(--muted); font-size: var(--fs-meta); }
+.git-diff-toolbar .git-diff-mode button + button { border-left: 1px solid var(--line); }
+.git-diff-toolbar .git-diff-mode button[aria-pressed="true"] { background: var(--raised); color: var(--fg); }
 .git-diff-commit { margin: 0; padding: 3px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--fs-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .git-diff-commit code { color: var(--fg); }
+.git-diff-unified { flex: 1 1 auto; min-height: 0; }
+.git-diff-unified > div { height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.git-diff-unified .cm-editor { height: 100%; background: var(--bg); color: var(--fg); }
+.git-diff-unified .cm-gutters { background: var(--bg); color: var(--muted); border: 0; }
+.git-diff-unified .cm-line { min-height: 1.5em; line-height: 1.5; }
+.git-diff-unified .git-diff-line-added { background: #264b35; }
+.git-diff-unified .git-diff-line-removed { background: #423a3c; }
+.git-diff-unified .git-diff-intraline { background: #5377ac; }
 .git-diff-editors .cm-diff-connectors { width: 10px; min-width: 10px; border-right: 1px solid var(--line); }
 .git-diff-editors .cm-diff-connectors .cm-gutterElement { padding: 0; }
 .cm-diff-connector { width: 10px; height: 100%; min-height: 1.5em; }

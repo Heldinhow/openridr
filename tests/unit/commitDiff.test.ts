@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildCommitRows, parseCommitPatch } from "../../src/CommitDiff";
+import { buildCommitRows, loadDiffMode, parseCommitPatch, projectUnified } from "../../src/CommitDiff";
 
 describe("commit patch projection", () => {
   test("pairs replacements, preserves real line numbers and highlights only changed characters", () => {
@@ -84,5 +84,48 @@ describe("full-file rows", () => {
     expect(buildCommitRows("a\nb\n", "a\nc\n", [{ oldStart: 9, oldCount: 1, newStart: 9, newCount: 1 }])).toBeNull();
     expect(buildCommitRows("a\nb\n", "a\nc\n", [{ oldStart: 1, oldCount: 2, newStart: 1, newCount: 9 }])).toBeNull();
     expect(buildCommitRows("a\nb\n", "a\nc\nd\n", [{ oldStart: 2, oldCount: 1, newStart: 2, newCount: 1 }])).toBeNull();
+  });
+});
+
+describe("unified projection", () => {
+  test("splits a modified pair into removed and added lines with new-side numbers", () => {
+    const rows = buildCommitRows("keep\nold\n", "keep\nnew\ntail\n", [
+      { oldStart: 2, oldCount: 1, newStart: 2, newCount: 2 },
+    ])!;
+    const unified = projectUnified(rows.rows);
+    expect(unified.lines.map((line) => `${line.prefix}${line.text}`)).toEqual([" keep", "-old", "+new", "+tail"]);
+    expect(unified.lines.map((line) => line.number)).toEqual([1, null, 2, 3]);
+    expect(unified.differenceLines).toEqual([1]);
+  });
+
+  test("maps every difference to its first document line", () => {
+    const rows = buildCommitRows("a\nb\nc\n", "A\nb\nC\n", [
+      { oldStart: 1, oldCount: 1, newStart: 1, newCount: 1 },
+      { oldStart: 3, oldCount: 1, newStart: 3, newCount: 1 },
+    ])!;
+    const unified = projectUnified(rows.rows);
+    expect(unified.lines.map((line) => line.prefix + line.text)).toEqual(["-a", "+A", " b", "-c", "+C"]);
+    expect(unified.differenceLines).toEqual([0, 3]);
+  });
+});
+
+describe("diff mode preference", () => {
+  test("defaults to split and accepts only a stored unified value", () => {
+    const store = new Map<string, string>();
+    const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value) },
+    });
+    try {
+      expect(loadDiffMode()).toBe("split");
+      store.set("openridr.commitDiffMode.v1", "unified");
+      expect(loadDiffMode()).toBe("unified");
+      store.set("openridr.commitDiffMode.v1", "sideways");
+      expect(loadDiffMode()).toBe("split");
+    } finally {
+      if (original) Object.defineProperty(globalThis, "localStorage", original);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
   });
 });

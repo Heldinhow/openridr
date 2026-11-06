@@ -255,6 +255,40 @@ test("diff falls back to the patch for a binary file and says why", async ({ pag
   await page.getByRole("button", { name: "Close diff" }).click();
 });
 
+test("unified mode shows one editor and remembers the choice", async ({ page }) => {
+  fs.appendFileSync(path.join(repo, order), "// unified mode change\n");
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("toolband-commit").click();
+  await page.getByTestId(`commit-file-${order}`).click();
+
+  const diff = page.getByTestId("commit-diff");
+  const mode = diff.getByTestId("commit-diff-mode");
+  await expect(diff.locator(".cm-editor")).toHaveCount(2);
+  await expect(mode.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true");
+  await expect(mode.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "false");
+  await expect(diff.getByTestId("commit-diff-count")).toHaveText("1 difference");
+
+  await mode.getByRole("button", { name: "Unified" }).click();
+  await expect(mode.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true");
+  await expect(diff.locator(".cm-editor")).toHaveCount(1);
+  await expect(diff.getByTestId("commit-diff-unified")).toBeVisible();
+  await expect(diff.getByTestId("commit-diff-unified")).toContainText("+// unified mode change");
+  await expect(diff.getByTestId("commit-diff-count")).toHaveText("1 difference");
+  await expect(diff.locator(".cm-diff-connector")).toHaveCount(0);
+
+  // The choice outlives the diff tab, not just the file.
+  await page.getByRole("button", { name: "Close diff" }).click();
+  await page.getByTestId(`commit-file-${order}`).click();
+  await expect(diff.locator(".cm-editor")).toHaveCount(1);
+  await expect(mode.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true");
+
+  await mode.getByRole("button", { name: "Split" }).click();
+  await expect(diff.locator(".cm-editor")).toHaveCount(2);
+  await expect(diff.locator(".cm-diff-connector").first()).toBeVisible();
+  await page.getByRole("button", { name: "Close diff" }).click();
+});
+
 test("Git review keeps long diffs, paths, log metadata and commit feedback readable", async ({ page }) => {
   const longPath = `${"src/OrderDesk.Core/"}${"deeply-nested-review-folder/".repeat(3)}ReadablePath.cs`;
   const absolutePath = path.join(repo, longPath);

@@ -120,6 +120,53 @@ export function buildCommitRows(base: string | null, current: string | null, hun
   return { rows, differences: hunks.length };
 }
 
+export type UnifiedLine = { text: string; prefix: " " | "+" | "-"; number: number | null; kind: Cell["kind"]; difference: number | null; mark?: [number, number] };
+export type UnifiedDoc = { lines: UnifiedLine[]; differenceLines: number[] };
+
+/** Projects the paired rows onto one column: a paired modification becomes a removed line and
+ * an added line; the gutter shows the new file's number, so removed lines have none. */
+export function projectUnified(rows: DiffRow[]): UnifiedDoc {
+  const lines: UnifiedLine[] = [];
+  for (const row of rows) {
+    const { left, right } = row;
+    if (left.kind === "modified" && right.kind === "modified") {
+      lines.push({ text: left.text, prefix: "-", number: null, kind: "removed", difference: row.difference, mark: left.mark });
+      lines.push({ text: right.text, prefix: "+", number: right.number, kind: "added", difference: row.difference, mark: right.mark });
+    } else if (left.kind === "removed") {
+      lines.push({ text: left.text, prefix: "-", number: null, kind: "removed", difference: row.difference, mark: left.mark });
+    } else if (right.kind === "added") {
+      lines.push({ text: right.text, prefix: "+", number: right.number, kind: "added", difference: row.difference, mark: right.mark });
+    } else if (left.kind !== "empty" || right.kind !== "empty") {
+      const source = left.kind !== "empty" ? left : right;
+      lines.push({ text: source.text, prefix: " ", number: right.number ?? left.number, kind: "context", difference: null });
+    }
+  }
+  const differenceLines: number[] = [];
+  lines.forEach((line, index) => {
+    if (line.difference !== null && differenceLines[line.difference] === undefined) differenceLines[line.difference] = index;
+  });
+  return { lines, differenceLines };
+}
+
+export type DiffMode = "split" | "unified";
+export const diffModeKey = "openridr.commitDiffMode.v1";
+
+export function loadDiffMode(): DiffMode {
+  try {
+    return globalThis.localStorage?.getItem(diffModeKey) === "unified" ? "unified" : "split";
+  } catch {
+    return "split";
+  }
+}
+
+function saveDiffMode(mode: DiffMode) {
+  try {
+    globalThis.localStorage?.setItem(diffModeKey, mode);
+  } catch {
+    // Private mode or a full quota only loses the choice; the diff keeps working.
+  }
+}
+
 // One marker per changed line, on the right edge of the base pane: half a bar for a one-sided
 // line, the full bar for a modified pair. The gutter aligns by construction, no pixel math.
 class ConnectorMarker extends GutterMarker {
@@ -201,6 +248,39 @@ function SplitDiff({ rows, difference }: { rows: DiffRow[]; difference: number }
   return <div className="git-diff-editors"><div ref={left} aria-label="Base diff editor" /><div ref={right} aria-label="Current diff editor" /></div>;
 }
 
+function UnifiedDiff({ rows, difference }: { rows: DiffRow[]; difference: number }) {
+  const host = useRef<HTMLDivElement>(null);
+  const view = useRef<EditorView | null>(null);
+  const projected = useMemo(() => projectUnified(rows), [rows]);
+  useEffect(() => {
+    const doc = projected.lines.map((line) => `${line.prefix}${line.text}`).join("\n");
+    // The prefix is part of the document line, so intraline marks shift by one character.
+    const ranges: ReturnType<ReturnType<typeof Decoration.line>["range"]>[] = [];
+    let pos = 0;
+    for (const line of projected.lines) {
+      if (line.kind !== "context") ranges.push(Decoration.line({ class: `git-diff-line-${line.kind}` }).range(pos));
+      const shift = line.prefix.length;
+      if (line.mark && line.mark[0] < line.mark[1]) ranges.push(Decoration.mark({ class: "git-diff-intraline" }).range(pos + shift + line.mark[0], pos + shift + line.mark[1]));
+      pos += line.text.length + shift + 1;
+    }
+    view.current = new EditorView({ parent: host.current!, state: EditorState.create({ doc, extensions: [
+      EditorState.readOnly.of(true), EditorView.editable.of(false),
+      lineNumbers({ formatNumber: (number) => String(projected.lines[number - 1]?.number ?? "") }),
+      EditorView.decorations.of(Decoration.set(ranges, true)),
+      editorTheme,
+    ] }) });
+    return () => { view.current?.destroy(); view.current = null; };
+  }, [projected]);
+  useEffect(() => {
+    const index = projected.differenceLines[difference];
+    const current = view.current;
+    if (index === undefined || !current) return;
+    const line = current.state.doc.line(Math.min(index + 1, current.state.doc.lines));
+    current.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "center" }) });
+  }, [projected, difference]);
+  return <div className="git-diff-unified" data-testid="commit-diff-unified"><div ref={host} aria-label="Unified diff editor" /></div>;
+}
+
 const FULL_REASONS: Record<string, string> = {
   binary: "full file not available: binary file.",
   too_large: "full file not available: the file is too large (limit 1 MB or 30,000 lines).",
@@ -213,6 +293,7 @@ export function CommitDiff({ path, files, onNavigate }: { path: string; files: G
   const [diff, setDiff] = useState<GitFileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [difference, setDifference] = useState(0);
+  const [mode, setMode] = useState<DiffMode>(loadDiffMode);
   const file = files.find((entry) => entry.path === path);
   const staged = !!file?.staged && file.worktree === " ";
   const index = files.findIndex((entry) => entry.path === path);
@@ -236,6 +317,10 @@ export function CommitDiff({ path, files, onNavigate }: { path: string; files: G
     : fullFile
       ? "Showing the full file from Git."
       : `Showing changed hunks and context from Git${diff.truncated ? " · patch truncated by host" : ""}.${reason ? ` ${reason}` : ""}`;
+  function chooseMode(next: DiffMode) {
+    setMode(next);
+    saveDiffMode(next);
+  }
   return <section className="git-diff-view" data-testid="commit-diff" aria-label={`Git diff for ${path}`} role="tabpanel" id="commit-diff-content">
     <div className="git-diff-toolbar">
       <button aria-label="Previous difference" title="Previous difference" disabled={difference <= 0} onClick={() => setDifference(difference - 1)}><ArrowUp size={16} /></button>
@@ -244,6 +329,10 @@ export function CommitDiff({ path, files, onNavigate }: { path: string; files: G
       <button aria-label="Previous changed file" disabled={index <= 0} onClick={() => onNavigate(files[index - 1].path)}><ArrowLeft size={16} /></button>
       <span data-testid="commit-diff-file-count">{index < 0 ? 0 : index + 1}/{files.length} files</span>
       <button aria-label="Next changed file" disabled={index < 0 || index >= files.length - 1} onClick={() => onNavigate(files[index + 1].path)}><ArrowRight size={16} /></button>
+      <span className="git-diff-mode" role="group" aria-label="Diff view mode" data-testid="commit-diff-mode">
+        <button type="button" aria-pressed={mode === "split"} className={mode === "split" ? "active" : ""} onClick={() => chooseMode("split")}>Split</button>
+        <button type="button" aria-pressed={mode === "unified"} className={mode === "unified" ? "active" : ""} onClick={() => chooseMode("unified")}>Unified</button>
+      </span>
       <span className="git-diff-count" data-testid="commit-diff-count">{parsed.differences} {parsed.differences === 1 ? "difference" : "differences"}</span>
     </div>
     <div className="git-diff-labels">
@@ -254,7 +343,7 @@ export function CommitDiff({ path, files, onNavigate }: { path: string; files: G
     {!diff && !error && <p className="tree-note">Loading diff…</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {diff && (parsed.rows.length
-      ? <>{note && <p className="git-diff-note" data-testid="commit-diff-note">{note}</p>}<SplitDiff rows={parsed.rows} difference={difference} /></>
+      ? <>{note && <p className="git-diff-note" data-testid="commit-diff-note">{note}</p>}{mode === "split" ? <SplitDiff rows={parsed.rows} difference={difference} /> : <UnifiedDiff rows={parsed.rows} difference={difference} />}</>
       : <pre className="git-diff-note" data-testid="commit-diff-note">{[diff.message || diff.patch.trim() || "No diff.", reason].filter(Boolean).join("\n")}</pre>)}
   </section>;
 }
