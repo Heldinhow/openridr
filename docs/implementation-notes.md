@@ -1573,3 +1573,11 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - Testes: `tests/unit/keymapOptionKeys.test.ts` (4 casos) cobre evento composto casando o default de `git.update` nos três perfis, o físico não resgatando outro atalho (nem ⌘W sem Option), F5/Enter seguindo por `event.key`, layout mandando sem Option e a captura gravando `w`/`1`. `bun test tests/unit`: 57 testes; `tsc --noEmit` limpo.
 - Limite declarado: em layout não-US, atalho com Option passa a ser nomeado pela posição física da tecla (mesmo nome na captura e no matcher), não pelo rótulo do layout.
 - Não verificado: a tecla composta em Windows/Linux (Option não existe; a resolução só roda com `alt`) e em layout não-US.
+
+## Aceitação do menu nativo no app real (2026-11-06, #111, ticket #121)
+
+- Bundle `src-tauri/target/debug/bundle/macos/OpenRidr.app` `0.3.0-alpha.11` no commit `113e62a`, `OPENRIDR_HOME` isolado, workspace do `scripts/git-remote-fixture.sh` (bare + `user` + `peer`), uma instância por vez, só `agent-desktop` (nenhum Playwright).
+- S1 `⌥⌘W` abriu o diálogo "Update project" (Branch `main`, Upstream `origin/main`, Behind 0) com o app vivo — o defeito original era justamente esta tecla encerrar o app. S2 `⌘W` com duas abas fechou só a ativa. S3 `⌘W` em aba modificada mostrou "Close modified file?" e `Keep editing` manteve a aba. S4 `⌘Q` com buffer sujo mostrou "Close OpenRidr with unsaved changes?" e esperou a decisão. S5 o botão vermelho mostrou o mesmo diálogo. S6 o menu File tem só `Close Window`, **sem** acelerador (`AXMenuItemCmdChar` ausente), sem `Close All`, e o item dispara o diálogo de saída; `Discard and close app` encerrou o app e `desktop.sh down` confirmou `stopped`.
+- Evidência em `docs/evidence/native-menu-keymap.md` (capturas `s1`, `s3`, `s4` em `docs/evidence/native-menu-keymap/`). Falha-antes no app instalado 0.3.0-alpha.9: `⌥⌘W` e `⌘W` matavam o PID.
+- Não verificado: Windows/Linux/macOS Intel, layouts não-US e a composição do Option no navegador de E2E.
+- Armadilha operacional: duas sessões de verificação rodando juntas caem no mesmo state default (`$TMPDIR/verify-openridr-<uid>-desktop`), e o `app.pid` de uma passa a apontar para o app da outra; `desktop.sh down` derrubaria a instância alheia. Nesta rodada a sessão da #112 subiu depois do meu `down` e ocupou o mesmo state.
