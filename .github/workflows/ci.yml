@@ -3,8 +3,9 @@ name: ci
 # What runs on every pull request to main. The app targets macOS arm64, so the Rust job runs on
 # macos-15; the TypeScript job needs no macOS and runs on ubuntu to keep the queue short.
 #
-# The name of the `ci` job is a contract with .github/rulesets/main.json: renaming it (or removing the
-# job) without updating the ruleset silently removes the required check.
+# The names of the `ci` and `security` jobs are a contract with .github/rulesets/main.json: renaming
+# either of them (or removing the job) without updating the ruleset silently removes the required
+# check.
 on:
   pull_request:
     branches: [main]
@@ -149,11 +150,33 @@ jobs:
           printf '%s' "$PR_BODY" >"$body"
           sh scripts/ci-pr-body.sh "$body" "$PR_AUTHOR"
 
+  security:
+    # Deterministic checks only: gitleaks. The high-severity review by an LLM needs a credential
+    # (see issue "security review on every PR") and is not wired here.
+    name: security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The hit is looked for in the whole history, not only in the last commit.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          # The action comments on the PR only with this token, which a fork does not get; the failure
+          # is in the step log and the job summary either way.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
   # Single required check with a stable name: adding or renaming an internal job does not touch the
   # ruleset. A skipped PR-only job is not a failure, so `push` to main can pass without them.
   ci:
     name: ci
-    needs: [typescript, rust, governance]
+    needs: [typescript, rust, governance, security]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
