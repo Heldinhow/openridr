@@ -61,8 +61,8 @@ describe("fileGlyph", () => {
     const glyphOf = (path: string) => fileGlyph(fileKind(path));
     expect(glyphOf("Program.cs")).toBe("csharp");
     expect(glyphOf("OrderDesk.sln")).toBe("doc");
-    expect(glyphOf("App.csproj")).toBe("doc");
-    expect(glyphOf("App.sln.DotSettings.user")).toBe("doc");
+    expect(glyphOf("App.csproj")).toBe("project");
+    expect(glyphOf("App.sln.DotSettings.user")).toBe("xml");
     expect(glyphOf("LICENSE")).toBe("doc");
     expect(glyphOf("global.json")).toBe("json");
     expect(glyphOf("README.md")).toBe("markdown");

@@ -8,7 +8,7 @@ type Props = {
   level: number;
   /** undefined = leaf (no chevron); boolean = expandable and open/closed. */
   open?: boolean;
-  /** Omit for rows that are only a chevron and a name (folders, SPEC-SOLUTION-FILE-ICONS D3). */
+  /** Omit for folders; the row supplies their folder glyph. */
   icon?: ReactNode;
   name: string;
   /** Accessible description read after the name, for information the row only shows as a glyph. */
@@ -93,7 +93,23 @@ export function TreeRow({
           aria-hidden="true"
         />
       ))}
-      <span className="tree-icon">{icon}</span>
+      <span className="tree-icon">
+        {!icon && open !== undefined ? (
+          <span className="solution-folder-icon" aria-hidden="true">
+            <Icon name="folder" />
+            {name.toLowerCase() === "config" && <span className="folder-config-badge">↗</span>}
+          </span>
+        ) : testId?.startsWith("tree-deps-") && !testId.startsWith("tree-deps-group-") ? (
+          <svg className="dependency-glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M7 5.5 3.6 10M9 5.5l3.4 4.5" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="8" cy="3.5" r="2" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="3" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="13" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
+          </svg>
+        ) : testId?.startsWith("tree-framework-") || (testId?.startsWith("tree-deps-group-") && testId.endsWith("-frameworks")) ? (
+          <Icon name="settings" className="framework-glyph" />
+        ) : icon}
+      </span>
       <span className="tree-name">{name}</span>
       {noIndex && <span className="tag">· no index</span>}
       {suffix}
