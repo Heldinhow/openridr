@@ -8,14 +8,17 @@ Issue [#46](https://github.com/Heldinhow/openridr/issues/46). Fatias #76 (host) 
 
 ```sh
 cargo test -p openridr-host --lib dap::tests
-# 17 passed; 0 failed
+# 19 passed; 0 failed
 ```
 
-9 testes novos em `crates/host/src/dap.rs`, dirigidos por mensagens DAP reais (sem netcoredbg, sem
-adapter script): sessão que nunca parou sem breakpoint (frase com exit), exit nunca reportado (frase
-sem parêntese), parou-e-continuou (sem frase), breakpoint setado e não atingido (sem frase), mute-all
-(frase de mute), filtro de exceções lançadas (sem frase), run-to-cursor pendente (sem frase), parada
-pedida pelo usuário via `shutdown` (`cancelled`, sem frase), `failed` (sem frase).
+11 testes novos em `crates/host/src/dap.rs`, dirigidos por mensagens DAP reais (sem netcoredbg, sem
+adapter script): sessão que nunca parou sem breakpoint (frase com exit), exit nunca reportado mas
+reportado o exit do debuggee (frase sem parêntese), parou-e-continuou (sem frase), breakpoint setado e
+não atingido (sem frase), mute-all (frase de mute), filtro de exceções lançadas (sem frase),
+run-to-cursor pendente (sem frase), parada pedida pelo usuário via `shutdown` (`cancelled`, sem
+frase), `failed` pelo mesmo `fail` que a negociação com o adaptador usa (sem frase), adaptador que
+morre sem reportar o exit do debuggee (`observe_adapter_exit`: sem frase) e último breakpoint removido
+(lista vazia daquela fonte: frase de nenhum breakpoint). Os dois últimos vieram da revisão de código.
 
 **Falha-antes provada:** trocando só a atribuição `self.no_stop_explanation =
 self.no_stop_explanation_for(state)` por `= None` (e restaurando em seguida, sem `git stash`), os três
@@ -37,7 +40,7 @@ primeira abertura. Uma instância só; app fechado ao final.
 
 | Rodada | Ação | Observado |
 |---|---|---|
-| 1 | Debug com nenhum breakpoint | `Terminated`, “No breakpoints were set; the program ran to completion (exit 0). Its output is in the Console tab.” em cor de informação, acima de Threads/Call frames/Locals; lista de breakpoints vazia; nenhuma nota atenuada de fim; Console com o output real do programa (“Order A-104: R$ 42,00”). |
+| 1 | Debug com nenhum breakpoint (rodada de novo com o código final, depois dos ajustes da revisão: breakpoint removido com Cmd+F8, lista vazia daquela fonte) | `Terminated`, “No breakpoints were set; the program ran to completion (exit 0). Its output is in the Console tab.” em cor de informação, acima de Threads/Call frames/Locals; lista de breakpoints vazia; nenhuma nota atenuada de fim; Console com o output real do programa (“Order A-104: R$ 42,00”). |
 | 2 | Breakpoint na linha 1 + **Mute all**, Debug | `Terminated`, “Breakpoints are muted; the program ran to completion (exit 0). Its output is in the Console tab.”; o breakpoint continua listado. |
 | 3 | **Unmute all**, Debug | `Paused · breakpoint · 1 frame(s) · 1 thread(s)`, threads/frames/locals reais e **nenhuma** explicação de “sem parada”. |
 
