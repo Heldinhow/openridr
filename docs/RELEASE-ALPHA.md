@@ -13,9 +13,13 @@ Décima primeira alfa instalável da IDE C#/.NET inspirada no Rider (Tauri 2 + R
 ## Instalar
 
 1. Baixe `OpenRidr_0.3.0-alpha.11_aarch64.dmg`, abra e arraste **OpenRidr** para **Applications**.
-2. Abra o app. O macOS pode pedir confirmação na primeira abertura; app e DMG têm assinatura
-   Developer ID e ticket de notarização. A primeira abertura após a instalação pode levar alguns
-   segundos enquanto o macOS verifica o app, antes de a janela aparecer.
+   Arraste antes de abrir: aberto direto da janela do DMG, o app leva ~5–7 s até a janela depois do
+   clique, porque o macOS lê os 164 MB de dentro da imagem comprimida.
+2. Abra o app. Na primeira abertura o macOS pergunta se você quer abrir um app baixado da internet:
+   **clique em Abrir** (ou tecle Enter). O diálogo aparece em ~0,5 s e a janela em ~1,4 s depois do
+   clique (medido nesta máquina, no alpha.11); o tempo parado antes disso é a espera do clique, não
+   verificação do app. App e DMG têm assinatura Developer ID e ticket de notarização. Nas aberturas
+   seguintes não há diálogo.
 3. Instale separadamente o **.NET SDK que o projeto pede**. O OpenRidr apenas o detecta: não instala
    SDK nem modifica `global.json`.
 4. Para associar `.sln` ou `.csproj`: Finder → Obter Informações → **Abrir com** → OpenRidr →
