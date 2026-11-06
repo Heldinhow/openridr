@@ -166,14 +166,13 @@ test("the current row has a rounded selection fill", async ({ page }) => {
 
   await row.click();
   await expect(row).toHaveAttribute("aria-current", "page");
+  await expect(row).toHaveCSS("background-color", "rgb(46, 67, 110)");
   const after = await row.evaluate((el) => ({
     shadow: getComputedStyle(el).boxShadow,
-    background: getComputedStyle(el).backgroundColor,
     radius: getComputedStyle(el).borderRadius,
     height: el.getBoundingClientRect().height,
   }));
   expect(after.shadow).toBe("none");
-  expect(after.background).toBe("rgb(46, 67, 110)");
   expect(after.radius).not.toBe("0px");
   expect(after.height).toBeLessThan(36);
   await shot(page, "depois-selecao");

@@ -13,6 +13,5 @@
 .folder-config-badge { position: absolute; left: 0; bottom: -1px; color: #77adff; background: #263e68; font: bold 9px/8px Arial, sans-serif; }
 .sol-row.no-index { background: rgba(120, 70, 40, .18); }
 .sol-row.no-index:hover { background: rgba(120, 70, 40, .28); }
-.sol-row.selected.no-index { background: var(--select); }
 .sol-row.no-index .tree-name { color: inherit; }
 .sol-row.no-index .tree-icon { opacity: 1; }
