@@ -1329,3 +1329,57 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 - Testes de bundle e setup passaram; app real com fixture isolada chegou ao diálogo Trust. Não
   verificado: notarização do novo build, status visual transitório (a verificação terminou antes
   da captura), Windows e macOS Intel. Sem Playwright, conforme escopo solicitado.
+
+## 2026-11-06 — Release CI (issues #58, #61, #63, #65, #66, #68)
+
+Spec: [SPEC-release-ci.md](SPEC-release-ci.md). Decisões: `decisions.md`, “Release CI”.
+
+- **Um script manda.** `scripts/release-macos.sh` é o processo do release; o workflow só o chama.
+  Modos: `--check` (preflight), `--dry-run` (build + DMG + plano, sem assinatura), `--dmg-only`
+  (monta/confere DMG de um `.app` existente), `--audit <app>` (só a auditoria de Mach-O) e o modo
+  completo. Saída: `version`/`dmg`/`sha256`/`bytes`/`verify_*` em `$GITHUB_OUTPUT` quando existe, e
+  linhas `dmg=`/`sha256=`/`bytes=` em stdout nos modos de ensaio.
+- **Seams, todos por ambiente:** `RELEASE_ROOT` (self-check aponta para um checkout plantado),
+  `RELEASE_APP` e `RELEASE_SKIP_BUILD` (pular build), `RELEASE_VERSION` (`--dmg-only` sem tag). Nenhum
+  deles muda o caminho de release.
+- **Preflight reprova, não avisa:** tag `v<semver>` (regex estrita), versão igual nas cinco fontes,
+  tag existente e ancestral de `origin/main`, primeiro heading de `docs/RELEASE-ALPHA.md`, credenciais
+  presentes (só nomes), ferramentas (`bun cargo xcrun codesign hdiutil ditto shasum gh`) e `uname -m`
+  = arm64. Identidade que não comece com `Developer ID Application: ` é recusada (impede `-` ad-hoc
+  entrar pela variável).
+- **Auditoria de Mach-O:** detecta por magic number (`cffaedfe`/`cefaedfe`/`cafebabe`) e exige por
+  arquivo `codesign --verify --strict`, `flags=0x10000(runtime)`, `Timestamp=` e
+  `Authority=Developer ID Application: <identidade>`. Exceção única: basename `createdump`, aceito só
+  com `Authority=Developer ID Application: Microsoft Corporation (UBF8T346G9)` e no máximo um.
+  Comparação por `Authority`, porque dylib não tem `TeamIdentifier` (medido na alpha.11: 18 Mach-O,
+  17 nossos + 1 `createdump`). A falha nomeia o caminho relativo e o motivo.
+- **Credenciais de notarização:** `APPLE_API_KEY` é base64 do `.p8`; o script decodifica em
+  `$RUNNER_TEMP/AuthKey_<KEYID>.p8` com `chmod 600`, passa só o caminho para `notarytool` e remove no
+  `trap cleanup EXIT`. `--issuer` entra só quando `APPLE_API_ISSUER` existe (Team API Key).
+  `NOTARY_KEYCHAIN_PROFILE` é a alternativa local, para o ritual do keychain `notary` continuar.
+- **Ordem do caminho completo:** build → auditoria → zip do `.app` (`ditto --sequesterRsrc`) →
+  `notarytool submit --wait` → `stapler`/`validate` no `.app` → DMG (`hdiutil`) → `codesign` no DMG →
+  notarizar → grampear → verificação (codesign/spctl/stapler em app, app montado e DMG) → sha256.
+  Rejeição da Apple imprime `notarytool log <id>` e falha sem publicar.
+- **Notas:** `scripts/release-notes.sh` concatena `docs/RELEASE-ALPHA.md` com o bloco `## Verificação`
+  (nome do DMG, bytes, sha256, `shasum -a 256`, resultados de verificação quando definidos) e **recusa**
+  notas que já contenham um SHA-256. O hash/tamanho escritos à mão saíram do `RELEASE-ALPHA.md`.
+  O DMG não é reproduzível byte a byte (duas montagens ad-hoc do mesmo `.app`: 69.516.096 e
+  69.516.278 bytes), então o hash sempre vem do run.
+- **Workflow:** `.github/workflows/release.yml`, job único em `macos-15`, `timeout-minutes: 90`,
+  `permissions: contents: write`, `concurrency: release-${{ github.ref }}` sem cancelar. Passos:
+  checkout (`fetch-depth: 0`) → setup-bun 1.3.9 → preflight → keychain temporário (senha
+  `openssl rand`) → deps + `bun run check` + `bun run test:unit` → `release-macos.sh` → limpeza do
+  certificado em `if: always()` → corpo das notas → `gh release create --prerelease`
+  (`github.event_name == 'push' || inputs.publish == true`, rerun edita e faz `--clobber`) → artifact
+  do DMG por 14 dias. Actions pinadas por SHA; sem `tauri-apps/tauri-action`.
+- **Testes que rodam sem credenciais:** `scripts/release-selfcheck.sh` (cada regra do preflight
+  reprovando isoladamente, caso completo aprovado, DMG montado de um `.app` stub com nome/symlink/
+  versão/`$GITHUB_OUTPUT`, auditoria aprovando `/Applications/OpenRidr.app` e reprovando identidade
+  trocada, caminho completo parando na auditoria de um bundle ad-hoc sem deixar arquivo em
+  `RUNNER_TEMP`) e `scripts/release-notes-selfcheck.sh` (bloco, resultados opcionais, cada rejeição).
+  `actionlint` + `shellcheck -s sh` limpos.
+- **Não verificado:** assinatura Developer ID real, notarização aceita, `stapler`, publicação da
+  pré-release e o workflow rodando no GitHub — tudo exige as credenciais que só o Helder cadastra.
+  macOS Intel e Windows continuam fora. Passo a passo do primeiro run:
+  [release-signing.md](release-signing.md).

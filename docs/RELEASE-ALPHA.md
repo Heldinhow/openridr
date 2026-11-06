@@ -43,13 +43,13 @@ Décima primeira alfa instalável da IDE C#/.NET inspirada no Rider (Tauri 2 + R
 
 ## Verificação
 
-```text
-15bf37e8355127796ac0cf03b2c767f31495275ebc9847d623dd60c027880510  OpenRidr_0.3.0-alpha.11_aarch64.dmg
-```
+O corpo publicado desta release é montado pelo workflow a partir deste arquivo: nome do DMG,
+SHA-256, tamanho em bytes e o resultado de `codesign`, `spctl` e `stapler` do run entram no bloco
+`## Verificação` gerado no fim ([release-signing.md](release-signing.md)). Um hash escrito à mão não
+entra, porque ele só pode estar errado: quem confere usa o hash do próprio run.
 
-Confira com `shasum -a 256 <arquivo>.dmg`. O DMG mede **69.643.243 bytes** (66,42 MiB).
-App e DMG foram aceitos pela Apple e grampeados; `codesign` e `spctl` aceitaram o app, inclusive
-na imagem montada, e `spctl` aceitou o DMG como *Notarized Developer ID*.
+App e DMG são assinados com Developer ID e grampeados; `codesign` e `spctl` aceitam o app, inclusive
+na imagem montada, e `spctl` aceita o DMG como *Notarized Developer ID*.
 
 No smoke desktop com cópia do DMG em quarentena e `OPENRIDR_HOME` isolado, o setup abriu sem
 download, Problems mostrou `CS0029`, Build terminou com exit 0 e o perfil `http` imprimiu
