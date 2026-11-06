@@ -190,3 +190,63 @@ elas; `lsp.rs`/`diagnostics.rs` não foram tocados, e o que mudou no caminho nã
 (fallback idêntico ao anterior) e a montagem de `program`/args do `lsp.start` (conteúdo
 equivalente ao anterior). Não foi possível isolar mais sem alterar o código de produção; fica
 para a revisão independente. Não classificar como flake sem essa prova.
+
+## Rodada 2 — achados da revisão e investigação da regressão
+
+### Fail-closed e integridade do par (altas 1 e média)
+
+- `bundled::availability()` distingue `Bundled`, `Absent` (binário de `tauri dev`/teste) e
+  `Damaged` (app distribuído sem uma metade). Em `Damaged`, setup, `tools.plan/install/retry`,
+  `setup.reinstall` e `lsp.start` falham com "Reinstall OpenRidr"; nenhum plano, download ou
+  runtime externo entra. `AnalysisRuntime::for_analysis` reporta `missing` (nunca pega 10.x
+  externo). `Absent` mantém o download de desenvolvimento.
+- `tools` pronto passa a acompanhar o **par inteiro**: fingerprint (caminho, tamanho, mtime) de
+  `csharp-ls/` + `dotnet/`; entrada, dependência gerenciada, muxer e componente do runtime
+  invalidam o estado. SHA-256 de conteúdo único vai para o log (auditoria), sem rehash de ~140 MB
+  por snapshot. Limite explícito: quem reescreve a árvore e restaura mtimes não é detectado (o
+  manifest do build é a garantia da árvore distribuída).
+- Testes `bundled_analysis` (8): par completo ready sem home; ambos ausentes e cada metade
+  ausente → `failed`/`missing`, `plan=null`, sem `tools/`; dev sem bundle ainda planeja; entrada,
+  dependência, muxer e runtime alterados derrubam o ready.
+
+```
+$ cargo test -p openridr-host --test bundled_analysis
+test result: ok. 8 passed; 0 failed; 0 ignored
+```
+
+### Vendor só reutiliza conteúdo verificado (alta 2)
+
+- `scripts/vendor-analysis.sh` grava, depois de assinar, o SHA-256 de **cada arquivo** das árvores
+  geradas; a reutilização compara o manifest inteiro (arquivo faltando, alterado ou extra
+  remonta a árvore do artefato pinado e reassina). `scripts/vendor-analysis-selfcheck.sh`
+  comprova:
+
+```
+self-check: second prepare is a content-verified no-op
+self-check: tamper a managed dependency and remove a runtime component, keeping markers
+self-check: a repaired tree is current again
+ok: vendor-analysis self-check passed
+```
+
+### Regressão `csharp-ls.spec.ts:150` — investigação host/LSP (time-box)
+
+Sonda direta no host (`/tmp/problems_probe.py`, sem UI): mesma fixture, mesmo `csharp-ls`
+instalado, mesmo SDK, homes e portas separadas, sequência
+`open → setup → trust → restore → evaluation → lsp.restart → didOpen → didChange (CS0246) →
+SIGSTOP no PID do servidor → didChange (2º erro) → SIGCONT`.
+
+| Binário | didChange v2 → publicação | após SIGSTOP/CONT |
+|---|---|---|
+| base `eb3fe6f` | `publishDiagnostics 1 item · client revision 2` | processo fica **zombie**, `lsp.state=failed`, sem publicação |
+| HEAD `3696d89` | idêntico | idêntico |
+
+- Nos dois casos o log do host mostra `didChange ... version 3 (full text)` enviado e depois
+  `language server exited with exit unknown`; o `ps -p <pid> -o stat=` responde `Z`. Ou seja, o
+  servidor não sobrevive ao ciclo STOP/CONT nesta máquina, para base **e** branch.
+- Conclusão registrada: **não há evidência de que a regressão seja causada por esta branch**; o
+  único passe da base (E2E) não se reproduz no mesmo ambiente pelo host, e os dois binários se
+  comportam igual. A falha permanece **aberta** como fragilidade do spec (ele depende de o
+  servidor sobreviver ao SIGSTOP); não foi corrigida porque a correção exigiria mudar o teste
+  (timeout/asserções), o que está fora do permitido.
+- Limite: a sonda não usa a UI/WKWebView; a diferença entre o passe da base no navegador e esta
+  sonda não foi explicada.

@@ -1271,9 +1271,14 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   `Contents/Resources`; Debug com breakpoint na linha 4 de `Program.cs`, locals e saída
   `Order A-104: R$ 42,00`. App Tauri real (verify-openridr): gate pulado, Problems com CS0029,
   reabertura direta no workspace, DMG montado somente leitura com a mesma análise.
-- **Regressão possível no E2E:** `csharp-ls.spec.ts:150` (Problems após SIGSTOP/SIGCONT) falha
-  nesta branch e passou na base `eb3fe6f` (detalhe e comandos em `docs/evidence/bundled-analysis.md`);
-  causa não demonstrada, aguarda revisão independente.
+- **Regressão no E2E:** `csharp-ls.spec.ts:150` (Problems após SIGSTOP/SIGCONT) falha nesta
+  branch; a sonda host/LSP mostra o mesmo comportamento na base `eb3fe6f` (servidor vira zombie
+  após STOP/CONT e não publica), então não há evidência de causa nesta branch. Segue aberta como
+  fragilidade do spec; detalhe em `docs/evidence/bundled-analysis.md`.
+- **Rodada 2:** bundle ausente/parcial falha fechado (`Availability::Damaged`); integridade do par
+  inteiro por fingerprint (entrada, dependência, muxer, runtime) com SHA-256 de conteúdo no log;
+  `vendor-analysis.sh` só reutiliza árvore cujo manifest de conteúdo confere e remonta do artefato
+  pinado quando não confere (`vendor-analysis-selfcheck.sh`).
 - **Não verificado:** notarização/Developer ID (sem credencial nesta sessão; `spctl` rejeita o
   ad-hoc), `stapler` (exige Xcode completo), quarentena real e Mac limpo (a ausência de runtime
   10 foi simulada por sandbox + raiz SDK-8-só, não por uma máquina sem .NET).

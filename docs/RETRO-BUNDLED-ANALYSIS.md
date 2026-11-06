@@ -52,11 +52,23 @@ Onda: 2026-11-05, branch `feat/bundled-analysis-runtime` (base `eb3fe6f`, alpha.
 - **Simulação de ambiente precisa dizer o que ficou de fora.** A máquina ainda tem .NET 10;
   a evidência diz isso em vez de chamar de "Mac limpo".
 
-## Pendência aberta (revisão independente)
+## Pendência aberta
 
-- **Possível regressão no E2E `csharp-ls.spec.ts:150`** (Problems após SIGSTOP/SIGCONT): falha
-  nesta branch, passou na base `eb3fe6f`; causa não demonstrada. Comandos e leitura em
-  `docs/evidence/bundled-analysis.md`. Não é flake por conveniência.
+- **Regressão no E2E `csharp-ls.spec.ts:150`** (Problems após SIGSTOP/SIGCONT): falha nesta
+  branch. A sonda host/LSP reproduz o mesmo desfecho na base `eb3fe6f` (servidor vira zombie
+  depois de STOP/CONT, sem publicação), então não há evidência de que a branch seja a causa; o
+  spec depende de o servidor sobreviver ao sinal. Detalhe em `docs/evidence/bundled-analysis.md`.
+
+## Rodada 2 (revisão independente)
+
+- **Bundle incompleto falha fechado**, não cai no download: `Bundled | Absent | Damaged`, com
+  recusa em setup, `tools.plan/install/retry`, `setup.reinstall` e `lsp.start`; runtime externo
+  nunca mascara a falta. Fallback de dev preservado.
+- **Integridade do par**: fingerprint de `csharp-ls/` + `dotnet/` (entrada, dependência, muxer,
+  runtime) invalida o ready; SHA-256 de conteúdo único no log. Custo: metadados por snapshot,
+  hash só na verificação.
+- **Vendor**: manifest de conteúdo por arquivo (pós-assinatura) decide reutilização; árvore
+  danificada é remontada do artefato pinado e reassinada.
 
 ## Pendências do Helder
 
