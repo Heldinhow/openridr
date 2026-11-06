@@ -1,0 +1,14 @@
+# fonte da lista: #67
+# Smoke noturno do E2E (Playwright). Um spec por linha, caminho relativo à raiz do repo.
+# Decisão do Helder (issue #67): Playwright roda SÓ neste smoke noturno — nunca em PR e nunca
+# como verificação de UI por sessão de agente (sessões usam agent-desktop). O workflow noturno
+# que consome esta lista é a issue #56; não edite o workflow aqui.
+#
+# Conjunto escolhido por cobrir o caminho que mais dói quebrar: abrir solução/trust/editar
+# (workspace), Build, Run e Problems. Medido em 2026-11-06: 25 testes, ~2,8 min, verde em duas
+# rodadas seguidas (headless, workers=1, um host por execução).
+# Rodar: bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)
+tests/e2e/workspace.spec.ts
+tests/e2e/build.spec.ts
+tests/e2e/run.spec.ts
+tests/e2e/qa2-diagnostics.spec.ts
