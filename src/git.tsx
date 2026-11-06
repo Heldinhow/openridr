@@ -580,12 +580,20 @@ export function BranchWidget({
               <dd>{branchName(status)}</dd>
               <dt>Upstream</dt>
               <dd>{status.upstream ?? "Not set"}</dd>
+              <dt>Ahead</dt>
+              <dd data-testid="update-ahead">{status.ahead}</dd>
               <dt>Behind</dt>
               <dd>{status.behind}</dd>
             </dl>
+            <p className="hint" data-testid="update-policy">
+              When the branch and its upstream both moved, Update creates a merge commit
+              (<code>git pull --no-rebase --ff --no-edit</code>); the repository's{" "}
+              <code>pull.rebase</code>/<code>pull.ff</code> settings do not change that. If the
+              merge conflicts, OpenRidr aborts it and leaves your branch, commits and working
+              tree unchanged.
+            </p>
             <p className="hint">
-              Runs <code>git pull</code>. A dirty tree or an in-progress operation refuses the
-              update; OpenRidr never stashes.
+              A dirty tree or an in-progress operation refuses the update; OpenRidr never stashes.
             </p>
             {dialogError && (
               <p className="error" role="alert" data-testid="update-error">{dialogError}</p>
