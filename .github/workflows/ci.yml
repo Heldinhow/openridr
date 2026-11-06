@@ -91,7 +91,7 @@ jobs:
       # one of them with an empty source list (NU1100). One restore first, with a loud failure if the
       # network or the SDK is missing, instead of a flaky test result.
       - name: Warm the NuGet configuration
-        run: dotnet restore fixtures/OrderDesk/OrderDesk.csproj
+        run: dotnet restore fixtures/OrderDesk/OrderDesk.sln
 
       - name: Host tests
         run: cargo test -p openridr-host
