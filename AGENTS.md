@@ -50,9 +50,11 @@ Rust: os pacotes se chamam `openridr-host` e `openridr-host-http` (não `host`).
 
 ### Falhas conhecidas (não são suas)
 
-Presentes no HEAD sem mudanças: E2E `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts`. Qualquer outra falha é sua: investigue. Detalhes em `docs/RETRO-DEVFLOW-2026-11-02.md`.
+A fonte única é a tabela de [`docs/evidence/test-stability.md`](docs/evidence/test-stability.md): teste, sintoma, causa, status e ambiente. Resumo de 2026-11-06:
 
-Os dois testes Rust que falhavam no `main` (`file_access_is_confined_to_the_workspace` e `evaluation_returns_the_real_msbuild_model_for_every_project`) foram corrigidos: causa, classificação e prova em `docs/evidence/file-access-confinement.md`. Se algum dos dois voltar a falhar, é regressão sua.
+- **Rust (`cargo test -p openridr-host`): nenhuma falha conhecida.** Os dois testes que falhavam no `main` (`file_access_is_confined_to_the_workspace` e `evaluation_returns_the_real_msbuild_model_for_every_project`) foram corrigidos em `docs/evidence/file-access-confinement.md`; o do launch profile (usava o `dotnet` do PATH) e a corrida de `OPENRIDR_ENABLE_PROBE` foram corrigidos na issue #43. Qualquer falha em Rust agora é sua: investigue.
+- **E2E: quarentenado, não consertado.** `find-usages` (intermitente), 2 em `run-configs.spec.ts`, 2 em `tests.spec.ts` (relatados em `docs/RETRO-DEVFLOW-2026-11-02.md`) e o bloco da issue #43 — `debugger.spec.ts` no fluxo antigo de `debug.install` (o netcoredbg virou bundle), `csharp-ls.spec.ts:150`, `testsuite.spec.ts` (`tests-filter-count`), `tests.spec.ts:317`, `ui-layout` em 1440 px — seguem fora do verde e bloqueados pela decisão do Helder sobre o Playwright (issue #67). Não os conserte por conta própria nem os trate como passe.
+- **Ambiente não muda mais o resultado do Rust.** O harness limpa `OPENRIDR_*` herdado, isola a home e não usa nome fixo em `/tmp`. Se um teste do host falhar só na sua máquina, é um vazamento novo: registre na tabela em vez de exportar variável.
 
 ## .NET SDK 8.0.408
 

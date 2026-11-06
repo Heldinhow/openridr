@@ -1329,3 +1329,26 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 - Testes de bundle e setup passaram; app real com fixture isolada chegou ao diálogo Trust. Não
   verificado: notarização do novo build, status visual transitório (a verificação terminou antes
   da captura), Windows e macOS Intel. Sem Playwright, conforme escopo solicitado.
+
+## 2026-11-06 — Suite de testes confiável (issue #43)
+
+- **Harness compartilhado (`crates/host/tests/support`).** Um único ponto por binário de teste:
+  lista das variáveis `OPENRIDR_*` que o host lê, purga única das herdadas (`Once`), `EnvVar` que
+  purga antes de gravar e restaura no `Drop`, `env_guard()` tolerante a envenenamento,
+  `enable_probe()` e `host()` (host cuja configuração não vem do shell). Os seis binários de teste
+  do host usam `support::host()`; `Host::new()` cru sobrou só dentro do próprio módulo.
+- **`enable_probe()` é decisão do binário.** Os 14 testes do host que ligavam
+  `OPENRIDR_ENABLE_PROBE` por escopo passaram a chamar `support::enable_probe()`; um `Drop` não
+  pode mais restaurar "unset" por baixo de outro teste. O `debugger.rs` mantém `0`/`1` por teste
+  porque precisa dos dois estados, e todos lá já tomam `env_guard()`.
+- **Caminhos globais.** `/tmp/openridr-evil.txt` (zip de escape) e `/tmp/openridr-created.txt`
+  (criação fora do workspace) viraram alvos dentro de `tempfile` e `openridr-created-<pid>.txt`.
+  `tools::app_home()` já devolvia home temporária por processo; o teste existente que proíbe a
+  Application Support real continua valendo.
+- **Launch profile.** O teste de integração resolve o SDK pelo `global.json` do fixture
+  (`sdk::resolve` sobre `sdk::inventory`) e lança pelo muxer da raiz resolvida com `DOTNET_ROOT`,
+  `DOTNET_MULTILEVEL_LOOKUP=0` e as mesmas variáveis de `dotnet_command` da produção. Sem raiz que
+  satisfaça o pin, imprime skip com a versão e as raízes vistas.
+- **Prova.** Ver `docs/evidence/test-stability.md` (tabela por item da issue, medições e o que não
+  foi verificado). Não verificado: E2E (quarentenado; decisão do Playwright pendente), Windows e
+  macOS Intel, e a falha de instalação do debugger relatada por outra sessão (não reproduzida aqui).
