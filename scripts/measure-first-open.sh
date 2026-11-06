@@ -43,6 +43,7 @@ set -eu
 APP=${OPENRIDR_APP:-/Applications/OpenRidr.app}
 ROUNDS=3
 CLICK=
+CLICK_GIVEN=no
 TIMEOUT=120
 KEEP=no
 ALLOW_UNNOTARIZED=no
@@ -64,7 +65,7 @@ while [ "$#" -gt 0 ]; do
   case $1 in
     --app) value "$1" "$#"; APP=$2; shift 2 ;;
     --rounds) value "$1" "$#"; ROUNDS=$2; shift 2 ;;
-    --click) value "$1" "$#"; CLICK=$2; shift 2 ;;
+    --click) value "$1" "$#"; CLICK=$2; CLICK_GIVEN=yes; shift 2 ;;
     --timeout) value "$1" "$#"; TIMEOUT=$2; shift 2 ;;
     --keep) KEEP=yes; shift ;;
     --allow-unnotarized) ALLOW_UNNOTARIZED=yes; shift ;;
@@ -81,6 +82,9 @@ is_number "$ROUNDS" || die "--rounds must be a number"
 [ "$ROUNDS" -ge 1 ] && [ "$ROUNDS" -le 5 ] || die "--rounds must be 1..5"
 is_number "$TIMEOUT" || die "--timeout must be a number of seconds"
 [ "$TIMEOUT" -ge 5 ] || die "--timeout must be at least 5 seconds"
+if [ "$CLICK_GIVEN" = yes ] && [ -z "$CLICK" ]; then
+  die "--click wants X,Y"
+fi
 if [ -n "$CLICK" ]; then
   case $CLICK in
     *,*) ;;
@@ -134,7 +138,10 @@ PREV_HOME=$(launchctl getenv OPENRIDR_HOME || true)
 cleanup() {
   [ -n "$LOG_PID" ] && kill "$LOG_PID" 2>/dev/null || true
   # Only the instance this script launched: a real OpenRidr the user starts meanwhile is not ours.
-  [ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null || true
+  if [ -n "$APP_PID" ] && [ -n "${marker:-}" ]; then
+    cmdline=$(ps -o command= -p "$APP_PID" 2>/dev/null || true)
+    case $cmdline in *"$marker"*) kill "$APP_PID" 2>/dev/null || true ;; esac
+  fi
   if [ -n "$PREV_HOME" ]; then
     launchctl setenv OPENRIDR_HOME "$PREV_HOME"
   else
@@ -204,8 +211,9 @@ while [ "$round" -lt "$ROUNDS" ]; do
   kill -0 "$LOG_PID" 2>/dev/null || die "log stream died; nothing would be observed"
 
   T0=$(now)
-  # The marker makes the pid traceable to this round; the app ignores unknown flags.
-  marker="--openridr-measure-round=$round"
+  # A unique marker binds the pid to this round: guessing it is not possible, and a second process
+  # carrying it means the identity is ambiguous, not that one must be picked.
+  marker="--openridr-measure-round=$round-$(uuidgen)"
   if ! open -n "$copy" --args "$marker" 2>"$STATE/r$round/open.err"; then
     kill "$LOG_PID" 2>/dev/null || true; LOG_PID=
     printf '%7s  failed: open refused (%s)\n' "$round" "$(cat "$STATE/r$round/open.err")"
@@ -217,27 +225,41 @@ while [ "$round" -lt "$ROUNDS" ]; do
   deadline=$(perl -e "print $T0 + $TIMEOUT")
   verdict=
   while [ "$(perl -e "print($(now) < $deadline ? 1 : 0)")" = 1 ]; do
+    if [ -n "$pid" ] && [ -z "$verdict" ]; then
+      # The pid was accepted once; if a second process carrying the marker shows up, or ours
+      # disappears, the round is no longer trustworthy.
+      live=$(ps -o command= -p "$pid" 2>/dev/null || true)
+      case $live in
+        *"$marker"*) ;;
+        *) if [ -z "$t_code" ]; then verdict="the measured process vanished before running"; fi ;;
+      esac
+    fi
     if [ -z "$t_exec" ]; then
-      found=
+      matches=0; found=
       for candidate in $(pgrep -x openridr 2>/dev/null || true); do
         case " $before " in *" $candidate "*) continue ;; esac
         cmdline=$(ps -o command= -p "$candidate" 2>/dev/null || true)
-        case $cmdline in *"$marker"*) found="$found $candidate" ;; esac
+        case $cmdline in
+          *"$marker"*) matches=$((matches + 1)); found=$candidate ;;
+        esac
       done
-      # shellcheck disable=SC2086
-      set -- $found
-      if [ "$#" -gt 1 ]; then
-        verdict="ambiguous identity: $# new processes carry the marker"
-      elif [ "$#" -eq 1 ]; then
-        pid=$1; t_exec=$(now); APP_PID=$pid
+      if [ "$matches" -gt 1 ]; then
+        verdict="ambiguous identity: $matches new processes carry the marker"
+      elif [ "$matches" -eq 1 ]; then
+        pid=$found; t_exec=$(now); APP_PID=$pid
       fi
     fi
     # The alert is system-wide (CoreServicesUIAgent), so it only counts as this round's when our
     # own suspended process exists: a prompt seen before is remembered and acted on right after.
-    if [ -z "$t_prompt" ] && [ -n "$pid" ] && grep -q "code-evaluation prompt" "$LOG" 2>/dev/null; then
+    prompts=$(grep -c "code-evaluation prompt" "$LOG" 2>/dev/null || true)
+    if [ -z "$t_prompt" ] && [ -n "$pid" ] && [ "${prompts:-0}" -ge 1 ]; then
       t_prompt=$(now)
     fi
-    if [ -n "$t_prompt" ] && [ -n "$pid" ] && [ -z "$t_click" ]; then
+    # Two alerts in one round mean the log is no longer ours to interpret: fail, never click.
+    if [ "${prompts:-0}" -ge 2 ] && [ -z "$verdict" ]; then
+      verdict="two Gatekeeper alerts in one round; cannot tell which one is ours"
+    fi
+    if [ -n "$t_prompt" ] && [ -n "$pid" ] && [ -z "$t_click" ] && [ -z "$t_code" ] && [ -z "$verdict" ]; then
       if [ -n "$CLICK" ]; then
         sleep 0.1
         if agent-desktop screenshot "$STATE/r$round/alert.png" --screen 0 >/dev/null 2>&1; then
@@ -283,10 +305,17 @@ while [ "$round" -lt "$ROUNDS" ]; do
     fi
   fi
   if [ -n "$APP_PID" ]; then
-    kill "$APP_PID" 2>/dev/null || true
-    waited=0
-    while kill -0 "$APP_PID" 2>/dev/null && [ "$waited" -lt 40 ]; do sleep 0.1; waited=$((waited + 1)); done
-    kill -9 "$APP_PID" 2>/dev/null || true
+    # Revalidate right before signalling: a recycled pid must not receive our TERM/KILL.
+    own=""
+    cmdline=$(ps -o command= -p "$APP_PID" 2>/dev/null || true)
+    case $cmdline in *"$marker"*) own=$APP_PID ;; esac
+    if [ -n "$own" ]; then
+      kill "$own" 2>/dev/null || true
+      waited=0
+      while kill -0 "$own" 2>/dev/null && [ "$waited" -lt 40 ]; do sleep 0.1; waited=$((waited + 1)); done
+      cmdline=$(ps -o command= -p "$own" 2>/dev/null || true)
+      case $cmdline in *"$marker"*) kill -9 "$own" 2>/dev/null || true ;; esac
+    fi
     APP_PID=
   fi
 

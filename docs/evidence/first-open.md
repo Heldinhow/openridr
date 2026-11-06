@@ -163,8 +163,9 @@ clique no app é o path translocado acima, não a cópia original.
 2. **O que o usuário percebe como travamento é o diálogo esperando clique**, e não o app. É
    comportamento do macOS para qualquer app baixado: o processo fica suspenso (`_dyld_start`) até
    alguém responder. Medido: 0,14–0,24 s do clique até o nosso código e 0,97–1,42 s até a janela.
-   A conclusão da #45 é essa: o atraso **não** está no bundle (teto de 0,53 s), e sim no clique que
-   o macOS espera e, quando o app é aberto de dentro do DMG, na leitura da imagem.
+   A conclusão da #45 é essa: o atraso **não** está no bundle (teto de 0,53 s); o que se mediu é o
+   clique que o macOS espera e, no caminho do DMG, 1,95 s de cópia + um intervalo clique→código de
+   4,4–5,4 s cujo dono não foi isolado (leitura da imagem é a explicação compatível).
 3. **O caminho "abrir direto do DMG" é caro e é redutível por instrução, não por código:** clique
    → janela leva **5,1–6,6 s**, contra 0,97–1,42 s com o app copiado para o disco. O que está
    medido: copiar o app de dentro da imagem leva 1,95 s (`ditto`), e ler os 164 MB da imagem
@@ -176,8 +177,9 @@ clique no app é o path translocado acima, não a cópia original.
    de avaliação, então a condição é o app **no disco**: ali nenhum marco passou de 0,53 s até o
    diálogo e 0,24 s depois do clique, muito abaixo do limite de ~2 s combinado — por isso **não
    foram medidas**. Nas condições que abrem de dentro da imagem (E3m/E3c) `click→code` passou de
-   2 s, mas o custo ali é leitura da imagem (`ditto` 1,95 s), não avaliação de assinatura: as
-   variantes de layout avaliadas (runtime em `Contents/Frameworks`) não mudariam esse número, e as
+   2 s; nenhuma medição aponta avaliação de assinatura como causa (o prompt ali aparece em
+   1,38–1,51 s, e `ditto` da mesma cópia custa 1,95 s), mas o split entre cópia e arranque não foi
+   isolado. As variantes de layout (runtime em `Contents/Frameworks`) não mudariam esse número; as
    que encolhem o payload (runtime em `tar.gz`, sem runtime) atacam tamanho — outra frente, que o
    spec deixa fora de escopo.
 5. **Diálogo visível e focável nas condições testadas.** Com Finder e com T3 Code na frente
