@@ -1,6 +1,8 @@
-/* Keep the IDE surfaces distinct from the surrounding tool-window rails. */
+/* Rider New UI: tool windows and editor are rounded islands on the window frame, with a gap between them. */
 .workspace-view {
   background: var(--chrome);
+  gap: 4px;
+  padding: 0 4px 4px;
 }
 
 /* The bottom tool window extends beneath both the editor and the left slot. */
@@ -17,8 +19,8 @@
 .workspace-view .side,
 .workspace-view .editor-pane,
 .workspace-view > .output {
-  border: 1px solid var(--line);
-  border-radius: 0;
+  border: 0;
+  border-radius: var(--r-lg);
   overflow: hidden;
 }
 
@@ -36,7 +38,7 @@
 }
 
 .side .panel-title {
-  background: var(--bg);
+  background: var(--panel);
   border-bottom: 1px solid var(--line-internal);
 }
 
@@ -66,9 +68,10 @@
   background: transparent;
 }
 
+/* Rider: the active editor tab is a discreet blue pill; inactive tabs carry no box. */
 .tabbar .tab.active {
-  background: #2b2d30;
-  border-color: #4a4d52;
+  background: #263552;
+  border-color: #33496f;
   box-shadow: none;
 }
 
@@ -76,6 +79,19 @@
 .tabbar .tab-close {
   background: transparent;
 }
+
+.tabbar .tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tabbar .tab-close { opacity: 0; }
+.tabbar .tab.active .tab-close,
+.tabbar .tab:hover .tab-close,
+.tabbar .tab:focus-within .tab-close { opacity: 1; }
+
+.tabbar { border-bottom: 1px solid var(--line-internal); }
 
 /* Debug state must remain visible when CodeMirror also marks the active line. */
 .cm-editor .cm-line.cm-line-breakpoint {
