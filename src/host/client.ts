@@ -708,6 +708,8 @@ export type Dap = {
   stopGeneration: number;
   selectedThreadId: number | null;
   stopped: null | { reason: string; threadId: number | null; allThreadsStopped: boolean };
+  /** Why the session ended without ever stopping; `null` means there is nothing to explain. */
+  noStopExplanation: string | null;
   breakpoints: DapBreakpoint[];
   breakpointsMuted: boolean;
   exceptionFilters: string[];

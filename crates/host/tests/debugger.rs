@@ -6,6 +6,9 @@
 //! prints `NET Core debugger 3.2.0-1 (controlled test artifact)`. It is executed only here, to
 //! exercise extraction and verification; it is not an official Samsung asset.
 
+#[path = "support/mod.rs"]
+mod support;
+
 use openridr_host::{Host, EXECUTABLE_METHODS};
 use serde_json::{json, Value};
 use std::fs;
@@ -13,15 +16,9 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-/// A failing test must not poison the environment guard for the whole binary.
-fn env_guard() -> std::sync::MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner())
-}
+use support::EnvVar;
 
 const ARTIFACT: &[u8] =
     b"#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1 (controlled test artifact, Release)\\n'\n";
@@ -300,34 +297,6 @@ fn artifact_zip(executable: &[u8]) -> Vec<u8> {
     ])
 }
 
-struct EnvVar {
-    key: &'static str,
-    old: Option<std::ffi::OsString>,
-}
-
-impl EnvVar {
-    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let old = std::env::var_os(key);
-        std::env::set_var(key, value);
-        Self { key, old }
-    }
-
-    fn remove(key: &'static str) -> Self {
-        let old = std::env::var_os(key);
-        std::env::remove_var(key);
-        Self { key, old }
-    }
-}
-
-impl Drop for EnvVar {
-    fn drop(&mut self) {
-        match &self.old {
-            Some(value) => std::env::set_var(self.key, value),
-            None => std::env::remove_var(self.key),
-        }
-    }
-}
-
 struct Seam {
     _home: EnvVar,
     _probe: EnvVar,
@@ -338,11 +307,9 @@ struct Seam {
 }
 
 impl Seam {
-    fn new(url: &str, sha: &str) -> Self {
-        Self::platform(url, sha, "windows/x86_64")
-    }
-
-    fn platform(url: &str, sha: &str, platform: &str) -> Self {
+    /// Builds the controlled-installer environment. Only called from `_isolated` leaves, which own
+    /// their process, so the env writes cannot reach another test.
+    fn seam_isolated(url: &str, sha: &str, platform: &str) -> Self {
         let home = tempfile::tempdir().unwrap();
         Self {
             _home: EnvVar::set("OPENRIDR_HOME", home.path()),
@@ -353,6 +320,14 @@ impl Seam {
             home,
         }
     }
+}
+
+fn seam(url: &str, sha: &str) -> Seam {
+    Seam::seam_isolated(url, sha, "windows/x86_64")
+}
+
+fn seam_platform(url: &str, sha: &str, platform: &str) -> Seam {
+    Seam::seam_isolated(url, sha, platform)
 }
 
 fn tool_dir(home: &Path) -> PathBuf {
@@ -376,12 +351,12 @@ fn fake_netcoredbg(path: &Path) {
 }
 
 #[test]
-fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     let opened = open(&host, workspace.path());
     let debug = &opened["debug"];
@@ -466,16 +441,16 @@ fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
 }
 
 #[test]
-fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in_isolated() {
     // The official macOS zip nests the executable and ships AppleDouble metadata.
     let zip = zip_bytes(&[
         ("netcoredbg/netcoredbg", ARTIFACT, Some(0o755)),
         ("__MACOSX/._netcoredbg", b"metadata", Some(0o644)),
     ]);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
-    let host = Host::new();
+    let seam = seam_platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -549,12 +524,12 @@ fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
 }
 
 #[test]
-fn install_requires_trust_confirmation_and_an_unchanged_plan() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn install_requires_trust_confirmation_and_an_unchanged_plan_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-    let host = Host::new();
+    let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
 
@@ -592,12 +567,12 @@ fn install_requires_trust_confirmation_and_an_unchanged_plan() {
 }
 
 #[test]
-fn a_changed_plan_after_confirmation_downloads_nothing() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_changed_plan_after_confirmation_downloads_nothing_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-    let host = Host::new();
+    let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -623,12 +598,12 @@ fn a_changed_plan_after_confirmation_downloads_nothing() {
 }
 
 #[test]
-fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-    let host = Host::new();
+    let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -713,13 +688,13 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
 }
 
 #[test]
-fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it_isolated() {
     let zip = zip_bytes(&[("netcoredbg/netcoredbg", ARTIFACT, Some(0o755))]);
     let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-    let seam = Seam::platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
+    let seam = seam_platform(&server.url("/asset.zip"), &sha256(&zip), "macos/aarch64");
     let workspace = temp_workspace();
-    let first = Host::new();
+    let first = support::host();
     open(&first, workspace.path());
     first.dispatch("trust.grant", json!({})).unwrap();
     first
@@ -742,7 +717,7 @@ fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_block
 
     // A new host process starts with the experimental flag off and no in-memory install. The
     // adapter on disk is still reported, and the plan names the flag as the remaining gate.
-    let second = Host::new();
+    let second = support::host();
     open(&second, workspace.path());
     let view = state(&second);
     assert_eq!(view["adapterState"], "experimental_disabled");
@@ -779,16 +754,16 @@ fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_block
 }
 
 #[test]
-fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let fail = Arc::new(AtomicBool::new(true));
     let server = Server::start(vec![(
         "/asset.zip",
         Route::FailOnce(zip.clone(), Arc::clone(&fail)),
     )]);
-    let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-    let host = Host::new();
+    let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -823,15 +798,15 @@ fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
 }
 
 #[test]
-fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated() {
     let zip = artifact_zip(ARTIFACT);
 
     // 1. Hash mismatch: the controlled expected digest is wrong on purpose.
     {
         let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &"1".repeat(64));
-        let host = Host::new();
+        let seam = seam(&server.url("/asset.zip"), &"1".repeat(64));
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -851,8 +826,8 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
     {
         let wrong = artifact_zip(WRONG_VERSION);
         let server = Server::start(vec![("/asset.zip", Route::Ok(wrong.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&wrong));
-        let host = Host::new();
+        let seam = seam(&server.url("/asset.zip"), &sha256(&wrong));
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -873,8 +848,8 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
     {
         let corrupt = b"this is not a zip archive".to_vec();
         let server = Server::start(vec![("/asset.zip", Route::Ok(corrupt.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&corrupt));
-        let host = Host::new();
+        let seam = seam(&server.url("/asset.zip"), &sha256(&corrupt));
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -893,8 +868,8 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
     {
         let evil = zip_bytes(&[("../escape.txt", b"escaped\n", Some(0o644))]);
         let server = Server::start(vec![("/asset.zip", Route::Ok(evil.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&evil));
-        let host = Host::new();
+        let seam = seam(&server.url("/asset.zip"), &sha256(&evil));
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -922,8 +897,8 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
     {
         let link = raw_zip("link", b"/etc/passwd", 0o120777);
         let server = Server::start(vec![("/asset.zip", Route::Ok(link.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&link));
-        let host = Host::new();
+        let seam = seam(&server.url("/asset.zip"), &sha256(&link));
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -942,12 +917,15 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
     }
 
-    // 6. Absolute path entry: rejected as an escape.
+    // 6. Absolute path entry: rejected as an escape. The target lives under a fresh temporary
+    // directory, never a fixed name in /tmp that a concurrent run could create or remove.
+    let outside = tempfile::tempdir().unwrap();
     {
-        let absolute = raw_zip("/tmp/openridr-evil.txt", b"x", 0o100644);
+        let evil = outside.path().join("openridr-evil.txt");
+        let absolute = raw_zip(&evil.to_string_lossy(), b"x", 0o100644);
         let server = Server::start(vec![("/asset.zip", Route::Ok(absolute.clone()))]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&absolute));
-        let host = Host::new();
+        let seam = seam(&server.url("/asset.zip"), &sha256(&absolute));
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -963,20 +941,20 @@ fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
             "{}",
             failed["error"]
         );
-        assert!(!Path::new("/tmp/openridr-evil.txt").exists());
+        assert!(!evil.exists());
         assert!(!tool_dir(seam.home.path()).join("3.2.0-1092").exists());
     }
 }
 
 #[test]
-fn origins_and_redirects_are_checked_before_any_download() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn origins_and_redirects_are_checked_before_any_download_isolated() {
     let zip = artifact_zip(ARTIFACT);
 
     // A URL that is not the official host and not the loopback test seam is refused.
     {
-        let seam = Seam::new("https://example.invalid/netcoredbg-win64.zip", &sha256(&zip));
-        let host = Host::new();
+        let seam = seam("https://example.invalid/netcoredbg-win64.zip", &sha256(&zip));
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -1001,8 +979,8 @@ fn origins_and_redirects_are_checked_before_any_download() {
             "/asset.zip",
             Route::Redirect("https://example.invalid/payload.zip"),
         )]);
-        let seam = Seam::new(&server.url("/asset.zip"), &sha256(&zip));
-        let host = Host::new();
+        let seam = seam(&server.url("/asset.zip"), &sha256(&zip));
+        let host = support::host();
         let workspace = temp_workspace();
         open(&host, workspace.path());
         host.dispatch("trust.grant", json!({})).unwrap();
@@ -1023,15 +1001,15 @@ fn origins_and_redirects_are_checked_before_any_download() {
 }
 
 #[test]
-fn cancel_keeps_partial_state_and_retry_completes() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn cancel_keeps_partial_state_and_retry_completes_isolated() {
     let zip = artifact_zip(ARTIFACT);
     let server = Server::start(vec![
         ("/slow.zip", Route::Slow(zip.clone())),
         ("/asset.zip", Route::Ok(zip.clone())),
     ]);
-    let seam = Seam::new(&server.url("/slow.zip"), &sha256(&zip));
-    let host = Host::new();
+    let seam = seam(&server.url("/slow.zip"), &sha256(&zip));
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
 
@@ -1101,12 +1079,12 @@ fn cancel_keeps_partial_state_and_retry_completes() {
 }
 
 #[test]
-fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn the_debugger_methods_are_gated_before_trust_like_the_other_executables_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     for method in EXECUTABLE_METHODS.iter().filter(|method| method.starts_with("debug.")) {
@@ -1130,8 +1108,8 @@ fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
-fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_bundled_adapter_is_ready_and_refuses_install_and_retry_isolated() {
     let home = tempfile::tempdir().unwrap();
     let bundle = tempfile::tempdir().unwrap();
     let bundled_binary = bundle.path().join("netcoredbg");
@@ -1142,7 +1120,7 @@ fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
     let _bundle = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path());
 
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -1182,8 +1160,8 @@ fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
-fn without_a_bundle_the_tools_install_is_reused() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn without_a_bundle_the_tools_install_is_reused_isolated() {
     let home = tempfile::tempdir().unwrap();
     let installed = tool_dir(home.path()).join("3.2.0-1092/netcoredbg/netcoredbg");
     fake_netcoredbg(&installed);
@@ -1191,7 +1169,7 @@ fn without_a_bundle_the_tools_install_is_reused() {
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
     let _bundle = EnvVar::remove("OPENRIDR_BUNDLED_NETCOREDBG");
 
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("trust.grant", json!({})).unwrap();
@@ -1214,14 +1192,14 @@ fn without_a_bundle_the_tools_install_is_reused() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
-fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
-    let _guard = env_guard();
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready_isolated() {
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
     let _bundle = EnvVar::remove("OPENRIDR_BUNDLED_NETCOREDBG");
 
-    let host = Host::new();
+    let host = support::host();
     let workspace = temp_workspace();
     open(&host, workspace.path());
     host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
@@ -1232,4 +1210,98 @@ fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
     assert_ne!(debug["adapterState"], "ready");
     assert_eq!(debug["plan"]["existing"]["state"], "absent");
     assert!(!tool_dir(home.path()).exists());
+}
+
+/// The ambient purge runs once per binary, so only a fresh process can prove that an exported
+/// `OPENRIDR_BUNDLED_NETCOREDBG` no longer turns the controlled installer away.
+#[test]
+fn an_ambient_bundled_override_never_reaches_the_controlled_installer() {
+    let bundle = tempfile::tempdir().unwrap();
+    let adapter = bundle.path().join("netcoredbg");
+    fs::write(&adapter, ARTIFACT).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    support::assert_leaf_passes_in_a_fresh_process(
+        "install_requires_trust_confirmation_and_an_unchanged_plan",
+        &[("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path().as_os_str())],
+    );
+}
+
+// Each leaf below writes `OPENRIDR_*` for its host, so it runs in its own process: the
+// shared test process never changes its environment.
+#[test]
+fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
+    support::run_isolated_leaf("macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it_isolated");
+}
+
+#[test]
+fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
+    support::run_isolated_leaf("macos_arm64_installs_the_controlled_artifact_only_after_opt_in_isolated");
+}
+
+#[test]
+fn install_requires_trust_confirmation_and_an_unchanged_plan() {
+    support::run_isolated_leaf("install_requires_trust_confirmation_and_an_unchanged_plan_isolated");
+}
+
+#[test]
+fn a_changed_plan_after_confirmation_downloads_nothing() {
+    support::run_isolated_leaf("a_changed_plan_after_confirmation_downloads_nothing_isolated");
+}
+
+#[test]
+fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
+    support::run_isolated_leaf("a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolated");
+}
+
+#[test]
+fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it() {
+    support::run_isolated_leaf("a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it_isolated");
+}
+
+#[test]
+fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
+    support::run_isolated_leaf("a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan_isolated");
+}
+
+#[test]
+fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
+    support::run_isolated_leaf("hash_version_corruption_and_traversal_are_rejected_without_promotion_isolated");
+}
+
+#[test]
+fn origins_and_redirects_are_checked_before_any_download() {
+    support::run_isolated_leaf("origins_and_redirects_are_checked_before_any_download_isolated");
+}
+
+#[test]
+fn cancel_keeps_partial_state_and_retry_completes() {
+    support::run_isolated_leaf("cancel_keeps_partial_state_and_retry_completes_isolated");
+}
+
+#[test]
+fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
+    support::run_isolated_leaf("the_debugger_methods_are_gated_before_trust_like_the_other_executables_isolated");
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn a_bundled_adapter_is_ready_and_refuses_install_and_retry() {
+    support::run_isolated_leaf("a_bundled_adapter_is_ready_and_refuses_install_and_retry_isolated");
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn without_a_bundle_the_tools_install_is_reused() {
+    support::run_isolated_leaf("without_a_bundle_the_tools_install_is_reused_isolated");
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
+    support::run_isolated_leaf("without_a_bundle_or_a_tools_install_the_adapter_is_not_ready_isolated");
 }
