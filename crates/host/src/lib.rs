@@ -3842,6 +3842,7 @@ impl Host {
         let breakpoints = inner.dap.breakpoints();
         let breakpoints_muted = inner.dap.breakpoints_muted();
         let exception_filters = inner.dap.exception_filters();
+        let watches = inner.dap.watches();
         let make_launch = |build_id: String, session: u64| dap::Launch {
             session,
             project_name: selected.name.clone(),
@@ -3861,6 +3862,7 @@ impl Host {
             workspace_id: token.workspace_id,
             context_id: token.context_id,
             breakpoints: breakpoints.clone(),
+            watches: watches.clone(),
             breakpoints_muted,
             exception_filters: exception_filters.clone(),
         };

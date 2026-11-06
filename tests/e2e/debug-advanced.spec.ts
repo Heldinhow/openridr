@@ -97,7 +97,7 @@ const loopSource = [
 ].join("\n");
 
 /** Copies the fixture, arms a breakpoint on line 4, opens it trusted and builds it. */
-async function prepare(page: Page, base: string, source: string) {
+async function prepare(page: Page, base: string, source: string, breakpointLine = 4) {
   const copy = path.join(base, "Order Desk advanced");
   fs.cpSync(fixture, copy, {
     recursive: true,
@@ -122,7 +122,7 @@ async function prepare(page: Page, base: string, source: string) {
   await selectEvaluationTfm(page, "net8.0");
   await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(3);
 
-  const breakpoint = await hostCall("debug.setBreakpoints", { path: program, lines: [4] });
+  const breakpoint = await hostCall("debug.setBreakpoints", { path: program, lines: [breakpointLine] });
   expect(breakpoint.ok, JSON.stringify(breakpoint.error)).toBe(true);
   await page.getByTestId("bottom-tab-build").click();
   await page.getByTestId("build-action").click();
@@ -226,6 +226,85 @@ test("an invalid hit count is refused in the panel", async ({ page }) => {
     await page.locator('button[data-testid^="debug-breakpoint-hit-save-"]').click();
     await expect(page.getByTestId("app-log")).toContainText("positive whole number");
     await expect(hit).toHaveValue("1.5");
+  } finally {
+    await hostCall("debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+const threadedSource = [
+  "using System.Threading;",
+  "var gate = new ManualResetEventSlim(false);",
+  "var worker = new Thread(() => Worker(gate));",
+  "worker.Start();",
+  "gate.Set();",
+  "worker.Join();",
+  "static void Worker(ManualResetEventSlim gate)",
+  "{",
+  "    gate.Wait();",
+  '    var label = "worker";',
+  "    System.Console.WriteLine(label);",
+  "}",
+  "",
+].join("\n");
+
+async function pausedThreads() {
+  const state = await hostCall("debug.state");
+  return state.data.dap as {
+    threads: { id: number; name: string }[];
+    selectedThreadId: number | null;
+  };
+}
+
+test("a watch survives a restart with the same expressions", async ({ page }) => {
+  const base = await newBase("watch-restart");
+  try {
+    await prepare(page, base, loopSource);
+    await page.getByTestId("bottom-tab-debug").click();
+    await page.getByTestId("debug-watch-input").fill("index");
+    await page.getByTestId("debug-watch-add").click();
+    await expect(page.getByTestId("debug-watch-0")).toContainText("index");
+
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    await expect(page.getByTestId("debug-watch-0")).toContainText("0");
+
+    await page.getByTestId("debug-restart").click();
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    // The same single watch is still there and evaluates against the new pause.
+    await expect(page.locator('[data-testid^="debug-watch-"]').filter({ hasText: "index" })).toHaveCount(1);
+    await expect(page.getByTestId("debug-watch-0")).toContainText("index");
+    await expect(page.getByTestId("debug-watch-0").locator(".warning")).toHaveCount(0);
+    await expect(page.getByTestId("debug-watch-0")).toContainText("0");
+  } finally {
+    await hostCall("debug.stop");
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a watch follows the selected thread", async ({ page }) => {
+  const base = await newBase("watch-thread");
+  try {
+    await prepare(page, base, threadedSource, 11);
+    await page.getByTestId("bottom-tab-debug").click();
+    await page.getByTestId("debug-watch-input").fill("label");
+    await page.getByTestId("debug-watch-add").click();
+
+    await page.keyboard.press("Control+d");
+    await expect(page.getByTestId("dap-state")).toContainText("Paused", { timeout: 60_000 });
+    await expect(page.getByTestId("debug-watch-0")).toContainText("worker");
+
+    const paused = await pausedThreads();
+    const main = paused.threads.find((thread) => thread.id !== paused.selectedThreadId);
+    expect(main, JSON.stringify(paused.threads)).toBeTruthy();
+    await page.getByTestId(`debug-thread-${main!.id}`).click();
+    await expect(page.getByTestId("debug-watch-0").locator(".warning")).toBeVisible({
+      timeout: 30_000,
+    });
+
+    await page.getByTestId(`debug-thread-${paused.selectedThreadId}`).click();
+    await expect(page.getByTestId("debug-watch-0")).toContainText("worker");
+    await expect(page.getByTestId("debug-watch-0").locator(".warning")).toHaveCount(0);
   } finally {
     await hostCall("debug.stop");
     fs.rmSync(base, { recursive: true, force: true });

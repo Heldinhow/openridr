@@ -53,6 +53,8 @@ pub struct Launch {
     pub context_id: u64,
     /// Breakpoints set before the session started, kept by file with their conditions.
     pub breakpoints: BTreeMap<String, Vec<BreakpointView>>,
+    /// Watch expressions typed before the session started; they survive every launch.
+    pub watches: Vec<String>,
     /// Mute all set before the session started; it survives the next launch.
     pub breakpoints_muted: bool,
     /// Exception filters chosen before the launch; they survive it too.
@@ -632,7 +634,7 @@ impl Dap {
                 children: BTreeMap::new(),
                 children_stop_seq: 0,
                 evaluation: None,
-                watches: Vec::new(),
+                watches: launch.watches.clone(),
                 watch_results: Vec::new(),
                 watch_stop_seq: 0,
                 hit_counts: BTreeMap::new(),
@@ -713,6 +715,11 @@ impl Dap {
 
     pub fn breakpoints(&self) -> BTreeMap<String, Vec<BreakpointView>> {
         self.data.lock().unwrap().breakpoints.clone()
+    }
+
+    /// Watch expressions survive launches; only closing or switching the workspace clears them.
+    pub fn watches(&self) -> Vec<String> {
+        self.data.lock().unwrap().watches.clone()
     }
 
     pub fn view(&self) -> DapView {
@@ -1696,11 +1703,17 @@ impl Dap {
         data.watch_results.retain(|result| result.expression != expression);
     }
 
-    /// Evaluates every watch against the top frame of the current pause.
+    /// Evaluates every watch against the selected frame of the current pause.
     fn refresh_watches(&self, session: u64, stop_seq: u64) {
         let (expressions, frame_id) = {
             let data = self.data.lock().unwrap();
-            (data.watches.clone(), data.frames.first().map(|frame| frame.id))
+            let selected = data
+                .selected_frame_id
+                .filter(|id| data.frames.iter().any(|frame| frame.id == *id));
+            (
+                data.watches.clone(),
+                selected.or_else(|| data.frames.first().map(|frame| frame.id)),
+            )
         };
         let results: Vec<EvaluationView> = expressions
             .iter()
@@ -1788,6 +1801,10 @@ impl Dap {
             }
         }
         self.load_locals_for(frame_id, session, stop_seq)?;
+        // The selected frame changed, so the watches belong to it now.
+        if self.data.lock().unwrap().state == "paused" {
+            self.refresh_watches(session, stop_seq);
+        }
         Ok(())
     }
 
@@ -2824,6 +2841,7 @@ while True:
             workspace_id: 1,
             context_id: 1,
             breakpoints: BTreeMap::new(),
+            watches: Vec::new(),
             breakpoints_muted: false,
             exception_filters: vec!["user-unhandled".to_string()],
         };
@@ -2909,6 +2927,7 @@ while True:
             workspace_id: 1,
             context_id: 1,
             breakpoints: BTreeMap::new(),
+            watches: Vec::new(),
             breakpoints_muted: false,
             exception_filters: vec!["user-unhandled".to_string()],
         };
@@ -3070,6 +3089,17 @@ while True:
             dap.data.lock().unwrap().breakpoints["Program.cs"][0].hit_count,
             None
         );
+    }
+
+    #[test]
+    fn watches_live_in_the_host_and_are_deduplicated() {
+        let dap = Dap::idle();
+        dap.add_watch("index").unwrap();
+        dap.add_watch("index").unwrap();
+        dap.add_watch("total").unwrap();
+        assert_eq!(dap.watches(), vec!["index".to_string(), "total".to_string()]);
+        dap.remove_watch("index");
+        assert_eq!(dap.watches(), vec!["total".to_string()]);
     }
 
     #[test]
