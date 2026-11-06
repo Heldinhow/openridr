@@ -859,7 +859,13 @@ impl Dap {
                     .and_then(|item| item.condition.clone()),
             })
             .collect();
-        data.breakpoints.insert(path.to_string(), entries.clone());
+        // An empty list means this source has no breakpoint left; keeping the entry would leave a
+        // source that looks like it has breakpoints.
+        if entries.is_empty() {
+            data.breakpoints.remove(path);
+        } else {
+            data.breakpoints.insert(path.to_string(), entries.clone());
+        }
         let live = matches!(data.state, "preparing" | "running" | "paused");
         drop(data);
         if live {
@@ -2553,6 +2559,7 @@ mod tests {
         dap.set_breakpoints("Program.cs", &[4]);
         // The panel removes a breakpoint by sending the remaining lines of that source.
         dap.set_breakpoints("Program.cs", &[]);
+        assert!(dap.data.lock().unwrap().breakpoints.is_empty());
         run_to_completion(&dap, Some(0));
         assert_eq!(
             dap.view().no_stop_explanation.as_deref(),
