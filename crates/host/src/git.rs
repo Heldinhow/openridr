@@ -9,8 +9,12 @@
 use crate::{HostError, HostResult};
 use serde::Serialize;
 use serde_json::Value;
+use std::fs;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const LOG_LIMIT: usize = 200;
 pub const COMMIT_FILES_LIMIT: usize = 200;
@@ -21,6 +25,14 @@ pub const OUTPUT_LIMIT: usize = 32_000;
 pub const FULL_FILE_BYTES: usize = 1_048_576;
 pub const FULL_FILE_LINES: usize = 30_000;
 const BINARY_PROBE: usize = 8_192;
+/// stdout ceilings: the legacy patch keeps its 240 000-character contract (a UTF-8 character is
+/// at most 4 bytes, so the byte ceiling can never cut a shorter contract), the `-U0` ranges only
+/// need headers and get a generous bound, and stderr is drained but barely kept.
+const PATCH_BYTES: usize = DIFF_LIMIT * 4;
+const HUNK_BYTES: usize = 8 * 1024 * 1024;
+const STDERR_BYTES: usize = 32_000;
+/// Unique suffix for the private decoded-diff files (`pid` plus this counter).
+static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -328,6 +340,7 @@ struct Repo {
     git_dir: PathBuf,
 }
 
+#[derive(Debug)]
 enum OpenError {
     NotRepository,
     Missing,
@@ -338,11 +351,32 @@ struct Output {
     code: Option<i32>,
     stdout: String,
     stderr: String,
+    truncated: bool,
 }
 
 impl Output {
     fn ok(&self) -> bool {
         self.code == Some(0)
+    }
+}
+
+/// Raw bounded capture: blob content must not go through a lossy text conversion before the
+/// host decides whether it is text at all.
+struct Captured {
+    code: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: String,
+    truncated: bool,
+}
+
+impl Captured {
+    fn text(self) -> Output {
+        Output {
+            code: self.code,
+            stdout: String::from_utf8_lossy(&self.stdout).into_owned(),
+            stderr: self.stderr,
+            truncated: self.truncated,
+        }
     }
 }
 
@@ -379,6 +413,71 @@ fn run(cwd: &Path, args: &[&str]) -> Result<Output, SpawnError> {
         code,
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr,
+        truncated: false,
+    })
+}
+
+/// A git run whose stdout never exceeds `limit` bytes. Once the ceiling is hit the child is
+/// killed and `truncated` is set, so a runaway diff cannot become an unbounded allocation in the
+/// host; stderr is drained on its own thread (bounded copy) so a chatty failure cannot deadlock.
+fn spawn_bounded(cwd: &Path, args: &[&str], limit: usize) -> Result<Captured, SpawnError> {
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => SpawnError::Missing,
+            _ => SpawnError::Failed(error.to_string()),
+        })?;
+    let mut stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    let drained = std::thread::spawn(move || {
+        let mut kept = Vec::new();
+        let mut buffer = [0u8; 4096];
+        let mut reader = stderr;
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => {
+                    if kept.len() < STDERR_BYTES {
+                        let room = STDERR_BYTES - kept.len();
+                        kept.extend_from_slice(&buffer[..count.min(room)]);
+                    }
+                }
+            }
+        }
+        kept
+    });
+    let mut captured = Vec::new();
+    let mut truncated = false;
+    let mut buffer = [0u8; 8192];
+    loop {
+        match stdout.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => {
+                if captured.len() + count > limit {
+                    let room = limit.saturating_sub(captured.len());
+                    captured.extend_from_slice(&buffer[..room]);
+                    truncated = true;
+                    let _ = child.kill();
+                    break;
+                }
+                captured.extend_from_slice(&buffer[..count]);
+            }
+            Err(_) => break,
+        }
+    }
+    let status = child.wait().ok();
+    let stderr = drained.join().unwrap_or_default();
+    Ok(Captured {
+        code: status.and_then(|status| status.code()),
+        stdout: captured,
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        truncated,
     })
 }
 
@@ -920,7 +1019,8 @@ fn diff_output(
     staged: bool,
     tracked: bool,
     unified: &str,
-) -> Result<Output, SpawnError> {
+) -> Result<Captured, SpawnError> {
+    let limit = if unified == "-U0" { HUNK_BYTES } else { PATCH_BYTES };
     if tracked {
         let mut args = vec!["diff", "--no-color", "--no-ext-diff", unified];
         if staged {
@@ -928,10 +1028,10 @@ fn diff_output(
         }
         args.push("--");
         args.push(path);
-        run(&repo.top, &args)
+        spawn_bounded(&repo.top, &args, limit)
     } else {
         // An untracked file has no index entry to diff against; /dev/null shows its content.
-        run(
+        spawn_bounded(
             &repo.top,
             &[
                 "diff",
@@ -943,6 +1043,7 @@ fn diff_output(
                 "/dev/null",
                 path,
             ],
+            limit,
         )
     }
 }
@@ -964,14 +1065,24 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
         Ok(tracked) => tracked,
         Err(error) => return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged)),
     };
+    if !staged && worktree_confinement(&repo, path) == Confinement::Outside {
+        return Ok(GitDiff::unavailable(
+            "failed",
+            outside_message(path),
+            path,
+            staged,
+        ));
+    }
     let output = match diff_output(&repo, path, staged, tracked, "-U3") {
         Ok(output) => output,
         Err(error) => return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged)),
     };
-    if output.code != Some(0) && output.code != Some(1) {
+    // A cut-off capture is a successful read with less text, not a failed command.
+    if !output.truncated && output.code != Some(0) && output.code != Some(1) {
         let stderr = mask_urls(output.stderr.trim());
         return Ok(GitDiff::unavailable("failed", stderr, path, staged));
     }
+    let output = output.text();
     let text = mask_urls(&output.stdout);
     if text.trim().is_empty() {
         return Ok(GitDiff::unavailable(
@@ -981,14 +1092,14 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
             staged,
         ));
     }
-    let (diff, truncated) = cap(&text, DIFF_LIMIT);
+    let (diff, capped) = cap(&text, DIFF_LIMIT);
     Ok(GitDiff {
         state: "ok",
         message: None,
         path: path.to_string(),
         staged,
         diff,
-        truncated,
+        truncated: capped || output.truncated,
     })
 }
 
@@ -996,6 +1107,8 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
 enum SideBytes {
     Missing,
     Bytes(Vec<u8>),
+    /// The limit was hit while reading; the bytes were never collected.
+    TooLarge,
     Unreadable,
 }
 
@@ -1007,6 +1120,15 @@ fn read_side(bytes: SideBytes) -> (DiffSide, Option<&'static str>) {
     };
     let bytes = match bytes {
         SideBytes::Missing => return (missing, None),
+        SideBytes::TooLarge => {
+            return (
+                DiffSide {
+                    exists: true,
+                    text: None,
+                },
+                Some("too_large"),
+            )
+        }
         SideBytes::Unreadable => {
             return (
                 DiffSide {
@@ -1048,21 +1170,102 @@ fn read_side(bytes: SideBytes) -> (DiffSide, Option<&'static str>) {
     }
 }
 
-fn read_blob(repo: &Repo, spec: &str) -> SideBytes {
-    match spawn_bytes(&repo.top, &["cat-file", "blob", spec]) {
-        Ok((Some(0), stdout, _)) => SideBytes::Bytes(stdout),
-        // A failed `cat-file` is "this revision does not have that path" for every caller here:
-        // added files, deletions and a repository without commits all land in this arm.
-        _ => SideBytes::Missing,
+/// Whether the directory that holds `path` is really inside the repository. A lexical check
+/// cannot see a symlinked directory, and both our reads and Git's worktree side would follow it
+/// out of the workspace.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Confinement {
+    Inside,
+    Outside,
+    /// The parent could not be resolved (usually it no longer exists); there is no target left
+    /// to leak, so the caller may continue.
+    Unresolved,
+}
+
+fn worktree_confinement(repo: &Repo, path: &str) -> Confinement {
+    let absolute = repo.top.join(path);
+    let Some(parent) = absolute.parent() else {
+        return Confinement::Outside;
+    };
+    let (Ok(root), Ok(resolved)) = (fs::canonicalize(&repo.top), fs::canonicalize(parent)) else {
+        return Confinement::Unresolved;
+    };
+    if resolved.starts_with(&root) {
+        Confinement::Inside
+    } else {
+        Confinement::Outside
     }
 }
 
-fn read_worktree(repo: &Repo, path: &str) -> SideBytes {
-    match std::fs::read(repo.top.join(path)) {
-        Ok(bytes) => SideBytes::Bytes(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => SideBytes::Missing,
+fn read_bounded_file(path: &Path, limit: usize) -> SideBytes {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return SideBytes::Missing,
+        Err(_) => return SideBytes::Unreadable,
+    };
+    let mut bytes = Vec::new();
+    match file.take(limit as u64 + 1).read_to_end(&mut bytes) {
         Err(_) => SideBytes::Unreadable,
+        Ok(_) if bytes.len() > limit => SideBytes::TooLarge,
+        Ok(_) => SideBytes::Bytes(bytes),
     }
+}
+
+/// Reads one side the way Git sees it, never the target of a symlink: a link is its target path
+/// (that is the blob Git stores), and a regular file is read with a hard byte ceiling.
+fn read_worktree(repo: &Repo, path: &str) -> SideBytes {
+    if worktree_confinement(repo, path) == Confinement::Outside {
+        return SideBytes::Unreadable;
+    }
+    let absolute = repo.top.join(path);
+    let metadata = match fs::symlink_metadata(&absolute) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return SideBytes::Missing,
+        Err(_) => return SideBytes::Unreadable,
+    };
+    if metadata.file_type().is_symlink() {
+        return match fs::read_link(&absolute) {
+            Ok(target) => SideBytes::Bytes(target.to_string_lossy().into_owned().into_bytes()),
+            Err(_) => SideBytes::Unreadable,
+        };
+    }
+    if !metadata.is_file() {
+        return SideBytes::Unreadable;
+    }
+    read_bounded_file(&absolute, FULL_FILE_BYTES)
+}
+
+/// Resolves `<spec>` to an object id, then checks its size before reading a single content byte.
+/// Exit 1 from `rev-parse --verify --quiet` is the proved absence (added file, deletion, unborn
+/// repository); anything else is a real read error and must not be reported as "no such file".
+fn read_blob(repo: &Repo, spec: &str) -> Result<SideBytes, SpawnError> {
+    let resolved = spawn_bounded(&repo.top, &["rev-parse", "--verify", "--quiet", spec], 4_096)?;
+    if resolved.code == Some(1) {
+        return Ok(SideBytes::Missing);
+    }
+    if resolved.code != Some(0) || resolved.truncated {
+        return Ok(SideBytes::Unreadable);
+    }
+    let hash = String::from_utf8_lossy(&resolved.stdout).trim().to_string();
+    if hash.is_empty() {
+        return Ok(SideBytes::Missing);
+    }
+    let sized = spawn_bounded(&repo.top, &["cat-file", "-s", &hash], 64)?;
+    if sized.code != Some(0) || sized.truncated {
+        return Ok(SideBytes::Unreadable);
+    }
+    let size: usize = match String::from_utf8_lossy(&sized.stdout).trim().parse() {
+        Ok(size) => size,
+        Err(_) => return Ok(SideBytes::Unreadable),
+    };
+    if size > FULL_FILE_BYTES {
+        return Ok(SideBytes::TooLarge);
+    }
+    let content = spawn_bounded(&repo.top, &["cat-file", "blob", &hash], size)?;
+    if content.code != Some(0) || content.truncated {
+        return Ok(SideBytes::Unreadable);
+    }
+    Ok(SideBytes::Bytes(content.stdout))
 }
 
 fn range(text: &str) -> Option<(u32, u32)> {
@@ -1121,6 +1324,95 @@ fn head_commit(repo: &Repo) -> Option<DiffCommit> {
     })
 }
 
+fn outside_message(path: &str) -> String {
+    format!("Path leaves the repository through a symbolic link: {path}")
+}
+
+fn spawn_state(error: &SpawnError) -> &'static str {
+    match error {
+        SpawnError::Missing => "git_missing",
+        SpawnError::Failed(_) => "failed",
+    }
+}
+
+/// A new file only the current user can read, never clobbering an existing path.
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(text.as_bytes())
+}
+
+/// Both decoded sides, removed on drop on every return path (a hard kill can still leave them;
+/// the unique pid+sequence name and the 0600 mode keep them private and non-conflicting).
+struct TempSides {
+    base: PathBuf,
+    current: PathBuf,
+}
+
+impl TempSides {
+    fn new() -> Self {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let unique = format!(
+            "openridr-diff-{}-{stamp}-{}",
+            std::process::id(),
+            TEMP_SEQ.fetch_add(1, Ordering::Relaxed)
+        );
+        let dir = std::env::temp_dir();
+        Self {
+            base: dir.join(format!("{unique}-base")),
+            current: dir.join(format!("{unique}-current")),
+        }
+    }
+}
+
+impl Drop for TempSides {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.base);
+        let _ = fs::remove_file(&self.current);
+    }
+}
+
+/// `git diff` calls a UTF-16 change binary and emits no ranges, while the editor shows that file
+/// as text. When both decoded sides exist and Git gave no ranges, Git produces them over the
+/// decoded text in private temporary files; nothing of the file contents is returned.
+fn decoded_hunks(base: &str, current: &str) -> Option<Vec<DiffHunk>> {
+    let sides = TempSides::new();
+    write_private(&sides.base, base).ok()?;
+    write_private(&sides.current, current).ok()?;
+    let dir = std::env::temp_dir();
+    let (Some(base_arg), Some(current_arg)) = (sides.base.to_str(), sides.current.to_str()) else {
+        return None;
+    };
+    let output = spawn_bounded(
+        &dir,
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "-U0",
+            "--no-index",
+            "--",
+            base_arg,
+            current_arg,
+        ],
+        HUNK_BYTES,
+    );
+    let output = output.ok()?;
+    if output.truncated || (output.code != Some(0) && output.code != Some(1)) {
+        return None;
+    }
+    Some(parse_hunks(&String::from_utf8_lossy(&output.stdout)))
+}
+
 /// The read behind the diff panel: full base and current texts, the changed block ranges that
 /// align them, the bounded patch as fallback, and the repository HEAD commit as context.
 pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDiff> {
@@ -1143,6 +1435,14 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
             ))
         }
     };
+    if !staged && worktree_confinement(&repo, path) == Confinement::Outside {
+        return Ok(GitFileDiff::unavailable(
+            "failed",
+            outside_message(path),
+            path,
+            staged,
+        ));
+    }
     let patch_output = match diff_output(&repo, path, staged, tracked, "-U3") {
         Ok(output) => output,
         Err(error) => {
@@ -1154,7 +1454,7 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
             ))
         }
     };
-    if patch_output.code != Some(0) && patch_output.code != Some(1) {
+    if !patch_output.truncated && patch_output.code != Some(0) && patch_output.code != Some(1) {
         let stderr = mask_urls(patch_output.stderr.trim());
         return Ok(GitFileDiff::unavailable("failed", stderr, path, staged));
     }
@@ -1170,8 +1470,8 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
         }
     };
     let mut hunks = Vec::new();
-    if hunk_output.code == Some(0) || hunk_output.code == Some(1) {
-        hunks = parse_hunks(&hunk_output.stdout);
+    if !hunk_output.truncated && (hunk_output.code == Some(0) || hunk_output.code == Some(1)) {
+        hunks = parse_hunks(&String::from_utf8_lossy(&hunk_output.stdout));
     }
 
     // Unstaged compares the index with the worktree; staged compares HEAD with the index.
@@ -1180,22 +1480,67 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
     } else {
         format!(":{path}")
     };
-    let (base, base_reason) = read_side(read_blob(&repo, &base_spec));
-    let (current, current_reason) = if staged {
-        read_side(read_blob(&repo, &format!(":{path}")))
-    } else {
-        read_side(read_worktree(&repo, path))
+    let base_bytes = match read_blob(&repo, &base_spec) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Ok(GitFileDiff::unavailable(
+                spawn_state(&error),
+                spawn_message(error),
+                path,
+                staged,
+            ))
+        }
     };
+    let current_bytes = if staged {
+        match read_blob(&repo, &format!(":{path}")) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Ok(GitFileDiff::unavailable(
+                    spawn_state(&error),
+                    spawn_message(error),
+                    path,
+                    staged,
+                ))
+            }
+        }
+    } else {
+        read_worktree(&repo, path)
+    };
+    let (base, base_reason) = read_side(base_bytes);
+    let (current, current_reason) = read_side(current_bytes);
     let mut full_reason = base_reason.or(current_reason);
     let mut full = (!base.exists || base.text.is_some())
         && (!current.exists || current.text.is_some());
 
-    let text = mask_urls(&patch_output.stdout);
+    // Git calls some text binary (UTF-16 with a BOM is the common case) and then emits no ranges.
+    let text_differs = match (base.text.as_deref(), current.text.as_deref()) {
+        (Some(base_text), Some(current_text)) => base_text != current_text,
+        _ => false,
+    };
+    if full && hunks.is_empty() && text_differs {
+        hunks = decoded_hunks(
+            base.text.as_deref().expect("full implies text"),
+            current.text.as_deref().expect("full implies text"),
+        )
+        .unwrap_or_default();
+    }
+
+    let text = mask_urls(&String::from_utf8_lossy(&patch_output.stdout));
     let commit = head_commit(&repo);
     if text.trim().is_empty() {
+        // "No diff" would be a lie when a side exists and could not be read.
+        let unreadable = base_reason == Some("unreadable") || current_reason == Some("unreadable");
+        let (state, message) = if unreadable {
+            (
+                "failed",
+                format!("The file could not be read for the diff: {path}."),
+            )
+        } else {
+            ("empty", format!("No diff for {path}."))
+        };
         return Ok(GitFileDiff {
-            state: "empty",
-            message: Some(format!("No diff for {path}.")),
+            state,
+            message: Some(message),
             path: path.to_string(),
             staged,
             base,
@@ -1208,8 +1553,8 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
             commit,
         });
     }
-    if full && hunks.is_empty() {
-        // The patch says something changed, but the block ranges that align the two texts are
+    if full && text_differs && hunks.is_empty() {
+        // Something changed in the text, but the block ranges that align the two texts are
         // missing: showing the full file would be a guess.
         full = false;
         full_reason = Some("unaligned");
@@ -1612,6 +1957,10 @@ mod tests {
         git(root, &["commit", "-qm", message]);
     }
 
+    fn repo_of(root: &Path) -> Repo {
+        open(root).expect("the temporary repository opens")
+    }
+
     #[test]
     fn info_reports_the_git_that_path_would_run() {
         let info = info();
@@ -1874,6 +2223,235 @@ mod tests {
 
         let outside = file_diff(&root, "../escape.txt", false).unwrap_err();
         assert_eq!(outside.code, "invalid_state");
+    }
+
+    #[test]
+    fn hunk_ranges_are_read_from_the_decoded_text_for_utf16() {
+        for little in [true, false] {
+            let (_temp, root) = init(if little { "le" } else { "be" });
+            let encode = |text: &str| {
+                let mut bytes = if little {
+                    vec![0xFF, 0xFE]
+                } else {
+                    vec![0xFE, 0xFF]
+                };
+                for unit in text.encode_utf16() {
+                    let pair = if little {
+                        unit.to_le_bytes()
+                    } else {
+                        unit.to_be_bytes()
+                    };
+                    bytes.extend_from_slice(&pair);
+                }
+                bytes
+            };
+            fs::write(root.join("u.txt"), encode("one\ntwo\nthree\n")).unwrap();
+            commit_all(&root, "initial");
+            fs::write(root.join("u.txt"), encode("one\nTWO\nthree\n")).unwrap();
+
+            let answer = file_diff(&root, "u.txt", false).unwrap();
+            assert_eq!(answer.state, "ok");
+            assert!(answer.full, "{:?}", answer.full_reason);
+            assert_eq!(answer.base.text.as_deref(), Some("one\ntwo\nthree\n"));
+            assert_eq!(answer.current.text.as_deref(), Some("one\nTWO\nthree\n"));
+            let expected = vec![DiffHunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1,
+            }];
+            assert_eq!(answer.hunks, expected);
+
+            git(&root, &["add", "u.txt"]);
+            let staged = file_diff(&root, "u.txt", true).unwrap();
+            assert!(staged.full, "{:?}", staged.full_reason);
+            assert_eq!(staged.base.text.as_deref(), Some("one\ntwo\nthree\n"));
+            assert_eq!(staged.current.text.as_deref(), Some("one\nTWO\nthree\n"));
+            assert_eq!(staged.hunks, expected);
+        }
+    }
+
+    #[test]
+    fn blob_reads_tell_absence_apart_from_a_read_error() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+
+        assert!(matches!(
+            read_blob(&repo_of(&root), "HEAD:nope"),
+            Ok(SideBytes::Missing)
+        ));
+        assert!(matches!(
+            read_blob(&repo_of(&root), ":nope"),
+            Ok(SideBytes::Missing)
+        ));
+        assert!(matches!(
+            read_blob(&repo_of(&root), "HEAD:a.txt"),
+            Ok(SideBytes::Bytes(_))
+        ));
+
+        let blob = git(&root, &["rev-parse", "HEAD:a.txt"]).trim().to_string();
+        let object = root.join(".git/objects").join(&blob[..2]).join(&blob[2..]);
+        let mut permissions = fs::metadata(&object).unwrap().permissions();
+        permissions.set_readonly(false);
+        fs::set_permissions(&object, permissions).unwrap();
+        fs::write(&object, b"corrupt").unwrap();
+
+        // The path still resolves through the tree; only the content read fails.
+        assert!(matches!(
+            read_blob(&repo_of(&root), "HEAD:a.txt"),
+            Ok(SideBytes::Unreadable)
+        ));
+        let answer = file_diff(&root, "a.txt", false).unwrap();
+        assert_eq!(answer.state, "failed", "{:?}", answer.message);
+        assert!(answer.message.unwrap_or_default().contains("could not be read"));
+        assert!(answer.base.exists, "a read error must not look like a deletion");
+        assert_eq!(answer.base.text, None);
+        assert_eq!(answer.full_reason, Some("unreadable"));
+        assert!(answer.patch.is_empty());
+        assert!(!answer.full);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn file_diff_refuses_symlinks_that_leave_the_repository() {
+        let (_temp, root) = init("repo");
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("secret.txt"), "outside secret\n").unwrap();
+        fs::write(root.join("keep.txt"), "keep\n").unwrap();
+        commit_all(&root, "initial");
+
+        // A symlinked directory would take our read and Git's worktree side out of the repo.
+        std::os::unix::fs::symlink(outside.path(), root.join("outdir")).unwrap();
+        let escaped = file_diff(&root, "outdir/secret.txt", false).unwrap();
+        assert_eq!(escaped.state, "failed");
+        assert!(escaped.message.unwrap_or_default().contains("symbolic link"));
+        assert!(escaped.patch.is_empty());
+        assert_eq!(escaped.base.text, None);
+        assert_eq!(escaped.current.text, None);
+        let legacy = diff(&root, "outdir/secret.txt", false).unwrap();
+        assert_eq!(legacy.state, "failed");
+        assert!(!legacy.diff.contains("outside secret"));
+
+        // A tracked file whose directory was swapped for a symlink is refused before Git reads it.
+        fs::create_dir_all(root.join("realdir")).unwrap();
+        fs::write(root.join("realdir/a.txt"), "inside\n").unwrap();
+        commit_all(&root, "add tracked");
+        fs::rename(root.join("realdir"), outside.path().join("swapped")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("swapped"), root.join("realdir")).unwrap();
+        fs::write(
+            outside.path().join("swapped/a.txt"),
+            "EXTERNAL SECRET\n",
+        )
+        .unwrap();
+        let tracked = file_diff(&root, "realdir/a.txt", false).unwrap();
+        assert_eq!(tracked.state, "failed");
+        assert!(!tracked.patch.contains("EXTERNAL SECRET"));
+
+        // A symlink file is a link object, exactly like Git stores it: the target path, not its
+        // content, and never the content of a file outside the workspace.
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            root.join("link.txt"),
+        )
+        .unwrap();
+        let link = file_diff(&root, "link.txt", false).unwrap();
+        assert_eq!(link.state, "ok");
+        assert!(!link.patch.contains("outside secret"));
+        assert_eq!(
+            link.current.text.as_deref(),
+            Some(outside.path().join("secret.txt").to_str().unwrap())
+        );
+    }
+
+    #[test]
+    fn patch_capture_is_bounded_and_the_ranges_still_align_the_full_texts() {
+        let (_temp, root) = init("repo");
+        let original: String = (0..6_000)
+            .map(|index| format!("line {index:04} {}\n", "x".repeat(86)))
+            .collect();
+        fs::write(root.join("big.txt"), &original).unwrap();
+        commit_all(&root, "initial");
+        let rewritten: String = (0..6_000)
+            .map(|index| format!("changed {index:04} {}\n", "y".repeat(83)))
+            .collect();
+        fs::write(root.join("big.txt"), &rewritten).unwrap();
+
+        let patch = diff(&root, "big.txt", false).unwrap();
+        assert_eq!(patch.state, "ok");
+        assert!(patch.truncated, "the patch must say it was cut");
+        assert!(patch.diff.chars().count() <= DIFF_LIMIT + 80);
+
+        let answer = file_diff(&root, "big.txt", false).unwrap();
+        assert!(answer.full, "{:?}", answer.full_reason);
+        assert_eq!(answer.hunks.len(), 1);
+        assert!(answer.truncated);
+        assert!(answer.patch.chars().count() <= DIFF_LIMIT + 80);
+    }
+
+    #[test]
+    fn full_file_sides_stop_at_the_limit_without_collecting_the_file() {
+        let (_temp, root) = init("repo");
+        let huge = "z".repeat(FULL_FILE_BYTES + 4_096);
+        fs::write(root.join("huge.txt"), &huge).unwrap();
+        let answer = file_diff(&root, "huge.txt", false).unwrap();
+        assert_eq!(answer.state, "ok");
+        assert!(answer.current.exists);
+        assert_eq!(answer.current.text, None);
+        assert!(!answer.full);
+        assert_eq!(answer.full_reason, Some("too_large"));
+        assert!(answer.truncated, "the bounded patch still says it was cut");
+        assert!(answer.patch.chars().count() <= DIFF_LIMIT + 80);
+
+        // A committed side is rejected from the blob size, before any content byte is read.
+        fs::write(root.join("committed.txt"), &huge).unwrap();
+        commit_all(&root, "big");
+        fs::write(root.join("committed.txt"), format!("{huge}b")).unwrap();
+        let committed = file_diff(&root, "committed.txt", false).unwrap();
+        assert_eq!(committed.full_reason, Some("too_large"));
+        assert_eq!(committed.base.text, None);
+        assert_eq!(committed.current.text, None);
+    }
+
+    #[cfg(unix)]
+    fn decoded_temporaries() -> Vec<String> {
+        let prefix = format!("openridr-diff-{}-", std::process::id());
+        fs::read_dir(std::env::temp_dir())
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .filter(|name| name.starts_with(&prefix))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn decoded_diff_temporaries_are_private_and_removed() {
+        let before = decoded_temporaries();
+        let hunks = decoded_hunks("a\nb\n", "a\nB\n").expect("both texts diff");
+        assert_eq!(
+            hunks,
+            vec![DiffHunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1
+            }]
+        );
+        assert_eq!(decoded_temporaries(), before, "no temporary file survives");
+
+        let path = std::env::temp_dir().join(format!(
+            "openridr-diff-private-check-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&path);
+        write_private(&path, "secret\n").unwrap();
+        let mode = std::os::unix::fs::PermissionsExt::mode(&fs::metadata(&path).unwrap().permissions());
+        let _ = fs::remove_file(&path);
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]
