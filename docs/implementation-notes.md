@@ -1339,3 +1339,26 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 - App Tauri ad-hoc no macOS ARM64 com fixture isolada: seleção persistida, status e dicas atualizadas, F9 no editor e F12 navegando de Program.cs para Order.cs. Evidência em `docs/evidence/keymap-vs.md`.
 - Não verificado: demais atalhos em execução real, Windows, macOS Intel e notarização. Playwright não foi usado.
 - Ajuste posterior: testes focados cobrem Ctrl+F5 em macOS/Windows e a escolha de iniciar ou continuar com F5; o fluxo de debug pausado não foi repetido no app real.
+
+## 2026-11-06 — Primeira abertura com quarentena (#45)
+
+Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, tickets #71/#72.
+
+- **A medição corrige o diagnóstico da #42.** O processo fica em `_dyld_start` porque o macOS não
+  inicia app em quarentena até o diálogo ser respondido (`launchInQuarantine`), não porque o
+  Gatekeeper esteja verificando os 18 Mach-O. Marcos medidos no alpha.11 do release: diálogo em
+  0,40–0,53 s (cópia em disco), código 0,14–0,24 s e janela 0,97–1,42 s depois do clique.
+- **`scripts/measure-first-open.sh`** monta a condição (cópia nova, xattr `0083` com UUID novo,
+  `OPENRIDR_HOME` isolado por `launchctl setenv`), cronometra `exec`/`prompt`/`code`/`window`,
+  recusa rodar com o app aberto e restaura o ambiente no fim. `--click X,Y` dispensa o diálogo
+  automaticamente pelo `agent-desktop` (o `CoreServicesUIAgent` expõe zero superfícies de
+  acessibilidade); sem `--click`, espera alguém responder e reporta o total.
+- **Condições sem custo no bundle:** sem o ticket grampeado (consulta online) o diálogo aparece em
+  0,32–0,38 s; abrir direto de imagem fria é o caminho lento (clique→janela 6,6 s; `ditto` do app:
+  1,95 s). Nada muda assinatura, layout ou contagem de Mach-O.
+- **Documentação atualizada:** `install-app.md` (arraste para Aplicações antes de abrir; o diálogo
+  de primeira abertura), `RELEASE-ALPHA.md` (mesma instrução com números) e `decisions.md`.
+- **Não verificado:** rodada ponta a ponta do script commitado (a medição usou o protótipo; o
+  script passou em `sh -n` e nos caminhos de erro), tela cheia em outro Space, cdhash nunca visto
+  (exigiria build novo + notarização), macOS 26, macOS Intel e Windows. Cursor de espera
+  (beachball) não é observável em captura do ScreenCaptureKit.

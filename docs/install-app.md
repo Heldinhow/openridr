@@ -14,6 +14,23 @@ O comando faz `tauri build --bundles app` e copia o bundle para `/Applications/O
 - **Ícone:** provisório, o mesmo `src-tauri/icons/icon.png` do repositório, convertido para `.icns`/`.ico`.
 - **Fora deste fluxo:** instalador público e Windows/macOS Intel. Assinatura Developer ID e notarização existem apenas no DMG de release (ver [release-signing.md](release-signing.md)); esse DMG abre sem aviso do Gatekeeper e roda só em Apple Silicon.
 
+## Primeira abertura de um app baixado (DMG de release)
+
+App baixado por Safari/Chrome carrega a marca de quarentena do macOS, e o sistema **não inicia**
+O OpenRidr até alguém responder ao diálogo "… é um app baixado da internet. Tem certeza de que
+deseja abrí-lo?". Medido no alpha.11 (ver [evidence/first-open.md](evidence/first-open.md)):
+
+- com o app já arrastado para Aplicações: o diálogo aparece em **~0,5 s** e a janela em **~1,5 s
+depois do clique**;
+- aberto **direto da janela do DMG**: o intervalo clique→janela vai para **~5–7 s**, porque o
+  sistema lê os 164 MB do app de dentro da imagem comprimida (`ditto` do mesmo app: 1,95 s).
+
+Então: arraste para **Applications** antes de abrir, e na primeira abertura clique em **Abrir** (ou
+tecle Enter). Não é lentidão do app nem verificação de assinatura que dê para otimizar — é o
+macOS esperando a decisão. Na segunda abertura não há diálogo nem esse custo.
+
+Para medir de novo numa máquina: `sh scripts/measure-first-open.sh --app /Applications/OpenRidr.app`.
+
 ## Abrir do Finder e do terminal
 
 Nada disto é instalado automaticamente: nem o app nem o `install-app.sh` mexem no PATH, no shell
