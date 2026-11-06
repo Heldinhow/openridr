@@ -91,6 +91,12 @@ Duas falhas apareceram nas rodadas de validação, ambas de **carga** e ambas fe
   `project.assets.json < projeto` (ms) podia empatar sob carga. Conserto: `fixture_copy` normaliza
   todos os mtimes para 2020 (`age_tree`), então o que o restore escreve é sempre mais novo.
 
+**Depois do merge de `origin/main`** (commit `987ef23`, que trouxe #44/#45/#79/#92): `bun run check`
+verde; `cargo test -p openridr-host` com lib 298 (+11 ignoradas), bundled 11 (+11), debugger 15
+(+14), host 100 (+27), discovery 10, run 7 e trust 1 (+1), tudo verde; smoke E2E do
+`scripts/e2e-smoke.txt` com 25 passando em 1,8 min, headless. O guard de fontes continuou verde com
+os fontes novos do #79/#92.
+
 Antes desses consertos: 1 rodada com 1 falha (`test_run`, `real_run_reports_trx…`, passou
 isolado), 1 rodada com 2 falhas (as duas acima), 2 rodadas verdes. Depois: **3 rodadas seguidas
 verdes**, acima. Essas duas falhas são sensíveis a carga (timeout de 5 s do produto para o LSP e
