@@ -602,74 +602,24 @@ export function BranchWidget({
   );
 }
 
-type SplitCell = { text: string; kind: "ctx" | "del" | "add" | "empty" };
-
-// Pairs "-" and "+" runs of a unified diff into old | new rows; headers span both columns.
-function splitDiff(diff: string): Array<string | [SplitCell, SplitCell]> {
-  const rows: Array<string | [SplitCell, SplitCell]> = [];
-  let dels: string[] = [];
-  let adds: string[] = [];
-  const empty: SplitCell = { text: "", kind: "empty" };
-  const flush = () => {
-    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
-      rows.push([
-        i < dels.length ? { text: dels[i], kind: "del" } : empty,
-        i < adds.length ? { text: adds[i], kind: "add" } : empty,
-      ]);
-    }
-    dels = [];
-    adds = [];
-  };
-  let inHunk = false;
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("@@")) { flush(); inHunk = true; rows.push(line); continue; }
-    if (!inHunk || line.startsWith("diff --git")) { flush(); inHunk = false; rows.push(line); continue; }
-    if (line.startsWith("-")) dels.push(line.slice(1));
-    else if (line.startsWith("+")) adds.push(line.slice(1));
-    else if (line.startsWith("\\")) continue;
-    else { flush(); const t = line.slice(1); rows.push([{ text: t, kind: "ctx" }, { text: t, kind: "ctx" }]); }
-  }
-  flush();
-  return rows;
-}
-
-function SideBySideDiff({ diff, staged }: { diff: string; staged: boolean }) {
-  const rows = useMemo(() => splitDiff(diff), [diff]);
-  const noPreviousFile = diff.split("\n").slice(0, 5).includes("--- /dev/null");
-  return (
-    <pre className="commit-diff commit-diff-split">
-      <span className="split-label" data-testid="commit-diff-left-label">{noPreviousFile ? "No previous file" : staged ? "HEAD" : "Index"}</span>
-      <span className="split-label" data-testid="commit-diff-right-label">{staged ? "Index" : "Working tree"}</span>
-      {rows.map((row, index) =>
-        typeof row === "string" ? (
-          <span key={index} className="split-head">{row}</span>
-        ) : (
-          row.map((cell, side) => (
-            <span key={`${index}-${side}`} className={`split-cell split-${cell.kind}`}>{cell.text}</span>
-          ))
-        ),
-      )}
-    </pre>
-  );
-}
-
 export function CommitPanel({
   status,
   statusError,
   trusted,
   initialPath = null,
   onRefresh,
+  onOpenDiff,
 }: {
   status: GitStatus | null;
   statusError: string | null;
   trusted: boolean;
   initialPath?: string | null;
   onRefresh: () => Promise<void>;
+  onOpenDiff: (path: string) => void;
 }) {
   const [selection, setSelection] = useState<Set<string> | null>(null);
   const [message, setMessage] = useState("");
   const [amend, setAmend] = useState(false);
-  const [diff, setDiff] = useState<GitDiff | null>(null);
   const [diffPath, setDiffPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<string | null>(null);
@@ -704,24 +654,9 @@ export function CommitPanel({
     setSelection(next);
   }
 
-  async function showDiff(file: GitFile) {
+  function showDiff(file: GitFile) {
     setDiffPath(file.path);
-    setDiff(null);
-    try {
-      const staged = file.staged && file.worktree === " ";
-      setDiff(await call<GitDiff>("git.diff", { path: file.path, staged }));
-    } catch (caught) {
-      const text = messageOf(caught);
-      setError(text);
-      setDiff({
-        state: "failed",
-        message: text,
-        path: file.path,
-        staged: file.staged,
-        diff: "",
-        truncated: false,
-      });
-    }
+    onOpenDiff(file.path);
   }
 
   useEffect(() => {
@@ -751,7 +686,6 @@ export function CommitPanel({
         setMessage("");
         setAmend(false);
         setSelection(null);
-        setDiff(null);
         setDiffPath(null);
       } else {
         setError(result.message ?? "git commit failed.");
@@ -817,37 +751,6 @@ export function CommitPanel({
               </div>
             ))}
           </div>
-          {diffPath && (
-            <div className="modal-backdrop commit-diff-backdrop">
-              <section
-                className="modal commit-diff-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-label={`Git diff for ${diffPath}`}
-                data-testid="commit-diff"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    setDiffPath(null);
-                    setDiff(null);
-                  }
-                }}
-              >
-                <div className="panel-title commit-diff-title" title={diffPath}>{diffPath}</div>
-              {diff ? (
-                <>
-                  {diff.diff ? <SideBySideDiff diff={diff.diff} staged={diff.staged} /> : <pre className="commit-diff">{diff.message || "No diff."}</pre>}
-                  {diff.truncated && <p className="menu-note">Diff truncated at the declared limit.</p>}
-                  {diff.state !== "ok" && <p className="menu-note">{diff.message}</p>}
-                </>
-              ) : (
-                <p className="menu-note">Loading diff…</p>
-              )}
-                <div className="actions">
-                  <button type="button" autoFocus onClick={() => { setDiffPath(null); setDiff(null); }}>Close diff</button>
-                </div>
-              </section>
-            </div>
-          )}
           <div className="commit-form">
             <label className="commit-message-field">
               <textarea

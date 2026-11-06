@@ -120,17 +120,27 @@ test("commit tool commits only the checked files, preserves the index and amends
   // The diff is the real git diff of the selected file.
   await page.getByTestId(`commit-file-${order}`).click();
   await expect(page.getByTestId("commit-diff")).toContainText("// e2e worktree change");
-  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
+  await expect(page.getByTestId("commit-diff-tab").getByRole("tab")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("commit-diff").locator(".cm-editor")).toHaveCount(2);
+  await expect(page.getByTestId("commit-diff-file-count")).toContainText("/3 files");
+  const nextFile = page.getByRole("button", { name: "Next changed file" });
+  if (await nextFile.isEnabled()) {
+    await nextFile.click();
+    await expect(page.getByTestId("commit-diff-tab")).not.toContainText("Commit: Order.cs");
+    await page.getByRole("button", { name: "Previous changed file" }).click();
+    await expect(page.getByTestId("commit-diff-tab")).toContainText("Commit: Order.cs");
+  }
+  await page.getByRole("button", { name: "Close diff" }).click();
 
   await page.getByTestId(`commit-file-${program}`).click();
-  await expect(page.getByTestId("commit-diff-left-label")).toHaveText("HEAD");
-  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Index");
-  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
+  await expect(page.getByTestId("commit-diff-left-label")).toContainText("HEAD");
+  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Index (staged version)");
+  await page.getByRole("button", { name: "Close diff" }).click();
 
   await page.getByTestId(`commit-file-${brandNew}`).click();
   await expect(page.getByTestId("commit-diff-left-label")).toHaveText("No previous file");
-  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Working tree");
-  await page.getByTestId("commit-diff").getByRole("button", { name: "Close diff" }).click();
+  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Current version");
+  await page.getByRole("button", { name: "Close diff" }).click();
 
   // Commit Order.cs and the new file, explicitly not the staged Program.cs.
   await page.getByTestId(`commit-check-${program}`).uncheck();
@@ -185,22 +195,23 @@ test("Git review keeps long diffs, paths, log metadata and commit feedback reada
   const diff = page.getByTestId("commit-diff");
   await expect(diff).toBeVisible();
   await expect(diff).toHaveAttribute("aria-label", `Git diff for ${longPath}`);
-  const diffText = diff.locator("pre");
-  await expect(diff.getByTestId("commit-diff-left-label")).toHaveText("Index");
-  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("Working tree");
-  await expect(diffText).toContainText("after after after");
+  await expect(page.getByTestId("commit-diff-tab")).toContainText("Commit: ReadablePath.cs");
+  const diffText = diff.locator(".cm-editor");
+  await expect(diff.getByTestId("commit-diff-left-label")).toContainText("Index");
+  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("Current version");
+  await expect(diffText).toHaveCount(2);
+  await expect(diffText.nth(1)).toContainText("after after after");
+  await expect(diff.locator(".git-diff-intraline").first()).toBeVisible();
+  await expect(diff.getByTestId("commit-diff-count")).toHaveText("1 difference");
   if (process.env.OPENRIDR_CAPTURE_GIT_UI === "1") {
     fs.mkdirSync(screenshots, { recursive: true });
     await page.screenshot({ path: path.join(screenshots, "git-diff.png") });
   }
-  expect(await diffText.evaluate((element) => element.scrollWidth)).toBeGreaterThan(
-    await diffText.evaluate((element) => element.clientWidth),
+  const scroller = diffText.nth(1).locator(".cm-scroller");
+  expect(await scroller.evaluate((element) => element.scrollWidth)).toBeGreaterThan(
+    await scroller.evaluate((element) => element.clientWidth),
   );
-  // Each side keeps its whole line: a cell never overflows its own column under the other one.
-  for (const cell of [diffText.locator(".split-del").first(), diffText.locator(".split-add").first()]) {
-    expect(await cell.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-  }
-  await diff.getByRole("button", { name: "Close diff" }).click();
+  await page.getByRole("button", { name: "Close diff" }).click();
 
   await page.getByTestId("commit-message").fill("Readable commit result");
   await page.getByTestId("commit-submit").click();

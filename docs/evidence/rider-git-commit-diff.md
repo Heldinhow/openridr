@@ -13,7 +13,8 @@ Referências fornecidas pelo usuário, não copiadas ao repositório.
 ## Entrega parcial
 
 - Painel Commit: grupo recolhível com seleção tri-state, ícones por arquivo, nome e diretório na mesma linha, cores por status, toolbar, amend funcional já existente, mensagem maior e botão combinado desabilitado com motivo. Rollback desabilitado com motivo; push separado já existe no menu de branch. Sem alteração no host.
-- Não implementado: diff como aba do editor, CodeMirror, numeração, conectores, intra-linha, navegação e alternância; continua diálogo pré-existente com patch dividido. Abertura por clique único foi preservada; duplo clique/Enter também acionam o botão, mas ainda abrem diálogo.
+- Parte B: diff abre como aba do editor; dois CodeMirror somente leitura com números reais de linha, faixas por tipo, destaque intra-linha e navegação entre diferenças e arquivos. A seleção da versão preserva a semântica preexistente: HEAD → índice quando só há staging; caso contrário índice → árvore de trabalho. O hash exibido no cabeçalho é o hash de blob presente no patch, não um hash de commit.
+- Limitação importante: o host fornece apenas patch limitado, não ambas as versões completas; os editores mostram apenas hunks e contexto devolvidos pelo Git, não o arquivo inteiro. Binários/patches sem hunks mostram a resposta textual. Conectores e modo unificado não foram implementados. Nenhuma dependência nova.
 - Não há nova operação Git nem dependência; arquivos retornados pelo host não são filtrados.
 
 ## Verificação
@@ -21,4 +22,5 @@ Referências fornecidas pelo usuário, não copiadas ao repositório.
 - `bun run check`: passou; `bun test tests/unit`: 33 passaram.
 - E2E Git (portas 1560/4457): 8 passaram, 1 falhou por seletor ambíguo no teste novo; seletor corrigido e teste afetado passou isoladamente. Não houve nova bateria completa. O teste existente foi ampliado para grupo tri-state e recolhimento.
 - Superfície B em host e fixture temporários: capturas 1470×880 em `rider-git-commit-diff/` antes/depois. A captura anterior do diff foi feita durante carregamento e não comprova seu conteúdo; a posterior espera o patch. A captura do Commit mostra a lista e os controles. Nenhuma modificação na fixture versionada.
-- App desktop não verificado, conforme pedido. macOS Intel/Windows não verificados.
+- Parte B: `bun run check` passou; `bun test tests/unit` 35 passaram; E2E `git.spec.ts` e `medium-nav-git-dialogs.spec.ts` 9 passaram nas portas 1560/4457. O teste de diff foi atualizado do diálogo para a aba e os dois editores; há testes unitários do parser.
+- `depois-diff-b.png` mostra o patch carregado, com modificação e adição, em 1470×880. Superfície B com cópia temporária da fixture e host isolado; app desktop não verificado, conforme pedido. macOS Intel/Windows não verificados.
