@@ -14,7 +14,8 @@ Na cópia isolada da fixture foram criadas as pastas `bin`, `obj`, `config` e `.
 - `bun run check`: passou.
 - `bun test tests/unit`: 33 passaram.
 - Playwright solution-explorer + solution-file-icons + ui-layout, portas 1550/4447: 21 passaram e 2 falharam. `solution-file-icons`: 5 passaram. `solution-explorer` falhou em build: MSB4018, `GenerateDepsFile` não conseguiu acessar o `.deps.json` porque outro processo o estava usando. `ui-layout` 1440×900 falhou porque a label de avaliação truncou, embora o teste esperasse que não truncasse. Não foi estabelecida a causa desta última falha; não declarar a bateria verde.
-- A configuração Playwright sobrepõe `OPENRIDR_HOME` usando `OPENRIDR_E2E_HOME`; nesta execução foi passado apenas `OPENRIDR_HOME`, portanto o E2E usou seu diretório temporário padrão, não o caminho solicitado. As portas foram isoladas.
+- Reexecução isolada dos dois casos, com `OPENRIDR_E2E_HOME` próprio e portas 1550/4447: o build passou; `ui-layout` 1440×900 terminou por timeout de 30s, sem repetir a asserção original. Em cópia de `origin/main` (2b749f4), o mesmo teste passou; comparação inconclusiva porque o Vite bloqueou as fontes via symlink nessa cópia.
+- A configuração Playwright sobrepõe `OPENRIDR_HOME` usando `OPENRIDR_E2E_HOME`; na primeira execução foi passado apenas `OPENRIDR_HOME`, portanto o E2E usou seu diretório temporário padrão, não o caminho solicitado. As portas foram isoladas.
 - App desktop, Windows e macOS Intel: não verificados.
 
 ## Limites e decisões
