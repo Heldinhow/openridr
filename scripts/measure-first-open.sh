@@ -22,8 +22,17 @@
 # Killing the app does not dismiss the alert when the app never started: the alert belongs to
 # CoreServicesUIAgent, so a failed round is followed by Escape (with --click) or a warning.
 #
-# Sampling runs at roughly 0,15-0,25 s per observation (pgrep/ps/perl/agent-desktop), so the
-# printed hundredths are a lower bound of the real instant, not a microbenchmark.
+# Sampling runs at roughly 0,15-0,25 s per observation (pgrep/ps/perl/agent-desktop) and each
+# mark is timestamped when the observation arrives, i.e. up to one sampling period AFTER the real
+# event: the printed hundredths are late by that much, not a microbenchmark. The per-round marker
+# (--openridr-measure-round=N-<uuid> in argv) is what binds the pid to this round; a system-wide
+# Gatekeeper alert only counts once that pid exists.
+#
+# Known limit: two simultaneous alerts cannot be told apart. The script refuses to click when it
+# sees more than one prompt line in the round, when a second process carries the marker, or when
+# its own process is gone; and a click that does not start the app within 5 s fails the round. It
+# cannot undo a click that answered the other app's alert, so measure with the machine otherwise
+# idle.
 #
 # The script never mounts anything: it copies --app (default /Applications/OpenRidr.app, or
 # $OPENRIDR_APP) into a temporary directory, so it reproduces the "app already on disk" condition,
@@ -39,6 +48,7 @@ set -eu
 APP=${OPENRIDR_APP:-/Applications/OpenRidr.app}
 ROUNDS=3
 CLICK=
+CLICK_GIVEN=no
 TIMEOUT=120
 KEEP=no
 ALLOW_UNNOTARIZED=no
@@ -60,7 +70,7 @@ while [ "$#" -gt 0 ]; do
   case $1 in
     --app) value "$1" "$#"; APP=$2; shift 2 ;;
     --rounds) value "$1" "$#"; ROUNDS=$2; shift 2 ;;
-    --click) value "$1" "$#"; CLICK=$2; shift 2 ;;
+    --click) value "$1" "$#"; CLICK=$2; CLICK_GIVEN=yes; shift 2 ;;
     --timeout) value "$1" "$#"; TIMEOUT=$2; shift 2 ;;
     --keep) KEEP=yes; shift ;;
     --allow-unnotarized) ALLOW_UNNOTARIZED=yes; shift ;;
@@ -77,8 +87,16 @@ is_number "$ROUNDS" || die "--rounds must be a number"
 [ "$ROUNDS" -ge 1 ] && [ "$ROUNDS" -le 5 ] || die "--rounds must be 1..5"
 is_number "$TIMEOUT" || die "--timeout must be a number of seconds"
 [ "$TIMEOUT" -ge 5 ] || die "--timeout must be at least 5 seconds"
+if [ "$CLICK_GIVEN" = yes ] && [ -z "$CLICK" ]; then
+  die "--click wants X,Y"
+fi
 if [ -n "$CLICK" ]; then
-  case $CLICK in *,*) ;; *) die "--click wants X,Y" ;; esac
+  case $CLICK in
+    *,*) ;;
+    *) die "--click wants X,Y" ;;
+  esac
+  click_x=${CLICK%%,*}; click_y=${CLICK#*,}
+  is_number "$click_x" && is_number "$click_y" || die "--click wants two numbers: X,Y"
 fi
 
 if [ "$ALLOW_UNNOTARIZED" = no ]; then
@@ -118,14 +136,17 @@ LOG="$STATE/uia.log"
 LOG_PID=
 APP_PID=
 mkdir -p "$HOME_DIR"
-
-# The app reads its state directory from the environment, and `open` does not forward ours.
 PREV_HOME=$(launchctl getenv OPENRIDR_HOME || true)
-launchctl setenv OPENRIDR_HOME "$HOME_DIR"
+
+# The trap goes in before the environment changes: an interrupt in between must not leave
+# OPENRIDR_HOME pointing at a directory that is about to be deleted.
 cleanup() {
   [ -n "$LOG_PID" ] && kill "$LOG_PID" 2>/dev/null || true
   # Only the instance this script launched: a real OpenRidr the user starts meanwhile is not ours.
-  [ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null || true
+  if [ -n "$APP_PID" ] && [ -n "${marker:-}" ]; then
+    cmdline=$(ps -o command= -p "$APP_PID" 2>/dev/null || true)
+    case $cmdline in *"$marker"*) kill "$APP_PID" 2>/dev/null || true ;; esac
+  fi
   if [ -n "$PREV_HOME" ]; then
     launchctl setenv OPENRIDR_HOME "$PREV_HOME"
   else
@@ -140,13 +161,26 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
+# The app reads its state directory from the environment, and `open` does not forward ours.
+launchctl setenv OPENRIDR_HOME "$HOME_DIR"
+
 now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
 delta() { [ -n "$1" ] && [ -n "$2" ] && perl -e "printf '%.2f', $2 - $1" || printf -- '-'; }
 since() { [ -n "$1" ] && perl -e "printf '%.2f', $1 - $T0" || printf -- '-'; }
 
-# The dialog and the window are read from JSON text; accept both compact and spaced output.
+# A window counts only when it is OpenRidr's, visible, and owned by the process this round launched.
 has_window() {
-  printf '%s' "$1" | grep -Eq '"app_name": *"OpenRidr"' && printf '%s' "$1" | grep -Eq '"visible": *true'
+  printf '%s' "$1" | python3 -c '
+import json, sys
+pid = int(sys.argv[1])
+try:
+    windows = json.load(sys.stdin)["data"]
+except Exception:
+    sys.exit(1)
+for window in windows:
+    if window.get("app_name") == "OpenRidr" and window.get("visible") is True and window.get("pid") == pid:
+        sys.exit(0)
+sys.exit(1)' "$2"
 }
 
 printf 'measure-first-open: app=%s rounds=%s%s\n' "$APP" "$ROUNDS" \
@@ -182,7 +216,10 @@ while [ "$round" -lt "$ROUNDS" ]; do
   kill -0 "$LOG_PID" 2>/dev/null || die "log stream died; nothing would be observed"
 
   T0=$(now)
-  if ! open -n "$copy" 2>"$STATE/r$round/open.err"; then
+  # A unique marker binds the pid to this round: guessing it is not possible, and a second process
+  # carrying it means the identity is ambiguous, not that one must be picked.
+  marker="--openridr-measure-round=$round-$(uuidgen)"
+  if ! open -n "$copy" --args "$marker" 2>"$STATE/r$round/open.err"; then
     kill "$LOG_PID" 2>/dev/null || true; LOG_PID=
     printf '%7s  failed: open refused (%s)\n' "$round" "$(cat "$STATE/r$round/open.err")"
     failed=$((failed + 1))
@@ -193,29 +230,82 @@ while [ "$round" -lt "$ROUNDS" ]; do
   deadline=$(perl -e "print $T0 + $TIMEOUT")
   verdict=
   while [ "$(perl -e "print($(now) < $deadline ? 1 : 0)")" = 1 ]; do
+    if [ -n "$pid" ] && [ -z "$verdict" ]; then
+      # The pid was accepted once; if a second process carrying the marker shows up, or ours
+      # disappears, the round is no longer trustworthy.
+      live=$(ps -o command= -p "$pid" 2>/dev/null || true)
+      case $live in
+        *"$marker"*) ;;
+        *) if [ -z "$t_code" ]; then verdict="the measured process vanished before running"; fi ;;
+      esac
+      # A second process carrying this round's marker makes the identity ambiguous; the first
+      # sample is not enough, because it can appear a moment later.
+      if [ -z "$verdict" ] && [ -z "$t_code" ]; then
+        others=0
+        for candidate in $(pgrep -x openridr 2>/dev/null || true); do
+          if [ "$candidate" = "$pid" ]; then continue; fi
+          case " $before " in *" $candidate "*) continue ;; esac
+          cmdline=$(ps -o command= -p "$candidate" 2>/dev/null || true)
+          case $cmdline in *"$marker"*) others=$((others + 1)) ;; esac
+        done
+        if [ "$others" -gt 0 ]; then
+          verdict="ambiguous identity: another process carries this round's marker"
+        fi
+      fi
+    fi
     if [ -z "$t_exec" ]; then
+      matches=0; found=
       for candidate in $(pgrep -x openridr 2>/dev/null || true); do
         case " $before " in *" $candidate "*) continue ;; esac
-        pid=$candidate; break
+        cmdline=$(ps -o command= -p "$candidate" 2>/dev/null || true)
+        case $cmdline in
+          *"$marker"*) matches=$((matches + 1)); found=$candidate ;;
+        esac
       done
-      if [ -n "${pid:-}" ]; then t_exec=$(now); APP_PID=$pid; fi
+      if [ "$matches" -gt 1 ]; then
+        verdict="ambiguous identity: $matches new processes carry the marker"
+      elif [ "$matches" -eq 1 ]; then
+        pid=$found; t_exec=$(now); APP_PID=$pid
+      fi
     fi
-    if [ -z "$t_prompt" ] && grep -q "code-evaluation prompt" "$LOG" 2>/dev/null; then
+    # The alert is system-wide (CoreServicesUIAgent), so it only counts as this round's when our
+    # own suspended process exists: a prompt seen before is remembered and acted on right after.
+    prompts=$(grep -c "code-evaluation prompt" "$LOG" 2>/dev/null || true)
+    if [ -z "$t_prompt" ] && [ -n "$pid" ] && [ "${prompts:-0}" -ge 1 ]; then
       t_prompt=$(now)
-      if [ -n "$CLICK" ]; then
+    fi
+    # Two alerts in one round mean the log is no longer ours to interpret: fail, never click.
+    if [ "${prompts:-0}" -ge 2 ] && [ -z "$verdict" ]; then
+      verdict="two Gatekeeper alerts in one round; cannot tell which one is ours"
+    fi
+    if [ -n "$t_prompt" ] && [ -n "$pid" ] && [ -z "$t_click" ] && [ -z "$t_code" ] && [ -z "$verdict" ] \
+      && [ -n "$CLICK" ]; then
+      # Last look before answering: one alert in the log, and our process still the one holding it.
+      prompts_now=$(grep -c "code-evaluation prompt" "$LOG" 2>/dev/null || true)
+      cmdline=$(ps -o command= -p "$pid" 2>/dev/null || true)
+      owner=no
+      case $cmdline in *"$marker"*) owner=yes ;; esac
+      if [ "${prompts_now:-0}" -ne 1 ] || [ "$owner" != yes ]; then
+        verdict="the alert is no longer unambiguously this round's; nothing was clicked"
+      else
         sleep 0.1
-        agent-desktop screenshot "$STATE/r$round/alert.png" --screen 0 >/dev/null 2>&1 || true
-        agent-desktop mouse-click --xy "$CLICK" --headed >/dev/null 2>"$STATE/r$round/click.err" \
-          || verdict="click failed: $(cat "$STATE/r$round/click.err")"
-        t_click=$(now)
+        if agent-desktop screenshot "$STATE/r$round/alert.png" --screen 0 >/dev/null 2>&1; then
+          if agent-desktop mouse-click --xy "$CLICK" --headed >/dev/null 2>"$STATE/r$round/click.err"; then
+            t_click=$(now)
+          else
+            verdict="click failed: $(cat "$STATE/r$round/click.err")"
+          fi
+        else
+          verdict="capture failed; the dialog was not clicked"
+        fi
       fi
     fi
     if [ -z "$t_code" ] && [ -n "$pid" ]; then
       rss=$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ' || true)
       [ -n "$rss" ] && [ "$rss" -gt 20000 ] && t_code=$(now)
     fi
-    if [ -z "$t_window" ]; then
-      if has_window "$(agent-desktop list-windows --app OpenRidr 2>/dev/null || true)"; then
+    if [ -z "$t_window" ] && [ -n "$pid" ]; then
+      if has_window "$(agent-desktop list-windows --app OpenRidr 2>/dev/null || true)" "$pid"; then
         t_window=$(now)
       fi
     fi
@@ -242,10 +332,17 @@ while [ "$round" -lt "$ROUNDS" ]; do
     fi
   fi
   if [ -n "$APP_PID" ]; then
-    kill "$APP_PID" 2>/dev/null || true
-    waited=0
-    while kill -0 "$APP_PID" 2>/dev/null && [ "$waited" -lt 40 ]; do sleep 0.1; waited=$((waited + 1)); done
-    kill -9 "$APP_PID" 2>/dev/null || true
+    # Revalidate right before signalling: a recycled pid must not receive our TERM/KILL.
+    own=""
+    cmdline=$(ps -o command= -p "$APP_PID" 2>/dev/null || true)
+    case $cmdline in *"$marker"*) own=$APP_PID ;; esac
+    if [ -n "$own" ]; then
+      kill "$own" 2>/dev/null || true
+      waited=0
+      while kill -0 "$own" 2>/dev/null && [ "$waited" -lt 40 ]; do sleep 0.1; waited=$((waited + 1)); done
+      cmdline=$(ps -o command= -p "$own" 2>/dev/null || true)
+      case $cmdline in *"$marker"*) kill -9 "$own" 2>/dev/null || true ;; esac
+    fi
     APP_PID=
   fi
 

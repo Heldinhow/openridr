@@ -240,9 +240,14 @@ export function DebugPanel({
             netcoredbg 3.2.0-1092 build.
           </p>
         )}
-      {terminal && (
+      {terminal && !dap.noStopExplanation && (
         <p className="muted" data-testid="dap-terminal-note">
           {dap.phase.replace(/[.]+$/, "")}. Logs and debuggee output below are preserved from this session.
+        </p>
+      )}
+      {dap.noStopExplanation && (
+        <p className="info" data-testid="dap-no-stop">
+          {dap.noStopExplanation}
         </p>
       )}
       {dap.sealed && (
