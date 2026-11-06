@@ -1971,8 +1971,9 @@ mod tests {
     }
 
     /// Some fixtures make a git object or the index read-only on purpose. Restoring write access is
-    /// platform-specific: on Unix `set_readonly(false)` is a no-op (the mode is what matters), and
-    /// clippy rejects it (`permissions_set_readonly_false`).
+    /// platform-specific: on Unix, `set_readonly(false)` sets *every* write bit (`0o222`), which would
+    /// also make group and others able to write, so the owner bit is added to the mode instead. Clippy
+    /// rejects the `set_readonly(false)` form for exactly that reason (`permissions_set_readonly_false`).
     fn make_writable(path: &Path) {
         #[cfg(unix)]
         {
