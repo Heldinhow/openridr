@@ -171,4 +171,60 @@ if restricted >"$work/out" 2>"$work/err"; then fail "non-arm64 architecture was 
 grep -q "Apple Silicon (arm64) only" "$work/err" ||
   fail "architecture message is not specific: $(cat "$work/err")"
 
+echo "self-check: DMG assembly and verification"
+stub="$work/OpenRidr.app"
+mkdir -p "$stub/Contents/MacOS"
+cp "$(command -v sh)" "$stub/Contents/MacOS/openridr"
+stub_plist() {
+  cat >"$stub/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.openridr.desktop</string>
+  <key>CFBundleShortVersionString</key><string>$1</string>
+</dict>
+</plist>
+EOF
+}
+stub_plist 9.9.9
+mkdir -p "$work/run"
+outputs="$work/run/github-output"
+: >"$outputs"
+if ! RUNNER_TEMP=$work/run GITHUB_OUTPUT=$outputs RELEASE_VERSION=9.9.9 \
+  sh "$script" --dmg-only --app "$stub" >"$work/out" 2>"$work/err"; then
+  cat "$work/err" >&2
+  fail "the DMG stage failed on a stub app"
+fi
+dmg=$(sed -n 's/^dmg=//p' "$work/out")
+[ -f "$dmg" ] || fail "no DMG at '$dmg'"
+case $dmg in */OpenRidr_9.9.9_aarch64.dmg) ;; *) fail "unexpected DMG name: $dmg" ;; esac
+grep -q 'DMG layout verified' "$work/err" || fail "the DMG layout was not verified"
+expected_sha=$(shasum -a 256 "$dmg" | awk '{print $1}')
+expected_bytes=$(stat -f%z "$dmg")
+grep -q "^version=9.9.9$" "$outputs" || fail "GITHUB_OUTPUT has no version"
+grep -q "^dmg=$dmg$" "$outputs" || fail "GITHUB_OUTPUT has no dmg"
+grep -q "^sha256=$expected_sha$" "$outputs" || fail "GITHUB_OUTPUT has no sha256"
+grep -q "^bytes=$expected_bytes$" "$outputs" || fail "GITHUB_OUTPUT has no bytes"
+
+echo "self-check: DMG stage rejects incomplete or mismatched apps"
+stub_plist 1.2.3
+if RUNNER_TEMP=$work/run RELEASE_VERSION=9.9.9 sh "$script" --dmg-only --app "$stub" \
+  >"$work/out" 2>"$work/err"; then
+  fail "a wrong app version was accepted"
+fi
+grep -q "says version '1.2.3'" "$work/err" || fail "wrong version message is not specific: $(cat "$work/err")"
+stub_plist 9.9.9
+rm -f "$stub/Contents/MacOS/openridr"
+if RUNNER_TEMP=$work/run RELEASE_VERSION=9.9.9 sh "$script" --dmg-only --app "$stub" \
+  >"$work/out" 2>"$work/err"; then
+  fail "an app without Contents/MacOS/openridr was accepted"
+fi
+grep -q "has no Contents/MacOS/openridr" "$work/err" ||
+  fail "missing binary message is not specific: $(cat "$work/err")"
+if RUNNER_TEMP=$work/run sh "$script" --dmg-only >"$work/out" 2>"$work/err"; then
+  fail "--dmg-only without a version was accepted"
+fi
+grep -q "needs --tag" "$work/err" || fail "missing version message is not specific"
+
 echo "ok: release self-check passed"
