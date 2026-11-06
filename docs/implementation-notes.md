@@ -1365,7 +1365,8 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   falha; `OPENRIDR_REQUIRE_DOTNET=1` proíbe skip). O alvo de escape usa `tempfile::tempdir()`.
 - **Carga dos filhos e mtimes do fixture.** Isolar cada corpo em processo próprio fez 27 filhos
   disputarem dotnet/MSBuild ao mesmo tempo: `csharp-ls did not answer within 5 seconds` apareceu.
-  O harness limita a **2 processos-filho** simultâneos por binário (semáforo). E a cópia do fixture
+  O harness limita a **1 processo-filho por vez** por binário (semáforo; com 2 a falha de 5 s ainda
+  apareceu em 1 de 3 rodadas). E a cópia do fixture
   agora tem mtimes normalizados para 2020, porque `restore` compara `project.assets.json` com o
   `.csproj` por mtime em milissegundos e a cópia podia empatar sob carga (`restore_required` em vez
   de `invalid_state`).

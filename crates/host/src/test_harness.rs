@@ -39,7 +39,7 @@ static PURGE: Once = Once::new();
 /// all of them at once.
 static SLOTS: Mutex<usize> = Mutex::new(0);
 static SLOT_READY: Condvar = Condvar::new();
-const PARALLEL_CHILDREN: usize = 2;
+const PARALLEL_CHILDREN: usize = 1;
 
 struct Slot;
 

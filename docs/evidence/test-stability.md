@@ -75,24 +75,27 @@ num processo-filho. 3 rodadas seguidas, paralelismo default:
 
 | Rodada | lib | bundled (exec/ign) | debugger (exec/ign) | host (exec/ign) | discovery | run | trust | total do host |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 287 ok / 11 ign | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok / 1 ign | 109,63 s |
-| 2 | 287 ok / 11 ign | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok / 1 ign | 84,99 s |
-| 3 | 287 ok / 11 ign | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok / 1 ign | 99,04 s |
+| 1 | 287 ok / 11 ign | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok / 1 ign | 131,77 s |
+| 2 | 287 ok / 11 ign | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok / 1 ign | 96,77 s |
+| 3 | 287 ok / 11 ign | 11 ok / 11 ign | 15 ok / 14 ign | 100 ok / 27 ign | 10 ok | 7 ok | 1 ok / 1 ign | 116,30 s |
 
 Duas falhas apareceram nas rodadas de validação, ambas de **carga** e ambas fechadas:
 
 - **`lsp_completion_and_definition…`**: `csharp-ls did not answer within 5 seconds` (timeout de
-  produto) com 27 filhos isolados disputando dotnet. Conserto: no máximo **2 processos-filho**
-  simultâneos por binário (`PARALLEL_CHILDREN`), com semáforo no harness; isolamento intacto, só a
-  largura muda.
-- **`build_start_needs_the_current_evaluation…`**: `restore_required` em vez de `invalid_state`
+  produto) com 27 filhos isolados disputando dotnet. Conserto: **1 processo-filho por vez** por
+  binário (`PARALLEL_CHILDREN = 1`), com semáforo no harness; isolamento intacto, só a largura muda.
+  Com 2 filhos a falha ainda apareceu (1 em 3 rodadas); com 1, não reapareceu em 3 rodadas.
+- **`build_start_needs_the_current_evaluation…` / `run_start_reports_restore_required…`**:
+  `restore_required` em vez de `invalid_state`
   porque a cópia do fixture mantinha mtimes do checkout e a comparação
   `project.assets.json < projeto` (ms) podia empatar sob carga. Conserto: `fixture_copy` normaliza
   todos os mtimes para 2020 (`age_tree`), então o que o restore escreve é sempre mais novo.
 
-Antes desses dois consertos: 1 rodada com 1 falha (`test_run`, `real_run_reports_trx…`, passou
+Antes desses consertos: 1 rodada com 1 falha (`test_run`, `real_run_reports_trx…`, passou
 isolado), 1 rodada com 2 falhas (as duas acima), 2 rodadas verdes. Depois: **3 rodadas seguidas
-verdes**, acima. Com `OPENRIDR_BUNDLED_NETCOREDBG`, `OPENRIDR_HOME`, `OPENRIDR_FORCE_HOSTROOT`,
+verdes**, acima. Essas duas falhas são sensíveis a carga (timeout de 5 s do produto para o LSP e
+restore real do NuGet); com a máquina carregada por outras sessões elas podem voltar, e a tabela
+acima é a medição honesta desta rodada — não um conserto declarado. Com `OPENRIDR_BUNDLED_NETCOREDBG`, `OPENRIDR_HOME`, `OPENRIDR_FORCE_HOSTROOT`,
 `OPENRIDR_TRUST_STORE` e `OPENRIDR_ENABLE_PROBE=0` exportados: `--test debugger` 15 ok + 14 ign,
 `--test bundled_analysis` 11 ok + 11 ign — o ambiente herdado não chega ao host.
 

@@ -37,7 +37,7 @@ static PURGE: Once = Once::new();
 /// at once and starve each other into restore timeouts. Isolation stays; only the width changes.
 static SLOTS: Mutex<usize> = Mutex::new(0);
 static SLOT_READY: Condvar = Condvar::new();
-const PARALLEL_CHILDREN: usize = 2;
+const PARALLEL_CHILDREN: usize = 1;
 
 struct Slot;
 
