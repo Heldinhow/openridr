@@ -86,13 +86,21 @@ Os dois testes Rust que falhavam no `main` (`file_access_is_confined_to_the_work
 - Specs que dependem de dotnet/csharp-ls/netcoredbg real fazem `skip` quando o ambiente não tem a ferramenta. Skip não é passe: leia o motivo e registre "não verificado".
 - Não rode a suíte inteira por reflexo durante outra execução; as portas e a fixture são compartilhadas.
 
-## Verificação antes de entregar (substitui o `/code-review` do fluxo AIHero)
+### Projeto de referência para validar no app real (repo privado)
+
+`/Users/helder/Projetos/gabagool-dotnet` (`Gabagool.sln`, 5 projetos `net8.0`: Api, Application, Domain, Infrastructure, Tests com xUnit; `global.json` no SDK `8.0.408`, `rollForward: latestPatch`). Além das fixtures, é o alvo para validar no app real: abrir a solução, Problems, Build, Run da Api, Tests, Debug e Git.
+
+- É repositório **privado** do Helder: nunca edite a pasta original — copie para `/tmp` antes de abrir, compilar ou mexer.
+- Nunca copie código, nomes de domínio, capturas ou trechos dele para este repo público: a evidência descreve só o resultado, e print só se não mostrar código dele.
+- Nunca faça commit nem push nele.
+
+## Verificação antes de entregar
 
 O passo `/code-review` é, por padrão:
 
 1. **Checagem objetiva e curta** do diff contra a spec/ticket e os padrões deste arquivo (`## Regras`, `data-testid`, dependências). Lista só desvios concretos com `arquivo:linha`.
 2. **Rodar o skill `verify-openridr`** (`.agents/skills/verify-openridr/SKILL.md`) nas features tocadas: UI via Playwright/host isolado e, quando a tela do Mac estiver desbloqueada e com permissões, o app Tauri real via agent-desktop. O que não rodou entra como "não verificado".
-3. **Sem revisão adversarial aberta/multi-agente** por padrão. Só se o usuário pedir.
+3. **Code review em subagente único** (decisão de 2026-11-06) depois da implementação, antes do retro/PR: `delegate_task` do T3 com target Pi, model `openai-codex/gpt-6.1-terra` e option `thinking=medium`; fixed point = `git merge-base origin/main HEAD`; spec = a issue (e as filhas). Corrija achado alto/médio na hora; baixo, só se for simples. Sem `delegate_task` disponível: avise o orquestrador com o SHA do commit e siga. Revisão adversarial aberta/multi-agente continua só se o usuário pedir.
 
 Resto do fluxo (grill → spec → tickets → implement → retro) segue igual. Propostas de verificação formal: [docs/VERIFICACAO-FORMAL.md](docs/VERIFICACAO-FORMAL.md); a PoC de trust roda com `cargo test -p openridr-host --test trust_model`.
 
