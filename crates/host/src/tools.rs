@@ -2392,7 +2392,7 @@ mod tests {
 
     #[test]
     fn the_worker_refuses_an_install_without_the_verified_package_feed() {
-        std::env::remove_var("OPENRIDR_ENABLE_PROBE");
+        crate::test_harness::prepare();
         let temp = tempfile::tempdir().unwrap();
         let plan = Plan {
             tool: TOOL,
@@ -2518,7 +2518,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_worker_rechecks_the_package_hash_before_installing() {
-        std::env::remove_var("OPENRIDR_ENABLE_PROBE");
+        crate::test_harness::prepare();
         let temp = tempfile::tempdir().unwrap();
         let feed = temp.path().join("feed");
         fs::create_dir_all(&feed).unwrap();

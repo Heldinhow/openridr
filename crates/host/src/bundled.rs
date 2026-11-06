@@ -253,28 +253,6 @@ fn max_major(directory: &Path, major: u64) -> Option<String> {
 mod tests {
     use super::*;
 
-    struct Override {
-        key: &'static str,
-        old: Option<std::ffi::OsString>,
-    }
-
-    impl Override {
-        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-            let old = env::var_os(key);
-            env::set_var(key, value);
-            Self { key, old }
-        }
-    }
-
-    impl Drop for Override {
-        fn drop(&mut self) {
-            match &self.old {
-                Some(value) => env::set_var(self.key, value),
-                None => env::remove_var(self.key),
-            }
-        }
-    }
-
     fn runtime(root: &Path, fxr: &str, app: &str) {
         fs::create_dir_all(root.join("host/fxr").join(fxr)).unwrap();
         fs::create_dir_all(root.join("shared/Microsoft.NETCore.App").join(app)).unwrap();
@@ -307,12 +285,14 @@ mod tests {
     }
 
     #[test]
-    fn the_override_requires_the_entry_dll_and_a_runtime() {
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn the_override_requires_the_entry_dll_and_a_runtime_isolated() {
         let temp = tempfile::tempdir().unwrap();
         let tools = temp.path().join("csharp-ls");
         fs::create_dir_all(&tools).unwrap();
-        let _tool = Override::set(CSHARP_LS_OVERRIDE, &tools);
-        let _runtime = Override::set(RUNTIME_OVERRIDE, temp.path().join("dotnet"));
+        let _tool = crate::test_harness::EnvVar::set(CSHARP_LS_OVERRIDE, &tools);
+        let _runtime =
+            crate::test_harness::EnvVar::set(RUNTIME_OVERRIDE, temp.path().join("dotnet"));
         assert!(
             csharp_ls_dir().is_none(),
             "an empty directory is not a payload"
@@ -325,4 +305,11 @@ mod tests {
             "a payload without a runtime is not a complete pair"
         );
     }
+}
+
+#[test]
+fn the_override_requires_the_entry_dll_and_a_runtime() {
+    crate::test_harness::run_isolated_leaf(
+        "bundled::tests::the_override_requires_the_entry_dll_and_a_runtime_isolated",
+    );
 }
