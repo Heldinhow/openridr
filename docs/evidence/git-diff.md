@@ -33,9 +33,21 @@ Bundle de debug construído do HEAD desta sessão (`src-tauri/target/debug/bundl
 - **Unificado:** o toggle `Split | Unified` troca para um único editor; o documento mostrou `-` na linha removida (sem número) e `+` nas linhas adicionadas com o número novo; a contagem continuou `1 difference` e não há conectores. Depois de fechar e reabrir o diff, `Unified` permaneceu ativo (`localStorage`, chave `openridr.commitDiffMode.v1`).
 - **Bug encontrado e corrigido nesta verificação:** a linha do commit não era pintada. Causa: `overflow: hidden` no `<p>` zera o `min-height: auto` do flex item e ele encolhia a zero dentro da coluna; a nota seguinte ocupava o lugar. Correção: `flex: 0 0 auto` nas faixas de cabeçalho do diff (`toolbar`, `labels`, `commit`, `note`), com `toBeVisible()` novo no E2E para não regredir.
 
+### Capturas preservadas (recortadas)
+
+O projeto aberto no app era uma **cópia de um repositório privado de referência**; as capturas completas mostram código e nomes desse projeto e não são publicadas. As imagens abaixo são recortes da **moldura do painel**, sem linhas de código, nomes de arquivo do projeto ou identificadores privados — só textos da própria UI, números de linha e o gutter:
+
+- ![Split: toolbar, rótulos, linha do commit e nota](git-diff/split-header.png) — `split-header.png`, recorte da toolbar + rótulos + linha `HEAD` + nota do modo split. Prova: `Split | Unified` com Split ativo, `Index`/`Worktree`, `HEAD eaa8564 · Baseline for issue 48 verification` e "Showing the full file from Git.".
+- ![Split: conectores entre os painéis](git-diff/split-connectors.png) — `split-connectors.png`, recorte estreito da borda entre os painéis (gutter + coluna de números da direita), sem texto de código. Prova: bloco azul na linha modificada (152) e metade verde na linha adicionada (153), com a borda do painel no meio.
+- ![Unificado: toolbar com o modo ativo](git-diff/unified-header.png) — `unified-header.png`, mesmo recorte de cabeçalho no modo unificado. Prova: `Unified` ativo e a mesma linha do commit/nota. O corpo do editor unificado (linhas `-`/`+`) fica fora do recorte porque contém código do projeto privado.
+
+Recorte é intencional e declarado: as imagens provam a moldura, os rótulos, o hash, a nota e a geometria dos conectores; **não** provam o conteúdo das linhas do arquivo inteiro nem as linhas `-`/`+` do unificado.
+
 ## Não verificado
 
 - Windows e macOS Intel (não há build nem execução).
+- **Sem evidência visual preservada** (o app não foi reaberto para recapturar em um projeto público): as linhas do **arquivo inteiro** nos dois painéis, o corpo do editor **unificado** (`-`/`+`), e as telas de **arquivo adicionado**, **deletado** e **binário**. Esses comportamentos têm prova de execução (testes de host, unidade e `git.spec.ts`) e a árvore de acessibilidade do app os leu na sessão original, mas nenhuma captura publicável foi preservada: as capturas completas eram do projeto privado e os recortes excluem código. Nada foi recapturado nem inventado.
+- O fallback `unreadable` (blob/árvore/index corrompidos) tem prova **só de host**: não existe fixture de ponta a ponta; o ramo `unreadable` nunca foi exercitado por E2E nem pelo app.
 - No app real não foram abertos, um por um, os casos de arquivo **adicionado**, **deletado** e **binário** (só E2E). O caminho de arquivo grande (>1 MiB / >30.000 linhas) só foi provado no host, não na tela.
 - O fallback `unreadable` (arquivo existe mas não pode ser lido) não tem fixture: é um ramo defensivo sem prova de ponta a ponta.
 - O diff a partir do Git log continua fora de escopo (issue #101).
