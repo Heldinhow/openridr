@@ -3,6 +3,8 @@
 # copy of fixtures/OrderDesk, passing the solution as argv (the same path Finder/Dock/CLI feed).
 # Usage: desktop.sh up [bundle.app] | down. The Mac screen must be unlocked and agent-desktop needs
 # Accessibility permission, otherwise `agent-desktop snapshot` fails with a permission error.
+# VERIFY_OPENRIDR_DESKTOP_SOLUTION opens a prepared absolute .sln/.csproj instead of the fixture copy
+# (the isolated OPENRIDR_HOME and the single-instance/PID checks stay the same).
 set -eu
 
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
@@ -26,9 +28,23 @@ up)
   # Rotate instead of deleting: the previous session's log, trust store and fixture copy stay in .prev.
   if [ -d "$state" ]; then rm -rf "$state.prev"; mv "$state" "$state.prev"; fi
   mkdir -p "$state/home" "$state/work"
-  cp -R "$repo/fixtures/OrderDesk" "$state/work/OrderDesk"
-  find "$state/work" \( -name bin -o -name obj \) -type d -prune -exec rm -rf {} +
-  OPENRIDR_HOME="$state/home" nohup "$bin" "$state/work/OrderDesk/OrderDesk.sln" >"$state/app.log" 2>&1 &
+  # A prepared workspace (scripts/git-remote-fixture.sh and friends) replaces the fixture copy; the
+  # default stays fixtures/OrderDesk. Only the solution path comes from outside; the home does not.
+  prepared=${VERIFY_OPENRIDR_DESKTOP_SOLUTION:-}
+  if [ -n "$prepared" ]; then
+    case "$prepared" in
+    /*/OrderDesk.sln | /*/*.sln | /*/*.csproj) ;;
+    *) echo "desktop.sh: VERIFY_OPENRIDR_DESKTOP_SOLUTION must be an absolute .sln/.csproj path: $prepared" >&2; exit 2 ;;
+    esac
+    [ -f "$prepared" ] || { echo "desktop.sh: solution not found: $prepared" >&2; exit 2; }
+    solution=$prepared
+    echo "workspace $solution (prepared; the fixture copy is skipped)"
+  else
+    cp -R "$repo/fixtures/OrderDesk" "$state/work/OrderDesk"
+    find "$state/work" \( -name bin -o -name obj \) -type d -prune -exec rm -rf {} +
+    solution=$state/work/OrderDesk/OrderDesk.sln
+  fi
+  OPENRIDR_HOME="$state/home" nohup "$bin" "$solution" >"$state/app.log" 2>&1 &
   pid=$!
   echo "$pid" >"$state/app.pid"
   sleep 4
@@ -42,7 +58,7 @@ up)
   fi
   echo "app pid $pid"
   echo "state $state"
-  echo "home $state/home; solution $state/work/OrderDesk/OrderDesk.sln"
+  echo "home $state/home; solution $solution"
   ;;
 down)
   if [ -f "$state/app.pid" ]; then
