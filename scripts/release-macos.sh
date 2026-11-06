@@ -16,7 +16,6 @@ set -eu
 ROOT=${RELEASE_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
 WORK=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
 PRODUCT=OpenRidr
-BUNDLE_ID=com.openridr.desktop
 
 MODE=full
 TAG=
@@ -334,7 +333,7 @@ audit_identity() {
 }
 
 macho_files() {
-  find "$1" -type f -print0 | while IFS= read -r -d '' file; do
+  find "$1" -type f | while IFS= read -r file; do
     magic=$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')
     case $magic in
       cffaedfe | cefaedfe | cafebabe) printf '%s\n' "$file" ;;

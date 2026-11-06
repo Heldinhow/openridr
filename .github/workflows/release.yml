@@ -1,0 +1,158 @@
+name: release
+
+# Pushing a v* tag builds, signs (Developer ID, hardened runtime, embedded Mach-Os), notarizes,
+# staples and publishes the pre-release. The steps live in scripts/release-macos.sh so this workflow
+# and a manual run produce the same artifact; see docs/release-signing.md.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (vX.Y.Z). Required when the ref is not a tag."
+        required: false
+        type: string
+      publish:
+        description: "Publish the pre-release after signing and verifying (false = full rehearsal)"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Public values live in repository variables; the rest are secrets. Names only, no values here.
+  APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+  APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+jobs:
+  release:
+    name: Build, sign, notarize and publish
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.9"
+
+      # Fails in seconds when the tag is not vX.Y.Z, the five version sources disagree, the tag is
+      # not on main, the notes point at another version or a credential is missing. Nothing is
+      # signed and nothing is built before this passes.
+      - name: Preflight
+        id: preflight
+        env:
+          RELEASE_INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="$RELEASE_INPUT_TAG"
+          if [ -z "$tag" ]; then
+            if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+              echo "release: workflow_dispatch needs the 'tag' input (ref is $GITHUB_REF_TYPE $GITHUB_REF_NAME)" >&2
+              exit 1
+            fi
+            tag="$GITHUB_REF_NAME"
+          fi
+          sh scripts/release-macos.sh --check --tag "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Import the Developer ID certificate
+        id: keychain
+        run: |
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          password=$(openssl rand -hex 24)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 1800 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security default-keychain -s "$keychain"
+          security list-keychains -d user -s "$keychain"
+          printf '%s' "$APPLE_CERTIFICATE" | tr -d '\n' | openssl base64 -d -A >"$RUNNER_TEMP/DeveloperID.p12"
+          security import "$RUNNER_TEMP/DeveloperID.p12" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" \
+            "$keychain" >/dev/null
+          rm -f "$RUNNER_TEMP/DeveloperID.p12"
+          echo "path=$keychain" >> "$GITHUB_OUTPUT"
+          echo "the keychain holds these code signing identities:"
+          security find-identity -v -p codesigning "$keychain"
+
+      - name: Install dependencies and check the code
+        run: |
+          bun install --frozen-lockfile
+          bun run check
+          bun run test:unit
+
+      - name: Build, sign, notarize and verify
+        id: release
+        env:
+          RELEASE_TAG: ${{ steps.preflight.outputs.tag }}
+        run: sh scripts/release-macos.sh --tag "$RELEASE_TAG"
+
+      # Runs even when the release step failed, so a broken run never leaves the certificate (or a
+      # decrypted notary key) behind in the runner.
+      - name: Remove the certificate from the runner
+        if: always()
+        run: |
+          keychain="${{ steps.keychain.outputs.path }}"
+          if [ -n "$keychain" ]; then
+            security delete-keychain "$keychain" 2>/dev/null || true
+          fi
+          rm -f "$RUNNER_TEMP/DeveloperID.p12" "$RUNNER_TEMP"/AuthKey_*.p8
+          rm -rf "$RUNNER_TEMP/release-dmg."* "$RUNNER_TEMP/release-mnt."* "$RUNNER_TEMP"/*-notary.*.zip
+
+      - name: Write the release body
+        env:
+          RELEASE_VERIFY_CODESIGN: ${{ steps.release.outputs.verify_codesign }}
+          RELEASE_VERIFY_SPCTL: ${{ steps.release.outputs.verify_spctl }}
+          RELEASE_VERIFY_STAPLER: ${{ steps.release.outputs.verify_stapler }}
+        run: |
+          sh scripts/release-notes.sh "${{ steps.release.outputs.version }}" \
+            "${{ steps.release.outputs.sha256 }}" "${{ steps.release.outputs.bytes }}" \
+            >"$RUNNER_TEMP/notes.md"
+          printf '%s\n' "--- release body ---"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Publish the pre-release
+        if: github.event_name == 'push' || inputs.publish == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.release.outputs.version }}"
+          dmg="${{ steps.release.outputs.dmg }}"
+          prerelease=
+          case "$tag" in
+            *-*) prerelease=--prerelease ;;
+          esac
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "OpenRidr ${{ steps.release.outputs.version }}" \
+              --notes-file "$RUNNER_TEMP/notes.md" $prerelease
+            gh release upload "$tag" "$dmg" --clobber
+          else
+            gh release create "$tag" "$dmg" \
+              --title "OpenRidr ${{ steps.release.outputs.version }}" \
+              --notes-file "$RUNNER_TEMP/notes.md" $prerelease
+          fi
+
+      - name: Keep the DMG as a workflow artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: OpenRidr-${{ steps.release.outputs.version }}
+          path: ${{ steps.release.outputs.dmg }}
+          retention-days: 14
+          if-no-files-found: error
