@@ -185,8 +185,12 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
+          # `governance` only runs on a pull request, so a push to main leaves it skipped. Every other
+          # dependency must really have passed: a job that is skipped by accident (a bad `if`, a
+          # renamed job) must not read as green.
           failed=$(printf '%s' "$NEEDS" | jq -r 'to_entries[]
-            | select(.value.result != "success" and .value.result != "skipped")
+            | select(.value.result != "success"
+                and ((.key != "governance") or (.value.result != "skipped")))
             | "\(.key): \(.value.result)"')
           if [ -n "$failed" ]; then
             printf 'required jobs did not pass:\n%s\n' "$failed" >&2
