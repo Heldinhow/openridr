@@ -1548,7 +1548,8 @@ fn redetect_is_allowed_before_and_after_trust_and_touches_no_project_file() {
 #[cfg(unix)]
 #[test]
 fn revoke_marks_a_real_child_and_terminate_reports_the_observed_exit() {
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _guard = env_guard();
+    support::enable_probe();
     let host = support::host();
     let workspace = temp_workspace(&["Probe.csproj"]);
     open(&host, &workspace.path().join("Probe.csproj"));
@@ -1592,7 +1593,8 @@ fn revoke_marks_a_real_child_and_terminate_reports_the_observed_exit() {
 #[cfg(unix)]
 #[test]
 fn keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_period() {
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _guard = env_guard();
+    support::enable_probe();
     let host = support::host();
     let workspace = temp_workspace(&["ProbeKeep.csproj"]);
     open(&host, &workspace.path().join("ProbeKeep.csproj"));
@@ -1652,7 +1654,8 @@ fn keep_leaves_the_process_running_and_terminate_escalates_after_the_grace_perio
 #[cfg(unix)]
 #[test]
 fn switching_workspaces_marks_processes_pending_and_drops_trust() {
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    let _guard = env_guard();
+    support::enable_probe();
     let host = support::host();
     let first = temp_workspace(&["First.csproj"]);
     let second = temp_workspace(&["Second.csproj"]);
@@ -3245,7 +3248,7 @@ fn setup_starts_before_trust_without_running_project_code() {
     fs::write(&installer, "#!/bin/sh\nsleep 2\nexit 1\n").unwrap();
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", temp.path().join("home"));
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
@@ -3286,7 +3289,7 @@ exit 0
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
@@ -3335,7 +3338,7 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
     let installer = temp.path().join("installer");
     fs::write(&installer, "#!/bin/sh\nexit 1\n").unwrap();
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let host = support::host();
     let workspace = temp_workspace(&["Setup.csproj"]);
@@ -3388,7 +3391,7 @@ exit 0
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
@@ -3461,7 +3464,7 @@ exit 0
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let home = temp.path().join("home");
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
@@ -3526,7 +3529,7 @@ fn tools_download_does_not_block_host_calls() {
     fs::write(&installer, "#!/bin/sh\nexit 1\n").unwrap();
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _delay = EnvVar::set("OPENRIDR_TOOLS_PROBE_DOWNLOAD_DELAY_MS", "1500");
     let host = support::host();
@@ -3606,7 +3609,7 @@ exit 1
     });
 
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _url = EnvVar::set(
         "OPENRIDR_TOOLS_PACKAGE_URL",
@@ -3694,7 +3697,7 @@ exit 1
     .unwrap();
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let host = support::host();
@@ -4029,7 +4032,7 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     assert_eq!(current_session["items"], json!([]));
 
     // Developer boundary: a publication without a range must not invent a position.
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let probed = host
         .dispatch(
             "diagnostics.probe",
@@ -4045,7 +4048,6 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
         ["items"][0];
     assert_eq!(probe_item["position"], Value::Null);
     assert_eq!(probe_item["range"], Value::Null);
-    drop(_probe);
 
     let lsp_process = snapshot(&host)["lsp"]["processId"].as_u64().unwrap();
     let revoked = host.dispatch("trust.revoke", json!({})).unwrap();
@@ -4122,7 +4124,7 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
     let noop = temp.path().join("noop-installer");
     fs::write(&noop, "#!/bin/sh\nexit 1\n").unwrap();
     fs::set_permissions(&noop, fs::Permissions::from_mode(0o755)).unwrap();
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &noop);
     // The stub stands in for csharp-ls, so the contract does not depend on the real server or the machine's SDKs.
     let destination = home.join("tools/csharp-ls/0.28");
@@ -4192,7 +4194,7 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
     fs::write(&installer, "#!/bin/sh\nsleep 30\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&installer, fs::Permissions::from_mode(0o755)).unwrap();
-    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+    support::enable_probe();
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let host = support::host();
     let workspace = temp_workspace(&["CancelInstall.csproj"]);
@@ -6370,5 +6372,22 @@ fn an_ambient_bundled_override_never_reaches_the_host() {
         "with an ambient bundled override the host test failed:\n{}{}",
         String::from_utf8_lossy(&done.stdout),
         String::from_utf8_lossy(&done.stderr)
+    );
+}
+
+/// The old pattern was a per-test binding: its `Drop` restored "unset" and a later test that
+/// needed the probe got `trust_required` unless the variable was exported before `cargo test`.
+/// The switch is now one decision for the binary, so no scope can turn it off under another test.
+#[test]
+fn the_probe_switch_survives_every_env_scope() {
+    support::enable_probe();
+    {
+        let _scoped = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+        let _home = EnvVar::set("OPENRIDR_HOME", tempfile::tempdir().unwrap().path().to_path_buf());
+    }
+    assert_eq!(
+        std::env::var("OPENRIDR_ENABLE_PROBE").as_deref(),
+        Ok("1"),
+        "a scoped binding removed the probe switch another test depends on"
     );
 }

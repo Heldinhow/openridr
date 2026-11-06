@@ -36,6 +36,7 @@ const AMBIENT: &[&str] = &[
 ];
 
 static PURGE: Once = Once::new();
+static PROBE: Once = Once::new();
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Serializes the tests that write process environment, and removes the ambient values first.
@@ -46,6 +47,14 @@ pub fn env_guard() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poison| poison.into_inner());
     purge_locked();
     guard
+}
+
+/// The development-only probe switch is one decision for the whole binary, not a per-test scope.
+/// A scoped binding restores "unset" on drop, which is how a test that relied on the probe saw
+/// `processes.probe` fail unless the variable was exported before `cargo test`.
+pub fn enable_probe() {
+    purge_if_pending();
+    PROBE.call_once(|| std::env::set_var("OPENRIDR_ENABLE_PROBE", "1"));
 }
 
 /// A host that cannot be configured by the shell that ran the test.
