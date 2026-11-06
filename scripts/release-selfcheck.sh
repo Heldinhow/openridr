@@ -227,4 +227,62 @@ if RUNNER_TEMP=$work/run sh "$script" --dmg-only >"$work/out" 2>"$work/err"; the
 fi
 grep -q "needs --tag" "$work/err" || fail "missing version message is not specific"
 
+echo "self-check: credentials accept a keychain profile and require a Developer ID identity"
+(
+  credentials
+  unset APPLE_API_KEY
+  NOTARY_KEYCHAIN_PROFILE=notary
+  export NOTARY_KEYCHAIN_PROFILE
+  expect_ok --check --tag "v$VERSION"
+)
+(
+  credentials
+  APPLE_SIGNING_IDENTITY=-
+  export APPLE_SIGNING_IDENTITY
+  expect_fail "must be 'Developer ID Application:" --check --tag "v$VERSION"
+)
+(
+  credentials
+  APPLE_SIGNING_IDENTITY="Developer ID Application: X"
+  export APPLE_SIGNING_IDENTITY
+  expect_fail "must be 'Developer ID Application:" --check --tag "v$VERSION"
+)
+
+echo "self-check: Mach-O audit"
+signed_app=/Applications/OpenRidr.app
+if [ -d "$signed_app" ]; then
+  if ! sh "$script" --audit "$signed_app" >"$work/out" 2>"$work/err"; then
+    cat "$work/err" >&2
+    fail "the audit rejected the installed Developer ID build"
+  fi
+  grep -Eq 'audit ok: [1-9][0-9]* Mach-O \([1-9][0-9]* with ' "$work/err" ||
+    fail "the audit did not report the Mach-O it checked: $(cat "$work/err")"
+  grep -q "createdump from Microsoft" "$work/err" ||
+    fail "the audit did not account for createdump: $(cat "$work/err")"
+  if APPLE_SIGNING_IDENTITY="Developer ID Application: Outra Pessoa (ZZZZZZZZZZ)" \
+    sh "$script" --audit "$signed_app" >"$work/out" 2>"$work/err"; then
+    fail "the audit accepted a different identity"
+  fi
+  grep -q "is not signed with 'Developer ID Application: Outra Pessoa (ZZZZZZZZZZ)'" "$work/err" ||
+    fail "wrong identity message is not specific: $(cat "$work/err")"
+else
+  echo "self-check: not run: no Developer ID-signed app at $signed_app"
+fi
+
+echo "self-check: the signing path stops at the audit, before any notarization"
+cp "$(command -v sh)" "$stub/Contents/MacOS/openridr"
+stub_plist "$VERSION"
+rt="$work/run-full"
+mkdir -p "$rt"
+if credentials >/dev/null 2>&1 && RUNNER_TEMP=$rt RELEASE_APP=$stub \
+  APPLE_CERTIFICATE=$canary APPLE_CERTIFICATE_PASSWORD=$canary APPLE_API_KEY=$canary \
+  APPLE_API_KEY_ID=$canary APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
+  sh "$script" --tag "v$VERSION" >"$work/out" 2>"$work/err"; then
+  fail "the ad-hoc stub app passed the audit"
+fi
+grep -q "no hardened runtime" "$work/err" ||
+  fail "the audit did not reject the ad-hoc app on hardening: $(cat "$work/err")"
+leftovers=$(ls -A "$rt")
+[ -z "$leftovers" ] || fail "the failed run left files in RUNNER_TEMP: $leftovers"
+
 echo "ok: release self-check passed"

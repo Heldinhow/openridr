@@ -20,19 +20,26 @@ BUNDLE_ID=com.openridr.desktop
 
 MODE=full
 TAG=
+AUDIT_APP=
+# The private .NET runtime ships one binary signed by Microsoft; everything else is ours.
+MICROSOFT_IDENTITY="Developer ID Application: Microsoft Corporation (UBF8T346G9)"
+NOTARY_KEY_FILE=
+NOTARY_ZIP=
 
 # Names only: the preflight reports what is missing, never a value.
-REQUIRED_CREDENTIALS="APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID"
+REQUIRED_CERTIFICATE="APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD"
 REQUIRED_IDENTITY=APPLE_SIGNING_IDENTITY
 REQUIRED_TOOLS="bun cargo xcrun codesign hdiutil ditto shasum gh"
 
 usage() {
   cat >&2 <<'EOF'
-usage: sh scripts/release-macos.sh [--check | --dry-run | --dmg-only] [--tag vX.Y.Z] [--app APP]
+usage: sh scripts/release-macos.sh [--check | --dry-run | --dmg-only | --audit APP] [--tag vX.Y.Z]
+                                   [--app APP]
 
   --check     preflight only: tag, versions, notes heading, credentials, tools, architecture
   --dry-run   preflight (without credentials), build and DMG, stop before signing/notarizing
   --dmg-only  assemble and verify the DMG from an existing app bundle, no build, no signing
+  --audit APP audit every Mach-O of APP (our Developer ID, hardened runtime, timestamp)
   --tag TAG   release tag; defaults to GITHUB_REF_NAME, then the exact tag of HEAD
   --app APP   app bundle to use instead of the built one
 EOF
@@ -54,6 +61,12 @@ while [ "$#" -gt 0 ]; do
     --check) MODE=check ;;
     --dry-run) MODE=dry-run ;;
     --dmg-only) MODE=dmg-only ;;
+    --audit)
+      [ "$#" -ge 2 ] || usage
+      MODE=audit
+      AUDIT_APP=$2
+      shift
+      ;;
     --app)
       [ "$#" -ge 2 ] || usage
       RELEASE_APP=$2
@@ -143,12 +156,22 @@ check_notes_heading() {
 
 check_credentials() {
   missing=
-  for name in $REQUIRED_CREDENTIALS $REQUIRED_IDENTITY; do
+  for name in $REQUIRED_CERTIFICATE $REQUIRED_IDENTITY; do
     eval "value=\${$name:-}"
     [ -n "$value" ] || missing="$missing $name"
   done
+  if [ -z "${APPLE_API_KEY:-}" ] && [ -z "${NOTARY_KEYCHAIN_PROFILE:-}" ]; then
+    missing="$missing APPLE_API_KEY(or NOTARY_KEYCHAIN_PROFILE)"
+  fi
+  if [ -n "${APPLE_API_KEY:-}" ] && [ -z "${APPLE_API_KEY_ID:-}" ]; then
+    missing="$missing APPLE_API_KEY_ID"
+  fi
   [ -z "$missing" ] ||
     fail "missing credentials:$missing (names only; values belong in GitHub secrets/variables)"
+  case ${APPLE_SIGNING_IDENTITY} in
+    "Developer ID Application: "*" ("*")") ;;
+    *) fail "APPLE_SIGNING_IDENTITY must be 'Developer ID Application: <name> (<TEAMID>)', got a value that is not a Developer ID identity" ;;
+  esac
 }
 
 check_tools() {
@@ -253,6 +276,7 @@ assemble_dmg() {
 verify_dmg() {
   dmg=$1
   version=$2
+  expect_signed=${3:-0}
   mp=$(mktemp -d "$WORK/release-mnt.XXXXXX")
   hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mp" -quiet ||
     fail "cannot attach $dmg"
@@ -268,6 +292,15 @@ verify_dmg() {
       fail "$binary is not a Mach-O arm64 executable: $(file -b "$binary")"
     got=$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")
     [ "$got" = "$version" ] || fail "$dmg app says version '$got', expected '$version'"
+    if [ "$expect_signed" = 1 ]; then
+      codesign --verify --deep --strict "$app" ||
+        fail "the app inside $dmg does not verify with codesign --deep --strict"
+      if ! spctl --assess --type execute -vv "$app" >"$mp.spctl" 2>&1; then
+        cat "$mp.spctl" >&2
+        fail "the app inside $dmg was not accepted by spctl"
+      fi
+      rm -f "$mp.spctl"
+    fi
   ) && status=0 || status=$?
   hdiutil detach "$mp" -quiet || hdiutil detach "$mp" -force -quiet
   rm -rf "$mp"
@@ -289,6 +322,201 @@ artifact_outputs() {
       printf 'sha256=%s\n' "$sha"
       printf 'bytes=%s\n' "$bytes"
     } >>"$GITHUB_OUTPUT"
+  fi
+}
+
+# --- signing, Mach-O audit, notarization ------------------------------------------------------
+
+audit_identity() {
+  ident=$(identity)
+  [ -n "$ident" ] || ident="Developer ID Application: Helder Santos (K6M85697D4)"
+  printf '%s' "$ident"
+}
+
+macho_files() {
+  find "$1" -type f -print0 | while IFS= read -r -d '' file; do
+    magic=$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')
+    case $magic in
+      cffaedfe | cefaedfe | cafebabe) printf '%s\n' "$file" ;;
+    esac
+  done
+}
+
+# Every Mach-O inside the bundle must carry our Developer ID, hardened runtime and a timestamp.
+# The one exception is the .NET runtime's createdump, which ships signed by Microsoft.
+audit_app() {
+  app=$1
+  ident=$2
+  [ -d "$app" ] || fail "no app bundle at $app"
+  list=$(mktemp "$WORK/macho.XXXXXX")
+  macho_files "$app" >"$list"
+  total=$(wc -l <"$list" | tr -d ' ')
+  if [ "$total" = 0 ]; then
+    rm -f "$list"
+    fail "no Mach-O binary found under $app"
+  fi
+  ours=0
+  microsoft=0
+  problem=
+  while IFS= read -r file; do
+    relative=${file#"$app"/}
+    if ! meta=$(codesign -dv --verbose=4 "$file" 2>&1); then
+      problem="cannot read the signature of $relative"
+      break
+    fi
+    case $meta in
+      *"flags=0x10000(runtime)"*) ;;
+      *)
+        problem="$relative has no hardened runtime (flags=0x10000(runtime) missing)"
+        break
+        ;;
+    esac
+    case $meta in
+      *"Timestamp="*) ;;
+      *)
+        problem="$relative has no secure timestamp"
+        break
+        ;;
+    esac
+    if [ "$(basename "$file")" = createdump ]; then
+      case $meta in
+        *"Authority=$MICROSOFT_IDENTITY"*) microsoft=$((microsoft + 1)) ;;
+        *)
+          problem="$relative is not signed by Microsoft ($MICROSOFT_IDENTITY); the runtime must ship it that way"
+          break
+          ;;
+      esac
+    else
+      case $meta in
+        *"Authority=$ident"*) ours=$((ours + 1)) ;;
+        *)
+          problem="$relative is not signed with '$ident'"
+          break
+          ;;
+      esac
+    fi
+  done <"$list"
+  rm -f "$list"
+  if [ -n "$problem" ]; then
+    fail "$problem"
+  fi
+  if [ "$microsoft" -gt 1 ]; then
+    fail "$microsoft binaries claim to be createdump; only the runtime ships one"
+  fi
+  note "audit ok: $total Mach-O ($ours with '$ident', $microsoft createdump from Microsoft)"
+}
+
+notary_key_path() {
+  if [ -z "$NOTARY_KEY_FILE" ]; then
+    [ -n "${APPLE_API_KEY:-}" ] || return 1
+    [ -n "${APPLE_API_KEY_ID:-}" ] || fail "APPLE_API_KEY is set without APPLE_API_KEY_ID"
+    NOTARY_KEY_FILE="$WORK/AuthKey_${APPLE_API_KEY_ID}.p8"
+    printf '%s' "$APPLE_API_KEY" | tr -d '\n' | openssl base64 -d -A >"$NOTARY_KEY_FILE" ||
+      fail "APPLE_API_KEY is not valid base64 of a .p8"
+    chmod 600 "$NOTARY_KEY_FILE"
+    [ -s "$NOTARY_KEY_FILE" ] || fail "APPLE_API_KEY decoded to an empty file"
+  fi
+  printf '%s' "$NOTARY_KEY_FILE"
+}
+
+# notarytool with the credentials from the environment; the key is a path, never a value in argv.
+notary() {
+  action=$1
+  shift
+  key=$(notary_key_path) || {
+    xcrun notarytool "$action" "$@" --keychain-profile "$NOTARY_KEYCHAIN_PROFILE"
+    return
+  }
+  if [ -n "${APPLE_API_ISSUER:-}" ]; then
+    xcrun notarytool "$action" "$@" --key "$key" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"
+  else
+    xcrun notarytool "$action" "$@" --key "$key" --key-id "$APPLE_API_KEY_ID"
+  fi
+}
+
+json_field() {
+  printf '%s' "$1" | tr ',' '\n' |
+    sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
+}
+
+notarize() {
+  file=$1
+  out=$(notary submit "$file" --wait --output-format json --no-progress) || {
+    printf '%s\n' "$out" >&2
+    fail "notarytool submit failed for $(basename "$file")"
+  }
+  status=$(json_field "$out" status)
+  id=$(json_field "$out" id)
+  if [ "$status" != "Accepted" ]; then
+    printf '%s\n' "$out" >&2
+    notary log "$id" >&2 || true
+    fail "Apple rejected $(basename "$file") (status '${status:-unknown}', id '${id:-unknown}')"
+  fi
+  note "notarization accepted: $(basename "$file") ($id)"
+}
+
+staple_and_validate() {
+  target=$1
+  xcrun stapler staple "$target" >/dev/null || fail "stapler failed on $target"
+  xcrun stapler validate "$target" >/dev/null || fail "stapler validate failed on $target"
+  note "stapled and validated: $target"
+}
+
+notarize_app() {
+  app=$1
+  NOTARY_ZIP="$WORK/$PRODUCT-notary.$$.zip"
+  ditto -c -k --keepParent --sequesterRsrc "$app" "$NOTARY_ZIP" || fail "cannot zip $app"
+  notarize "$NOTARY_ZIP"
+  rm -f "$NOTARY_ZIP"
+  NOTARY_ZIP=
+  staple_and_validate "$app"
+}
+
+verify_artifact() {
+  app=$1
+  dmg=$2
+  ident=$(identity)
+  codesign --verify --deep --strict --verbose=2 "$app" || fail "codesign --verify failed on $app"
+  meta=$(codesign -dv --verbose=4 "$app" 2>&1)
+  case $meta in
+    *"Authority=$ident"*) ;;
+    *) fail "the app is not signed by '$ident'" ;;
+  esac
+  case $meta in
+    *"flags=0x10000(runtime)"*) ;;
+    *) fail "the app has no hardened runtime" ;;
+  esac
+  if ! spctl --assess --type execute -vv "$app" >"$WORK/spctl-app.log" 2>&1; then
+    cat "$WORK/spctl-app.log" >&2
+    fail "spctl rejected the app"
+  fi
+  if ! spctl --assess --type open --context context:primary-signature -vv "$dmg" >"$WORK/spctl-dmg.log" 2>&1; then
+    cat "$WORK/spctl-dmg.log" >&2
+    fail "spctl rejected the DMG"
+  fi
+  xcrun stapler validate "$app" >/dev/null || fail "stapler validate failed on the app"
+  xcrun stapler validate "$dmg" >/dev/null || fail "stapler validate failed on the DMG"
+  verify_dmg "$dmg" "$(release_version)" 1
+  note "artifact verified: codesign, spctl and stapler on app and DMG"
+}
+
+verification_outputs() {
+  [ -n "${GITHUB_OUTPUT:-}" ] || return 0
+  {
+    printf 'verify_codesign=%s\n' "app, app no DMG montado e DMG aceitos (--deep --strict)"
+    printf 'verify_spctl=%s\n' "Notarized Developer ID (app e DMG)"
+    printf 'verify_stapler=%s\n' "app e DMG validados"
+  } >>"$GITHUB_OUTPUT"
+}
+
+cleanup() {
+  if [ -n "$NOTARY_KEY_FILE" ]; then
+    rm -f "$NOTARY_KEY_FILE"
+    NOTARY_KEY_FILE=
+  fi
+  if [ -n "$NOTARY_ZIP" ]; then
+    rm -f "$NOTARY_ZIP"
+    NOTARY_ZIP=
   fi
 }
 
@@ -330,5 +558,25 @@ case $MODE in
     artifact_outputs "$dmg"
     note "dry run complete: the DMG above is NOT signed, NOT notarized and was not published"
     ;;
-  full) fail "the signing path is not implemented yet (#65)" ;;
+  audit)
+    [ -n "$AUDIT_APP" ] || fail "--audit needs an app bundle path"
+    audit_app "$AUDIT_APP" "$(audit_identity)"
+    ;;
+  full)
+    trap cleanup EXIT
+    preflight strict
+    build_app
+    app=$(resolve_app)
+    audit_app "$app" "$(identity)"
+    notarize_app "$app"
+    dmg=$(assemble_dmg "$app")
+    note "signing $dmg with $(identity)"
+    codesign --force --sign "$(identity)" --timestamp "$dmg" || fail "cannot sign $dmg"
+    notarize "$dmg"
+    staple_and_validate "$dmg"
+    verify_artifact "$app" "$dmg"
+    verification_outputs
+    artifact_outputs "$dmg"
+    note "release artifact ready: $dmg"
+    ;;
 esac
