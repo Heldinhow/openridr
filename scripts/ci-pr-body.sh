@@ -30,30 +30,61 @@ if [ ! -f "$body" ]; then
   exit 2
 fi
 
+# HTML comments are instructions, not content: the template ships its guidance inside them, so a body
+# left untouched must fail. State machine rather than a regex because a comment can span lines and a
+# line can hold text, a comment and more text.
+clean=$(awk '
+  BEGIN { incomment = 0 }
+  {
+    line = $0
+    out = ""
+    while (1) {
+      if (incomment) {
+        found = index(line, "-->")
+        if (found == 0) { line = ""; break }
+        line = substr(line, found + 3)
+        incomment = 0
+      } else {
+        found = index(line, "<!--")
+        if (found == 0) { out = out line; break }
+        out = out substr(line, 1, found - 1)
+        line = substr(line, found + 4)
+        incomment = 1
+      }
+    }
+    print out
+  }' "$body")
+
+# A fenced block is code, not a claim: `Refs #56` quoted inside one is not a link to the issue.
+outside_fences=$(printf '%s\n' "$clean" \
+  | awk '/^[[:space:]]*(```|~~~)/ { fence = !fence; next } !fence { print }')
+
 # Any of the linking keywords GitHub understands, plus `Part of`/`Refs` for a ticket that does not
 # close its parent.
-if ! grep -Eqi '(^|[^[:alnum:]])(closes|fixes|resolves|part of|refs)[[:space:]]*#[0-9]+' "$body"; then
-  echo 'pr body: no issue reference (expected "Closes #N", "Part of #N" or "Refs #N")' >&2
+if ! printf '%s\n' "$outside_fences" \
+  | grep -Eqi '(^|[^[:alnum:]])(closes|fixes|resolves|part of|refs)[[:space:]]*#[0-9]+'; then
+  echo 'pr body: no issue reference outside code blocks (expected "Closes #N", "Part of #N" or "Refs #N")' >&2
   exit 1
 fi
 
 # The evidence section runs from its heading to the next `##` heading. Both spellings are accepted
 # because the template is in English while the repo's docs are in Portuguese; the accented form is a
 # separate pattern so a C locale cannot turn `ê` into a byte range.
-heading=$(grep -Ein \
-  -e '^##[[:space:]]+evidence[[:space:]]*$' \
-  -e '^##[[:space:]]+evidência[[:space:]]*$' \
-  "$body" | head -1 | cut -d: -f1)
+heading=$(printf '%s\n' "$clean" \
+  | grep -Ein \
+    -e '^##[[:space:]]+evidence[[:space:]]*$' \
+    -e '^##[[:space:]]+evidência[[:space:]]*$' \
+  | head -1 | cut -d: -f1)
 if [ -z "$heading" ]; then
   echo 'pr body: no "## Evidence" section (say what you ran, or "not verified: why")' >&2
   exit 1
 fi
 
-# Drop blank lines and single-line HTML comments: the template ships a comment as a placeholder, and
-# a section that still has only the placeholder proves nothing.
-block=$(tail -n "+$((heading + 1))" "$body" \
+# Comments are already gone, so what is left is claimed evidence; blank lines are formatting.
+block=$(printf '%s\n' "$clean" \
+  | tail -n "+$((heading + 1))" \
   | awk '/^##[[:space:]]/ { exit } { print }' \
-  | sed -e '/^[[:space:]]*$/d' -e '/^[[:space:]]*<!--/d')
+  | sed -e '/^[[:space:]]*$/d')
 
 if [ -z "$block" ]; then
   echo 'pr body: the evidence section is empty' >&2

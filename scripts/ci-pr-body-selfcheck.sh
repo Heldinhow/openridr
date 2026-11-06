@@ -83,6 +83,41 @@ Adds the gate.
 `bun run check`: green.
 BODY
 
+expect rejected issue-inside-code-fence "" <<'BODY'
+## Summary
+
+Adds the gate.
+
+```
+Closes #56
+```
+
+## Evidence
+
+`bun run check`: green.
+BODY
+
+expect rejected multiline-comment-is-not-evidence "" <<'BODY'
+Closes #56
+
+## Evidence
+
+<!-- what you ran, with the command and the result,
+spanning lines so only the first line would be seen by a naive filter -->
+BODY
+
+expect accepted command-inside-code-fence "" <<'BODY'
+Closes #56
+
+## Evidence
+
+```sh
+cargo test -p openridr-host
+```
+
+1 binary failed, the other 6 passed.
+BODY
+
 expect rejected issue-but-no-evidence "" <<'BODY'
 Closes #56
 
@@ -114,5 +149,19 @@ BODY
 expect accepted renovate 'renovate[bot]' <<'BODY'
 chore(deps): update dependency vite to v6
 BODY
+
+# Drift guard: the real template, filled only where a number is expected, must not pass. If someone
+# turns an instruction back into plain text, this case starts accepting and fails.
+{
+  printf 'Closes #56\n\n'
+  sed '1,/^Closes #$/d' "$here/../.github/pull_request_template.md"
+} >"$scratch/template-with-issue.md"
+cases=$((cases + 1))
+if sh "$gate" "$scratch/template-with-issue.md" >"$scratch/template-with-issue.out" 2>&1; then
+  echo 'FAIL template-with-issue: the template left untouched was accepted as evidence'
+  sed 's/^/    /' "$scratch/template-with-issue.out"
+  exit 1
+fi
+printf 'ok   %-28s %s\n' template-with-issue rejected
 
 echo "ci-pr-body self-check: $cases cases passed"
