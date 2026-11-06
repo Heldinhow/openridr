@@ -89,7 +89,9 @@ export function buildCommitRows(base: string | null, current: string | null, hun
     if (gapOld < 0 || gapNew < 0 || gapOld !== gapNew) return null;
     for (let i = 0; i < gapOld; i++, oldLine++, newLine++) {
       const left = baseLines[oldLine - 1], right = currentLines[newLine - 1];
-      if (left === undefined || right === undefined) return null;
+      // The lines between changed blocks are context by definition: if both texts disagree, the
+      // ranges do not describe these files and the panel must fall back instead of guessing.
+      if (left === undefined || right === undefined || left !== right) return null;
       rows.push(contextRow(left, right, oldLine, newLine));
     }
     const removed: Cell[] = [], added: Cell[] = [];
@@ -108,7 +110,7 @@ export function buildCommitRows(base: string | null, current: string | null, hun
   for (;;) {
     const left = baseLines[oldLine - 1], right = currentLines[newLine - 1];
     if (left === undefined && right === undefined) break;
-    if (left === undefined || right === undefined) return null;
+    if (left === undefined || right === undefined || left !== right) return null;
     rows.push(contextRow(left, right, oldLine, newLine));
     oldLine++; newLine++;
   }

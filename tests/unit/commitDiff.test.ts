@@ -78,6 +78,26 @@ describe("full-file rows", () => {
     ]);
   });
 
+  test("refuses context lines whose two texts disagree", () => {
+    // before the first hunk
+    expect(buildCommitRows("alpha\nb\nc\n", "ALPHA\nb\nX\n", [{ oldStart: 3, oldCount: 1, newStart: 3, newCount: 1 }])).toBeNull();
+    // between two hunks
+    expect(buildCommitRows("a\nb\nc\nd\ne\n", "a\nB\ncd\nC\ne\n", [
+      { oldStart: 2, oldCount: 1, newStart: 2, newCount: 1 },
+      { oldStart: 4, oldCount: 1, newStart: 4, newCount: 1 },
+    ])).toBeNull();
+    // after the last hunk
+    expect(buildCommitRows("a\nb\nc\n", "a\nB\ngone\n", [{ oldStart: 2, oldCount: 1, newStart: 2, newCount: 1 }])).toBeNull();
+    // no hunks at all, yet the files disagree
+    expect(buildCommitRows("a\n", "b\n", [])).toBeNull();
+  });
+
+  test("keeps an unchanged file as context with no differences", () => {
+    const result = buildCommitRows("a\nb\n", "a\nb\n", [])!;
+    expect(result.differences).toBe(0);
+    expect(result.rows.map((row) => row.left.text)).toEqual(["a", "b"]);
+  });
+
   test("handles empty files and refuses ranges that do not fit the texts", () => {
     expect(buildCommitRows("", "", [])).toEqual({ rows: [], differences: 0 });
     expect(buildCommitRows(null, "", [])).toEqual({ rows: [], differences: 0 });

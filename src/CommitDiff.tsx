@@ -36,7 +36,10 @@ export function CommitDiff({ path, files, onNavigate }: { path: string; files: G
   const fullFile = built !== null;
   const leftLabel = !diff ? "" : !diff.base.exists ? "No previous file" : staged ? `HEAD${diff.commit ? ` · ${diff.commit.shortHash}` : ""}` : "Index";
   const rightLabel = !diff ? "" : !diff.current.exists ? "No current file" : staged ? "Index" : "Worktree";
-  const reason = FULL_REASONS[fullFile ? "" : diff?.fullReason ?? ""] ?? "";
+  // `full` plus a refused row builder means the ranges did not fit the texts (unaligned), which
+  // is its own explanation even though the host did not send a reason.
+  const reasonKey = fullFile ? "" : built === null && diff?.full ? "unaligned" : diff?.fullReason ?? "";
+  const reason = FULL_REASONS[reasonKey] ?? "";
   const note = !diff || !parsed.rows.length
     ? null
     : fullFile
