@@ -1347,7 +1347,7 @@ Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, ticket
 - **A medição corrige o diagnóstico da #42.** O processo fica em `_dyld_start` porque o macOS não
   inicia app em quarentena até o diálogo ser respondido (`launchInQuarantine`), não porque o
   Gatekeeper esteja verificando os 18 Mach-O. Marcos medidos no alpha.11 do release: diálogo em
-  0,40–0,53 s (cópia em disco), código 0,14–0,23 s e janela 0,97–1,42 s depois do clique.
+  0,40–0,53 s (cópia em disco), código 0,14–0,24 s e janela 0,97–1,42 s depois do clique.
 - **`scripts/measure-first-open.sh`** monta a condição (cópia nova, xattr `0083` com UUID novo,
   `OPENRIDR_HOME` isolado por `launchctl setenv`), cronometra `exec`/`prompt`/`code`/`window`,
   recusa rodar com o app aberto e restaura o ambiente no fim. `--click X,Y` dispensa o diálogo
@@ -1358,7 +1358,11 @@ Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, ticket
   1,95 s). Nada muda assinatura, layout ou contagem de Mach-O.
 - **Documentação atualizada:** `install-app.md` (arraste para Aplicações antes de abrir; o diálogo
   de primeira abertura), `RELEASE-ALPHA.md` (mesma instrução com números) e `decisions.md`.
-- **Não verificado:** rodada ponta a ponta do script commitado (a medição usou o protótipo; o
-  script passou em `sh -n` e nos caminhos de erro), tela cheia em outro Space, cdhash nunca visto
-  (exigiria build novo + notarização), macOS 26, macOS Intel e Windows. Cursor de espera
-  (beachball) não é observável em captura do ScreenCaptureKit.
+- **Verificado no script commitado:** `sh -n`, os caminhos de erro (`--rounds` fora de 1..5,
+  `--timeout` não numérico, app inexistente, flag sem valor, `--click` sem `Y`, bundle sem
+  Developer ID recusado) e **uma** rodada sem `--click` (o diálogo ficou 18,4 s na tela e o código
+  começou 18,5 s depois dele — reproduz o "18 s").
+- **Não verificado:** o modo `--click` do script commitado (a tabela da evidência veio do
+  protótipo), a captura por rodada, a falha em 5 s pós-clique, tela cheia em outro Space, cdhash
+  nunca visto (exigiria build novo + notarização), macOS 26, macOS Intel e Windows. Cursor de
+  espera (beachball) não é observável em captura do ScreenCaptureKit.

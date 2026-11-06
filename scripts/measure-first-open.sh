@@ -18,6 +18,11 @@
 # waits for a human and reports the total; if nobody answers within --timeout it reports the
 # prompt only. A click that does not start the app within 5 s fails the round.
 #
+# Interrupting a round can leave the app (and the dialog) on screen; quit it before measuring again.
+#
+# Sampling runs at roughly 0,15-0,25 s per observation (pgrep/ps/perl/agent-desktop), so the
+# printed hundredths are a lower bound of the real instant, not a microbenchmark.
+#
 # The script never mounts anything: it copies --app (default /Applications/OpenRidr.app, or
 # $OPENRIDR_APP) into a temporary directory, so it reproduces the "app already on disk" condition,
 # not the "open straight from the DMG" one.
@@ -85,10 +90,13 @@ case $status in
   *'"accessibility":{"state":"granted"}'*) ;;
   *) die "accessibility is not granted to this terminal (agent-desktop permissions --guide)" ;;
 esac
-case $status in
-  *'"screen_recording":{"state":"granted"}'*) ;;
-  *) die "screen recording is not granted to this terminal (agent-desktop permissions --guide)" ;;
-esac
+# The per-round screenshot only exists in --click mode; do not demand the permission otherwise.
+if [ -n "$CLICK" ]; then
+  case $status in
+    *'"screen_recording":{"state":"granted"}'*) ;;
+    *) die "screen recording is not granted to this terminal (needed for the per-round capture)" ;;
+  esac
+fi
 
 # One instance at a time: a second launch lands on the single-instance plugin and measures nothing.
 pgrep -x openridr >/dev/null 2>&1 && die "OpenRidr is already running; quit it before measuring"
@@ -132,7 +140,8 @@ has_window() {
 
 printf 'measure-first-open: app=%s rounds=%s%s\n' "$APP" "$ROUNDS" \
   "$([ "$KEEP" = yes ] && echo " state=$STATE" || echo "")"
-printf '# round   exec  prompt   click    code  window  click->code  click->window\n'
+printf '#%6s %6s %6s %6s %6s %6s %12s %13s\n' round exec prompt click code window \
+  'click->code' 'click->window'
 
 round=0
 failed=0
@@ -141,13 +150,20 @@ while [ "$round" -lt "$ROUNDS" ]; do
   round=$((round + 1))
   copy="$STATE/r$round/OpenRidr.app"
   mkdir -p "$STATE/r$round"
-  ditto --noqtn "$APP" "$copy"
+  if ! ditto --noqtn "$APP" "$copy" 2>"$STATE/r$round/ditto.err"; then
+    printf '%7s  failed: ditto refused (%s)\n' "$round" "$(cat "$STATE/r$round/ditto.err")"
+    failed=$((failed + 1))
+    continue
+  fi
   # ditto --noqtn should not copy it, but the source may itself be inside a quarantined image.
   xattr -d com.apple.quarantine "$copy" 2>/dev/null || true
   xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$copy"
   rm -rf "$HOME_DIR"; mkdir -p "$HOME_DIR"
   : >"$LOG"
   APP_PID=
+  # Only a process that did not exist before this launch is ours; the user may open OpenRidr
+  # mid-run and that instance must not be measured nor killed.
+  before=$(pgrep -x openridr 2>/dev/null | tr '\n' ' ')
 
   log stream --style compact --predicate 'process == "CoreServicesUIAgent"' >"$LOG" 2>/dev/null &
   LOG_PID=$!
@@ -166,8 +182,12 @@ while [ "$round" -lt "$ROUNDS" ]; do
   deadline=$(perl -e "print $T0 + $TIMEOUT")
   verdict=
   while [ "$(perl -e "print($(now) < $deadline ? 1 : 0)")" = 1 ]; do
-    if [ -z "$t_exec" ] && pid=$(pgrep -x -n openridr 2>/dev/null) && [ -n "$pid" ]; then
-      t_exec=$(now); APP_PID=$pid
+    if [ -z "$t_exec" ]; then
+      for candidate in $(pgrep -x openridr 2>/dev/null || true); do
+        case " $before " in *" $candidate "*) continue ;; esac
+        pid=$candidate; break
+      done
+      if [ -n "${pid:-}" ]; then t_exec=$(now); APP_PID=$pid; fi
     fi
     if [ -z "$t_prompt" ] && grep -q "code-evaluation prompt" "$LOG" 2>/dev/null; then
       t_prompt=$(now)
@@ -215,6 +235,9 @@ while [ "$round" -lt "$ROUNDS" ]; do
     "$(delta "$t_click" "$t_code")" "$(delta "$t_click" "$t_window")"
   if [ -n "$verdict" ]; then
     printf '  failed: %s\n' "$verdict"
+    failed=$((failed + 1))
+  elif [ -n "$t_window" ] && [ -z "$t_code" ]; then
+    printf '  failed: window appeared but the RSS jump was never observed\n'
     failed=$((failed + 1))
   elif [ -n "$t_window" ]; then
     printf '\n'

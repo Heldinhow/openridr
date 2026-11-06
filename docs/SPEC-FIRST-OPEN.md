@@ -50,16 +50,16 @@ Sem números separados, a próxima pessoa que investigar "primeira abertura lent
 ## Implementation Decisions
 
 - **Precondição de assinatura.** O script recusa um bundle que não seja `Developer ID` e aceito pelo Gatekeeper (`--allow-unnotarized` para medir outro), porque o default `/Applications/OpenRidr.app` também é o destino do `bun run app:install` ad-hoc, e medir esse build descreveria outro diálogo.
-- **Marcos e definições.** `exec` = processo do app aparece; `prompt` = linha `present code-evaluation prompt` do `CoreServicesUIAgent` no log unificado; `code` = RSS do processo passa de 20 MB (o processo fica suspenso pela quarentena até a decisão); `window` = janela do OpenRidr listada como visível. O relógio de cada rodada começa imediatamente antes da chamada de abertura.
+- **Marcos e definições** (cinco, mais dois deltas). `exec` = processo do app aparece; `prompt` = linha `present code-evaluation prompt` do `CoreServicesUIAgent` no log unificado; `code` = RSS do processo passa de 20 MB (o processo fica suspenso pela quarentena até a decisão); `window` = janela do OpenRidr listada como visível. O relógio de cada rodada começa imediatamente antes da chamada de abertura.
 - **Condições medidas** (todas com o app alpha.11 do release publicado, sem builds novos):
   - **E0 sem quarentena** — cópia em diretório gravável, xattr removido: isola o nosso arranque.
   - **E1 quarentena, cópia em disco** (`0083` + UUID novo, caminho novo): o caminho de quem arrastou para Aplicações; o app roda translocado (`AppTranslocation` no path do processo).
   - **E3 cópia de dentro do DMG montado** (a cópia herda `00c3` do volume): equivalente a arrastar do DMG para o disco.
   - **E4 sem `Contents/CodeResources`** (ticket online, mesma assinatura): separa "grampeado" de "online".
   - **E3m/E3c abrir direto da imagem** (app dentro do DMG, sem cópia): o caminho lento.
-- **Regra de corte.** As variantes de bundle (runtime em `tar.gz` para 1 Mach-O, runtime em `Contents/Frameworks`, bundle sem runtime) testariam o custo de avaliação, e a condição para isso é o app **no disco**. Ali nenhum marco passou de 0,53 s até o diálogo e 0,24 s depois do clique, então as variantes ficam fora — não haveria o que economizar que coubesse no limite de ~2 s combinado. Nas condições que abrem de dentro da imagem (E3m/E3c) `click→code` passou de 2 s, mas o custo ali é leitura da imagem (`ditto` 1,95 s), que variante de bundle não muda.
+- **Regra de corte.** As variantes de bundle (runtime em `tar.gz` para 1 Mach-O, runtime em `Contents/Frameworks`, bundle sem runtime) testariam o custo de avaliação, e a condição para isso é o app **no disco**. Ali nenhum marco passou de 0,53 s até o diálogo e 0,24 s depois do clique, então as variantes ficam fora — não haveria o que economizar que coubesse no limite de ~2 s combinado. Nas condições que abrem de dentro da imagem (E3m/E3c) `click→code` passou de 2 s, mas o custo ali é leitura da imagem (`ditto` 1,95 s), não avaliação de assinatura; as variantes de layout não mudariam esse número e as que encolhem o payload são outra frente (fora de escopo).
 - **Cache e aprovação do sistema.** Medir de novo a mesma cópia no mesmo caminho **não** repete o diálogo: o macOS memoriza a aprovação. Cada rodada usa caminho novo + xattr de quarentena novo (UUID novo). O cache do `syspolicyd` não pode ser limpo nesta máquina (exige root); "primeira avaliação de um cdhash nunca visto" só é medível com build novo — e esta frente **não** faz notarização nova (decisão do Helder), então isso entra como limitação declarada.
-- **Clique.** O diálogo do `CoreServicesUIAgent` não expõe superfícies de acessibilidade (`list-surfaces` vazio), então a dispensa é clique físico via `agent-desktop` nas coordenadas do botão *Abrir*, com uma captura de tela por rodada como prova. O script não deve tentar "Enter" às cegas: quando o diálogo está focado, Enter equivale a *Abrir* (verificado), mas sem foco o Enter vai para o app da frente.
+- **Clique.** O diálogo do `CoreServicesUIAgent` não expõe superfícies de acessibilidade (`list-surfaces` vazio), então a dispensa é clique físico via `agent-desktop` nas coordenadas do botão *Abrir*, com uma captura de tela por rodada no modo `--click` como prova. O script não deve tentar "Enter" às cegas: quando o diálogo está focado, Enter equivale a *Abrir* (verificado), mas sem foco o Enter vai para o app da frente.
 - **Instância única.** O script aborta se houver `openridr` rodando; abrir duas vezes cai no plugin de instância única e mede outra coisa.
 - **Isolamento de estado.** `OPENRIDR_HOME` aponta para um diretório temporário via `launchctl setenv` (o `open` não propaga variáveis de ambiente), com restauração no fim; o app abre na Welcome, sem tocar no estado real do usuário.
 - **Nada de `/Applications`.** As cópias de medição vivem em diretório temporário; a instalação do usuário não é substituída, e nenhum release/tag/push é produzido.
@@ -69,7 +69,7 @@ Sem números separados, a próxima pessoa que investigar "primeira abertura lent
 ## Testing Decisions
 
 - **O script é o teste.** O comportamento sob teste é do sistema operacional, não do nosso código: não há seam de unidade aqui. A verificação é rodar `scripts/measure-first-open.sh` de verdade e conferir que ele (a) recusa rodar com o app aberto, (b) imprime os quatro marcos por rodada, (c) deixa o `OPENRIDR_HOME` restaurado e nenhum processo órfão.
-- **Falha fechado.** Sem `agent-desktop` (ou sem permissão de acessibilidade/gravação de tela), o script para com mensagem clara em vez de esperar para sempre; se o app não arrancar 5 s depois do clique, ele reporta falha da rodada em vez de inventar um número.
+- **Falha fechado.** Sem `agent-desktop` (ou sem permissão de acessibilidade, e de gravação de tela no modo `--click`), o script para com mensagem clara em vez de esperar para sempre; se o app não arrancar 5 s depois do clique, se a janela aparecer sem o marco `code`, ou se `open`/`ditto` falharem, ele marca a rodada como falha em vez de inventar um número. Só um processo que apareceu depois do nosso `open` é medido e encerrado.
 - **Regressão de documentação.** A tabela da evidência cita versão do app, sha256 do DMG, data, máquina e carga média; qualquer re-medição futura entra como linha nova, não substitui a antiga.
 - **Prior art.** O padrão de "prova real + o que não foi verificado" é o de `docs/evidence/*.md` e da skill `verify-openridr` (app real via `agent-desktop`, nada de simulação).
 
@@ -89,7 +89,7 @@ Medição de 2026-11-06, app `0.3.0-alpha.11` (DMG do release, sha256 `15bf37e8�
 | condição | marcos (s) | clique→código | clique→janela |
 |---|---|---|---|
 | E0 sem quarentena | exec 0,06–0,12 · code 0,13–0,55 | — | janela em 1,00 |
-| E1 quarentena, cópia em disco (3 rodadas) | exec 0,19–0,28 · prompt 0,40–0,53 | 0,14–0,23 | 0,97–1,42 |
+| E1 quarentena, cópia em disco (3 rodadas) | exec 0,19–0,28 · prompt 0,40–0,53 | 0,14–0,24 | 0,97–1,42 |
 | E4 sem ticket grampeado (2 rodadas) | prompt 0,32–0,38 | 0,21–0,22 | 1,36–1,60 |
 | E3 cópia de dentro do DMG (2 rodadas) | prompt 0,26–0,35 | 0,18–0,21 | 0,54–0,58 |
 | E3m abrir direto do DMG (1ª vez) | prompt 1,38 | 4,43 | 5,12 |

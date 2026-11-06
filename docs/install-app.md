@@ -32,7 +32,9 @@ macOS esperando a decisão. Na segunda abertura não há diálogo nem esse custo
 
 Para medir de novo numa máquina: `sh scripts/measure-first-open.sh --app /Applications/OpenRidr.app`
 reproduz a condição "app no disco" (cópia em diretório temporário, quarentena nova a cada rodada).
-O caminho "abrir de dentro do DMG" não é coberto pelo script.
+O caminho "abrir de dentro do DMG" não é coberto pelo script, e ele recusa um build ad-hoc (o de
+`bun run app:install`); `--allow-unnotarized` mede mesmo assim, com a ressalva de que o diálogo
+será outro.
 
 ## Abrir do Finder e do terminal
 

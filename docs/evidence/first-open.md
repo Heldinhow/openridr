@@ -44,6 +44,10 @@ Dispensa do diálogo: clique físico em *Abrir* via `agent-desktop mouse-click` 
 `CoreServicesUIAgent` expõe **zero** superfícies de acessibilidade: `list-surfaces` devolve
 `{"surfaces":[]}`, como o `../release-signing.md` já registrava).
 
+Resolução: cada iteração do harness custa ~0,1–0,2 s (`pgrep`, `ps`, `perl`, `log`, `agent-desktop
+list-windows`), então os centésimos tabelados são o limite inferior do instante real e a
+granularidade dos marcos é essa — não é microbenchmark.
+
 ### Invalidar entre rodadas
 
 - Aprovação é **por caminho**: reabrir a mesma cópia no mesmo diretório não mostra diálogo
@@ -58,15 +62,28 @@ Dispensa do diálogo: clique físico em *Abrir* via `agent-desktop mouse-click` 
 
 ## Resultados (segundos, desde o `open`)
 
-| condição | exec | prompt | click | code | window | click→code | click→window |
-|---|---|---|---|---|---|---|---|
-| **E0** sem quarentena, cópia em disco (2 rodadas; a 1ª com cache de página frio) | 0,12 / 0,06 | — | — | 0,55 / 0,13 | — / 1,00 | — | — |
-| **E1** quarentena `0083`, cópia em disco (3) | 0,19 / 0,24 / 0,28 | **0,40 / 0,42 / 0,53** | 1,04 / 1,05 / 1,21 | 1,27 / 1,28 / 1,35 | 2,01 / 2,42 / 2,63 | **0,14–0,23** | **0,97–1,42** |
-| **E4** sem `Contents/CodeResources` (ticket online, 2) | 0,16 / 0,21 | 0,32 / 0,38 | 0,76 / 2,04 | 0,97 / 2,26 | 2,35 / 3,40 | 0,21 / 0,22 | 1,36 / 1,60 |
-| **E3** cópia de dentro do DMG montado (2) | 0,14 / 0,21 | 0,26 / 0,35 | 0,67 / 0,90 | 0,88 / 1,08 | 1,22 / 1,47 | 0,18 / 0,21 | 0,54 / 0,58 |
-| **E3m** abrir direto do DMG montado, 1ª vez | 0,19 | 1,38 | 1,78 | 6,21 | 6,90 | 4,43 | 5,12 |
-| **E3m** 2ª/3ª vez no mesmo caminho (aprovação memorizada) | 0,07 / 0,09 | — | — | 0,19 / 0,22 | 0,63 / 1,21 | — | — |
-| **E3c** abrir direto de imagem **fria** (DMG recém-copiado, mount novo) | 0,21 | 1,51 | 2,27 | 7,71 | 8,85 | 5,44 | 6,57 |
+Uma linha por rodada; deltas calculados dos valores brutos (as colunas arredondam para dois
+decimais, então a subtração pode não fechar exatamente).
+
+| condição | rodada | exec | prompt | click | code | window | click→code | click→window |
+|---|---|---|---|---|---|---|---|---|
+| E0 sem quarentena | 1 (cache de página frio) | 0,12 | — | — | 0,55 | — | — | — |
+| E0 sem quarentena | 2 | 0,06 | — | — | 0,13 | 1,00 | — | — |
+| E1 quarentena `0083`, cópia em disco | 1 | 0,19 | **0,53** | 1,05 | 1,28 | 2,01 | 0,24 | 0,97 |
+| E1 quarentena `0083`, cópia em disco | 2 | 0,28 | 0,42 | 1,21 | 1,35 | 2,63 | 0,14 | 1,42 |
+| E1 quarentena `0083`, cópia em disco | 3 | 0,24 | 0,40 | 1,04 | 1,27 | 2,42 | 0,23 | 1,38 |
+| E4 sem `Contents/CodeResources` (online) | 1 | 0,16 | 0,32 | 0,76 | 0,97 | 2,35 | 0,21 | 1,60 |
+| E4 sem `Contents/CodeResources` (online) | 2 | 0,21 | 0,38 | 2,04 | 2,26 | 3,40 | 0,22 | 1,36 |
+| E3 cópia de dentro do DMG montado | 1 | 0,21 | 0,35 | 0,90 | 1,08 | 1,47 | 0,18 | 0,58 |
+| E3 cópia de dentro do DMG montado | 2 | 0,14 | 0,26 | 0,67 | 0,88 | 1,22 | 0,21 | 0,54 |
+| E3m abrir direto do DMG, 1ª vez no caminho | 1 | 0,19 | 1,38 | 1,78 | 6,21 | 6,90 | 4,43 | 5,12 |
+| E3m mesmo caminho, aprovação memorizada | 2 | 0,09 | — | — | 0,19 | 0,63 | — | — |
+| E3m mesmo caminho, aprovação memorizada | 3 | 0,07 | — | — | 0,22 | 1,21 | — | — |
+| E3c abrir direto de imagem **fria** (DMG recém-copiado) | 1 | 0,21 | 1,51 | 2,27 | 7,71 | 8,85 | 5,44 | 6,57 |
+
+Faixas por condição, para leitura rápida: E1 → prompt 0,40–0,53, clique→código 0,14–0,24,
+clique→janela 0,97–1,42; E4 → prompt 0,32–0,38, clique→código 0,21–0,22, clique→janela 1,36–1,60;
+E3 → prompt 0,26–0,35, clique→código 0,18–0,21, clique→janela 0,54–0,58.
 
 Referências auxiliares:
 
@@ -78,16 +95,18 @@ Referências auxiliares:
 
 ## O que o log do sistema mostra
 
-Linhas reais da rodada E1-1 (`open` às 13:21:05.844), com a origem de cada timestamp:
+Linhas reais da rodada E1-1 (`open` às 13:21:05.844). Os quatro primeiros valores vêm do
+timestamp do log (`log show`), ancorados nesse `open`; os três últimos são o relógio do harness,
+que tem resolução de ~0,1 s:
 
 ```
 +0,17  syspolicyd          GK performScan (team K6M85697D4)      ← avaliação começa
 +0,18  CoreServicesUIAgent XProtect finished executable analysis ← malware/signature check pronto
-+0,52  CoreServicesUIAgent present code-evaluation prompt        ← diálogo na tela (0,52 s no total)
-+1,05  clique em Abrir (agent-desktop)                           ← decisão
-+1,07  CoreServicesUIAgent progressed to 0% … 100%               ← quarentena processada
-+1,28  nosso código roda (RSS > 20 MB)
-+2,01  janela do OpenRidr visível
++0,52  CoreServicesUIAgent present code-evaluation prompt        ← diálogo na tela (0,53 no harness)
++1,05  clique em Abrir (agent-desktop)                            ← decisão
++1,07  CoreServicesUIAgent progressed to 0% … 100%                ← quarentena processada
++1,28  nosso código roda (RSS > 20 MB)                            ← clique→código 0,24
++2,01  janela do OpenRidr visível                                 ← clique→janela 0,97
 ```
 
 E a linha que explica o `_dyld_start` (rodada de protótipo, 13:10:01.244, mesmo app):
@@ -101,7 +120,7 @@ O processo é criado e **fica parado em `_dyld_start` enquanto o diálogo espera
 quanto tempo ninguém clicar. Numa rodada sem `--click` em que a resposta demorou, o diálogo ficou
 18,4 s na tela e o código só começou 18,5 s depois dele aparecer: é o "18 s" relatado,
 reproduzido de propósito. O `sample` que mediu "15–18 s em `_dyld_start`" estava olhando essa
-espera, não verificação de assinatura — a avaliação inteira antes do diálogo levou 0,52 s.
+espera, não verificação de assinatura — a avaliação inteira antes do diálogo levou 0,52 s (0,53 no relógio do harness).
 
 ## Provas auxiliares
 
@@ -128,13 +147,15 @@ clique no app é o path translocado acima, não a cópia original.
 ## Conclusão
 
 1. **O trabalho do sistema antes do diálogo é sub-segundo.** Com o app notarizado/grampeado no
-   disco, o Gatekeeper leva **0,52 s** até pôr o diálogo na tela (0,17 s até começar a avaliação,
+   disco, o Gatekeeper leva **≤ 0,53 s** até pôr o diálogo na tela (0,17 s até começar a avaliação,
    0,18 s até o XProtect terminar). Tudo o que o bundle poderia economizar está, portanto,
-   **limitado a menos de meio segundo** — inclusive número de Mach-O e layout. Remover o ticket
+   **limitado a esse teto sub-segundo** — inclusive número de Mach-O e layout. Remover o ticket
    grampeado (E4) não muda a ordem de grandeza: 0,32–0,38 s.
 2. **O que o usuário percebe como travamento é o diálogo esperando clique**, e não o app. É
    comportamento do macOS para qualquer app baixado: o processo fica suspenso (`_dyld_start`) até
-   alguém responder. Medido: 0,14–0,23 s do clique até o nosso código e 0,97–1,42 s até a janela.
+   alguém responder. Medido: 0,14–0,24 s do clique até o nosso código e 0,97–1,42 s até a janela.
+   A conclusão da #45 é essa: o atraso **não** está no bundle (teto de 0,53 s), e sim no clique que
+   o macOS espera e, quando o app é aberto de dentro do DMG, na leitura da imagem.
 3. **O caminho "abrir direto do DMG" é caro e é redutível por instrução, não por código:** clique
    → janela leva **5,1–6,6 s** porque o sistema lê 164 MB da imagem comprimida (o `ditto` do
    mesmo app leva 1,95 s). Arrastar para Aplicações e abrir de lá é o caminho de ~1,4 s.
@@ -143,8 +164,10 @@ clique no app é o path translocado acima, não a cópia original.
    de avaliação, então a condição é o app **no disco**: ali nenhum marco passou de 0,53 s até o
    diálogo e 0,24 s depois do clique, muito abaixo do limite de ~2 s combinado — por isso **não
    foram medidas**. Nas condições que abrem de dentro da imagem (E3m/E3c) `click→code` passou de
-   2 s, mas o custo ali é leitura da imagem (`ditto` 1,95 s), não avaliação de assinatura: variante
-   de bundle não mudaria esse número.
+   2 s, mas o custo ali é leitura da imagem (`ditto` 1,95 s), não avaliação de assinatura: as
+   variantes de layout avaliadas (runtime em `Contents/Frameworks`) não mudariam esse número, e as
+   que encolhem o payload (runtime em `tar.gz`, sem runtime) atacam tamanho — outra frente, que o
+   spec deixa fora de escopo.
 5. **Diálogo visível e focável nas condições testadas.** Com Finder e com T3 Code na frente
    (janela maximizada no centro), o diálogo apareceu **na frente e centralizado** em todas as
    rodadas com captura; e quando ele está na tela o *Return* equivale a *Abrir* (app arrancou
@@ -169,10 +192,12 @@ clique no app é o path translocado acima, não a cópia original.
   a segunda reaproveita o cache de página da cópia; **E3c (imagem fria)**: 1 rodada válida (a 2ª
   falhou no clique). Servem de referência, não de distribuição.
 - **Execução ponta a ponta do script commitado com `--click`**: não feita (janela de GUI combinada
-  com o orquestrador). A medição da tabela usou o protótipo que virou o script. O script commitado
-  rodou uma rodada **sem** `--click` (diálogo respondido por alguém, código 18,5 s depois do
-  prompt) e passou nos caminhos de erro (`sh -n`, `--rounds` fora de 1..5, `--timeout` não
-  numérico, app inexistente, flag sem valor, `--click` sem `Y`).
+  com o orquestrador). A tabela acima veio do protótipo que virou o script. O script commitado
+  rodou **uma** rodada, sem `--click` e sem `--allow-unnotarized` (diálogo respondido por quem
+  estava na máquina; o código começou 18,5 s depois do prompt), e passou nos caminhos de erro
+  (`sh -n`, `--rounds` fora de 1..5, `--timeout` não numérico, app inexistente, flag sem valor,
+  `--click` sem `Y`, bundle sem Developer ID recusado). O caminho `--click` + captura + falha em
+  5 s não foi exercitado.
 
 ## Como reproduzir
 
