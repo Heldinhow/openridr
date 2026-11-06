@@ -378,7 +378,7 @@ impl Store {
             })
             .map(|document| AwaitingDocument {
                 origin: Origin::lsp(),
-                session: session,
+                session,
                 path: document.path.clone(),
                 revision: document.revision,
             })

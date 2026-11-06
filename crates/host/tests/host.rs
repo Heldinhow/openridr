@@ -740,7 +740,9 @@ fn save_preserves_utf16_and_utf8_bom_encodings() {
         };
         assert_eq!(bytes[..2], bom);
         let units: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| {
                 if little_endian {
                     u16::from_le_bytes([pair[0], pair[1]])
@@ -1469,7 +1471,7 @@ fn sdk_inventory_reads_the_real_roots_and_reports_a_runtime_and_the_project_sdk(
     assert!(inventory
         .roots
         .iter()
-        .all(|root| !root.root.is_empty() && root.source != ""));
+        .all(|root| !root.root.is_empty() && !root.source.is_empty()));
     assert!(inventory
         .roots
         .iter()
@@ -1872,7 +1874,7 @@ fn evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts() {
     assert_eq!(evaluation["state"], "ok", "{}", evaluation["log"]);
     for project in evaluation["projects"].as_array().unwrap() {
         assert_eq!(project["restored"], "not_restored", "{}", project["name"]);
-        assert_eq!(project["log"].as_str().unwrap().contains("exit 0"), true);
+        assert!(project["log"].as_str().unwrap().contains("exit 0"));
         let target = project["targetPath"].as_str().unwrap();
         assert!(target.contains("Order Desk ; & copy"), "{target}");
         assert!(target.contains("/bin/Debug/net8.0/"), "{target}");
@@ -3751,7 +3753,7 @@ exit 1
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _url = EnvVar::set(
         "OPENRIDR_TOOLS_PACKAGE_URL",
-        &format!("http://{address}/csharp-ls.0.28.0.nupkg"),
+        format!("http://{address}/csharp-ls.0.28.0.nupkg"),
     );
     let _sha = EnvVar::set(
         "OPENRIDR_TOOLS_PACKAGE_SHA512",
@@ -3934,7 +3936,7 @@ fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempote
     assert!(first.check.contains("8.0.408"));
     assert!(first.check.contains("10.0."), "{}", first.check);
     assert!(first.check.contains(
-        &Path::new(&first.path)
+        Path::new(&first.path)
             .join("dotnet")
             .to_string_lossy()
             .as_ref()
@@ -4387,9 +4389,8 @@ fn cancelling_a_running_install_reports_termination_and_never_ready() {
     assert_eq!(tool["state"], "cancelled");
     assert_ne!(tool["state"], "ready");
     assert_eq!(tool["reused"], false);
-    assert_eq!(
+    assert!(
         tool["note"].as_str().unwrap().contains("not ready"),
-        true,
         "{}",
         tool["note"]
     );

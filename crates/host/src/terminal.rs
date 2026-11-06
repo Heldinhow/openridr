@@ -705,7 +705,7 @@ pub fn command(shell: &Path, cwd: &Path) -> CommandBuilder {
 
 /// The emulator is xterm.js, so a missing, empty or `dumb` TERM inherited from the launcher is replaced.
 fn term_needs_override(term: Option<&std::ffi::OsStr>) -> bool {
-    term.map_or(true, |value| value.is_empty() || value == "dumb")
+    term.is_none_or(|value| value.is_empty() || value == "dumb")
 }
 
 pub fn clamp_size(cols: Option<u64>, rows: Option<u64>) -> (u16, u16) {

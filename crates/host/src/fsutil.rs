@@ -59,7 +59,9 @@ pub(crate) fn decode_text(bytes: &[u8]) -> Result<(String, TextFormat), String> 
                 ));
             }
             let units: Vec<u16> = rest
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| match encoding {
                     Encoding::Utf16Le => u16::from_le_bytes([pair[0], pair[1]]),
                     _ => u16::from_be_bytes([pair[0], pair[1]]),

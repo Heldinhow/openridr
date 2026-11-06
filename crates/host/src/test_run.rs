@@ -1298,7 +1298,10 @@ mod tests {
         let (state, infra, error) = classify(false, Some(143), &[], "ok");
         assert_eq!((state, infra), ("failed", true));
         assert!(error.unwrap().contains("infrastructure"));
-        assert_eq!(classify(false, None, &[passed.clone()], "ok").0, "failed");
+        assert_eq!(
+            classify(false, None, std::slice::from_ref(&passed), "ok").0,
+            "failed"
+        );
         let (state, infra, error) = classify(false, None, &[passed, skipped], "ok");
         assert_eq!((state, infra), ("failed", true));
         assert!(error.unwrap().contains("not explained"));

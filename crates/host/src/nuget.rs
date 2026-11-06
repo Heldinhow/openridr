@@ -197,7 +197,7 @@ pub fn resolve_project(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> 
         || canonical
             .extension()
             .and_then(|ext| ext.to_str())
-            .map_or(true, |ext| !ext.eq_ignore_ascii_case("csproj"))
+            .is_none_or(|ext| !ext.eq_ignore_ascii_case("csproj"))
     {
         return Err(HostError::new(
             "path_not_allowed",
@@ -693,7 +693,7 @@ pub fn parse_listing(stdout: &str) -> Result<Vec<FrameworkPackages>, String> {
     for framework in &mut frameworks {
         framework
             .packages
-            .sort_by(|left, right| left.id.to_lowercase().cmp(&right.id.to_lowercase()));
+            .sort_by_key(|left| left.id.to_lowercase());
     }
     Ok(frameworks)
 }
@@ -789,7 +789,7 @@ pub fn merge(
         }
         framework
             .packages
-            .sort_by(|left, right| left.id.to_lowercase().cmp(&right.id.to_lowercase()));
+            .sort_by_key(|left| left.id.to_lowercase());
     }
     merged
 }
@@ -1041,10 +1041,10 @@ pub fn read_assets(project: &Path, target_framework: Option<&str>) -> Assets {
         }
         framework
             .implicit
-            .sort_by(|left, right| left.id.to_lowercase().cmp(&right.id.to_lowercase()));
+            .sort_by_key(|left| left.id.to_lowercase());
         framework
             .transitive
-            .sort_by(|left, right| left.id.to_lowercase().cmp(&right.id.to_lowercase()));
+            .sort_by_key(|left| left.id.to_lowercase());
     }
 
     let frameworks: Vec<AssetsFramework> = frameworks.into_values().collect();
@@ -1075,6 +1075,9 @@ fn xml_property(text: &str, name: &str) -> Option<String> {
     Some(text[start..end].trim().to_string())
 }
 
+// The NuGet plan is threaded as plain values on purpose: every argument is already named at the one
+// call site, and grouping them would only move the same list into a struct.
+#[allow(clippy::too_many_arguments)]
 pub fn list(
     root: &Path,
     project: &Path,
@@ -1805,6 +1808,8 @@ fn cap_log(text: &str) -> (String, bool) {
 
 /// Development-only deterministic data. It is reachable only with OPENRIDR_ENABLE_PROBE=1 and
 /// never runs dotnet; every response says so.
+// Same shape as `list`: the probe mirrors the real call so both share one parameter order.
+#[allow(clippy::too_many_arguments)]
 pub fn probe(
     project_display: &str,
     name: &str,

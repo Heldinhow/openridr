@@ -51,8 +51,8 @@ fn package_source() -> (String, String) {
 fn package_redirected() -> bool {
     #[cfg(debug_assertions)]
     {
-        return std::env::var_os("OPENRIDR_TOOLS_PACKAGE_URL").is_some()
-            && std::env::var_os("OPENRIDR_TOOLS_PACKAGE_SHA512").is_some();
+        std::env::var_os("OPENRIDR_TOOLS_PACKAGE_URL").is_some()
+            && std::env::var_os("OPENRIDR_TOOLS_PACKAGE_SHA512").is_some()
     }
     #[cfg(not(debug_assertions))]
     {
@@ -866,15 +866,13 @@ fn content_digest(analysis: &bundled::Analysis) -> Option<String> {
     for (relative, size, _) in rows {
         hasher.update(relative.as_bytes());
         hasher.update(size.to_le_bytes());
-        let (root, stripped) = if let Some(rest) =
-            relative.strip_prefix(&format!("{}/", bundled::CSHARP_LS_DIR))
-        {
-            (analysis.tool_dir.as_path(), rest)
-        } else if let Some(rest) = relative.strip_prefix(&format!("{}/", bundled::RUNTIME_DIR)) {
-            (analysis.runtime.root.as_path(), rest)
-        } else {
-            return None;
-        };
+        let (root, stripped) =
+            if let Some(rest) = relative.strip_prefix(&format!("{}/", bundled::CSHARP_LS_DIR)) {
+                (analysis.tool_dir.as_path(), rest)
+            } else {
+                let rest = relative.strip_prefix(&format!("{}/", bundled::RUNTIME_DIR))?;
+                (analysis.runtime.root.as_path(), rest)
+            };
         let mut file = fs::File::open(root.join(stripped)).ok()?;
         let mut buffer = vec![0u8; 64 * 1024];
         loop {
@@ -2015,6 +2013,12 @@ impl Tools {
     }
 }
 
+impl Default for Tools {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Same promotion semantics as a file save: the destination is replaced only after the
 /// staged tree exists; a failed rename restores the previous destination.
 fn cleanup_stale_downloads(current: &Path) {
@@ -2113,7 +2117,7 @@ fn promote(staging: &Path, destination: &Path) -> Result<(), String> {
         }
         // staging now holds the previous directory; the caller keeps it until post-swap
         // verification succeeds (or swaps it back on failure).
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "macos"))]
     {

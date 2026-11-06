@@ -82,15 +82,13 @@ pub struct GitInfo {
 }
 
 pub fn path() -> Option<String> {
-    std::env::var_os("PATH")
-        .map(|value| {
-            std::env::split_paths(&value)
-                .filter(|dir| !dir.as_os_str().is_empty())
-                .map(|dir| dir.join(if cfg!(windows) { "git.exe" } else { "git" }))
-                .find(|candidate| candidate.is_file())
-                .map(|candidate| candidate.to_string_lossy().into_owned())
-        })
-        .flatten()
+    std::env::var_os("PATH").and_then(|value| {
+        std::env::split_paths(&value)
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .map(|dir| dir.join(if cfg!(windows) { "git.exe" } else { "git" }))
+            .find(|candidate| candidate.is_file())
+            .map(|candidate| candidate.to_string_lossy().into_owned())
+    })
 }
 
 pub fn info() -> GitInfo {
@@ -504,11 +502,9 @@ fn parse_status(text: &str) -> (Progress, Vec<GitFile>) {
         let y = bytes[1] as char;
         let path = record[3..].to_string();
         let mut original_path = None;
-        if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') {
-            if index < records.len() {
-                original_path = Some(records[index].to_string());
-                index += 1;
-            }
+        if (matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C')) && index < records.len() {
+            original_path = Some(records[index].to_string());
+            index += 1;
         }
         files.push(GitFile {
             path,

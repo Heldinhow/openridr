@@ -3140,7 +3140,7 @@ impl Host {
                     inner,
                     token,
                     params,
-                    &selected,
+                    selected,
                     &configuration,
                     target_framework.clone(),
                     &root,
@@ -3192,7 +3192,7 @@ impl Host {
                     inner,
                     token,
                     params,
-                    &selected,
+                    selected,
                     &configuration,
                     target_framework.clone(),
                     &root,
@@ -3253,6 +3253,8 @@ impl Host {
 
     /// Starts the implicit build and leaves a `building` run record; the snapshot launches it
     /// when that build succeeds. The build params mirror the evaluated selection exactly.
+    // Arguments are the evaluated selection verbatim; a params struct would duplicate `EvaluatedProject`.
+    #[allow(clippy::too_many_arguments)]
     fn start_pending_run(
         &self,
         inner: &mut Inner,
@@ -4104,7 +4106,7 @@ impl Host {
                     inner,
                     token,
                     params,
-                    &selected,
+                    selected,
                     &configuration,
                     target_framework.clone(),
                     make_launch,
@@ -4123,6 +4125,8 @@ impl Host {
 
     /// Starts the implicit build and leaves a `building` session record; the snapshot starts the
     /// adapter once that build succeeds. `make_launch` builds the exact DAP launch identity.
+    // Mirrors `start_pending_run` plus the launch builder; splitting it would split one transaction.
+    #[allow(clippy::too_many_arguments)]
     fn start_pending_debug<F>(
         &self,
         inner: &mut Inner,
@@ -4174,9 +4178,7 @@ impl Host {
             ));
         }
         let processes = inner.processes.clone();
-        if let Err(error) = dap.shutdown(&processes, "Stopped by the user.", false) {
-            return Err(error);
-        }
+        dap.shutdown(&processes, "Stopped by the user.", false)?;
         inner.sync_dap();
         Ok(self.snapshot_value(&mut inner))
     }
@@ -7536,7 +7538,7 @@ fn resolve_test_scope(
     // A project with one evaluated TFM has exactly one framework the runner could use, so the
     // operation names it instead of letting every row report "TFM not selected". A multi-TFM
     // project keeps the explicit selection and is refused above when none was made.
-    let target_framework = test_framework(&project, requested_framework);
+    let target_framework = test_framework(project, requested_framework);
 
     let project = project.clone();
     Ok(TestScope {

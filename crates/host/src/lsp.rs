@@ -1356,8 +1356,8 @@ impl Lsp {
             .lock()
             .unwrap()
             .documents
-            .iter()
-            .map(|(_, document)| OpenDocument {
+            .values()
+            .map(|document| OpenDocument {
                 path: document.path.clone(),
                 text: document.text.clone(),
                 version: document.version,
@@ -1757,7 +1757,7 @@ impl Lsp {
         let writer = self.data.lock().unwrap().writer.clone()?;
         let result = writer
             .lock()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "writer lock poisoned"))
+            .map_err(|_| io::Error::other("writer lock poisoned"))
             .and_then(|mut writer| write_message(&mut *writer, &value));
         if let Err(error) = result {
             if let Some(id) = pending_id {
@@ -1931,13 +1931,12 @@ impl Lsp {
             data.log
                 .push("[client] solution loaded; waiting for diagnostics".to_string());
         }
-        if lower.contains("compatible .net sdk was not found")
+        if (lower.contains("compatible .net sdk was not found")
             || lower.contains("requested sdk version")
-            || lower.contains("global.json")
+            || lower.contains("global.json"))
+            && data.sdk_lines.len() < 8
         {
-            if data.sdk_lines.len() < 8 {
-                data.sdk_lines.push(message.trim().to_string());
-            }
+            data.sdk_lines.push(message.trim().to_string());
         }
         if message.contains("Finished loading solution") {
             finalize(&mut data);
@@ -2254,7 +2253,7 @@ mod tests {
         .unwrap();
         let text = String::from_utf8(out).unwrap();
         let (header, body) = text.split_once("\r\n\r\n").unwrap();
-        assert_eq!(header, format!("Content-Length: {}", body.as_bytes().len()));
+        assert_eq!(header, format!("Content-Length: {}", body.len()));
     }
 
     #[test]

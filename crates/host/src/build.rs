@@ -604,6 +604,9 @@ pub fn record_problem(
 }
 
 /// One line of MSBuild text. Unrecognized lines stay only in the raw log.
+// A parsed line is short-lived (one per log line) and matching stays plain; boxing `Problem` would
+// buy nothing here.
+#[allow(clippy::large_enum_variant)]
 pub enum Line {
     Ignored,
     /// Looks like a diagnostic but its file cannot be resolved inside the workspace.

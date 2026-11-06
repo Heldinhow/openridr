@@ -459,6 +459,12 @@ impl Registry {
     }
 }
 
+impl Default for Registry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(windows)]
 fn taskkill(pid: u32, hard: bool) -> bool {
     let mut command = Command::new("taskkill");
