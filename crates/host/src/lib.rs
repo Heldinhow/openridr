@@ -7,6 +7,7 @@ mod error;
 mod evaluation;
 mod fsutil;
 mod git;
+mod http;
 pub mod hostroot;
 mod logbuf;
 mod lsp;

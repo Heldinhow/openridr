@@ -1363,7 +1363,7 @@ impl Debugger {
 
     /// Downloads the asset to `path`, validating every origin and redirect, while hashing.
     fn download(&self, asset: &AssetView, path: &Path) -> Result<String, Stop> {
-        let agent = ureq::AgentBuilder::new()
+        let agent = crate::http::agent_builder()
             .redirects(0)
             .timeout_connect(Duration::from_secs(15))
             .timeout(Duration::from_secs(300))
@@ -1416,7 +1416,8 @@ impl Debugger {
                 }
                 Err(ureq::Error::Transport(error)) => {
                     return Err(Stop::Failed(format!(
-                        "The download failed: {error}; nothing was extracted."
+                        "The download failed: {}; nothing was extracted.",
+                        crate::http::describe_error(&url, &ureq::Error::Transport(error))
                     )))
                 }
             }
