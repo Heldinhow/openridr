@@ -66,7 +66,8 @@ A fonte única é a tabela de [`docs/evidence/test-stability.md`](docs/evidence/
 
 ## E2E
 
-- `bun run test:e2e` sobe o host e o Vite sozinho, na 1420 (UI) e 4317 (host). Portas alternativas: `OPENRIDR_E2E_UI_PORT` e `OPENRIDR_E2E_HOST_PORT`.
+- **Playwright é só smoke noturno** (decisão do Helder, issue #67): nunca em PR, nunca como verificação de UI por sessão de agente — sessão verifica UI com `agent-desktop`. A lista do smoke é [`scripts/e2e-smoke.txt`](scripts/e2e-smoke.txt) (`bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)`); a quarentena com motivos está em [`docs/evidence/e2e-quarantine.md`](docs/evidence/e2e-quarantine.md). O workflow noturno é a issue #56.
+- `bun run test:e2e` roda a suíte inteira e sobe o host e o Vite sozinho, na 1420 (UI) e 4317 (host). Portas alternativas: `OPENRIDR_E2E_UI_PORT` e `OPENRIDR_E2E_HOST_PORT`. Não use `OPENRIDR_SCREENSHOT_DIR` default se não quiser reescrever `docs/evidence/screenshots/`.
 - No Mac com o SDK em `~/.dotnet`, rode com `PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet DOTNET_CLI_UI_LANGUAGE=en bun run test:e2e` (ou `bunx playwright test tests/e2e/<spec>.ts` para um spec).
 - `playwright.config.ts` usa `channel: "chrome"` por padrão. Sem Chrome (ex.: VPS Linux), rode `PLAYWRIGHT_CHANNEL=chromium bun run test:e2e`.
 - Os specs usam `fixtures/OrderDesk` de verdade e restauram o arquivo; workers = 1 porque host e arquivos são estado compartilhado.

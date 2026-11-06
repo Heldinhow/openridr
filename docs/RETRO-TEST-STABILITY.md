@@ -27,10 +27,21 @@
 - Nada de E2E foi executado (quarentena #67), e nenhuma janela do app foi aberta: a mudança é de
   harness de teste e de um teste, não de produto.
 
+## E2E depois da decisão (#67)
+
+- **Playwright virou smoke noturno** (decisão do Helder): lista em `scripts/e2e-smoke.txt` (25
+  testes, verde em 3 rodadas), quarentena com motivo em `docs/evidence/e2e-quarantine.md`.
+- **`debugger.spec.ts` foi medido, não adivinhado**: 12 de 13 falhando em 20,8 min, porque testa o
+  `debug.install` anterior ao bundle. Ficou `test.skip` no arquivo com o motivo; reabrir só com o
+  spec reescrito.
+- **Spec desatualizada ≠ flake**: `workspace.spec.ts` esperava o texto do download do netcoredbg;
+  com o adaptador embutido, corrigir a expectativa foi mais honesto que quarentenar o teste.
+
 ## Não verificado
 
-- **E2E/Playwright**: decisão do Helder pendente; specs nomeados na tabela como quarentena com
-  motivo. Consertar sem rodar seria inventar prova.
+- **E2E/Playwright**: a suíte inteira não foi rodada; só o conjunto de smoke (3×) e
+  `debugger.spec.ts` (1×). Os quatro specs relatados na issue #43 além do debugger continuam como
+  relatados, sem prova desta sessão.
 - **A falha original dos testes de instalação do debugger**: não reproduziu no HEAD nem no base
   `196e3b3`, com e sem `~/.dotnet` no PATH. Ficou registrada como não reproduzida, com a hipótese de
   interferência entre processos (outra sessão com app aberto, `CARGO_TARGET_DIR` compartilhado,

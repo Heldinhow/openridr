@@ -19,7 +19,7 @@ Windows e macOS Intel não foram executados.
 | `keep_leaves…` "falha no run completo a menos que `OPENRIDR_ENABLE_PROBE=1` esteja exportado" | `--test host` | Mecanismo demonstrado (patch temporário não commitado que solta o binding do probe no meio do teste): `processes.probe is a development-only probe; set OPENRIDR_ENABLE_PROBE=1 to enable it.` — exatamente o sintoma relatado | O probe era ligado/desligado por escopo; o `Drop` de um teste restaurava "unset" | **Corrigido** (#59): o probe é definido uma vez por processo pelo `prepare()` e os testes de processo rodam em folha isolada |
 | Restore/LSP do host falham "ocasionalmente" no run completo e passam isolados | `--test host` | Não reproduzido: 6 rodadas completas do pacote (3 antes e 3 depois das mudanças) sem nenhuma falha em `--test host` | Não determinada; o harness agora isola ambiente, home por processo e nomes de `/tmp` | **Não reproduzido** (classe fechada por #57) |
 | Debug E2E no fluxo legado `debug.install` (1/13) | `tests/e2e/debugger.spec.ts` | Não executado (decisão do Helder sobre Playwright pendente) | Spec escrito para o download do netcoredbg; o adaptador agora vem no bundle | **Quarentenado** (#67) |
-| `csharp-ls.spec.ts:150`, `testsuite.spec.ts` (`tests-filter-count`), `tests.spec.ts:317`, `ui-layout` em 1440 px | `tests/e2e/*` | Não executado | Não investigado (E2E fora de escopo nesta rodada) | **Quarentenado** (#67) |
+| `csharp-ls.spec.ts:150`, `testsuite.spec.ts` (`tests-filter-count`), `tests.spec.ts:317`, `ui-layout` em 1440 px | `tests/e2e/*` | Não re-verificado nesta rodada | Não investigado | **Quarentenado com motivo** (#67) |
 
 ## Medições
 
@@ -110,7 +110,12 @@ verdes**, acima. Com `OPENRIDR_BUNDLED_NETCOREDBG`, `OPENRIDR_HOME`, `OPENRIDR_F
 
 ## O que não foi verificado
 
-- **E2E/Playwright:** nenhuma execução nesta rodada, por decisão explícita do orquestrador enquanto
+- **E2E/Playwright:** decisão do Helder (#67): só smoke noturno. Conjunto de smoke entregue em
+  `scripts/e2e-smoke.txt` (4 specs, 25 testes, verde em 3 rodadas de ~2,8 min / ~1,6 min) e a
+  quarentena com motivos em `docs/evidence/e2e-quarantine.md` — `debugger.spec.ts` medido (12 de 13
+  falhando) e os outros quatro relatados, não re-verificados. Nenhuma execução de UI no app real
+  (sessão usa `agent-desktop`, não Playwright).
+- **E2E/Playwright (histórico desta rodada):** nenhuma execução, por decisão explícita do orquestrador enquanto
   o Helder decide manter/migrar/quarentenar. Os specs relatados ficam quarentenados (#67) e o
   bootstrap da suíte continua dependendo de rede (`curl` do csharp-ls no nuget.org + `dotnet tool
   install`) e de ~14,5 min com `workers=1`.
