@@ -116,6 +116,14 @@
   --icon-config: #8fa1a8;
   --icon-script: #8dc149;
   --icon-text: #adadb1;
+  /* Git status of a tree file row. Brighter than Rider's palette on purpose: the name keeps
+     4.5:1 or better over panel, hover, the selected/focused row and the no-index row in the
+     shipped dark theme (measurements in docs/evidence/solution-git-status.md). */
+  --git-modified: #82c0f0;
+  --git-added: #8ad07d;
+  --git-untracked: #eda773;
+  --git-ignored: #b3b3b3;
+  --git-conflicted: #f9a1a1;
 }
 
 /* `light-dark()` is used only where the engine supports it; the dark fallback above stays valid. */
@@ -150,6 +158,11 @@
     --icon-doc: light-dark(#84848a, #adadb1);
     --icon-docker: light-dark(#1a85d4, #69b1ff);
     --icon-git: light-dark(#ff8c5b, #d5512f);
+    --git-modified: light-dark(#1f5f9e, #82c0f0);
+    --git-added: light-dark(#2f6f24, #8ad07d);
+    --git-untracked: light-dark(#8a4a12, #eda773);
+    --git-ignored: light-dark(#6a6a6a, #b3b3b3);
+    --git-conflicted: light-dark(#a51f1f, #f9a1a1);
   }
 }
 
@@ -3461,6 +3474,39 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .symbol-mark.symbol-record { background: var(--icon-symbol-record); }
 .symbol-mark.symbol-struct { background: var(--icon-symbol-struct); }
 
+/* Symlink: a chain sticker on the glyph corner. The row description says "not followed", so the
+   marker is not the only channel; a symlinked folder loses its chevron and never expands. */
+.sol-row .tree-icon { position: relative; }
+.symlink-mark {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 9px;
+  height: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  background: var(--icon-folder);
+  color: #0b0b0b;
+  box-shadow: 0 0 0 1px var(--panel);
+}
+.symlink-mark .icon { width: 7px; height: 7px; }
+
 .sol-row.no-index .tree-name { color: var(--muted); }
 .sol-row.no-index .tree-icon { opacity: 0.6; }
+
+/* Git status: the tag word is the non-colour channel; the name tint reinforces it. The `no index`
+   background stays, and the selected/focused row keeps the tint (measured on those surfaces). */
+.sol-row[data-git-status="modified"] .tree-name,
+.sol-row[data-git-status="modified"] .tag.git-status { color: var(--git-modified); }
+.sol-row[data-git-status="added"] .tree-name,
+.sol-row[data-git-status="added"] .tag.git-status { color: var(--git-added); }
+.sol-row[data-git-status="untracked"] .tree-name,
+.sol-row[data-git-status="untracked"] .tag.git-status { color: var(--git-untracked); }
+.sol-row[data-git-status="ignored"] .tree-name,
+.sol-row[data-git-status="ignored"] .tag.git-status { color: var(--git-ignored); }
+.sol-row[data-git-status="conflicted"] .tree-name,
+.sol-row[data-git-status="conflicted"] .tag.git-status { color: var(--git-conflicted); }
+.sol-row .tag.git-status { flex: 0 0 auto; }
 .status-partial { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--warning); }

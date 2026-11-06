@@ -14,6 +14,13 @@ const OPEN_EVENT: &str = "openridr-open";
 /// Event that tells the UI the user asked to quit; the UI calls `quit_app` after its decision.
 const QUIT_EVENT: &str = "openridr-quit";
 const QUIT_MENU_ID: &str = "quit";
+/// macOS resolves a menu key equivalent before the webview sees the key, so a native item that
+/// owns a keymap shortcut makes the advertised shortcut dead. `Close Window` (⌘W) swallowed
+/// `editor.closeTab`, and the AppKit injects `Close All` (⌥⌘W) next to a `performClose:` item,
+/// which swallowed `git.update` and quit the app (issue #111). Neither half can be fixed on the
+/// keymap side without losing Rider parity, so the close item is ours: no accelerator, and it
+/// closes the window through `CloseRequested` so the UI can still ask about unsaved buffers.
+const CLOSE_WINDOW_MENU_ID: &str = "window.close";
 /// Set once the UI approved the quit, so the `ExitRequested` it causes is let through.
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
@@ -106,6 +113,14 @@ fn close_host_workspace(app: &AppHandle) {
     let _ = host.dispatch("workspace.close", Value::Null);
 }
 
+/// The window close the native item used to perform. `close()` emits `CloseRequested`, which the
+/// UI intercepts to ask about unsaved buffers; `destroy()` would skip that decision.
+fn close_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.close();
+    }
+}
+
 fn request_quit(app: &AppHandle) {
     if QUITTING.load(Ordering::SeqCst) {
         app.exit(0);
@@ -116,7 +131,9 @@ fn request_quit(app: &AppHandle) {
 }
 
 /// Tauri's default menu, with Quit replaced: the predefined item calls `terminate:` on
-/// NSApplication and never reaches the webview that owns the unsaved buffers.
+/// NSApplication and never reaches the webview that owns the unsaved buffers. The close item is
+/// replaced for the same kind of reason: its accelerator belongs to the keymap (see
+/// `CLOSE_WINDOW_MENU_ID`).
 #[cfg(target_os = "macos")]
 fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(app)?;
@@ -133,6 +150,39 @@ fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .build(app)?;
     app_menu.remove_at(position)?;
     app_menu.insert(&quit, position)?;
+
+    // The File submenu holds only the predefined Close Window item; replace it so the accelerator
+    // table above stops owning ⌘W. AppKit derives the `Close All` item it injects into this same
+    // submenu from that item: with no `performClose:` item left, neither the item nor its ⌥⌘W
+    // accelerator exists any more, which is what returns both keys to the keymap.
+    let submenus = menu.items()?;
+    let submenu = |title: &str| {
+        submenus
+            .iter()
+            .filter_map(|item| item.as_submenu())
+            .find(|submenu| submenu.text().is_ok_and(|text| text == title))
+            .cloned()
+            .unwrap_or_else(|| panic!("the default macOS menu has a {title} submenu"))
+    };
+    let file_menu = submenu("File");
+    let close = MenuItemBuilder::with_id(CLOSE_WINDOW_MENU_ID, "Close Window").build(app)?;
+    let close_position = |menu: &tauri::menu::Submenu<tauri::Wry>| -> Option<usize> {
+        menu.items().ok()?.iter().position(|item| {
+            item.as_predefined_menuitem()
+                .is_some_and(|item| item.text().is_ok_and(|text| text == "Close Window"))
+        })
+    };
+    let file_position = close_position(&file_menu)
+        .expect("the default File submenu holds the predefined close item");
+    file_menu.remove_at(file_position)?;
+    file_menu.insert(&close, file_position)?;
+
+    // The Window submenu carried a second predefined close item with the same ⌘W; the single
+    // accelerator-free item in File is enough for a one-window app.
+    let window_menu = submenu("Window");
+    if let Some(duplicate) = close_position(&window_menu) {
+        window_menu.remove_at(duplicate)?;
+    }
     Ok(menu)
 }
 
@@ -156,6 +206,8 @@ fn main() {
         .on_menu_event(|app, event| {
             if event.id() == QUIT_MENU_ID {
                 request_quit(app);
+            } else if event.id() == CLOSE_WINDOW_MENU_ID {
+                close_main_window(app);
             }
         })
         .manage(Arc::new(Host::new()))

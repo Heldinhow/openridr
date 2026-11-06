@@ -79,6 +79,7 @@ import {
   type GitIntent,
   type GitStatus,
 } from "./git";
+import { createGitRefresher, type GitRefreshContext } from "./gitRefresh";
 import { NuGetPanel } from "./NuGetPanel";
 import { CommitDiff } from "./CommitDiff";
 import { useExecutionFlow } from "./useExecutionFlow";
@@ -96,6 +97,7 @@ import {
   defaultSettings,
   matches,
   normalizeSettings,
+  typesACharacter,
   type AppSettings,
   type Keymap,
 } from "./actions/keymap";
@@ -402,25 +404,51 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const testDiscoveryAutoStarted = useRef<string | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [gitStatusError, setGitStatusError] = useState<string | null>(null);
+  // Bumped for every applied snapshot: the tree re-asks `.gitignore` and symlink metadata for the
+  // same paths, which a commit/checkout can change without changing the list of paths.
+  const [gitRevision, setGitRevision] = useState(0);
   const [gitIntent, setGitIntent] = useState<GitIntent | null>(null);
   const [commitFocusPath, setCommitFocusPath] = useState<string | null>(null);
-  const refreshGit = useCallback(async () => {
-    if (!trusted) {
-      setGitStatus(null);
-      setGitStatusError(null);
-      return;
-    }
-    try {
-      setGitStatus(await call<GitStatus>("git.status"));
-      setGitStatusError(null);
-    } catch (error) {
-      setGitStatusError(messageOf(error));
-    }
-  }, [trusted]);
+  // One Git read at a time; a call made while another is in flight queues one rerun, and the
+  // rerun always uses the workspace/trust that is current when it starts (never a stale closure).
+  const gitContext = useRef<GitRefreshContext>({ workspaceId: workspace.id, trusted });
+  gitContext.current = { workspaceId: workspace.id, trusted };
+  const gitRefresher = useRef<ReturnType<typeof createGitRefresher<GitStatus>> | null>(null);
+  if (!gitRefresher.current) {
+    gitRefresher.current = createGitRefresher<GitStatus>({
+      context: () => gitContext.current,
+      fetch: () => call<GitStatus>("git.status"),
+      apply: (next) => {
+        setGitStatus(next);
+        setGitStatusError(null);
+        setGitRevision((revision) => revision + 1);
+      },
+      clear: () => {
+        setGitStatus(null);
+        setGitStatusError(null);
+      },
+      fail: (error) => setGitStatusError(messageOf(error)),
+    });
+  }
+  const refreshGit = useCallback(() => gitRefresher.current!.run(), []);
   useEffect(() => {
     // Refresh on workspace/trust changes; tool windows refresh on open and after operations.
     void refreshGit();
-  }, [refreshGit, workspace.id]);
+  }, [refreshGit, workspace.id, trusted]);
+  useEffect(() => {
+    // A commit or checkout run in a terminal is invisible to the app; coming back to the window is
+    // the cheap moment to look again. Debounced, and `refreshGit` dedupes the calls itself.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onFocus = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refreshGit(), 400);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      if (timer) clearTimeout(timer);
+    };
+  }, [refreshGit]);
   function openGitIntent(kind: GitIntent["kind"]) {
     setGitIntent((current) => ({ kind, nonce: (current?.nonce ?? 0) + 1 }));
   }
@@ -3691,6 +3719,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       });
       if (!action) return;
       if (inEditor && !action.editor) return;
+      // An Option-only binding that would type a character belongs to the editor: ⌥⇧U is a dead key
+      // and ⌥W types ∑, so the matcher's physical key must not swallow typing (issue #129).
+      const binding = action.shortcuts.find((item) => matches(event, item, snapshot.app.platform));
+      if (inEditor && binding && typesACharacter(event, binding)) return;
       // Capture, before CodeMirror: the app's shortcuts and chords outrank its keymap.
       event.preventDefault();
       event.stopPropagation();
@@ -4676,6 +4708,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             evaluationRevision={evaluation.revision}
             showAll={showAllFiles}
             filter={treeFilter}
+            gitStatus={gitStatus}
+            workspaceDir={workspaceDir}
+            gitRevision={gitRevision}
             onMenu={openTreeMenu}
           />
         </nav>
