@@ -54,6 +54,7 @@ Pronto = linha `ready: UI http://127.0.0.1:1520 ...`. Recusa subir se 4417/1520 
 
 ```sh
 sh .agents/skills/verify-openridr/scripts/desktop.sh up [caminho/OpenRidr.app]   # argumento > $OPENRIDR_APP > $OPENRIDR_APP_BUNDLE > /Applications/OpenRidr.app; use a cópia sob teste (~/Applications-test/OpenRidr-alpha5/OpenRidr.app)
+# workspace próprio (sem copiar a fixture): VERIFY_OPENRIDR_DESKTOP_SOLUTION=/caminho/absoluto/X.sln
 agent-desktop list-windows --app OpenRidr
 agent-desktop snapshot --app OpenRidr -i --compact
 sh .agents/skills/verify-openridr/scripts/desktop.sh down

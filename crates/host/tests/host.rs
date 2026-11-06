@@ -13,10 +13,8 @@ use support::EnvVar;
 // `cargo test`, so a shell cannot change the result.
 
 fn fixture() -> PathBuf {
-    fs::canonicalize(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OrderDesk"),
-    )
-    .expect("fixture OrderDesk exists")
+    fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OrderDesk"))
+        .expect("fixture OrderDesk exists")
 }
 
 fn temp_workspace(projects: &[&str]) -> tempfile::TempDir {
@@ -107,7 +105,11 @@ fn age_tree(root: &Path) {
 /// a real restore, while `evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts`
 /// proves a copy without these artifacts is `not_restored`.
 fn stage_restore_artifacts(root: &Path) {
-    for project in ["src/OrderDesk.Cli", "src/OrderDesk.Core", "tests/OrderDesk.Tests"] {
+    for project in [
+        "src/OrderDesk.Cli",
+        "src/OrderDesk.Core",
+        "tests/OrderDesk.Tests",
+    ] {
         let obj = root.join(project).join("obj");
         fs::create_dir_all(&obj).unwrap();
         fs::write(obj.join("project.assets.json"), "{}\n").unwrap();
@@ -186,10 +188,7 @@ fn text_outline_reads_solution_projects_without_evaluation() {
         .any(|file| file == "tests/OrderDesk.Tests/OrderTests.cs"));
 
     assert_eq!(snapshot["outline"]["globalJson"]["version"], "8.0.408");
-    assert_eq!(
-        snapshot["outline"]["globalJson"]["rollForward"],
-        "disable"
-    );
+    assert_eq!(snapshot["outline"]["globalJson"]["rollForward"], "disable");
 }
 
 /// A workspace inside a parent folder, so the paths one level up really exist. The escape cases
@@ -227,7 +226,9 @@ fn file_access_is_confined_to_the_workspace() {
     let host = support::host();
     open(&host, &root.join("App.csproj"));
 
-    let read = host.dispatch("file.read", json!({ "path": "App.cs" })).unwrap();
+    let read = host
+        .dispatch("file.read", json!({ "path": "App.cs" }))
+        .unwrap();
     assert!(read["content"].as_str().unwrap().contains("class C"));
 
     // Every escape is refused by shape, whether or not its target exists: a missing path outside
@@ -359,10 +360,7 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     }
     for target in [text(&outside.join("new.cs")), "../new.cs".to_string()] {
         assert_eq!(
-            error_code(host.dispatch(
-                "file.create",
-                json!({ "path": target, "content": "x" })
-            )),
+            error_code(host.dispatch("file.create", json!({ "path": target, "content": "x" }))),
             "outside_workspace",
             "expected a create of {target} to be rejected"
         );
@@ -424,10 +422,7 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
         // The parent does not exist, but the symlink still carries the path outside.
         for path in ["LinkDir/sub/created.txt", "LinkDir/sub/deep/created.txt"] {
             assert_eq!(
-                error_code(host.dispatch(
-                    "file.create",
-                    json!({ "path": path, "content": "x" })
-                )),
+                error_code(host.dispatch("file.create", json!({ "path": path, "content": "x" }))),
                 "outside_workspace",
                 "expected a create of {path} to be rejected"
             );
@@ -446,10 +441,7 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
         // A dangling folder link is unprovable, so a create or rename through it is refused.
         for path in ["DanglingDir/new.cs", "DanglingDir/deep/new.cs"] {
             assert_eq!(
-                error_code(host.dispatch(
-                    "file.create",
-                    json!({ "path": path, "content": "x" })
-                )),
+                error_code(host.dispatch("file.create", json!({ "path": path, "content": "x" }))),
                 "outside_workspace",
                 "expected a create of {path} to be rejected"
             );
@@ -470,10 +462,16 @@ fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     }
 
     // The refusals above are confinement, not a broken surface.
-    host.dispatch("file.create", json!({ "path": "New.cs", "content": "class N {}\n" }))
-        .expect("a file inside the workspace is created");
-    host.dispatch("file.rename", json!({ "from": "New.cs", "to": "Renamed.cs" }))
-        .expect("a file inside the workspace is renamed");
+    host.dispatch(
+        "file.create",
+        json!({ "path": "New.cs", "content": "class N {}\n" }),
+    )
+    .expect("a file inside the workspace is created");
+    host.dispatch(
+        "file.rename",
+        json!({ "from": "New.cs", "to": "Renamed.cs" }),
+    )
+    .expect("a file inside the workspace is renamed");
     host.dispatch("file.delete", json!({ "path": "Renamed.cs" }))
         .expect("a file inside the workspace is deleted");
 }
@@ -505,7 +503,10 @@ fn absolute_paths_reach_the_workspace_through_a_symlinked_prefix() {
         json!({ "path": text(&via_alias), "content": "class Alias {}\n", "expected_hash": hash }),
     )
     .expect("a save through a symlinked prefix lands inside the workspace");
-    assert_eq!(fs::read_to_string(root.join("App.cs")).unwrap(), "class Alias {}\n");
+    assert_eq!(
+        fs::read_to_string(root.join("App.cs")).unwrap(),
+        "class Alias {}\n"
+    );
 
     // Creating through the alias is inside the workspace too, and the parent exists.
     host.dispatch(
@@ -533,7 +534,10 @@ fn absolute_paths_reach_the_workspace_through_a_symlinked_prefix() {
         let shouted = PathBuf::from(root.to_string_lossy().to_uppercase());
         if fs::canonicalize(&shouted).ok().as_deref() == Some(root.as_path()) {
             let read = host
-                .dispatch("file.read", json!({ "path": text(&shouted.join("App.cs")) }))
+                .dispatch(
+                    "file.read",
+                    json!({ "path": text(&shouted.join("App.cs")) }),
+                )
                 .expect("a case-different spelling of the workspace opens");
             assert!(read["content"].as_str().unwrap().contains("class Alias"));
         }
@@ -560,7 +564,9 @@ fn the_directory_listing_refuses_escapes_by_shape() {
         );
     }
 
-    let listing = host.dispatch("workspace.tree", json!({ "dir": "" })).unwrap();
+    let listing = host
+        .dispatch("workspace.tree", json!({ "dir": "" }))
+        .unwrap();
     assert!(listing["entries"]
         .as_array()
         .unwrap()
@@ -643,7 +649,7 @@ fn save_reports_conflict_instead_of_overwriting_disk() {
                 "path": "App.cs",
                 "content": "my buffer\n",
                 "expected_hash": stale_hash
-            })
+            }),
         )
         .expect_err("stale expected hash conflicts");
     assert_eq!(conflict.code, "conflict");
@@ -779,7 +785,9 @@ fn save_preserves_utf16_and_utf8_bom_encodings() {
         };
         assert_eq!(bytes[..2], bom);
         let units: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| {
                 if little_endian {
                     u16::from_le_bytes([pair[0], pair[1]])
@@ -822,7 +830,10 @@ fn save_preserves_utf16_and_utf8_bom_encodings() {
         }),
     )
     .unwrap();
-    assert_eq!(fs::read(workspace.path().join("Plain.cs")).unwrap(), b"x\ny\n");
+    assert_eq!(
+        fs::read(workspace.path().join("Plain.cs")).unwrap(),
+        b"x\ny\n"
+    );
 }
 
 #[test]
@@ -970,7 +981,8 @@ fn snapshot(host: &Host) -> Value {
 }
 
 fn grant(host: &Host) -> Value {
-    host.dispatch("trust.grant", json!({})).expect("trust is granted")
+    host.dispatch("trust.grant", json!({}))
+        .expect("trust is granted")
 }
 
 fn process_id(snapshot: &Value) -> u64 {
@@ -1171,20 +1183,15 @@ fn trust_set_refuses_another_path_while_a_workspace_is_open() {
     let other = temp_workspace(&["Other.csproj"]);
     let open = workspace.path().join("Open.csproj");
     let other = other.path().join("Other.csproj");
-    host.dispatch("workspace.open", json!({ "path": open })).unwrap();
+    host.dispatch("workspace.open", json!({ "path": open }))
+        .unwrap();
 
     assert_eq!(
-        error_code(host.dispatch(
-            "trust.set",
-            json!({ "path": other, "decision": "trusted" }),
-        )),
+        error_code(host.dispatch("trust.set", json!({ "path": other, "decision": "trusted" }),)),
         "invalid_state"
     );
     assert_eq!(
-        error_code(host.dispatch(
-            "trust.set",
-            json!({ "path": open, "decision": "trusted" }),
-        )),
+        error_code(host.dispatch("trust.set", json!({ "path": open, "decision": "trusted" }),)),
         "setup_required"
     );
     host.allow_setup_for_tests();
@@ -1227,7 +1234,12 @@ fn trust_and_executable_methods_are_refused_until_setup_is_ready() {
     host.allow_setup_for_tests();
     host.dispatch("trust.grant", json!({})).unwrap();
     host.deny_setup_for_tests();
-    for method in ["build.start", "restore.start", "tests.discover", "lsp.start"] {
+    for method in [
+        "build.start",
+        "restore.start",
+        "tests.discover",
+        "lsp.start",
+    ] {
         assert_eq!(
             error_code(host.dispatch(method, json!({}))),
             "setup_required",
@@ -1283,7 +1295,11 @@ fn nuget_list_rejects_a_source_that_is_not_configured_or_not_https() {
     let host = support::host();
     open(&host, &fixture().join("OrderDesk.sln"));
     grant(&host);
-    for source in ["https://evil.example/v3/index.json", "/tmp/local-feed", "http://127.0.0.1:1/v3/index.json"] {
+    for source in [
+        "https://evil.example/v3/index.json",
+        "/tmp/local-feed",
+        "http://127.0.0.1:1/v3/index.json",
+    ] {
         let listing = host
             .dispatch(
                 "nuget.list",
@@ -1294,10 +1310,14 @@ fn nuget_list_rejects_a_source_that_is_not_configured_or_not_https() {
             )
             .unwrap();
         assert_eq!(listing["state"], "failed", "{source}");
-        assert!(listing["message"]
-            .as_str()
-            .unwrap()
-            .contains("not configured"), "{source}: {}", listing["message"]);
+        assert!(
+            listing["message"]
+                .as_str()
+                .unwrap()
+                .contains("not configured"),
+            "{source}: {}",
+            listing["message"]
+        );
     }
 }
 
@@ -1351,7 +1371,9 @@ fn a_failed_dotnet_add_is_counted_as_failed_in_the_batch() {
         )
         .unwrap();
     // Keep the PackageReference readable for revalidation but make MSBuild reject the file.
-    let broken = fs::read_to_string(&project).unwrap().replace("</Project>", "");
+    let broken = fs::read_to_string(&project)
+        .unwrap()
+        .replace("</Project>", "");
     fs::write(&project, broken).unwrap();
     let applied = host
         .dispatch(
@@ -1450,14 +1472,17 @@ fn a_late_result_from_an_older_workspace_or_context_is_discarded() {
     open(&host, &fixture());
     grant(&host);
     let old_token = host.context_token().unwrap();
-    host.accept_result(old_token).expect("current token is accepted");
+    host.accept_result(old_token)
+        .expect("current token is accepted");
 
     let other = temp_workspace(&["Other.csproj"]);
     let switched = open(&host, &other.path().join("Other.csproj"));
     assert_eq!(switched["workspace"]["name"], "Other.csproj");
     assert_eq!(switched["trust"]["granted"], false);
 
-    let stale = host.accept_result(old_token).expect_err("old workspace token is stale");
+    let stale = host
+        .accept_result(old_token)
+        .expect_err("old workspace token is stale");
     assert_eq!(stale.code, "stale_context");
     assert_eq!(snapshot(&host)["workspace"]["name"], "Other.csproj");
     assert_eq!(snapshot(&host)["sdk"]["project"]["state"], "not_inspected");
@@ -1491,7 +1516,7 @@ fn sdk_inventory_reads_the_real_roots_and_reports_a_runtime_and_the_project_sdk(
     assert!(inventory
         .roots
         .iter()
-        .all(|root| !root.root.is_empty() && root.source != ""));
+        .all(|root| !root.root.is_empty() && !root.source.is_empty()));
     assert!(inventory
         .roots
         .iter()
@@ -1520,7 +1545,10 @@ fn sdk_inventory_reads_the_real_roots_and_reports_a_runtime_and_the_project_sdk(
     assert_eq!(trusted["sdk"]["project"]["rollForward"], "disable");
     let project_root = trusted["sdk"]["project"]["root"].as_str().unwrap();
     assert!(Path::new(project_root).is_absolute(), "{project_root}");
-    assert!(Path::new(project_root).join("sdk/8.0.408").is_dir(), "{project_root}");
+    assert!(
+        Path::new(project_root).join("sdk/8.0.408").is_dir(),
+        "{project_root}"
+    );
     // The runtime may live in any detected root; the contract is the resolved version below.
     assert_eq!(
         trusted["sdk"]["host"]["version"].as_str(),
@@ -1531,10 +1559,9 @@ fn sdk_inventory_reads_the_real_roots_and_reports_a_runtime_and_the_project_sdk(
 #[cfg(target_os = "macos")]
 #[test]
 fn project_sdk_missing_keeps_a_distinct_state_and_does_not_rewrite_global_json() {
-    let fixture = fs::canonicalize(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"),
-    )
-    .expect("fixture MissingSdk exists");
+    let fixture =
+        fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"))
+            .expect("fixture MissingSdk exists");
     let global_json = fixture.join("global.json");
     let before = fs::read(&global_json).unwrap();
 
@@ -1759,10 +1786,9 @@ fn evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk() {
 #[cfg(target_os = "macos")]
 #[test]
 fn evaluation_with_a_missing_project_sdk_reports_sdk_missing() {
-    let fixture = fs::canonicalize(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"),
-    )
-    .expect("fixture MissingSdk exists");
+    let fixture =
+        fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"))
+            .expect("fixture MissingSdk exists");
     let global_json = fixture.join("global.json");
     let before = fs::read(&global_json).unwrap();
 
@@ -1852,7 +1878,10 @@ fn evaluation_returns_the_real_msbuild_model_for_every_project() {
     for project in projects {
         for source in project["sources"].as_array().unwrap() {
             let source = source.as_str().unwrap();
-            assert!(!source.contains("/obj/") && !source.contains("/bin/"), "{source}");
+            assert!(
+                !source.contains("/obj/") && !source.contains("/bin/"),
+                "{source}"
+            );
         }
     }
 
@@ -1887,15 +1916,23 @@ fn evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts() {
     assert_eq!(evaluation["state"], "ok", "{}", evaluation["log"]);
     for project in evaluation["projects"].as_array().unwrap() {
         assert_eq!(project["restored"], "not_restored", "{}", project["name"]);
-        assert_eq!(project["log"].as_str().unwrap().contains("exit 0"), true);
+        assert!(project["log"].as_str().unwrap().contains("exit 0"));
         let target = project["targetPath"].as_str().unwrap();
         assert!(target.contains("Order Desk ; & copy"), "{target}");
         assert!(target.contains("/bin/Debug/net8.0/"), "{target}");
         assert!(!project["sources"].as_array().unwrap().is_empty());
     }
-    for project in ["src/OrderDesk.Cli", "src/OrderDesk.Core", "tests/OrderDesk.Tests"] {
+    for project in [
+        "src/OrderDesk.Cli",
+        "src/OrderDesk.Core",
+        "tests/OrderDesk.Tests",
+    ] {
         assert!(
-            !copy.join(project).join("obj").join("project.assets.json").exists(),
+            !copy
+                .join(project)
+                .join("obj")
+                .join("project.assets.json")
+                .exists(),
             "evaluation restored {project}"
         );
     }
@@ -1999,7 +2036,10 @@ Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug
     assert_eq!(evaluation["state"], "partial", "{}", evaluation["log"]);
     let projects = evaluation["projects"].as_array().unwrap();
     assert_eq!(projects.len(), 2);
-    let good = projects.iter().find(|project| project["name"] == "Good").unwrap();
+    let good = projects
+        .iter()
+        .find(|project| project["name"] == "Good")
+        .unwrap();
     assert_eq!(good["state"], "ok");
     assert!(good["targetPath"].as_str().unwrap().ends_with("Good.dll"));
     let broken = projects
@@ -2013,7 +2053,10 @@ Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug
     assert_eq!(broken["exit"], 1);
     assert!(broken["error"].as_str().unwrap().contains("MSB4019"));
     assert!(broken["log"].as_str().unwrap().contains("Missing.props"));
-    assert!(evaluation["log"].as_str().unwrap().contains("[Broken] failed"));
+    assert!(evaluation["log"]
+        .as_str()
+        .unwrap()
+        .contains("[Broken] failed"));
 }
 
 #[cfg(target_os = "macos")]
@@ -2054,7 +2097,10 @@ fn revoking_trust_while_msbuild_runs_drops_the_late_result() {
             if state["evaluation"]["state"] == "running" {
                 break;
             }
-            assert!(Instant::now() < deadline, "evaluation never reported running");
+            assert!(
+                Instant::now() < deadline,
+                "evaluation never reported running"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
         host.dispatch("trust.revoke", json!({})).unwrap();
@@ -2225,10 +2271,7 @@ fn file_operations_refuse_traversal_missing_parents_and_the_workspace_root() {
         fs::write(&secret, "secret\n").unwrap();
         std::os::unix::fs::symlink(outside.path(), workspace.path().join("Link")).unwrap();
         assert_eq!(
-            error_code(host.dispatch(
-                "file.create",
-                json!({ "path": "Link/Extra.cs" })
-            )),
+            error_code(host.dispatch("file.create", json!({ "path": "Link/Extra.cs" }))),
             "outside_workspace"
         );
         host.dispatch("file.delete", json!({ "path": "Link" }))
@@ -2279,7 +2322,10 @@ fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {
 
     // A source edit does not invalidate the project model.
     let program = host
-        .dispatch("file.read", json!({ "path": "src/OrderDesk.Cli/Program.cs" }))
+        .dispatch(
+            "file.read",
+            json!({ "path": "src/OrderDesk.Cli/Program.cs" }),
+        )
         .unwrap();
     host.dispatch(
         "file.write",
@@ -2297,13 +2343,10 @@ fn saving_a_project_file_or_an_external_edit_makes_the_evaluation_stale() {
     let read = host
         .dispatch("file.read", json!({ "path": project_file }))
         .unwrap();
-    let content = read["content"]
-        .as_str()
-        .unwrap()
-        .replace(
-            "</Project>",
-            "  <PropertyGroup><Description>stale check</Description></PropertyGroup>\n</Project>",
-        );
+    let content = read["content"].as_str().unwrap().replace(
+        "</Project>",
+        "  <PropertyGroup><Description>stale check</Description></PropertyGroup>\n</Project>",
+    );
     host.dispatch(
         "file.write",
         json!({ "path": project_file, "content": content, "expected_hash": read["hash"] }),
@@ -2459,7 +2502,10 @@ fn a_late_evaluation_does_not_replace_a_newer_selection() {
             if snapshot(&host)["evaluation"]["state"] == "running" {
                 break;
             }
-            assert!(Instant::now() < deadline, "evaluation never reported running");
+            assert!(
+                Instant::now() < deadline,
+                "evaluation never reported running"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
         let newer = host
@@ -2628,14 +2674,14 @@ fn restore_reports_the_exact_command_and_creates_real_assets() {
         restore["target"].as_str().unwrap(),
         root.join("Honest.csproj").to_string_lossy()
     );
-    assert_eq!(
-        restore["cwd"].as_str().unwrap(),
-        root.to_string_lossy()
-    );
+    assert_eq!(restore["cwd"].as_str().unwrap(), root.to_string_lossy());
     assert_eq!(restore["sdkVersion"], "8.0.408");
     let restore_root = Path::new(restore["sdkRoot"].as_str().unwrap());
     assert!(restore_root.is_absolute());
-    assert!(restore_root.join("sdk/8.0.408").is_dir(), "{restore_root:?}");
+    assert!(
+        restore_root.join("sdk/8.0.408").is_dir(),
+        "{restore_root:?}"
+    );
     let command: Vec<String> = restore["command"]
         .as_array()
         .unwrap()
@@ -2653,10 +2699,7 @@ fn restore_reports_the_exact_command_and_creates_real_assets() {
     let finished = wait_for_restore(&host, Duration::from_secs(60));
     assert_eq!(finished["state"], "ok", "{}", finished["log"]);
     assert_eq!(finished["exit"], 0);
-    assert!(finished["log"]
-        .as_str()
-        .unwrap()
-        .contains("Honest.csproj"));
+    assert!(finished["log"].as_str().unwrap().contains("Honest.csproj"));
     assert_eq!(finished["projects"][0]["state"], "restored");
     assert!(root.join("obj/project.assets.json").exists());
 
@@ -2681,7 +2724,11 @@ fn opening_and_evaluating_never_start_a_restore() {
     assert_eq!(state["restore"]["revision"], 0);
     assert_eq!(state["restore"]["state"], "idle");
     assert_eq!(state["processes"], json!([]));
-    for project in ["src/OrderDesk.Cli", "src/OrderDesk.Core", "tests/OrderDesk.Tests"] {
+    for project in [
+        "src/OrderDesk.Cli",
+        "src/OrderDesk.Core",
+        "tests/OrderDesk.Tests",
+    ] {
         assert!(
             !copy.join(project).join("obj/project.assets.json").exists(),
             "evaluation restored {project}"
@@ -2709,7 +2756,10 @@ fn cancelling_a_real_hanging_restore_reports_requested_and_observed_termination(
         if log.contains("Determining projects to restore") {
             break;
         }
-        assert!(Instant::now() < deadline, "restore never reached NuGet: {log}");
+        assert!(
+            Instant::now() < deadline,
+            "restore never reached NuGet: {log}"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 
@@ -3073,7 +3123,10 @@ fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated(
     let destination = plan["destination"].as_str().unwrap();
     assert!(Path::new(destination).is_absolute());
     assert!(destination.starts_with(home.path().to_string_lossy().as_ref()));
-    assert!(destination.ends_with("tools/csharp-ls/0.28"), "{destination}");
+    assert!(
+        destination.ends_with("tools/csharp-ls/0.28"),
+        "{destination}"
+    );
     let staging = plan["staging"].as_str().unwrap();
     assert!(staging.ends_with("0.28.staging"));
     let argv: Vec<&str> = plan["argv"]
@@ -3107,7 +3160,10 @@ fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated(
         .as_array()
         .unwrap()
         .iter()
-        .any(|permission| permission.as_str().unwrap().contains("no global tool install")));
+        .any(|permission| permission
+            .as_str()
+            .unwrap()
+            .contains("no global tool install")));
     assert_eq!(snapshot(&host)["processes"], json!([]));
 
     // Cancelling a plan starts nothing and leaves no tool directory.
@@ -3150,9 +3206,7 @@ fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated(
         )
         .expect_err("the destination changed");
     assert_eq!(stale.code, "confirmation_required");
-    assert!(stale
-        .message
-        .contains("review and confirm the new plan"));
+    assert!(stale.message.contains("review and confirm the new plan"));
     assert!(!other.path().join("tools").exists());
     assert_eq!(snapshot(&host)["processes"], json!([]));
 }
@@ -3209,7 +3263,10 @@ fn tools_install_is_real_verified_and_reused_isolated() {
         log.contains("Tool 'csharp-ls' (version '0.28.0') was successfully installed"),
         "{log}"
     );
-    assert!(log.contains("Skipping NuGet package signature verification"), "{log}");
+    assert!(
+        log.contains("Skipping NuGet package signature verification"),
+        "{log}"
+    );
     assert!(log.contains("--version"), "{log}");
     assert_eq!(finished["exit"], 0);
     assert_eq!(finished["verifiedVersion"], "0.28.0");
@@ -3226,8 +3283,15 @@ fn tools_install_is_real_verified_and_reused_isolated() {
     assert!(destination.join("csharp-ls").is_file());
     // The plan was built while the launcher was absent; after the verified install it must say so.
     let after = snapshot(&host)["tools"]["csharp-ls"]["plan"]["existing"].clone();
-    assert_eq!(after["state"], "present", "the plan kept the pre-install state: {after}");
-    assert_eq!(after["sha256"], json!(sha), "the plan does not describe the verified launcher");
+    assert_eq!(
+        after["state"], "present",
+        "the plan kept the pre-install state: {after}"
+    );
+    assert_eq!(
+        after["sha256"],
+        json!(sha),
+        "the plan does not describe the verified launcher"
+    );
     assert!(!staging.exists());
     assert!(destination.starts_with(home.path()));
     let processes_before = snapshot(&host)["processes"].as_array().unwrap().len();
@@ -3255,13 +3319,18 @@ fn tools_install_is_real_verified_and_reused_isolated() {
     open(&reopened, &workspace.path().join("Install.csproj"));
     grant(&reopened);
     let reopened_plan = tool_plan(&reopened);
-    let reopened_install = reopened.dispatch(
-        "tools.install",
-        json!({ "planId": reopened_plan["plan"]["planId"], "confirm": true }),
-    ).unwrap();
+    let reopened_install = reopened
+        .dispatch(
+            "tools.install",
+            json!({ "planId": reopened_plan["plan"]["planId"], "confirm": true }),
+        )
+        .unwrap();
     assert_eq!(reopened_install["tools"]["csharp-ls"]["reused"], true);
     assert_eq!(reopened_install["tools"]["csharp-ls"]["sha256"], sha);
-    assert!(snapshot(&reopened)["processes"].as_array().unwrap().is_empty());
+    assert!(snapshot(&reopened)["processes"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[cfg(unix)]
@@ -3281,12 +3350,22 @@ fn setup_starts_before_trust_without_running_project_code_isolated() {
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
     let workspace = temp_workspace(&["Tools.csproj"]);
-    host.dispatch("workspace.open", json!({ "path": workspace.path().join("Tools.csproj") })).unwrap();
+    host.dispatch(
+        "workspace.open",
+        json!({ "path": workspace.path().join("Tools.csproj") }),
+    )
+    .unwrap();
     let setup = host.dispatch("setup.start", json!({})).unwrap();
     assert_eq!(setup["trust"]["granted"], false);
     assert_eq!(setup["tools"]["csharp-ls"]["state"], "downloading");
-    assert_eq!(error_code(host.dispatch("build.start", json!({}))), "trust_required");
-    assert_eq!(error_code(host.dispatch("lsp.start", json!({}))), "trust_required");
+    assert_eq!(
+        error_code(host.dispatch("build.start", json!({}))),
+        "trust_required"
+    );
+    assert_eq!(
+        error_code(host.dispatch("lsp.start", json!({}))),
+        "trust_required"
+    );
     host.dispatch("workspace.close", json!({})).unwrap();
 }
 
@@ -3321,7 +3400,12 @@ exit 0
     let _adapter = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", temp.path());
     let host = support::host();
     let workspace = temp_workspace(&["Setup.csproj"]);
-    let opened = host.dispatch("workspace.open", json!({ "path": workspace.path().join("Setup.csproj") })).unwrap();
+    let opened = host
+        .dispatch(
+            "workspace.open",
+            json!({ "path": workspace.path().join("Setup.csproj") }),
+        )
+        .unwrap();
     assert_eq!(opened["setup"]["state"], "idle");
     host.dispatch("setup.start", json!({})).unwrap();
 
@@ -3343,7 +3427,11 @@ exit 0
 
     // Second opening: the launcher and integrity record are reused, with no installer run.
     host.dispatch("workspace.close", json!({})).unwrap();
-    host.dispatch("workspace.open", json!({ "path": workspace.path().join("Setup.csproj") })).unwrap();
+    host.dispatch(
+        "workspace.open",
+        json!({ "path": workspace.path().join("Setup.csproj") }),
+    )
+    .unwrap();
     let again = host.dispatch("setup.start", json!({})).unwrap();
     assert_eq!(again["setup"]["state"], "ready");
     assert_eq!(again["tools"]["csharp-ls"]["reused"], true);
@@ -3368,7 +3456,11 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed_isolated() {
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let host = support::host();
     let workspace = temp_workspace(&["Setup.csproj"]);
-    host.dispatch("workspace.open", json!({ "path": workspace.path().join("Setup.csproj") })).unwrap();
+    host.dispatch(
+        "workspace.open",
+        json!({ "path": workspace.path().join("Setup.csproj") }),
+    )
+    .unwrap();
     host.dispatch("setup.start", json!({})).unwrap();
     let mut failed = None;
     for _ in 0..200 {
@@ -3460,9 +3552,16 @@ exit 0
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    assert!(failed, "reinstall did not report the kept previous installation");
+    assert!(
+        failed,
+        "reinstall did not report the kept previous installation"
+    );
     let runs = fs::read_to_string(home.join("installer-runs")).unwrap();
-    assert_eq!(runs.lines().count(), 2, "the reinstall attempted exactly once");
+    assert_eq!(
+        runs.lines().count(),
+        2,
+        "the reinstall attempted exactly once"
+    );
 }
 
 #[cfg(unix)]
@@ -3495,7 +3594,8 @@ exit 0
     let workspace = temp_workspace(&["Tools.csproj"]);
     let other = temp_workspace(&["Other.csproj"]);
     let project = workspace.path().join("Tools.csproj");
-    host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+    host.dispatch("workspace.open", json!({ "path": project }))
+        .unwrap();
     host.dispatch("setup.start", json!({})).unwrap();
     let mut ready = false;
     for _ in 0..400 {
@@ -3519,21 +3619,33 @@ exit 0
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(swapped, "reinstall never reached the post-swap verification");
+    assert!(
+        swapped,
+        "reinstall never reached the post-swap verification"
+    );
     // Tools are global: switching workspaces while verifying must not seal or delete either copy.
-    host.dispatch("workspace.open", json!({ "path": other.path().join("Other.csproj") }))
-        .unwrap();
+    host.dispatch(
+        "workspace.open",
+        json!({ "path": other.path().join("Other.csproj") }),
+    )
+    .unwrap();
     let mut ready_after_switch = false;
     for _ in 0..400 {
         let state = host.dispatch("workspace.state", json!({})).unwrap();
         if state["tools"]["csharp-ls"]["state"] == "ready" {
-            assert!(launcher.is_file(), "neither the new nor the previous launcher survived");
+            assert!(
+                launcher.is_file(),
+                "neither the new nor the previous launcher survived"
+            );
             ready_after_switch = true;
             break;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    assert!(ready_after_switch, "reinstall did not finish after the workspace switch");
+    assert!(
+        ready_after_switch,
+        "reinstall did not finish after the workspace switch"
+    );
     // A subsequent setup attempt reuses the good installation instead of deleting it.
     host.dispatch("setup.start", json!({})).unwrap();
     assert_eq!(
@@ -3561,9 +3673,19 @@ fn tools_download_does_not_block_host_calls_isolated() {
     grant(&host);
     let plan = tool_plan(&host);
     let start = Instant::now();
-    host.dispatch("tools.install", json!({"planId": plan["plan"]["planId"], "confirm": true})).unwrap();
-    assert_eq!(snapshot(&host)["tools"]["csharp-ls"]["state"], "downloading");
-    assert!(start.elapsed() < Duration::from_millis(700), "download blocked host dispatch");
+    host.dispatch(
+        "tools.install",
+        json!({"planId": plan["plan"]["planId"], "confirm": true}),
+    )
+    .unwrap();
+    assert_eq!(
+        snapshot(&host)["tools"]["csharp-ls"]["state"],
+        "downloading"
+    );
+    assert!(
+        start.elapsed() < Duration::from_millis(700),
+        "download blocked host dispatch"
+    );
     host.dispatch("workspace.close", json!({})).unwrap();
     // Tools are global: closing the workspace must not seal this install. The delayed worker
     // proceeds, runs the (failing) controlled installer, and lands in failed, not cancelled.
@@ -3573,7 +3695,10 @@ fn tools_download_does_not_block_host_calls_isolated() {
         if state == "failed" {
             break;
         }
-        assert!(Instant::now() < deadline, "global install did not finish: {state}");
+        assert!(
+            Instant::now() < deadline,
+            "global install did not finish: {state}"
+        );
         std::thread::sleep(Duration::from_millis(25));
     }
     let processes = snapshot(&host)["processes"].as_array().unwrap().clone();
@@ -3634,7 +3759,7 @@ exit 1
     let _muxer = EnvVar::set("OPENRIDR_TOOLS_MUXER", &installer);
     let _url = EnvVar::set(
         "OPENRIDR_TOOLS_PACKAGE_URL",
-        &format!("http://{address}/csharp-ls.0.28.0.nupkg"),
+        format!("http://{address}/csharp-ls.0.28.0.nupkg"),
     );
     let _sha = EnvVar::set(
         "OPENRIDR_TOOLS_PACKAGE_SHA512",
@@ -3662,7 +3787,9 @@ exit 1
         if let Some(progress) = tool["progress"].as_object() {
             samples += 1;
             assert_eq!(progress["total"], Value::Null, "no total was sent: {tool}");
-            let downloaded = progress["downloaded"].as_u64().expect("progress is a byte count");
+            let downloaded = progress["downloaded"]
+                .as_u64()
+                .expect("progress is a byte count");
             assert!(
                 downloaded >= previous,
                 "progress went backwards ({previous} -> {downloaded}): {tool}"
@@ -3680,7 +3807,10 @@ exit 1
         assert!(Instant::now() < deadline, "install stuck: {}", tool["log"]);
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert!(samples > 0, "no progress was observed for the measured download");
+    assert!(
+        samples > 0,
+        "no progress was observed for the measured download"
+    );
     assert_eq!(
         last, payload_len,
         "the download never reported the whole package"
@@ -3809,7 +3939,12 @@ fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempote
     assert!(Path::new(&first.path).join("dotnet").is_file());
     assert!(first.check.contains("8.0.408"));
     assert!(first.check.contains("10.0."), "{}", first.check);
-    assert!(first.check.contains(&Path::new(&first.path).join("dotnet").to_string_lossy().as_ref()));
+    assert!(first.check.contains(
+        Path::new(&first.path)
+            .join("dotnet")
+            .to_string_lossy()
+            .as_ref()
+    ));
 
     let muxer = Path::new(&first.path).join("dotnet");
     let output = std::process::Command::new(&muxer)
@@ -3821,7 +3956,10 @@ fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempote
         .unwrap();
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout).to_string();
-    let sdks: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    let sdks: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
     assert_eq!(
         sdks.len(),
         1,
@@ -3871,19 +4009,16 @@ fn lsp_start_requires_tool_sdk_and_current_restore_isolated() {
     let copy = fixture_copy(temp.path(), "Lsp no tool");
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
-    let error = host
-        .dispatch("lsp.start", json!({}))
-        .expect_err("no tool");
+    let error = host.dispatch("lsp.start", json!({})).expect_err("no tool");
     assert_eq!(error.code, "tool_missing");
     assert_eq!(error.details.unwrap()["action"]["method"], "tools.plan");
     drop(_home);
 
     // With the real tool: unresolved project SDK and missing restore are distinct.
     let host = support::host();
-    let missing = fs::canonicalize(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"),
-    )
-    .unwrap();
+    let missing =
+        fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/MissingSdk"))
+            .unwrap();
     open(&host, &missing.join("MissingSdk.csproj"));
     grant(&host);
     ensure_tool(&host);
@@ -3903,7 +4038,9 @@ fn lsp_start_requires_tool_sdk_and_current_restore_isolated() {
     assert_eq!(error.code, "restore_required");
     let details = error.details.unwrap();
     assert_eq!(details["action"]["method"], "restore.start");
-    assert!(!fresh.join("src/OrderDesk.Cli/obj/project.assets.json").exists());
+    assert!(!fresh
+        .join("src/OrderDesk.Cli/obj/project.assets.json")
+        .exists());
     assert_eq!(snapshot(&host)["lsp"]["state"], "unavailable");
 }
 
@@ -3950,7 +4087,10 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isola
     assert!(ready["hostRootCheck"].as_str().unwrap().contains("8.0.408"));
 
     let opened = host
-        .dispatch("lsp.didOpen", json!({ "path": "src/OrderDesk.Cli/Program.cs" }))
+        .dispatch(
+            "lsp.didOpen",
+            json!({ "path": "src/OrderDesk.Cli/Program.cs" }),
+        )
         .unwrap();
     assert_eq!(opened["version"], 1);
     let publication = wait_publication(&host, Duration::from_secs(30), |item| {
@@ -3964,7 +4104,10 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isola
     assert_eq!(items[0]["severityLabel"], "error");
     assert_eq!(items[0]["source"], "lsp");
     assert_eq!(items[0]["category"], "unknown");
-    assert!(items[0]["message"].as_str().unwrap().contains("OrderReport"));
+    assert!(items[0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("OrderReport"));
     assert!(items[0]["range"]["start"]["line"].as_u64().unwrap() >= 4);
     let diagnostics = snapshot(&host)["diagnostics"].clone();
     assert_eq!(diagnostics["session"], 1);
@@ -4003,7 +4146,10 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isola
     )
     .unwrap();
     let republished_broken = wait_publication(&host, Duration::from_secs(30), |item| {
-        item["clientRevision"] == 3 && item["items"].as_array().is_some_and(|items| items.len() == 1)
+        item["clientRevision"] == 3
+            && item["items"]
+                .as_array()
+                .is_some_and(|items| items.len() == 1)
     });
     assert_eq!(republished_broken["items"][0]["code"], "CS0246");
 
@@ -4062,8 +4208,7 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isola
         .unwrap()
         .iter()
         .find(|item| item["items"][0]["code"] == "PROBE0001")
-        .expect("the probe publication is stored")
-        ["items"][0];
+        .expect("the probe publication is stored")["items"][0];
     assert_eq!(probe_item["position"], Value::Null);
     assert_eq!(probe_item["range"], Value::Null);
 
@@ -4094,7 +4239,10 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isola
 
     // Editing stays available after analysis stops.
     let read = host
-        .dispatch("file.read", json!({ "path": "src/OrderDesk.Cli/Program.cs" }))
+        .dispatch(
+            "file.read",
+            json!({ "path": "src/OrderDesk.Cli/Program.cs" }),
+        )
         .unwrap();
     host.dispatch(
         "file.write",
@@ -4169,13 +4317,12 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process_isolated() 
     host_api.dispatch("evaluation.run", json!({})).unwrap();
 
     host_api.dispatch("lsp.start", json!({})).unwrap();
-    let failed = wait_lsp(
-        &host_api,
-        Duration::from_secs(30),
-        &["failed"],
-    );
+    let failed = wait_lsp(&host_api, Duration::from_secs(30), &["failed"]);
     let message = failed["error"].as_str().unwrap();
-    assert!(message.contains("A compatible .NET SDK was not found"), "{message}");
+    assert!(
+        message.contains("A compatible .NET SDK was not found"),
+        "{message}"
+    );
     assert!(message.contains("8.0.408"), "{message}");
     assert!(failed["log"]
         .as_str()
@@ -4242,9 +4389,8 @@ fn cancelling_a_running_install_reports_termination_and_never_ready_isolated() {
     assert_eq!(tool["state"], "cancelled");
     assert_ne!(tool["state"], "ready");
     assert_eq!(tool["reused"], false);
-    assert_eq!(
+    assert!(
         tool["note"].as_str().unwrap().contains("not ready"),
-        true,
         "{}",
         tool["note"]
     );
@@ -4264,7 +4410,8 @@ fn cancelling_a_running_install_reports_termination_and_never_ready_isolated() {
 #[cfg(target_os = "macos")]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
-fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents_isolated() {
+fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown_documents_isolated(
+) {
     let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk complete");
@@ -4447,7 +4594,8 @@ fn write_console_project(dir: &Path, name: &str, extra: &str) {
     .unwrap();
 }
 
-fn wait_for_build(host: &Host, timeout: Duration) -> Value {    let deadline = Instant::now() + timeout;
+fn wait_for_build(host: &Host, timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
         let build = state["build"].clone();
@@ -4484,7 +4632,10 @@ fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     loop {
         let state = snapshot(host);
-        let log = state["build"]["log"].as_str().unwrap_or_default().to_string();
+        let log = state["build"]["log"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
         if log.contains(needle) {
             return;
         }
@@ -4541,7 +4692,10 @@ fn build_start_needs_the_current_evaluation_and_accepts_an_explicit_library() {
     assert_eq!(started["build"]["project"]["kind"], "library");
     let finished = wait_for_build(&host, Duration::from_secs(60));
     assert_eq!(finished["state"], "ok", "{}", finished["log"]);
-    assert!(finished["log"].as_str().unwrap().contains("Build succeeded"));
+    assert!(finished["log"]
+        .as_str()
+        .unwrap()
+        .contains("Build succeeded"));
 
     // A successful restore invalidates the evaluated model, so a later build must not reuse it.
     host.dispatch("restore.start", json!({})).unwrap();
@@ -4549,7 +4703,10 @@ fn build_start_needs_the_current_evaluation_and_accepts_an_explicit_library() {
     let stale = snapshot(&host);
     assert_eq!(stale["evaluation"]["stale"], true);
     let denied = host
-        .dispatch("build.start", json!({ "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj" }))
+        .dispatch(
+            "build.start",
+            json!({ "project": "src/OrderDesk.Cli/OrderDesk.Cli.csproj" }),
+        )
         .expect_err("a stale evaluation cannot start a build");
     assert_eq!(denied.code, "invalid_state");
     assert!(denied.message.contains("stale"), "{}", denied.message);
@@ -4573,7 +4730,10 @@ fn build_reports_the_exact_command_raw_log_exit_and_real_problems() {
     host.dispatch("evaluation.run", json!({})).unwrap();
 
     let started = host
-        .dispatch("build.start", json!({ "savedNote": "Built saved content; no unsaved buffers." }))
+        .dispatch(
+            "build.start",
+            json!({ "savedNote": "Built saved content; no unsaved buffers." }),
+        )
         .unwrap();
     let build = &started["build"];
     assert_eq!(build["state"], "running");
@@ -4643,9 +4803,17 @@ fn build_reports_the_exact_command_raw_log_exit_and_real_problems() {
     let link = &failed["logLinks"][0];
     assert_eq!(link["path"], "Honest.cs");
     assert_eq!(link["position"]["line"], problem["position"]["line"]);
-    assert_eq!(link["position"]["character"], problem["position"]["character"]);
+    assert_eq!(
+        link["position"]["character"],
+        problem["position"]["character"]
+    );
     let link_line = link["line"].as_u64().unwrap() as usize;
-    let log_line = failed["log"].as_str().unwrap().lines().nth(link_line).unwrap();
+    let log_line = failed["log"]
+        .as_str()
+        .unwrap()
+        .lines()
+        .nth(link_line)
+        .unwrap();
     let start = link["start"].as_u64().unwrap() as usize;
     let end = link["end"].as_u64().unwrap() as usize;
     let span: String = log_line.chars().skip(start).take(end - start).collect();
@@ -4758,7 +4926,9 @@ fn cancelling_a_real_hanging_build_reports_requested_and_observed_termination() 
     let host = support::host();
     ready_for_build(&host, &root);
     let started = host.dispatch("build.start", json!({})).unwrap();
-    let process_id = started["build"]["processId"].as_u64().unwrap_or_else(|| panic!("no build process: {}", started["build"]));
+    let process_id = started["build"]["processId"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("no build process: {}", started["build"]));
 
     wait_for_build_output(&host, "Slow.dll", Duration::from_secs(30));
 
@@ -4893,7 +5063,11 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     assert_eq!(implicit["run"]["state"], "building");
     assert_ne!(implicit["build"]["revision"], 0);
     let rebuilt_for_change = wait_for_build(&host, Duration::from_secs(60));
-    assert_eq!(rebuilt_for_change["state"], "ok", "{}", rebuilt_for_change["log"]);
+    assert_eq!(
+        rebuilt_for_change["state"], "ok",
+        "{}",
+        rebuilt_for_change["log"]
+    );
     assert_ne!(rebuilt_for_change["buildId"], build_id);
     let after_change = wait_for_run(&host, Duration::from_secs(30));
     assert_eq!(after_change["state"], "exited", "{}", after_change["log"]);
@@ -4944,8 +5118,14 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     let log = rerun["log"].as_str().unwrap();
     assert!(log.contains("Order A-999:"), "{log}");
     assert!(log.contains("args=[--first|two words]"), "{log}");
-    assert!(log.contains("env=explicit"), "explicit env must win over .env: {log}");
-    assert!(log.contains("override=file"), "the .env file must be applied: {log}");
+    assert!(
+        log.contains("env=explicit"),
+        "explicit env must win over .env: {log}"
+    );
+    assert!(
+        log.contains("override=file"),
+        "the .env file must be applied: {log}"
+    );
     assert!(
         log.lines()
             .any(|line| line.starts_with("cwd=") && line.ends_with("/src")),
@@ -5005,7 +5185,10 @@ fn run_launches_the_identified_build_and_rejects_a_changed_source_or_failed_buil
     let rebuilt = wait_for_run(&host, Duration::from_secs(60));
     assert_eq!(rebuilt["state"], "exited", "{}", rebuilt["log"]);
     assert_eq!(rebuilt["exit"], 0);
-    assert!(dll.is_file(), "the implicit build must restore the TargetPath");
+    assert!(
+        dll.is_file(),
+        "the implicit build must restore the TargetPath"
+    );
 }
 
 #[cfg(unix)]
@@ -5189,7 +5372,10 @@ fn run_start_reports_restore_required_when_assets_are_invalidated_after_a_build(
     host.dispatch("build.start", json!({})).unwrap();
     let built = wait_for_build(&host, Duration::from_secs(60));
     assert_eq!(built["state"], "ok", "{}", built["log"]);
-    assert!(assets.is_file(), "restore must have produced the assets file");
+    assert!(
+        assets.is_file(),
+        "restore must have produced the assets file"
+    );
 
     fs::remove_file(&assets).unwrap();
     let refused = host
@@ -5210,7 +5396,9 @@ fn run_start_reports_restore_required_when_assets_are_invalidated_after_a_build(
             .as_array()
             .unwrap()
             .iter()
-            .any(|process| process["kind"].as_str().is_some_and(|kind| kind.starts_with("run:"))),
+            .any(|process| process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("run:"))),
         "run.start must not start a process"
     );
 }
@@ -5425,7 +5613,9 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     host.dispatch("evaluation.run", json!({})).unwrap();
 
     // Debug consumes restored assets and never restores implicitly.
-    let needs_restore = host.dispatch("debug.start", json!({})).expect_err("no restore");
+    let needs_restore = host
+        .dispatch("debug.start", json!({}))
+        .expect_err("no restore");
     assert_eq!(needs_restore.code, "restore_required");
     assert_eq!(needs_restore.details.unwrap()["consumer"], "debug.start");
     host.dispatch("restore.start", json!({})).unwrap();
@@ -5433,9 +5623,15 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     host.dispatch("evaluation.run", json!({})).unwrap();
 
     // The platform flag is a real gate even with a verified adapter and trust.
-    let flag_off = host.dispatch("debug.start", json!({})).expect_err("flag off");
+    let flag_off = host
+        .dispatch("debug.start", json!({}))
+        .expect_err("flag off");
     assert_eq!(flag_off.code, "experimental_required");
-    assert!(flag_off.message.contains("experimental"), "{}", flag_off.message);
+    assert!(
+        flag_off.message.contains("experimental"),
+        "{}",
+        flag_off.message
+    );
     host.dispatch("debug.flag", json!({ "enabled": true, "confirm": true }))
         .unwrap();
 
@@ -5519,7 +5715,9 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     let failed_session = failed["session"].clone();
     // A version that is not the approved one is not a debugger.
     write_netcoredbg(&adapter, "3.1.0");
-    let wrong_version = host.dispatch("debug.start", json!({})).expect_err("wrong version");
+    let wrong_version = host
+        .dispatch("debug.start", json!({}))
+        .expect_err("wrong version");
     assert_eq!(wrong_version.code, "tool_missing");
     assert!(
         wrong_version.message.contains("3.2.0"),
@@ -5534,7 +5732,9 @@ fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sourc
     let rebuilt = wait_for_build(&host, Duration::from_secs(60));
     assert_eq!(rebuilt["state"], "ok", "{}", rebuilt["log"]);
     host.dispatch("sdk.redetect", json!({})).unwrap();
-    let stale = host.dispatch("debug.start", json!({})).expect_err("stale evaluation");
+    let stale = host
+        .dispatch("debug.start", json!({}))
+        .expect_err("stale evaluation");
     assert_eq!(stale.code, "invalid_state");
     assert_eq!(stale.details.unwrap()["reason"], "evaluation_stale");
     let unchanged = snapshot(&host);
@@ -5601,7 +5801,10 @@ fn stopping_a_debug_session_waiting_for_its_build_stops_the_build_isolated() {
     let cancelled_session = stopped["dap"]["session"].as_u64().unwrap();
     let restarted = host.dispatch("debug.start", json!({})).unwrap();
     assert_eq!(restarted["dap"]["state"], "building");
-    assert_ne!(restarted["dap"]["session"].as_u64().unwrap(), cancelled_session);
+    assert_ne!(
+        restarted["dap"]["session"].as_u64().unwrap(),
+        cancelled_session
+    );
     let stopped_again = host.dispatch("debug.stop", json!({})).unwrap();
     assert_eq!(stopped_again["dap"]["state"], "cancelled");
 }
@@ -5614,9 +5817,8 @@ fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build_isolate
         return;
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
-    let installed = home.join(
-        "Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg",
-    );
+    let installed =
+        home.join("Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092/netcoredbg");
     if !installed.join("netcoredbg").is_file() {
         eprintln!("not verified: netcoredbg 3.2.0-1092 is not installed in the default app home");
         return;
@@ -5703,9 +5905,7 @@ struct TerminalCleanup<'a>(&'a Host);
 
 impl Drop for TerminalCleanup<'_> {
     fn drop(&mut self) {
-        let _ = self
-            .0
-            .dispatch("terminal.stop", json!({ "confirm": true }));
+        let _ = self.0.dispatch("terminal.stop", json!({ "confirm": true }));
     }
 }
 
@@ -5783,14 +5983,21 @@ fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child_is
 
     // Ctrl+C is byte 0x03 to the PTY: the foreground child dies and the prompt comes back.
     let began = Instant::now();
-    host.dispatch("terminal.write", json!({ "data": "sleep 30 && echo slept\r" }))
-        .unwrap();
+    host.dispatch(
+        "terminal.write",
+        json!({ "data": "sleep 30 && echo slept\r" }),
+    )
+    .unwrap();
     std::thread::sleep(Duration::from_millis(500));
-    host.dispatch("terminal.write", json!({ "data": "\u{3}" })).unwrap();
+    host.dispatch("terminal.write", json!({ "data": "\u{3}" }))
+        .unwrap();
     host.dispatch("terminal.write", json!({ "data": "echo prompt-back\r" }))
         .unwrap();
     let log = wait_for_terminal_output(&host, "prompt-back", Duration::from_secs(10));
-    assert!(began.elapsed() < Duration::from_secs(20), "Ctrl+C did not interrupt sleep");
+    assert!(
+        began.elapsed() < Duration::from_secs(20),
+        "Ctrl+C did not interrupt sleep"
+    );
     // The typed line is echoed once; a second occurrence would be the finished command.
     assert_eq!(
         log.matches("slept").count(),
@@ -5839,7 +6046,9 @@ fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child_is
         "confirmation_required"
     );
     assert_eq!(snapshot(&host)["terminal"]["state"], "running");
-    let stopped = host.dispatch("terminal.stop", json!({ "confirm": true })).unwrap();
+    let stopped = host
+        .dispatch("terminal.stop", json!({ "confirm": true }))
+        .unwrap();
     let terminal = &stopped["terminal"];
     assert_eq!(terminal["state"], "stopped");
     assert_eq!(terminal["termination"]["observed"], "exited");
@@ -5889,22 +6098,43 @@ fn terminal_read_returns_raw_pty_bytes_by_offset_and_keeps_them_after_seal() {
     .unwrap();
 
     let read = |since: u64| {
-        let value = host.dispatch("terminal.read", json!({ "since": since })).unwrap();
+        let value = host
+            .dispatch("terminal.read", json!({ "since": since }))
+            .unwrap();
         let chunk = value["chunk"].clone();
-        let bytes: Vec<u8> = chunk["bytes"].as_array().unwrap().iter().map(|byte| byte.as_u64().unwrap() as u8).collect();
-        (value["revision"].as_u64().unwrap(), chunk["from"].as_u64().unwrap(), chunk["end"].as_u64().unwrap(), bytes)
+        let bytes: Vec<u8> = chunk["bytes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|byte| byte.as_u64().unwrap() as u8)
+            .collect();
+        (
+            value["revision"].as_u64().unwrap(),
+            chunk["from"].as_u64().unwrap(),
+            chunk["end"].as_u64().unwrap(),
+            bytes,
+        )
     };
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let (revision, mut from, mut end, mut seen) = read(0);
     // The typed command echoes "raw-marker" too; wait for the ESC-prefixed output the shell printed.
-    while !seen.windows(b"\x1b[31mraw-marker".len()).any(|window| window == b"\x1b[31mraw-marker") {
-        assert!(std::time::Instant::now() < deadline, "no raw output within 10s");
+    while !seen
+        .windows(b"\x1b[31mraw-marker".len())
+        .any(|window| window == b"\x1b[31mraw-marker")
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no raw output within 10s"
+        );
         std::thread::sleep(Duration::from_millis(50));
         (_, from, end, seen) = read(0);
     }
     assert!(revision > 0);
     assert_eq!(from, 0);
-    assert!(seen.contains(&0x1b), "ESC bytes must reach the client unfiltered");
+    assert!(
+        seen.contains(&0x1b),
+        "ESC bytes must reach the client unfiltered"
+    );
 
     let (_, next_from, next_end, empty) = read(end);
     assert_eq!((next_from, next_end), (end, end));
@@ -5951,14 +6181,22 @@ fn revoking_trust_stops_and_seals_the_real_shell_and_switching_workspaces_drops_
     // panel with the termination the registry observed.
     grant(&host);
     host.dispatch("terminal.start", json!({})).unwrap();
-    let switched = host.dispatch("workspace.open", json!({ "path": second.path().join("B.csproj") })).unwrap();
+    let switched = host
+        .dispatch(
+            "workspace.open",
+            json!({ "path": second.path().join("B.csproj") }),
+        )
+        .unwrap();
     assert_eq!(switched["terminal"]["state"], "idle");
     assert_eq!(switched["terminal"]["revision"], 0);
     assert!(switched["processes"]
         .as_array()
         .unwrap()
         .iter()
-        .filter(|process| process["kind"].as_str().unwrap_or_default().starts_with("terminal:"))
+        .filter(|process| process["kind"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("terminal:"))
         .all(|process| process["state"] == "exited"));
 }
 
@@ -5972,7 +6210,10 @@ fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads_isolated() {
     // No workspace and no trust: settings are app-scoped, not workspace-scoped.
     let empty = host.dispatch("settings.read", json!({})).unwrap();
     assert_eq!(empty["settings"], json!({}));
-    assert_eq!(empty["path"], home.path().join("settings.json").to_string_lossy().as_ref());
+    assert_eq!(
+        empty["path"],
+        home.path().join("settings.json").to_string_lossy().as_ref()
+    );
 
     let settings = json!({
         "keymap": {
@@ -6017,10 +6258,8 @@ fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust_isolate
     let home = tempfile::tempdir().unwrap();
     let _home = EnvVar::set("OPENRIDR_HOME", home.path());
     let workspaces = tempfile::tempdir().unwrap();
-    let solution = fs::canonicalize(
-        fixture_copy(workspaces.path(), "Configs").join("OrderDesk.sln"),
-    )
-    .unwrap();
+    let solution =
+        fs::canonicalize(fixture_copy(workspaces.path(), "Configs").join("OrderDesk.sln")).unwrap();
     let other = fixture_copy(workspaces.path(), "Other");
     let host = support::host();
 
@@ -6034,7 +6273,10 @@ fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust_isolate
         .as_str()
         .unwrap()
         .starts_with(home.path().join("run-configs").to_string_lossy().as_ref()));
-    assert!(!empty["path"].as_str().unwrap().starts_with(fixture().to_string_lossy().as_ref()));
+    assert!(!empty["path"]
+        .as_str()
+        .unwrap()
+        .starts_with(fixture().to_string_lossy().as_ref()));
 
     fs::write(
         solution.parent().unwrap().join("local.env"),
@@ -6130,7 +6372,9 @@ fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust_isolate
         .unwrap();
     let issues = issues["issues"].as_array().unwrap();
     assert_eq!(issues.len(), 2);
-    assert!(issues.iter().any(|issue| issue["field"] == "workingDirectory"));
+    assert!(issues
+        .iter()
+        .any(|issue| issue["field"] == "workingDirectory"));
     assert!(issues.iter().any(|issue| issue["field"] == "envFiles"));
 }
 
@@ -6160,10 +6404,7 @@ fn run_and_debug_validate_launch_options_before_any_process() {
         .dispatch("debug.start", json!({ "workingDirectory": "missing" }))
         .expect_err("debug validates the same options");
     assert_eq!(debug_missing.code, "invalid_state");
-    assert_eq!(
-        debug_missing.details.unwrap()["field"],
-        "workingDirectory"
-    );
+    assert_eq!(debug_missing.details.unwrap()["field"], "workingDirectory");
 
     let state = snapshot(&host);
     assert_eq!(state["run"]["state"], "idle");
@@ -6182,7 +6423,9 @@ fn remembered_trust_survives_a_new_host_and_revoke_forgets_it_isolated() {
     let _store = EnvVar::remove("OPENRIDR_TRUST_STORE");
     let workspace = temp_workspace(&["Remember.csproj"]);
     let project = workspace.path().join("Remember.csproj");
-    let granted = |host: &Host| host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
+    let granted = |host: &Host| {
+        host.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true
+    };
 
     // A grant without `remember` is session-only.
     let first = support::host();
@@ -6193,7 +6436,9 @@ fn remembered_trust_survives_a_new_host_and_revoke_forgets_it_isolated() {
     assert!(!granted(&second));
 
     // `remember` persists per path; a new host (app restart) opens it trusted, other paths do not.
-    second.dispatch("trust.grant", json!({ "remember": true })).unwrap();
+    second
+        .dispatch("trust.grant", json!({ "remember": true }))
+        .unwrap();
     let third = support::host();
     open(&third, &project);
     assert!(granted(&third));
@@ -6259,7 +6504,10 @@ fn trust_decision_persists_per_project_and_gates_workspace_open_isolated() {
     assert_eq!(stored["decision"], "trusted");
     assert_eq!(reopened["trust"]["granted"], false);
     assert_eq!(
-        error_code(host.dispatch("trust.set", json!({ "path": other_path, "decision": "maybe" }))),
+        error_code(host.dispatch(
+            "trust.set",
+            json!({ "path": other_path, "decision": "maybe" })
+        )),
         "invalid_params"
     );
 }
@@ -6273,17 +6521,26 @@ fn recent_list_carries_decision_and_remove_keeps_it_isolated() {
     let workspace = temp_workspace(&["App.csproj"]);
     let path = fs::canonicalize(workspace.path()).unwrap();
     let host = support::host();
-    let key = open(&host, &path)["workspace"]["path"].as_str().unwrap().to_string();
-    host.dispatch("trust.set", json!({ "path": key, "decision": "trusted" })).unwrap();
+    let key = open(&host, &path)["workspace"]["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    host.dispatch("trust.set", json!({ "path": key, "decision": "trusted" }))
+        .unwrap();
 
     let listed = host.dispatch("recent.list", json!({})).unwrap();
     assert_eq!(listed["projects"][0]["path"], key.as_str());
     assert_eq!(listed["projects"][0]["decision"], "trusted");
     assert!(listed["projects"][0]["openedAt"].as_u64().is_some());
 
-    let after = host.dispatch("recent.remove", json!({ "path": key })).unwrap();
+    let after = host
+        .dispatch("recent.remove", json!({ "path": key }))
+        .unwrap();
     assert_eq!(after["projects"].as_array().unwrap().len(), 0);
-    assert_eq!(host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"], "trusted");
+    assert_eq!(
+        host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"],
+        "trusted"
+    );
 }
 
 #[test]
@@ -6301,13 +6558,25 @@ fn undecided_open_leaves_no_trace_until_decided_isolated() {
 
     // Open + close (Cancel) is not in Recents and has no stored decision.
     host.dispatch("workspace.close", json!({})).unwrap();
-    assert_eq!(host.dispatch("recent.list", json!({})).unwrap()["projects"].as_array().unwrap().len(), 0);
-    assert_eq!(host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"], Value::Null);
+    assert_eq!(
+        host.dispatch("recent.list", json!({})).unwrap()["projects"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        host.dispatch("trust.get", json!({ "path": key })).unwrap()["decision"],
+        Value::Null
+    );
 
     // Deciding for the open workspace records it.
     open(&host, &fs::canonicalize(workspace.path()).unwrap());
     host.dispatch("trust.revoke", json!({})).unwrap();
-    assert_eq!(host.dispatch("recent.list", json!({})).unwrap()["projects"][0]["path"], key.as_str());
+    assert_eq!(
+        host.dispatch("recent.list", json!({})).unwrap()["projects"][0]["path"],
+        key.as_str()
+    );
 }
 
 #[test]
@@ -6319,11 +6588,15 @@ fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions_isolated() {
     let host = support::host();
     let missing = home.path().join("does-not-exist");
     assert_eq!(
-        error_code(host.dispatch("trust.set", json!({ "path": missing, "decision": "trusted" }))),
+        error_code(host.dispatch(
+            "trust.set",
+            json!({ "path": missing, "decision": "trusted" })
+        )),
         "not_found"
     );
     // A vanished project can still be forgotten from Recents.
-    host.dispatch("recent.remove", json!({ "path": missing })).unwrap();
+    host.dispatch("recent.remove", json!({ "path": missing }))
+        .unwrap();
 
     // An unreadable trusted.json is never overwritten and the failure reaches the caller.
     fs::write(home.path().join("trusted.json"), "{ not json").unwrap();
@@ -6332,10 +6605,16 @@ fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions_isolated() {
     let opened = open(&host, &path);
     let open_key = opened["workspace"]["path"].as_str().unwrap();
     assert_eq!(
-        error_code(host.dispatch("trust.set", json!({ "path": open_key, "decision": "trusted" }))),
+        error_code(host.dispatch(
+            "trust.set",
+            json!({ "path": open_key, "decision": "trusted" })
+        )),
         "trusted_unreadable"
     );
-    assert_eq!(fs::read_to_string(home.path().join("trusted.json")).unwrap(), "{ not json");
+    assert_eq!(
+        fs::read_to_string(home.path().join("trusted.json")).unwrap(),
+        "{ not json"
+    );
 }
 
 /// The ambient purge runs once per binary, so the only honest way to test it is a fresh process:
@@ -6357,12 +6636,13 @@ fn an_ambient_bundled_override_never_reaches_the_host() {
     );
 }
 
-
 // Each leaf below writes `OPENRIDR_*` for its host, so it runs in its own process: the
 // shared test process never changes its environment.
 #[test]
 fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation() {
-    support::run_isolated_leaf("tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated");
+    support::run_isolated_leaf(
+        "tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated",
+    );
 }
 
 #[test]
@@ -6379,13 +6659,17 @@ fn setup_starts_before_trust_without_running_project_code() {
 #[cfg(unix)]
 #[test]
 fn setup_reuses_the_verified_installation_and_never_asks_again() {
-    support::run_isolated_leaf("setup_reuses_the_verified_installation_and_never_asks_again_isolated");
+    support::run_isolated_leaf(
+        "setup_reuses_the_verified_installation_and_never_asks_again_isolated",
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
-    support::run_isolated_leaf("setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed_isolated");
+    support::run_isolated_leaf(
+        "setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed_isolated",
+    );
 }
 
 #[cfg(unix)]
@@ -6397,7 +6681,9 @@ fn failed_reinstall_keeps_the_previous_verified_tool_ready() {
 #[cfg(unix)]
 #[test]
 fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies() {
-    support::run_isolated_leaf("a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies_isolated");
+    support::run_isolated_leaf(
+        "a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies_isolated",
+    );
 }
 
 #[cfg(unix)]
@@ -6409,19 +6695,25 @@ fn tools_download_does_not_block_host_calls() {
 #[cfg(all(unix, debug_assertions))]
 #[test]
 fn a_download_without_content_length_keeps_the_measured_bytes() {
-    support::run_isolated_leaf("a_download_without_content_length_keeps_the_measured_bytes_isolated");
+    support::run_isolated_leaf(
+        "a_download_without_content_length_keeps_the_measured_bytes_isolated",
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging() {
-    support::run_isolated_leaf("tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging_isolated");
+    support::run_isolated_leaf(
+        "tools_failed_install_is_not_ready_and_retry_starts_from_clean_staging_isolated",
+    );
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent() {
-    support::run_isolated_leaf("hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent_isolated");
+    support::run_isolated_leaf(
+        "hostroot_composes_runtime10_with_project_sdk_outside_the_repo_and_is_idempotent_isolated",
+    );
 }
 
 #[test]
@@ -6432,44 +6724,60 @@ fn lsp_start_requires_tool_sdk_and_current_restore() {
 #[cfg(target_os = "macos")]
 #[test]
 fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
-    support::run_isolated_leaf("lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isolated");
+    support::run_isolated_leaf(
+        "lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isolated",
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
-    support::run_isolated_leaf("initialize_failure_surfaces_the_sdk_message_and_kills_the_process_isolated");
+    support::run_isolated_leaf(
+        "initialize_failure_surfaces_the_sdk_message_and_kills_the_process_isolated",
+    );
 }
 
 #[test]
 fn cancelling_a_running_install_reports_termination_and_never_ready() {
-    support::run_isolated_leaf("cancelling_a_running_install_reports_termination_and_never_ready_isolated");
+    support::run_isolated_leaf(
+        "cancelling_a_running_install_reports_termination_and_never_ready_isolated",
+    );
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn stopping_a_debug_session_waiting_for_its_build_stops_the_build() {
-    support::run_isolated_leaf("stopping_a_debug_session_waiting_for_its_build_stops_the_build_isolated");
+    support::run_isolated_leaf(
+        "stopping_a_debug_session_waiting_for_its_build_stops_the_build_isolated",
+    );
 }
 
 #[test]
 fn settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads() {
-    support::run_isolated_leaf("settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads_isolated");
+    support::run_isolated_leaf(
+        "settings_roundtrip_needs_no_trust_and_rejects_invalid_payloads_isolated",
+    );
 }
 
 #[test]
 fn run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust() {
-    support::run_isolated_leaf("run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust_isolated");
+    support::run_isolated_leaf(
+        "run_configs_are_stored_per_solution_in_the_app_home_and_need_no_trust_isolated",
+    );
 }
 
 #[test]
 fn remembered_trust_survives_a_new_host_and_revoke_forgets_it() {
-    support::run_isolated_leaf("remembered_trust_survives_a_new_host_and_revoke_forgets_it_isolated");
+    support::run_isolated_leaf(
+        "remembered_trust_survives_a_new_host_and_revoke_forgets_it_isolated",
+    );
 }
 
 #[test]
 fn trust_decision_persists_per_project_and_gates_workspace_open() {
-    support::run_isolated_leaf("trust_decision_persists_per_project_and_gates_workspace_open_isolated");
+    support::run_isolated_leaf(
+        "trust_decision_persists_per_project_and_gates_workspace_open_isolated",
+    );
 }
 
 #[test]
@@ -6484,9 +6792,10 @@ fn undecided_open_leaves_no_trace_until_decided() {
 
 #[test]
 fn trust_set_rejects_missing_paths_and_reports_unsaved_decisions() {
-    support::run_isolated_leaf("trust_set_rejects_missing_paths_and_reports_unsaved_decisions_isolated");
+    support::run_isolated_leaf(
+        "trust_set_rejects_missing_paths_and_reports_unsaved_decisions_isolated",
+    );
 }
-
 
 #[cfg(target_os = "macos")]
 #[test]
@@ -6497,13 +6806,17 @@ fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown
 #[cfg(target_os = "macos")]
 #[test]
 fn debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources() {
-    support::run_isolated_leaf("debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources_isolated");
+    support::run_isolated_leaf(
+        "debug_start_gates_the_experimental_flag_adapter_current_debug_build_and_sources_isolated",
+    );
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build() {
-    support::run_isolated_leaf("debug_implicitly_builds_and_starts_the_session_when_there_is_no_build_isolated");
+    support::run_isolated_leaf(
+        "debug_implicitly_builds_and_starts_the_session_when_there_is_no_build_isolated",
+    );
 }
 
 /// The test process is shared, so no test may write its environment: a test that needs different
@@ -6542,8 +6855,10 @@ fn env_writes_are_confined_to_isolated_leaves() {
             if function.name == "env_writes_are_confined_to_isolated_leaves" {
                 continue;
             }
-            if let Some(rest) = function.body.split("run_isolated_leaf(\"").nth(1) {
-                if let Some(leaf) = rest.split('"').next() {
+            // Split at the call, not at `run_isolated_leaf("`: rustfmt may put the leaf name on the
+            // next line, and this guard must not depend on how the call is wrapped.
+            if let Some(rest) = function.body.split("run_isolated_leaf(").nth(1) {
+                if let Some(leaf) = rest.split('"').nth(1) {
                     // The wrapper may name the leaf by its module path (`trusted::tests::x_isolated`).
                     let name = leaf.rsplit("::").next().unwrap_or(leaf);
                     wrappers.push(name.to_string());
@@ -6556,7 +6871,9 @@ fn env_writes_are_confined_to_isolated_leaves() {
             if isolated && function.is_test {
                 leaves.push(function.name.clone());
             }
-            if writes.iter().any(|needle| function.body.contains(needle.as_str()))
+            if writes
+                .iter()
+                .any(|needle| function.body.contains(needle.as_str()))
                 && !isolated
                 && !is_harness
             {
@@ -6596,7 +6913,9 @@ fn env_writes_are_confined_to_isolated_leaves() {
 }
 
 fn collect_rust_sources(dir: &Path, found: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries {
         let path = entry.unwrap().path();
         if path.is_dir() {
@@ -6663,5 +6982,7 @@ fn source_functions(text: &str) -> Vec<SourceFunction> {
 #[cfg(unix)]
 #[test]
 fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() {
-    support::run_isolated_leaf("a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child_isolated");
+    support::run_isolated_leaf(
+        "a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child_isolated",
+    );
 }

@@ -99,7 +99,8 @@ fn project_kind(text: &str) -> &'static str {
     {
         "test"
     } else if lower.contains("microsoft.net.sdk.web")
-        || element(text, "UsingMicrosoftNETSdkWeb").is_some_and(|value| value.eq_ignore_ascii_case("true"))
+        || element(text, "UsingMicrosoftNETSdkWeb")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
     {
         // A web project is an Exe; the SDK is the only durable signal in the project text.
         "web"
@@ -241,9 +242,7 @@ fn json_string(text: &str, key: &str) -> Option<String> {
 }
 
 fn normalize_rel(rel: &str) -> String {
-    rel.replace('\\', "/")
-        .trim_start_matches("./")
-        .to_string()
+    rel.replace('\\', "/").trim_start_matches("./").to_string()
 }
 
 fn relative(root: &Path, path: &Path) -> String {
@@ -264,7 +263,10 @@ fn walk(dir: &Path, root: &Path, files: &mut Vec<String>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
-    let mut entries: Vec<PathBuf> = entries.filter_map(|entry| entry.ok()).map(|e| e.path()).collect();
+    let mut entries: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|e| e.path())
+        .collect();
     entries.sort();
     for path in entries {
         let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
@@ -292,8 +294,20 @@ pub fn symbol_kind(text: &str, stem: &str) -> Option<&'static str> {
     const KEYWORDS: [&str; 5] = ["class", "interface", "enum", "record", "struct"];
     // A type keyword only counts in declaration position (line start or after a modifier).
     const MODIFIERS: [&str; 14] = [
-        "public", "private", "protected", "internal", "abstract", "sealed", "static", "partial",
-        "readonly", "ref", "file", "unsafe", "new", "fixed",
+        "public",
+        "private",
+        "protected",
+        "internal",
+        "abstract",
+        "sealed",
+        "static",
+        "partial",
+        "readonly",
+        "ref",
+        "file",
+        "unsafe",
+        "new",
+        "fixed",
     ];
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let code = code_only(text);
@@ -311,13 +325,19 @@ pub fn symbol_kind(text: &str, stem: &str) -> Option<&'static str> {
         let mut index = 0;
         while index < tokens.len() {
             // Keywords are lowercase in C#; `Enum.Parse` and a property named `Class` are not types.
-            let Some(kind) = KEYWORDS.iter().copied().find(|candidate| *candidate == tokens[index]) else {
+            let Some(kind) = KEYWORDS
+                .iter()
+                .copied()
+                .find(|candidate| *candidate == tokens[index])
+            else {
                 index += 1;
                 continue;
             };
             let declaration = index == 0
                 || tokens.get(index - 1).is_some_and(|previous| {
-                    MODIFIERS.iter().any(|modifier| previous.eq_ignore_ascii_case(modifier))
+                    MODIFIERS
+                        .iter()
+                        .any(|modifier| previous.eq_ignore_ascii_case(modifier))
                 });
             if !declaration {
                 index += 1;
@@ -422,7 +442,10 @@ fn code_only(text: &str) -> String {
             }
             continue;
         }
-        if current == '@' && chars.get(index + 1) == Some(&'$') && chars.get(index + 2) == Some(&'"') {
+        if current == '@'
+            && chars.get(index + 1) == Some(&'$')
+            && chars.get(index + 2) == Some(&'"')
+        {
             index += 3;
             while index < chars.len() {
                 if chars[index] == '"' {
@@ -537,7 +560,8 @@ mod tests {
         assert_eq!(project_kind(web), "web");
         let property = r#"<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><UsingMicrosoftNETSdkWeb>true</UsingMicrosoftNETSdkWeb><OutputType>Exe</OutputType></PropertyGroup></Project>"#;
         assert_eq!(project_kind(property), "web");
-        let test_web = r#"<Project Sdk="Microsoft.NET.Sdk.Web"><IsTestProject>true</IsTestProject></Project>"#;
+        let test_web =
+            r#"<Project Sdk="Microsoft.NET.Sdk.Web"><IsTestProject>true</IsTestProject></Project>"#;
         assert_eq!(project_kind(test_web), "test");
         let console = r#"<Project Sdk="Microsoft.NET.Sdk"><OutputType>Exe</OutputType></Project>"#;
         assert_eq!(project_kind(console), "console");
@@ -545,17 +569,38 @@ mod tests {
 
     #[test]
     fn symbol_kind_reads_the_five_type_declarations() {
-        assert_eq!(symbol_kind("namespace App; public sealed class Widget {}", "Widget"), Some("class"));
-        assert_eq!(symbol_kind("public interface IWidget {}", "IWidget"), Some("interface"));
-        assert_eq!(symbol_kind("internal enum Kind { A, B }", "Kind"), Some("enum"));
-        assert_eq!(symbol_kind("public record Point(int X, int Y);", "Point"), Some("record"));
-        assert_eq!(symbol_kind("public readonly struct Money {}", "Money"), Some("struct"));
+        assert_eq!(
+            symbol_kind("namespace App; public sealed class Widget {}", "Widget"),
+            Some("class")
+        );
+        assert_eq!(
+            symbol_kind("public interface IWidget {}", "IWidget"),
+            Some("interface")
+        );
+        assert_eq!(
+            symbol_kind("internal enum Kind { A, B }", "Kind"),
+            Some("enum")
+        );
+        assert_eq!(
+            symbol_kind("public record Point(int X, int Y);", "Point"),
+            Some("record")
+        );
+        assert_eq!(
+            symbol_kind("public readonly struct Money {}", "Money"),
+            Some("struct")
+        );
     }
 
     #[test]
     fn symbol_kind_handles_record_modifiers_and_prefers_the_file_stem() {
-        assert_eq!(symbol_kind("public record class Person(string Name);", "Person"), Some("record"));
-        assert_eq!(symbol_kind("public record struct Pair(int A);", "Pair"), Some("record"));
+        assert_eq!(
+            symbol_kind("public record class Person(string Name);", "Person"),
+            Some("record")
+        );
+        assert_eq!(
+            symbol_kind("public record struct Pair(int A);", "Pair"),
+            Some("record")
+        );
         let file = "enum Helper { A }\nnamespace App;\npublic interface IWidget {}";
         assert_eq!(symbol_kind(file, "IWidget"), Some("interface"));
         assert_eq!(symbol_kind(file, "Unrelated"), Some("enum"));
@@ -565,14 +610,29 @@ mod tests {
     fn symbol_kind_skips_comments_attributes_and_constraints() {
         let commented = "// public class NotReal {}\n/*\npublic class AlsoNot {}\n*/\n[Fact]\npublic class Widget {}";
         assert_eq!(symbol_kind(commented, "Widget"), Some("class"));
-        assert_eq!(symbol_kind("public class Box<T> where T : struct {}", "Box"), Some("class"));
-        assert_eq!(symbol_kind("namespace App;\npublic static class Extensions { }", "Extensions"), Some("class"));
+        assert_eq!(
+            symbol_kind("public class Box<T> where T : struct {}", "Box"),
+            Some("class")
+        );
+        assert_eq!(
+            symbol_kind(
+                "namespace App;\npublic static class Extensions { }",
+                "Extensions"
+            ),
+            Some("class")
+        );
     }
 
     #[test]
     fn symbol_kind_ignores_keywords_inside_strings_and_expressions() {
-        assert_eq!(symbol_kind("var text = \"class NotAType\";", "NotAType"), None);
-        assert_eq!(symbol_kind("Console.WriteLine(\"interface IFake\");", "IFake"), None);
+        assert_eq!(
+            symbol_kind("var text = \"class NotAType\";", "NotAType"),
+            None
+        );
+        assert_eq!(
+            symbol_kind("Console.WriteLine(\"interface IFake\");", "IFake"),
+            None
+        );
         assert_eq!(symbol_kind("var kind = typeof(string);", "string"), None);
     }
 
@@ -581,18 +641,30 @@ mod tests {
         assert_eq!(symbol_kind("Enum.Parse<Foo>(value);", "Program"), None);
         assert_eq!(symbol_kind("Class = value;", "Holder"), None);
         assert_eq!(symbol_kind("record.ToString();", "Program"), None);
-        assert_eq!(symbol_kind("foreach (var record in records) { }", "Program"), None);
+        assert_eq!(
+            symbol_kind("foreach (var record in records) { }", "Program"),
+            None
+        );
     }
 
     #[test]
     fn symbol_kind_skips_strings_before_comments_and_keywords() {
         assert_eq!(
-            symbol_kind("var pattern = \"application/*\";\npublic class Widget {}", "Widget"),
+            symbol_kind(
+                "var pattern = \"application/*\";\npublic class Widget {}",
+                "Widget"
+            ),
             Some("class")
         );
-        assert_eq!(symbol_kind("var note = \"Add a new record to db\";", "Program"), None);
         assert_eq!(
-            symbol_kind("var p = @\"// not a comment\"; public class Widget {}", "Widget"),
+            symbol_kind("var note = \"Add a new record to db\";", "Program"),
+            None
+        );
+        assert_eq!(
+            symbol_kind(
+                "var p = @\"// not a comment\"; public class Widget {}",
+                "Widget"
+            ),
             Some("class")
         );
         let raw = "var text = \"\"\"\ninterface Fake\n\"\"\";";
@@ -603,7 +675,10 @@ mod tests {
 
     #[test]
     fn symbol_kind_reads_attributes_on_the_same_line_and_strips_bom() {
-        assert_eq!(symbol_kind("[Fact] public sealed class Widget {}", "Widget"), Some("class"));
+        assert_eq!(
+            symbol_kind("[Fact] public sealed class Widget {}", "Widget"),
+            Some("class")
+        );
         let bom = "\u{feff}[assembly: AssemblyMetadata(\"class\")]\npublic sealed class Widget {}";
         assert_eq!(symbol_kind(bom, "Widget"), Some("class"));
     }
@@ -616,7 +691,10 @@ mod tests {
 
     #[test]
     fn symbol_kind_returns_none_without_evidence() {
-        assert_eq!(symbol_kind("namespace App;\npublic static void Main() {}", "Program"), None);
+        assert_eq!(
+            symbol_kind("namespace App;\npublic static void Main() {}", "Program"),
+            None
+        );
         assert_eq!(symbol_kind("", "Empty"), None);
     }
 }

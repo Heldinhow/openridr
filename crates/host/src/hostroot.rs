@@ -62,7 +62,11 @@ pub fn ensure(runtime_root: &Path, project: &Install) -> Result<HostRoot, String
         });
     }
 
-    let build = PathBuf::from(format!("{}.build-{}", path.to_string_lossy(), std::process::id()));
+    let build = PathBuf::from(format!(
+        "{}.build-{}",
+        path.to_string_lossy(),
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&build);
     fs::create_dir_all(&build).map_err(|error| {
         format!(
@@ -119,7 +123,11 @@ fn inspect_forced(path: &Path, project: &Install) -> Result<HostRoot, String> {
         ));
     }
     let output = run_list_sdks(path)?;
-    let check = format!("$ {} --list-sdks\n{}", muxer.to_string_lossy(), output.trim());
+    let check = format!(
+        "$ {} --list-sdks\n{}",
+        muxer.to_string_lossy(),
+        output.trim()
+    );
     if !output.contains(&project.version) {
         return Ok(HostRoot {
             path: path.to_string_lossy().to_string(),
@@ -173,15 +181,12 @@ fn describe(runtime_root: &Path, project: &Install) -> Result<(Vec<String>, Plan
         .ok_or_else(|| {
             "The .NET 10 runtime root has no Microsoft.NETCore.App 10.x runtime.".to_string()
         })?;
-    let worker_runtime = pick_runtime(
-        &project.root.join("shared/Microsoft.NETCore.App"),
-        8,
-    )?
-    .or_else(|| {
-        pick_runtime(&runtime_root.join("shared/Microsoft.NETCore.App"), 8)
-            .ok()
-            .flatten()
-    });
+    let worker_runtime = pick_runtime(&project.root.join("shared/Microsoft.NETCore.App"), 8)?
+        .or_else(|| {
+            pick_runtime(&runtime_root.join("shared/Microsoft.NETCore.App"), 8)
+                .ok()
+                .flatten()
+        });
     let packs = project.root.join("packs");
     if !packs.is_dir() {
         return Err(format!(
@@ -190,10 +195,7 @@ fn describe(runtime_root: &Path, project: &Install) -> Result<(Vec<String>, Plan
         ));
     }
     let mut links = vec![
-        (
-            format!("sdk/{}", project.version),
-            project.sdk_dir(),
-        ),
+        (format!("sdk/{}", project.version), project.sdk_dir()),
         (
             format!(
                 "host/fxr/{}",
@@ -254,13 +256,7 @@ fn describe(runtime_root: &Path, project: &Install) -> Result<(Vec<String>, Plan
                 .unwrap_or_else(|| "none".to_string())
         ),
     ];
-    Ok((
-        inputs,
-        Plan {
-            muxer,
-            links,
-        },
-    ))
+    Ok((inputs, Plan { muxer, links }))
 }
 
 fn compose(build: &Path, plan: &Plan, log: &mut Vec<String>) -> Result<(), String> {

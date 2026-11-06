@@ -831,11 +831,11 @@ mod tests {
             version: None,
         };
         assert!(adapter_missing(&[]).is_some());
-        assert!(adapter_missing(&[sdk.clone()]).is_some());
-        assert!(adapter_missing(&[sdk.clone()])
+        assert!(adapter_missing(std::slice::from_ref(&sdk)).is_some());
+        assert!(adapter_missing(std::slice::from_ref(&sdk))
             .unwrap()
             .contains("xunit.runner.visualstudio"));
-        let guidance = adapter_missing(&[adapter.clone()]).unwrap();
+        let guidance = adapter_missing(std::slice::from_ref(&adapter)).unwrap();
         assert!(guidance.contains("Microsoft.NET.Test.Sdk"));
         assert!(adapter_missing(&[sdk, adapter]).is_none());
     }

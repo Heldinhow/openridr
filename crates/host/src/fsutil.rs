@@ -59,7 +59,9 @@ pub(crate) fn decode_text(bytes: &[u8]) -> Result<(String, TextFormat), String> 
                 ));
             }
             let units: Vec<u16> = rest
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| match encoding {
                     Encoding::Utf16Le => u16::from_le_bytes([pair[0], pair[1]]),
                     _ => u16::from_be_bytes([pair[0], pair[1]]),
@@ -262,15 +264,24 @@ mod tests {
         assert!(stays_inside(root, Path::new("/work/app/src/App.cs")));
         assert!(stays_inside(root, Path::new("/work/app")));
         assert!(stays_inside(root, Path::new("/work/app/src/../App.cs")));
-        assert!(stays_inside(root, Path::new("/work/app/src/deep/../../App.cs")));
+        assert!(stays_inside(
+            root,
+            Path::new("/work/app/src/deep/../../App.cs")
+        ));
         assert!(!stays_inside(root, Path::new("/work/app/../app2/App.cs")));
         assert!(!stays_inside(root, Path::new("/work/other/App.cs")));
         assert!(!stays_inside(root, Path::new("/etc/hosts")));
         assert!(!stays_inside(root, Path::new("/work/applications/App.cs")));
         // A path that does not exist is still refused by shape; `..` saturates at the root.
         assert!(!stays_inside(root, Path::new("/nope/../../etc/missing")));
-        assert_eq!(normalize_lexically(Path::new("/../../etc/hosts")), Path::new("/etc/hosts"));
-        assert_eq!(normalize_lexically(Path::new("/a/./b/../c")), Path::new("/a/c"));
+        assert_eq!(
+            normalize_lexically(Path::new("/../../etc/hosts")),
+            Path::new("/etc/hosts")
+        );
+        assert_eq!(
+            normalize_lexically(Path::new("/a/./b/../c")),
+            Path::new("/a/c")
+        );
     }
 
     #[cfg(unix)]
@@ -368,6 +379,10 @@ mod tests {
     fn reveal_is_a_clear_error_off_macos() {
         let error = reveal_command("windows", Path::new("C:\\work\\App.cs")).unwrap_err();
         assert_eq!(error.code, "unsupported_platform");
-        assert!(error.message.contains("only implemented on macOS"), "{}", error.message);
+        assert!(
+            error.message.contains("only implemented on macOS"),
+            "{}",
+            error.message
+        );
     }
 }

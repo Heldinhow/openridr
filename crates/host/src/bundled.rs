@@ -140,8 +140,10 @@ pub fn availability() -> Availability {
     let tool_override = override_path(CSHARP_LS_OVERRIDE);
     let runtime_override = override_path(RUNTIME_OVERRIDE);
     let resource_root = resources_root();
-    let tool_dir = tool_override.or_else(|| resource_root.as_ref().map(|root| root.join(CSHARP_LS_DIR)));
-    let runtime_root = runtime_override.or_else(|| resource_root.as_ref().map(|root| root.join(RUNTIME_DIR)));
+    let tool_dir =
+        tool_override.or_else(|| resource_root.as_ref().map(|root| root.join(CSHARP_LS_DIR)));
+    let runtime_root =
+        runtime_override.or_else(|| resource_root.as_ref().map(|root| root.join(RUNTIME_DIR)));
     // An explicit override is a claim that a pair exists there; a broken one is damage.
     let expects_pair = pair_expected();
 
@@ -289,7 +291,8 @@ mod tests {
         let tools = temp.path().join("csharp-ls");
         fs::create_dir_all(&tools).unwrap();
         let _tool = crate::test_harness::EnvVar::set(CSHARP_LS_OVERRIDE, &tools);
-        let _runtime = crate::test_harness::EnvVar::set(RUNTIME_OVERRIDE, temp.path().join("dotnet"));
+        let _runtime =
+            crate::test_harness::EnvVar::set(RUNTIME_OVERRIDE, temp.path().join("dotnet"));
         assert!(
             csharp_ls_dir().is_none(),
             "an empty directory is not a payload"
@@ -306,5 +309,7 @@ mod tests {
 
 #[test]
 fn the_override_requires_the_entry_dll_and_a_runtime() {
-    crate::test_harness::run_isolated_leaf("bundled::tests::the_override_requires_the_entry_dll_and_a_runtime_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "bundled::tests::the_override_requires_the_entry_dll_and_a_runtime_isolated",
+    );
 }

@@ -109,7 +109,10 @@ impl ProjectSdk {
     }
 
     pub fn no_workspace() -> Self {
-        Self::empty("no_workspace", "Open a workspace to inspect the project SDK.")
+        Self::empty(
+            "no_workspace",
+            "Open a workspace to inspect the project SDK.",
+        )
     }
 
     pub fn not_inspected(global_json: Option<&GlobalJsonRequest>) -> Self {
@@ -124,8 +127,7 @@ impl ProjectSdk {
             sdk_path: None,
             instructions_url: SDK_INSTRUCTIONS_URL,
             message: Some(
-                "Trust the workspace to resolve global.json against the detected SDKs."
-                    .to_string(),
+                "Trust the workspace to resolve global.json against the detected SDKs.".to_string(),
             ),
         }
     }
@@ -335,7 +337,10 @@ pub fn inventory() -> Inventory {
                 source,
                 versions: Vec::new(),
                 exit: None,
-                error: Some(format!("Could not run {}: {error}", muxer.to_string_lossy())),
+                error: Some(format!(
+                    "Could not run {}: {error}",
+                    muxer.to_string_lossy()
+                )),
             }),
         }
 
@@ -667,12 +672,10 @@ pub fn resolve(
 
     let same_band = |version: &Version| version.same_band(&requested);
     let same_minor = |version: &Version| version.same_minor(&requested);
-    let higher_band = |version: &Version| {
-        version.same_minor(&requested) && version.band() > requested.band()
-    };
-    let higher_minor = |version: &Version| {
-        version.major == requested.major && version.minor > requested.minor
-    };
+    let higher_band =
+        |version: &Version| version.same_minor(&requested) && version.band() > requested.band();
+    let higher_minor =
+        |version: &Version| version.major == requested.major && version.minor > requested.minor;
 
     let selected = match policy {
         RollForward::Disable => best(&|version| *version == requested),
@@ -779,11 +782,7 @@ mod tests {
 
     #[test]
     fn minor_rolls_forward_within_the_same_major() {
-        let detected = installs(&[
-            ("8.0.408", "/a"),
-            ("8.1.100", "/b"),
-            ("9.0.100", "/c"),
-        ]);
+        let detected = installs(&[("8.0.408", "/a"), ("8.1.100", "/b"), ("9.0.100", "/c")]);
         assert_eq!(
             resolve("8.0.408", Some("minor"), None, &detected)
                 .unwrap()
@@ -865,7 +864,14 @@ mod tests {
         let system = temp.path().join("system");
         let path_a = temp.path().join("path-a");
         let path_b = temp.path().join("path-b");
-        for dir in [&managed, &dotnet_home, &dotnet_root, &system, &path_a, &path_b] {
+        for dir in [
+            &managed,
+            &dotnet_home,
+            &dotnet_root,
+            &system,
+            &path_a,
+            &path_b,
+        ] {
             root_with_muxer(dir);
         }
         // A directory without a muxer, a duplicate entry and a repeated PATH entry are all skipped.
@@ -914,7 +920,10 @@ mod tests {
         let text = "Microsoft.NETCore.App 10.0.1 [/usr/local/share/dotnet/shared/Microsoft.NETCore.App]\nMicrosoft.AspNetCore.App 10.0.1 [/usr/local/share/dotnet/shared/Microsoft.AspNetCore.App]\nnot a runtime\n";
         let parsed = parse_list_runtimes(text);
         assert_eq!(parsed.len(), 2);
-        assert_eq!(parsed[0], ("Microsoft.NETCore.App".to_string(), "10.0.1".to_string()));
+        assert_eq!(
+            parsed[0],
+            ("Microsoft.NETCore.App".to_string(), "10.0.1".to_string())
+        );
         assert_eq!(parsed[1].0, "Microsoft.AspNetCore.App");
     }
 

@@ -451,10 +451,7 @@ fn current(
     (os, arch, platform, gate, controlled)
 }
 
-fn asset_view(
-    platform: &str,
-    controlled: Option<&ControlledAsset>,
-) -> Option<AssetView> {
+fn asset_view(platform: &str, controlled: Option<&ControlledAsset>) -> Option<AssetView> {
     if let Some(controlled) = controlled {
         return Some(AssetView {
             platform: platform.to_string(),
@@ -1204,7 +1201,11 @@ impl Debugger {
             data.confirmed_plan_id = Some(plan.plan_id.clone());
             data.progress = Some(Progress {
                 downloaded: 0,
-                total: plan.asset.as_ref().map(|asset| asset.size).filter(|size| *size > 0),
+                total: plan
+                    .asset
+                    .as_ref()
+                    .map(|asset| asset.size)
+                    .filter(|size| *size > 0),
             });
             data.sha256 = None;
             data.verified_version = None;
@@ -1227,9 +1228,15 @@ impl Debugger {
             data.log.push(format!(
                 "source {} · asset {}",
                 plan.source.url,
-                plan.asset.as_ref().map(|asset| asset.name.as_str()).unwrap_or("none")
+                plan.asset
+                    .as_ref()
+                    .map(|asset| asset.name.as_str())
+                    .unwrap_or("none")
             ));
-            data.log.push(format!("destination {} · staging {}", plan.destination, plan.staging));
+            data.log.push(format!(
+                "destination {} · staging {}",
+                plan.destination, plan.staging
+            ));
             if let Some(asset) = &plan.asset {
                 data.log.push(format!("expected sha256 {}", asset.sha256));
             }
@@ -1284,7 +1291,10 @@ impl Debugger {
             return;
         }
         self.log(&format!("sha256 {hashed} matched the plan"));
-        self.set_state("installing", "Extracting the verified archive into staging.");
+        self.set_state(
+            "installing",
+            "Extracting the verified archive into staging.",
+        );
 
         if let Err(message) = extract_zip(&download, &staging) {
             let _ = fs::remove_file(&download);
@@ -1299,7 +1309,10 @@ impl Debugger {
         // Keep `installing` observable for at least one poll interval.
         self.dwell(300);
 
-        self.set_state("verifying", "Verifying the extracted executable with --version.");
+        self.set_state(
+            "verifying",
+            "Verifying the extracted executable with --version.",
+        );
         let Some(binary) = find_executable(&staging, binary_name(&plan.platform)) else {
             self.fail(&format!(
                 "The archive did not contain exactly one {}; staging is not ready.",
@@ -1311,7 +1324,9 @@ impl Debugger {
         if verified.state != "ready" {
             self.fail(&format!(
                 "Verification failed: {}",
-                verified.reason.unwrap_or_else(|| "no verified version".to_string())
+                verified
+                    .reason
+                    .unwrap_or_else(|| "no verified version".to_string())
             ));
             return;
         }
@@ -1434,8 +1449,9 @@ impl Debugger {
         total: Option<u64>,
         asset: &AssetView,
     ) -> Result<String, Stop> {
-        let mut file = fs::File::create(path)
-            .map_err(|error| Stop::Failed(format!("Could not create the download file: {error}")))?;
+        let mut file = fs::File::create(path).map_err(|error| {
+            Stop::Failed(format!("Could not create the download file: {error}"))
+        })?;
         let mut hasher = Sha256::new();
         let mut buffer = vec![0u8; CHUNK];
         let mut downloaded: u64 = 0;
@@ -1476,8 +1492,9 @@ impl Debugger {
         }
         let mut data = self.data.lock().unwrap();
         data.progress = Some(Progress { downloaded, total });
-        data.log
-            .push(format!("downloaded {downloaded} bytes (measured; no percentage)"));
+        data.log.push(format!(
+            "downloaded {downloaded} bytes (measured; no percentage)"
+        ));
         Ok(format!("{:x}", hasher.finalize()))
     }
 
@@ -1543,9 +1560,8 @@ impl Debugger {
         let mut data = self.data.lock().unwrap();
         if data.state == "planned" || data.state == "failed" {
             data.state = "cancelled";
-            data.note = Some(
-                "Plan cancelled; no download and no process were started.".to_string(),
-            );
+            data.note =
+                Some("Plan cancelled; no download and no process were started.".to_string());
             data.finished_at = Some(now_ms());
             data.log
                 .push("Plan cancelled; nothing was downloaded or executed.".to_string());
@@ -1617,7 +1633,8 @@ enum Stop {
 /// Extracts a zip archive under `target` with explicit traversal, symlink, entry and size
 /// checks. A rejected entry aborts the whole extraction.
 fn extract_zip(archive: &Path, target: &Path) -> Result<(), String> {
-    let file = fs::File::open(archive).map_err(|error| format!("Could not open the archive: {error}"))?;
+    let file =
+        fs::File::open(archive).map_err(|error| format!("Could not open the archive: {error}"))?;
     let mut zip = zip::ZipArchive::new(file)
         .map_err(|error| format!("The archive is not a readable zip: {error}."))?;
     if zip.len() > MAX_ENTRIES {
@@ -1643,9 +1660,7 @@ fn extract_zip(archive: &Path, target: &Path) -> Result<(), String> {
             .components()
             .next()
             .is_some_and(|part| part.as_os_str() == "__MACOSX")
-            || relative
-                .file_name()
-                .is_some_and(|name| name == ".DS_Store");
+            || relative.file_name().is_some_and(|name| name == ".DS_Store");
         if apple_double {
             continue;
         }
@@ -1699,7 +1714,9 @@ fn extract_zip(archive: &Path, target: &Path) -> Result<(), String> {
         let mut out = fs::File::create(&destination)
             .map_err(|error| format!("Could not write {destination:?}: {error}"))?;
         // The declared size is a cheap guard; the bytes actually written are counted too.
-        let room = MAX_EXTRACTED_BYTES.saturating_sub(written).saturating_add(1);
+        let room = MAX_EXTRACTED_BYTES
+            .saturating_sub(written)
+            .saturating_add(1);
         let copied = std::io::copy(&mut entry.by_ref().take(room), &mut out)
             .map_err(|error| format!("Could not extract {destination:?}: {error}"))?;
         written += copied;
@@ -1814,7 +1831,10 @@ mod tests {
         let blocked = plan("macos", "aarch64", false);
         assert_eq!(blocked.platform, "osx-arm64");
         assert_eq!(blocked.blocked_code, Some("experimental_required"));
-        assert!(blocked.blocked_reason.unwrap().contains("enable the experimental flag"));
+        assert!(blocked
+            .blocked_reason
+            .unwrap()
+            .contains("enable the experimental flag"));
         let asset = blocked.asset.unwrap();
         assert_eq!(asset.name, "netcoredbg-osx-arm64.zip");
         assert_eq!(asset.availability, "available");
@@ -1897,14 +1917,20 @@ mod tests {
             "https://github.com/c/d"
         );
         assert_eq!(
-            resolve_location("https://github.com/a/b", "https://objects.githubusercontent.com/x"),
+            resolve_location(
+                "https://github.com/a/b",
+                "https://objects.githubusercontent.com/x"
+            ),
             "https://objects.githubusercontent.com/x"
         );
     }
 
     #[test]
     fn gate_states_are_honest_per_platform() {
-        assert_eq!(gate("macos", "aarch64", false, false).state, "experimental_disabled");
+        assert_eq!(
+            gate("macos", "aarch64", false, false).state,
+            "experimental_disabled"
+        );
         assert!(!gate("macos", "aarch64", false, false).installable);
         assert_eq!(
             gate("macos", "aarch64", false, false).code,
@@ -1947,11 +1973,17 @@ mod tests {
 
         assert_eq!(bundled_binary(), None);
         assert_eq!(existing_binary("osx-arm64"), None);
-        let bundled = fake_adapter(bundle.path(), "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n");
+        let bundled = fake_adapter(
+            bundle.path(),
+            "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n",
+        );
         assert_eq!(bundled_binary(), Some(bundled.clone()));
         assert_eq!(existing_binary("osx-arm64"), Some(bundled.clone()));
 
-        let installed = fake_adapter(&destination(), "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n");
+        let installed = fake_adapter(
+            &destination(),
+            "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n",
+        );
         assert_eq!(existing_binary("osx-arm64"), Some(bundled));
         drop(_bundle);
         let _no_bundle = EnvVar::remove(BUNDLED_OVERRIDE);
@@ -1964,7 +1996,10 @@ mod tests {
     fn ready_adapter_verifies_the_bundled_binary_before_launch_isolated() {
         let bundle = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let binary = fake_adapter(bundle.path(), "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n");
+        let binary = fake_adapter(
+            bundle.path(),
+            "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\\n'\n",
+        );
         let _bundle = EnvVar::set(BUNDLED_OVERRIDE, bundle.path());
         let _home = EnvVar::set("OPENRIDR_HOME", home.path());
         let _probe = EnvVar::remove("OPENRIDR_ENABLE_PROBE");
@@ -1974,21 +2009,31 @@ mod tests {
         assert_eq!(ready.platform, "osx-arm64");
         assert_eq!(ready.version, "3.2.0");
 
-        fs::write(&binary, "#!/bin/sh\nprintf 'NET Core debugger 3.1.1-1000\\n'\n").unwrap();
+        fs::write(
+            &binary,
+            "#!/bin/sh\nprintf 'NET Core debugger 3.1.1-1000\\n'\n",
+        )
+        .unwrap();
         let refused = ready_adapter("macos", "aarch64", true).unwrap_err();
         assert_eq!(refused.code, "tool_missing");
-        assert!(refused.message.contains("bundled netcoredbg did not verify"));
+        assert!(refused
+            .message
+            .contains("bundled netcoredbg did not verify"));
     }
 }
 
-        #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
 #[test]
 fn bundled_resolution_prefers_the_override_and_falls_back_to_tools() {
-    crate::test_harness::run_isolated_leaf("debugger::tests::bundled_resolution_prefers_the_override_and_falls_back_to_tools_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "debugger::tests::bundled_resolution_prefers_the_override_and_falls_back_to_tools_isolated",
+    );
 }
 
-        #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
 #[test]
 fn ready_adapter_verifies_the_bundled_binary_before_launch() {
-    crate::test_harness::run_isolated_leaf("debugger::tests::ready_adapter_verifies_the_bundled_binary_before_launch_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "debugger::tests::ready_adapter_verifies_the_bundled_binary_before_launch_isolated",
+    );
 }

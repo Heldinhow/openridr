@@ -7,8 +7,8 @@ mod error;
 mod evaluation;
 mod fsutil;
 mod git;
-mod http;
 pub mod hostroot;
+mod http;
 mod logbuf;
 mod lsp;
 mod nuget;
@@ -16,9 +16,9 @@ mod outline;
 pub mod process;
 mod recent;
 mod restore;
-pub mod sdk;
 mod run;
 mod run_configs;
+pub mod sdk;
 mod search;
 mod settings;
 mod terminal;
@@ -793,15 +793,35 @@ impl Host {
 
     fn launch_profile_request(&self, params: &Value, select: bool) -> HostResult<Value> {
         let inner = self.inner.lock().unwrap();
-        let workspace = inner.workspace.as_ref().ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
-        let solution = params.get("solution").and_then(Value::as_str)
+        let workspace = inner
+            .workspace
+            .as_ref()
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
+        let solution = params
+            .get("solution")
+            .and_then(Value::as_str)
             .and_then(|path| fs::canonicalize(path).ok());
         if solution.as_deref() != Some(workspace.path.as_path()) {
-            return Err(HostError::new("invalid_state", "The solution is not the open workspace."));
+            return Err(HostError::new(
+                "invalid_state",
+                "The solution is not the open workspace.",
+            ));
         }
-        run_configs::validate_evaluated_project(params, &workspace.root,
-            inner.evaluation.projects.iter().filter(|project| project.state == "ok").map(|project| project.path.as_str()))?;
-        if select { run_configs::set_launch_profile(params) } else { run_configs::launch_profiles(params) }
+        run_configs::validate_evaluated_project(
+            params,
+            &workspace.root,
+            inner
+                .evaluation
+                .projects
+                .iter()
+                .filter(|project| project.state == "ok")
+                .map(|project| project.path.as_str()),
+        )?;
+        if select {
+            run_configs::set_launch_profile(params)
+        } else {
+            run_configs::launch_profiles(params)
+        }
     }
 
     /// The one gate every executable path must pass. Direct host calls (HTTP bridge, tests,
@@ -820,9 +840,10 @@ impl Host {
                 format!("{method} requires the verified tool setup; no process was started."),
             ));
         }
-        let workspace = inner.workspace.as_ref().ok_or_else(|| {
-            HostError::new("invalid_state", "No workspace is open.")
-        })?;
+        let workspace = inner
+            .workspace
+            .as_ref()
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
         Ok(ContextToken {
             workspace_id: workspace.id,
             context_id: inner.context_seq,
@@ -938,7 +959,10 @@ impl Host {
         inner.sync_build();
         // External .csproj/import edits are checked before a pending launch is completed, so
         // the launch gates see `evaluation_stale` instead of running the previous build.
-        let root = inner.workspace.as_ref().map(|workspace| workspace.root.clone());
+        let root = inner
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root.clone());
         if let Some(root) = root {
             inner.evaluation.check_external_changes(&root);
         }
@@ -1024,10 +1048,7 @@ impl Host {
         let tests_view = inner.tests_view();
         let tools_view = inner.tools.view();
         let debug_view = inner.debugger.view(inner.debugger_experimental);
-        let setup_active = matches!(
-            tools_view.state,
-            "downloading" | "installing" | "verifying"
-        );
+        let setup_active = matches!(tools_view.state, "downloading" | "installing" | "verifying");
         let runtime = sdk.host.clone();
         let setup_ready = is_setup_ready(inner)
             || (inner.workspace.is_some()
@@ -1092,18 +1113,31 @@ impl Host {
                 path: workspace.path.to_string_lossy().to_string(),
                 name: workspace.name.clone(),
                 kind: workspace.kind.as_str(),
-                mode: if inner.trusted { "trusted" } else { "restricted" },
+                mode: if inner.trusted {
+                    "trusted"
+                } else {
+                    "restricted"
+                },
                 candidates: Vec::new(),
             }),
-            outline: inner.workspace.as_ref().map(|workspace| workspace.outline.clone()),
+            outline: inner
+                .workspace
+                .as_ref()
+                .map(|workspace| workspace.outline.clone()),
             trust: TrustView {
                 decision: inner
                     .workspace
                     .as_ref()
                     .and_then(|workspace| trusted::get(&workspace.path.to_string_lossy())),
                 granted: inner.trusted,
-                workspace_id: inner.trust_decision.as_ref().map(|decision| decision.workspace_id),
-                decided_at: inner.trust_decision.as_ref().map(|decision| decision.granted_at),
+                workspace_id: inner
+                    .trust_decision
+                    .as_ref()
+                    .map(|decision| decision.workspace_id),
+                decided_at: inner
+                    .trust_decision
+                    .as_ref()
+                    .map(|decision| decision.granted_at),
                 revoked_at: inner
                     .trust_decision
                     .as_ref()
@@ -1467,15 +1501,15 @@ impl Host {
             inner
                 .evaluation
                 .mark_stale("SDK inventory refreshed; re-evaluate the project model.");
-            inner.build.mark_stale(
-                "SDK inventory refreshed; the previous build used another toolchain.",
-            );
+            inner
+                .build
+                .mark_stale("SDK inventory refreshed; the previous build used another toolchain.");
             inner.tests.mark_stale(
                 "SDK inventory refreshed; discover tests again with the new toolchain.",
             );
-            inner.test_run.mark_stale(
-                "SDK inventory refreshed; these test results used another toolchain.",
-            );
+            inner
+                .test_run
+                .mark_stale("SDK inventory refreshed; these test results used another toolchain.");
         }
         Ok(self.snapshot_value(&mut inner))
     }
@@ -1705,9 +1739,9 @@ impl Host {
         inner.tests.mark_stale(
             "The project model was re-evaluated; discover tests again to match the current evaluation.",
         );
-        inner.test_run.mark_stale(
-            "The project model was re-evaluated; these test results are not current.",
-        );
+        inner
+            .test_run
+            .mark_stale("The project model was re-evaluated; these test results are not current.");
         inner.evaluation.begin(
             context.clone(),
             plan.configurations.clone(),
@@ -1724,7 +1758,9 @@ impl Host {
         let mut lines = vec![
             format!(
                 "Project SDK {} · {}",
-                sdk.resolved_version.clone().unwrap_or_else(|| "unknown".to_string()),
+                sdk.resolved_version
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
                 sdk_root.to_string_lossy()
             ),
             format!(
@@ -1812,7 +1848,11 @@ impl Host {
     /// Explicit `dotnet restore` only. Opening a workspace or evaluating never calls it, and
     /// build/run/test consumers are stopped by `restore_required` instead of restoring.
     fn start_restore(&self, params: Value, retry: bool) -> HostResult<Value> {
-        let method = if retry { "restore.retry" } else { "restore.start" };
+        let method = if retry {
+            "restore.retry"
+        } else {
+            "restore.start"
+        };
         let token = self.require_trust(method)?;
         let mut inner = self.inner.lock().unwrap();
 
@@ -1934,11 +1974,11 @@ impl Host {
 
         // Separate arguments and cwd via the shared dotnet environment helper.
         let process = dotnet_command(&command, &root, &sdk_root);
-        let spawned = inner
-            .processes
-            .lock()
-            .unwrap()
-            .spawn_piped(&format!("restore:{scope}"), token.workspace_id, process);
+        let spawned = inner.processes.lock().unwrap().spawn_piped(
+            &format!("restore:{scope}"),
+            token.workspace_id,
+            process,
+        );
         let piped = match spawned {
             Ok(piped) => piped,
             Err(error) => {
@@ -2106,7 +2146,10 @@ impl Host {
             Some(_) => None,
             None => evaluation.context.target_framework.clone(),
         };
-        if target_framework.as_deref().is_some_and(|tfm| !valid_selection(tfm)) {
+        if target_framework
+            .as_deref()
+            .is_some_and(|tfm| !valid_selection(tfm))
+        {
             return Err(HostError::new(
                 "invalid_state",
                 "TFM must not contain `;`, `=`, quotes or line breaks; MSBuild was not run.",
@@ -2129,46 +2172,53 @@ impl Host {
             })
             .filter(|note| !note.is_empty());
 
-        let (project_name, project_path, project_kind, project_target, sources, build_file, process_name) =
-            if solution {
-                if !is_solution {
-                    return Err(HostError::new(
-                        "invalid_state",
-                        "Build Solution needs an open solution; build the project with Build.",
-                    ));
-                }
-                (
-                    workspace_name,
-                    workspace_file.to_string_lossy().to_string(),
-                    "unknown",
-                    None,
-                    build::capture_all_sources(&root, &evaluation.projects),
-                    workspace_file.clone(),
-                    "solution".to_string(),
-                )
-            } else {
-                let requested =
-                    optional_str(&params, "project").filter(|value| !value.trim().is_empty());
-                let selected = build::select_startup(&evaluation.projects, requested.as_deref())?;
-                let Some(target_path) = selected.target_path.clone() else {
-                    return Err(HostError::new(
-                        "invalid_state",
-                        format!(
-                            "Build was not started: {} has no evaluated TargetPath.",
-                            selected.name
-                        ),
-                    ));
-                };
-                (
-                    selected.name.clone(),
-                    selected.path.clone(),
-                    selected.kind,
-                    Some(target_path),
-                    build::capture_sources(&root, &selected.path, &evaluation.projects),
-                    root.join(&selected.path),
-                    selected.name.clone(),
-                )
+        let (
+            project_name,
+            project_path,
+            project_kind,
+            project_target,
+            sources,
+            build_file,
+            process_name,
+        ) = if solution {
+            if !is_solution {
+                return Err(HostError::new(
+                    "invalid_state",
+                    "Build Solution needs an open solution; build the project with Build.",
+                ));
+            }
+            (
+                workspace_name,
+                workspace_file.to_string_lossy().to_string(),
+                "unknown",
+                None,
+                build::capture_all_sources(&root, &evaluation.projects),
+                workspace_file.clone(),
+                "solution".to_string(),
+            )
+        } else {
+            let requested =
+                optional_str(&params, "project").filter(|value| !value.trim().is_empty());
+            let selected = build::select_startup(&evaluation.projects, requested.as_deref())?;
+            let Some(target_path) = selected.target_path.clone() else {
+                return Err(HostError::new(
+                    "invalid_state",
+                    format!(
+                        "Build was not started: {} has no evaluated TargetPath.",
+                        selected.name
+                    ),
+                ));
             };
+            (
+                selected.name.clone(),
+                selected.path.clone(),
+                selected.kind,
+                Some(target_path),
+                build::capture_sources(&root, &selected.path, &evaluation.projects),
+                root.join(&selected.path),
+                selected.name.clone(),
+            )
+        };
 
         inner.build_seq += 1;
         let build_id = format!("build:{}:{}", token.workspace_id, inner.build_seq);
@@ -2221,7 +2271,9 @@ impl Host {
         let piped = match spawned {
             Ok(piped) => piped,
             Err(error) => {
-                inner.build.fail(format!("Could not start dotnet build: {error}"));
+                inner
+                    .build
+                    .fail(format!("Could not start dotnet build: {error}"));
                 return Ok(build_id);
             }
         };
@@ -2502,7 +2554,10 @@ impl Host {
                 }),
             ));
         }
-        if discovery.project.as_ref().map(|project| project.path.as_str())
+        if discovery
+            .project
+            .as_ref()
+            .map(|project| project.path.as_str())
             != Some(project.path.as_str())
             || discovery.target_framework != target_framework
         {
@@ -2590,15 +2645,13 @@ impl Host {
         }
 
         inner.test_run_seq += 1;
-        let results_directory = tools::app_home()
-            .join("test-results")
-            .join(format!(
-                "{}-{}-{}-{}",
-                token.workspace_id,
-                inner.test_run_seq,
-                now_ms(),
-                std::process::id()
-            ));
+        let results_directory = tools::app_home().join("test-results").join(format!(
+            "{}-{}-{}-{}",
+            token.workspace_id,
+            inner.test_run_seq,
+            now_ms(),
+            std::process::id()
+        ));
         if let Err(error) = fs::create_dir_all(&results_directory) {
             return Err(HostError::new(
                 "operation_failed",
@@ -2725,7 +2778,13 @@ impl Host {
             .unwrap_or_else(|| format!("revision-{discovery_revision}-{run_revision}"));
         let safe: String = identity
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect();
         let directory = tools::app_home().join("exports");
         fs::create_dir_all(&directory).map_err(|error| {
@@ -2807,9 +2866,21 @@ impl Host {
 
         // The active configuration's argv, cwd and environment are validated before any
         // restore/build gate so an invalid launch explains its own field first.
-        if params.get("launchProfile").and_then(Value::as_str).is_some() {
-            run_configs::validate_evaluated_project(&params, &root,
-                inner.evaluation.projects.iter().filter(|project| project.state == "ok").map(|project| project.path.as_str()))?;
+        if params
+            .get("launchProfile")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            run_configs::validate_evaluated_project(
+                &params,
+                &root,
+                inner
+                    .evaluation
+                    .projects
+                    .iter()
+                    .filter(|project| project.state == "ok")
+                    .map(|project| project.path.as_str()),
+            )?;
         }
         let options = run_configs::launch_options(&params, &root)?;
 
@@ -2924,27 +2995,27 @@ impl Host {
                     json!({ "reason": "no_build", "action": build_action }),
                 ));
             }
-        if build.sealed || build.stale {
-            return Err(HostError::with_details(
-                "build_stale",
-                format!(
+            if build.sealed || build.stale {
+                return Err(HostError::with_details(
+                    "build_stale",
+                    format!(
                     "Run was not started: the saved build is stale ({}). Rebuild before running.",
                     build
                         .stale_reason
                         .clone()
                         .unwrap_or_else(|| "stale build".to_string())
                 ),
-                json!({
-                    "reason": "build_stale",
-                    "buildId": build.build_id,
-                    "staleReason": build.stale_reason,
-                    "buildLog": log_tail(&build.log, 30),
-                    "action": build_action,
-                }),
-            ));
-        }
-        if build.state != "ok" || build.exit != Some(0) {
-            return Err(HostError::with_details(
+                    json!({
+                        "reason": "build_stale",
+                        "buildId": build.build_id,
+                        "staleReason": build.stale_reason,
+                        "buildLog": log_tail(&build.log, 30),
+                        "action": build_action,
+                    }),
+                ));
+            }
+            if build.state != "ok" || build.exit != Some(0) {
+                return Err(HostError::with_details(
                 "invalid_state",
                 format!(
                     "Run was not started: the last build did not succeed ({}). Fix the build before running.",
@@ -2966,11 +3037,11 @@ impl Host {
                     "action": build_action,
                 }),
             ));
-        }
-        if build.workspace_id != Some(token.workspace_id)
-            || build.context_id != Some(token.context_id)
-        {
-            return Err(HostError::with_details(
+            }
+            if build.workspace_id != Some(token.workspace_id)
+                || build.context_id != Some(token.context_id)
+            {
+                return Err(HostError::with_details(
                 "build_stale",
                 "Run was not started: the saved build belongs to an older workspace or context. Rebuild before running.",
                 json!({
@@ -2979,9 +3050,9 @@ impl Host {
                     "action": build_action,
                 }),
             ));
-        }
-        if inner.build.evaluation_revision() != evaluation.revision {
-            return Err(HostError::with_details(
+            }
+            if inner.build.evaluation_revision() != evaluation.revision {
+                return Err(HostError::with_details(
                 "build_stale",
                 "Run was not started: the project model was re-evaluated after this build. Rebuild before running.",
                 json!({
@@ -2991,9 +3062,9 @@ impl Host {
                     "action": build_action,
                 }),
             ));
-        }
-        if build.configuration != configuration || build.target_framework != target_framework {
-            return Err(HostError::with_details(
+            }
+            if build.configuration != configuration || build.target_framework != target_framework {
+                return Err(HostError::with_details(
                 "build_stale",
                 format!(
                     "Run was not started: the saved build used {} / {}; rebuild with the current configuration and TFM.",
@@ -3009,21 +3080,21 @@ impl Host {
                     "action": build_action,
                 }),
             ));
-        }
-        // A solution build already compiled every evaluated project, including the chosen
-        // startup; only a project build must prove it built that exact project.
-        let built_target = if build.solution {
-            evaluated_target.clone()
-        } else {
-            let Some(build_project) = build.project.as_ref() else {
-                return Err(HostError::with_details(
+            }
+            // A solution build already compiled every evaluated project, including the chosen
+            // startup; only a project build must prove it built that exact project.
+            let built_target = if build.solution {
+                evaluated_target.clone()
+            } else {
+                let Some(build_project) = build.project.as_ref() else {
+                    return Err(HostError::with_details(
                     "build_stale",
                     "Run was not started: the saved build has no startup project identity. Rebuild before running.",
                     json!({ "reason": "build_project_missing", "action": build_action }),
                 ));
-            };
-            if build_project.path != selected.path {
-                return Err(HostError::with_details(
+                };
+                if build_project.path != selected.path {
+                    return Err(HostError::with_details(
                     "build_stale",
                     format!(
                         "Run was not started: the saved build is for {}, not {}. Build the selected startup project before running.",
@@ -3036,16 +3107,16 @@ impl Host {
                         "action": build_action,
                     }),
                 ));
-            }
-            let Some(built_target) = build_project.target_path.clone() else {
-                return Err(HostError::with_details(
+                }
+                let Some(built_target) = build_project.target_path.clone() else {
+                    return Err(HostError::with_details(
                     "build_stale",
                     "Run was not started: the saved build has no TargetPath. Rebuild before running.",
                     json!({ "reason": "target_missing", "buildId": build.build_id, "action": build_action }),
                 ));
-            };
-            if built_target != evaluated_target {
-                return Err(HostError::with_details(
+                };
+                if built_target != evaluated_target {
+                    return Err(HostError::with_details(
                     "build_stale",
                     "Run was not started: the evaluated TargetPath changed after the build. Rebuild before running.",
                     json!({
@@ -3056,12 +3127,12 @@ impl Host {
                         "action": build_action,
                     }),
                 ));
-            }
-            built_target
-        };
-        let changed = inner.build.changed_sources(&root);
-        if !changed.is_empty() {
-            return Err(HostError::with_details(
+                }
+                built_target
+            };
+            let changed = inner.build.changed_sources(&root);
+            if !changed.is_empty() {
+                return Err(HostError::with_details(
                 "build_stale",
                 format!(
                     "Run was not started: {} saved source{} changed after this build ({}). Rebuild before running.",
@@ -3086,7 +3157,7 @@ impl Host {
                     inner,
                     token,
                     params,
-                    &selected,
+                    selected,
                     &configuration,
                     target_framework.clone(),
                     &root,
@@ -3138,7 +3209,7 @@ impl Host {
                     inner,
                     token,
                     params,
-                    &selected,
+                    selected,
                     &configuration,
                     target_framework.clone(),
                     &root,
@@ -3199,6 +3270,8 @@ impl Host {
 
     /// Starts the implicit build and leaves a `building` run record; the snapshot launches it
     /// when that build succeeds. The build params mirror the evaluated selection exactly.
+    // Arguments are the evaluated selection verbatim; a params struct would duplicate `EvaluatedProject`.
+    #[allow(clippy::too_many_arguments)]
     fn start_pending_run(
         &self,
         inner: &mut Inner,
@@ -3714,9 +3787,21 @@ impl Host {
         let root = workspace.root.clone();
         // The active configuration is validated before the adapter/build gates so a bad cwd,
         // argument or .env line is reported as that field instead of an unrelated failure.
-        if params.get("launchProfile").and_then(Value::as_str).is_some() {
-            run_configs::validate_evaluated_project(&params, &root,
-                inner.evaluation.projects.iter().filter(|project| project.state == "ok").map(|project| project.path.as_str()))?;
+        if params
+            .get("launchProfile")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            run_configs::validate_evaluated_project(
+                &params,
+                &root,
+                inner
+                    .evaluation
+                    .projects
+                    .iter()
+                    .filter(|project| project.state == "ok")
+                    .map(|project| project.path.as_str()),
+            )?;
         }
         let options = run_configs::launch_options(&params, &root)?;
         // Same restore policy as every executable consumer: Debug never restores implicitly.
@@ -3786,7 +3871,9 @@ impl Host {
             ));
         }
         let target_framework = match params.get("targetFramework") {
-            Some(Value::String(value)) if !value.trim().is_empty() => Some(value.trim().to_string()),
+            Some(Value::String(value)) if !value.trim().is_empty() => {
+                Some(value.trim().to_string())
+            }
             Some(_) => None,
             None => evaluation.context.target_framework.clone(),
         };
@@ -3802,7 +3889,8 @@ impl Host {
             ));
         }
         let requested = optional_str(&params, "project").filter(|value| !value.trim().is_empty());
-        let selected = build::select_startup_for(&evaluation.projects, requested.as_deref(), "debug")?;
+        let selected =
+            build::select_startup_for(&evaluation.projects, requested.as_deref(), "debug")?;
         let Some(assembly) = selected.assembly_path.clone() else {
             return Err(HostError::with_details(
                 "invalid_state",
@@ -3836,7 +3924,8 @@ impl Host {
                 "Debug was not started: the resolved project SDK has no root path.",
             ));
         };
-        let Some(project_directory) = root.join(&selected.path).parent().map(Path::to_path_buf) else {
+        let Some(project_directory) = root.join(&selected.path).parent().map(Path::to_path_buf)
+        else {
             return Err(HostError::new(
                 "invalid_state",
                 "Debug was not started: the startup project has no directory.",
@@ -3847,11 +3936,7 @@ impl Host {
             .clone()
             .unwrap_or(project_directory);
 
-        let action = build_action(
-            &selected.path,
-            &configuration,
-            target_framework.as_deref(),
-        );
+        let action = build_action(&selected.path, &configuration, target_framework.as_deref());
         let breakpoints = inner.dap.breakpoints();
         let breakpoints_muted = inner.dap.breakpoints_muted();
         let exception_filters = inner.dap.exception_filters();
@@ -4040,7 +4125,7 @@ impl Host {
                     inner,
                     token,
                     params,
-                    &selected,
+                    selected,
                     &configuration,
                     target_framework.clone(),
                     make_launch,
@@ -4059,6 +4144,8 @@ impl Host {
 
     /// Starts the implicit build and leaves a `building` session record; the snapshot starts the
     /// adapter once that build succeeds. `make_launch` builds the exact DAP launch identity.
+    // Mirrors `start_pending_run` plus the launch builder; splitting it would split one transaction.
+    #[allow(clippy::too_many_arguments)]
     fn start_pending_debug<F>(
         &self,
         inner: &mut Inner,
@@ -4104,12 +4191,13 @@ impl Host {
         }
         let dap = inner.dap.clone();
         if !dap.is_active() && dap.state() != "preparing" {
-            return Err(HostError::new("invalid_state", "No debug session is active."));
+            return Err(HostError::new(
+                "invalid_state",
+                "No debug session is active.",
+            ));
         }
         let processes = inner.processes.clone();
-        if let Err(error) = dap.shutdown(&processes, "Stopped by the user.", false) {
-            return Err(error);
-        }
+        dap.shutdown(&processes, "Stopped by the user.", false)?;
         inner.sync_dap();
         Ok(self.snapshot_value(&mut inner))
     }
@@ -4172,7 +4260,10 @@ impl Host {
             .and_then(Value::as_i64)
             .filter(|line| *line >= 1)
             .ok_or_else(|| {
-                HostError::new("invalid_state", "Breakpoint lines must be positive integers.")
+                HostError::new(
+                    "invalid_state",
+                    "Breakpoint lines must be positive integers.",
+                )
             })?;
         let condition = params
             .get("condition")
@@ -4194,7 +4285,10 @@ impl Host {
             .and_then(Value::as_i64)
             .filter(|line| *line >= 1)
             .ok_or_else(|| {
-                HostError::new("invalid_state", "Breakpoint lines must be positive integers.")
+                HostError::new(
+                    "invalid_state",
+                    "Breakpoint lines must be positive integers.",
+                )
             })?;
         let hit_count = match params.get("hitCount") {
             None | Some(Value::Null) => None,
@@ -4213,9 +4307,7 @@ impl Host {
         };
         let mut inner = self.inner.lock().unwrap();
         let (_, relative) = resolve_in_workspace(&inner, &raw)?;
-        inner
-            .dap
-            .set_hit_count(&relative, line, hit_count)?;
+        inner.dap.set_hit_count(&relative, line, hit_count)?;
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -4249,7 +4341,10 @@ impl Host {
             .and_then(Value::as_i64)
             .filter(|line| *line >= 1)
             .ok_or_else(|| {
-                HostError::new("invalid_state", "Breakpoint lines must be positive integers.")
+                HostError::new(
+                    "invalid_state",
+                    "Breakpoint lines must be positive integers.",
+                )
             })?;
         let mut inner = self.inner.lock().unwrap();
         let (_, relative) = resolve_in_workspace(&inner, &raw)?;
@@ -4289,7 +4384,11 @@ impl Host {
     }
 
     fn debug_watch(&self, params: Value, add: bool) -> HostResult<Value> {
-        let method = if add { "debug.addWatch" } else { "debug.removeWatch" };
+        let method = if add {
+            "debug.addWatch"
+        } else {
+            "debug.removeWatch"
+        };
         let _token = self.require_trust(method)?;
         let expression = required_str(&params, "expression")?;
         let mut inner = self.inner.lock().unwrap();
@@ -4437,9 +4536,8 @@ impl Host {
             ));
         }
         let installs = &inner.inventory.as_ref().expect("inventory").installs;
-        let runtime = AnalysisRuntime::for_analysis(
-            &inner.inventory.as_ref().expect("inventory").runtimes,
-        );
+        let runtime =
+            AnalysisRuntime::for_analysis(&inner.inventory.as_ref().expect("inventory").runtimes);
         if runtime.state != "found" {
             return Err(HostError::with_details(
                 "sdk_missing",
@@ -4576,11 +4674,11 @@ impl Host {
         // The view logs the whole command line, including the muxer that runs the bundled entry.
         let mut displayed_argv = vec![program.clone()];
         displayed_argv.extend(argv.iter().cloned());
-        let spawned = inner
-            .processes
-            .lock()
-            .unwrap()
-            .spawn_piped("lsp:csharp-ls", token.workspace_id, command);
+        let spawned = inner.processes.lock().unwrap().spawn_piped(
+            "lsp:csharp-ls",
+            token.workspace_id,
+            command,
+        );
         let piped = match spawned {
             Ok(piped) => piped,
             Err(error) => {
@@ -4764,7 +4862,9 @@ impl Host {
             }
             Err(lsp::RequestError::Server(message)) => Ok(request.base.answer(
                 "failed",
-                Some(format!("csharp-ls rejected the completion request: {message}")),
+                Some(format!(
+                    "csharp-ls rejected the completion request: {message}"
+                )),
             )),
         }
     }
@@ -4858,7 +4958,9 @@ impl Host {
             }
             Err(lsp::RequestError::Server(message)) => Ok(request.base.answer(
                 "failed",
-                Some(format!("csharp-ls rejected the definition request: {message}")),
+                Some(format!(
+                    "csharp-ls rejected the definition request: {message}"
+                )),
             )),
         }
     }
@@ -5469,11 +5571,7 @@ impl Host {
             .items
             .iter()
             .filter(|item| {
-                range_covers_position(
-                    &item.range,
-                    request.base.line,
-                    request.base.character,
-                )
+                range_covers_position(&item.range, request.base.line, request.base.character)
             })
             .map(|item| {
                 let mut diagnostic = json!({
@@ -5595,10 +5693,11 @@ impl Host {
                 ),
             ));
         }
-        if !request
-            .lsp
-            .response_is_current(request.base.session, &request.uri, request.base.version)
-        {
+        if !request.lsp.response_is_current(
+            request.base.session,
+            &request.uri,
+            request.base.version,
+        ) {
             if request.lsp.document_version(&request.uri) != request.base.version {
                 return Some(request.base.answer(
                     "stale",
@@ -5608,13 +5707,15 @@ impl Host {
                     ),
                 ));
             }
-            return Some(request.base.answer(
-                "unavailable",
-                Some(
-                    "Analysis stopped while the result was pending; nothing was applied."
-                        .to_string(),
+            return Some(
+                request.base.answer(
+                    "unavailable",
+                    Some(
+                        "Analysis stopped while the result was pending; nothing was applied."
+                            .to_string(),
+                    ),
                 ),
-            ));
+            );
         }
         None
     }
@@ -5716,9 +5817,15 @@ impl Host {
         params: &Value,
         read: impl Fn(&Path) -> Option<String>,
     ) -> HostResult<Value> {
-        let paths = params.get("paths").and_then(Value::as_array).ok_or_else(|| {
-            HostError::new("invalid_state", "workspace.symbolKinds requires a paths array.")
-        })?;
+        let paths = params
+            .get("paths")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                HostError::new(
+                    "invalid_state",
+                    "workspace.symbolKinds requires a paths array.",
+                )
+            })?;
         let known = params.get("known").and_then(Value::as_object);
         let root = {
             let inner = self.inner.lock().unwrap();
@@ -5742,18 +5849,17 @@ impl Host {
                 continue;
             };
             let modified = modified_ms(&metadata);
-            if known
-                .and_then(|map| map.get(&rel))
-                .and_then(Value::as_u64)
-                == Some(modified)
-            {
+            if known.and_then(|map| map.get(&rel)).and_then(Value::as_u64) == Some(modified) {
                 skipped += 1;
                 continue;
             }
             // A file too large to scan is still an answer (kind null) so the UI caches the miss.
             let kind = if metadata.len() <= 256 * 1024 {
                 read(&path).and_then(|text| {
-                    let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
+                    let stem = path
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .unwrap_or("");
                     outline::symbol_kind(&text, stem).map(|kind| Value::String(kind.to_string()))
                 })
             } else {
@@ -5929,11 +6035,15 @@ impl Host {
     fn nuget_list(&self, params: Value) -> HostResult<Value> {
         let token = self.require_trust("nuget.list")?;
         let raw = required_str(&params, "project")?;
-        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        let target_framework =
+            optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
         if let Some(tfm) = target_framework.as_deref() {
             nuget::validate_tfm(tfm)?;
         }
-        let prerelease = params.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
+        let prerelease = params
+            .get("prerelease")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let source = optional_str(&params, "source").filter(|source| !source.trim().is_empty());
         let (root, project, display, sdk) = {
             let inner = self.inner.lock().unwrap();
@@ -5972,8 +6082,12 @@ impl Host {
         let package = required_str(&params, "id")?;
         let version = required_str(&params, "version")?;
         let from_version = optional_str(&params, "fromVersion");
-        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
-        let install = params.get("install").and_then(Value::as_bool).unwrap_or(false);
+        let target_framework =
+            optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        let install = params
+            .get("install")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let (root, project, display, sdk, seq) = {
             let mut inner = self.inner.lock().unwrap();
             accept_locked(&inner, token)?;
@@ -5985,13 +6099,7 @@ impl Host {
             let (project, display) = nuget::resolve_project(&root, &raw)?;
             let sdk = inner.project_sdk.clone();
             inner.nuget_seq += 1;
-            (
-                root,
-                project,
-                display,
-                sdk,
-                inner.nuget_seq,
-            )
+            (root, project, display, sdk, inner.nuget_seq)
         };
         let (muxer, sdk_root, _) = project_muxer(&sdk)?;
         let id = nuget::plan_id(seq, token.context_id, &display, &package, &version);
@@ -6045,16 +6153,16 @@ impl Host {
                 })?;
             if plan.workspace_id != token.workspace_id || plan.context_id != token.context_id {
                 inner.nuget_plan = None;
-        inner.nuget_batch = None;
-        inner.nuget_batch_id = None;
+                inner.nuget_batch = None;
+                inner.nuget_batch_id = None;
                 return Err(HostError::new(
                     "nuget_stale_plan",
                     "The workspace or context changed after the plan; no command was run.",
                 ));
             }
             inner.nuget_plan = None;
-        inner.nuget_batch = None;
-        inner.nuget_batch_id = None;
+            inner.nuget_batch = None;
+            inner.nuget_batch_id = None;
             plan
         };
         let result = nuget::apply(&plan)?;
@@ -6079,16 +6187,26 @@ impl Host {
             .as_ref()
             .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
         let requested = optional_str(&params, "project")
-            .or_else(|| workspace.outline.projects.first().map(|project| project.path.clone()))
+            .or_else(|| {
+                workspace
+                    .outline
+                    .projects
+                    .first()
+                    .map(|project| project.path.clone())
+            })
             .unwrap_or_else(|| workspace.name.clone());
         let (project, display) = nuget::resolve_project(&workspace.root, &requested)
             .unwrap_or_else(|_| (workspace.root.join("Probe.csproj"), requested.clone()));
-        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        let target_framework =
+            optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
         if let Some(tfm) = target_framework.as_deref() {
             nuget::validate_tfm(tfm)?;
         }
         let cpm = params.get("cpm").and_then(Value::as_bool).unwrap_or(false);
-        let empty = params.get("empty").and_then(Value::as_bool).unwrap_or(false);
+        let empty = params
+            .get("empty")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let sources_failed = params
             .get("sourcesFailed")
             .and_then(Value::as_bool)
@@ -6100,7 +6218,10 @@ impl Host {
             cpm,
             empty,
             sources_failed,
-            params.get("prerelease").and_then(Value::as_bool).unwrap_or(false),
+            params
+                .get("prerelease")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             optional_str(&params, "source").as_deref(),
         );
         Ok(serde_json::to_value(listing).expect("nuget probe serializes"))
@@ -6113,11 +6234,11 @@ impl Host {
         let source = required_str(&params, "source")?;
         let raw_project = required_str(&params, "project")?;
         let query = optional_str(&params, "query").unwrap_or_default();
-        let prerelease = params.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
-        let take = params
-            .get("take")
-            .and_then(Value::as_u64)
-            .unwrap_or(30) as usize;
+        let prerelease = params
+            .get("prerelease")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let take = params.get("take").and_then(Value::as_u64).unwrap_or(30) as usize;
         let (root, sdk) = {
             let inner = self.inner.lock().unwrap();
             accept_locked(&inner, token)?;
@@ -6158,18 +6279,24 @@ impl Host {
         let raw_projects = params
             .get("projects")
             .and_then(Value::as_array)
-            .ok_or_else(|| HostError::new("invalid_state", "projects must be an array of paths."))?;
+            .ok_or_else(|| {
+                HostError::new("invalid_state", "projects must be an array of paths.")
+            })?;
         if raw_projects.is_empty() {
             return Err(HostError::new(
                 "invalid_state",
                 "No project was provided for the solution listing.",
             ));
         }
-        let target_framework = optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
+        let target_framework =
+            optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
         if let Some(tfm) = target_framework.as_deref() {
             nuget::validate_tfm(tfm)?;
         }
-        let prerelease = params.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
+        let prerelease = params
+            .get("prerelease")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let source = optional_str(&params, "source").filter(|source| !source.trim().is_empty());
         let (root, sdk, projects) = {
             let inner = self.inner.lock().unwrap();
@@ -6204,8 +6331,14 @@ impl Host {
         }
         let total_packages: usize = listings.iter().map(|listing| listing.total_packages).sum();
         let outdated_count: usize = listings.iter().map(|listing| listing.outdated_count).sum();
-        let failed = listings.iter().filter(|listing| listing.state == "failed").count();
-        let partial = listings.iter().filter(|listing| listing.state == "partial").count();
+        let failed = listings
+            .iter()
+            .filter(|listing| listing.state == "failed")
+            .count();
+        let partial = listings
+            .iter()
+            .filter(|listing| listing.state == "partial")
+            .count();
         let state = if failed == listings.len() {
             "failed"
         } else if failed > 0 || partial > 0 {
@@ -6242,7 +6375,10 @@ impl Host {
             .and_then(Value::as_array)
             .ok_or_else(|| HostError::new("invalid_state", "items must be an array of updates."))?;
         if items.is_empty() {
-            return Err(HostError::new("invalid_state", "No package update was selected."));
+            return Err(HostError::new(
+                "invalid_state",
+                "No package update was selected.",
+            ));
         }
         if items.len() > 50 {
             return Err(HostError::new(
@@ -6337,10 +6473,7 @@ impl Host {
                 drop(guard);
                 break;
             }
-            let Some(plan) = batch
-                .iter()
-                .find(|plan| &plan.project_display == project)
-            else {
+            let Some(plan) = batch.iter().find(|plan| &plan.project_display == project) else {
                 drop(guard);
                 continue;
             };
@@ -6410,7 +6543,10 @@ impl Host {
             match nuget::apply(plan) {
                 Ok(result) if result.state == "ok" => {
                     updated += 1;
-                    if !updated_projects.iter().any(|project| project == &result.project) {
+                    if !updated_projects
+                        .iter()
+                        .any(|project| project == &result.project)
+                    {
                         updated_projects.push(result.project.clone());
                     }
                     items.push(json!({
@@ -6455,8 +6591,7 @@ impl Host {
                 }
             }
         }
-        let restores =
-            self.batch_restores(&batch, &updated_projects, token, nuget::restore);
+        let restores = self.batch_restores(&batch, &updated_projects, token, nuget::restore);
         let restore_failed = restores
             .iter()
             .any(|restore| restore.get("state").and_then(Value::as_str) != Some("ok"));
@@ -6482,9 +6617,10 @@ impl Host {
         let query = required_str(&params, "query")?;
         let (root, workspace_id, context_id, trusted, lsp) = {
             let inner = self.inner.lock().unwrap();
-            let workspace = inner.workspace.as_ref().ok_or_else(|| {
-                HostError::new("invalid_state", "No workspace is open.")
-            })?;
+            let workspace = inner
+                .workspace
+                .as_ref()
+                .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
             (
                 workspace.root.clone(),
                 workspace.id,
@@ -6528,7 +6664,10 @@ impl Host {
         let Some(lsp) = lsp else {
             return Ok(answer(
                 "analysis_not_ready",
-                Some("Analysis is not running. Start analysis to search workspace symbols.".to_string()),
+                Some(
+                    "Analysis is not running. Start analysis to search workspace symbols."
+                        .to_string(),
+                ),
                 Some("Start analysis"),
                 0,
                 Vec::new(),
@@ -6539,7 +6678,10 @@ impl Host {
         if !lsp.accepts_documents() {
             return Ok(answer(
                 "analysis_not_ready",
-                Some("Analysis is initializing; workspace symbols are not available yet.".to_string()),
+                Some(
+                    "Analysis is initializing; workspace symbols are not available yet."
+                        .to_string(),
+                ),
                 Some("Wait for analysis to initialize"),
                 lsp.session(),
                 Vec::new(),
@@ -6665,7 +6807,9 @@ impl Host {
             )),
             Err(lsp::RequestError::Server(message)) => Ok(answer(
                 "failed",
-                Some(format!("csharp-ls rejected the workspace symbol request: {message}")),
+                Some(format!(
+                    "csharp-ls rejected the workspace symbol request: {message}"
+                )),
                 None,
                 lsp.session(),
                 Vec::new(),
@@ -6680,10 +6824,7 @@ impl Host {
         let inner = self.inner.lock().unwrap();
         let (path, rel) = resolve_in_workspace(&inner, &raw)?;
         let bytes = fs::read(&path).map_err(|error| {
-            HostError::new(
-                "operation_failed",
-                format!("Could not read {rel}: {error}"),
-            )
+            HostError::new("operation_failed", format!("Could not read {rel}: {error}"))
         })?;
         let (content, _) = fsutil::decode_text(&bytes).map_err(|error| {
             HostError::new("operation_failed", format!("Could not read {rel}: {error}"))
@@ -6876,12 +7017,15 @@ impl Host {
         };
         let (path, rel) = resolve_reveal_in_workspace(&root, &raw)?;
         let (program, args) = fsutil::reveal_command(std::env::consts::OS, &path)?;
-        let status = Command::new(program).args(&args).status().map_err(|error| {
-            HostError::new(
-                "operation_failed",
-                format!("Could not open the Finder for {rel}: {error}"),
-            )
-        })?;
+        let status = Command::new(program)
+            .args(&args)
+            .status()
+            .map_err(|error| {
+                HostError::new(
+                    "operation_failed",
+                    format!("Could not open the Finder for {rel}: {error}"),
+                )
+            })?;
         if !status.success() {
             return Err(HostError::new(
                 "operation_failed",
@@ -6915,9 +7059,8 @@ impl Inner {
         }
         self.setup_finished_at = None;
         self.ensure_inventory();
-        let runtime = AnalysisRuntime::for_analysis(
-            &self.inventory.as_ref().expect("inventory").runtimes,
-        );
+        let runtime =
+            AnalysisRuntime::for_analysis(&self.inventory.as_ref().expect("inventory").runtimes);
         if runtime.state != "found" {
             self.setup_error = runtime.message.clone();
             return Ok(());
@@ -6951,9 +7094,10 @@ impl Inner {
                 self.tools.sync_bundled();
                 let tool = self.tools.view();
                 if tool.state == "failed" && self.setup_error.is_none() {
-                    self.setup_error = tool.error.clone().or_else(|| {
-                        Some("The bundled analysis tool did not verify.".to_string())
-                    });
+                    self.setup_error = tool
+                        .error
+                        .clone()
+                        .or_else(|| Some("The bundled analysis tool did not verify.".to_string()));
                 }
                 return Ok(());
             }
@@ -7040,8 +7184,12 @@ impl Inner {
             return;
         }
         let reason = match outcome {
-            "ok" => "Restore completed; reload the evaluated model before using TargetPath or packages.",
-            "cancelled" => "Restore was cancelled; package dependencies and analysis may be incomplete.",
+            "ok" => {
+                "Restore completed; reload the evaluated model before using TargetPath or packages."
+            }
+            "cancelled" => {
+                "Restore was cancelled; package dependencies and analysis may be incomplete."
+            }
             "failed" => "Restore failed; package dependencies and analysis may be incomplete.",
             _ => return,
         };
@@ -7051,9 +7199,8 @@ impl Inner {
         self.tests.mark_stale(
             "Dependencies changed after discovery; discover tests again before using the selection.",
         );
-        self.test_run.mark_stale(
-            "Dependencies changed after this test run; its results are not current.",
-        );
+        self.test_run
+            .mark_stale("Dependencies changed after this test run; its results are not current.");
     }
 
     /// Observes the exit of a running build. The state is the observed one: no exit code is
@@ -7085,7 +7232,10 @@ impl Inner {
             processes.refresh();
             processes.status(process_id)
         };
-        if status.as_ref().is_some_and(|status| status.state == "exited") {
+        if status
+            .as_ref()
+            .is_some_and(|status| status.state == "exited")
+        {
             dap.observe_adapter_exit(
                 status.as_ref().and_then(|status| status.exit),
                 status
@@ -7280,15 +7430,24 @@ fn stop_lsp_inner(inner: &mut Inner, reason: &str) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
         let mut status = inner.processes.lock().unwrap().status(process_id);
         while std::time::Instant::now() < deadline
-            && status.as_ref().is_some_and(|status| status.state != "exited")
+            && status
+                .as_ref()
+                .is_some_and(|status| status.state != "exited")
         {
             std::thread::sleep(std::time::Duration::from_millis(50));
             status = inner.processes.lock().unwrap().status(process_id);
         }
-        if status.as_ref().is_some_and(|status| status.state != "exited") {
+        if status
+            .as_ref()
+            .is_some_and(|status| status.state != "exited")
+        {
             status = inner.processes.lock().unwrap().terminate_status(process_id);
         }
-        inner.processes.lock().unwrap().stop_remaining_group(process_id);
+        inner
+            .processes
+            .lock()
+            .unwrap()
+            .stop_remaining_group(process_id);
         if let Some(status) = status {
             lsp.observe_termination(&status);
         }
@@ -7381,9 +7540,9 @@ fn resolve_test_scope(
             format!(
                 "{label} was not started: the project SDK is not resolved ({}). {}",
                 sdk.state,
-                sdk.message.clone().unwrap_or_else(|| {
-                    "Resolve the project SDK first.".to_string()
-                })
+                sdk.message
+                    .clone()
+                    .unwrap_or_else(|| { "Resolve the project SDK first.".to_string() })
             ),
         ));
     }
@@ -7498,7 +7657,7 @@ fn resolve_test_scope(
     // A project with one evaluated TFM has exactly one framework the runner could use, so the
     // operation names it instead of letting every row report "TFM not selected". A multi-TFM
     // project keeps the explicit selection and is refused above when none was made.
-    let target_framework = test_framework(&project, requested_framework);
+    let target_framework = test_framework(project, requested_framework);
 
     let project = project.clone();
     Ok(TestScope {
@@ -7573,7 +7732,10 @@ fn trust_key(params: &Value, must_exist: bool) -> HostResult<String> {
     }
     match fs::canonicalize(&raw) {
         Ok(path) => Ok(path.to_string_lossy().to_string()),
-        Err(_) if must_exist => Err(HostError::new("not_found", format!("Path not found: {raw}"))),
+        Err(_) if must_exist => Err(HostError::new(
+            "not_found",
+            format!("Path not found: {raw}"),
+        )),
         Err(_) => Ok(raw),
     }
 }
@@ -7589,9 +7751,11 @@ fn restore_allowed(inner: &Inner, token: ContextToken) -> bool {
 /// and no external runtime. `None` for a development binary, where the download flow still applies.
 fn bundled_damaged() -> Option<HostError> {
     match bundled::availability() {
-        bundled::Availability::Damaged(reason) => {
-            Some(HostError::with_details("bundled_incomplete", reason, json!({})))
-        }
+        bundled::Availability::Damaged(reason) => Some(HostError::with_details(
+            "bundled_incomplete",
+            reason,
+            json!({}),
+        )),
         _ => None,
     }
 }
@@ -7657,7 +7821,10 @@ fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(error) => {
-            return ProjectSdk::invalid("global.json", format!("global.json is not valid JSON: {error}"))
+            return ProjectSdk::invalid(
+                "global.json",
+                format!("global.json is not valid JSON: {error}"),
+            )
         }
     };
     let sdk = value.get("sdk");
@@ -7679,24 +7846,22 @@ fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
     let Some(version) = version else {
         return ProjectSdk::not_pinned("global.json");
     };
-    match sdk::resolve(
-        version,
-        roll_forward,
-        allow_prerelease,
-        &inventory.installs,
-    ) {
+    match sdk::resolve(version, roll_forward, allow_prerelease, &inventory.installs) {
         Ok(install) => ProjectSdk::resolved(&request, &install),
         Err(message) => ProjectSdk::missing(&request, message),
     }
 }
 
 fn global_json_request(outline: &Outline) -> Option<GlobalJsonRequest> {
-    outline.global_json.as_ref().map(|global| GlobalJsonRequest {
-        path: global.path.clone(),
-        version: global.version.clone(),
-        roll_forward: global.roll_forward.clone(),
-        allow_prerelease: None,
-    })
+    outline
+        .global_json
+        .as_ref()
+        .map(|global| GlobalJsonRequest {
+            path: global.path.clone(),
+            version: global.version.clone(),
+            roll_forward: global.roll_forward.clone(),
+            allow_prerelease: None,
+        })
 }
 
 fn required_str(params: &Value, key: &str) -> HostResult<String> {
@@ -7722,10 +7887,7 @@ fn required_u64(params: &Value, key: &str) -> HostResult<u64> {
 }
 
 fn optional_str(params: &Value, key: &str) -> Option<String> {
-    params
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_string)
+    params.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
 /// MSBuild's `-p:` syntax also accepts `;name=value`, so a selection from the UI boundary
@@ -7805,16 +7967,12 @@ fn project_muxer(sdk: &ProjectSdk) -> HostResult<(PathBuf, PathBuf, String)> {
             ),
         ));
     }
-    let root = sdk
-        .root
-        .clone()
-        .map(PathBuf::from)
-        .ok_or_else(|| {
-            HostError::new(
-                "invalid_state",
-                "NuGet was not run: the resolved project SDK has no root path.",
-            )
-        })?;
+    let root = sdk.root.clone().map(PathBuf::from).ok_or_else(|| {
+        HostError::new(
+            "invalid_state",
+            "NuGet was not run: the resolved project SDK has no root path.",
+        )
+    })?;
     let muxer = root.join(dotnet_exe());
     if !muxer.is_file() {
         return Err(HostError::new(
@@ -7846,11 +8004,15 @@ fn debug_adapter_command(adapter: &Path, sdk_root: &Path) -> HostResult<Command>
         ));
     }
     let inherited_path = std::env::var_os("PATH").unwrap_or_default();
-    let paths = std::iter::once(sdk_root.to_path_buf()).chain(std::env::split_paths(&inherited_path));
+    let paths =
+        std::iter::once(sdk_root.to_path_buf()).chain(std::env::split_paths(&inherited_path));
     let path = std::env::join_paths(paths).map_err(|error| {
         HostError::new(
             "invalid_state",
-            format!("Debug was not started: cannot configure PATH for {}: {error}", muxer.display()),
+            format!(
+                "Debug was not started: cannot configure PATH for {}: {error}",
+                muxer.display()
+            ),
         )
     })?;
     let mut command = Command::new(adapter);
@@ -7906,7 +8068,10 @@ fn resolve_directory(dir: &Path) -> HostResult<PathBuf> {
         1 => Ok(projects[0].clone()),
         0 => Err(HostError::new(
             "not_found",
-            format!("No .sln, .slnx or .csproj found in {}.", dir.to_string_lossy()),
+            format!(
+                "No .sln, .slnx or .csproj found in {}.",
+                dir.to_string_lossy()
+            ),
         )),
         _ => Err(ambiguous_workspace(dir, &projects, "project")),
     }
@@ -8070,8 +8235,10 @@ fn code_action_document_preview(
                 "the action requires the command `{}`, which this build never executes",
                 command.command
             ),
-            None => "the action requires a command this build cannot read; commands are never executed"
-                .to_string(),
+            None => {
+                "the action requires a command this build cannot read; commands are never executed"
+                    .to_string()
+            }
         });
     }
     let Some(edit) = action.edit.as_ref() else {
@@ -8121,10 +8288,11 @@ fn rename_document_preview(
     // The same confinement contract as the editor frontiers, including the dangling-symlink rule:
     // an unprovable target is refused, and only the wording differs because this path answers to
     // the analysis session instead of the UI.
-    let canonical = confine(root, Path::new(&raw), shape_of(&raw)).map_err(|error| match error {
-        fsutil::ConfineError::Outside => format!("{raw} is outside the workspace"),
-        fsutil::ConfineError::Missing => format!("{raw} is not readable"),
-    })?;
+    let canonical =
+        confine(root, Path::new(&raw), shape_of(&raw)).map_err(|error| match error {
+            fsutil::ConfineError::Outside => format!("{raw} is outside the workspace"),
+            fsutil::ConfineError::Missing => format!("{raw} is not readable"),
+        })?;
     if !canonical.is_file() {
         return Err(format!("{raw} is not a file"));
     }
@@ -8572,7 +8740,12 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join(dotnet_exe()), "").unwrap();
         let command = debug_adapter_command(Path::new("adapter"), root.path()).unwrap();
-        let path = command.get_envs().find(|(key, _)| *key == "PATH").unwrap().1.unwrap();
+        let path = command
+            .get_envs()
+            .find(|(key, _)| *key == "PATH")
+            .unwrap()
+            .1
+            .unwrap();
         assert_eq!(std::env::split_paths(path).next().unwrap(), root.path());
     }
 
@@ -8593,15 +8766,41 @@ mod tests {
             let mut inner = host.inner.lock().unwrap();
             let mut command = Command::new("/bin/sleep");
             command.arg("60");
-            let child = inner.processes.lock().unwrap().spawn_piped("lsp:csharp-ls", 1, command).unwrap();
+            let child = inner
+                .processes
+                .lock()
+                .unwrap()
+                .spawn_piped("lsp:csharp-ls", 1, command)
+                .unwrap();
             pid = child.pid;
-            let server = lsp::Lsp::begin(1, 1, 1, "", false, false, "", None, vec![], "".into(), false, "partial", None);
-            server.attach(child.id, child.pid, child.stdin, lsp::spawn_killer(child.pid));
+            let server = lsp::Lsp::begin(
+                1,
+                1,
+                1,
+                "",
+                false,
+                false,
+                "",
+                None,
+                vec![],
+                "".into(),
+                false,
+                "partial",
+                None,
+            );
+            server.attach(
+                child.id,
+                child.pid,
+                child.stdin,
+                lsp::spawn_killer(child.pid),
+            );
             inner.lsp = Some(server);
         }
         drop(host);
         let still_alive = process::process_alive(pid);
-        if still_alive { process::kill_group(pid, true); }
+        if still_alive {
+            process::kill_group(pid, true);
+        }
         assert!(!still_alive, "language server survived host shutdown");
     }
 
@@ -8692,12 +8891,22 @@ mod tests {
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join(".gitignore"), "bin/\n").unwrap();
         let host = Host::default();
-        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
         let tree = host.dispatch("workspace.tree", json!({})).unwrap();
-        let names: Vec<(&str, bool)> = tree["entries"].as_array().unwrap().iter()
-            .map(|e| (e["name"].as_str().unwrap(), e["hidden"].as_bool().unwrap())).collect();
-        assert_eq!(names, vec![("bin", true), (".gitignore", true), ("App.csproj", false)]);
-        let outside = host.dispatch("workspace.tree", json!({ "dir": ".." })).unwrap_err();
+        let names: Vec<(&str, bool)> = tree["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| (e["name"].as_str().unwrap(), e["hidden"].as_bool().unwrap()))
+            .collect();
+        assert_eq!(
+            names,
+            vec![("bin", true), (".gitignore", true), ("App.csproj", false)]
+        );
+        let outside = host
+            .dispatch("workspace.tree", json!({ "dir": ".." }))
+            .unwrap_err();
         assert_eq!(outside.code, "outside_workspace");
     }
 
@@ -8861,11 +9070,15 @@ mod tests {
         fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
         fs::write(root.join("Widget.cs"), "public sealed class Widget {}\n").unwrap();
         let host = Host::default();
-        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
         let result = host
             .workspace_symbol_kinds_with(&json!({ "paths": ["Widget.cs"] }), |path| {
                 // If the method still held `inner.lock()`, the same-thread try_lock would fail.
-                assert!(host.inner.try_lock().is_ok(), "host lock must be free during file I/O");
+                assert!(
+                    host.inner.try_lock().is_ok(),
+                    "host lock must be free during file I/O"
+                );
                 fs::read_to_string(path).ok()
             })
             .unwrap();
@@ -8880,7 +9093,8 @@ mod tests {
         fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
         fs::write(root.join("Widget.cs"), "public sealed class Widget {}\n").unwrap();
         let host = Host::default();
-        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
         let paths: Vec<&str> = (0..257).map(|_| "Widget.cs").collect();
         let result = host
             .dispatch("workspace.symbolKinds", json!({ "paths": paths }))
@@ -8895,14 +9109,19 @@ mod tests {
         let root = fs::canonicalize(temp.path()).unwrap();
         let project = root.join("App.csproj");
         fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
-        fs::write(root.join("Widget.cs"), "namespace App;\npublic sealed class Widget {}\n").unwrap();
+        fs::write(
+            root.join("Widget.cs"),
+            "namespace App;\npublic sealed class Widget {}\n",
+        )
+        .unwrap();
         fs::write(root.join("IRepo.cs"), "public interface IRepo {}\n").unwrap();
         fs::write(root.join("notes.txt"), "class NotACsharpFile {}\n").unwrap();
         let outside = root.parent().unwrap().join("Outside.cs");
         fs::write(&outside, "public class Outside {}\n").unwrap();
 
         let host = Host::default();
-        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
         let result = host.dispatch(
             "workspace.symbolKinds",
             json!({ "paths": ["Widget.cs", "IRepo.cs", "notes.txt", "../Outside.cs", "Missing.cs"] }),
@@ -8929,12 +9148,16 @@ mod tests {
         fs::write(root.join("Widget.cs"), "public sealed class Widget {}\n").unwrap();
         fs::write(
             root.join("Large.cs"),
-            format!("// {}\npublic sealed class Large {{}}\n", "x".repeat(300 * 1024)),
+            format!(
+                "// {}\npublic sealed class Large {{}}\n",
+                "x".repeat(300 * 1024)
+            ),
         )
         .unwrap();
 
         let host = Host::default();
-        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
         let first = host
             .dispatch(
                 "workspace.symbolKinds",
@@ -8980,7 +9203,11 @@ mod tests {
         let root = fs::canonicalize(temp.path()).unwrap();
         let project = root.join("App.csproj");
         fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
-        fs::write(root.join("Program.cs"), "class Program\n{\n    string s = \"needle\";\n}\n").unwrap();
+        fs::write(
+            root.join("Program.cs"),
+            "class Program\n{\n    string s = \"needle\";\n}\n",
+        )
+        .unwrap();
         let host = Host::default();
         host.dispatch("workspace.open", json!({ "path": project }))
             .unwrap();
@@ -9041,7 +9268,11 @@ mod tests {
         let root = fs::canonicalize(temp.path()).unwrap();
         let project = root.join("App.csproj");
         fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
-        fs::write(root.join("Program.cs"), "class Program { static void Main() {} }\n").unwrap();
+        fs::write(
+            root.join("Program.cs"),
+            "class Program { static void Main() {} }\n",
+        )
+        .unwrap();
         let host = Host::default();
         host.dispatch("workspace.open", json!({ "path": project }))
             .unwrap();
@@ -9151,10 +9382,7 @@ mod tests {
             .analysis_invalidated(&request)
             .expect("a replaced session must discard the answer");
         assert_eq!(answer["state"], "stale");
-        assert!(answer["message"]
-            .as_str()
-            .unwrap()
-            .contains("discarded"));
+        assert!(answer["message"].as_str().unwrap().contains("discarded"));
     }
 
     #[test]
@@ -9299,7 +9527,13 @@ mod tests {
         assert_eq!(fs::read_to_string(&inside).unwrap(), "class Order {}\n");
     }
 
-    fn action_with_edit(uri: String, line: u64, start: u64, end: u64, text: &str) -> lsp::CodeActionView {
+    fn action_with_edit(
+        uri: String,
+        line: u64,
+        start: u64,
+        end: u64,
+        text: &str,
+    ) -> lsp::CodeActionView {
         let mut changes = serde_json::Map::new();
         changes.insert(
             uri,
@@ -9346,7 +9580,11 @@ mod tests {
         assert_eq!(preview["documents"][0]["baseContent"], base);
         assert_eq!(preview["documents"][0]["newContent"], "class Purchase {}\n");
         assert_eq!(preview["documents"][0]["baseHash"], content_hash(base));
-        assert_eq!(fs::read_to_string(&file).unwrap(), base, "a preview wrote the file");
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            base,
+            "a preview wrote the file"
+        );
     }
 
     #[test]
@@ -9415,7 +9653,10 @@ mod tests {
         }));
         let preview = code_action_document_preview(&root, &file_operation, &HashMap::new());
         assert_eq!(preview["supported"], false);
-        assert!(preview["reason"].as_str().unwrap().contains("file operation"));
+        assert!(preview["reason"]
+            .as_str()
+            .unwrap()
+            .contains("file operation"));
         assert_eq!(fs::read_to_string(&file).unwrap(), "class Order {}\n");
     }
 
@@ -9436,9 +9677,7 @@ mod tests {
         let many_edits = lsp::RenameDocumentEdits {
             uri: "file:///missing/many.cs".to_string(),
             version: None,
-            edits: (0..2001)
-                .map(|_| rename_edit(0, 0, 1, "X"))
-                .collect(),
+            edits: (0..2001).map(|_| rename_edit(0, 0, 1, "X")).collect(),
         };
         let error = workspace_edit_preview(root.path(), &[many_edits], &HashMap::new())
             .expect_err("edit cap");
@@ -9598,7 +9837,9 @@ mod tests {
         let host = Host::default();
         host.dispatch("workspace.open", json!({ "path": project }))
             .unwrap();
-        let read = host.dispatch("file.read", json!({ "path": "App.cs" })).unwrap();
+        let read = host
+            .dispatch("file.read", json!({ "path": "App.cs" }))
+            .unwrap();
 
         // Simulate another writer saving between the first check and the rename.
         let external = file.clone();
@@ -9639,7 +9880,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let project = temp.path().join("App.csproj");
         fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
-        host.dispatch("workspace.open", json!({ "path": project })).unwrap();
+        host.dispatch("workspace.open", json!({ "path": project }))
+            .unwrap();
         host.allow_setup_for_tests();
         host.dispatch("trust.grant", json!({})).unwrap();
         let token = host.context_token().unwrap();
@@ -9658,7 +9900,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let project = temp.path().join("App.csproj");
         fs::write(&project, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>").unwrap();
-        host.dispatch("workspace.open", json!({ "path": project.clone() })).unwrap();
+        host.dispatch("workspace.open", json!({ "path": project.clone() }))
+            .unwrap();
         host.allow_setup_for_tests();
         host.dispatch("trust.grant", json!({})).unwrap();
         let token = host.context_token().unwrap();
@@ -9680,21 +9923,16 @@ mod tests {
             probe: false,
         };
         let called = std::cell::Cell::new(false);
-        let restores = host.batch_restores(
-            &[plan],
-            &["App.csproj".to_string()],
-            token,
-            |_| {
-                called.set(true);
-                nuget::RestoreRun {
-                    state: "ok",
-                    message: None,
-                    command: String::new(),
-                    exit: Some(0),
-                    log: String::new(),
-                }
-            },
-        );
+        let restores = host.batch_restores(&[plan], &["App.csproj".to_string()], token, |_| {
+            called.set(true);
+            nuget::RestoreRun {
+                state: "ok",
+                message: None,
+                command: String::new(),
+                exit: Some(0),
+                log: String::new(),
+            }
+        });
         assert!(!called.get());
         assert_eq!(restores[0]["state"], "failed");
     }
