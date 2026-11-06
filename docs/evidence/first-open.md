@@ -45,8 +45,10 @@ Dispensa do diálogo: clique físico em *Abrir* via `agent-desktop mouse-click` 
 `{"surfaces":[]}`, como o `../release-signing.md` já registrava).
 
 Resolução: cada iteração do harness custa ~0,1–0,2 s (`pgrep`, `ps`, `perl`, `log`, `agent-desktop
-list-windows`), então os centésimos tabelados são o limite inferior do instante real e a
-granularidade dos marcos é essa — não é microbenchmark.
+list-windows`) e cada marco é carimbado **quando a observação chega**, ou seja, até um período de
+amostragem *depois* do evento real. Os centésimos tabelados estão atrasados nessa ordem de
+grandeza (não é microbenchmark); por isso as conclusões usam faixas e ordem de grandeza, nunca
+comparações de 10 ms.
 
 ### Invalidar entre rodadas
 
@@ -161,18 +163,23 @@ clique no app é o path translocado acima, não a cópia original.
 2. **O que o usuário percebe como travamento é o diálogo esperando clique**, e não o app. É
    comportamento do macOS para qualquer app baixado: o processo fica suspenso (`_dyld_start`) até
    alguém responder. Medido: 0,14–0,24 s do clique até o nosso código e 0,97–1,42 s até a janela.
-   A conclusão da #45 é essa: o atraso **não** está no bundle (teto de 0,53 s), e sim no clique que
-   o macOS espera e, quando o app é aberto de dentro do DMG, na leitura da imagem.
+   A conclusão da #45 é essa: o atraso **não** está no bundle (teto de 0,53 s); o que se mediu é o
+   clique que o macOS espera e, no caminho do DMG, 1,95 s de cópia + um intervalo clique→código de
+   4,4–5,4 s cujo dono não foi isolado (leitura da imagem é a explicação compatível).
 3. **O caminho "abrir direto do DMG" é caro e é redutível por instrução, não por código:** clique
-   → janela leva **5,1–6,6 s** porque o sistema lê 164 MB da imagem comprimida (o `ditto` do
-   mesmo app leva 1,95 s). Arrastar para Aplicações e abrir de lá é o caminho de ~1,4 s.
+   → janela leva **5,1–6,6 s**, contra 0,97–1,42 s com o app copiado para o disco. O que está
+   medido: copiar o app de dentro da imagem leva 1,95 s (`ditto`), e ler os 164 MB da imagem
+   comprimida é a explicação **compatível** com os 5,1–6,6 s — não foi isolado quanto desse tempo é
+   cópia e quanto é o nosso arranque lendo resources da imagem translocada. Arrastar para
+   Aplicações antes de abrir evita o caminho inteiro.
 4. **Regra de corte aplicada apenas onde ela mede o bundle.** As variantes de bundle (runtime em
    `tar.gz` para 1 Mach-O, runtime em `Contents/Frameworks`, bundle sem runtime) testariam o custo
    de avaliação, então a condição é o app **no disco**: ali nenhum marco passou de 0,53 s até o
    diálogo e 0,24 s depois do clique, muito abaixo do limite de ~2 s combinado — por isso **não
    foram medidas**. Nas condições que abrem de dentro da imagem (E3m/E3c) `click→code` passou de
-   2 s, mas o custo ali é leitura da imagem (`ditto` 1,95 s), não avaliação de assinatura: as
-   variantes de layout avaliadas (runtime em `Contents/Frameworks`) não mudariam esse número, e as
+   2 s; nenhuma medição aponta avaliação de assinatura como causa (o prompt ali aparece em
+   1,38–1,51 s, e `ditto` da mesma cópia custa 1,95 s), mas o split entre cópia e arranque não foi
+   isolado. As variantes de layout (runtime em `Contents/Frameworks`) não mudariam esse número; as
    que encolhem o payload (runtime em `tar.gz`, sem runtime) atacam tamanho — outra frente, que o
    spec deixa fora de escopo.
 5. **Diálogo visível e focável nas condições testadas.** Com Finder e com T3 Code na frente
@@ -194,6 +201,12 @@ clique no app é o path translocado acima, não a cópia original.
   há prova visual do cursor. O que existe medido: 0,3–0,5 s entre o `open` e o diálogo sem nada na
   tela, e nenhum estado do processo em que ele esteja bloqueado *sem* o diálogo à vista — o
   processo fica suspenso pela quarentena, e o diálogo é a interface dessa suspensão.
+- **Diálogo de outro app durante a rodada**: o alerta é do `CoreServicesUIAgent` (global) e dois
+  alertas simultâneos não são distinguíveis. O script só conta o alerta depois de identificar o
+  processo da rodada (marcador com UUID no argv), recusa clicar quando vê mais de uma linha de
+  prompt, quando um segundo processo carrega o marcador ou quando o processo dele sumiu, e falha a
+  rodada se o clique não iniciar o app em 5 s — mas não desfaz um clique que respondeu o alerta
+  alheio. Não medido (exigiria duas aberturas simultâneas de propósito).
 - **macOS 26 e anterior, macOS Intel, Windows**: não executados.
 - **E0 (sem quarentena)**: 2 rodadas, mas a primeira só tem `exec`/`code` (sem captura de janela) e
   a segunda reaproveita o cache de página da cópia; **E3c (imagem fria)**: 1 rodada válida (a 2ª
