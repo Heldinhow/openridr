@@ -5,6 +5,7 @@ import {
   shortcut,
   shortcutFromEvent,
   shortcutsFor,
+  typesACharacter,
   type ProfileId,
 } from "../../src/actions/keymap";
 
@@ -60,5 +61,29 @@ describe("Option-composed keys", () => {
       .toEqual({ key: "w", primary: true, control: false, alt: true, shift: false });
     expect(shortcutFromEvent(keyEvent("¡", "Digit1", { altKey: true }), "macos"))
       .toEqual({ key: "1", primary: false, control: false, alt: true, shift: false });
+  });
+
+  test("an override saved with the composed character keeps working", () => {
+    // Before the physical key, the recorder persisted "∑" for ⌥W. Those settings.json entries must
+    // keep matching, otherwise the fix silently drops a binding the user already had.
+    const legacy = { key: "∑", primary: true, alt: true };
+    expect(matches(keyEvent("∑", "KeyW", { metaKey: true, altKey: true }), legacy, "macos"))
+      .toBe(true);
+  });
+
+  test("an Option-only binding yields to typing in the editor", () => {
+    // ⌥⇧U is a dead key on macOS; `tests.quickList` carries exactly that default, and swallowing the
+    // keystroke in the editor would remove special-character input.
+    const quickList = shortcutsFor("tests.quickList", { profile: "rider-macos", overrides: {} }, "macos")[0];
+    expect(typesACharacter(keyEvent("Û", "KeyU", { altKey: true, shiftKey: true }), quickList))
+      .toBe(true);
+    expect(typesACharacter(keyEvent("Dead", "KeyU", { altKey: true, shiftKey: true }), quickList))
+      .toBe(true);
+    // A binding with ⌘ or ⌃ is a command, not a character; typing never wins over it.
+    const optionW = keyEvent("∑", "KeyW", { metaKey: true, altKey: true });
+    expect(typesACharacter(optionW, shortcut("w", { primary: true, alt: true }))).toBe(false);
+    // Keys Option does not compose keep the same character, so they are commands.
+    expect(typesACharacter(keyEvent("Enter", "Enter", { altKey: true }), shortcut("enter", { alt: true })))
+      .toBe(false);
   });
 });

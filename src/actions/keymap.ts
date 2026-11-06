@@ -392,7 +392,9 @@ export function pressedKey(event: KeyboardEvent): string {
 }
 
 export function matches(event: KeyboardEvent, shortcut: Shortcut, platform: Platform) {
-  if (pressedKey(event) !== shortcut.key) return false;
+  // A stored shortcut may still carry the composed character: captures made before the physical key
+  // was used saved "∑" for ⌥W, and those bindings must keep working (see docs/decisions.md, #129).
+  if (normalizeKey(event.key) !== shortcut.key && pressedKey(event) !== shortcut.key) return false;
   if (platform === "macos") {
     return (
       event.metaKey === !!shortcut.primary &&
@@ -408,8 +410,16 @@ export function matches(event: KeyboardEvent, shortcut: Shortcut, platform: Plat
   );
 }
 
-export function shortcutFromEvent(event: KeyboardEvent, platform: Platform): Shortcut | null {
-  if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(event.key)) return null;
+/** True when an Option-only binding is the user typing a character, not invoking a command. On macOS
+ * ⌥⇧U is a dead key and ⌥W types ∑, so a binding that carries no ⌘/⌃ must yield to the editor: the
+ * matcher now sees the physical key, and swallowing the keystroke would remove special-character
+ * input (`tests.quickList` is ⌥⇧U). Authors of new bindings should give Option combos ⌘ or ⌃. */
+export function typesACharacter(event: KeyboardEvent, shortcut: Shortcut): boolean {
+  if (!shortcut.alt || shortcut.primary || shortcut.control) return false;
+  return normalizeKey(event.key) !== shortcut.key;
+}
+
+export function shortcutFromEvent(event: KeyboardEvent, platform: Platform): Shortcut | null {  if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(event.key)) return null;
   return {
     key: pressedKey(event),
     primary: platform === "macos" ? event.metaKey : event.ctrlKey,

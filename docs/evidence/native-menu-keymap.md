@@ -57,6 +57,23 @@ nunca casa; a tecla física (`event.code`) passa a ser a fonte quando `alt` est�
 | S5 | Botão vermelho da janela (AX `Close`) com o mesmo buffer sujo | mesmo diálogo de saída, app vivo; `Keep editing` manteve tudo | árvore de acessibilidade antes/depois | passa |
 | S6 | Menu File/Window e o item **Close Window** | File tem só `Close Window`, **sem** acelerador (`AXMenuItemCmdChar` = *missing value*); não existe `Close All`; Window não tem `Close Window` duplicado; clicar em File > Close Window disparou o diálogo de saída | dump da árvore do menu (`agent-desktop snapshot --surface menubar`) + `System Events` para o key equivalent; `Discard and close app` encerrou o app (PID morto, `desktop.sh down` = `stopped`) | passa |
 
+## Correções da revisão independente (rodada 1)
+
+Dois achados médios, corrigidos e provados no terceiro bundle (mesmo `0.3.0-alpha.11`, com
+`typesACharacter` e o matcher compatível), fixture e `OPENRIDR_HOME` isolados, `VERIFY_OPENRIDR_DESKTOP_STATE`
+próprio para não dividir state com outra sessão.
+
+| # | Ação | Estado resultante | Prova fora da tela | Status |
+|---|---|---|---|---|
+| S7 | `⌥⇧U` com foco no editor (`Order.cs`) | o caractere entrou no buffer (U+2191 neste layout, tecla composta) e **não** abriu a Test Quick List; a aba virou "Order.cs, modified"; `⌘Z` devolveu `Order.cs` limpa | árvore de acessibilidade antes/depois + valor do `textfield Editor` | passa |
+| S8 | `⌥⌘W` depois do gate de digitação | diálogo **Update project** abriu, app vivo | árvore do diálogo | passa |
+| S9 | File > Close Window com buffer limpo | janela fechou e o app saiu; `desktop.sh down` = `stopped` | `pgrep -x openridr` vazio | passa |
+
+O achado: com a tecla física sob Option, o default `tests.quickList` (⌥⇧U) passaria a engolir uma tecla
+morta no editor; a correção faz um atalho só de Option ceder à digitação dentro do CodeMirror. O segundo
+achado (override antigo gravado como `"∑"`) é de compatibilidade de `settings.json` e está coberto por
+teste de unidade, não pelo app.
+
 ## O que não foi verificado
 
 - **Windows, Linux e macOS Intel:** a cirurgia é só do ramo macOS; essas plataformas continuam com
