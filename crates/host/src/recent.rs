@@ -29,13 +29,18 @@ fn read_all() -> Option<Vec<(String, Option<u64>)>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
         Err(_) => return None,
     };
-    let Value::Array(items) = serde_json::from_str::<Value>(&text).ok()? else { return None };
+    let Value::Array(items) = serde_json::from_str::<Value>(&text).ok()? else {
+        return None;
+    };
     Some(
         items
             .iter()
             .filter_map(|item| match item {
                 Value::String(path) => Some((path.clone(), None)),
-                Value::Object(_) => Some((item["path"].as_str()?.to_string(), item["openedAt"].as_u64())),
+                Value::Object(_) => Some((
+                    item["path"].as_str()?.to_string(),
+                    item["openedAt"].as_u64(),
+                )),
                 _ => None,
             })
             .collect(),
@@ -70,7 +75,9 @@ pub fn list() -> Value {
 
 /// Best effort: a failed write never blocks opening a workspace.
 pub fn record(workspace_path: &str) {
-    let Some(mut projects) = read_all() else { return };
+    let Some(mut projects) = read_all() else {
+        return;
+    };
     projects.retain(|(item, _)| item != workspace_path);
     projects.insert(0, (workspace_path.to_string(), Some(now_ms())));
     projects.truncate(LIMIT);
@@ -79,7 +86,9 @@ pub fn record(workspace_path: &str) {
 
 /// Forgets the entry only; the Trust decision stays.
 pub fn remove(workspace_path: &str) {
-    let Some(mut projects) = read_all() else { return };
+    let Some(mut projects) = read_all() else {
+        return;
+    };
     projects.retain(|(item, _)| item != workspace_path);
     write_all(&projects);
 }
@@ -90,7 +99,12 @@ mod tests {
     use crate::test_harness::with_home;
 
     fn paths(listed: &Value) -> Vec<&str> {
-        listed["projects"].as_array().unwrap().iter().map(|p| p["path"].as_str().unwrap()).collect()
+        listed["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["path"].as_str().unwrap())
+            .collect()
     }
 
     #[test]
@@ -100,7 +114,11 @@ mod tests {
             let a = tempfile::tempdir().unwrap();
             let b = tempfile::tempdir().unwrap();
             let (a, b) = (a.path().to_str().unwrap(), b.path().to_str().unwrap());
-            std::fs::write(home.join("recent.json"), json!([a, b, "/nope/missing"]).to_string()).unwrap();
+            std::fs::write(
+                home.join("recent.json"),
+                json!([a, b, "/nope/missing"]).to_string(),
+            )
+            .unwrap();
             let listed = list();
             assert_eq!(paths(&listed), vec![a, b]);
             assert!(listed["projects"][0].get("openedAt").is_none());
@@ -124,7 +142,12 @@ mod tests {
             let all = read_all().unwrap();
             assert_eq!(all.len(), LIMIT);
             assert_eq!(all[0].0, format!("{base}/p10"));
-            assert_eq!(all.iter().filter(|(path, _)| path.ends_with("/p10")).count(), 1);
+            assert_eq!(
+                all.iter()
+                    .filter(|(path, _)| path.ends_with("/p10"))
+                    .count(),
+                1
+            );
         });
     }
 
@@ -155,27 +178,38 @@ mod tests {
             assert!(list()["projects"].as_array().unwrap().is_empty());
             record("/a");
             remove("/a");
-            assert_eq!(std::fs::read_to_string(home.join("recent.json")).unwrap(), "{ not json");
+            assert_eq!(
+                std::fs::read_to_string(home.join("recent.json")).unwrap(),
+                "{ not json"
+            );
         });
     }
 }
 
 #[test]
 fn old_list_format_reads_without_dates_and_upgrades_on_record() {
-    crate::test_harness::run_isolated_leaf("recent::tests::old_list_format_reads_without_dates_and_upgrades_on_record_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "recent::tests::old_list_format_reads_without_dates_and_upgrades_on_record_isolated",
+    );
 }
 
 #[test]
 fn record_dedupes_and_caps_at_the_limit() {
-    crate::test_harness::run_isolated_leaf("recent::tests::record_dedupes_and_caps_at_the_limit_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "recent::tests::record_dedupes_and_caps_at_the_limit_isolated",
+    );
 }
 
 #[test]
 fn remove_forgets_the_entry_but_keeps_its_decision() {
-    crate::test_harness::run_isolated_leaf("recent::tests::remove_forgets_the_entry_but_keeps_its_decision_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "recent::tests::remove_forgets_the_entry_but_keeps_its_decision_isolated",
+    );
 }
 
 #[test]
 fn unreadable_file_is_not_overwritten() {
-    crate::test_harness::run_isolated_leaf("recent::tests::unreadable_file_is_not_overwritten_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "recent::tests::unreadable_file_is_not_overwritten_isolated",
+    );
 }

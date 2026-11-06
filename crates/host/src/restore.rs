@@ -8,8 +8,8 @@
 //! the shared registry, so cancellation and workspace boundaries use the same observed
 //! termination semantics as every other child.
 
-use crate::evaluation::{plan_workspace, relative_path};
 use crate::error::{HostError, HostResult};
+use crate::evaluation::{plan_workspace, relative_path};
 use crate::logbuf::LogBuffer;
 use crate::process::{ProcessStatus, Termination};
 use serde::Serialize;
@@ -234,7 +234,8 @@ impl Restore {
         (data.revision > 0).then_some(data.context_id)
     }
 
-    pub fn request_cancel(&self) {        let mut data = self.data.lock().unwrap();
+    pub fn request_cancel(&self) {
+        let mut data = self.data.lock().unwrap();
         if data.state == "running" && !data.sealed {
             data.cancel_requested = true;
         }

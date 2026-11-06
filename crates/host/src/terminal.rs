@@ -97,7 +97,9 @@ fn is_usable(path: &Path) -> bool {
 
 #[cfg(not(unix))]
 fn is_usable(path: &Path) -> bool {
-    fs::metadata(path).map(|meta| meta.is_file()).unwrap_or(false)
+    fs::metadata(path)
+        .map(|meta| meta.is_file())
+        .unwrap_or(false)
 }
 
 /// Bounded tail of the shell output. `seq` advances per chunk so a poller can tell that new
@@ -231,11 +233,7 @@ fn strip_ansi(text: &str) -> String {
             }
             continue;
         }
-        if character == '\n'
-            || character == '\r'
-            || character == '\t'
-            || !character.is_control()
-        {
+        if character == '\n' || character == '\r' || character == '\t' || !character.is_control() {
             out.push(character);
         }
     }
@@ -342,10 +340,16 @@ pub fn spawn(start: Start) -> HostResult<Session> {
         )
     })?;
     let reader = pair.master.try_clone_reader().map_err(|error| {
-        HostError::new("operation_failed", format!("Could not read the PTY: {error}"))
+        HostError::new(
+            "operation_failed",
+            format!("Could not read the PTY: {error}"),
+        )
     })?;
     let writer = pair.master.take_writer().map_err(|error| {
-        HostError::new("operation_failed", format!("Could not write the PTY: {error}"))
+        HostError::new(
+            "operation_failed",
+            format!("Could not write the PTY: {error}"),
+        )
     })?;
     let killer = child.clone_killer();
     let terminal = Terminal::begin(
@@ -701,12 +705,16 @@ pub fn command(shell: &Path, cwd: &Path) -> CommandBuilder {
 
 /// The emulator is xterm.js, so a missing, empty or `dumb` TERM inherited from the launcher is replaced.
 fn term_needs_override(term: Option<&std::ffi::OsStr>) -> bool {
-    term.map_or(true, |value| value.is_empty() || value == "dumb")
+    term.is_none_or(|value| value.is_empty() || value == "dumb")
 }
 
 pub fn clamp_size(cols: Option<u64>, rows: Option<u64>) -> (u16, u16) {
-    let cols = cols.unwrap_or(DEFAULT_COLS as u64).clamp(MIN_COLS as u64, MAX_COLS as u64);
-    let rows = rows.unwrap_or(DEFAULT_ROWS as u64).clamp(MIN_ROWS as u64, MAX_ROWS as u64);
+    let cols = cols
+        .unwrap_or(DEFAULT_COLS as u64)
+        .clamp(MIN_COLS as u64, MAX_COLS as u64);
+    let rows = rows
+        .unwrap_or(DEFAULT_ROWS as u64)
+        .clamp(MIN_ROWS as u64, MAX_ROWS as u64);
     (cols as u16, rows as u16)
 }
 
@@ -733,18 +741,18 @@ mod tests {
 
     fn existing(names: &[&'static str]) -> impl Fn(&Path) -> bool {
         let names: Vec<&'static str> = names.to_vec();
-        move |path: &Path| {
-            names
-                .iter()
-                .any(|name| path == Path::new(name))
-        }
+        move |path: &Path| names.iter().any(|name| path == Path::new(name))
     }
 
     #[test]
     fn shell_discovery_prefers_an_absolute_executable_env_value() {
         let candidates = vec![PathBuf::from("/bin/zsh"), PathBuf::from("/bin/sh")];
         assert_eq!(
-            pick_shell(Some("/opt/custom/fish"), &candidates, existing(&["/opt/custom/fish"])),
+            pick_shell(
+                Some("/opt/custom/fish"),
+                &candidates,
+                existing(&["/opt/custom/fish"])
+            ),
             Some(PathBuf::from("/opt/custom/fish"))
         );
     }
@@ -761,7 +769,10 @@ mod tests {
             pick_shell(Some("/opt/missing"), &candidates, &usable),
             Some(PathBuf::from("/bin/sh"))
         );
-        assert_eq!(pick_shell(None, &[PathBuf::from("/bin/bash")], &usable), None);
+        assert_eq!(
+            pick_shell(None, &[PathBuf::from("/bin/bash")], &usable),
+            None
+        );
     }
 
     #[test]

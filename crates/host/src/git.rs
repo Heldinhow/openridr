@@ -99,15 +99,13 @@ pub struct GitInfo {
 }
 
 pub fn path() -> Option<String> {
-    std::env::var_os("PATH")
-        .map(|value| {
-            std::env::split_paths(&value)
-                .filter(|dir| !dir.as_os_str().is_empty())
-                .map(|dir| dir.join(if cfg!(windows) { "git.exe" } else { "git" }))
-                .find(|candidate| candidate.is_file())
-                .map(|candidate| candidate.to_string_lossy().into_owned())
-        })
-        .flatten()
+    std::env::var_os("PATH").and_then(|value| {
+        std::env::split_paths(&value)
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .map(|dir| dir.join(if cfg!(windows) { "git.exe" } else { "git" }))
+            .find(|candidate| candidate.is_file())
+            .map(|candidate| candidate.to_string_lossy().into_owned())
+    })
 }
 
 pub fn info() -> GitInfo {
@@ -228,7 +226,12 @@ pub struct GitDiff {
 }
 
 impl GitDiff {
-    fn unavailable(state: &'static str, message: impl Into<String>, path: &str, staged: bool) -> Self {
+    fn unavailable(
+        state: &'static str,
+        message: impl Into<String>,
+        path: &str,
+        staged: bool,
+    ) -> Self {
         Self {
             state,
             message: Some(message.into()),
@@ -287,7 +290,12 @@ pub struct GitFileDiff {
 }
 
 impl GitFileDiff {
-    fn unavailable(state: &'static str, message: impl Into<String>, path: &str, staged: bool) -> Self {
+    fn unavailable(
+        state: &'static str,
+        message: impl Into<String>,
+        path: &str,
+        staged: bool,
+    ) -> Self {
         Self {
             state,
             message: Some(message.into()),
@@ -536,7 +544,10 @@ fn require_repo(root: &Path) -> HostResult<Repo> {
 
 fn cap(text: &str, limit: usize) -> (String, bool) {
     match text.char_indices().nth(limit) {
-        Some((index, _)) => (format!("{}\n… truncated at {limit} characters", &text[..index]), true),
+        Some((index, _)) => (
+            format!("{}\n… truncated at {limit} characters", &text[..index]),
+            true,
+        ),
         None => (text.to_string(), false),
     }
 }
@@ -663,7 +674,10 @@ fn parse_status(text: &str) -> (Progress, Vec<GitFile>) {
     let records: Vec<&str> = text.split('\0').collect();
     let mut progress = Progress::default();
     let mut index = 0;
-    if records.first().is_some_and(|record| record.starts_with("## ")) {
+    if records
+        .first()
+        .is_some_and(|record| record.starts_with("## "))
+    {
         progress = parse_header(records[0]);
         index = 1;
     }
@@ -679,11 +693,9 @@ fn parse_status(text: &str) -> (Progress, Vec<GitFile>) {
         let y = bytes[1] as char;
         let path = record[3..].to_string();
         let mut original_path = None;
-        if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') {
-            if index < records.len() {
-                original_path = Some(records[index].to_string());
-                index += 1;
-            }
+        if (matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C')) && index < records.len() {
+            original_path = Some(records[index].to_string());
+            index += 1;
         }
         files.push(GitFile {
             path,
@@ -714,11 +726,8 @@ fn in_progress(git_dir: &Path) -> Option<&'static str> {
 }
 
 fn read_status(repo: &Repo) -> Result<GitStatus, String> {
-    let output = run(
-        &repo.top,
-        &["status", "--porcelain=v1", "-z", "--branch"],
-    )
-    .map_err(spawn_message)?;
+    let output =
+        run(&repo.top, &["status", "--porcelain=v1", "-z", "--branch"]).map_err(spawn_message)?;
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
         return Err(if stderr.is_empty() {
@@ -924,10 +933,7 @@ fn parse_log(text: &str) -> Vec<GitCommit> {
         }
         let hash = fields[0].trim().to_string();
         let short_hash = hash.chars().take(7).collect();
-        let parents: Vec<String> = fields[3]
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
+        let parents: Vec<String> = fields[3].split_whitespace().map(str::to_string).collect();
         let (files, files_truncated) = parse_name_status(body);
         commits.push(GitCommit {
             hash,
@@ -1020,7 +1026,11 @@ fn diff_output(
     tracked: bool,
     unified: &str,
 ) -> Result<Captured, SpawnError> {
-    let limit = if unified == "-U0" { HUNK_BYTES } else { PATCH_BYTES };
+    let limit = if unified == "-U0" {
+        HUNK_BYTES
+    } else {
+        PATCH_BYTES
+    };
     if staged {
         // HEAD -> index, tracked or not: a path absent from the index (an untracked path or a
         // staged deletion) is still compared to HEAD, and the worktree is never read here.
@@ -1076,9 +1086,7 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
     };
     let tracked = match is_tracked(&repo, path) {
         Ok(tracked) => tracked,
-        Err((state, message)) => {
-            return Ok(GitDiff::unavailable(state, message, path, staged))
-        }
+        Err((state, message)) => return Ok(GitDiff::unavailable(state, message, path, staged)),
     };
     if !staged && worktree_confinement(&repo, path) == Confinement::Outside {
         return Ok(GitDiff::unavailable(
@@ -1090,7 +1098,14 @@ pub fn diff(root: &Path, path: &str, staged: bool) -> HostResult<GitDiff> {
     }
     let output = match diff_output(&repo, path, staged, tracked, "-U3") {
         Ok(output) => output,
-        Err(error) => return Ok(GitDiff::unavailable("failed", spawn_message(error), path, staged)),
+        Err(error) => {
+            return Ok(GitDiff::unavailable(
+                "failed",
+                spawn_message(error),
+                path,
+                staged,
+            ))
+        }
     };
     // A cut-off capture is a successful read with less text, not a failed command.
     if !output.truncated && output.code != Some(0) && output.code != Some(1) {
@@ -1254,7 +1269,11 @@ fn read_worktree(repo: &Repo, path: &str) -> SideBytes {
 /// Exit 1 from `rev-parse --verify --quiet` is the proved absence (added file, deletion, unborn
 /// repository); anything else is a real read error and must not be reported as "no such file".
 fn read_blob(repo: &Repo, spec: &str) -> Result<SideBytes, SpawnError> {
-    let resolved = spawn_bounded(&repo.top, &["rev-parse", "--verify", "--quiet", spec], 4_096)?;
+    let resolved = spawn_bounded(
+        &repo.top,
+        &["rev-parse", "--verify", "--quiet", spec],
+        4_096,
+    )?;
     if resolved.code == Some(1) {
         return Ok(SideBytes::Missing);
     }
@@ -1304,8 +1323,7 @@ fn parse_hunks(patch: &str) -> Vec<DiffHunk> {
         let Some((new, _)) = rest.split_once(' ') else {
             continue;
         };
-        let (Some((old_start, old_count)), Some((new_start, new_count))) =
-            (range(old), range(new))
+        let (Some((old_start, old_count)), Some((new_start, new_count))) = (range(old), range(new))
         else {
             continue;
         };
@@ -1441,9 +1459,7 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
     };
     let tracked = match is_tracked(&repo, path) {
         Ok(tracked) => tracked,
-        Err((state, message)) => {
-            return Ok(GitFileDiff::unavailable(state, message, path, staged))
-        }
+        Err((state, message)) => return Ok(GitFileDiff::unavailable(state, message, path, staged)),
     };
     if !staged && worktree_confinement(&repo, path) == Confinement::Outside {
         return Ok(GitFileDiff::unavailable(
@@ -1519,8 +1535,8 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
     let (base, base_reason) = read_side(base_bytes);
     let (current, current_reason) = read_side(current_bytes);
     let mut full_reason = base_reason.or(current_reason);
-    let mut full = (!base.exists || base.text.is_some())
-        && (!current.exists || current.text.is_some());
+    let mut full =
+        (!base.exists || base.text.is_some()) && (!current.exists || current.text.is_some());
 
     // Git calls some text binary (UTF-16 with a BOM is the common case) and then emits no ranges.
     let text_differs = match (base.text.as_deref(), current.text.as_deref()) {
@@ -1619,7 +1635,8 @@ fn operation(
     repo: &Repo,
     commit: Option<Committed>,
 ) -> Operation {
-    let status = read_status(repo).unwrap_or_else(|message| GitStatus::unavailable("failed", message));
+    let status =
+        read_status(repo).unwrap_or_else(|message| GitStatus::unavailable("failed", message));
     let (capped, _) = cap(&mask_urls(output), OUTPUT_LIMIT);
     Operation {
         state,
@@ -1677,13 +1694,15 @@ pub fn commit(root: &Path, paths: &[String], message: &str, amend: bool) -> Host
         // only when the commit fails.
         let mut args = vec!["add", "--intent-to-add", "--"];
         args.extend(untracked.iter().map(String::as_str));
-        let output = run(&repo.top, &args).map_err(|error| {
-            HostError::new("git_failed", spawn_message(error))
-        })?;
+        let output = run(&repo.top, &args)
+            .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
         if !output.ok() {
             return Err(HostError::new(
                 "git_failed",
-                format!("git add --intent-to-add failed: {}", tail(&mask_urls(&output.stderr))),
+                format!(
+                    "git add --intent-to-add failed: {}",
+                    tail(&mask_urls(&output.stderr))
+                ),
             ));
         }
     }
@@ -1738,12 +1757,9 @@ pub fn commit(root: &Path, paths: &[String], message: &str, amend: bool) -> Host
 }
 
 fn has_ref(repo: &Repo, reference: &str) -> bool {
-    run(
-        &repo.top,
-        &["rev-parse", "--verify", "--quiet", reference],
-    )
-    .map(|output| output.ok())
-    .unwrap_or(false)
+    run(&repo.top, &["rev-parse", "--verify", "--quiet", reference])
+        .map(|output| output.ok())
+        .unwrap_or(false)
 }
 
 pub fn branch_create(root: &Path, name: &str, checkout: bool) -> HostResult<Operation> {
@@ -1754,7 +1770,8 @@ pub fn branch_create(root: &Path, name: &str, checkout: bool) -> HostResult<Oper
     } else {
         vec!["branch", name]
     };
-    let output = run(&repo.top, &args).map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let output = run(&repo.top, &args)
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
@@ -1796,7 +1813,8 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
     } else {
         vec!["checkout", name]
     };
-    let output = run(&repo.top, &args).map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let output = run(&repo.top, &args)
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
@@ -1812,7 +1830,8 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
             None,
         ));
     }
-    let next = read_status(&repo).unwrap_or_else(|message| GitStatus::unavailable("failed", message));
+    let next =
+        read_status(&repo).unwrap_or_else(|message| GitStatus::unavailable("failed", message));
     let message = match next.branch.as_deref() {
         Some(branch) => format!("Checked out {branch}."),
         None => "Checked out detached HEAD.".to_string(),
@@ -1830,7 +1849,8 @@ pub fn pull(root: &Path) -> HostResult<Operation> {
             "No upstream is configured; nothing to pull.",
         ));
     }
-    let output = run(&repo.top, &["pull"]).map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let output = run(&repo.top, &["pull"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
@@ -1880,10 +1900,11 @@ pub fn push(root: &Path, params: &Value) -> HostResult<Operation> {
             "Cannot push a detached HEAD.",
         ));
     };
-    let upstream_remote = status
-        .upstream
-        .as_ref()
-        .and_then(|upstream| upstream.split_once('/').map(|(remote, _)| remote.to_string()));
+    let upstream_remote = status.upstream.as_ref().and_then(|upstream| {
+        upstream
+            .split_once('/')
+            .map(|(remote, _)| remote.to_string())
+    });
     let remote = params
         .get("remote")
         .and_then(Value::as_str)
@@ -1898,14 +1919,11 @@ pub fn push(root: &Path, params: &Value) -> HostResult<Operation> {
     };
     let mut args = vec!["push".to_string()];
     if status.upstream.is_none() {
-        args.extend([
-            "--set-upstream".to_string(),
-            remote.clone(),
-            branch.clone(),
-        ]);
+        args.extend(["--set-upstream".to_string(), remote.clone(), branch.clone()]);
     }
     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = run(&repo.top, &borrowed).map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let output = run(&repo.top, &borrowed)
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     let mut next = operation(
         if output.ok() { "ok" } else { "failed" },
@@ -1950,6 +1968,25 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    /// Some fixtures make a git object or the index read-only on purpose. Restoring write access is
+    /// platform-specific: on Unix `set_readonly(false)` is a no-op (the mode is what matters), and
+    /// clippy rejects it (`permissions_set_readonly_false`).
+    fn make_writable(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(permissions.mode() | 0o600);
+            fs::set_permissions(path, permissions).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions).unwrap();
+        }
     }
 
     fn init(name: &str) -> (tempfile::TempDir, PathBuf) {
@@ -2014,9 +2051,10 @@ mod tests {
             .find(|file| file.path == "new.txt")
             .unwrap();
         assert_eq!(staged.label, "Staged");
-        assert!(current.files.iter().any(|file| file.path == "dirty.txt"
-            && file.untracked
-            && file.label == "Untracked"));
+        assert!(current
+            .files
+            .iter()
+            .any(|file| file.path == "dirty.txt" && file.untracked && file.label == "Untracked"));
 
         let plain = tempfile::tempdir().unwrap();
         let missing = status(plain.path());
@@ -2132,13 +2170,18 @@ mod tests {
         commit_all(&root, "initial");
         fs::write(root.join("a.txt"), "one\nTWO\nthree\nfour\n").unwrap();
         let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
-        let short = git(&root, &["rev-parse", "--short", "HEAD"]).trim().to_string();
+        let short = git(&root, &["rev-parse", "--short", "HEAD"])
+            .trim()
+            .to_string();
 
         let answer = file_diff(&root, "a.txt", false).unwrap();
         assert_eq!(answer.state, "ok");
         assert!(answer.full, "{:?}", answer.full_reason);
         assert_eq!(answer.base.text.as_deref(), Some("one\ntwo\nthree\nfour\n"));
-        assert_eq!(answer.current.text.as_deref(), Some("one\nTWO\nthree\nfour\n"));
+        assert_eq!(
+            answer.current.text.as_deref(),
+            Some("one\nTWO\nthree\nfour\n")
+        );
         assert_eq!(
             answer.hunks,
             vec![DiffHunk {
@@ -2302,9 +2345,7 @@ mod tests {
 
         let blob = git(&root, &["rev-parse", "HEAD:a.txt"]).trim().to_string();
         let object = root.join(".git/objects").join(&blob[..2]).join(&blob[2..]);
-        let mut permissions = fs::metadata(&object).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&object, permissions).unwrap();
+        make_writable(&object);
         fs::write(&object, b"corrupt").unwrap();
 
         // The path still resolves through the tree; only the content read fails.
@@ -2314,8 +2355,14 @@ mod tests {
         ));
         let answer = file_diff(&root, "a.txt", false).unwrap();
         assert_eq!(answer.state, "failed", "{:?}", answer.message);
-        assert!(answer.message.unwrap_or_default().contains("could not be read"));
-        assert!(answer.base.exists, "a read error must not look like a deletion");
+        assert!(answer
+            .message
+            .unwrap_or_default()
+            .contains("could not be read"));
+        assert!(
+            answer.base.exists,
+            "a read error must not look like a deletion"
+        );
         assert_eq!(answer.base.text, None);
         assert_eq!(answer.full_reason, Some("unreadable"));
         assert!(answer.patch.is_empty());
@@ -2335,7 +2382,10 @@ mod tests {
         std::os::unix::fs::symlink(outside.path(), root.join("outdir")).unwrap();
         let escaped = file_diff(&root, "outdir/secret.txt", false).unwrap();
         assert_eq!(escaped.state, "failed");
-        assert!(escaped.message.unwrap_or_default().contains("symbolic link"));
+        assert!(escaped
+            .message
+            .unwrap_or_default()
+            .contains("symbolic link"));
         assert!(escaped.patch.is_empty());
         assert_eq!(escaped.base.text, None);
         assert_eq!(escaped.current.text, None);
@@ -2349,22 +2399,15 @@ mod tests {
         commit_all(&root, "add tracked");
         fs::rename(root.join("realdir"), outside.path().join("swapped")).unwrap();
         std::os::unix::fs::symlink(outside.path().join("swapped"), root.join("realdir")).unwrap();
-        fs::write(
-            outside.path().join("swapped/a.txt"),
-            "EXTERNAL SECRET\n",
-        )
-        .unwrap();
+        fs::write(outside.path().join("swapped/a.txt"), "EXTERNAL SECRET\n").unwrap();
         let tracked = file_diff(&root, "realdir/a.txt", false).unwrap();
         assert_eq!(tracked.state, "failed");
         assert!(!tracked.patch.contains("EXTERNAL SECRET"));
 
         // A symlink file is a link object, exactly like Git stores it: the target path, not its
         // content, and never the content of a file outside the workspace.
-        std::os::unix::fs::symlink(
-            outside.path().join("secret.txt"),
-            root.join("link.txt"),
-        )
-        .unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("link.txt"))
+            .unwrap();
         let link = file_diff(&root, "link.txt", false).unwrap();
         assert_eq!(link.state, "ok");
         assert!(!link.patch.contains("outside secret"));
@@ -2461,7 +2504,8 @@ mod tests {
         ));
         let _ = fs::remove_file(&path);
         write_private(&path, "secret\n").unwrap();
-        let mode = std::os::unix::fs::PermissionsExt::mode(&fs::metadata(&path).unwrap().permissions());
+        let mode =
+            std::os::unix::fs::PermissionsExt::mode(&fs::metadata(&path).unwrap().permissions());
         let _ = fs::remove_file(&path);
         assert_eq!(mode & 0o777, 0o600);
     }
@@ -2483,11 +2527,21 @@ mod tests {
             assert!(!legacy.diff.contains(marker), "staged={staged}");
             assert!(!full.patch.contains(marker), "staged={staged}");
             assert!(
-                !full.base.text.as_deref().unwrap_or_default().contains(marker),
+                !full
+                    .base
+                    .text
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains(marker),
                 "staged={staged}"
             );
             assert!(
-                !full.current.text.as_deref().unwrap_or_default().contains(marker),
+                !full
+                    .current
+                    .text
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains(marker),
                 "staged={staged}"
             );
             assert!(
@@ -2564,9 +2618,7 @@ mod tests {
         commit_all(&root, "initial");
         let tree = git(&root, &["rev-parse", "HEAD^{tree}"]).trim().to_string();
         let object = root.join(".git/objects").join(&tree[..2]).join(&tree[2..]);
-        let mut permissions = fs::metadata(&object).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&object, permissions).unwrap();
+        make_writable(&object);
         fs::write(&object, b"corrupt").unwrap();
         assert!(matches!(
             read_blob(&repo_of(&root), "HEAD:a.txt"),
@@ -2582,9 +2634,7 @@ mod tests {
         fs::write(root2.join("a.txt"), "one\n").unwrap();
         commit_all(&root2, "initial");
         let index = root2.join(".git/index");
-        let mut permissions = fs::metadata(&index).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&index, permissions).unwrap();
+        make_writable(&index);
         fs::write(&index, b"garbage").unwrap();
         assert!(matches!(
             read_blob(&repo_of(&root2), ":a.txt"),
@@ -2593,10 +2643,7 @@ mod tests {
         assert!(is_tracked(&repo_of(&root2), "a.txt").is_err());
         let broken_index = file_diff(&root2, "a.txt", false).unwrap();
         assert_eq!(broken_index.state, "failed");
-        assert!(broken_index
-            .message
-            .unwrap_or_default()
-            .contains("index"));
+        assert!(broken_index.message.unwrap_or_default().contains("index"));
     }
 
     #[test]
@@ -2625,7 +2672,10 @@ mod tests {
         assert_eq!(paths, vec!["new.txt", "picked.txt"]);
         let staged = git(&root, &["diff", "--cached", "--name-only"]);
         assert_eq!(staged.trim(), "staged.txt");
-        assert_eq!(git(&root, &["status", "--porcelain"]).trim(), "M  staged.txt");
+        assert_eq!(
+            git(&root, &["status", "--porcelain"]).trim(),
+            "M  staged.txt"
+        );
 
         fs::write(root.join("picked.txt"), "base\npicked\nagain\n").unwrap();
         let amended = commit(&root, &["picked.txt".to_string()], "amended subject", true).unwrap();
@@ -2635,7 +2685,10 @@ mod tests {
             "amended subject"
         );
         assert_eq!(git(&root, &["rev-list", "--count", "HEAD"]).trim(), "2");
-        assert_eq!(git(&root, &["diff", "--cached", "--name-only"]).trim(), "staged.txt");
+        assert_eq!(
+            git(&root, &["diff", "--cached", "--name-only"]).trim(),
+            "staged.txt"
+        );
         let new_tracked = git(&root, &["ls-files", "new.txt"]);
         assert_eq!(new_tracked.trim(), "new.txt");
     }
@@ -2680,12 +2733,7 @@ mod tests {
         git(remote.path(), &["init", "-q", "-b", "main", "--bare"]);
         git(
             &root,
-            &[
-                "remote",
-                "add",
-                "origin",
-                remote.path().to_str().unwrap(),
-            ],
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
         );
         git(&root, &["push", "-q", "-u", "origin", "main"]);
         git(&root, &["checkout", "-qb", "feature"]);
@@ -2744,11 +2792,15 @@ mod tests {
 
     #[test]
     fn masked_output_hides_credentials() {
-        let text = "fatal: unable to access 'https://user:secret-token@example.com/repo.git/': denied";
+        let text =
+            "fatal: unable to access 'https://user:secret-token@example.com/repo.git/': denied";
         let masked = mask_urls(text);
         assert!(!masked.contains("secret-token"), "{masked}");
         assert!(!masked.contains("user:"), "{masked}");
-        assert!(masked.contains("https://***@example.com/repo.git/"), "{masked}");
+        assert!(
+            masked.contains("https://***@example.com/repo.git/"),
+            "{masked}"
+        );
         assert_eq!(mask_urls("plain text"), "plain text");
     }
 }

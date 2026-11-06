@@ -300,7 +300,8 @@ impl Registry {
         (id, slot)
     }
 
-    pub fn status(&mut self, id: u64) -> Option<ProcessStatus> {        self.refresh();
+    pub fn status(&mut self, id: u64) -> Option<ProcessStatus> {
+        self.refresh();
         let entry = self.entries.iter().find(|entry| entry.id == id)?;
         Some(ProcessStatus {
             state: if entry.exited { "exited" } else { "running" },
@@ -387,7 +388,9 @@ impl Registry {
             // A reaped leader's pgid can be recycled by a new process group. Only signal while
             // the leader still exists; otherwise refuse to guess which group is ours.
             if process_alive(entry.pid) {
-                unsafe { libc::kill(-(entry.pid as i32), libc::SIGTERM); }
+                unsafe {
+                    libc::kill(-(entry.pid as i32), libc::SIGTERM);
+                }
             }
         }
         #[cfg(not(unix))]
@@ -453,6 +456,12 @@ impl Registry {
             let _ = child.kill();
         }
         "child kill"
+    }
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -625,7 +634,11 @@ mod tests {
         while !marker.exists() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        let grandchild: u32 = std::fs::read_to_string(&marker).unwrap().trim().parse().unwrap();
+        let grandchild: u32 = std::fs::read_to_string(&marker)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
         // Observing the leader exit runs the group cleanup, even though the leader is gone.
         let exited = loop {
             let status = registry.status(id).unwrap();
@@ -642,7 +655,6 @@ mod tests {
         }
         assert!(!process_alive(grandchild), "grandchild survived the leader");
     }
-
 
     #[test]
     fn a_signal_number_is_reported_by_its_name() {

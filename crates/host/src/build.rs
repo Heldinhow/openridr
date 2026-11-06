@@ -604,6 +604,9 @@ pub fn record_problem(
 }
 
 /// One line of MSBuild text. Unrecognized lines stay only in the raw log.
+// A parsed line is short-lived (one per log line) and matching stays plain; boxing `Problem` would
+// buy nothing here.
+#[allow(clippy::large_enum_variant)]
 pub enum Line {
     Ignored,
     /// Looks like a diagnostic but its file cannot be resolved inside the workspace.
@@ -847,7 +850,13 @@ pub fn select_startup_for<'a>(
     requested: Option<&str>,
     consumer: &str,
 ) -> HostResult<&'a EvaluatedProject> {
-    select_kinds(projects, requested, consumer, &["console"], "console executable")
+    select_kinds(
+        projects,
+        requested,
+        consumer,
+        &["console"],
+        "console executable",
+    )
 }
 
 fn select_kinds<'a>(
@@ -973,7 +982,10 @@ mod tests {
         assert_eq!(strip_project_suffix("bad [/w/App.csproj]"), "bad");
         assert_eq!(strip_project_suffix("bad [/w/App.sln]"), "bad");
         assert_eq!(strip_project_suffix("bad [/w/Modern.slnx]"), "bad");
-        assert_eq!(strip_project_suffix("kept [/w/notes.txt]"), "kept [/w/notes.txt]");
+        assert_eq!(
+            strip_project_suffix("kept [/w/notes.txt]"),
+            "kept [/w/notes.txt]"
+        );
     }
 
     #[test]
@@ -1334,7 +1346,11 @@ mod tests {
             false,
         );
         let view = build.view();
-        assert_eq!(view.log_links.len(), 2, "outside and unknown lines stay text");
+        assert_eq!(
+            view.log_links.len(),
+            2,
+            "outside and unknown lines stay text"
+        );
 
         let stdout = &view.log_links[0];
         assert_eq!(stdout.line, 0);

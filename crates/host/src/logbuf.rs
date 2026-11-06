@@ -80,9 +80,7 @@ pub fn redact_url_credentials(line: &str) -> String {
     while let Some(index) = rest.find("://") {
         let (head, tail) = rest.split_at(index + 3);
         out.push_str(head);
-        let end = tail
-            .find(['/', ' ', '"', '\'', ')'])
-            .unwrap_or(tail.len());
+        let end = tail.find(['/', ' ', '"', '\'', ')']).unwrap_or(tail.len());
         match tail[..end].find('@') {
             Some(at) => {
                 out.push_str("***@");

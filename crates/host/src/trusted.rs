@@ -99,7 +99,8 @@ pub(crate) mod tests {
             assert_eq!(get("/old"), Some(TRUSTED));
             assert_eq!(get("/older"), Some(TRUSTED));
             set("/new", RESTRICTED).unwrap();
-            let stored: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+            let stored: Value =
+                serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
             assert_eq!(
                 stored,
                 json!({ "/old": "trusted", "/older": "trusted", "/new": "restricted" })
@@ -139,20 +140,28 @@ pub(crate) mod tests {
 
 #[test]
 fn set_then_get_and_never_decided_is_none() {
-    crate::test_harness::run_isolated_leaf("trusted::tests::set_then_get_and_never_decided_is_none_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "trusted::tests::set_then_get_and_never_decided_is_none_isolated",
+    );
 }
 
 #[test]
 fn old_list_format_reads_as_trusted_and_migrates_on_write() {
-    crate::test_harness::run_isolated_leaf("trusted::tests::old_list_format_reads_as_trusted_and_migrates_on_write_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "trusted::tests::old_list_format_reads_as_trusted_and_migrates_on_write_isolated",
+    );
 }
 
 #[test]
 fn unreadable_file_is_not_overwritten() {
-    crate::test_harness::run_isolated_leaf("trusted::tests::unreadable_file_is_not_overwritten_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "trusted::tests::unreadable_file_is_not_overwritten_isolated",
+    );
 }
 
 #[test]
 fn store_off_reads_nothing_and_writes_nothing() {
-    crate::test_harness::run_isolated_leaf("trusted::tests::store_off_reads_nothing_and_writes_nothing_isolated");
+    crate::test_harness::run_isolated_leaf(
+        "trusted::tests::store_off_reads_nothing_and_writes_nothing_isolated",
+    );
 }

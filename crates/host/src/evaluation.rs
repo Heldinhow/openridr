@@ -232,8 +232,9 @@ impl Evaluation {
             if fingerprint(&watched.path) != watched.fingerprint {
                 let label = display_path(root, &watched.path);
                 self.stale = true;
-                self.stale_reason =
-                    Some(format!("{label} changed on disk; re-evaluate the project model."));
+                self.stale_reason = Some(format!(
+                    "{label} changed on disk; re-evaluate the project model."
+                ));
                 return;
             }
         }
@@ -273,7 +274,11 @@ pub struct MsbuildResult {
 
 impl MsbuildResult {
     pub fn tfms(&self) -> Vec<String> {
-        if let Some(multi) = self.target_frameworks.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(multi) = self
+            .target_frameworks
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             return multi
                 .split(';')
                 .map(str::trim)
@@ -309,7 +314,12 @@ pub fn plan_workspace(workspace_file: &Path, root: &Path, is_solution: bool) -> 
         let model = parse_solution(&text);
         configurations = model.configurations;
         for project in model.projects {
-            projects.push(plan_project(root, project.name, project.path, project.folder));
+            projects.push(plan_project(
+                root,
+                project.name,
+                project.path,
+                project.folder,
+            ));
         }
     } else {
         configurations = vec!["Debug".to_string(), "Release".to_string()];
@@ -344,7 +354,9 @@ fn plan_project(root: &Path, name: String, rel: String, folder: Option<String>) 
         ),
         None => (
             None,
-            Some(format!("{normalized} was not found on disk; it was not evaluated.")),
+            Some(format!(
+                "{normalized} was not found on disk; it was not evaluated."
+            )),
         ),
     };
     PlanProject {
@@ -368,13 +380,23 @@ pub fn watch_paths(
         if let Some(path) = &project.abs_path {
             paths.push(path.clone());
             if let Some(dir) = path.parent() {
-                for name in ["global.json", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props"] {
+                for name in [
+                    "global.json",
+                    "Directory.Build.props",
+                    "Directory.Build.targets",
+                    "Directory.Packages.props",
+                ] {
                     paths.push(dir.join(name));
                 }
             }
         }
     }
-    for name in ["global.json", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props"] {
+    for name in [
+        "global.json",
+        "Directory.Build.props",
+        "Directory.Build.targets",
+        "Directory.Packages.props",
+    ] {
         paths.push(root.join(name));
     }
 
@@ -385,13 +407,11 @@ pub fn watch_paths(
     let mut pending: Vec<PathBuf> = sources
         .iter()
         .filter_map(|source| root.join(source).parent().map(Path::to_path_buf))
-        .chain(projects.iter().filter_map(|project| {
-            project
-                .abs_path
-                .as_deref()?
-                .parent()
-                .map(Path::to_path_buf)
-        }))
+        .chain(
+            projects
+                .iter()
+                .filter_map(|project| project.abs_path.as_deref()?.parent().map(Path::to_path_buf)),
+        )
         .collect();
     pending.sort();
     pending.dedup();
@@ -404,7 +424,9 @@ pub fn watch_paths(
             continue;
         }
         dirs.push(dir.clone());
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let name = entry.file_name();
             let skip = name.to_string_lossy().starts_with('.')
@@ -459,11 +481,21 @@ pub fn evaluate_project(
 ) -> EvaluatedProject {
     let (restored, restored_reason) = match project.abs_path.as_deref() {
         Some(path) => crate::restore::state(path),
-        None => ("unknown", Some("The project was not evaluated.".to_string())),
+        None => (
+            "unknown",
+            Some("The project was not evaluated.".to_string()),
+        ),
     };
 
     if let Some(error) = &project.error {
-        return failed_project(project, error.clone(), None, String::new(), restored, restored_reason);
+        return failed_project(
+            project,
+            error.clone(),
+            None,
+            String::new(),
+            restored,
+            restored_reason,
+        );
     }
     let Some(abs_path) = project.abs_path.as_deref() else {
         return failed_project(
@@ -914,7 +946,9 @@ fn quoted(text: &str) -> Vec<String> {
 }
 
 fn normalize_guid(raw: &str) -> String {
-    raw.trim().trim_matches(|c| c == '{' || c == '}').to_ascii_uppercase()
+    raw.trim()
+        .trim_matches(|c| c == '{' || c == '}')
+        .to_ascii_uppercase()
 }
 
 #[derive(Debug, Clone)]
@@ -981,7 +1015,9 @@ pub fn parse_solution(text: &str) -> SolutionModel {
         let mut names: Vec<String> = Vec::new();
         let mut current = guid.to_string();
         for _ in 0..8 {
-            let Some(name) = folders.get(&current) else { break };
+            let Some(name) = folders.get(&current) else {
+                break;
+            };
             names.push(name.clone());
             match nested.get(&current) {
                 Some(parent) if folders.contains_key(parent) => current = parent.clone(),
@@ -1173,7 +1209,10 @@ EndGlobal\n";
             "src/App/Models/Order.cs".to_string(),
         ];
         let watched = watch_paths(&workspace_file, root, &projects, &sources);
-        let paths: Vec<&Path> = watched.iter().map(|watched| watched.path.as_path()).collect();
+        let paths: Vec<&Path> = watched
+            .iter()
+            .map(|watched| watched.path.as_path())
+            .collect();
 
         assert!(paths.contains(&root.join("src/App").as_path()));
         assert!(paths.contains(&root.join("src/App/Models").as_path()));

@@ -114,12 +114,19 @@ pub fn list_dir(root: &Path, dir: &Path) -> std::io::Result<Vec<serde_json::Valu
         }
         entries.push((entry.path().is_dir(), name));
     }
-    entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())));
+    entries.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
     Ok(entries
         .into_iter()
         .map(|(is_dir, name)| {
             let rel = dir.join(&name);
-            let rel = rel.strip_prefix(root).unwrap_or(&rel).to_string_lossy().replace('\\', "/");
+            let rel = rel
+                .strip_prefix(root)
+                .unwrap_or(&rel)
+                .to_string_lossy()
+                .replace('\\', "/");
             let hidden = name.starts_with('.') || (is_dir && IGNORED_DIRS.contains(&name.as_str()));
             serde_json::json!({ "name": name, "path": rel, "dir": is_dir, "hidden": hidden })
         })
@@ -266,8 +273,11 @@ mod tests {
     #[test]
     fn text_groups_by_file_with_line_and_column() {
         let (_temp, root) = root();
-        fs::write(root.join("a.cs"), "class Order\n{\n    Order Create() => new Order();\n}\n")
-            .unwrap();
+        fs::write(
+            root.join("a.cs"),
+            "class Order\n{\n    Order Create() => new Order();\n}\n",
+        )
+        .unwrap();
         fs::write(root.join("b.cs"), "class Other {}\n").unwrap();
 
         let search = search_text(&root, "order", false, 200, 2_000);

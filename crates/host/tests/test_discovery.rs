@@ -260,7 +260,10 @@ fn a_single_target_project_is_discovered_on_its_evaluated_tfm() {
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     let evaluated = prepare(&host, None);
-    assert_eq!(evaluated["evaluation"]["context"]["targetFramework"], Value::Null);
+    assert_eq!(
+        evaluated["evaluation"]["context"]["targetFramework"],
+        Value::Null
+    );
 
     let started = host
         .dispatch(
@@ -269,8 +272,7 @@ fn a_single_target_project_is_discovered_on_its_evaluated_tfm() {
         )
         .unwrap();
     assert_eq!(
-        started["tests"]["discovery"]["targetFramework"],
-        "net8.0",
+        started["tests"]["discovery"]["targetFramework"], "net8.0",
         "the single declared TFM is the discovered scope"
     );
     let discovery = wait_for_discovery(&host, Duration::from_secs(120));
@@ -287,7 +289,10 @@ fn a_single_target_project_is_discovered_on_its_evaluated_tfm() {
     // Every row reports the framework, so the tree and the detail panel never fall back.
     let items = discovery["items"].as_array().unwrap();
     assert_eq!(items.len(), 4);
-    assert!(items.iter().all(|item| item["tfm"] == "net8.0"), "{discovery}");
+    assert!(
+        items.iter().all(|item| item["tfm"] == "net8.0"),
+        "{discovery}"
+    );
 
     // A run without a TFM uses the same scope as the discovery it validates against.
     host.dispatch(

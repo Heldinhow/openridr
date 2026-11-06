@@ -26,7 +26,10 @@ fn main() {
         eprintln!("{method} {url}");
 
         if method == Method::Options {
-            respond(request.respond(with_cors(Response::from_string("").with_status_code(204), origin.as_deref())));
+            respond(request.respond(with_cors(
+                Response::from_string("").with_status_code(204),
+                origin.as_deref(),
+            )));
             continue;
         }
 
@@ -37,26 +40,30 @@ fn main() {
                 "version": env!("CARGO_PKG_VERSION"),
                 "pid": std::process::id(),
             });
-            respond(request.respond(with_cors(
-                Response::from_string(body.to_string())
-                    .with_status_code(200)
-                    .with_header(json_header()),
-                origin.as_deref(),
-            )));
+            respond(
+                request.respond(with_cors(
+                    Response::from_string(body.to_string())
+                        .with_status_code(200)
+                        .with_header(json_header()),
+                    origin.as_deref(),
+                )),
+            );
             continue;
         }
 
         if method == Method::Post && url == "/call" {
             let mut body = String::new();
             if let Err(error) = request.as_reader().read_to_string(&mut body) {
-                respond(request.respond(with_cors(
-                    Response::from_string(error_envelope(HostError::new(
-                        "invalid_state",
-                        format!("Could not read request body: {error}"),
-                    )))
-                    .with_header(json_header()),
-                    origin.as_deref(),
-                )));
+                respond(
+                    request.respond(with_cors(
+                        Response::from_string(error_envelope(HostError::new(
+                            "invalid_state",
+                            format!("Could not read request body: {error}"),
+                        )))
+                        .with_header(json_header()),
+                        origin.as_deref(),
+                    )),
+                );
                 continue;
             }
             let envelope = match serde_json::from_str::<Value>(&body) {
@@ -120,7 +127,10 @@ fn json_header() -> Header {
     Header::from_bytes("Content-Type", "application/json").unwrap()
 }
 
-fn with_cors(mut response: Response<std::io::Cursor<Vec<u8>>>, origin: Option<&str>) -> Response<std::io::Cursor<Vec<u8>>> {
+fn with_cors(
+    mut response: Response<std::io::Cursor<Vec<u8>>>,
+    origin: Option<&str>,
+) -> Response<std::io::Cursor<Vec<u8>>> {
     if let Some(origin) = origin.filter(|origin| ALLOWED_ORIGINS.contains(origin)) {
         for (name, value) in [
             ("Access-Control-Allow-Origin", origin),

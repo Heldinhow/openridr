@@ -60,7 +60,11 @@ impl Model {
                 self.trusted = false;
             }
             Op::Set(j, trust) if self.open == Some(j) => {
-                return self.apply(if trust { Op::Grant { remember: true } } else { Op::Revoke });
+                return self.apply(if trust {
+                    Op::Grant { remember: true }
+                } else {
+                    Op::Revoke
+                });
             }
             Op::Set(j, _) if self.open.is_some() && self.open != Some(j) => return None,
             Op::Set(j, trust) => self.store[j] = Some(trust),
@@ -70,7 +74,9 @@ impl Model {
 }
 
 fn next(seed: &mut u64) -> u64 {
-    *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *seed = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     *seed >> 33
 }
 
@@ -79,9 +85,11 @@ fn random_op(seed: &mut u64) -> Op {
     match next(seed) % 6 {
         0 | 1 => Op::Open(path),
         2 => Op::Close,
-        3 => Op::Grant { remember: next(seed) % 2 == 0 },
+        3 => Op::Grant {
+            remember: next(seed).is_multiple_of(2),
+        },
         4 => Op::Revoke,
-        _ => Op::Set(path, next(seed) % 2 == 0),
+        _ => Op::Set(path, next(seed).is_multiple_of(2)),
     }
 }
 
@@ -125,28 +133,51 @@ fn check(host: &Host, model: &Model, paths: &[PathBuf], home: &Path, context: &s
     let granted = state["trust"]["granted"] == true;
     // I1: the host flag is exactly the model flag, and a trusted flag needs an open workspace.
     assert_eq!(granted, model.trusted, "I1 flag: {context}");
-    assert!(!granted || model.open.is_some(), "I1 trusted without workspace: {context}");
+    assert!(
+        !granted || model.open.is_some(),
+        "I1 trusted without workspace: {context}"
+    );
     // I2: mode and the stored decision shown for the open workspace follow the model.
     match model.open {
         Some(i) => {
-            assert_eq!(state["workspace"]["path"], json!(paths[i]), "workspace: {context}");
+            assert_eq!(
+                state["workspace"]["path"],
+                json!(paths[i]),
+                "workspace: {context}"
+            );
             assert_eq!(
                 state["workspace"]["mode"],
-                if model.trusted { "trusted" } else { "restricted" },
+                if model.trusted {
+                    "trusted"
+                } else {
+                    "restricted"
+                },
                 "I2 mode: {context}"
             );
-            assert_eq!(state["trust"]["decision"], label(model.store[i]), "I2 decision: {context}");
+            assert_eq!(
+                state["trust"]["decision"],
+                label(model.store[i]),
+                "I2 decision: {context}"
+            );
         }
         None => assert!(state["workspace"].is_null(), "no workspace: {context}"),
     }
     // I3: the gate. An executable method is refused with trust_required exactly when not trusted.
     let gate = host.dispatch("terminal.resize", json!({ "cols": 80, "rows": 24 }));
     let refused = matches!(&gate, Err(error) if error.code == "trust_required");
-    assert_eq!(refused, !model.trusted, "I3 gate (trusted={}): {context}", model.trusted);
+    assert_eq!(
+        refused, !model.trusted,
+        "I3 gate (trusted={}): {context}",
+        model.trusted
+    );
     // I4: the decision stored per path (read back through the host) is the model's, for every path.
     for (i, path) in paths.iter().enumerate() {
         let got = host.dispatch("trust.get", json!({ "path": path })).unwrap();
-        assert_eq!(got["decision"], label(model.store[i]), "I4 trust.get {i}: {context}");
+        assert_eq!(
+            got["decision"],
+            label(model.store[i]),
+            "I4 trust.get {i}: {context}"
+        );
     }
     // I5: durability. The file on disk holds exactly the decisions the model made.
     let on_disk: Value = fs::read_to_string(home.join("trusted.json"))
@@ -154,7 +185,10 @@ fn check(host: &Host, model: &Model, paths: &[PathBuf], home: &Path, context: &s
         .unwrap_or_else(|_| json!({}));
     for (i, path) in paths.iter().enumerate() {
         assert_eq!(
-            on_disk.get(path.to_string_lossy().as_ref()).cloned().unwrap_or(Value::Null),
+            on_disk
+                .get(path.to_string_lossy().as_ref())
+                .cloned()
+                .unwrap_or(Value::Null),
             label(model.store[i]),
             "I5 trusted.json {i}: {context}"
         );
@@ -165,7 +199,9 @@ fn check(host: &Host, model: &Model, paths: &[PathBuf], home: &Path, context: &s
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
 fn trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated() {
     let dir = tempfile::tempdir().unwrap();
-    let paths: Vec<PathBuf> = (0..PATHS).map(|i| project(dir.path(), &format!("p{i}"))).collect();
+    let paths: Vec<PathBuf> = (0..PATHS)
+        .map(|i| project(dir.path(), &format!("p{i}")))
+        .collect();
     let _no_store = EnvVar::remove("OPENRIDR_TRUST_STORE");
 
     for walk in 0..WALKS {
@@ -181,7 +217,11 @@ fn trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated() {
             let context = format!("walk {walk} trace {trace:?}");
             let expected = model.apply(op);
             let result = call(&host, op, &paths);
-            assert_eq!(result.is_ok(), expected.is_some(), "accept/refuse of {op:?}: {context}");
+            assert_eq!(
+                result.is_ok(),
+                expected.is_some(),
+                "accept/refuse of {op:?}: {context}"
+            );
             if matches!(op, Op::Open(_)) && result.is_ok() {
                 // The property under test is trust, not the tool setup gate.
                 host.allow_setup_for_tests();
@@ -191,9 +231,17 @@ fn trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated() {
             // is trusted exactly when the stored decision says trusted.
             if let (Op::Open(i), true) = (op, walk % 3 == 0) {
                 let restarted = support::host();
-                restarted.dispatch("workspace.open", json!({ "path": paths[i] })).unwrap();
-                let granted = restarted.dispatch("workspace.state", json!({})).unwrap()["trust"]["granted"] == true;
-                assert_eq!(granted, model.store[i] == Some(true), "I6 restart: {context}");
+                restarted
+                    .dispatch("workspace.open", json!({ "path": paths[i] }))
+                    .unwrap();
+                let granted = restarted.dispatch("workspace.state", json!({})).unwrap()["trust"]
+                    ["granted"]
+                    == true;
+                assert_eq!(
+                    granted,
+                    model.store[i] == Some(true),
+                    "I6 restart: {context}"
+                );
             }
         }
     }
@@ -201,5 +249,7 @@ fn trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated() {
 
 #[test]
 fn trust_lifecycle_matches_the_reference_model_on_random_sequences() {
-    support::run_isolated_leaf("trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated");
+    support::run_isolated_leaf(
+        "trust_lifecycle_matches_the_reference_model_on_random_sequences_isolated",
+    );
 }

@@ -141,10 +141,13 @@ fn repeated_snapshots_and_hosts_reuse_one_bundled_verification_isolated() {
     fs::create_dir_all(&home).unwrap();
     let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
     let calls = temp.path().join("calls");
-    write_script(&runtime.join("dotnet"), &format!(
-        "#!/bin/sh\necho invoked >> '{}'\nprintf 'csharp-ls, 0.28.0 (probe)\\n'\n",
-        calls.display()
-    ));
+    write_script(
+        &runtime.join("dotnet"),
+        &format!(
+            "#!/bin/sh\necho invoked >> '{}'\nprintf 'csharp-ls, 0.28.0 (probe)\\n'\n",
+            calls.display()
+        ),
+    );
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
     let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
@@ -220,7 +223,7 @@ fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory_isolated(
         let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
         let bundled_runtime = sdk::AnalysisRuntime::for_analysis(&[]);
         assert_eq!(bundled_runtime.state, "found");
-        assert_eq!(bundled_runtime.bundled, true);
+        assert!(bundled_runtime.bundled);
         assert_eq!(bundled_runtime.version.as_deref(), Some("10.0.14"));
         assert_eq!(
             bundled_runtime.root.as_deref(),
@@ -231,7 +234,7 @@ fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory_isolated(
     let _absent = EnvVar::remove(bundled::RUNTIME_OVERRIDE);
     let detected = sdk::AnalysisRuntime::from_runtimes(&sdk::inventory().runtimes);
     let preferred = sdk::AnalysisRuntime::for_analysis(&sdk::inventory().runtimes);
-    assert_eq!(preferred.bundled, false);
+    assert!(!preferred.bundled);
     assert_eq!(preferred.state, detected.state);
     assert_eq!(preferred.version, detected.version);
 }
@@ -275,8 +278,14 @@ fn a_distributed_app_without_the_bundle_fails_closed_isolated() {
     let _home = EnvVar::set("OPENRIDR_HOME", &home);
     let _required = EnvVar::set(bundled::REQUIRED_OVERRIDE, "1");
     // No payload and no runtime anywhere: the app bundle lost both halves.
-    let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, temp.path().join("missing-tool"));
-    let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, temp.path().join("missing-runtime"));
+    let _tool = EnvVar::set(
+        bundled::CSHARP_LS_OVERRIDE,
+        temp.path().join("missing-tool"),
+    );
+    let _runtime = EnvVar::set(
+        bundled::RUNTIME_OVERRIDE,
+        temp.path().join("missing-runtime"),
+    );
 
     let host = support::host();
     open(&host, &fixture());
@@ -293,7 +302,11 @@ fn a_distributed_app_without_the_bundle_fails_closed_isolated() {
     // `allow_setup_for_tests` forces setup readiness; the tool/runtime gates are the signal.
 
     // No external runtime may mask the missing bundle, even though this machine has a 10.x.
-    assert_eq!(state["sdk"]["host"]["state"], "missing", "{}", state["sdk"]["host"]);
+    assert_eq!(
+        state["sdk"]["host"]["state"], "missing",
+        "{}",
+        state["sdk"]["host"]
+    );
     assert_eq!(state["sdk"]["host"]["bundled"], true);
     assert_eq!(state["sdk"]["host"]["version"], Value::Null);
     assert_eq!(state["sdk"]["host"]["root"], Value::Null);
@@ -355,16 +368,14 @@ fn a_distributed_app_with_a_partial_bundle_fails_closed_isolated() {
         host.dispatch("setup.start", json!({})).unwrap();
         let state = snapshot(&host);
         assert_eq!(
-            state["tools"]["csharp-ls"]["state"],
-            "failed",
+            state["tools"]["csharp-ls"]["state"], "failed",
             "{half}: {}",
             state["tools"]["csharp-ls"]
         );
         assert_eq!(state["tools"]["csharp-ls"]["plan"], Value::Null, "{half}");
         assert_eq!(state["sdk"]["host"]["state"], "missing", "{half}");
         assert_eq!(
-            state["tools"]["csharp-ls"]["bundled"],
-            true,
+            state["tools"]["csharp-ls"]["bundled"], true,
             "{half}: the refusal still comes from the app bundle"
         );
         assert!(
@@ -421,18 +432,17 @@ fn a_build_without_a_pair_never_reports_verifying_isolated() {
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn bundled_result_is_cached_for_the_session_isolated() {
-    let targets = [
-        "dependency",
-        "muxer",
-        "runtime-component",
-        "entry",
-    ];
+    let targets = ["dependency", "muxer", "runtime-component", "entry"];
     for target in targets {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
         fs::create_dir_all(&home).unwrap();
         let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
-        fs::write(tools.join("Microsoft.CodeAnalysis.CSharp.dll"), b"dependency-v1").unwrap();
+        fs::write(
+            tools.join("Microsoft.CodeAnalysis.CSharp.dll"),
+            b"dependency-v1",
+        )
+        .unwrap();
         fs::write(
             runtime.join("shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll"),
             b"runtime-v1",
@@ -474,36 +484,48 @@ fn bundled_result_is_cached_for_the_session_isolated() {
 #[cfg(unix)]
 #[test]
 fn a_bundled_pair_is_ready_without_installing_or_downloading() {
-    support::run_isolated_leaf("a_bundled_pair_is_ready_without_installing_or_downloading_isolated");
+    support::run_isolated_leaf(
+        "a_bundled_pair_is_ready_without_installing_or_downloading_isolated",
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn repeated_snapshots_and_hosts_reuse_one_bundled_verification() {
-    support::run_isolated_leaf("repeated_snapshots_and_hosts_reuse_one_bundled_verification_isolated");
+    support::run_isolated_leaf(
+        "repeated_snapshots_and_hosts_reuse_one_bundled_verification_isolated",
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn snapshots_report_verifying_without_waiting_for_the_bundled_process() {
-    support::run_isolated_leaf("snapshots_report_verifying_without_waiting_for_the_bundled_process_isolated");
+    support::run_isolated_leaf(
+        "snapshots_report_verifying_without_waiting_for_the_bundled_process_isolated",
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn a_modified_bundled_entry_does_not_repeat_the_session_check() {
-    support::run_isolated_leaf("a_modified_bundled_entry_does_not_repeat_the_session_check_isolated");
+    support::run_isolated_leaf(
+        "a_modified_bundled_entry_does_not_repeat_the_session_check_isolated",
+    );
 }
 
 #[test]
 fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory() {
-    support::run_isolated_leaf("analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory_isolated");
+    support::run_isolated_leaf(
+        "analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory_isolated",
+    );
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10() {
-    support::run_isolated_leaf("the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10_isolated");
+    support::run_isolated_leaf(
+        "the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10_isolated",
+    );
 }
 
 #[cfg(unix)]
@@ -527,7 +549,6 @@ fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
 fn a_build_without_a_pair_never_reports_verifying() {
     support::run_isolated_leaf("a_build_without_a_pair_never_reports_verifying_isolated");
 }
-
 
 #[cfg(unix)]
 #[test]

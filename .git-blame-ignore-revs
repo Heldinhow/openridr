@@ -1,0 +1,20 @@
+# Commits do `git blame` que não devem contar como autoria.
+#
+# Para ativar neste clone (uma vez):
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# A lista começa com o commit de `cargo fmt` de 2026-11-06: 33 arquivos, 2808 inserções e 1277
+# remoções que são só formatação, nenhuma edição manual. O GitHub respeita este arquivo no blame da
+# interface quando o repositório tem a configuração ligada (Settings > General > "Ignore commits in
+# the blame view"), e o `git blame` local quando o `git config` acima foi rodado.
+
+# style: format the repository with cargo fmt (Refs #80)
+7069beb63485fc4a08da5bc2a62c927047850cf6
+
+# The merge of main into the formatting branch (2026-11-06): it re-formats the lines `main` changed
+# after the big bang (crates/host/src/dap.rs), so the merge itself is formatting, not authorship.
+2f54988cffc44e90798f4bd1c2e3ce30d0222644
+
+# Second merge of main, after the hermetic test harness (#97) rewrote the host tests: it re-formats
+# what that merge brought in, so the merge is formatting rather than authorship.
+f4a06a27497849a9e97d3db87cbb29795665cd38
