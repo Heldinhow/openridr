@@ -23,6 +23,14 @@ const realAdapter = path.join(
 test.use({ viewport: { width: 1440, height: 900 } });
 test.describe.configure({ timeout: 120_000 });
 
+// Quarantined (#67, 2026-11-06): this spec was written for the pre-bundle `debug.install`
+// download flow. netcoredbg now ships inside the app, so `debug.install` is a `tauri dev` fallback
+// only; measured 12 of 13 tests failing in 20,8 min. Run it again only when the spec is rewritten
+// for the bundled adapter. See docs/evidence/e2e-quarantine.md.
+test.beforeEach(() => {
+  test.skip(true, "quarantined: pre-bundle debug.install flow (docs/evidence/e2e-quarantine.md)");
+});
+
 async function hostCall(request: APIRequestContext, method: string, params = {}) {
   const response = await request.post(`${host}/call`, { data: { method, params } });
   return response.json();

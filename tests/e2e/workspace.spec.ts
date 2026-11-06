@@ -100,11 +100,10 @@ test("opens the fixture asking for a Trust decision, with Restricted mode availa
   await expect(page.getByTestId("sdk-host")).toContainText(/10\.\d+\.\d+/);
   await expect(page.getByTestId("sdk-project")).toContainText("Not inspected yet");
   await expect(page.getByTestId("sdk-debug-adapter")).toContainText("netcoredbg");
-  await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
-    "osx-arm64 asset exists",
-  );
-  await expect(page.getByTestId("sdk-debug-adapter")).toContainText(
-    "installation stays refused until you enable the experimental flag",
+  // netcoredbg ships inside the app: there is no asset to fetch and no install to refuse.
+  await expect(page.getByTestId("sdk-debug-adapter")).toContainText("Bundled with OpenRidr");
+  await expect(page.getByTestId("sdk-debug-adapter")).not.toContainText(
+    "stays blocked on this platform",
   );
 
   await enterTextOnly(page);

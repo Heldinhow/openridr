@@ -1,6 +1,9 @@
 //! Boundary tests for real VSTest execution: trust/restore gates, MTP, all/selected scope,
 //! TRX outcomes and positions, observed cancellation and sealing.
 
+#[path = "support/mod.rs"]
+mod support;
+
 use openridr_host::Host;
 use serde_json::{json, Value};
 use std::fs;
@@ -162,7 +165,7 @@ fn run_is_denied_before_trust_and_before_the_explicit_restore() {
     let temp = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(temp.path()).unwrap();
     test_project(&root, "Policy", "", "public sealed class C { }\n");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Policy.csproj"));
 
     let denied = host
@@ -204,7 +207,7 @@ fn mtp_is_refused_before_any_vstest_process_even_with_a_direct_run_call() {
         "<PropertyGroup><UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner></PropertyGroup>",
         "public sealed class C { }\n",
     );
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("MtpRun.csproj"));
     grant(&host);
     prepare(&host, None);
@@ -240,7 +243,7 @@ fn real_run_reports_trx_outcomes_positions_and_only_the_selected_identity() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk run");
     let canonical = fs::canonicalize(&copy).unwrap();
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     prepare(&host, Some("net8.0"));
@@ -392,7 +395,7 @@ fn real_run_reports_trx_outcomes_positions_and_only_the_selected_identity() {
 fn export_carries_the_discovery_and_the_real_last_run() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk export");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     prepare(&host, Some("net8.0"));
@@ -457,7 +460,7 @@ fn export_carries_the_discovery_and_the_real_last_run() {
 fn export_observes_a_finished_run_without_an_intervening_snapshot() {
     let temp = tempfile::tempdir().unwrap();
     let copy = fixture_copy(temp.path(), "Order Desk export sync");
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     prepare(&host, Some("net8.0"));
@@ -504,7 +507,7 @@ fn duplicate_display_names_are_one_ambiguous_identity_never_a_selected_run() {
         "",
         "using Xunit;\nnamespace Disp;\npublic sealed class A { [Fact(DisplayName=\"Same display\")] public void One() {} }\npublic sealed class B { [Fact(DisplayName=\"Same display\")] public void Two() {} }\n",
     );
-    let host = Host::new();
+    let host = support::host();
     open(&host, &root.join("Disp.csproj"));
     grant(&host);
     prepare(&host, None);
@@ -584,7 +587,7 @@ fn cancel_keeps_partial_state_and_revocation_seals_a_running_test_run() {
         "using System.Threading.Tasks;\nusing Xunit;\n\nnamespace OrderDesk.Tests;\n\npublic sealed class LongTests\n{\n    [Fact]\n    public async Task Waits_for_cancellation()\n    {\n        await Task.Delay(60000);\n    }\n}\n",
     )
     .unwrap();
-    let host = Host::new();
+    let host = support::host();
     open(&host, &copy.join("OrderDesk.sln"));
     grant(&host);
     prepare(&host, Some("net8.0"));
