@@ -356,12 +356,24 @@ audit_identity() {
   printf '%s' "$ident"
 }
 
-# `file` parses the load commands, so it sees every Mach-O magic (32/64-bit, both endiannesses,
-# fat32/fat64) and does not mistake a data file whose first bytes happen to look like a magic.
+# Mach-O by the first four bytes: thin 32/64-bit in both endiannesses and the fat (universal)
+# containers. `file` is not enough: it answers "data" for a fat64 header. `cafebabe` is shared with
+# Java .class files, disambiguated by the next word (nfat_arch): a fat binary has a handful of
+# architectures, a class file has minor/major version (45+).
 macho_files() {
   find "$1" -type f | while IFS= read -r file; do
-    case $(file -b "$file" 2>/dev/null) in
-      *Mach-O*) printf '%s\n' "$file" ;;
+    bytes=$(od -An -tx1 -N8 "$file" 2>/dev/null | tr -d ' \n')
+    magic=$(printf '%s' "$bytes" | cut -c1-8)
+    case $magic in
+      feedface | feedfacf | cefaedfe | cffaedfe | cafebabf | bebafeca | bfbafeca)
+        printf '%s\n' "$file"
+        ;;
+      cafebabe)
+        nfat=$(printf '%s' "$bytes" | cut -c9-16)
+        if [ -n "$nfat" ] && [ "$((0x$nfat))" -lt 30 ]; then
+          printf '%s\n' "$file"
+        fi
+        ;;
     esac
   done
 }
@@ -475,6 +487,9 @@ json_field() {
 
 notarize() {
   file=$1
+  # The .p8 is created here, in the shell that owns the EXIT trap: everything below captures
+  # notarytool's output through $(...), and a key created in there would never be removed.
+  prepare_notary_key || true
   out=$(notary submit "$file" --wait --output-format json --no-progress) || {
     printf '%s\n' "$out" >&2
     fail "notarytool submit failed for $(basename "$file")"

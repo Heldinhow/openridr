@@ -356,4 +356,119 @@ grep -q "signing identity cleared" "$work/err" || fail "the dry run does not say
 grep -q '^dmg=' "$work/out" || fail "the dry run printed no DMG"
 grep -q '^sha256=' "$work/out" || fail "the dry run printed no hash"
 
+echo "self-check: the audit sees every Mach-O magic (thin, fat, fat64) and nothing else"
+magicapp="$work/Magic.app"
+mkdir -p "$magicapp/Contents/MacOS" "$magicapp/Contents/Frameworks"
+magicdir="$magicapp/Contents/MacOS"
+# Octal escapes keep this portable between sh implementations.
+printf '\317\372\355\376' >"$magicdir/thin64le"
+printf '\376\355\372\317' >"$magicdir/thin64be"
+printf '\316\372\355\376' >"$magicdir/thin32le"
+printf '\376\355\372\316' >"$magicdir/thin32be"
+printf '\312\376\272\276\000\000\000\002' >"$magicdir/fat32"
+printf '\312\376\272\277\000\000\000\002' >"$magicdir/fat64"
+printf '\276\272\376\312\000\000\000\002' >"$magicdir/fat32swapped"
+printf '\277\272\376\312\000\000\000\002' >"$magicdir/fat64swapped"
+# Java .class shares cafebabe but carries minor/major version (45+) in the second word.
+printf '\312\376\272\276\000\000\000\075' >"$magicdir/Java.class"
+printf '\000\001\002\003\004\005\006\007' >"$magicdir/data.bin"
+binF="$work/bin-fake"
+mkdir -p "$binF"
+cat >"$binF/codesign" <<'FAKECODESIGN'
+#!/bin/sh
+case " $* " in
+  *" --verify "*)
+    if [ -n "${CODESIGN_LOG:-}" ]; then printf '%s\n' "$*" >>"$CODESIGN_LOG"; fi
+    exit 0
+    ;;
+  *" -dv "*)
+    printf 'flags=0x10000(runtime)\nAuthority=%s\nTimestamp=selftest\n' "${APPLE_SIGNING_IDENTITY}"
+    exit 0
+    ;;
+esac
+exit 0
+FAKECODESIGN
+chmod +x "$binF/codesign"
+log="$work/codesign.log"
+: >"$log"
+CODESIGN_LOG=$log APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
+  PATH="$binF:$PATH" sh "$script" --audit "$magicapp" >"$work/out" 2>"$work/err" ||
+  { cat "$work/err" >&2; fail "the audit rejected the synthetic Mach-O set"; }
+for name in thin64le thin64be thin32le thin32be fat32 fat64 fat32swapped fat64swapped; do
+  grep -q "/$name\$" "$log" || fail "the audit ignored $name (fat64 included)"
+done
+for name in Java.class data.bin; do
+  if grep -q "/$name\$" "$log"; then fail "the audit treated $name as Mach-O"; fi
+done
+if grep -q "audit ok: 8 Mach-O" "$work/err"; then :; else
+  fail "the audit did not report the eight synthetic binaries: $(cat "$work/err")"
+fi
+
+echo "self-check: the notary key never survives the run (success and rejection)"
+cat >"$binF/xcrun" <<'FAKEXCRUN'
+#!/bin/sh
+# Fake xcrun: notarytool and stapler only.
+case $1 in
+  notarytool)
+    case $2 in
+      submit)
+        if [ "${NOTARY_MODE:-ok}" = reject ]; then
+          printf '{"id":"fake-1","status":"Invalid"}\n'
+        else
+          printf '{"id":"fake-1","status":"Accepted"}\n'
+        fi
+        ;;
+      log) printf '{"id":"fake-1","status":"Invalid"}\n' ;;
+    esac
+    ;;
+  stapler) : ;;
+esac
+exit 0
+FAKEXCRUN
+cat >"$binF/spctl" <<'FAKESPCTL'
+#!/bin/sh
+echo "selftest: accepted"
+exit 0
+FAKESPCTL
+chmod +x "$binF/xcrun" "$binF/spctl"
+cp "$(command -v sh)" "$stub/Contents/MacOS/openridr"
+stub_plist "$VERSION"
+release_key=$(printf 'selftest-notary-key' | openssl base64 -A)
+# Anything the notarization leaves in RUNNER_TEMP: the key and the transport zip.
+leftovers_in() {
+  found=
+  for candidate in "$1"/AuthKey_* "$1"/*notary*; do
+    if [ -e "$candidate" ]; then found="$found $candidate"; fi
+  done
+  printf '%s' "$found"
+}
+run_signed() {
+  mode=$1
+  home=$2
+  mkdir -p "$home"
+  NOTARY_MODE=$mode RELEASE_ROOT=$root RUNNER_TEMP=$home RELEASE_APP=$stub \
+    APPLE_CERTIFICATE=$canary APPLE_CERTIFICATE_PASSWORD=$canary \
+    APPLE_API_KEY=$release_key APPLE_API_KEY_ID=SELFTEST123 \
+    APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
+    PATH="$binF:$PATH" sh "$script" --tag "v$VERSION"
+}
+ok_home="$work/run-signed-ok"
+if ! run_signed ok "$ok_home" >"$work/out" 2>"$work/err"; then
+  cat "$work/err" >&2
+  fail "the signed path failed with a fake notarytool"
+fi
+grep -q '^dmg=' "$work/out" || fail "the signed path produced no DMG"
+grep -q "notarization accepted: OpenRidr-notary" "$work/err" ||
+  fail "the app was not sent to the (fake) notary: $(cat "$work/err")"
+leftovers=$(leftovers_in "$ok_home")
+[ -z "$leftovers" ] || fail "after a successful notarization these stayed behind: $leftovers"
+
+bad_home="$work/run-signed-reject"
+if run_signed reject "$bad_home" >"$work/out" 2>"$work/err"; then
+  fail "a rejected notarization was accepted"
+fi
+grep -q "Apple rejected" "$work/err" || fail "the rejection is not reported: $(cat "$work/err")"
+leftovers=$(leftovers_in "$bad_home")
+[ -z "$leftovers" ] || fail "after a rejection these stayed behind: $leftovers"
+
 echo "ok: release self-check passed"

@@ -75,8 +75,10 @@ Falha com uma mensagem por regra e exit 1:
 O build usa `APPLE_SIGNING_IDENTITY` (o `signingIdentity: "-"` do config fica para o build local) e
 `beforeBuildCommand` roda `vendor-netcoredbg.sh` + `vendor-analysis.sh`, que assinam o runtime .NET
 privado (muxer com `dotnet.entitlements`, dylibs sem entitlements) e o netcoredbg com a mesma
-identidade. Depois do bundle, a auditoria lista **todos** os Mach-O do `.app` pelo `file` (que enxerga todos os
-magics: 32/64 bits, as duas endiannesses, fat32/fat64, e não confunde dados com magic) — hoje 18:
+identidade. Depois do bundle, a auditoria lista **todos** os Mach-O do `.app` pelos quatro primeiros bytes
+(thin 32/64 bits nas duas endiannesses e os contêineres fat/fat64, inclusive com campos trocados;
+`cafebabe` é desambiguado do `.class` do Java pelo `nfat_arch`, que num binário universal é pequeno e
+num class file é a versão 45+) — hoje 18:
 1 binário principal, 15 no runtime .NET, 2 no netcoredbg — e exige, em cada um:
 
 - `codesign --verify --strict` ok (a assinatura é verificada criptograficamente por arquivo, não só
@@ -139,7 +141,9 @@ Store Connect é Team API Key (issuer obrigatório) ou Individual (sem issuer); 
 `--issuer` só quando `APPLE_API_ISSUER` existe.
 
 O `.p8` é escrito em `$RUNNER_TEMP` com `mktemp` + `umask 077` (0600 desde o primeiro byte) no shell
-principal, para o `trap EXIT` sempre poder removê-lo — nunca dentro de uma substituição de comando.
+principal, antes de qualquer captura de saída do `notarytool`, para o `trap EXIT` sempre poder
+removê-lo — nunca dentro de uma substituição de comando. O self-check roda o caminho assinado com
+`notarytool` falso e prova que o arquivo não fica, nem no sucesso nem na rejeição.
 `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` só são exigidos no caminho do CI (que importa o
 `.p12`); numa máquina que usa `NOTARY_KEYCHAIN_PROFILE` o certificado já está no keychain e o script
 não pede os `.p12`.

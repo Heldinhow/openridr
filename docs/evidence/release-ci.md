@@ -27,6 +27,11 @@ acrescentadas na revisão):
   app sem `Contents/MacOS/openridr` e execução sem versão;
 - `--audit` no app instalado aprova 18 Mach-O (17 com a identidade do Helder, 1 `createdump` da
   Microsoft) e reprova identidade trocada nomeando o arquivo;
+- a auditoria reconhece os oito magic de Mach-O sintéticos (thin 32/64 bits nas duas endiannesses,
+  fat32, fat64 e as duas variantes de campos trocados) e ignora `Java.class` (mesmo `cafebabe`, com
+  `nfat_arch` = versão 61) e um arquivo de dados;
+- o caminho assinado, com `xcrun`/`codesign`/`spctl` falsos, chega à notarização e deixa
+  `RUNNER_TEMP` limpo **no sucesso e na rejeição** (sem `AuthKey_*` nem zip de transporte);
 - a auditoria reprova binário com assinatura quebrada (`does not verify with codesign --verify
   --strict`), não só metadado ausente;
 - modo completo sobre um bundle ad-hoc para na auditoria (`has no hardened runtime`) sem criar
@@ -51,6 +56,12 @@ hash não-hex, bytes zero ou decimal, arquivo ausente, notas com SHA-256 escrito
   `the dry run passed APPLE_SIGNING_IDENTITY='…' to the build`.
 - Remover o `codesign --verify --strict` por arquivo: falha em
   `broken signature message is not specific: … has no hardened runtime`.
+- Remover a chamada de `prepare_notary_key` no shell principal (deixando a chave nascer dentro do
+  `$(...)` do `notarytool`): o self-check falha em
+  `after a successful notarization these stayed behind: AuthKey_SELFTEST123…`.
+- Tirar `cafebabf` da lista de magics: falha em `the audit ignored fat64 (fat64 included)`.
+- Aceitar `cafebabe` sem desambiguar o `nfat_arch`: falha em
+  `the audit treated Java.class as Mach-O`.
 - Exigir `.p12` mesmo com `NOTARY_KEYCHAIN_PROFILE`: falha em
   `expected success: --check --tag v0.3.0-alpha.11`.
 
@@ -136,9 +147,15 @@ O csharp-ls é só gerenciado (nenhum Mach-O). Dylibs não trazem `TeamIdentifie
 
 `/code-review` por delegação (Pi, `openai-codex/gpt-6.1-terra`, thinking medium) sobre
 `git merge-base origin/main HEAD`: 8 achados de padrão + 3 de spec, 3 altos. Os 10 itens encaminhados
-foram corrigidos com teste que falha antes e passa depois (seção “Os testes não são vazios”); o
-workflow mudou de checkout, `concurrency`, ordem de upload e limpeza do keychain sem execução remota —
-segue não verificado abaixo.
+foram corrigidos com teste que falha antes e passa depois (seção “Os testes não são vazios”).
+
+Re-check dos altos: o item 2 (checkout/HEAD da tag) passou; os itens 1 e 3 não, e voltaram corrigidos —
+`notarize` chamava `prepare_notary_key` apenas dentro do `$(...)` do `notarytool` (chave órfã) e a
+detecção dependia de `file`, que responde `data` para fat64. Agora a chave é criada no shell dono do
+`trap` e a detecção lê os quatro primeiros bytes, com `cafebabe` desambiguado do `.class` do Java.
+
+O workflow mudou de checkout, `concurrency`, ordem de upload e limpeza do keychain sem execução
+remota — segue não verificado abaixo.
 
 ## Não verificado
 

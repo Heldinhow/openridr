@@ -973,6 +973,12 @@ todos os achados alto/médio foram corrigidos com teste que falha antes e passa 
 - **Heading e hash exatos.** A versão do primeiro heading é comparada palavra por palavra (antes,
   prefixo: `0.3.0` aceitava as notas de `0.3.0-alpha.11`) e a procura de SHA-256 escrito à mão passou a
   ser case-insensitive.
+- **Segunda rodada do re-check: magic bytes e chave no dono do `trap`.** `file` responde `data` para
+  cabeçalho fat64, então a auditoria passou a ler os quatro primeiros bytes (thin 32/64 bits nas duas
+  endiannesses, fat/fat64 e variantes trocadas) com `cafebabe` desambiguado do `.class` do Java pelo
+  `nfat_arch` (< 30 é fat; 45+ é versão de classe). E `notarize` — que captura a saída do `notarytool`
+  em `$(...)` — passou a chamar `prepare_notary_key` **antes** da captura: criar a chave dentro do
+  subshell deixava o arquivo órfão, porque o `trap EXIT` roda no shell principal.
 - **O bloco publicado não afirma o que não foi verificado.** O resultado de `codesign` no corpo passou
   a dizer "app e app no DMG montado" (o DMG em si é verificado por `spctl`/`stapler`, não por
   `codesign --deep`).
