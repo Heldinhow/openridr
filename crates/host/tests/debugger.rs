@@ -1305,4 +1305,3 @@ fn without_a_bundle_the_tools_install_is_reused() {
 fn without_a_bundle_or_a_tools_install_the_adapter_is_not_ready() {
     support::run_isolated_leaf("without_a_bundle_or_a_tools_install_the_adapter_is_not_ready_isolated");
 }
-

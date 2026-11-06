@@ -7,22 +7,28 @@ type Props = {
   conditionDisabledReason: string | null;
   busy: boolean;
   onSaveCondition: (condition: string) => void;
+  /** Raw text from the hit count field; the panel validates and converts it. */
+  onSaveHitCount: (hitCount: string) => void;
   onRemove: () => void;
 };
 
-/** One breakpoint in the Debug panel: state, condition editor and removal. */
+/** One breakpoint in the Debug panel: state, condition, hit count and removal. */
 export function DebugBreakpoint({
   breakpoint,
   conditionDisabledReason,
   busy,
   onSaveCondition,
+  onSaveHitCount,
   onRemove,
 }: Props) {
   const key = `${breakpoint.path}:${breakpoint.line}`;
   const saved = breakpoint.condition ?? "";
+  const savedHit = breakpoint.hitCount === null ? "" : String(breakpoint.hitCount);
   const [draft, setDraft] = useState(saved);
+  const [hitDraft, setHitDraft] = useState(savedHit);
 
   useEffect(() => setDraft(saved), [saved]);
+  useEffect(() => setHitDraft(savedHit), [savedHit]);
 
   return (
     <li data-testid={`debug-breakpoint-${key}`}>
@@ -54,6 +60,31 @@ export function DebugBreakpoint({
           disabled={conditionDisabledReason !== null || busy || draft.trim() === saved}
         >
           Save condition
+        </button>
+      </form>
+      <form
+        className="debug-breakpoint-hit"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSaveHitCount(hitDraft.trim());
+        }}
+      >
+        <input
+          aria-label={`Hit count for ${key}`}
+          data-testid={`debug-breakpoint-hit-${key}`}
+          placeholder="Hit count, e.g. 3"
+          inputMode="numeric"
+          value={hitDraft}
+          disabled={busy}
+          title="Stops on the Nth counted hit. Empty stops on every hit."
+          onChange={(event) => setHitDraft(event.target.value)}
+        />
+        <button
+          type="submit"
+          data-testid={`debug-breakpoint-hit-save-${key}`}
+          disabled={busy || hitDraft.trim() === savedHit}
+        >
+          Save hit count
         </button>
       </form>
       <button
