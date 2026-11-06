@@ -1157,10 +1157,15 @@ mod tests {
                     .iter()
                     .map(|root| root.root.as_str())
                     .collect();
-                eprintln!(
-                    "SKIP: no detected .NET root satisfies global.json ({requested}, rollForward {}): {message}; roots seen: {roots:?}",
+                let reason = format!(
+                    "no detected .NET root satisfies global.json ({requested}, rollForward {}): {message}; roots seen: {roots:?}",
                     roll_forward.unwrap_or("default")
                 );
+                // A machine that must have the SDK fails instead of silently losing the coverage.
+                if std::env::var("OPENRIDR_REQUIRE_DOTNET").as_deref() == Ok("1") {
+                    panic!("{reason}");
+                }
+                eprintln!("SKIP: {reason}");
                 None
             }
         }
@@ -1205,6 +1210,11 @@ mod tests {
         let options = launch_options(&json!({"project": project, "launchProfile": "http"}), temp.path()).unwrap();
         // Same resolution as the product: the project's global.json decides the SDK, not PATH.
         let Some((muxer, sdk_root, sdk_version)) = project_test_muxer(temp.path()) else { return; };
+        assert!(
+            muxer.is_file(),
+            "a detected .NET root has no muxer at {}; a broken install is a failure, not a skip",
+            muxer.display()
+        );
         let mut command = std::process::Command::new(&muxer);
         command.args(["run", "--project"]).arg(&project).arg("--no-launch-profile").arg("--");
         command
@@ -1216,7 +1226,9 @@ mod tests {
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
             .current_dir(options.working_directory.unwrap());
-        let Some(output) = run_test_dotnet(&mut command) else { return; };
+        let output = command.output().expect(
+            "the resolved project muxer must start; a detected-but-broken SDK is a failure, not a skip",
+        );
         eprintln!("launch profile fixture ran on SDK {sdk_version} from {}", sdk_root.display());
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         let stdout = String::from_utf8_lossy(&output.stdout);
