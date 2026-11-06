@@ -131,6 +131,45 @@ O que os runs acharam, em ordem — nada disso era visível no Mac:
 
 `bunx tsc --noEmit` → 0 erros; `bun test tests/unit` → 39 testes, 151 asserts, 497 ms.
 
+## Integração com `origin/main` `5faaff7` (#102 e #103)
+
+O `main` avançou duas vezes depois da última integração (`88613b0` #102, hit counts e watches com
+seleção de frame; `5faaff7` #103, diff de arquivo inteiro com modo unificado). Os dois PRs voltaram a
+`CONFLICTING`; esta seção registra como os conflitos foram resolvidos.
+
+**Branch A (`ci/issue-56-fmt`), merge `5297227`:**
+- `crates/host/src/dap.rs`, um hunk: o lado desta branch era a expressão de antes do #102
+  (`data.frames.first()`); o do `main` acrescenta a regra do frame selecionado
+  (`selected_frame_id` filtrado pelos frames atuais, com fallback para o primeiro). Ficou o lado do
+  `main` — não havia nada desta branch ali além de formatação.
+- `crates/host/src/git.rs`, um hunk: o lado desta branch era o bloco `let output = if tracked.ok()`,
+  que o #103 **moveu** para `diff_output(...)` (já presente no trecho auto-mesclado); o do `main` traz
+  só a checagem `!output.truncated && code != 0 && code != 1`. Ficou o do `main`: manter o bloco
+  antigo duplicaria a invocação do git.
+- `crates/host/src/lib.rs` e `tests/debugger.rs`: auto-mesclados; em `lib.rs` a diferença contra o
+  `main` é formatação (inclusive `reorder_modules` do `rustfmt`).
+- `cargo fmt` sobre o código novo de #102/#103 (eles entraram sem formatação, como todo o repo até o
+  #80) e três avisos **novos** de clippy em testes do `git.rs` (`permissions_set_readonly_false`, de
+  `permissions.set_readonly(false)`): virou o helper `make_writable`, que no Unix ajusta o **modo**
+  (`| 0o600`) — que é o que o teste realmente precisa — e mantém `set_readonly(false)` no caminho não
+  Unix. Nenhuma asserção foi afrouxada.
+- Prova: `cargo fmt --all -- --check` limpo; `cargo clippy --workspace --all-targets -- -D warnings`
+  limpo; `cargo test -p openridr-host --lib git::` **27 passando**, `--lib dap::` **29 passando**; os
+  símbolos do #102/#103 (`selected_frame_id`, `hit_counts`, `diff_output`, `truncated`, `GitFileDiff`,
+  `fn commit`) presentes nos arquivos mesclados.
+- Este merge **não** entra em `.git-blame-ignore-revs`: diferente dos merges anteriores (que só
+  reformatavam), ele contém edição real (`make_writable`), e escondê-la do blame seria mentira.
+
+**Branch B (`ci/issue-56-pr-checks`), merge `86f0f79`:**
+- `docs/README.md`: as duas linhas convivem — a desta frente (`CI em PR …`) e a do `main`
+  (`Debug avançado: hit count, watches persistentes`), ambas depois de "Primeira abertura".
+- `docs/decisions.md`: ficaram as duas entradas do `main` da #48 (decisão do diff e correções da
+  revisão) e a entrada desta frente (`CI em PR: dois PRs …`), nessa ordem.
+- Nada de Rust foi reescrito neste merge: a árvore de Rust do B vem inteira do A (`git diff` do merge
+  é só docs).
+- `bunx tsc --noEmit`: 0 erros; `bun run test:unit`: **51 testes, 0 falhas** (o `main` trouxe
+  `commitDiff.test.ts`).
+
 ## Segunda rodada de review (`704af9f`) e correções
 
 Revisão independente (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre `704af9f`: Standards 0,
