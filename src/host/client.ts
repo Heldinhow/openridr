@@ -623,6 +623,8 @@ export type DapBreakpoint = {
   verified: boolean;
   message: string | null;
   condition: string | null;
+  /** Stop only on the Nth counted hit; null stops on every hit. */
+  hitCount: number | null;
 };
 
 export type DapThread = { id: number; name: string };

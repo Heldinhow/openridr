@@ -16,7 +16,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::{BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -90,6 +90,8 @@ pub struct BreakpointView {    pub path: String,
     pub message: Option<String>,
     /// Expression the adapter checks on each hit; `None` stops on every hit.
     pub condition: Option<String>,
+    /// Stop only on the Nth stop of this line, counted by the host. `None` stops on every hit.
+    pub hit_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -304,6 +306,12 @@ struct Data {
     watches: Vec<String>,
     watch_results: Vec<EvaluationView>,
     watch_stop_seq: u64,
+    /// Stops counted per source and line in this session, for breakpoints with a hit count.
+    hit_counts: BTreeMap<(String, i64), u32>,
+    /// Last stop whose hit count was already evaluated; a re-entered pause never counts twice.
+    hit_seen: u64,
+    /// Set while the host is resuming through a hit count; drives the visible phase.
+    hit_wait: Option<HitWait>,
     breakpoints: BTreeMap<String, Vec<BreakpointView>>,
     breakpoints_muted: bool,
     exception_filters: Vec<String>,
@@ -445,6 +453,9 @@ impl Dap {
                 watches: Vec::new(),
                 watch_results: Vec::new(),
                 watch_stop_seq: 0,
+                hit_counts: BTreeMap::new(),
+                hit_seen: 0,
+                hit_wait: None,
                 selected_thread_id: None,
                 configuration_done: false,
                 cleanup_started: false,
@@ -624,6 +635,9 @@ impl Dap {
                 watches: Vec::new(),
                 watch_results: Vec::new(),
                 watch_stop_seq: 0,
+                hit_counts: BTreeMap::new(),
+                hit_seen: 0,
+                hit_wait: None,
                 selected_thread_id: None,
                 configuration_done: false,
                 cleanup_started: false,
@@ -807,8 +821,32 @@ impl Dap {
                     .iter()
                     .find(|item| item.line == *line)
                     .and_then(|item| item.condition.clone()),
+                hit_count: previous
+                    .iter()
+                    .find(|item| item.line == *line)
+                    .and_then(|item| item.hit_count),
             })
             .collect();
+        // A counter belongs to the exact breakpoint configuration that produced it: removing,
+        // adding or changing a target in this source restarts counting from zero.
+        let kept: BTreeMap<(String, i64), u32> = data
+            .hit_counts
+            .iter()
+            .filter(|((counter_path, counter_line), _)| {
+                counter_path == path
+                    && entries.iter().any(|entry| {
+                        entry.line == *counter_line
+                            && previous
+                                .iter()
+                                .find(|item| item.line == *counter_line)
+                                .map(|item| item.hit_count)
+                                == Some(entry.hit_count)
+                    })
+            })
+            .map(|(key, count)| (key.clone(), *count))
+            .collect();
+        data.hit_counts.retain(|(counter_path, _), _| counter_path != path);
+        data.hit_counts.extend(kept);
         data.breakpoints.insert(path.to_string(), entries.clone());
         let live = matches!(data.state, "preparing" | "running" | "paused");
         drop(data);
@@ -836,6 +874,36 @@ impl Dap {
             .ok_or_else(|| HostError::new("invalid_state", "Set a breakpoint on this line first."))?;
         entry.condition = condition;
         let entries = entries.clone();
+        // The counter counts stops that passed the condition, so a new condition restarts it.
+        data.hit_counts.remove(&(path.to_string(), line));
+        let live = matches!(data.state, "preparing" | "running" | "paused");
+        drop(data);
+        if live {
+            self.send_breakpoints(path, &entries);
+        }
+        Ok(())
+    }
+
+    /// Arms a hit count on an existing breakpoint. The host counts stops because the adapter
+    /// ignores `hitCondition`; `None` clears the target. Setting it restarts the counter.
+    pub fn set_hit_count(&self, path: &str, line: i64, hit_count: Option<u32>) -> HostResult<()> {
+        if hit_count == Some(0) {
+            return Err(HostError::new(
+                "invalid_state",
+                "The hit count must be a positive whole number.",
+            ));
+        }
+        let mut data = self.data.lock().unwrap();
+        let entries = data.breakpoints.get_mut(path).ok_or_else(|| {
+            HostError::new("invalid_state", "Set a breakpoint on this line first.")
+        })?;
+        let entry = entries
+            .iter_mut()
+            .find(|item| item.line == line)
+            .ok_or_else(|| HostError::new("invalid_state", "Set a breakpoint on this line first."))?;
+        entry.hit_count = hit_count;
+        let entries = entries.clone();
+        data.hit_counts.remove(&(path.to_string(), line));
         let live = matches!(data.state, "preparing" | "running" | "paused");
         drop(data);
         if live {
@@ -931,6 +999,7 @@ impl Dap {
                 verified: false,
                 message: None,
                 condition: None,
+                hit_count: None,
             });
         }
         let params = json!({
@@ -1258,6 +1327,8 @@ impl Dap {
                     }
                     data.stop_seq += 1;
                     data.state = "paused";
+                    // A stop arrived: the previous hit-count run-through, if any, is over.
+                    data.hit_wait = None;
                     data.phase = format!(
                         "Paused · {reason}{}",
                         thread_id
@@ -1291,7 +1362,7 @@ impl Dap {
                 }
                 data.stop_seq += 1;
                 data.state = "running";
-                data.phase = "Running; breakpoints are active.".to_string();
+                data.phase = running_phase(data.hit_wait.as_ref());
                 data.stopped = None;
                 data.frames.clear();
                 data.locals = None;
@@ -1445,6 +1516,65 @@ impl Dap {
                 Vec::new()
             }
         };
+        // A hit count is counted here: the adapter ignores `hitCondition`. The stop is real; when
+        // the target is not reached the host resumes without rendering a pause. A pause that is
+        // re-entered (thread switch) must not count twice, hence `hit_seen`.
+        let top_frame = frames
+            .first()
+            .and_then(|frame| frame.path.as_deref().map(|path| (path, frame.line)));
+        let (decision, frame_path) = {
+            let mut data = self.data.lock().unwrap();
+            if data.session != session || data.stop_seq != stop_seq || data.sealed {
+                return;
+            }
+            let frame_path = top_frame.map(|(path, line)| (workspace_frame(&data.root, path), line));
+            let decision = if data.hit_seen == stop_seq {
+                HitCountAction::Stop
+            } else {
+                data.hit_seen = stop_seq;
+                let reason = data
+                    .stopped
+                    .as_ref()
+                    .map(|stopped| stopped.reason.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let frame = frame_path
+                    .as_ref()
+                    .map(|(path, line)| (path.as_str(), *line));
+                let Data {
+                    breakpoints,
+                    hit_counts,
+                    ..
+                } = &mut *data;
+                hit_count_action(&reason, frame, breakpoints, hit_counts)
+            };
+            (decision, frame_path)
+        };
+        if let HitCountAction::Continue { count, target } = decision {
+            let Some((path, line)) = frame_path else {
+                return;
+            };
+            {
+                let mut data = self.data.lock().unwrap();
+                if data.session != session || data.stop_seq != stop_seq || data.sealed {
+                    return;
+                }
+                // Past the target the breakpoint no longer stops, so there is nothing to show.
+                data.hit_wait = (count < target).then(|| HitWait {
+                    path: path.clone(),
+                    line,
+                    count,
+                    target,
+                });
+                data.phase = running_phase(data.hit_wait.as_ref());
+            }
+            self.note(format!(
+                "[dap] hit count {count}/{target} · {path}:{line}; resuming"
+            ));
+            if let Err(error) = self.resume("continue", None) {
+                self.note(format!("[dap] hit count auto-continue failed: {error}"));
+            }
+            return;
+        }
         {
             let mut data = self.data.lock().unwrap();
             if data.session != session || data.stop_seq != stop_seq || data.sealed {
@@ -1875,7 +2005,7 @@ impl Dap {
         match result {
             Ok(_) => {
                 data.state = "running";
-                data.phase = "Running; breakpoints are active.".to_string();
+                data.phase = running_phase(data.hit_wait.as_ref());
                 Ok(())
             }
             Err(error) => {
@@ -2272,6 +2402,78 @@ fn parse_frames(body: &Value) -> Vec<FrameView> {
         .unwrap_or_default()
 }
 
+/// Resolves a frame path against the workspace root, canonically, so a `/private/tmp` debug
+/// info path matches the `/tmp` workspace and a path outside the root never matches a breakpoint.
+fn workspace_frame(root: &Path, path: &str) -> String {
+    let path = Path::new(path);
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    crate::evaluation::relative_path(root, &canonical)
+}
+
+/// Decides whether one stop is a hit-count stop. Only `reason == "breakpoint"` counts: manual
+/// pauses, steps and exceptions never do. A hit count of N stops on the Nth counted stop and
+/// never again in this session (later hits keep counting, they just do not stop).
+fn hit_count_action(
+    reason: &str,
+    frame: Option<(&str, i64)>,
+    breakpoints: &BTreeMap<String, Vec<BreakpointView>>,
+    counts: &mut BTreeMap<(String, i64), u32>,
+) -> HitCountAction {
+    if reason != "breakpoint" {
+        return HitCountAction::Stop;
+    }
+    let Some((path, line)) = frame else {
+        return HitCountAction::Stop;
+    };
+    let target = breakpoints
+        .get(path)
+        .and_then(|items| items.iter().find(|item| item.line == line))
+        .and_then(|item| item.hit_count)
+        .filter(|target| *target > 0);
+    let Some(target) = target else {
+        return HitCountAction::Stop;
+    };
+    let count = counts.entry((path.to_string(), line)).or_insert(0);
+    *count = count.saturating_add(1);
+    if *count == target {
+        HitCountAction::Stop
+    } else {
+        HitCountAction::Continue {
+            count: *count,
+            target,
+        }
+    }
+}
+
+/// What the host does with the current stop when a hit count is armed.
+#[derive(Debug, Clone, PartialEq)]
+enum HitCountAction {
+    /// Show the pause: no armed hit count matched, or the target was reached.
+    Stop,
+    /// Count this stop and resume without showing a pause.
+    Continue { count: u32, target: u32 },
+}
+
+/// The hit count the host is currently running through, used only for the visible phase.
+#[derive(Debug, Clone, PartialEq)]
+struct HitWait {
+    path: String,
+    line: i64,
+    count: u32,
+    target: u32,
+}
+
+/// The phase shown while the host is running, which says when it is resuming through a hit count.
+fn running_phase(hit_wait: Option<&HitWait>) -> String {
+    match hit_wait {
+        Some(wait) => format!(
+            "Running · hit count {}/{} · {}:{}",
+            wait.count, wait.target, wait.path, wait.line
+        ),
+        None => "Running; breakpoints are active.".to_string(),
+    }
+}
+
 fn spawn_reader(dap: Arc<Dap>, stdout: ChildStdout) {
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
@@ -2633,6 +2835,7 @@ while True:
                 verified: false,
                 message: None,
                 condition: None,
+                hit_count: None,
             }],
         );
         let mut command = Command::new("python3");
@@ -2715,5 +2918,175 @@ while True:
         assert_eq!(params["args"], json!(["--first", "two words"]));
         assert_eq!(params["env"]["OPENRIDR_F4"], "explicit");
         assert_eq!(params["env"]["DOTNET_ROOT"], "/custom/sdk");
+    }
+
+    fn counted(path: &str, line: i64, hit_count: Option<u32>) -> BreakpointView {
+        BreakpointView {
+            path: path.to_string(),
+            line,
+            verified: true,
+            message: None,
+            condition: None,
+            hit_count,
+        }
+    }
+
+    fn breakpoints_with(hit_count: Option<u32>) -> BTreeMap<String, Vec<BreakpointView>> {
+        let mut breakpoints = BTreeMap::new();
+        breakpoints.insert("Program.cs".to_string(), vec![counted("Program.cs", 4, hit_count)]);
+        breakpoints
+    }
+
+    #[test]
+    fn hit_count_without_a_target_never_counts() {
+        let breakpoints = breakpoints_with(None);
+        let mut counts = BTreeMap::new();
+        for _ in 0..3 {
+            assert_eq!(
+                hit_count_action("breakpoint", Some(("Program.cs", 4)), &breakpoints, &mut counts),
+                HitCountAction::Stop
+            );
+        }
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn hit_count_stops_on_the_nth_breakpoint_stop_and_never_again() {
+        let breakpoints = breakpoints_with(Some(3));
+        let mut counts = BTreeMap::new();
+        let key = ("Program.cs".to_string(), 4);
+        assert_eq!(
+            hit_count_action("breakpoint", Some(("Program.cs", 4)), &breakpoints, &mut counts),
+            HitCountAction::Continue { count: 1, target: 3 }
+        );
+        assert_eq!(
+            hit_count_action("breakpoint", Some(("Program.cs", 4)), &breakpoints, &mut counts),
+            HitCountAction::Continue { count: 2, target: 3 }
+        );
+        assert_eq!(
+            hit_count_action("breakpoint", Some(("Program.cs", 4)), &breakpoints, &mut counts),
+            HitCountAction::Stop
+        );
+        assert_eq!(counts.get(&key), Some(&3));
+        // Past the target the counter keeps rising but the breakpoint no longer stops: the host
+        // resumes silently instead of rendering a pause.
+        assert_eq!(
+            hit_count_action("breakpoint", Some(("Program.cs", 4)), &breakpoints, &mut counts),
+            HitCountAction::Continue { count: 4, target: 3 }
+        );
+        assert_eq!(counts.get(&key), Some(&4));
+    }
+
+    #[test]
+    fn only_breakpoint_stops_count() {
+        let breakpoints = breakpoints_with(Some(3));
+        let mut counts = BTreeMap::new();
+        for reason in ["pause", "step", "exception", "entry", "unknown"] {
+            assert_eq!(
+                hit_count_action(reason, Some(("Program.cs", 4)), &breakpoints, &mut counts),
+                HitCountAction::Stop
+            );
+        }
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn a_stop_without_a_matching_breakpoint_never_counts() {
+        let breakpoints = breakpoints_with(Some(2));
+        let mut counts = BTreeMap::new();
+        for frame in [Some(("Other.cs", 4)), Some(("Program.cs", 5)), None] {
+            assert_eq!(
+                hit_count_action("breakpoint", frame, &breakpoints, &mut counts),
+                HitCountAction::Stop
+            );
+        }
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn a_zero_target_never_counts() {
+        let breakpoints = breakpoints_with(Some(0));
+        let mut counts = BTreeMap::new();
+        assert_eq!(
+            hit_count_action("breakpoint", Some(("Program.cs", 4)), &breakpoints, &mut counts),
+            HitCountAction::Stop
+        );
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn a_frame_outside_the_workspace_keeps_its_absolute_path() {
+        let root = temp_dir("root");
+        assert_eq!(
+            workspace_frame(&root, "/somewhere/else/Program.cs"),
+            "/somewhere/else/Program.cs"
+        );
+        // No relative breakpoint key can equal an absolute path, so it never counts.
+        let breakpoints = breakpoints_with(Some(2));
+        let mut counts = BTreeMap::new();
+        assert_eq!(
+            hit_count_action(
+                "breakpoint",
+                Some(("/somewhere/else/Program.cs", 4)),
+                &breakpoints,
+                &mut counts
+            ),
+            HitCountAction::Stop
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn setting_the_hit_count_restarts_its_counter() {
+        let dap = Dap::idle();
+        dap.set_breakpoints("Program.cs", &[4]);
+        dap.set_hit_count("Program.cs", 4, Some(3)).unwrap();
+        let key = ("Program.cs".to_string(), 4);
+        dap.data.lock().unwrap().hit_counts.insert(key.clone(), 2);
+        dap.set_hit_count("Program.cs", 4, Some(5)).unwrap();
+        assert!(!dap.data.lock().unwrap().hit_counts.contains_key(&key));
+        assert_eq!(
+            dap.data.lock().unwrap().breakpoints["Program.cs"][0].hit_count,
+            Some(5)
+        );
+    }
+
+    #[test]
+    fn the_hit_count_survives_a_breakpoint_resend_but_not_a_new_target() {
+        let dap = Dap::idle();
+        dap.set_breakpoints("Program.cs", &[4]);
+        dap.set_hit_count("Program.cs", 4, Some(3)).unwrap();
+        let key = ("Program.cs".to_string(), 4);
+        dap.data.lock().unwrap().hit_counts.insert(key.clone(), 2);
+        dap.set_breakpoints("Program.cs", &[4, 6]);
+        assert_eq!(dap.data.lock().unwrap().hit_counts.get(&key), Some(&2));
+        assert_eq!(
+            dap.data.lock().unwrap().breakpoints["Program.cs"][0].hit_count,
+            Some(3)
+        );
+        dap.set_breakpoints("Program.cs", &[6]);
+        assert!(!dap.data.lock().unwrap().hit_counts.contains_key(&key));
+        assert_eq!(
+            dap.data.lock().unwrap().breakpoints["Program.cs"][0].hit_count,
+            None
+        );
+    }
+
+    #[test]
+    fn a_hit_count_needs_an_existing_breakpoint_and_a_positive_target() {
+        let dap = Dap::idle();
+        assert_eq!(
+            dap.set_hit_count("Program.cs", 4, Some(3))
+                .unwrap_err()
+                .code,
+            "invalid_state"
+        );
+        dap.set_breakpoints("Program.cs", &[4]);
+        assert_eq!(
+            dap.set_hit_count("Program.cs", 4, Some(0))
+                .unwrap_err()
+                .code,
+            "invalid_state"
+        );
     }
 }
