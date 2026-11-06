@@ -25,6 +25,7 @@ export type FileKind =
 export type FileGlyph =
   | "csharp"
   | "doc"
+  | "project"
   | "json"
   | "markdown"
   | "docker"
@@ -41,8 +42,8 @@ export type FileGlyph =
 const GLYPH: Record<FileKind, FileGlyph> = {
   csharp: "csharp",
   solution: "doc",
-  project: "doc",
-  dotsettings: "doc",
+  project: "project",
+  dotsettings: "xml",
   file: "doc",
   props: "xml",
   json: "json",
