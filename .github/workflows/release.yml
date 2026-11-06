@@ -23,7 +23,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  # One release at a time in the whole repository: a dispatch and a tag push for the same version
+  # must not race for the same release. Never cancel a release in flight.
+  group: release
   cancel-in-progress: false
 
 env:
@@ -41,9 +43,12 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     steps:
+      # A dispatch on a branch must still build the tagged commit, not the branch tip; the preflight
+      # also refuses a HEAD that is not the tag's commit.
       - name: Check out the tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -76,6 +81,8 @@ jobs:
         id: keychain
         run: |
           keychain="$RUNNER_TEMP/release.keychain-db"
+          # Recorded before the keychain exists: a failure half-way still leaves a path to clean up.
+          echo "path=$keychain" >> "$GITHUB_OUTPUT"
           password=$(openssl rand -hex 24)
           security create-keychain -p "$password" "$keychain"
           security set-keychain-settings -lut 1800 "$keychain"
@@ -88,7 +95,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" \
             "$keychain" >/dev/null
           rm -f "$RUNNER_TEMP/DeveloperID.p12"
-          echo "path=$keychain" >> "$GITHUB_OUTPUT"
           echo "the keychain holds these code signing identities:"
           security find-identity -v -p codesigning "$keychain"
 
@@ -110,9 +116,8 @@ jobs:
         if: always()
         run: |
           keychain="${{ steps.keychain.outputs.path }}"
-          if [ -n "$keychain" ]; then
-            security delete-keychain "$keychain" 2>/dev/null || true
-          fi
+          [ -n "$keychain" ] || keychain="$RUNNER_TEMP/release.keychain-db"
+          security delete-keychain "$keychain" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/DeveloperID.p12" "$RUNNER_TEMP"/AuthKey_*.p8
           rm -rf "$RUNNER_TEMP/release-dmg."* "$RUNNER_TEMP/release-mnt."* "$RUNNER_TEMP"/*-notary.*.zip
 
@@ -140,9 +145,11 @@ jobs:
             *-*) prerelease=--prerelease ;;
           esac
           if gh release view "$tag" >/dev/null 2>&1; then
+            # Upload first: the body names a hash, so it must never be published while the attached
+            # DMG is still the previous one.
+            gh release upload "$tag" "$dmg" --clobber
             gh release edit "$tag" --title "OpenRidr ${{ steps.release.outputs.version }}" \
               --notes-file "$RUNNER_TEMP/notes.md" $prerelease
-            gh release upload "$tag" "$dmg" --clobber
           else
             gh release create "$tag" "$dmg" \
               --title "OpenRidr ${{ steps.release.outputs.version }}" \
