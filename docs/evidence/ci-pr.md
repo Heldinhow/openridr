@@ -70,6 +70,40 @@ Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `SDK .
 - `.github/rulesets/main.json`: `json.load` ok, regras `deletion`, `non_fast_forward`,
   `required_linear_history`, `pull_request`, `required_status_checks` com contextos `ci` e `security`.
 
+### Primeiro run real no GitHub (PR #90, run `42265605184`)
+
+O PR foi apontado para `main` e o workflow rodou de verdade, antes de qualquer check ser obrigatório:
+
+| Job | Resultado | Tempo |
+|---|---|---|
+| `TypeScript (tsc + unit)` | pass | 23 s |
+| `security` (gitleaks) | pass | 13 s |
+| `Governance (workflows, PR title, PR body)` | pass | 18 s |
+| `Rust (fmt, clippy, host tests)` | **fail** | 2 min 09 s |
+| `ci` (agregador) | **fail** | 3 s |
+
+O agregador falhar em 3 s com o Rust vermelho é o comportamento correto — é o check que o ruleset vai
+exigir. `gitleaks` rodou sem `GITLEAKS_LICENSE` (conta de usuário). O título conventional e o gate de
+corpo passaram no PR real. O `dependabot.yml` foi validado pelo próprio Dependabot (`pass`).
+
+O run achou **dois defeitos**, nenhum deles de YAML:
+
+1. **`zizmor` audita o repo inteiro, não só `.github/workflows/`.** Localmente eu rodei
+   `zizmor .github/workflows` (0 achados); a action usa o modo de coleta padrão, que inclui o
+   `dependabot.yml` e reprovou com 4 `warning[dependabot-cooldown]` (medium): atualização sem
+   `cooldown`, isto é, PR de dependabot no dia em que a versão sai. Correção: `cooldown:
+   default-days: 7` nos quatro ecossistemas. Reprodução local com o modo da action:
+   `zizmor --offline --min-severity low .` → 0 achados.
+2. **Bug de produto em máquina limpa (issue [#93](https://github.com/Heldinhow/openridr/issues/93)).**
+   `tools::tests::staged_verification_writes_integrity_and_a_write_failure_keeps_the_old_copy` falhou
+   no runner: `verify_installed` roda o launcher com `current_dir($TMPDIR/openridr-neutral)`, diretório
+   que ninguém cria nesse caminho, e o spawn falha com `ENOENT` antes do launcher rodar — na primeira
+   instalação de ferramenta de uma máquina nova o tool era reportado como `invalid`. Passava no Mac do
+   mantenedor porque o diretório já existia ali. Reprodução determinística, sem tocar no código:
+   `fresh=$(mktemp -d); TMPDIR="$fresh" cargo test -p openridr-host --lib
+   tools::tests::staged_verification` → falhava antes, passa depois de criar o diretório (o
+   `verify_bundled` já fazia isso; foi a única diferença entre os dois caminhos).
+
 ### TypeScript (não tocado, medido para o CI)
 
 `bunx tsc --noEmit` → 0 erros; `bun test tests/unit` → 39 testes, 151 asserts, 497 ms.
@@ -84,11 +118,11 @@ app Tauri foi aberto: abrir o app não provaria nada sobre um workflow que só r
 
 ## O que não foi verificado
 
-- **Nenhum workflow rodou no GitHub.** Não houve push nesta sessão até o fim dela: os nomes `ci` e
-  `security`, o `aggregate` e o `workflow_dispatch` existem só como YAML validado por `actionlint` e
-  `zizmor`. O primeiro run real é o do PR — e é ele que decide se o `rustup toolchain install` acha a
-  1.99.0 na imagem `macos-15`, se o `setup-dotnet` baixa 8.0.408 e se os testes do host passam num
-  runner limpo.
+- **`e2e-smoke.yml` nunca rodou**: é `schedule`/`workflow_dispatch`, então depende de um dispatch
+  manual ou da primeira madrugada. O run do PR provou o resto: `rustup toolchain install` achou a
+  1.99.0 na imagem `macos-15`, o `setup-dotnet` instalou 8.0.408, `fmt`/`clippy`/`tsc`/unit/gitleaks e
+  o gate de corpo rodaram; o Rust só ficou vermelho pelo bug da #93, que está corrigido. O run seguinte
+  a esta correção ainda não tinha terminado quando a evidência foi escrita.
 - **`shellcheck` sobre os `run:`**: indisponível localmente. É o único check do `actionlint` que não
   rodou.
 - **`min-severity: low` no zizmor** é o que o job usa; o efeito no *exit code* foi medido pela CLI

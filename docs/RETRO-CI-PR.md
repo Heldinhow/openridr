@@ -60,21 +60,30 @@ ambiente de trabalho do agente**, não sobre o produto.
    ensaio. A opção foi aceitar o risco e escrever no doc que a aplicação é do Helder.
    → **Proposta:** aplicar primeiro num repo de teste (ou num branch de teste do ruleset) e só depois
    na `main`, quando o Helder decidir aplicar.
-7. **Nenhum workflow rodou de verdade.** YAML em macOS não é executável localmente (`act` não cobre
-   `macos-15`), então o primeiro run do PR é a primeira prova. O `workflow_dispatch` existe para isso,
-   e a issue #82 já exige registrar o resultado em `docs/evidence/ci-pr.md`.
-   → **Proposta:** manter a regra "check obrigatório só depois do primeiro run verde" como padrão para
-   qualquer workflow novo neste repo.
+7. **O primeiro run no GitHub achou dois defeitos que nenhuma validação local pegaria.** (a) O
+   `zizmor` da action audita o repo inteiro (modo de coleta padrão, inclui `dependabot.yml`), enquanto
+   eu rodei `zizmor .github/workflows` e vi zero achados: no CI apareceram 4 `dependabot-cooldown`
+   (medium). (b) Um teste do host só falha em máquina limpa: `verify_installed` rodava o launcher com
+   `current_dir($TMPDIR/openridr-neutral)`, diretório que ninguém cria ali, e o spawn falhava antes de
+   o launcher rodar — bug de produto na primeira instalação de uma máquina nova (#93).
+   → **Proposta:** (a) reproduzir a ferramenta com o *mesmo* modo de coleta da action (`zizmor .`, não
+   o subdiretório); (b) para teste que depende de `$TMPDIR`, rodar a bateria com `TMPDIR=$(mktemp -d)`
+   — é um comando e transforma "passa no Mac" em "passa em máquina limpa".
+   A regra "check obrigatório só depois do primeiro run verde" se pagou exatamente aqui: o CI nunca
+   esteve exigido enquanto o Rust estava vermelho.
 
 ## Números
 
-- 3 commits no PR mecânico (`ci/issue-56-fmt`) e 13 no PR de CI (`ci/issue-56-pr-checks`), um por
-  ticket mais os de spec/docs e os três de correção do code review.
+- 3 commits no PR mecânico (`ci/issue-56-fmt`) e 16 no PR de CI (`ci/issue-56-pr-checks`): um por
+  ticket, mais spec/docs/retro, três de correção do code review, o `cooldown` do Dependabot e o bug
+  #93 que o primeiro run do CI achou.
 - `fmt`: 33 arquivos, 596 hunks; `clippy`: 51 linhas de warning → 0 com `-D warnings`;
   `cargo test -p openridr-host`: 427 testes verdes em duas rodadas (3 min 59 s com build quente, 2 min
   40 s na bateria final); `tsc --noEmit` 0 erros; `bun test tests/unit` 39/39;
   `scripts/ci-pr-body-selfcheck.sh` 13 casos; `actionlint 1.7.12` e `zizmor 1.32.0` (`--min-severity
   low`) sem achado.
-- Não verificado: execução dos workflows no GitHub, `shellcheck` sobre os `run:`, aceitação do ruleset
-  pela API e o comportamento real do `release.yml` depois das duas linhas (`persist-credentials`,
-  `no-cache`).
+- O run real do PR #90 provou `tsc`, unit, `fmt`, `clippy`, gitleaks, o gate de corpo e o título
+  conventional em runner do GitHub, e falhou só no bug da #93 (corrigido). Não verificado: o
+  `e2e-smoke.yml` (schedule/dispatch, nunca rodou), `shellcheck` sobre os `run:`, a aceitação do
+  ruleset pela API e o comportamento real do `release.yml` depois das duas linhas
+  (`persist-credentials`, `no-cache`).
