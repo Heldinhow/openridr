@@ -13,6 +13,7 @@ import {
   type ReferencesResponse,
   type RenameResponse,
   type RunConfig,
+  type LaunchProfile,
   type SessionState,
   type Snapshot,
   type OutlineProject,
@@ -533,7 +534,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [startupPath, setStartupPath] = useState<string | null>(null);
   const seededRunConfigsFor = useRef<number | null>(null);
-  const { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject, persistSession } = useRunConfigs({ workspacePath: workspace.path, setMessage });
+  const { runConfigStore, runConfigsLoaded, commitRunConfigs, persistStartupProject, persistSession, selectLaunchProfile } = useRunConfigs({ workspacePath: workspace.path, setMessage });
   useEffect(() => {
     if (!runConfigsLoaded || !runConfigStore || seededRunConfigsFor.current === workspace.id) return;
     seededRunConfigsFor.current = workspace.id;
@@ -883,7 +884,34 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const startupProject = activeNamedConfig
     ? consoleCandidates.find((project) => project.path === activeNamedConfig.project) ?? null
     : defaultStartupProject;
-  const defaultRunConfig = deriveDefaultRunConfig(defaultStartupProject, evaluation);
+  const [launchProfileState, setLaunchProfileState] = useState<{ project: string; profiles: LaunchProfile[]; selected: string | null } | null>(null);
+  const launchProfileRequest = useRef(0);
+  const profileProject = defaultStartupProject?.path ?? null;
+  async function refreshLaunchProfiles() {
+    const request = ++launchProfileRequest.current;
+    if (!profileProject) { setLaunchProfileState(null); return; }
+    try {
+      const result = await call<{ profiles: LaunchProfile[]; selected: string | null }>("runConfigs.launchProfiles", { solution: workspace.path, project: profileProject });
+      if (request !== launchProfileRequest.current) return;
+      const supported = result.profiles.filter((profile) => profile.commandName === "Project");
+      const selected = supported.some((profile) => profile.name === result.selected) ? result.selected : supported[0]?.name ?? null;
+      setLaunchProfileState({ project: profileProject, profiles: result.profiles, selected });
+      setMessage((previous) => previous?.text.startsWith("Launch settings could not be read:") ? null : previous);
+    } catch (error) {
+      if (request !== launchProfileRequest.current) return;
+      setLaunchProfileState({ project: profileProject, profiles: [], selected: null });
+      setMessage({ tone: "error", text: `Launch settings could not be read: ${messageOf(error)}` });
+    }
+  }
+  useEffect(() => {
+    void refreshLaunchProfiles();
+    return () => { launchProfileRequest.current += 1; };
+  }, [workspace.path, profileProject, evaluation.revision]);
+  const profileState = launchProfileState?.project === profileProject ? launchProfileState : null;
+  const baseDefaultRunConfig = deriveDefaultRunConfig(defaultStartupProject, evaluation);
+  const defaultRunConfig = baseDefaultRunConfig && profileState?.selected
+    ? { ...baseDefaultRunConfig, name: `${defaultStartupProject?.name} · ${profileState.selected}`, launchProfile: profileState.selected }
+    : baseDefaultRunConfig;
   const activeRunConfig: RunConfigView | null = activeNamedConfig ?? defaultRunConfig;
   const activeRunConfigIssues = activeRunConfig
     ? (runConfigStore?.issues ?? []).filter(
@@ -4254,6 +4282,12 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                     : null
           }
           onSelect={(id) => void selectRunConfig(id)}
+          profiles={profileState?.profiles ?? []}
+          onOpen={() => void refreshLaunchProfiles()}
+          onSelectProfile={(profile) => {
+            if (!profileProject) return;
+            void selectLaunchProfile(profileProject, profile).then(() => refreshLaunchProfiles()).catch((error) => setMessage({ tone: "error", text: `Launch profile could not be selected: ${messageOf(error)}` }));
+          }}
           onEdit={() => openRunConfigDialog()}
         />
         <label

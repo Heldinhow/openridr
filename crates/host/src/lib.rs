@@ -763,6 +763,8 @@ impl Host {
             "runConfigs.read" => run_configs::read(&params),
             "runConfigs.write" => run_configs::write(&params),
             "runConfigs.setStartup" => run_configs::set_startup(&params),
+            "runConfigs.launchProfiles" => run_configs::launch_profiles(&params),
+            "runConfigs.setLaunchProfile" => run_configs::set_launch_profile(&params),
             "session.read" => run_configs::read_session(&params),
             "session.write" => run_configs::write_session(&params),
             _ => Err(HostError::new(

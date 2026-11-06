@@ -1046,6 +1046,12 @@ export type RunConfig = {
   workingDirectory: string;
   env: Record<string, string>;
   envFiles: string[];
+  launchProfile?: string;
+};
+
+export type LaunchProfile = {
+  name: string;
+  commandName: string;
 };
 
 export type RunConfigIssue = {

@@ -61,6 +61,8 @@ struct Store {
     /// Chosen from the toolbar or the Build panel; kept even while no named config selects it.
     #[serde(default)]
     startup_project: Option<String>,
+    #[serde(default)]
+    launch_profiles: BTreeMap<String, String>,
     /// Editor tabs, cursor and breakpoints last saved for this solution.
     #[serde(default)]
     session: SessionState,
@@ -99,6 +101,118 @@ pub struct LaunchOptions {
     pub working_directory: Option<PathBuf>,
     /// `.env` files in order, then the explicit environment; later assignments win.
     pub env: Vec<(String, String)>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchProfile {
+    #[serde(skip_deserializing)]
+    name: String,
+    #[serde(default)]
+    command_name: String,
+    #[serde(default)]
+    application_url: Option<String>,
+    #[serde(default)]
+    environment_variables: BTreeMap<String, String>,
+    #[serde(default)]
+    command_line_args: String,
+    #[serde(default)]
+    working_directory: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LaunchSettings {
+    #[serde(default, deserialize_with = "deserialize_profiles")]
+    profiles: Vec<LaunchProfile>,
+}
+
+fn deserialize_profiles<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<LaunchProfile>, D::Error> {
+    struct ProfilesVisitor;
+    impl<'de> serde::de::Visitor<'de> for ProfilesVisitor {
+        type Value = Vec<LaunchProfile>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an object of launch profiles")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+            let mut profiles = Vec::new();
+            while let Some((name, mut profile)) = map.next_entry::<String, LaunchProfile>()? {
+                profile.name = name;
+                profiles.push(profile);
+            }
+            Ok(profiles)
+        }
+    }
+    deserializer.deserialize_map(ProfilesVisitor)
+}
+
+fn read_launch_profiles(project: &Path) -> HostResult<Vec<LaunchProfile>> {
+    let path = project.parent().unwrap_or(project).join("Properties/launchSettings.json");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(HostError::new("invalid_launch_settings", format!("{}: {error}", path.display()))),
+    };
+    serde_json::from_str::<LaunchSettings>(&text).map(|settings| settings.profiles)
+        .map_err(|error| HostError::new("invalid_launch_settings", format!("{}: {error}", path.display())))
+}
+
+fn project_param(params: &Value, root: &Path) -> HostResult<PathBuf> {
+    let raw = params.get("project").and_then(Value::as_str).ok_or_else(|| invalid("A project is required."))?;
+    let path = fs::canonicalize(resolve_path(root, raw)).map_err(|error| invalid(format!("Project {raw}: {error}")))?;
+    let root = fs::canonicalize(root).map_err(|error| invalid(format!("Workspace: {error}")))?;
+    if !path.starts_with(root) || path.extension().and_then(|value| value.to_str()) != Some("csproj") {
+        return Err(invalid("The project must be a .csproj inside the workspace."));
+    }
+    Ok(path)
+}
+
+pub fn launch_profiles(params: &Value) -> HostResult<Value> {
+    let _guard = lock_store();
+    let solution = solution_param(params)?;
+    let root = solution.parent().unwrap_or(&solution);
+    let project = project_param(params, root)?;
+    let profiles = read_launch_profiles(&project)?;
+    let store = read_at(&path_for(&solution), &solution)?;
+    let key = params["project"].as_str().unwrap_or_default();
+    Ok(json!({"profiles": profiles, "selected": store.launch_profiles.get(key)}))
+}
+
+pub fn set_launch_profile(params: &Value) -> HostResult<Value> {
+    let _guard = lock_store();
+    let solution = solution_param(params)?;
+    let project = project_param(params, solution.parent().unwrap_or(&solution))?;
+    let name = params.get("profile").and_then(Value::as_str).ok_or_else(|| invalid("A profile is required."))?;
+    let profiles = read_launch_profiles(&project)?;
+    if !profiles.iter().any(|profile| profile.name == name && profile.command_name == "Project") {
+        return Err(invalid(format!("Launch profile {name} is not supported or no longer exists.")));
+    }
+    let path = path_for(&solution);
+    let mut store = read_at(&path, &solution)?;
+    store.launch_profiles.insert(params["project"].as_str().unwrap_or_default().to_string(), name.to_string());
+    store.active_id = "default".to_string();
+    write_at(&path, &store)?;
+    Ok(view(&store, &path, &solution))
+}
+
+fn split_launch_args(text: &str) -> HostResult<Vec<String>> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut started = false;
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '"' => { quoted = !quoted; started = true; }
+            '\\' if chars.peek() == Some(&'"') => { current.push(chars.next().unwrap()); started = true; }
+            value if value.is_whitespace() && !quoted => {
+                if started { args.push(std::mem::take(&mut current)); started = false; }
+            }
+            value => { current.push(value); started = true; }
+        }
+    }
+    if quoted { return Err(invalid("Unclosed quote in launch profile commandLineArgs.")); }
+    if started { args.push(current); }
+    Ok(args)
 }
 
 pub fn read(params: &Value) -> HostResult<Value> {
@@ -189,11 +303,13 @@ fn store_from_params(path: &Path, solution: &Path, params: &Value) -> HostResult
         .ok()
         .map(|store| store.session)
         .unwrap_or_default();
+    let launch_profiles = read_at(path, solution).ok().map(|store| store.launch_profiles).unwrap_or_default();
     Ok(Store {
         solution: solution.to_string_lossy().to_string(),
         active_id,
         configs,
         startup_project,
+        launch_profiles,
         session,
     })
 }
@@ -285,6 +401,19 @@ fn startup_param(params: &Value) -> HostResult<Option<String>> {
 /// the solution root, argv is never split by a shell, and the working directory must exist
 /// before anything is spawned.
 pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> {
+    if let Some(name) = params.get("launchProfile").and_then(Value::as_str) {
+        let project = project_param(params, root)?;
+        let profile = read_launch_profiles(&project)?.into_iter().find(|profile| profile.name == name)
+            .ok_or_else(|| invalid(format!("Launch profile {name} was not found in {}.", project.display())))?;
+        if profile.command_name != "Project" {
+            return Err(invalid(format!("Launch profile {name} uses unsupported commandName {}.", profile.command_name)));
+        }
+        let mut env = profile.environment_variables;
+        if let Some(url) = profile.application_url { env.insert("ASPNETCORE_URLS".to_string(), url); }
+        let project_dir = project.parent().unwrap_or(root);
+        let cwd = profile.working_directory.as_deref().map(|value| resolve_path(project_dir, value));
+        return launch_options(&json!({"args": split_launch_args(&profile.command_line_args)?, "env": env, "workingDirectory": cwd}), root);
+    }
     let args = string_list(params.get("args"), "args", MAX_ARGS)?;
     for argument in &args {
         if argument.contains('\0') {
@@ -484,6 +613,7 @@ fn read_at(path: &Path, solution: &Path) -> HostResult<Store> {
         active_id: "default".to_string(),
         configs: Vec::new(),
         startup_project: None,
+        launch_profiles: BTreeMap::new(),
         session: SessionState::default(),
     };
     let text = match fs::read_to_string(path) {
@@ -800,6 +930,82 @@ fn valid_env_name(name: &str) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn launch_profiles_preserve_order_and_apply_project_values() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/LaunchProfiles");
+        let project = root.join("LaunchProfiles.csproj");
+        let profiles = read_launch_profiles(&project).unwrap();
+        assert_eq!(profiles.iter().map(|profile| profile.name.as_str()).collect::<Vec<_>>(), vec!["http", "https", "IIS Express"]);
+        assert_eq!(profiles[2].command_name, "IISExpress");
+        let options = launch_options(&json!({"project": project, "launchProfile": "http"}), &root).unwrap();
+        assert_eq!(options.args, vec!["--message", "hello world"]);
+        assert_eq!(options.working_directory, Some(fs::canonicalize(&root).unwrap()));
+        assert!(options.env.contains(&("PROFILE_ENV".into(), "http".into())));
+        assert!(options.env.contains(&("ASPNETCORE_URLS".into(), "http://localhost:5083".into())));
+        assert!(launch_options(&json!({"project": project, "launchProfile": "IIS Express"}), &root).is_err());
+    }
+
+    #[test]
+    fn launch_profile_runs_fixture_with_effective_environment_and_arguments() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/LaunchProfiles");
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("Properties")).unwrap();
+        for file in ["global.json", "LaunchProfiles.csproj", "Program.cs", "Properties/launchSettings.json"] {
+            fs::copy(source.join(file), temp.path().join(file)).unwrap();
+        }
+        let project = temp.path().join("LaunchProfiles.csproj");
+        let options = launch_options(&json!({"project": project, "launchProfile": "http"}), temp.path()).unwrap();
+        let mut command = std::process::Command::new("dotnet");
+        command.args(["run", "--project"]).arg(&project).arg("--no-launch-profile").arg("--");
+        command.args(&options.args).envs(options.env.iter().cloned()).current_dir(options.working_directory.unwrap());
+        let output = command.output().expect("dotnet must be installed for this test");
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("PROFILE_ENV=http"), "{stdout}");
+        assert!(stdout.contains("ASPNETCORE_URLS=http://localhost:5083"), "{stdout}");
+        assert!(stdout.contains("ARGS=--message|hello world"), "{stdout}");
+        assert!(stdout.contains(&format!("CWD={}", fs::canonicalize(temp.path()).unwrap().display())), "{stdout}");
+    }
+
+    #[test]
+    fn launch_profile_reports_invalid_json_and_reloads_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("App.csproj");
+        fs::write(&project, "").unwrap();
+        fs::create_dir(temp.path().join("Properties")).unwrap();
+        let path = temp.path().join("Properties/launchSettings.json");
+        fs::write(&path, "{").unwrap();
+        let error = read_launch_profiles(&project).unwrap_err();
+        assert!(error.message.contains("launchSettings.json"));
+        fs::write(&path, r#"{"profiles":{"new":{"commandName":"Project"}}}"#).unwrap();
+        let profiles = read_launch_profiles(&project).unwrap();
+        assert_eq!(profiles[0].name, "new");
+        assert_eq!(serde_json::to_value(&profiles[0]).unwrap()["name"], "new");
+    }
+
+    #[test]
+    fn manual_config_writes_preserve_per_project_profile_choices() {
+        let temp = tempfile::tempdir().unwrap();
+        let solution = temp.path().join("App.sln");
+        fs::write(&solution, "").unwrap();
+        let path = temp.path().join("store.json");
+        let mut choices = BTreeMap::new();
+        choices.insert("App.csproj".to_string(), "https".to_string());
+        let manual = config("custom", "Custom");
+        let store = Store {
+            solution: solution.to_string_lossy().to_string(),
+            active_id: "custom".to_string(),
+            configs: vec![manual.clone()],
+            startup_project: None,
+            launch_profiles: choices.clone(),
+            session: SessionState::default(),
+        };
+        write_at(&path, &store).unwrap();
+        let updated = store_from_params(&path, &solution, &json!({"activeId":"custom", "configs":[manual]})).unwrap();
+        assert_eq!(updated.launch_profiles, choices);
+        assert_eq!(updated.configs, store.configs);
+    }
+
     fn config(id: &str, name: &str) -> RunConfig {
         RunConfig {
             id: id.to_string(),
@@ -917,6 +1123,7 @@ mod tests {
             active_id: "one".to_string(),
             configs: vec![stored],
             startup_project: None,
+            launch_profiles: BTreeMap::new(),
             session: SessionState::default(),
         };
         validate(&store.configs, &store.active_id).unwrap();
@@ -960,6 +1167,7 @@ mod tests {
             active_id: "default".to_string(),
             configs: Vec::new(),
             startup_project: None,
+            launch_profiles: BTreeMap::new(),
             session: session.clone(),
         };
         write_at(&path, &store).unwrap();

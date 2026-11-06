@@ -1,0 +1,17 @@
+{
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5083",
+      "environmentVariables": { "PROFILE_ENV": "http" },
+      "commandLineArgs": "--message \"hello world\"",
+      "workingDirectory": "."
+    },
+    "https": {
+      "commandName": "Project",
+      "applicationUrl": "https://localhost:7259;http://localhost:5083",
+      "environmentVariables": { "PROFILE_ENV": "https" }
+    },
+    "IIS Express": { "commandName": "IISExpress" }
+  }
+}

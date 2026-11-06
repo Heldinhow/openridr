@@ -1289,3 +1289,15 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
 - **Não verificado:** notarização/Developer ID (sem credencial nesta sessão; `spctl` rejeita o
   ad-hoc), `stapler` (exige Xcode completo), quarentena real e Mac limpo (a ausência de runtime
   10 foi simulada por sandbox + raiz SDK-8-só, não por uma máquina sem .NET).
+
+## 2026-11-06 — Perfis de launchSettings
+
+- `Properties/launchSettings.json` é lido no host, mantendo a ordem dos perfis; `Project` usa
+  URL, ambiente, argumentos e diretório em `launch_options`, compartilhado por Run e Debug.
+  Outros `commandName` aparecem desabilitados com motivo. JSON inválido informa caminho e erro;
+  o seletor retorna ao padrão e relê ao abrir ou reavaliar o modelo.
+- O perfil escolhido por projeto fica no store por solução, separado das configurações manuais;
+  a primeira opção `Project` é o padrão. `launchBrowser` e `launchUrl` não são implementados.
+- Fixture web nova e testes de parsing, persistência e processo real; Run, Debug, erro e
+  recuperação verificados no app macOS ARM64. Resultados, limites e capturas em
+  [evidence/launch-settings.md](evidence/launch-settings.md).
