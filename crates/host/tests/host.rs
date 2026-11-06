@@ -3248,11 +3248,7 @@ fn tools_install_is_real_verified_and_reused_isolated() {
     };
     let elapsed = started.elapsed();
     assert_eq!(finished["state"], "ready", "{}", finished["log"]);
-    assert_eq!(
-        seen,
-        ["downloading", "installing", "verifying", "ready"],
-        "the install states were not all observable: {seen:?}"
-    );
+    support::assert_install_progress(&seen);
     eprintln!(
         "real csharp-ls install: {:?}, states {seen:?}, sha256 {}",
         elapsed, finished["sha256"]

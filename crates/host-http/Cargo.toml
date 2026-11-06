@@ -2,6 +2,7 @@
 name = "openridr-host-http"
 version = "0.3.0-alpha.11"
 edition = "2021"
+rust-version = "1.99"
 license = "MIT"
 description = "Development-only HTTP bridge for the OpenRidr host (never shipped)"
 

@@ -35,6 +35,7 @@ import {
   BookMarked,
   Globe,
   Layers,
+  Link2,
   Search,
   Settings,
   Shield,
@@ -93,6 +94,7 @@ export type IconName =
   | "more"
   | "minimize"
   | "braces"
+  | "link"
   | "text";
 
 const icons: Record<IconName, LucideIcon> = {
@@ -142,6 +144,7 @@ const icons: Record<IconName, LucideIcon> = {
   minimize: Minus,
   braces: Braces,
   text: FileText,
+  link: Link2,
 };
 
 /** Lucide glyphs; stroke stays 1.5 screen px at any CSS size (`.icon *` uses non-scaling-stroke). */

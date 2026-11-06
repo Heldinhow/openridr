@@ -1,0 +1,53 @@
+# Dependency updates. Grouped per ecosystem and weekly: one maintainer cannot triage thirty pull
+# requests a week, and a grouped bump is one review. Every ecosystem waits a cooldown of 7 days, so a
+# release published today is not proposed today (zizmor's `dependabot-cooldown` audit, medium).
+#
+# `src-tauri` is its own workspace (it is not in the root `[workspace]` members), so it needs its own
+# cargo entry. GitHub Actions are pinned by full SHA in the workflows; Dependabot updates the pin and
+# the comment beside it.
+version: 2
+
+updates:
+  - package-ecosystem: bun
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      bun:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      cargo-root:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: "/src-tauri"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+    groups:
+      cargo-src-tauri:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]

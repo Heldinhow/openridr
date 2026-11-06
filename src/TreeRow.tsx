@@ -25,6 +25,12 @@ type Props = {
   projectKind?: string;
   projectTfms?: string;
   symbolKind?: string;
+  /** The entry itself is a symbolic link; the target is never followed by the tree. */
+  symlink?: boolean;
+  /** Git state of the file; the word tag is the non-colour channel, the colour is reinforcement. */
+  gitStatus?: string;
+  /** The commit tool's granular label, shown as the tag's tooltip. */
+  gitLabel?: string;
   onClick: () => void;
   /** Opens the row's menu; a row without one still cancels the browser menu. */
   onMenu?: (position: MenuPosition, row: HTMLElement) => void;
@@ -44,7 +50,7 @@ export const ROW_PADDING = 8;
  */
 export function TreeRow({
   level, open, icon, name, description, suffix, selected, current, noIndex, testId, title,
-  fileKind, projectKind, projectTfms, symbolKind, onClick, onMenu, children,
+  fileKind, projectKind, projectTfms, symbolKind, symlink, gitStatus, gitLabel, onClick, onMenu, children,
 }: Props) {
   // The description lives outside the row: `aria-describedby` then adds it to the description
   // without its text also becoming part of the button's accessible name.
@@ -61,6 +67,8 @@ export function TreeRow({
       data-project-kind={projectKind}
       data-project-tfms={projectTfms}
       data-symbol-kind={symbolKind}
+      data-symlink={symlink ? "true" : undefined}
+      data-git-status={gitStatus}
       aria-expanded={open}
       aria-current={current ? "page" : selected ? "true" : undefined}
       aria-describedby={description ? descriptionId : undefined}
@@ -109,9 +117,19 @@ export function TreeRow({
         ) : testId?.startsWith("tree-framework-") || (testId?.startsWith("tree-deps-group-") && testId.endsWith("-frameworks")) ? (
           <Icon name="settings" className="framework-glyph" />
         ) : icon}
+        {symlink && (
+          <span className="symlink-mark" aria-hidden="true">
+            <Icon name="link" />
+          </span>
+        )}
       </span>
       <span className="tree-name">{name}</span>
       {noIndex && <span className="tag">· no index</span>}
+      {gitStatus && (
+        <span className="tag git-status" title={gitLabel}>
+          · {gitStatus}
+        </span>
+      )}
       {suffix}
       {children}
     </button>

@@ -1,0 +1,9 @@
+# The Rust version this repository builds with. CI installs exactly this channel, so "green locally"
+# and "green in CI" cannot drift by toolchain.
+#
+# This is also the MSRV: `rust-version = "1.99"` in the crates. Lowering it is real work (measure,
+# then change both places), not a guess; see docs/decisions.md, 2026-11-06.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

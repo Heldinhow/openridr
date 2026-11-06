@@ -1,0 +1,210 @@
+name: ci
+
+# What runs on every pull request to main. The app targets macOS arm64, so the Rust job runs on
+# macos-15; the TypeScript job needs no macOS and runs on ubuntu to keep the queue short.
+#
+# The names of the `ci` and `security` jobs are a contract with .github/rulesets/main.json: renaming
+# either of them (or removing the job) without updating the ruleset silently removes the required
+# check.
+on:
+  pull_request:
+    branches: [main]
+    # `edited` so a fixed PR title is re-linted; the default types do not include it.
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+  # Lets a branch exercise this workflow before it becomes a required check.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  typescript:
+    name: TypeScript (tsc + unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.9"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bunx tsc --noEmit
+
+      - name: Unit tests
+        run: bun run test:unit
+
+  rust:
+    name: Rust (fmt, clippy, host tests)
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      # The fixture output is parsed in English; a translated runner would break the assertions.
+      DOTNET_CLI_UI_LANGUAGE: en
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The channel, rustfmt and clippy come from rust-toolchain.toml: no toolchain action to pin and
+      # no second place where the Rust version lives. The runner image already ships rustup.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --component rustfmt --component clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Check formatting
+        run: |
+          cargo fmt --all -- --check
+          # src-tauri is a separate workspace; it formats with its own manifest.
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      # src-tauri is left out on purpose: it builds the whole Tauri stack and no PR here changes it.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The fixtures pin SDK 8.0.408 in their global.json with rollForward: disable, and the runner
+      # image does not ship that exact version.
+      - name: Set up the fixture .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "8.0.408"
+
+      # The first `dotnet` run on a clean machine creates ~/.nuget/NuGet/NuGet.Config and fills the
+      # package cache. Several host tests restore at the same time, and on a fresh runner the race left
+      # one of them with an empty source list (NU1100). One restore first, with a loud failure if the
+      # network or the SDK is missing, instead of a flaky test result.
+      - name: Warm the NuGet configuration
+        run: dotnet restore fixtures/OrderDesk/OrderDesk.sln
+
+      - name: Host tests
+        run: cargo test -p openridr-host
+
+  governance:
+    name: Governance (workflows, PR title, PR body)
+    # Only a pull request has a title and a body to check.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint the workflow files
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+        with:
+          version: "1.7.12"
+          pyflakes: false
+
+      # Offline audits only: no GitHub token, no network, deterministic result for the same YAML.
+      # `min-severity: low` keeps the job honest without failing on the informational
+      # `template-injection` findings that expand our own step outputs inside a `run:` block (the
+      # release workflow: `steps.release.outputs.*` comes from scripts/release-macos.sh). Anything
+      # low and above blocks, including `${{ github.event.* }}` in a run block.
+      - name: Audit the workflow files
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: "1.32.0"
+          advanced-security: false
+          online-audits: false
+          min-severity: "low"
+
+      - name: Check the PR title
+        uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            chore
+            ci
+            refactor
+            test
+            perf
+            build
+            revert
+          requireScope: false
+
+      - name: Self-check the PR body gate
+        run: sh scripts/ci-pr-body-selfcheck.sh
+
+      - name: Check the PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          body="$RUNNER_TEMP/pull-request-body.md"
+          printf '%s' "$PR_BODY" >"$body"
+          sh scripts/ci-pr-body.sh "$body" "$PR_AUTHOR"
+
+  security:
+    # Deterministic checks only: gitleaks. The high-severity review by an LLM needs a credential
+    # (see issue "security review on every PR") and is not wired here.
+    name: security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The hit is looked for in the whole history, not only in the last commit.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          # The action comments on the PR only with this token, which a fork does not get; the failure
+          # is in the step log and the job summary either way.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  # Single required check with a stable name: adding or renaming an internal job does not touch the
+  # ruleset. A skipped PR-only job is not a failure, so `push` to main can pass without them.
+  ci:
+    name: ci
+    needs: [typescript, rust, governance, security]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail when a required job did not pass
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          # Passed as data, not interpolated into the script: a skipped job is only acceptable when the
+          # reason is "this job does not run for this event", which is the PR-only `governance`.
+          EVENT: ${{ github.event_name }}
+        run: |
+          # `governance` runs only on a pull request, so a push to main leaves it skipped. Every other
+          # dependency must really have passed, and a skipped `governance` on a pull request is a bug:
+          # a job that is skipped by accident (a bad `if`, a renamed job) must never read as green.
+          failed=$(printf '%s' "$NEEDS" | jq -r --arg event "$EVENT" 'to_entries[]
+            | select(.value.result != "success"
+                and ((.key != "governance")
+                  or (.value.result != "skipped")
+                  or ($event == "pull_request")))
+            | "\(.key): \(.value.result)"')
+          if [ -n "$failed" ]; then
+            printf 'required jobs did not pass:\n%s\n' "$failed" >&2
+            exit 1
+          fi

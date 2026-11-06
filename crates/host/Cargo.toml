@@ -2,6 +2,7 @@
 name = "openridr-host"
 version = "0.3.0-alpha.11"
 edition = "2021"
+rust-version = "1.99"
 license = "MIT"
 description = "OpenRidr host: workspace state, text outline and gated dispatch"
 

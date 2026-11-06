@@ -505,9 +505,13 @@ pub fn verify_installed(destination: &Path, runtime_root: &Path) -> Existing {
 
     let home = child_home();
     let _ = fs::create_dir_all(&home);
+    // Same step as `verify_bundled`: on a fresh machine the neutral directory does not exist yet, and
+    // `current_dir` of a missing path fails the spawn before the launcher ever runs (issue #93).
+    let cwd = neutral_cwd();
+    let _ = fs::create_dir_all(&cwd);
     let output = Command::new(&binary)
         .arg("--version")
-        .current_dir(neutral_cwd())
+        .current_dir(&cwd)
         .env("HOME", &home)
         .env("DOTNET_ROOT", runtime_root)
         .env("DOTNET_MULTILEVEL_LOOKUP", "0")
@@ -2552,6 +2556,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn staged_verification_writes_integrity_and_a_write_failure_keeps_the_old_copy() {
+        // `TMPDIR=$(mktemp -d)` makes this test fail on a warm machine too: a fresh temp root has no
+        // `openridr-neutral`, the directory the launcher runs in (issue #93).
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let staging = temp.path().join("staging");

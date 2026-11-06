@@ -8,7 +8,10 @@
 # (workspace), Build, Run e Problems. Medido em 2026-11-06: 25 testes, ~2,8 min, verde em duas
 # rodadas seguidas (headless, workers=1, um host por execução).
 # Rodar: bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)
+# 2026-11-06 (revisão r1 da #49): + solution-git-status.spec.ts. Escrito, ainda NÃO medido nesta
+# rodada; a contagem de 25 acima é do conjunto anterior.
 tests/e2e/workspace.spec.ts
 tests/e2e/build.spec.ts
 tests/e2e/run.spec.ts
 tests/e2e/qa2-diagnostics.spec.ts
+tests/e2e/solution-git-status.spec.ts

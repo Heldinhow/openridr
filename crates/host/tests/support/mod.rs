@@ -7,6 +7,25 @@
 
 #![allow(dead_code)]
 
+/// Install progress is polled (every 10 ms), so a transient state can be missed on a fast machine:
+/// the observable contract is that the pipeline only moved forward, `downloading` and `installing`
+/// were seen, and it ended `ready` — not that every intermediate state was caught.
+pub fn assert_install_progress(seen: &[String]) {
+    let order = ["downloading", "installing", "verifying", "ready"];
+    let mut previous = 0;
+    for state in seen {
+        let index = order
+            .iter()
+            .position(|candidate| candidate == state)
+            .unwrap_or_else(|| panic!("unknown install state: {state}"));
+        assert!(index >= previous, "the install went backwards: {seen:?}");
+        previous = index;
+    }
+    assert!(seen.iter().any(|state| state == "downloading"), "{seen:?}");
+    assert!(seen.iter().any(|state| state == "installing"), "{seen:?}");
+    assert_eq!(seen.last().map(String::as_str), Some("ready"), "{seen:?}");
+}
+
 use openridr_host::Host;
 use std::ffi::{OsStr, OsString};
 use std::sync::{Condvar, Mutex, Once, OnceLock};
