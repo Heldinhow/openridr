@@ -45,3 +45,12 @@
 .git-diff-editors .git-diff-line-removed { background: #423a3c; }
 .git-diff-editors .git-diff-line-empty { background: #27292e; }
 .git-diff-editors .git-diff-intraline { background: #5377ac; }
+
+.git-diff-commit { margin: 0; padding: 3px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--fs-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.git-diff-commit code { color: var(--fg); }
+.git-diff-editors .cm-diff-connectors { width: 10px; min-width: 10px; border-right: 1px solid var(--line); }
+.git-diff-editors .cm-diff-connectors .cm-gutterElement { padding: 0; }
+.cm-diff-connector { width: 10px; height: 100%; min-height: 1.5em; }
+.cm-diff-connector-removed { background: linear-gradient(90deg, #7a3b44 0 50%, transparent 50%); }
+.cm-diff-connector-added { background: linear-gradient(90deg, transparent 0 50%, #2f6b44 50%); }
+.cm-diff-connector-modified { background: #3f5f8f; }
