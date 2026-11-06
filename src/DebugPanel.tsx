@@ -478,6 +478,19 @@ export function DebugPanel({
                       condition,
                     })
                   }
+                  onSaveHitCount={(hitCount) => {
+                    const trimmed = hitCount.trim();
+                    const value = trimmed === "" ? null : /^\d+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+                    if (Number.isNaN(value as number)) {
+                      onError("The hit count must be a positive whole number.");
+                      return;
+                    }
+                    void invoke("Save hit count", "debug.setBreakpointHitCount", {
+                      path: breakpoint.path,
+                      line: breakpoint.line,
+                      hitCount: value,
+                    });
+                  }}
                   onRemove={() =>
                     void invoke("Remove breakpoint", "debug.setBreakpoints", {
                       path: breakpoint.path,
@@ -490,7 +503,7 @@ export function DebugPanel({
               ))}
             </ul>
             <p className="muted" data-testid="debug-breakpoints-unsupported">
-              Hit count and log message are not offered: netcoredbg 3.2.0-1092 does not advertise support for them.
+              Log message is not offered: netcoredbg 3.2.0-1092 does not advertise support for it.
             </p>
           </>
         )}
