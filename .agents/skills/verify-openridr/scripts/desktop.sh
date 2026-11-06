@@ -25,9 +25,8 @@ up)
   fi
   # Same CFBundleIdentifier for installed and debug bundles: never start a second instance next to the user's.
   if pgrep -x openridr >/dev/null; then echo "desktop.sh: an OpenRidr is already running; not double-driving it" >&2; exit 1; fi
-  # Rotate instead of deleting: the previous session's log, trust store and fixture copy stay in .prev.
-  if [ -d "$state" ]; then rm -rf "$state.prev"; mv "$state" "$state.prev"; fi
-  mkdir -p "$state/home" "$state/work"
+  # Validate the prepared workspace BEFORE any destructive step: an invalid override must leave the
+  # previous state (log, trust store, fixture copy) untouched.
   # A prepared workspace (scripts/git-remote-fixture.sh and friends) replaces the fixture copy; the
   # default stays fixtures/OrderDesk. Only the solution path comes from outside; the home does not.
   prepared=${VERIFY_OPENRIDR_DESKTOP_SOLUTION:-}
@@ -36,7 +35,19 @@ up)
     /*/OrderDesk.sln | /*/*.sln | /*/*.csproj) ;;
     *) echo "desktop.sh: VERIFY_OPENRIDR_DESKTOP_SOLUTION must be an absolute .sln/.csproj path: $prepared" >&2; exit 2 ;;
     esac
+    case "$prepared" in
+    */../* | */..) echo "desktop.sh: VERIFY_OPENRIDR_DESKTOP_SOLUTION must not contain '..': $prepared" >&2; exit 2 ;;
+    esac
     [ -f "$prepared" ] || { echo "desktop.sh: solution not found: $prepared" >&2; exit 2; }
+    resolved=$(CDPATH= cd -- "$(dirname -- "$prepared")" && pwd -P) || {
+      echo "desktop.sh: solution directory is not reachable: $prepared" >&2; exit 2;
+    }
+    prepared="$resolved/$(basename -- "$prepared")"
+  fi
+  # Rotate instead of deleting: the previous session's log, trust store and fixture copy stay in .prev.
+  if [ -d "$state" ]; then rm -rf "$state.prev"; mv "$state" "$state.prev"; fi
+  mkdir -p "$state/home" "$state/work"
+  if [ -n "$prepared" ]; then
     solution=$prepared
     echo "workspace $solution (prepared; the fixture copy is skipped)"
   else

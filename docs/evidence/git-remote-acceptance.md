@@ -10,7 +10,8 @@ UI dirigida **somente** no app Tauri real via `agent-desktop` (sem navegador, se
 
 ## Precondições (não são passe da UI)
 
-- **Remoto local**: `scripts/git-remote-fixture.sh /tmp/openridr-git-remote-50` criou `origin.git` (bare), `user` e `peer`, com o conteúdo público de `fixtures/OrderDesk` na raiz dos clones. Baseline `0bfb695`. Sem rede, sem login, sem `git config --global` (identidade só `--local` em cada clone).
+- **Remoto local**: `scripts/git-remote-fixture.sh /tmp/openridr-git-remote-50` criou `origin.git` (bare), `user` e `peer`, com o conteúdo público de `fixtures/OrderDesk` na raiz dos clones. Baseline `0bfb695`. Sem rede, sem login, sem `git config --global` (identidade só `--local` em cada clone). Esses diretórios ficaram no disco; nada foi apagado.
+- **Correção de infraestrutura depois da revisão**: o script usado na rodada aceitava um caminho arbitrário e recriava o diretório, o que podia apagar um caminho válido. A versão atual é **não destrutiva**: sem argumento cria um state novo com `mktemp`; um argumento só vale se for caminho absoluto novo dentro da raiz temporária real; caminho existente, `/`, home, checkout, relativo/`..` ou symlink para fora são recusados sem apagar. Provado por `sh tests/shell/git-remote-fixture.test.sh` (9 casos). O comportamento da rodada em si (comandos e estados abaixo) não mudou.
 - **Contraparte**: `peer` foi dirigida por shell (commit, `pull --rebase`, `push`, branch), como qualquer colega faria.
 - **Fetch manual no clone do usuário** (`git -C /tmp/openridr-git-remote-50/user fetch origin`), duas vezes, porque o app não tem ação de fetch. O `↓` que aparece depois do fetch prova a **renderização** do contador, não uma atualização feita pelo app (issue #113).
 - **Estados de merge criados fora do app**: o pull divergente do app falha antes do merge (issue #112), então o estado de conflito foi produzido por `git pull --no-rebase --no-edit` no clone descartável, e a recuperação por `git merge --abort`. A UI só foi observada **no estado** resultante; ela não criou nem resolveu o merge.
@@ -86,8 +87,11 @@ Nenhum cenário ficou "sem prova". O que não foi executado está na seção **N
 ## Como reproduzir a infraestrutura
 
 ```sh
-sh scripts/git-remote-fixture.sh /tmp/openridr-git-remote-50
-# imprime: state, origin, solution, peer, baseline e a linha de launch
+sh scripts/git-remote-fixture.sh            # state novo via mktemp; imprime state, origin, solution, peer, baseline e a linha de launch
+# um caminho explícito só é aceito se for novo e estiver sob a raiz temporária real:
+# sh scripts/git-remote-fixture.sh "${TMPDIR:-/tmp}/meu-state-novo"
+# caminho existente (diretório, arquivo, symlink pendente), /, home, o checkout, relativo ou '..' -> recusa sem apagar
+sh tests/shell/git-remote-fixture.test.sh   # prova das recusas e do state novo
 VERIFY_OPENRIDR_DESKTOP_STATE=/tmp/openridr-issue50-desktop \
 VERIFY_OPENRIDR_DESKTOP_SOLUTION=/tmp/openridr-git-remote-50/user/OrderDesk.sln \
   sh .agents/skills/verify-openridr/scripts/desktop.sh up src-tauri/target/debug/bundle/macos/OpenRidr.app

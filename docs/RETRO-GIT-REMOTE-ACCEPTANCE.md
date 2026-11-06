@@ -25,6 +25,7 @@ Rodada de 2026-11-06, `5faaff7`, macOS arm64. Spec: [SPEC-GIT-REMOTE-ACCEPTANCE]
 - **Atalho de menu nativo vence o keymap do app.** Verificar atalhos anunciados pela Find Action no app real, não só no `keymap.ts`.
 - **Componente `<summary>` pode não ser acionável na árvore de acessibilidade.** O menu de branches foi aberto pelas ações de Git; isso é limite da rodada, não passe.
 - **Fixture de Git com remoto vale mais que host-http aqui**: o assunto é o efeito no remoto, e só um remoto real (mesmo local) responde.
+- **Ferramenta de verificação não pode apagar o que recebe.** O fixture nasceu aceitando um caminho e recriando-o com `rm -rf`; a revisão mostrou que `/`, home ou uma pasta de trabalho válida cairiam nisso. O padrão passou a ser `mktemp` + recusa de caminho existente, com teste de shell para as recusas; validação de entrada do launcher também passou a acontecer antes de qualquer rotação de state.
 
 ## Follow-ups
 
