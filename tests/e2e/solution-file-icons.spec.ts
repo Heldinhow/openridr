@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { host } from "./environment";
 
-// Rider-style tree glyphs and selection. Works on a temp copy of the fixture.
+// Rider-style tree glyphs and rounded selection. Works on a temp copy of the fixture.
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -157,7 +157,7 @@ test("the two-tone document body keeps WCAG 1.4.11 contrast on every row backgro
   await shot(page, "depois-contraste");
 });
 
-test("the current row is an accent outline, not a filled block", async ({ page }) => {
+test("the current row has a rounded selection fill", async ({ page }) => {
   await open(page, tempCopy());
   const row = page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs");
   await expect(row).toBeVisible();
@@ -168,12 +168,13 @@ test("the current row is an accent outline, not a filled block", async ({ page }
   await expect(row).toHaveAttribute("aria-current", "page");
   const after = await row.evaluate((el) => ({
     shadow: getComputedStyle(el).boxShadow,
+    background: getComputedStyle(el).backgroundColor,
     radius: getComputedStyle(el).borderRadius,
     height: el.getBoundingClientRect().height,
   }));
-  expect(after.shadow).toContain("inset");
-  expect(after.shadow).toContain("84, 138, 247"); // --accent
+  expect(after.shadow).toBe("none");
+  expect(after.background).toBe("rgb(46, 67, 110)");
   expect(after.radius).not.toBe("0px");
-  expect(after.height).toBeLessThan(36); // the outline never grows the row
+  expect(after.height).toBeLessThan(36);
   await shot(page, "depois-selecao");
 });
