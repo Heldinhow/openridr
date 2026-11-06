@@ -5,6 +5,7 @@ import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlinePro
 import { Icon } from "./Icon";
 import { ProjectIcon } from "./icons/ProjectIcon";
 import { SYMBOL_LABEL } from "./icons/SymbolMark";
+import { createListingCache, type ListingEntry } from "./solutionListing";
 import { treeGitStatusMap, mergeIgnored, treeQueryId, type TreeGitStatus } from "./solutionGitStatus";
 import {
   ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, nestSources,
@@ -36,7 +37,7 @@ const GIT_STATUS_LABEL: Record<TreeGitStatus, string> = {
   conflicted: "Conflicted",
 };
 
-type Entry = { name: string; path: string; dir: boolean; hidden: boolean; symlink: boolean };
+type Entry = ListingEntry;
 type SymbolCacheEntry = { kind: SymbolKind | null; modified: number };
 type SymbolEntry = { path: string; kind: string | null; modified: number };
 
@@ -137,6 +138,15 @@ export function SolutionTree(p: Props) {
   const filter = p.filter.trim().toLowerCase();
   const hit = (text: string) => text.toLowerCase().includes(filter);
   const [listing, setListing] = useState<Record<string, Entry[]>>({});
+  // The cache is a mutable object, so `ensureDir` never sees a stale `listing` closure; a reload
+  // drops every level and a late answer from the previous epoch is discarded by the cache itself.
+  const listingCache = useRef<ReturnType<typeof createListingCache> | null>(null);
+  if (!listingCache.current) {
+    listingCache.current = createListingCache(async (dir) => {
+      const result = await call<{ entries: Entry[] }>("workspace.tree", { dir });
+      return result.entries ?? [];
+    });
+  }
   const [symbolKinds, setSymbolKinds] = useState<Record<string, SymbolKind>>({});
   const symbolKindsRef = useRef<Record<string, SymbolKind>>({});
   const symbolCache = useRef(new Map<string, SymbolCacheEntry>());
@@ -163,22 +173,26 @@ export function SolutionTree(p: Props) {
     [sourceSet],
   );
 
-  // Show all files: load one directory level at a time; toggling the mode off drops the cache.
-  async function ensureDir(dir: string) {
-    if (listing[dir]) return;
-    try {
-      const result = await call<{ entries: Entry[] }>("workspace.tree", { dir });
-      setListing((current) => ({ ...current, [dir]: result.entries }));
-    } catch {
-      setListing((current) => ({ ...current, [dir]: [] }));
-    }
+  // Show all files: load one directory level at a time through the cache.
+  async function ensureDir(dir: string, force = false) {
+    await listingCache.current!.ensure(dir, force);
+    setListing(listingCache.current!.snapshot());
   }
-  const dirsToLoad = p.showAll ? ["", ...views.map((view) => dirOf(view.path))] : [];
+
+  // A new Git snapshot or workspace can change a path's type (link↔file) without changing the
+  // directory, so the levels the user already has open are listed again; the cache drops the
+  // previous epoch, so a late answer never repaints the tree. Expansion lives in `expanded` and is
+  // preserved; only levels the user opened are re-read (no recursive scan, no watcher).
   useEffect(() => {
-    if (!p.showAll) setListing({});
-    else dirsToLoad.forEach((dir) => void ensureDir(dir));
+    const open = Object.keys(listing);
+    listingCache.current!.reload();
+    setListing(listingCache.current!.snapshot());
+    if (!p.showAll) return;
+    const dirs = new Set<string>(["", ...views.map((view) => dirOf(view.path))]);
+    for (const dir of open) dirs.add(dir);
+    for (const dir of dirs) void ensureDir(dir, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.showAll, views.length]);
+  }, [p.showAll, p.gitRevision, p.workspaceDir, views.length]);
 
   // Only files the user can see (open project + open folders) are asked for; filter mode keeps the
   // badges already known and never starts a scan per keystroke.

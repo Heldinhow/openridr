@@ -90,11 +90,13 @@ describe("createGitRefresher", () => {
     void test2.refresher.run();
     test2.setContext({ workspaceId: "A", trusted: false });
     void test2.refresher.run();
+    // The clear is immediate, before the pending read resolves.
+    expect(test2.cleared).toBe(1);
     test2.calls[0].pending.resolve("from A");
     await flush();
 
     expect(test2.applied).toEqual([]);
-    expect(test2.cleared).toBe(1);
+    expect(test2.cleared >= 1).toBe(true);
     expect(test2.calls.length).toBe(1);
 
     test2.setContext(A);
@@ -103,6 +105,38 @@ describe("createGitRefresher", () => {
     test2.calls[1].pending.resolve("after trust");
     await flush();
     expect(test2.applied).toEqual([{ value: "after trust", workspaceId: "A" }]);
+  });
+
+  test("revoking trust with a pending read clears immediately and never applies it", async () => {
+    const test6 = harness(A);
+    // An earlier snapshot is visible.
+    void test6.refresher.run();
+    test6.calls[0].pending.resolve("visible");
+    await flush();
+    expect(test6.applied).toEqual([{ value: "visible", workspaceId: "A" }]);
+
+    // A second read is in flight when trust is revoked.
+    void test6.refresher.run();
+    expect(test6.calls.length).toBe(2);
+    test6.setContext({ workspaceId: "A", trusted: false });
+    void test6.refresher.run();
+    expect(test6.cleared).toBe(1); // already cleared, before the promise resolves
+    test6.calls[1].pending.resolve("late");
+    await flush();
+
+    expect(test6.applied).toEqual([{ value: "visible", workspaceId: "A" }]); // old answer never applied
+    expect(test6.calls.length).toBe(2); // no new Git read while Restricted
+
+    // A call while Restricted and idle does not start a read either.
+    void test6.refresher.run();
+    expect(test6.calls.length).toBe(2);
+
+    test6.setContext(A);
+    void test6.refresher.run();
+    expect(test6.calls.length).toBe(3);
+    test6.calls[2].pending.resolve("after trust");
+    await flush();
+    expect(test6.applied.at(-1)).toEqual({ value: "after trust", workspaceId: "A" });
   });
 
   test("a stale failure is dropped and the current workspace still loads", async () => {

@@ -9,8 +9,9 @@ UI React, worktree isolada. Data: 2026-11-06.
 | Camada | Prova | Resultado |
 |---|---|---|
 | Mapeamento e consultas puras | `bun test tests/unit/solutionGitStatus.test.ts` | 17 pass, 0 fail |
-| Refresh serial | `bun test tests/unit/gitRefresh.test.ts` | 5 pass, 0 fail |
-| Unidades da UI (todas) | `bun test tests/unit` | 73 pass, 0 fail |
+| Refresh serial | `bun test tests/unit/gitRefresh.test.ts` | 6 pass, 0 fail |
+| Cache de listagem | `bun test tests/unit/solutionListing.test.ts` | 4 pass, 0 fail |
+| Unidades da UI (todas) | `bun test tests/unit` | 78 pass, 0 fail |
 | Host — symlink (`workspace.symlinks`) | `cargo test -p openridr-host -- workspace_symlinks` | 2 pass |
 | Host — symlink (`workspace.tree`) | `cargo test -p openridr-host -- workspace_tree_marks` | 1 pass |
 | Host — ignorado | `cargo test -p openridr-host -- ignored_` | 9 pass |
@@ -25,6 +26,7 @@ Comandos exatos (um filtro por invocação; `cargo test` aceita um filtro antes 
 export PATH="$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH" DOTNET_ROOT=$HOME/.dotnet
 bun test tests/unit/solutionGitStatus.test.ts
 bun test tests/unit/gitRefresh.test.ts
+bun test tests/unit/solutionListing.test.ts
 bun test tests/unit
 cargo test -p openridr-host -- workspace_symlinks
 cargo test -p openridr-host -- workspace_tree_marks
@@ -45,10 +47,16 @@ do filesystem; snapshot nulo/`failed`; `ignored` não sobrescreve estado já rep
 mapa recebido. `treeQueryId` prova que a mesma lista de caminhos sob uma revisão nova (ou outro
 workspace) é uma consulta nova, e que um newline no nome é dado — não separador.
 
-**Refresh serial (`src/gitRefresh.ts`, 5 casos):** pedido feito com uma chamada em voo roda de novo
-sob o workspace **atual** (não pinta a resposta de A em B); revogar trust limpa sem aplicar e
-reautorizar consulta de novo; falha de contexto antigo é descartada e o workspace atual carrega;
-rajada de chamadas coalesce em um rerun; uma chamada em voo por vez.
+**Refresh serial (`src/gitRefresh.ts`, 6 casos):** pedido feito com uma chamada em voo roda de novo
+sob o workspace **atual** (não pinta a resposta de A em B); revogar trust limpa **antes** de a
+leitura pendente resolver, não aplica o valor antigo e não dispara leitura nova enquanto
+Restricted; reautorizar consulta de novo; falha de contexto antigo é descartada e o workspace atual
+carrega; rajada de chamadas coalesce em um rerun; uma chamada em voo por vez.
+
+**Cache de listagem (`src/solutionListing.ts`, 4 casos):** um reload reconsulta o nível aberto e o
+tipo novo (link → arquivo) substitui o antigo; resposta iniciada antes do reload nunca entra no
+cache novo; leituras concorrentes do mesmo nível dividem um pedido; nível com erro fica vazio
+naquele epoch e é reconsultado depois do reload.
 
 **Host, symlink:** link para arquivo, link para pasta, link pendente, link em ciclo (para um
 ancestral dentro do workspace), link para fora do workspace e caminho comum; `workspace.symlinks`
@@ -129,6 +137,10 @@ contínuo; valem como relato, não como prova preservada da sequência. O par an
 
 ## O que não foi verificado
 
+- **Integração React com respostas atrasadas.** O comportamento de descarte é provado nos helpers
+  usados pela UI (`gitRefresh`, `solutionListing`), não por um teste de render (o repo não tem
+  renderer de teste). O que o React faz com uma resposta que chega depois do unmount/troca de props
+  não foi medido; fica como limite de prova, não como passe.
 - **E2E.** O spec `tests/e2e/solution-git-status.spec.ts` foi escrito e entra no repositório, mas
   não rodou nesta sessão (Playwright só no smoke noturno, #67). O caminho real do Git (repo
   descartável, commit, checkout, `.gitignore`, symlink) foi provado no host por testes Rust e no

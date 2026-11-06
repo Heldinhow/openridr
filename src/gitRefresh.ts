@@ -26,6 +26,15 @@ export function createGitRefresher<T>(options: GitRefresherOptions<T>) {
   let queued = false;
 
   async function run(): Promise<void> {
+    // Revoking trust is answered now, not after the pending read: the previous status must stop
+    // being visible immediately, even while a fetch is still in flight. The queued rerun keeps the
+    // serialization: when the old answer arrives it is dropped and the loop re-reads the context.
+    if (!options.context().trusted) {
+      options.clear();
+      if (!inFlight) return;
+      queued = true;
+      return;
+    }
     if (inFlight) {
       queued = true;
       return;
