@@ -157,6 +157,7 @@ type Props = {
   path: string;
   platform: string;
   profile: ProfileId;
+  shortcutHint: string;
   revision: number;
   editor: EditorSettings;
   /** Diagnostics for this file: underline in the text, marker in the margin. */
@@ -622,6 +623,7 @@ export function CodeEditor({
   path,
   platform,
   profile,
+  shortcutHint,
   revision,
   editor,
   diagnostics = [],
@@ -712,7 +714,7 @@ export function CodeEditor({
     .join("|");
   const [status, setStatus] = useState<Status>({
     state: "idle",
-    text: `Ctrl+Space: completion · ${platform === "macos" ? "Cmd+B" : "Ctrl+B"}: go to definition · Shift+F6: rename · Shift+F12: find usages · ${platform === "macos" ? "Option" : "Alt"}+Enter: code actions`,
+    text: shortcutHint,
   });
 
   function publishCursor(instance: EditorView) {
@@ -879,7 +881,7 @@ export function CodeEditor({
     setInline(null);
     setStatus({
       state: "idle",
-      text: `Ctrl+Space: completion · ${platform === "macos" ? "Cmd+B" : "Ctrl+B"}: go to definition · Shift+F6: rename · Shift+F12: find usages · ${platform === "macos" ? "Option" : "Alt"}+Enter: code actions`,
+      text: shortcutHint,
     });
     if (notifyParent) onRenameCancelRef.current();
   }
@@ -1310,9 +1312,9 @@ export function CodeEditor({
         data-testid="editor-lsp-status"
         data-state={status.state}
         role="status"
-        title={status.text}
+        title={status.state === "idle" ? shortcutHint : status.text}
       >
-        {status.text}
+        {status.state === "idle" ? shortcutHint : status.text}
       </div>
     </div>
   );

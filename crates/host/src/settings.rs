@@ -71,10 +71,10 @@ fn validate(settings: &Value) -> HostResult<()> {
         let profile = profile
             .as_str()
             .ok_or_else(|| HostError::new("invalid_settings", "keymap.profile must be a string."))?;
-        if !matches!(profile, "rider-macos" | "intellij") {
+        if !matches!(profile, "rider-macos" | "intellij" | "visual-studio") {
             return Err(HostError::new(
                 "invalid_settings",
-                "keymap.profile must be \"rider-macos\" or \"intellij\".",
+                "keymap.profile must be \"rider-macos\", \"intellij\", or \"visual-studio\".",
             ));
         }
     }
@@ -213,7 +213,7 @@ mod tests {
         assert_eq!(read_at(&path).unwrap(), json!({}));
         let settings = json!({
             "keymap": {
-                "profile": "intellij",
+                "profile": "visual-studio",
                 "overrides": { "build.start": [{ "key": "f9", "primary": true }] }
             },
             "appearance": { "zoom": 110, "density": "compact" },
