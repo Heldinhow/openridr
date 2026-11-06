@@ -20,3 +20,7 @@
 - **Conditional breakpoint**: breakpoint que só para quando uma expressão C# do projeto é verdadeira no momento do hit.
 - **Hit count**: número de paradas no mesmo breakpoint antes de o debugger parar; conta só os hits aprovados pela condição. _Avoid_: hitCondition (nome do DAP no adaptador).
 - **Watch**: expressão C# fixada pelo usuário no painel Debug e reavaliada a cada pausa contra a thread/frame selecionados.
+- **Local test remote**: a bare repository under the temporary directory plus two throwaway clones — the one the app opens (`user`) and the counterpart (`peer`) — used to exercise real Git operations with no network and no credentials. Never a project of the maintainer and never an external remote.
+- **Counterpart (peer)**: the second clone of the local test remote that publishes commits and branches the workspace is expected to receive. Driven outside the app so the effect is real, not simulated.
+- **Behind count**: the distance between `HEAD` and the local tracking ref, shown as `↓N`. It is only as fresh as the last fetch or push; an `Update…` (pull) fetches and may incorporate work while the count still reads zero.
+- **Divergent branch**: a branch whose local commits and upstream commits both moved, so a pull cannot fast-forward. Git refuses it until a reconciliation is chosen; the app has no such choice today.
