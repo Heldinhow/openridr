@@ -2280,10 +2280,17 @@ mod tests {
 
         let answer = ignored(
             &root,
-            &[spaced.to_string(), newline.to_string(), "missing.log".to_string()],
+            &[
+                spaced.to_string(),
+                newline.to_string(),
+                "missing.log".to_string(),
+            ],
         );
         assert_eq!(answer.state, "ok");
-        assert_eq!(answer.ignored, vec![spaced.to_string(), newline.to_string()]);
+        assert_eq!(
+            answer.ignored,
+            vec![spaced.to_string(), newline.to_string()]
+        );
     }
 
     #[test]
@@ -2329,7 +2336,10 @@ mod tests {
     fn ignored_records_ignore_an_incomplete_trailing_name() {
         let records = ignored_records(b"!! build/\0!! partial");
         assert!(records.contains("build"));
-        assert!(!records.contains("partial"), "a truncated name is never a record");
+        assert!(
+            !records.contains("partial"),
+            "a truncated name is never a record"
+        );
         assert_eq!(records.len(), 1);
         assert!(ignored_records(b"").is_empty());
         assert!(ignored_records(b"\0").is_empty());
