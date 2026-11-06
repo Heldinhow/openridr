@@ -1123,7 +1123,7 @@ mod tests {
         match command.output() {
             Ok(output) => Some(output),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                eprintln!("SKIP: dotnet is not installed or not in PATH");
+                eprintln!("SKIP: the .NET muxer is not installed");
                 None
             }
             Err(error) => panic!("Could not launch dotnet: {error}"),
@@ -1134,6 +1134,48 @@ mod tests {
     fn launch_profile_dotnet_test_skips_missing_executable() {
         let temp = tempfile::tempdir().unwrap();
         assert!(run_test_dotnet(&mut std::process::Command::new(temp.path().join("missing-dotnet"))).is_none());
+    }
+
+    /// The muxer of the SDK the project pins, exactly like Run and Debug: the `dotnet` from PATH is
+    /// not a substitute, because it may not contain the version the project's `global.json` asks
+    /// for. `None` means no detected root satisfies the pin, and the test skips with the reason
+    /// instead of borrowing a different SDK.
+    fn project_test_muxer(project_dir: &Path) -> Option<(PathBuf, PathBuf, String)> {
+        let text = fs::read_to_string(project_dir.join("global.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let requested = json["sdk"]["version"].as_str().unwrap().to_string();
+        let roll_forward = json["sdk"]["rollForward"].as_str();
+        let inventory = crate::sdk::inventory();
+        match crate::sdk::resolve(&requested, roll_forward, None, &inventory.installs) {
+            Ok(install) => {
+                let muxer = install.root.join(if cfg!(windows) { "dotnet.exe" } else { "dotnet" });
+                Some((muxer, install.root.clone(), install.version))
+            }
+            Err(message) => {
+                let roots: Vec<&str> = inventory
+                    .roots
+                    .iter()
+                    .map(|root| root.root.as_str())
+                    .collect();
+                eprintln!(
+                    "SKIP: no detected .NET root satisfies global.json ({requested}, rollForward {}): {message}; roots seen: {roots:?}",
+                    roll_forward.unwrap_or("default")
+                );
+                None
+            }
+        }
+    }
+
+    /// A pin no detected root satisfies must skip, not borrow whichever SDK PATH happens to carry.
+    #[test]
+    fn a_project_pin_without_a_detected_root_skips_instead_of_borrowing_path() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(
+            temp.path().join("global.json"),
+            r#"{"sdk":{"version":"99.0.1","rollForward":"disable"}}"#,
+        )
+        .unwrap();
+        assert!(project_test_muxer(temp.path()).is_none());
     }
 
     #[test]
@@ -1161,10 +1203,21 @@ mod tests {
         }
         let project = temp.path().join("LaunchProfiles.csproj");
         let options = launch_options(&json!({"project": project, "launchProfile": "http"}), temp.path()).unwrap();
-        let mut command = std::process::Command::new("dotnet");
+        // Same resolution as the product: the project's global.json decides the SDK, not PATH.
+        let Some((muxer, sdk_root, sdk_version)) = project_test_muxer(temp.path()) else { return; };
+        let mut command = std::process::Command::new(&muxer);
         command.args(["run", "--project"]).arg(&project).arg("--no-launch-profile").arg("--");
-        command.args(&options.args).envs(options.env.iter().cloned()).current_dir(options.working_directory.unwrap());
+        command
+            .args(&options.args)
+            .envs(options.env.iter().cloned())
+            .env("DOTNET_ROOT", &sdk_root)
+            .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+            .env("DOTNET_CLI_UI_LANGUAGE", "en")
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+            .current_dir(options.working_directory.unwrap());
         let Some(output) = run_test_dotnet(&mut command) else { return; };
+        eprintln!("launch profile fixture ran on SDK {sdk_version} from {}", sdk_root.display());
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("PROFILE_ENV=http"), "{stdout}");
