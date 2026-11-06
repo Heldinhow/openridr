@@ -24,3 +24,8 @@
 - **Counterpart (peer)**: the second clone of the local test remote that publishes commits and branches the workspace is expected to receive. Driven outside the app so the effect is real, not simulated.
 - **Behind count**: the distance between `HEAD` and the local tracking ref, shown as `↓N`. It is only as fresh as the last fetch or push; an `Update…` (pull) fetches and may incorporate work while the count still reads zero.
 - **Divergent branch**: a branch whose local commits and upstream commits both moved, so a pull cannot fast-forward. Git refuses it until a reconciliation is chosen; the app has no such choice today.
+- **Risk tier**: o quanto um pull request pode quebrar o produto, classificado pelos caminhos que ele toca — baixo (documentação, testes, estilo), médio (código de produto) ou alto (CI, release, assinatura, modelo de trust, atualização e dependências). Um PR misto recebe o tier mais alto entre os caminhos que toca. Decide se o PR precisa do mantenedor ou pode ser mergeado sozinho.
+- **Risk label**: o rótulo `risk:low`, `risk:medium` ou `risk:high` que anuncia o Risk tier de um PR. É sempre saída do cálculo, nunca entrada: editar o rótulo não muda o tier nem libera merge.
+- **Maintainer approval**: review aprovado por quem mantém o repositório numa revisão do PR posterior ao último commit dele. É o que libera o merge de um PR de risco alto; aprovação de uma revisão antiga não conta.
+- **Auto-merge**: fusão em squash que o GitHub executa sozinho quando os checks obrigatórios ficam verdes, armada apenas para PR de risco baixo.
+- **Revert rate**: proporção de PRs mergeados que precisaram ser revertidos, contada por mês, usada para saber se o gate de risco está calibrado.
