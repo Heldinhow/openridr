@@ -98,6 +98,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "tests.run",
     "git.status",
     "git.diff",
+    "git.fileDiff",
     "git.branches",
     "git.branchCreate",
     "git.checkout",
@@ -668,6 +669,9 @@ impl Host {
         }
         if method == "git.diff" {
             return self.git_diff(params);
+        }
+        if method == "git.fileDiff" {
+            return self.git_file_diff(params);
         }
         if method == "git.branches" {
             return self.git_branches();
@@ -5772,6 +5776,18 @@ impl Host {
             .unwrap_or(false);
         let answer = git::diff(&root, &path, staged)?;
         Ok(serde_json::to_value(answer).expect("git diff serializes"))
+    }
+
+    fn git_file_diff(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.fileDiff")?;
+        let root = self.workspace_root()?;
+        let path = required_str(&params, "path")?;
+        let staged = params
+            .get("staged")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let answer = git::file_diff(&root, &path, staged)?;
+        Ok(serde_json::to_value(answer).expect("git file diff serializes"))
     }
 
     fn git_branches(&self) -> HostResult<Value> {

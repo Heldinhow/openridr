@@ -51,6 +51,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 | Suite de testes confiável (issue #43) | [SPEC-TEST-STABILITY](SPEC-TEST-STABILITY.md) | issues GitHub #57, #59, #62, #64, #67 | [RETRO-TEST-STABILITY](RETRO-TEST-STABILITY.md) | [evidence/test-stability.md](evidence/test-stability.md) |
 | E2E: smoke noturno + quarentena (issue #67) | [SPEC-TEST-STABILITY](SPEC-TEST-STABILITY.md) | issue #67 (#56 é o workflow) | — | [evidence/e2e-quarantine.md](evidence/e2e-quarantine.md) |
 | Debug: sessão que termina sem parar (#46) | [SPEC-DEBUG-NO-STOP](SPEC-DEBUG-NO-STOP.md) | #76, #78 (GitHub) | [RETRO-DEBUG-NO-STOP](RETRO-DEBUG-NO-STOP.md) | [evidence/debug-no-stop.md](evidence/debug-no-stop.md) |
+| Git diff: arquivo inteiro, modo unificado e hash do commit (#48) | [SPEC-GIT-DIFF](SPEC-GIT-DIFF.md) | #98, #99, #100 (GitHub); follow-up #101 | [RETRO-GIT-DIFF](RETRO-GIT-DIFF.md) | [evidence/git-diff.md](evidence/git-diff.md) |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
 
 Numeração de tickets nas pastas históricas **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta. Ticket novo é GitHub issue: cite pelo número (`#58`).

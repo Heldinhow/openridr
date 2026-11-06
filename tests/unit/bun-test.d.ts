@@ -7,10 +7,13 @@ declare module "bun:test" {
     toBe(expected: unknown): void;
     toEqual(expected: unknown): void;
     toBeUndefined(): void;
+    toBeNull(): void;
+    toHaveLength(expected: number): void;
     not: {
       toBe(expected: unknown): void;
       toEqual(expected: unknown): void;
       toBeUndefined(): void;
+      toBeNull(): void;
     };
   };
 }
