@@ -73,39 +73,52 @@ Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `SDK .
 - `.github/rulesets/main.json`: `json.load` ok, regras `deletion`, `non_fast_forward`,
   `required_linear_history`, `pull_request`, `required_status_checks` com contextos `ci` e `security`.
 
-### Primeiro run real no GitHub (PR #90, run `42265605184`)
+### Runs reais no GitHub (PR #90)
 
-O PR foi apontado para `main` e o workflow rodou de verdade, antes de qualquer check ser obrigatório:
+O workflow rodou de verdade enquanto o PR não era obrigatório. O primeiro run (`42265605184`) falhou
+em três pontos; o run final (`42285400316`, `2ef7d41`) passou **nos cinco checks**:
 
-| Job | Resultado | Tempo |
+| Job | Run final | Tempo |
 |---|---|---|
-| `TypeScript (tsc + unit)` | pass | 23 s |
+| `TypeScript (tsc + unit)` | pass | 19 s |
 | `security` (gitleaks) | pass | 13 s |
 | `Governance (workflows, PR title, PR body)` | pass | 18 s |
-| `Rust (fmt, clippy, host tests)` | **fail** | 2 min 09 s |
-| `ci` (agregador) | **fail** | 3 s |
+| `Rust (fmt, clippy, host tests)` | pass | 5 min 00 s |
+| `ci` (agregador) | pass | 3 s |
 
-O agregador falhar em 3 s com o Rust vermelho é o comportamento correto — é o check que o ruleset vai
-exigir. `gitleaks` rodou sem `GITLEAKS_LICENSE` (conta de usuário). O título conventional e o gate de
-corpo passaram no PR real. O `dependabot.yml` foi validado pelo próprio Dependabot (`pass`).
+Paredes de ~5,5 min por PR, com TS, governança e segredos rodando em paralelo ao Rust. O `zizmor`
+antes disso reprovava o `release.yml` que já estava em `main` (credencial persistida e cache de bun no
+workflow que assina), e o `security` rodou sem `GITLEAKS_LICENSE` (repo de conta de usuário).
 
-O run achou **dois defeitos**, nenhum deles de YAML:
+O que os runs acharam, em ordem — nada disso era visível no Mac:
 
 1. **`zizmor` audita o repo inteiro, não só `.github/workflows/`.** Localmente eu rodei
-   `zizmor .github/workflows` (0 achados); a action usa o modo de coleta padrão, que inclui o
-   `dependabot.yml` e reprovou com 4 `warning[dependabot-cooldown]` (medium): atualização sem
-   `cooldown`, isto é, PR de dependabot no dia em que a versão sai. Correção: `cooldown:
+   `zizmor .github/workflows` (0 achados); a action usa o modo de coleta padrão, inclui o
+   `dependabot.yml` e reprovou com 4 `warning[dependabot-cooldown]` (medium). Correção: `cooldown:
    default-days: 7` nos quatro ecossistemas. Reprodução local com o modo da action:
    `zizmor --offline --min-severity low .` → 0 achados.
-2. **Bug de produto em máquina limpa (issue [#93](https://github.com/Heldinhow/openridr/issues/93)).**
-   `tools::tests::staged_verification_writes_integrity_and_a_write_failure_keeps_the_old_copy` falhou
-   no runner: `verify_installed` roda o launcher com `current_dir($TMPDIR/openridr-neutral)`, diretório
-   que ninguém cria nesse caminho, e o spawn falha com `ENOENT` antes do launcher rodar — na primeira
-   instalação de ferramenta de uma máquina nova o tool era reportado como `invalid`. Passava no Mac do
-   mantenedor porque o diretório já existia ali. Reprodução determinística, sem tocar no código:
+2. **Bug de produto em máquina limpa ([#93](https://github.com/Heldinhow/openridr/issues/93)).**
+   `tools::tests::staged_verification_…` falhou no runner: `verify_installed` rodava o launcher com
+   `current_dir($TMPDIR/openridr-neutral)`, diretório que ninguém cria nesse caminho; o spawn falhava
+   com `ENOENT` antes do launcher rodar, e na primeira instalação de ferramenta de uma máquina nova o
+   tool saía como `invalid`. Passava no Mac porque o diretório já existia. Reprodução determinística:
    `fresh=$(mktemp -d); TMPDIR="$fresh" cargo test -p openridr-host --lib
-   tools::tests::staged_verification` → falhava antes, passa depois de criar o diretório (o
-   `verify_bundled` já fazia isso; foi a única diferença entre os dois caminhos).
+   tools::tests::staged_verification` — falhava antes, passa depois (o `verify_bundled` já criava o
+   diretório; era a única diferença entre os dois caminhos).
+3. **`dotnet restore` no runner sem configuração NuGet.** `a_failed_restore_keeps_its_log_…` falhou
+   com `NU1100` em 133 ms: numa máquina nova o `~/.nuget/NuGet/NuGet.Config` ainda não existe e vários
+   testes restauram ao mesmo tempo. Correção no workflow: um `dotnet restore
+   fixtures/OrderDesk/OrderDesk.sln` antes da suíte (falha alto se rede ou SDK faltarem, em vez de
+   virar teste instável). O caminho do passo também foi corrigido depois de o próprio run provar que
+   `fixtures/OrderDesk/OrderDesk.csproj` não existe (é `OrderDesk.sln`).
+4. **A guarda de folhas isoladas da #97 dependia de formatação.** `env_writes_are_confined_to_…`
+   procurava o literal `run_isolated_leaf("`; depois do `cargo fmt` o nome do spec fica na linha
+   seguinte e a guarda passou a ver 46 órfãos. Correção: procurar `run_isolated_leaf(` e tirar o
+   primeiro literal depois do parêntese.
+5. **Duas asserções exigiam que um poll de 10 ms pegasse o estado transitório `verifying`.** No runner
+   a sequência observada foi `downloading → installing → ready`. Correção: uma asserção compartilhada
+   em `support::assert_install_progress` — o pipeline só andou para frente, passou por downloading e
+   installing, terminou `ready`; nenhum estado intermediário é exigido.
 
 ### TypeScript (não tocado, medido para o CI)
 
@@ -122,10 +135,7 @@ app Tauri foi aberto: abrir o app não provaria nada sobre um workflow que só r
 ## O que não foi verificado
 
 - **`e2e-smoke.yml` nunca rodou**: é `schedule`/`workflow_dispatch`, então depende de um dispatch
-  manual ou da primeira madrugada. O run do PR provou o resto: `rustup toolchain install` achou a
-  1.99.0 na imagem `macos-15`, o `setup-dotnet` instalou 8.0.408, `fmt`/`clippy`/`tsc`/unit/gitleaks e
-  o gate de corpo rodaram; o Rust só ficou vermelho pelo bug da #93, que está corrigido. O run seguinte
-  a esta correção ainda não tinha terminado quando a evidência foi escrita.
+  manual ou da primeira madrugada. Os outros cinco checks rodaram e passaram no runner (`2ef7d41`).
 - **`shellcheck` sobre os `run:`**: indisponível localmente. É o único check do `actionlint` que não
   rodou.
 - **`min-severity: low` no zizmor** é o que o job usa; o efeito no *exit code* foi medido pela CLI

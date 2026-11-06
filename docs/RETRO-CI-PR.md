@@ -60,30 +60,36 @@ ambiente de trabalho do agente**, não sobre o produto.
    ensaio. A opção foi aceitar o risco e escrever no doc que a aplicação é do Helder.
    → **Proposta:** aplicar primeiro num repo de teste (ou num branch de teste do ruleset) e só depois
    na `main`, quando o Helder decidir aplicar.
-7. **O primeiro run no GitHub achou dois defeitos que nenhuma validação local pegaria.** (a) O
-   `zizmor` da action audita o repo inteiro (modo de coleta padrão, inclui `dependabot.yml`), enquanto
-   eu rodei `zizmor .github/workflows` e vi zero achados: no CI apareceram 4 `dependabot-cooldown`
-   (medium). (b) Um teste do host só falha em máquina limpa: `verify_installed` rodava o launcher com
-   `current_dir($TMPDIR/openridr-neutral)`, diretório que ninguém cria ali, e o spawn falhava antes de
-   o launcher rodar — bug de produto na primeira instalação de uma máquina nova (#93).
+7. **Os runs reais acharam cinco coisas que nenhuma validação local pegaria.** (a) O `zizmor` da
+   action audita o repo inteiro (modo de coleta padrão, inclui `dependabot.yml`), enquanto eu rodei
+   `zizmor .github/workflows` e vi zero achados: no CI apareceram 4 `dependabot-cooldown` (medium).
+   (b) Um teste do host só falha em máquina limpa: `verify_installed` rodava o launcher com
+   `current_dir($TMPDIR/openridr-neutral)`, diretório que ninguém cria ali — bug de produto na
+   primeira instalação de uma máquina nova (#93). (c) Vários testes restauram NuGet em paralelo numa
+   máquina sem `~/.nuget/NuGet/NuGet.Config` → `NU1100`; um `dotnet restore` antes da suíte resolve e
+   o caminho do passo errado (`.csproj` que não existe) apareceu no run seguinte. (d) A guarda de
+   folhas isoladas da #97 procurava o literal `run_isolated_leaf("`, que o `cargo fmt` quebra em duas
+   linhas. (e) Duas asserções exigiam que um poll de 10 ms pegasse o estado transitório `verifying`.
    → **Proposta:** (a) reproduzir a ferramenta com o *mesmo* modo de coleta da action (`zizmor .`, não
    o subdiretório); (b) para teste que depende de `$TMPDIR`, rodar a bateria com `TMPDIR=$(mktemp -d)`
-   — é um comando e transforma "passa no Mac" em "passa em máquina limpa".
-   A regra "check obrigatório só depois do primeiro run verde" se pagou exatamente aqui: o CI nunca
-   esteve exigido enquanto o Rust estava vermelho.
+   — é um comando e transforma "passa no Mac" em "passa em máquina limpa"; (c) asserção sobre
+   sequência de estados transitórios é asserção sobre a velocidade da máquina — afirme ordem e estado
+   final, não a lista completa.
+   A regra "check obrigatório só depois do primeiro run verde" se pagou exatamente aqui: durante seis
+   runs o Rust esteve vermelho e nenhum deles bloqueou merge.
 
 ## Números
 
-- 3 commits no PR mecânico (`ci/issue-56-fmt`) e 16 no PR de CI (`ci/issue-56-pr-checks`): um por
-  ticket, mais spec/docs/retro, três de correção do code review, o `cooldown` do Dependabot e o bug
-  #93 que o primeiro run do CI achou.
+- 3 commits originais no PR mecânico (`ci/issue-56-fmt`) e ~20 no PR de CI (`ci/issue-56-pr-checks`,
+  incluindo os merges de `main`): um por ticket, mais spec/docs/retro, as correções do code review e
+  seis correções que os runs do CI acharam (`cooldown` do Dependabot, #93, restore do NuGet, caminho do
+  passo de restore, guarda da #97 e as duas asserções de estado transitório).
 - `fmt`: 33 arquivos, 596 hunks; `clippy`: 51 linhas de warning → 0 com `-D warnings`;
   `cargo test -p openridr-host`: 427 testes verdes em duas rodadas (3 min 59 s com build quente, 2 min
   40 s na bateria final); `tsc --noEmit` 0 erros; `bun test tests/unit` 39/39;
   `scripts/ci-pr-body-selfcheck.sh` 13 casos; `actionlint 1.7.12` e `zizmor 1.32.0` (`--min-severity
   low`) sem achado.
-- O run real do PR #90 provou `tsc`, unit, `fmt`, `clippy`, gitleaks, o gate de corpo e o título
-  conventional em runner do GitHub, e falhou só no bug da #93 (corrigido). Não verificado: o
-  `e2e-smoke.yml` (schedule/dispatch, nunca rodou), `shellcheck` sobre os `run:`, a aceitação do
-  ruleset pela API e o comportamento real do `release.yml` depois das duas linhas
-  (`persist-credentials`, `no-cache`).
+- O run final do PR #90 (`2ef7d41`) passou nos cinco checks no runner, ~5,5 min por PR: TS 19 s,
+  governance 18 s, security 13 s, Rust 5 min. Não verificado: o `e2e-smoke.yml` (schedule/dispatch,
+  nunca rodou), `shellcheck` sobre os `run:`, a aceitação do ruleset pela API e o comportamento real do
+  `release.yml` depois das duas linhas (`persist-credentials`, `no-cache`).
