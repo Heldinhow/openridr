@@ -1347,7 +1347,7 @@ Spec `docs/SPEC-FIRST-OPEN.md`, evidência `docs/evidence/first-open.md`, ticket
 - **A medição corrige o diagnóstico da #42.** O processo fica em `_dyld_start` porque o macOS não
   inicia app em quarentena até o diálogo ser respondido (`launchInQuarantine`), não porque o
   Gatekeeper esteja verificando os 18 Mach-O. Marcos medidos no alpha.11 do release: diálogo em
-  0,40–0,53 s (cópia em disco), código 0,14–0,24 s e janela 0,97–1,42 s depois do clique.
+  0,40–0,53 s (cópia em disco), código 0,14–0,23 s e janela 0,97–1,42 s depois do clique.
 - **`scripts/measure-first-open.sh`** monta a condição (cópia nova, xattr `0083` com UUID novo,
   `OPENRIDR_HOME` isolado por `launchctl setenv`), cronometra `exec`/`prompt`/`code`/`window`,
   recusa rodar com o app aberto e restaura o ambiente no fim. `--click X,Y` dispensa o diálogo
