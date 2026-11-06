@@ -25,6 +25,28 @@ O host valida `<sdkRoot>/dotnet` (ou `dotnet.exe`), informa o caminho quando est
 - Comparação isolada do teste `host gates consent, trust and plan identity before any download` em cópia de `origin/main` `3eae813`: falhou igual, esperando `confirmation_required` e recebendo `trust_required` na linha 109. Essa falha específica é preexistente à correção.
 - O hook de commit executou `bun run check` com sucesso após o merge.
 
+### Comparação dos 13 cenários
+
+O mesmo spec completo foi executado no `origin/main` `3eae813`, com as mesmas portas e variáveis. `instalação` abaixo significa `debug.install` recusado para o adaptador bundled; os testes auxiliares então acessam `installed.data.debug` ausente.
+
+| Cenário | Branch | origin/main |
+|---|---|---|
+| Painel bundled | passou | passou |
+| Gates de consentimento | `trust_required`, não `confirmation_required` | igual |
+| Build real, breakpoints e frames | instalação recusada | igual |
+| Um clique em Debug | timeout de 120 s | timeout de 120 s |
+| Selecionar outra thread | avaliação não chegou a `Evaluated` | instalação recusada |
+| Pausar e reiniciar | instalação recusada | igual |
+| Breakpoint condicional verdadeiro | instalação recusada | igual |
+| Condição nunca verdadeira | instalação recusada | igual |
+| Silenciar breakpoints | instalação recusada | igual |
+| Exceção não tratada | instalação recusada | igual |
+| Filtro de exceção | instalação recusada | igual |
+| Executar até cursor | instalação recusada | igual |
+| Hover de variável | instalação recusada | igual |
+
+No cenário de selecionar outra thread, a execução completa da branch parou antes do `debug.start`, na avaliação. Reexecuções isoladas em ambas as versões avançaram e falharam no mesmo `debug.install`. A diferença inicial é compatível com variação de tempo da avaliação: a correção só é executada em `debug.start`, que o cenário não chegou a chamar. O motivo exato da demora inicial não foi reproduzido nem diagnosticado.
+
 ## Limites
 
 O teste DAP direto verifica o binário empacotado, não o app Tauri nem a experiência de interface. App desktop, Windows e macOS Intel não foram verificados.
