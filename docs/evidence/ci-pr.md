@@ -28,7 +28,8 @@ Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `SDK .
   para `Tools` e `Registry` virou `impl` real.
 - Suíte depois do clippy: `cargo test -p openridr-host` → 7 binários, **427 testes passando, 0
   falhando** (`lib` 286, `host` 98, `debugger` 14, `bundled_analysis` 11, `test_discovery` 10,
-  `test_run` 7, `trust_model` 1), 3 min 59 s de parede com build quente.
+  `test_run` 7, `trust_model` 1), 3 min 59 s de parede com build quente. Depois de trazer `main` para
+  o branch (o #92 acrescentou testes em `dap.rs`): **438 testes, 0 falhando**, 4 min 26 s.
 
 ## PR de CI (`ci/issue-56-pr-checks`)
 
