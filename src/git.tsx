@@ -86,6 +86,41 @@ export type GitDiff = {
   truncated: boolean;
 };
 
+export type GitDiffSide = {
+  exists: boolean;
+  text: string | null;
+};
+
+/** One changed block as `git diff -U0` reports it: a zero count means "inserted after start". */
+export type GitHunk = {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+};
+
+export type GitDiffCommit = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+};
+
+/** The diff panel's read: full sides, the block ranges that align them, and the HEAD commit. */
+export type GitFileDiff = {
+  state: "ok" | "empty" | "not_a_repository" | "git_missing" | "failed";
+  message: string | null;
+  path: string;
+  staged: boolean;
+  base: GitDiffSide;
+  current: GitDiffSide;
+  hunks: GitHunk[];
+  patch: string;
+  truncated: boolean;
+  full: boolean;
+  fullReason: "binary" | "too_large" | "unsupported_encoding" | "unreadable" | "unaligned" | null;
+  commit: GitDiffCommit | null;
+};
+
 export type GitOperation = {
   state: "ok" | "failed";
   message: string | null;

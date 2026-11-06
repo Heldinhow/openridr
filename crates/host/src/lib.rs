@@ -82,6 +82,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "debug.stepOut",
     "debug.setBreakpoints",
     "debug.setBreakpointCondition",
+    "debug.setBreakpointHitCount",
     "debug.setBreakpointsMuted",
     "debug.setExceptionBreakpoints",
     "debug.runToCursor",
@@ -97,6 +98,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "tests.run",
     "git.status",
     "git.diff",
+    "git.fileDiff",
     "git.branches",
     "git.branchCreate",
     "git.checkout",
@@ -578,6 +580,9 @@ impl Host {
         if method == "debug.setBreakpointCondition" {
             return self.set_debug_breakpoint_condition(params);
         }
+        if method == "debug.setBreakpointHitCount" {
+            return self.set_debug_breakpoint_hit_count(params);
+        }
         if method == "debug.setBreakpointsMuted" {
             return self.set_debug_breakpoints_muted(params);
         }
@@ -664,6 +669,9 @@ impl Host {
         }
         if method == "git.diff" {
             return self.git_diff(params);
+        }
+        if method == "git.fileDiff" {
+            return self.git_file_diff(params);
         }
         if method == "git.branches" {
             return self.git_branches();
@@ -3926,6 +3934,7 @@ impl Host {
         let breakpoints = inner.dap.breakpoints();
         let breakpoints_muted = inner.dap.breakpoints_muted();
         let exception_filters = inner.dap.exception_filters();
+        let watches = inner.dap.watches();
         let make_launch = |build_id: String, session: u64| dap::Launch {
             session,
             project_name: selected.name.clone(),
@@ -3945,6 +3954,7 @@ impl Host {
             workspace_id: token.workspace_id,
             context_id: token.context_id,
             breakpoints: breakpoints.clone(),
+            watches: watches.clone(),
             breakpoints_muted,
             exception_filters: exception_filters.clone(),
         };
@@ -4258,6 +4268,40 @@ impl Host {
         let mut inner = self.inner.lock().unwrap();
         let (_, relative) = resolve_in_workspace(&inner, &raw)?;
         inner.dap.set_condition(&relative, line, condition)?;
+        Ok(self.snapshot_value(&mut inner))
+    }
+
+    fn set_debug_breakpoint_hit_count(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("debug.setBreakpointHitCount")?;
+        let raw = required_str(&params, "path")?;
+        let line = params
+            .get("line")
+            .and_then(Value::as_i64)
+            .filter(|line| *line >= 1)
+            .ok_or_else(|| {
+                HostError::new(
+                    "invalid_state",
+                    "Breakpoint lines must be positive integers.",
+                )
+            })?;
+        let hit_count = match params.get("hitCount") {
+            None | Some(Value::Null) => None,
+            Some(value) => {
+                let number = value
+                    .as_u64()
+                    .filter(|number| (1..=u32::MAX as u64).contains(number))
+                    .ok_or_else(|| {
+                        HostError::new(
+                            "invalid_state",
+                            "The hit count must be a positive whole number.",
+                        )
+                    })?;
+                Some(number as u32)
+            }
+        };
+        let mut inner = self.inner.lock().unwrap();
+        let (_, relative) = resolve_in_workspace(&inner, &raw)?;
+        inner.dap.set_hit_count(&relative, line, hit_count)?;
         Ok(self.snapshot_value(&mut inner))
     }
 
@@ -5838,6 +5882,18 @@ impl Host {
             .unwrap_or(false);
         let answer = git::diff(&root, &path, staged)?;
         Ok(serde_json::to_value(answer).expect("git diff serializes"))
+    }
+
+    fn git_file_diff(&self, params: Value) -> HostResult<Value> {
+        let _token = self.require_trust("git.fileDiff")?;
+        let root = self.workspace_root()?;
+        let path = required_str(&params, "path")?;
+        let staged = params
+            .get("staged")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let answer = git::file_diff(&root, &path, staged)?;
+        Ok(serde_json::to_value(answer).expect("git file diff serializes"))
     }
 
     fn git_branches(&self) -> HostResult<Value> {

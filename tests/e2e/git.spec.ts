@@ -134,12 +134,13 @@ test("commit tool commits only the checked files, preserves the index and amends
 
   await page.getByTestId(`commit-file-${program}`).click();
   await expect(page.getByTestId("commit-diff-left-label")).toContainText("HEAD");
-  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Index (staged version)");
+  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Index");
+  await expect(page.getByTestId("commit-diff-commit")).toContainText(`HEAD ${git(["rev-parse", "--short", "HEAD"])}`);
   await page.getByRole("button", { name: "Close diff" }).click();
 
   await page.getByTestId(`commit-file-${brandNew}`).click();
   await expect(page.getByTestId("commit-diff-left-label")).toHaveText("No previous file");
-  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Current version");
+  await expect(page.getByTestId("commit-diff-right-label")).toHaveText("Worktree");
   await page.getByRole("button", { name: "Close diff" }).click();
 
   // Commit Order.cs and the new file, explicitly not the staged Program.cs.
@@ -177,6 +178,118 @@ test("commit tool commits only the checked files, preserves the index and amends
   expect(git(["status", "--porcelain", "--", order])).toBe("");
 });
 
+test("full-file diff shows the whole file, connectors and the HEAD commit", async ({ page }) => {
+  const longFile = "src/OrderDesk.Core/LongReviewFile.cs";
+  const lines = Array.from({ length: 60 }, (_, index) => {
+    const number = String(index + 1).padStart(2, "0");
+    return `public static class Line${number} { public const string Value = "line-${number}"; }`;
+  });
+  fs.writeFileSync(path.join(repo, longFile), `namespace OrderDesk.Core;\n\n${lines.join("\n")}\n`);
+  git(["add", longFile]);
+  git(["commit", "-qm", "Add the long review file"]);
+  lines[19] = `public static class Line20 { public const string Value = "changed-line-20"; }`;
+  fs.writeFileSync(path.join(repo, longFile), `namespace OrderDesk.Core;\n\n${lines.join("\n")}\n`);
+  const head = git(["rev-parse", "--short", "HEAD"]);
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("toolband-commit").click();
+  await page.getByTestId(`commit-file-${longFile}`).click();
+
+  const diff = page.getByTestId("commit-diff");
+  const editors = diff.locator(".cm-editor");
+  await expect(editors).toHaveCount(2);
+  await expect(diff.getByTestId("commit-diff-note")).toHaveText("Showing the full file from Git.");
+  await expect(editors.nth(1)).toContainText("line-01");
+  await expect(editors.nth(1)).toContainText("changed-line-20");
+  await expect(diff.locator(".cm-diff-connector").first()).toBeVisible();
+  await expect(diff.getByTestId("commit-diff-commit")).toBeVisible();
+  await expect(diff.getByTestId("commit-diff-commit")).toContainText(`HEAD ${head}`);
+  await expect(diff.getByTestId("commit-diff-commit")).toContainText("Add the long review file");
+  await expect(diff.getByTestId("commit-diff-commit")).toHaveAttribute("title", git(["rev-parse", "HEAD"]));
+  await expect(diff.getByTestId("commit-diff-left-label")).toHaveText("Index");
+  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("Worktree");
+  await expect(diff.getByTestId("commit-diff-count")).toHaveText("1 difference");
+  // The last line of the file is reachable, so the panel is not limited to the hunk.
+  await editors.nth(1).locator(".cm-scroller").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(editors.nth(1)).toContainText("line-60");
+  await page.getByRole("button", { name: "Close diff" }).click();
+});
+
+test("diff labels added and deleted files and shows their full content", async ({ page }) => {
+  const added = "src/OrderDesk.Core/AddedInDiff.cs";
+  const deleted = "src/OrderDesk.Core/DeletedInDiff.cs";
+  fs.writeFileSync(path.join(repo, deleted), "namespace OrderDesk.Core;\n\npublic static class DeletedInDiff { public const string Value = \"gone-line\"; }\n");
+  git(["add", deleted]);
+  git(["commit", "-qm", "Add the file the diff will see deleted"]);
+  fs.rmSync(path.join(repo, deleted));
+  fs.writeFileSync(path.join(repo, added), "namespace OrderDesk.Core;\n\npublic static class AddedInDiff { public const string Value = \"new-line\"; }\n");
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("toolband-commit").click();
+  const diff = page.getByTestId("commit-diff");
+
+  await page.getByTestId(`commit-file-${added}`).click();
+  await expect(diff.getByTestId("commit-diff-left-label")).toHaveText("No previous file");
+  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("Worktree");
+  await expect(diff.locator(".cm-editor").nth(1)).toContainText("new-line");
+  await expect(diff.getByTestId("commit-diff-note")).toHaveText("Showing the full file from Git.");
+  await page.getByRole("button", { name: "Close diff" }).click();
+
+  await page.getByTestId(`commit-file-${deleted}`).click();
+  await expect(diff.getByTestId("commit-diff-left-label")).toHaveText("Index");
+  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("No current file");
+  await expect(diff.locator(".cm-editor").nth(0)).toContainText("gone-line");
+  await page.getByRole("button", { name: "Close diff" }).click();
+});
+
+test("diff falls back to the patch for a binary file and says why", async ({ page }) => {
+  const binary = "src/OrderDesk.Core/binary.dat";
+  fs.writeFileSync(path.join(repo, binary), Buffer.from([0x41, 0x00, 0x42]));
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("toolband-commit").click();
+  await page.getByTestId(`commit-file-${binary}`).click();
+
+  const diff = page.getByTestId("commit-diff");
+  await expect(diff.getByTestId("commit-diff-note")).toContainText("binary file");
+  await expect(diff.locator(".cm-editor")).toHaveCount(0);
+  await page.getByRole("button", { name: "Close diff" }).click();
+});
+
+test("unified mode shows one editor and remembers the choice", async ({ page }) => {
+  fs.appendFileSync(path.join(repo, order), "// unified mode change\n");
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await page.getByTestId("toolband-commit").click();
+  await page.getByTestId(`commit-file-${order}`).click();
+
+  const diff = page.getByTestId("commit-diff");
+  const mode = diff.getByTestId("commit-diff-mode");
+  await expect(diff.locator(".cm-editor")).toHaveCount(2);
+  await expect(mode.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true");
+  await expect(mode.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "false");
+  await expect(diff.getByTestId("commit-diff-count")).toHaveText("1 difference");
+
+  await mode.getByRole("button", { name: "Unified" }).click();
+  await expect(mode.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true");
+  await expect(diff.locator(".cm-editor")).toHaveCount(1);
+  await expect(diff.getByTestId("commit-diff-unified")).toBeVisible();
+  await expect(diff.getByTestId("commit-diff-unified")).toContainText("+// unified mode change");
+  await expect(diff.getByTestId("commit-diff-count")).toHaveText("1 difference");
+  await expect(diff.locator(".cm-diff-connector")).toHaveCount(0);
+
+  // The choice outlives the diff tab, not just the file.
+  await page.getByRole("button", { name: "Close diff" }).click();
+  await page.getByTestId(`commit-file-${order}`).click();
+  await expect(diff.locator(".cm-editor")).toHaveCount(1);
+  await expect(mode.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true");
+
+  await mode.getByRole("button", { name: "Split" }).click();
+  await expect(diff.locator(".cm-editor")).toHaveCount(2);
+  await expect(diff.locator(".cm-diff-connector").first()).toBeVisible();
+  await page.getByRole("button", { name: "Close diff" }).click();
+});
+
 test("Git review keeps long diffs, paths, log metadata and commit feedback readable", async ({ page }) => {
   const longPath = `${"src/OrderDesk.Core/"}${"deeply-nested-review-folder/".repeat(3)}ReadablePath.cs`;
   const absolutePath = path.join(repo, longPath);
@@ -198,7 +311,7 @@ test("Git review keeps long diffs, paths, log metadata and commit feedback reada
   await expect(page.getByTestId("commit-diff-tab")).toContainText("Commit: ReadablePath.cs");
   const diffText = diff.locator(".cm-editor");
   await expect(diff.getByTestId("commit-diff-left-label")).toContainText("Index");
-  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("Current version");
+  await expect(diff.getByTestId("commit-diff-right-label")).toHaveText("Worktree");
   await expect(diffText).toHaveCount(2);
   await expect(diffText.nth(1)).toContainText("after after after");
   await expect(diff.locator(".git-diff-intraline").first()).toBeVisible();
