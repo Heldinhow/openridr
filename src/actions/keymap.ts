@@ -358,8 +358,41 @@ export function formatShortcutText(shortcut: Shortcut, platform: Platform): stri
   return parts.join("+");
 }
 
+// macOS composes a different character while Option is held (⌥W types ∑, ⌥1 types ¡), so with
+// `alt` the composed `event.key` is never the key a shortcut stores. The physical key is the
+// stable name in that case; without Option the layout decides, and `event.key` stays the source.
+const physicalKeys: Record<string, string> = {
+  Backquote: "`",
+  Minus: "-",
+  Equal: "=",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Space: "space",
+};
+for (let code = 65; code <= 90; code += 1) {
+  const letter = String.fromCharCode(code);
+  physicalKeys[`Key${letter}`] = letter.toLowerCase();
+}
+for (let digit = 0; digit <= 9; digit += 1) physicalKeys[`Digit${digit}`] = String(digit);
+
+/** The key a shortcut carries for this event: the physical key while Option composes a different
+ * character, `event.key` otherwise. */
+export function pressedKey(event: KeyboardEvent): string {
+  if (event.altKey) {
+    const physical = physicalKeys[event.code];
+    if (physical) return physical;
+  }
+  return normalizeKey(event.key);
+}
+
 export function matches(event: KeyboardEvent, shortcut: Shortcut, platform: Platform) {
-  if (normalizeKey(event.key) !== shortcut.key) return false;
+  if (pressedKey(event) !== shortcut.key) return false;
   if (platform === "macos") {
     return (
       event.metaKey === !!shortcut.primary &&
@@ -378,7 +411,7 @@ export function matches(event: KeyboardEvent, shortcut: Shortcut, platform: Plat
 export function shortcutFromEvent(event: KeyboardEvent, platform: Platform): Shortcut | null {
   if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(event.key)) return null;
   return {
-    key: normalizeKey(event.key),
+    key: pressedKey(event),
     primary: platform === "macos" ? event.metaKey : event.ctrlKey,
     control: platform === "macos" ? event.ctrlKey : false,
     alt: event.altKey,

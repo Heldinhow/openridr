@@ -17,7 +17,9 @@ Consequência do `git.update`: pressionar o atalho do Update executa **Close All
 
 Consequência do `editor.closeTab`, descoberta nesta sessão e pior: **⌘W também encerra o app**. Reproduzido no app instalado (0.3.0-alpha.9): com a janela em foco, `⌘W` derrubou o PID, sem nenhum diálogo. O atalho de fechar aba é documentado desde a [SPEC-MEDIUM-NAV-SEARCH](SPEC-MEDIUM-NAV-SEARCH.md) e nunca foi executado numa prova real — a linha do `evidence/e2e-alpha5/REPORT.md` diz "listado, não executado".
 
-O bug não é do webview nem do keymap: é do menu nativo. O `editor.closeTab` está quebrado desde que existe, e o `⌥⌘W` desde que o Update ganhou atalho.
+O bug não é do webview: é do menu nativo. O `editor.closeTab` está quebrado desde que existe, e o `⌥⌘W` desde que o Update ganhou atalho.
+
+E a sombra do menu escondia um segundo defeito, no próprio keymap: no macOS, segurar Option **compõe outro caractere** — `⌥W` entrega `event.key === "∑"` — e o matcher comparava esse caractere com a tecla guardada (`"w"`). Nenhum atalho ⌥+letra ou ⌥+dígito casava, com ou sem menu nativo, e a captura da Settings gravava `∑` como tecla do override. Ou seja: tirar `⌥⌘W` do menu era necessário, mas não suficiente para "`⌥⌘W` abre o Update".
 
 ## Solução
 
@@ -30,6 +32,8 @@ Para isso, a cirurgia é no item que cria a sombra:
 - **A duplicata de fechar janela no menu Window sai.** Sobra uma única entrada, em File.
 
 O keymap não muda: `⌘W` continua "Close Tab" e `⌥⌘W` continua "Update Project…", nos três perfis. A paridade com o Rider (⌘W fecha aba, ⌥⌘W faz update) fica intacta; quem fecha a janela pela janela do app é o item de menu, o botão vermelho ou `⌘Q`.
+
+O keymap também passa a enxergar a tecla física quando Option compõe o caractere: com `alt`, a tecla do atalho vem do `code` do evento (`KeyW` → `w`), e sem `alt` continua vindo do `key` (o layout manda). A captura de atalho grava o mesmo nome que o matcher espera, para um override com Option voltar a funcionar.
 
 Uma **guarda** impede a recaída: a lista de aceleradores que o menu nativo possui passa a ser dado versionado no lado TS (comentado contra o código do shell) e um teste de unidade reprova qualquer default do keymap que colida com ela. E2E não cobre isso — roda em Chrome, sem menu nativo.
 
@@ -50,12 +54,16 @@ Uma **guarda** impede a recaída: a lista de aceleradores que o menu nativo poss
 13. Como pessoa que valida a release, quero a evidência com ação e estado resultante (app vivo, aba fechada, diálogo aberto, menu lido), para auditar sem repetir a sessão.
 14. Como pessoa que valida a release, quero que o que não foi verificado (Windows, macOS Intel) esteja escrito, para não vender suporte que não existe.
 15. Como pessoa usando o OpenRidr no Windows ou Linux, quero saber que o mesmo problema pode existir lá, para não tratar a correção como universal.
+16. Como pessoa usando o OpenRidr no macOS com a tecla Option, quero que `⌥⌘W` (e qualquer atalho com Option) dispare a ação, para que o teclado não dependa de qual caractere o sistema compõe.
+17. Como pessoa que remapeia atalho na Settings, quero que um atalho com Option fique gravado de um jeito que volte a funcionar, para não descobrir depois que ele nunca dispara.
+18. Como pessoa que mantém o OpenRidr, quero um teste que diferencie "tecla composta" de "tecla física", para não reintroduzir a comparação por caractere.
 
 ## Implementation decisions
 
 - **A cirurgia é no shell (`src-tauri`), não no keymap nem no webview.** O `default_menu` do macOS continua partindo de `Menu::default` (como já faz ao trocar o Quit), e passa a: (a) trocar o item predefinido de fechar janela do menu File por um `MenuItem` próprio, com id e **sem** acelerador; (b) remover o item predefinido de fechar janela do menu Window (a duplicata); (c) tratar o id do item próprio no `on_menu_event`, fechando a janela pelo método que emite `CloseRequested` — o mesmo caminho do botão vermelho, que a UI intercepta para perguntar sobre buffer sujo. Não se usa `destroy`, que não emite evento.
 - **Por que o Close All some sem tocar nele.** O AppKit injeta `Close All` (seletor `closeAll:`, ⌥⌘W) no menu File porque o menu File contém um item com o seletor `performClose:`, e o acelerador do item injetado é derivado do acelerador do item original. Medido num spike AppKit descartável (fora do repo): com `performClose:` + ⌘W o Close All nasce com ⌥⌘W; com `performClose:` sem acelerador ele nasce sem tecla; sem nenhum item `performClose:` ele não aparece. Um item próprio (sem seletor) cai no terceiro caso — por isso a solução é trocar o item, e não tentar apagar o injetado depois.
-- **O keymap não muda.** `editor.closeTab` continua ⌘W e `git.update` continua ⌥⌘W nos três perfis; nenhum default, nenhum override, nenhuma migração de `settings.json`. A colisão é resolvida do lado do menu nativo.
+- **O keymap não muda.** `editor.closeTab` continua ⌘W e `git.update` continua ⌥⌘W nos três perfis; nenhum default, nenhum override, nenhuma migração de `settings.json`. A colisão do menu é resolvida do lado do shell.
+- **O matcher passa a considerar a tecla física sob Option.** `matches` e a captura (`shortcutFromEvent`) usam `event.code` quando `alt` está pressionado e o código é uma tecla nomeável (letras, dígitos, pontuação, espaço); para todo o resto (F5, Enter, setas) e sem Option, `event.key` continua valendo. Motivo: com Option o caractere é composto pelo sistema, então comparar caractere nunca casa. Consequência declarada: em layout não-US, um atalho com Option passa a ser nomeado pela posição física da tecla — o que é consistente entre matcher e captura, mas não é o rótulo do layout local.
 - **`⌘Q` continua nativo e continua interceptado.** O item Quit já é substituído por um item próprio que pede a decisão à UI (`quit_app` só depois do prompt); nada nesta frente toca esse fluxo.
 - **Menu File mantém "Close Window" sem atalho; menu Window perde a duplicata.** A janela continua fechável por menu e pelo botão vermelho; o teclado de fechar janela passa a ser do app (`⌘W` = fechar aba), como num IDE.
 - **Guarda do lado TS, com a lista nativa versionada.** Um módulo de dados exporta os aceleradores que o menu nativo possui, cada um com comentário de onde vem (`src-tauri`, `Menu::default` e a substituição do `⌘Q`), e um teste de unidade reprova qualquer default de keymap (nos três perfis) que colida com a lista, com mensagem nomeando ação e atalho. A lista é espelho manual por construção: o shell não exporta a sua tabela e o AppKit não é inspecionável em teste de unidade; o teste é uma **armadilha de regressão**, não uma prova do menu.
@@ -68,6 +76,7 @@ Uma **guarda** impede a recaída: a lista de aceleradores que o menu nativo poss
 - **Um teste bom aqui prova o efeito no app, não o relato.** A prova primária é o app Tauri real: a tecla é pressionada de verdade e o estado resultante é lido (aba fechada, diálogo aberto, app vivo, menu lido pela árvore de acessibilidade), porque o bug só existe onde existe menu nativo.
 - **A costura mais alta disponível para automatizar é o contrato do keymap.** `tests/unit` (bun test, DOM simulado como em `nativeMenu.test.ts`) é o lugar da guarda: dados puros + `shortcutsFor`/`signature`, sem Tauri, sem AppKit.
 - **A construção do menu não vira teste de unidade.** `default_menu` exige `AppHandle` e o comportamento que importa (key equivalent do AppKit, item injetado) não existe no runtime de teste. Em vez de um mock que fingiria o AppKit, a prova do menu é a leitura do menu real no app.
+- **A costura do matcher é unidade também** (`tests/unit/keymapOptionKeys.test.ts`): eventos com `key` composto + `code` físico, sem DOM, porque o defeito é de comparação pura. Prior art: `tests/unit/keymapVisualStudio.test.ts`.
 - **Prior art**: `tests/unit/nativeMenu.test.ts` (guarda de comportamento de shell exercitada contra DOM mínimo) e `docs/evidence/native-context-menu.md` (app real dirigido por `agent-desktop`, menu lido pela árvore).
 - **Falha antes / passa depois**: antes da correção, `⌥⌘W` e `⌘W` matam o app no bundle instalado (reproduzido nesta sessão); depois, as mesmas teclas no bundle sob teste deixam o app vivo e produzem o efeito do keymap. A guarda de unidade não é falha-antes — é armadilha para a próxima colisão, e isso está dito no ticket.
 - **Cenários no app real (S1–S6)**: (S1) `⌥⌘W` solta o diálogo de Update com o app vivo; (S2) `⌘W` com duas abas fecha só a ativa; (S3) `⌘W` na aba com edição não salva pergunta; (S4) `⌘Q` com edição não salva pergunta e o app segue vivo até a decisão; (S5) botão vermelho com edição não salva pergunta; (S6) menu File lido sem `Close All` e com `Close Window` sem atalho.
@@ -86,4 +95,5 @@ Uma **guarda** impede a recaída: a lista de aceleradores que o menu nativo poss
 
 - A medição que originou a spec, feita no app instalado 0.3.0-alpha.9 e num spike AppKit descartável em `/tmp` (não versionado): menu File com `Close Window` ⌘W e `Close All` ⌥⌘W; `⌘W` e `⌥⌘W` derrubam o PID; o Close All injetado depende do item `performClose:` do menu File; remover o item depois do launch também funciona, mas a troca declarativa é mais simples de manter.
 - A lista de aceleradores do menu nativo pós-correção, para o teste: `⌘Q` (Quit, substituído), `⌘H`/`⌥⌘H`/`⌘M` (AppKit), `⌘Z`/`⇧⌘Z`/`⌘X`/`⌘C`/`⌘V`/`⌘A` (Edição), `⌃⌘F` (View), mais os itens automáticos do AppKit no menu Window (`⌘`` para ciclar janelas) e `⌃⌘Space` (Emoji & Symbols) — nenhum deles é usado pelo keymap hoje.
+- O segundo defeito foi encontrado durante a aceitação no app real, não na leitura do código: `⌘W` passou a fechar aba com o menu corrigido, `⌥⌘W` continuou sem efeito, e um experimento isolado mostrou `matches` devolvendo `false` para o evento composto (`key: "∑"`, `code: "KeyW"`).
 - `docs/MAPA.md` ganha o ponteiro para onde vive a decisão de menu (o shell), porque hoje o assunto "menu nativo" só aparece ligado ao guard de contextmenu do webview.
