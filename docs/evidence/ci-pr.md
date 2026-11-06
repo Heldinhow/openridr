@@ -170,6 +170,32 @@ seleção de frame; `5faaff7` #103, diff de arquivo inteiro com modo unificado).
 - `bunx tsc --noEmit`: 0 erros; `bun run test:unit`: **51 testes, 0 falhas** (o `main` trouxe
   `commitDiff.test.ts`).
 
+## Integração final: `7984adc` (#115), squash do #89 `92722bc`, e o blame-ignore
+
+- **#115 (`7984adc`)** entrou pelo merge `847f5b0` na A e `d7677d6` na B (docs do remoto bare + fixture
+  `scripts/git-remote-fixture.sh` + `tests/shell/…`, sem código Rust/TS de produto). Conflito só de
+  docs: `docs/README.md` passou a ter as três linhas (CI, "Debug avançado" do #102, "Aceitação Git com
+  remoto (#50)") e `docs/decisions.md` manteve a entrada da #50 **e** a desta frente.
+- **#89 mesclado por squash na `main` como `92722bc`** (head `847f5b0`, confirmado `MERGED`). A B
+  integrou esse `main` no merge `86cd8a0`: sem conflito, porque o squash traz o mesmo conteúdo que a A
+  já tinha.
+- **`.git-blame-ignore-revs` foi esvaziado, de propósito.** Verificado: os três hashes que estavam
+  listados (`7069beb`, `2f54988`, `f4a06a2`) **não são alcançáveis de `origin/main`**
+  (`git merge-base --is-ancestor` falha), então um clone só de `main` quebraria com
+  `fatal: bad object`. E o squash `92722bc` **não** pode ser listado: ele agrega formatação, clippy e
+  duas edições reais (a guarda de folhas isoladas e o helper `make_writable`) — ignorá-lo esconderia a
+  edição do blame. O arquivo ficou válido e curto explicando os dois motivos; o limite (o blame das
+  linhas remanejadas aponta para `92722bc`) está no próprio arquivo, em `AGENTS.md` ("Pull request e
+  CI") e aqui.
+- **`make_writable`**: comentário corrigido. `set_readonly(false)` no Unix **não** é no-op — ele liga
+  todos os bits de escrita (`0o222`), inclusive grupo e outros; o helper já estava correto ao somar só
+  o bit do dono (`mode | 0o600`). Clippy recusa a forma `set_readonly(false)` exatamente por isso.
+
+Validação desta rodada (focada): `git blame --ignore-revs-file=.git-blame-ignore-revs` roda sem
+`fatal`; `cargo fmt --all -- --check` e `cargo clippy --workspace --all-targets -- -D warnings`
+limpos; `bun run check` no commit (hook); os testes de Git/DAP já rodados pelo orquestrador no B
+(27/29) continuam válidos porque esta rodada não toca código de produto além do comentário.
+
 ## Segunda rodada de review (`704af9f`) e correções
 
 Revisão independente (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre `704af9f`: Standards 0,
