@@ -32,7 +32,8 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | `useExecutionFlow.ts`, `executionGates.ts`, `executionCommands.ts` | Build/Run/Debug: fluxo, gates (por que está desabilitado) e comandos |
 | `BuildPanel`, `RunPanel`, `DebugPanel` (+ `Debug*.tsx`), `TestsPanel`, `TerminalPanel`, `ProblemsPanel`, `NuGetPanel`, `FindInFiles`, `FindUsagesPanel`, `ProcessPanel` | um painel por arquivo |
 | `ToolchainPanels.tsx` | painéis de SDK, restore, diagnóstico/reinstalação de ferramentas, LSP, adaptador de debug |
-| `git.tsx` (~1.000) | tudo de Git da UI (status, commit, branches, diálogos) |
+| `git.tsx` (~1.000) | tudo de Git da UI (status, commit, branches, diálogos, Git log) |
+| `CommitDiff.tsx` | painel do diff da árvore de trabalho: arquivo inteiro (split) ou unificado, conectores, linha do commit; `buildCommitRows`/`projectUnified` são puras e testadas em `tests/unit/` |
 | `runConfigs.tsx`, `SettingsDialog.tsx` | Run configurations; Settings |
 | `TrustControls.tsx`, `TrustPrompt.tsx`, `SetupScreen.tsx` | Trust e tela de setup |
 | `host/client.ts` | **única** fronteira com o host: Tauri (`host_call`) ou HTTP de dev. Contém os tipos do `Snapshot` |
