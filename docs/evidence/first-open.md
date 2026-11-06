@@ -201,6 +201,12 @@ clique no app é o path translocado acima, não a cópia original.
   há prova visual do cursor. O que existe medido: 0,3–0,5 s entre o `open` e o diálogo sem nada na
   tela, e nenhum estado do processo em que ele esteja bloqueado *sem* o diálogo à vista — o
   processo fica suspenso pela quarentena, e o diálogo é a interface dessa suspensão.
+- **Diálogo de outro app durante a rodada**: o alerta é do `CoreServicesUIAgent` (global) e dois
+  alertas simultâneos não são distinguíveis. O script só conta o alerta depois de identificar o
+  processo da rodada (marcador com UUID no argv), recusa clicar quando vê mais de uma linha de
+  prompt, quando um segundo processo carrega o marcador ou quando o processo dele sumiu, e falha a
+  rodada se o clique não iniciar o app em 5 s — mas não desfaz um clique que respondeu o alerta
+  alheio. Não medido (exigiria duas aberturas simultâneas de propósito).
 - **macOS 26 e anterior, macOS Intel, Windows**: não executados.
 - **E0 (sem quarentena)**: 2 rodadas, mas a primeira só tem `exec`/`code` (sem captura de janela) e
   a segunda reaproveita o cache de página da cópia; **E3c (imagem fria)**: 1 rodada válida (a 2ª

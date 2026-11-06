@@ -25,9 +25,14 @@
 # Sampling runs at roughly 0,15-0,25 s per observation (pgrep/ps/perl/agent-desktop) and each
 # mark is timestamped when the observation arrives, i.e. up to one sampling period AFTER the real
 # event: the printed hundredths are late by that much, not a microbenchmark. The per-round marker
-# (--openridr-measure-round=N in argv) is what binds the pid to this round; a system-wide
-# Gatekeeper alert only counts once that pid exists, and a click that answers another app's alert
-# fails the round in 5 s instead of reporting a number.
+# (--openridr-measure-round=N-<uuid> in argv) is what binds the pid to this round; a system-wide
+# Gatekeeper alert only counts once that pid exists.
+#
+# Known limit: two simultaneous alerts cannot be told apart. The script refuses to click when it
+# sees more than one prompt line in the round, when a second process carries the marker, or when
+# its own process is gone; and a click that does not start the app within 5 s fails the round. It
+# cannot undo a click that answered the other app's alert, so measure with the machine otherwise
+# idle.
 #
 # The script never mounts anything: it copies --app (default /Applications/OpenRidr.app, or
 # $OPENRIDR_APP) into a temporary directory, so it reproduces the "app already on disk" condition,
@@ -233,6 +238,20 @@ while [ "$round" -lt "$ROUNDS" ]; do
         *"$marker"*) ;;
         *) if [ -z "$t_code" ]; then verdict="the measured process vanished before running"; fi ;;
       esac
+      # A second process carrying this round's marker makes the identity ambiguous; the first
+      # sample is not enough, because it can appear a moment later.
+      if [ -z "$verdict" ] && [ -z "$t_code" ]; then
+        others=0
+        for candidate in $(pgrep -x openridr 2>/dev/null || true); do
+          if [ "$candidate" = "$pid" ]; then continue; fi
+          case " $before " in *" $candidate "*) continue ;; esac
+          cmdline=$(ps -o command= -p "$candidate" 2>/dev/null || true)
+          case $cmdline in *"$marker"*) others=$((others + 1)) ;; esac
+        done
+        if [ "$others" -gt 0 ]; then
+          verdict="ambiguous identity: another process carries this round's marker"
+        fi
+      fi
     fi
     if [ -z "$t_exec" ]; then
       matches=0; found=
@@ -259,18 +278,26 @@ while [ "$round" -lt "$ROUNDS" ]; do
     if [ "${prompts:-0}" -ge 2 ] && [ -z "$verdict" ]; then
       verdict="two Gatekeeper alerts in one round; cannot tell which one is ours"
     fi
-    if [ -n "$t_prompt" ] && [ -n "$pid" ] && [ -z "$t_click" ] && [ -z "$t_code" ] && [ -z "$verdict" ]; then
-      if [ -n "$CLICK" ]; then
+    if [ -n "$t_prompt" ] && [ -n "$pid" ] && [ -z "$t_click" ] && [ -z "$t_code" ] && [ -z "$verdict" ] \
+      && [ -n "$CLICK" ]; then
+      # Last look before answering: one alert in the log, and our process still the one holding it.
+      prompts_now=$(grep -c "code-evaluation prompt" "$LOG" 2>/dev/null || true)
+      cmdline=$(ps -o command= -p "$pid" 2>/dev/null || true)
+      owner=no
+      case $cmdline in *"$marker"*) owner=yes ;; esac
+      if [ "${prompts_now:-0}" -ne 1 ] || [ "$owner" != yes ]; then
+        verdict="the alert is no longer unambiguously this round's; nothing was clicked"
+      else
         sleep 0.1
         if agent-desktop screenshot "$STATE/r$round/alert.png" --screen 0 >/dev/null 2>&1; then
-          agent-desktop mouse-click --xy "$CLICK" --headed >/dev/null 2>"$STATE/r$round/click.err" \
-            || verdict="click failed: $(cat "$STATE/r$round/click.err")"
+          if agent-desktop mouse-click --xy "$CLICK" --headed >/dev/null 2>"$STATE/r$round/click.err"; then
+            t_click=$(now)
+          else
+            verdict="click failed: $(cat "$STATE/r$round/click.err")"
+          fi
         else
           verdict="capture failed; the dialog was not clicked"
         fi
-        t_click=$(now)
-      else
-        t_click=
       fi
     fi
     if [ -z "$t_code" ] && [ -n "$pid" ]; then
