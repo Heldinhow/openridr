@@ -55,9 +55,55 @@ clean=$(awk '
     print out
   }' "$body")
 
-# A fenced block is code, not a claim: `Refs #56` quoted inside one is not a link to the issue.
-outside_fences=$(printf '%s\n' "$clean" \
-  | awk '/^[[:space:]]*(```|~~~)/ { fence = !fence; next } !fence { print }')
+# Fenced code is code, not a claim: `Refs #56` or a `## Evidence` heading quoted inside a fence must not
+# count. Both views keep the line count, so a line number means the same line in either of them.
+#   outside - the fence and everything inside it are blanked (issue reference, headings)
+#   body    - only the delimiters are blanked, so a real command inside the Evidence section is still
+#             evidence
+# A fence closes on the same character with at least the opening length: `~~~` never closes a ``` fence,
+# and a longer fence can contain a shorter one.
+fences() {
+  awk -v mode="$1" '
+    function run(value, character,   count) {
+      count = 0
+      while (substr(value, count + 1, 1) == character) count++
+      return count
+    }
+    {
+      line = $0
+      stripped = line
+      sub(/^[ \t]+/, "", stripped)
+      character = substr(stripped, 1, 1)
+      marker = (character == "`" || character == "~") ? run(stripped, character) : 0
+      delimiter = (marker >= 3)
+      if (!inside) {
+        if (delimiter) {
+          inside = 1
+          kind = character
+          opened = marker
+          print ""
+          next
+        }
+        print line
+        next
+      }
+      closing = 0
+      if (delimiter && character == kind && marker >= opened) {
+        tail = substr(stripped, marker + 1)
+        gsub(/[ \t]/, "", tail)
+        if (tail == "") closing = 1
+      }
+      if (closing) {
+        inside = 0
+        print ""
+        next
+      }
+      print (mode == "body" ? line : "")
+    }'
+}
+
+outside_fences=$(printf '%s\n' "$clean" | fences outside)
+evidence_text=$(printf '%s\n' "$clean" | fences body)
 
 # Any of the linking keywords GitHub understands, plus `Part of`/`Refs` for a ticket that does not
 # close its parent.
@@ -67,10 +113,11 @@ if ! printf '%s\n' "$outside_fences" \
   exit 1
 fi
 
-# The evidence section runs from its heading to the next `##` heading. Both spellings are accepted
-# because the template is in English while the repo's docs are in Portuguese; the accented form is a
-# separate pattern so a C locale cannot turn `ê` into a byte range.
-heading=$(printf '%s\n' "$clean" \
+# The evidence section runs from its heading to the next `##` heading. Headings are looked up in the
+# fence-blanked view, so a `## Evidence` written inside a code block is not a section. Both spellings are
+# accepted because the template is in English while the repo's docs are in Portuguese; the accented form
+# is a separate pattern so a C locale cannot turn `ê` into a byte range.
+heading=$(printf '%s\n' "$outside_fences" \
   | grep -Ein \
     -e '^##[[:space:]]+evidence[[:space:]]*$' \
     -e '^##[[:space:]]+evidência[[:space:]]*$' \
@@ -80,10 +127,14 @@ if [ -z "$heading" ]; then
   exit 1
 fi
 
-# Comments are already gone, so what is left is claimed evidence; blank lines are formatting.
-block=$(printf '%s\n' "$clean" \
-  | tail -n "+$((heading + 1))" \
-  | awk '/^##[[:space:]]/ { exit } { print }' \
+# The section ends at the next heading that is not inside a fence (0 = none).
+end=$(printf '%s\n' "$outside_fences" \
+  | awk -v start="$heading" 'NR > start && /^##[[:space:]]/ { print NR; exit }')
+
+# Comments are gone and fence delimiters are blanked; what is left is claimed evidence, and blank lines
+# are formatting. A section with only fences is empty.
+block=$(printf '%s\n' "$evidence_text" \
+  | awk -v start="$heading" -v end="${end:-0}" 'NR > start && (end == 0 || NR < end) { print }' \
   | sed -e '/^[[:space:]]*$/d')
 
 if [ -z "$block" ]; then

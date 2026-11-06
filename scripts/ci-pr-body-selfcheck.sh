@@ -106,6 +106,68 @@ Closes #56
 spanning lines so only the first line would be seen by a naive filter -->
 BODY
 
+expect rejected evidence-heading-inside-backtick-fence "" <<'BODY'
+Closes #56
+
+## Summary
+
+Nothing here.
+
+```
+## Evidence
+cargo test -p openridr-host
+```
+BODY
+
+expect rejected evidence-heading-inside-tilde-fence "" <<'BODY'
+Closes #56
+
+## Summary
+
+Nothing here.
+
+~~~
+## Evidence
+cargo test -p openridr-host
+~~~
+BODY
+
+expect rejected evidence-section-is-only-fences "" <<'BODY'
+Closes #56
+
+## Evidence
+
+```
+```
+
+~~~
+~~~
+BODY
+
+expect rejected tilde-does-not-close-a-backtick-fence "" <<'BODY'
+Closes #56
+
+## Summary
+
+Nothing here.
+
+```
+~~~
+## Evidence
+cargo test -p openridr-host
+```
+BODY
+
+expect accepted evidence-is-a-real-command-in-a-fence "" <<'BODY'
+Closes #56
+
+## Evidence
+
+```
+cargo test -p openridr-host
+```
+BODY
+
 expect accepted command-inside-code-fence "" <<'BODY'
 Closes #56
 
