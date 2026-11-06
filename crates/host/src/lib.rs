@@ -6832,7 +6832,7 @@ impl Inner {
             bundled::Availability::Bundled(_) => {
                 self.tools.sync_bundled();
                 let tool = self.tools.view();
-                if tool.state != "ready" && self.setup_error.is_none() {
+                if tool.state == "failed" && self.setup_error.is_none() {
                     self.setup_error = tool.error.clone().or_else(|| {
                         Some("The bundled analysis tool did not verify.".to_string())
                     });

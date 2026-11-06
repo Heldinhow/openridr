@@ -1308,3 +1308,19 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   rejeita projetos que resolvem fora da raiz do workspace.
 - Argumentos entre aspas preservam argumentos vazios e aspas escapadas. `%VAR%` e `$(...)` não
   são expandidos; outros casos de compatibilidade de escapes com o CLI .NET não foram exauridos.
+
+## 2026-11-06 — Primeira abertura e verificação embutida
+
+- O snapshot inicia uma verificação em segundo plano, compartilhada no processo, e retorna
+  `verifying` ou o resultado em cache. A verificação e o SHA-256 informativo não são repetidos;
+  a assinatura e notarização do app são a referência de integridade, não o fingerprint anterior.
+- `host_call` executa o dispatch fora da thread principal. A Welcome sinaliza preparação enquanto
+  aguarda; o gate existente acompanha a verificação antes de liberar o projeto.
+- No macOS ARM64, o DMG alpha.11 em quarentena ficou em `_dyld_start` por pelo menos 15 s; o
+  `syspolicyd` registrou verificação e proveniência. A segunda abertura mostrou Welcome em 6,60 s
+  e amostrou hash na thread principal. No app recompilado ad-hoc, a segunda mostrou Welcome em
+  2,83 s; o sample mostrou hash em thread separada e a principal no loop AppKit. São medições
+  pontuais, com assinaturas e condições de quarentena diferentes, não benchmark controlado.
+- Testes de bundle e setup passaram; app real com fixture isolada chegou ao diálogo Trust. Não
+  verificado: notarização do novo build, status visual transitório (a verificação terminou antes
+  da captura), Windows e macOS Intel. Sem Playwright, conforme escopo solicitado.

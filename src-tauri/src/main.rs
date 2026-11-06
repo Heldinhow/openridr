@@ -2,7 +2,7 @@
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use openridr_host::{Host, HostError};
 use serde_json::Value;
@@ -26,8 +26,15 @@ struct PendingOpen(Mutex<Option<String>>);
 struct PendingQuit(AtomicBool);
 
 #[tauri::command]
-fn host_call(method: String, params: Value, host: State<'_, Host>) -> Result<Value, HostError> {
-    host.dispatch(&method, params)
+async fn host_call(
+    method: String,
+    params: Value,
+    host: State<'_, Arc<Host>>,
+) -> Result<Value, HostError> {
+    let host = Arc::clone(&host);
+    tauri::async_runtime::spawn_blocking(move || host.dispatch(&method, params))
+        .await
+        .map_err(|error| HostError::new("internal_error", format!("Host task failed: {error}")))?
 }
 
 #[tauri::command]
@@ -42,7 +49,7 @@ fn take_pending_quit(pending: State<'_, PendingQuit>) -> bool {
 
 /// End of the quit flow: the UI already saved or discarded, so nothing may prevent the exit.
 #[tauri::command]
-fn quit_app(app: AppHandle, host: State<'_, Host>) {
+fn quit_app(app: AppHandle, host: State<'_, Arc<Host>>) {
     let _ = host.dispatch("workspace.close", Value::Null);
     QUITTING.store(true, Ordering::SeqCst);
     app.exit(0);
@@ -87,7 +94,7 @@ fn offer_open(app: &AppHandle, path: String) {
 /// Every exit path closes the host workspace first: analysis and debugger process groups are
 /// owned by the host, not by the webview that may already be gone.
 fn close_host_workspace(app: &AppHandle) {
-    let host = app.state::<Host>();
+    let host = app.state::<Arc<Host>>();
     let _ = host.dispatch("workspace.close", Value::Null);
 }
 
@@ -143,7 +150,7 @@ fn main() {
                 request_quit(app);
             }
         })
-        .manage(Host::new())
+        .manage(Arc::new(Host::new()))
         .manage(PendingOpen::default())
         .manage(PendingQuit::default())
         .invoke_handler(tauri::generate_handler![

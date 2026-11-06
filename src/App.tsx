@@ -46,6 +46,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (snapshot?.tools["csharp-ls"].state !== "verifying" || stage !== "setup") return;
+    let active = true;
+    const timer = setInterval(() => {
+      call<Snapshot>("app.state").then((next) => {
+        if (active) handleSnapshot(next);
+      }).catch(() => {});
+    }, 400);
+    return () => { active = false; clearInterval(timer); };
+  }, [snapshot?.tools["csharp-ls"].state, stage]);
+
+  useEffect(() => {
     // The host records a project once it is decided; refetch when the workspace or stage changes.
     fetchRecent()
       .then(setRecentProjects)
