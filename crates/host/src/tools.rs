@@ -299,12 +299,19 @@ fn probe_muxer() -> Option<PathBuf> {
 /// installed SDK; the launcher is verified against the .NET 10 runtime root. A bundled pair has
 /// no plan at all: the bundle is the only source and it cannot be installed or reinstalled.
 pub fn plan(inventory: &Inventory) -> HostResult<Plan> {
-    if bundled::analysis().is_some() {
-        return Err(HostError::with_details(
-            "invalid_state",
-            "csharp-ls and its .NET runtime are bundled with OpenRidr; there is nothing to download or install.",
-            json!({}),
-        ));
+    match bundled::availability() {
+        bundled::Availability::Bundled(_) => {
+            return Err(HostError::with_details(
+                "invalid_state",
+                "csharp-ls and its .NET runtime are bundled with OpenRidr; there is nothing to download or install.",
+                json!({}),
+            ));
+        }
+        bundled::Availability::Damaged(reason) => {
+            // Fail closed: a distributed app with a broken bundle never plans a download.
+            return Err(HostError::with_details("bundled_incomplete", reason, json!({})));
+        }
+        bundled::Availability::Absent => {}
     }
     let runtime = AnalysisRuntime::from_runtimes(&inventory.runtimes);
     let Some(runtime_root) = runtime.root.clone() else {
@@ -641,6 +648,9 @@ struct Data {
     runtime_root: String,
     /// A verified pair inside the app bundle; it replaces the download plan entirely.
     bundled: Option<BundledTool>,
+    /// This build ships (or must ship) the pair, even when verification failed. The UI uses it
+    /// to refuse Reinstall instead of offering an action that cannot work.
+    bundle_expected: bool,
     /// The bundled pair is verified at most once per session: it cannot be reinstalled.
     bundled_attempted: bool,
     plan: Option<Plan>,
@@ -681,17 +691,90 @@ pub struct Tools {
 }
 
 /// A verified pair shipped inside the app bundle: `Resources/csharp-ls` plus the private
-/// runtime it runs on. The hash is of the managed entry point the bundled muxer executes.
+/// runtime it runs on. `sha256` is the managed entry point; `fingerprint` covers every file of
+/// the pair (path, size, mtime) so a changed dependency, muxer or runtime component invalidates
+/// the state, and `content_sha256` is the one-time audit digest recorded in the log.
 #[derive(Debug, Clone)]
 struct BundledTool {
     dir: PathBuf,
+    runtime_root: PathBuf,
     sha256: String,
     output: String,
+    fingerprint: Vec<(String, u64, i64)>,
+    content_sha256: String,
+}
+
+/// Cheap integrity signal for a session: metadata of every file, never a rehash of ~140 MB on
+/// each snapshot. An attacker who rewrites the whole pair and restores mtimes is out of scope;
+/// the build-time manifest (`scripts/vendor-analysis.sh`) is what keeps the shipped tree honest.
+fn fingerprint(tool_dir: &Path, runtime_root: &Path) -> Vec<(String, u64, i64)> {
+    let mut rows = Vec::new();
+    collect_fingerprint(tool_dir, bundled::CSHARP_LS_DIR, &mut rows);
+    collect_fingerprint(runtime_root, bundled::RUNTIME_DIR, &mut rows);
+    rows.sort();
+    rows
+}
+
+fn collect_fingerprint(root: &Path, prefix: &str, rows: &mut Vec<(String, u64, i64)>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let relative = format!("{prefix}/{name}");
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => {
+                collect_fingerprint(&path, &relative, rows)
+            }
+            Ok(kind) if kind.is_file() => {
+                let Ok(meta) = entry.metadata() else {
+                    continue;
+                };
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_nanos() as i64)
+                    .unwrap_or_default();
+                rows.push((relative, meta.len(), modified));
+            }
+            _ => {}
+        }
+    }
 }
 
 fn bundled_intact(bundled: &BundledTool) -> bool {
-    sha256_file(&bundled.dir.join(bundled::CSHARP_LS_ENTRY)).as_deref()
-        == Some(bundled.sha256.as_str())
+    bundled.fingerprint == fingerprint(&bundled.dir, &bundled.runtime_root)
+}
+
+/// One-time content digest of the pair (`path\0size\0bytes` in sorted order). Recorded for the
+/// audit trail; the cheap fingerprint above is what every snapshot compares.
+fn content_digest(analysis: &bundled::Analysis) -> Option<String> {
+    use std::io::Read;
+    let rows = fingerprint(&analysis.tool_dir, &analysis.runtime.root);
+    let mut hasher = Sha256::new();
+    for (relative, size, _) in rows {
+        hasher.update(relative.as_bytes());
+        hasher.update(size.to_le_bytes());
+        let (root, stripped) = if let Some(rest) = relative.strip_prefix(&format!("{}/", bundled::CSHARP_LS_DIR)) {
+            (analysis.tool_dir.as_path(), rest)
+        } else if let Some(rest) = relative.strip_prefix(&format!("{}/", bundled::RUNTIME_DIR)) {
+            (analysis.runtime.root.as_path(), rest)
+        } else {
+            return None;
+        };
+        let mut file = fs::File::open(root.join(stripped)).ok()?;
+        let mut buffer = vec![0u8; 64 * 1024];
+        loop {
+            let read = file.read(&mut buffer).ok()?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+    }
+    Some(format!("{:x}", hasher.finalize()))
 }
 
 /// Runs the bundled pair once: `<bundle>/dotnet <entry> --version`. No network, no installation
@@ -741,10 +824,15 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
     }
     let sha256 = sha256_file(&analysis.entry)
         .ok_or_else(|| "Could not hash the bundled csharp-ls entry point.".to_string())?;
+    let content_sha256 = content_digest(analysis)
+        .ok_or_else(|| "Could not hash the bundled analysis files.".to_string())?;
     Ok(BundledTool {
         dir: analysis.tool_dir.clone(),
+        runtime_root: analysis.runtime.root.clone(),
         sha256,
         output: text,
+        fingerprint: fingerprint(&analysis.tool_dir, &analysis.runtime.root),
+        content_sha256,
     })
 }
 
@@ -758,6 +846,7 @@ impl Tools {
                 staging: staging().to_string_lossy().to_string(),
                 runtime_root: String::new(),
                 bundled: None,
+                bundle_expected: false,
                 bundled_attempted: false,
                 plan: None,
                 confirmed_plan_id: None,
@@ -829,7 +918,7 @@ impl Tools {
             version: VERSION,
             destination: destination.to_string_lossy().to_string(),
             staging: staging.to_string_lossy().to_string(),
-            bundled: data.bundled.is_some(),
+            bundled: data.bundle_expected || data.bundled.is_some(),
             plan: data.plan.clone(),
             log,
             log_truncated,
@@ -888,12 +977,35 @@ impl Tools {
         if self.data.lock().unwrap().bundled_attempted {
             return;
         }
-        let Some(analysis) = bundled::analysis() else {
-            return;
+        let analysis = match bundled::availability() {
+            bundled::Availability::Bundled(analysis) => analysis,
+            bundled::Availability::Absent => return,
+            bundled::Availability::Damaged(reason) => {
+                let mut data = self.data.lock().unwrap();
+                data.bundled_attempted = true;
+                data.bundle_expected = true;
+                data.state = "failed";
+                data.bundled = None;
+                data.plan = None;
+                data.progress = None;
+                data.destination = bundled::resources_root()
+                    .map(|root| root.join(bundled::CSHARP_LS_DIR))
+                    .unwrap_or_else(destination)
+                    .to_string_lossy()
+                    .to_string();
+                data.error = Some(reason.clone());
+                data.note = Some(
+                    "This app ships the analyzer; the bundle is incomplete, so no external download or runtime is used."
+                        .to_string(),
+                );
+                data.log.push(reason);
+                return;
+            }
         };
         let result = verify_bundled(&analysis);
         let mut data = self.data.lock().unwrap();
         data.bundled_attempted = true;
+        data.bundle_expected = true;
         data.destination = analysis.tool_dir.to_string_lossy().to_string();
         data.staging = staging().to_string_lossy().to_string();
         data.plan = None;
@@ -916,6 +1028,11 @@ impl Tools {
                     analysis.entry.to_string_lossy()
                 ));
                 data.log.push(verified.output);
+                data.log.push(format!(
+                    "Bundled pair content SHA-256 {} ({} files)",
+                    verified.content_sha256,
+                    verified.fingerprint.len()
+                ));
             }
             Err(message) => {
                 data.state = "failed";

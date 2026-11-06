@@ -208,14 +208,14 @@ impl ProjectSdk {
 
 impl AnalysisRuntime {
     /// The runtime analysis actually uses: the app bundle wins, the detected inventory is the
-    /// fallback (a `tauri dev` build without resources, and every platform the bundle does not
-    /// cover). The project SDK is never taken from here.
+    /// fallback for a development binary. A distributed app that lost its private runtime
+    /// reports `missing` and never borrows an external 10.x to mask it.
     pub fn for_analysis(runtimes: &[RuntimeInstall]) -> Self {
-        if let Some(bundled) = crate::bundled::analysis_runtime() {
-            return Self {
+        match crate::bundled::availability() {
+            crate::bundled::Availability::Bundled(bundled) => Self {
                 state: "found",
-                version: Some(bundled.version.clone()),
-                root: Some(bundled.root.to_string_lossy().to_string()),
+                version: Some(bundled.runtime.version.clone()),
+                root: Some(bundled.runtime.root.to_string_lossy().to_string()),
                 sdk_path: None,
                 instructions_url: RUNTIME_INSTRUCTIONS_URL,
                 message: Some(
@@ -223,9 +223,18 @@ impl AnalysisRuntime {
                         .to_string(),
                 ),
                 bundled: true,
-            };
+            },
+            crate::bundled::Availability::Damaged(reason) => Self {
+                state: "missing",
+                version: None,
+                root: None,
+                sdk_path: None,
+                instructions_url: RUNTIME_INSTRUCTIONS_URL,
+                message: Some(reason),
+                bundled: true,
+            },
+            crate::bundled::Availability::Absent => Self::from_runtimes(runtimes),
         }
-        Self::from_runtimes(runtimes)
     }
 
     pub fn from_runtimes(runtimes: &[RuntimeInstall]) -> Self {

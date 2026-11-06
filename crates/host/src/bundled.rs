@@ -16,6 +16,14 @@ use std::path::{Path, PathBuf};
 pub const CSHARP_LS_OVERRIDE: &str = "OPENRIDR_BUNDLED_CSHARP_LS";
 /// Test/dev override for the bundled private runtime root. Never set by the app itself.
 pub const RUNTIME_OVERRIDE: &str = "OPENRIDR_BUNDLED_DOTNET_ROOT";
+/// Debug-only seam that makes a test binary behave like the distributed app: the pair must
+/// ship with it, so a missing or damaged pair fails closed instead of falling back to a
+/// download. Never set by the app itself.
+pub const REQUIRED_OVERRIDE: &str = "OPENRIDR_BUNDLED_REQUIRED";
+
+/// What the user has to do when the distributed app lost its analyzer. There is no download and
+/// no external runtime to install: the app itself is the only source.
+pub const REINSTALL_GUIDANCE: &str = "Reinstall OpenRidr; this app bundle must ship the analyzer and its private .NET runtime, and nothing is downloaded on first use.";
 
 pub const CSHARP_LS_DIR: &str = "csharp-ls";
 pub const RUNTIME_DIR: &str = "dotnet";
@@ -66,14 +74,96 @@ pub struct Analysis {
 
 /// The bundled pair, if this app bundle ships a complete one.
 pub fn analysis() -> Option<Analysis> {
-    let tool_dir = csharp_ls_dir()?;
-    let entry = tool_dir.join(CSHARP_LS_ENTRY);
-    let runtime = analysis_runtime()?;
-    Some(Analysis {
-        tool_dir,
-        entry,
-        runtime,
-    })
+    match availability() {
+        Availability::Bundled(analysis) => Some(analysis),
+        _ => None,
+    }
+}
+
+/// What the analyzer is in this build: shipped and complete, not shipped at all (a development
+/// binary), or expected but missing/damaged (the distributed app). The last case must fail
+/// closed: no plan, no download and no external runtime to mask it.
+#[derive(Debug, Clone)]
+pub enum Availability {
+    Bundled(Analysis),
+    Absent,
+    Damaged(String),
+}
+
+/// True when the running binary lives inside an app bundle (`OpenRidr.app/Contents/MacOS`).
+/// `tauri dev`, `cargo test` and the HTTP bridge run outside one and may fall back to the
+/// download flow. The check is path-based, never environment-based, in release builds.
+pub fn in_app_bundle() -> bool {
+    if !supported() {
+        return false;
+    }
+    let Ok(exe) = env::current_exe() else {
+        return false;
+    };
+    exe.components()
+        .any(|component| component.as_os_str().to_string_lossy().ends_with(".app"))
+}
+
+#[cfg(debug_assertions)]
+fn required_seam() -> bool {
+    env::var(REQUIRED_OVERRIDE).as_deref() == Ok("1")
+}
+
+#[cfg(not(debug_assertions))]
+fn required_seam() -> bool {
+    false
+}
+
+/// The distributed app (or a test pretending to be one) must ship the pair.
+pub fn required() -> bool {
+    in_app_bundle() || required_seam()
+}
+
+/// Resolves the pair once, with the reason when a shipped pair is incomplete.
+pub fn availability() -> Availability {
+    let tool_override = override_path(CSHARP_LS_OVERRIDE);
+    let runtime_override = override_path(RUNTIME_OVERRIDE);
+    let resource_root = resources_root();
+    let tool_dir = tool_override.or_else(|| resource_root.as_ref().map(|root| root.join(CSHARP_LS_DIR)));
+    let runtime_root = runtime_override.or_else(|| resource_root.as_ref().map(|root| root.join(RUNTIME_DIR)));
+    // An explicit override is a claim that a pair exists there; a broken one is damage.
+    let expects_pair = required() || env::var_os(CSHARP_LS_OVERRIDE).is_some() || env::var_os(RUNTIME_OVERRIDE).is_some();
+
+    let mut missing: Vec<&str> = Vec::new();
+    let tool = match tool_dir.as_deref() {
+        Some(dir) if tool_complete(dir) => Some(dir),
+        Some(_) => {
+            missing.push(CSHARP_LS_DIR);
+            None
+        }
+        None => {
+            missing.push(CSHARP_LS_DIR);
+            None
+        }
+    };
+    let runtime = match runtime_root.as_deref().map(inspect_runtime) {
+        Some(Some(runtime)) => Some(runtime),
+        _ => {
+            missing.push("private .NET runtime");
+            None
+        }
+    };
+    match (tool, runtime) {
+        (Some(dir), Some(runtime)) => Availability::Bundled(Analysis {
+            tool_dir: dir.to_path_buf(),
+            entry: dir.join(CSHARP_LS_ENTRY),
+            runtime,
+        }),
+        _ if expects_pair => Availability::Damaged(format!(
+            "The app bundle is missing its {}; {REINSTALL_GUIDANCE}",
+            missing.join(" and ")
+        )),
+        _ => Availability::Absent,
+    }
+}
+
+fn tool_complete(dir: &Path) -> bool {
+    dir.join(CSHARP_LS_ENTRY).is_file() && dir.join("CSharpLanguageServer.deps.json").is_file()
 }
 
 /// The bundled csharp-ls payload directory; only when the entry point is actually there.
@@ -210,6 +300,7 @@ mod tests {
             "an empty directory is not a payload"
         );
         fs::write(tools.join(CSHARP_LS_ENTRY), b"asm").unwrap();
+        fs::write(tools.join("CSharpLanguageServer.deps.json"), b"{}").unwrap();
         assert_eq!(csharp_ls_dir().as_deref(), Some(tools.as_path()));
         assert!(
             analysis().is_none(),

@@ -147,18 +147,22 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
         {!runtimeReady && (
           <div className="notice warning" data-testid="setup-gate-runtime">
             <p>{setup.runtime.message}</p>
-            <a
-              href={setup.runtime.instructionsUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              data-testid="setup-gate-runtime-link"
-            >
-              Get the .NET 10 runtime
-            </a>
-            <p className="muted">
-              Install it from that page, then retry. OpenRidr never installs an SDK or edits
-              global.json.
-            </p>
+            {!setup.runtime.bundled && (
+              <>
+                <a
+                  href={setup.runtime.instructionsUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  data-testid="setup-gate-runtime-link"
+                >
+                  Get the .NET 10 runtime
+                </a>
+                <p className="muted">
+                  Install it from that page, then retry. OpenRidr never installs an SDK or edits
+                  global.json.
+                </p>
+              </>
+            )}
           </div>
         )}
 

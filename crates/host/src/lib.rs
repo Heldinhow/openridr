@@ -3392,6 +3392,9 @@ impl Host {
     /// Removes only the app-home installation and runs the same verified installation again.
     /// It never touches the workspace and is refused while analysis is using the launcher.
     fn reinstall_setup(&self) -> HostResult<Value> {
+        if let Some(error) = bundled_damaged() {
+            return Err(error);
+        }
         let mut inner = self.inner.lock().unwrap();
         let workspace_id = inner
             .workspace
@@ -3472,6 +3475,9 @@ impl Host {
     }
 
     fn install_tool(&self, params: Value) -> HostResult<Value> {
+        if let Some(error) = bundled_damaged() {
+            return Err(error);
+        }
         let token = self.require_trust("tools.install")?;
         if params.get("confirm") != Some(&Value::Bool(true)) {
             return Err(HostError::new(
@@ -3503,6 +3509,9 @@ impl Host {
     }
 
     fn retry_tool(&self) -> HostResult<Value> {
+        if let Some(error) = bundled_damaged() {
+            return Err(error);
+        }
         let token = self.require_trust("tools.retry")?;
         let mut inner = self.inner.lock().unwrap();
         inner.ensure_inventory();
@@ -4302,6 +4311,9 @@ impl Host {
     }
 
     fn start_analysis(&self, inner: &mut Inner, token: ContextToken) -> HostResult<Value> {
+        if let Some(error) = bundled_damaged() {
+            return Err(error);
+        }
         if let Some(lsp) = &inner.lsp {
             if lsp.is_active() {
                 return Err(HostError::with_details(
@@ -4439,7 +4451,10 @@ impl Host {
 
         // The bundled pair runs on the composed root's muxer (project SDK + private runtime 10).
         // Without a bundle, the launcher installed into the app home runs against the same root.
-        let bundled_analysis = bundled::analysis();
+        let bundled_analysis = match bundled::availability() {
+            bundled::Availability::Bundled(analysis) => Some(analysis),
+            _ => None,
+        };
         let (program, mut argv) = match &bundled_analysis {
             Some(analysis) => (
                 hostroot::muxer(Path::new(&hostroot.path))
@@ -6782,17 +6797,26 @@ impl Inner {
             ));
         }
         // The analysis pair ships with the app on macOS ARM64: there is no plan and nothing to
-        // download. Verification still happens here so a damaged bundle fails the setup instead
-        // of starting analysis against it.
-        if bundled::analysis().is_some() {
-            self.tools.sync_bundled();
-            let tool = self.tools.view();
-            if tool.state != "ready" && self.setup_error.is_none() {
-                self.setup_error = tool.error.clone().or_else(|| {
-                    Some("The bundled analysis tool did not verify.".to_string())
-                });
+        // download. A damaged bundle fails the setup here instead of falling back to the plan.
+        match bundled::availability() {
+            bundled::Availability::Damaged(reason) => {
+                self.tools.sync_bundled();
+                if self.setup_error.is_none() {
+                    self.setup_error = Some(reason);
+                }
+                return Ok(());
             }
-            return Ok(());
+            bundled::Availability::Bundled(_) => {
+                self.tools.sync_bundled();
+                let tool = self.tools.view();
+                if tool.state != "ready" && self.setup_error.is_none() {
+                    self.setup_error = tool.error.clone().or_else(|| {
+                        Some("The bundled analysis tool did not verify.".to_string())
+                    });
+                }
+                return Ok(());
+            }
+            bundled::Availability::Absent => {}
         }
         let plan = match tools::plan(self.inventory.as_ref().expect("inventory")) {
             Ok(plan) => plan,
@@ -7418,6 +7442,17 @@ fn trust_key(params: &Value, must_exist: bool) -> HostResult<String> {
 /// this before releasing the workspace. The test seam is the only bypass.
 fn restore_allowed(inner: &Inner, token: ContextToken) -> bool {
     inner.trusted && accept_locked(inner, token).is_ok()
+}
+
+/// Fail-closed answer for a distributed app whose bundle lost the analyzer: no plan, no download
+/// and no external runtime. `None` for a development binary, where the download flow still applies.
+fn bundled_damaged() -> Option<HostError> {
+    match bundled::availability() {
+        bundled::Availability::Damaged(reason) => {
+            Some(HostError::with_details("bundled_incomplete", reason, json!({})))
+        }
+        _ => None,
+    }
 }
 
 fn is_setup_ready(inner: &Inner) -> bool {

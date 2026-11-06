@@ -71,6 +71,7 @@ fn fake_pair(root: &Path) -> (PathBuf, PathBuf) {
         b"not a real assembly",
     )
     .unwrap();
+    fs::write(tools.join("CSharpLanguageServer.deps.json"), b"{}").unwrap();
     let runtime = root.join("dotnet");
     fs::create_dir_all(runtime.join("host/fxr/10.0.14")).unwrap();
     fs::create_dir_all(runtime.join("shared/Microsoft.NETCore.App/10.0.14")).unwrap();
@@ -186,7 +187,8 @@ fn analysis_runtime_prefers_the_bundle_and_falls_back_to_the_inventory() {
     #[cfg(unix)]
     {
         let temp = tempfile::tempdir().unwrap();
-        let (_tools, runtime) = fake_pair(&temp.path().join("Resources"));
+        let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
+        let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
         let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
         let bundled_runtime = sdk::AnalysisRuntime::for_analysis(&[]);
         assert_eq!(bundled_runtime.state, "found");
@@ -231,4 +233,201 @@ fn the_vendored_bundle_composes_the_project_sdk_with_its_private_runtime_10() {
     assert!(hostroot
         .path
         .starts_with(temp.path().to_string_lossy().as_ref()));
+}
+
+/// A distributed app must ship the pair. `OPENRIDR_BUNDLED_REQUIRED` is the debug-only seam
+/// that stands in for "this binary lives inside OpenRidr.app".
+#[cfg(unix)]
+#[test]
+fn a_distributed_app_without_the_bundle_fails_closed() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _required = EnvVar::set(bundled::REQUIRED_OVERRIDE, "1");
+    // No payload and no runtime anywhere: the app bundle lost both halves.
+    let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, temp.path().join("missing-tool"));
+    let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, temp.path().join("missing-runtime"));
+
+    let host = Host::new();
+    open(&host, &fixture());
+    host.dispatch("setup.start", json!({})).unwrap();
+    let state = snapshot(&host);
+    let tool = &state["tools"]["csharp-ls"];
+    assert_eq!(tool["state"], "failed", "{tool}");
+    assert_eq!(tool["plan"], Value::Null);
+    let message = tool["error"].as_str().unwrap_or_default();
+    assert!(
+        message.to_ascii_lowercase().contains("reinstall"),
+        "{message}"
+    );
+    // `allow_setup_for_tests` forces setup readiness; the tool/runtime gates are the signal.
+
+    // No external runtime may mask the missing bundle, even though this machine has a 10.x.
+    assert_eq!(state["sdk"]["host"]["state"], "missing", "{}", state["sdk"]["host"]);
+    assert_eq!(state["sdk"]["host"]["bundled"], true);
+    assert_eq!(state["sdk"]["host"]["version"], Value::Null);
+    assert_eq!(state["sdk"]["host"]["root"], Value::Null);
+
+    let refused = host
+        .dispatch("tools.plan", json!({ "tool": "csharp-ls" }))
+        .expect_err("a distributed app without the bundle has no plan");
+    assert!(
+        refused.message.to_ascii_lowercase().contains("reinstall"),
+        "{}",
+        refused.message
+    );
+    for method in ["tools.install", "tools.retry", "setup.reinstall"] {
+        let params = if method == "tools.install" {
+            json!({ "planId": "none", "confirm": true })
+        } else {
+            json!({})
+        };
+        let error = host
+            .dispatch(method, params)
+            .expect_err("the bundled app refuses install paths");
+        assert!(
+            error.message.to_ascii_lowercase().contains("reinstall"),
+            "{method}: {}",
+            error.message
+        );
+    }
+    assert!(
+        !home.join("tools").exists(),
+        "no download may be started: {:?}",
+        fs::read_dir(&home).map(|entries| entries
+            .flatten()
+            .map(|entry| entry.file_name())
+            .collect::<Vec<_>>())
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_distributed_app_with_a_partial_bundle_fails_closed() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    for half in ["tool-only", "runtime-only"] {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join(format!("home-{half}"));
+        fs::create_dir_all(&home).unwrap();
+        let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
+        let _home = EnvVar::set("OPENRIDR_HOME", &home);
+        let _required = EnvVar::set(bundled::REQUIRED_OVERRIDE, "1");
+        let (tool_override, runtime_override) = if half == "tool-only" {
+            (tools, temp.path().join("missing-runtime"))
+        } else {
+            (temp.path().join("missing-tool"), runtime)
+        };
+        let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tool_override);
+        let _runtime = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime_override);
+
+        let host = Host::new();
+        open(&host, &fixture());
+        host.dispatch("setup.start", json!({})).unwrap();
+        let state = snapshot(&host);
+        assert_eq!(
+            state["tools"]["csharp-ls"]["state"],
+            "failed",
+            "{half}: {}",
+            state["tools"]["csharp-ls"]
+        );
+        assert_eq!(state["tools"]["csharp-ls"]["plan"], Value::Null, "{half}");
+        assert_eq!(state["sdk"]["host"]["state"], "missing", "{half}");
+        assert_eq!(
+            state["tools"]["csharp-ls"]["bundled"],
+            true,
+            "{half}: the refusal still comes from the app bundle"
+        );
+        assert!(
+            !home.join("tools").exists(),
+            "{half}: no download may be started"
+        );
+    }
+}
+
+#[test]
+fn a_dev_binary_without_the_bundle_keeps_the_download_plan() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", &home);
+    let _required = EnvVar::remove(bundled::REQUIRED_OVERRIDE);
+    let _tool = EnvVar::remove(bundled::CSHARP_LS_OVERRIDE);
+    let _runtime = EnvVar::remove(bundled::RUNTIME_OVERRIDE);
+
+    let host = Host::new();
+    open(&host, &fixture());
+    let tool = host
+        .dispatch("tools.plan", json!({ "tool": "csharp-ls" }))
+        .expect("a dev binary still plans the download")["tools"]["csharp-ls"]
+        .clone();
+    assert_eq!(tool["state"], "planned", "{tool}");
+    assert!(tool["plan"]["destination"]
+        .as_str()
+        .unwrap_or_default()
+        .ends_with("tools/csharp-ls/0.28"));
+    assert_eq!(tool["bundled"], false);
+}
+
+/// Integrity covers the whole pair: a managed dependency, the muxer and the private runtime
+/// are as much part of the analyzer as the entry point.
+#[cfg(unix)]
+#[test]
+fn a_changed_dependency_muxer_or_runtime_component_invalidates_ready() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let targets = [
+        "dependency",
+        "muxer",
+        "runtime-component",
+        "entry",
+    ];
+    for target in targets {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        let (tools, runtime) = fake_pair(&temp.path().join("Resources"));
+        fs::write(tools.join("Microsoft.CodeAnalysis.CSharp.dll"), b"dependency-v1").unwrap();
+        fs::write(
+            runtime.join("shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll"),
+            b"runtime-v1",
+        )
+        .unwrap();
+        let _home = EnvVar::set("OPENRIDR_HOME", &home);
+        let _required = EnvVar::remove(bundled::REQUIRED_OVERRIDE);
+        let _tool = EnvVar::set(bundled::CSHARP_LS_OVERRIDE, &tools);
+        let _runtime_env = EnvVar::set(bundled::RUNTIME_OVERRIDE, &runtime);
+
+        let host = Host::new();
+        open(&host, &fixture());
+        assert_eq!(
+            snapshot(&host)["tools"]["csharp-ls"]["state"],
+            "ready",
+            "{target}: a complete pair starts ready"
+        );
+
+        let changed = match target {
+            "dependency" => tools.join("Microsoft.CodeAnalysis.CSharp.dll"),
+            "muxer" => runtime.join("dotnet"),
+            "runtime-component" => {
+                runtime.join("shared/Microsoft.NETCore.App/10.0.14/System.Private.CoreLib.dll")
+            }
+            _ => tools.join(bundled::CSHARP_LS_ENTRY),
+        };
+        fs::write(&changed, b"tampered-after-verification").unwrap();
+
+        let state = snapshot(&host);
+        let tool = &state["tools"]["csharp-ls"];
+        assert_eq!(tool["state"], "failed", "{target}: {tool}");
+        assert!(
+            tool["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("changed"),
+            "{target}: {tool}"
+        );
+        // `allow_setup_for_tests` overrides setup readiness; the tool state is the signal here.
+        assert_eq!(tool["plan"], Value::Null, "{target}");
+    }
 }
