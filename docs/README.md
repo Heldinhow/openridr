@@ -17,7 +17,7 @@ Estado do produto: **OpenRidr 0.3.0-alpha.4**, macOS Apple Silicon. Onde fica ca
 
 ## Feature → docs
 
-Convenção para trabalho novo: `SPEC-<tema>.md`, tickets em `tickets-<tema>/NN-slug.md` (+ `README.md` com o índice), `RETRO-<tema>.md`, evidência em `evidence/<tema>.md`, decisão nova em `decisions.md`.
+Convenção para trabalho novo: `SPEC-<tema>.md`, `RETRO-<tema>.md`, evidência em `evidence/<tema>.md`, decisão nova em `decisions.md`. **Tickets novos vivem como issues do GitHub** (decisão do Helder de 2026-11-06, `decisions.md`), não em `tickets-<tema>/`; as pastas `tickets-*` abaixo são históricas.
 
 | Feature / onda | Spec | Tickets | Retro / review | Evidência |
 |---|---|---|---|---|
@@ -44,7 +44,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md`, tickets em `tickets-<tema>/NN-
 | Ícones da Solution Explorer (glifos T3 Code/@pierre/trees, pasta só com chevron, guia e seleção) | [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md) | [tickets-solution-file-icons/](tickets-solution-file-icons/README.md) (01–03) | [RETRO-SOLUTION-FILE-ICONS](RETRO-SOLUTION-FILE-ICONS.md) | [evidence/solution-file-icons.md](evidence/solution-file-icons.md), `evidence/solution-file-icons/depois-*.png` |
 | Correções da aceitação do `main` (export de tests, progresso do setup, TFM, menu de folha, NuGet, AX) | — (`decisions.md`, 2026-11-05) | — | [RETRO-ACCEPTANCE-FIXES](RETRO-ACCEPTANCE-FIXES.md) | [evidence/acceptance-fixes.md](evidence/acceptance-fixes.md), `evidence/acceptance-fixes/*.png` |
 | Setup de ferramentas + Tests/NuGet (paridade Rider) | [SPEC-TESTS-NUGET-TOOLS-SETUP](SPEC-TESTS-NUGET-TOOLS-SETUP.md) | [tickets-tests-nuget-tools-setup/](tickets-tests-nuget-tools-setup/README.md) (01–05) | [RETRO-TESTS-NUGET-TOOLS-SETUP](RETRO-TESTS-NUGET-TOOLS-SETUP.md) | [evidence/tests-nuget-tools-setup/desktop.md](evidence/tests-nuget-tools-setup/desktop.md) |
-| Suite de testes confiável (issue #43) | [SPEC-TEST-STABILITY](SPEC-TEST-STABILITY.md) | issues GitHub #57, #59, #62, #64, #67 (a partir de 2026-11-06 tickets novos vivem no GitHub, não em `docs/tickets-*`) | [RETRO-TEST-STABILITY](RETRO-TEST-STABILITY.md) | [evidence/test-stability.md](evidence/test-stability.md) |
+| Suite de testes confiável (issue #43) | [SPEC-TEST-STABILITY](SPEC-TEST-STABILITY.md) | issues GitHub #57, #59, #62, #64, #67 | [RETRO-TEST-STABILITY](RETRO-TEST-STABILITY.md) | [evidence/test-stability.md](evidence/test-stability.md) |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
 
 Numeração de tickets **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta.

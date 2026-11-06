@@ -1349,6 +1349,14 @@ Spec `docs/SPEC-BUNDLED-ANALYSIS.md`, tickets `docs/tickets-bundled-analysis/`, 
   (`sdk::resolve` sobre `sdk::inventory`) e lança pelo muxer da raiz resolvida com `DOTNET_ROOT`,
   `DOTNET_MULTILEVEL_LOOKUP=0` e as mesmas variáveis de `dotnet_command` da produção. Sem raiz que
   satisfaça o pin, imprime skip com a versão e as raízes vistas.
+- **Re-check do `/code-review` (2026-11-06).** O ambiente passou a ser coordenado dos dois lados:
+  `support::env_guard()` é o lado exclusivo de um `RwLock` e `support::host()` devolve um `TestHost`
+  que segura o lado compartilhado durante criação e uso (helpers genéricos sobre
+  `impl Deref<Target = Host>`, sem mexer nos ~120 pontos de chamada). O teste de corrida do probe usa
+  barreira: sem o guard ele falha 3/3 com a mensagem do probe desligado, com o guard passa. O skip
+  do launch profile só acontece quando nenhuma raiz satisfaz o pin (muxer ausente ou que não inicia
+  é falha; `OPENRIDR_REQUIRE_DOTNET=1` proíbe skip). O alvo de escape usa `tempfile::tempdir()`
+  aleatório, não nome por pid. O teste-filho dos dois binários exige `1 passed` no stdout.
 - **Prova.** Ver `docs/evidence/test-stability.md` (tabela por item da issue, medições e o que não
   foi verificado). Não verificado: E2E (quarentenado; decisão do Playwright pendente), Windows e
   macOS Intel, e a falha de instalação do debugger relatada por outra sessão (não reproduzida aqui).
