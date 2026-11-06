@@ -229,6 +229,9 @@ pub struct DapView {
     /// Increments on every stop and resume; the UI keys pause-scoped state by it.
     pub stop_generation: u64,
     pub stopped: Option<StoppedView>,
+    /// Why a finished session never paused, when nothing was configured to make it pause.
+    /// `None` means there is nothing to explain; the panel renders the sentence as given.
+    pub no_stop_explanation: Option<String>,
     pub breakpoints: Vec<BreakpointView>,
     /// Mute all: the adapter gets no breakpoints, the lines and conditions stay stored.
     pub breakpoints_muted: bool,
@@ -290,6 +293,11 @@ struct Data {
     cleanup_started: bool,
     stop_seq: u64,
     stopped: Option<StoppedView>,
+    /// A stop generation was seen and then resumed; the run generation reset it.
+    /// Whether the adapter ever paused this session, whatever happened afterwards.
+    stopped_once: bool,
+    /// Set where the session finishes; it describes that ending and never changes later.
+    no_stop_explanation: Option<String>,
     threads: Vec<ThreadView>,
     frames: Vec<FrameView>,
     selected_frame_id: Option<i64>,
@@ -325,8 +333,37 @@ impl Data {
         self.selected_thread_id = None;
         self.locals = None;
         self.selected_frame_id = None;
+        self.no_stop_explanation = self.no_stop_explanation_for(state);
         let line = format!("[dap] session {state} · {}", self.phase);
         self.log.push(line);
+    }
+
+    /// Why the program ran to completion without ever stopping, when nothing was configured
+    /// to make it stop. Muted breakpoints get their own sentence: claiming none were set
+    /// would contradict the user who muted them. Any other stored breakpoint, a thrown
+    /// exception filter or a pending run-to-cursor is a stop source, so its absence is not
+    /// explained here; neither is a stop the user asked for or a failed adapter.
+    fn no_stop_explanation_for(&self, state: &'static str) -> Option<String> {
+        if state != "terminated" || self.stopped_once {
+            return None;
+        }
+        if self.exception_filters.iter().any(|filter| filter == "all") || self.run_to.is_some() {
+            return None;
+        }
+        let head = if self.breakpoints.is_empty() {
+            "No breakpoints were set"
+        } else if self.breakpoints_muted {
+            "Breakpoints are muted"
+        } else {
+            return None;
+        };
+        let exit = self
+            .exit
+            .map(|code| format!(" (exit {code})"))
+            .unwrap_or_default();
+        Some(format!(
+            "{head}; the program ran to completion{exit}. Its output is in the Console tab."
+        ))
     }
 }
 
@@ -450,6 +487,8 @@ impl Dap {
                 cleanup_started: false,
                 stop_seq: 0,
                 stopped: None,
+                stopped_once: false,
+                no_stop_explanation: None,
                 threads: Vec::new(),
                 frames: Vec::new(),
                 selected_frame_id: None,
@@ -629,6 +668,8 @@ impl Dap {
                 cleanup_started: false,
                 stop_seq: 1,
                 stopped: None,
+                stopped_once: false,
+                no_stop_explanation: None,
                 threads: Vec::new(),
                 frames: Vec::new(),
                 selected_frame_id: None,
@@ -758,6 +799,7 @@ impl Dap {
                 .collect(),
             stop_generation: data.stop_seq,
             stopped: data.stopped.clone(),
+            no_stop_explanation: data.no_stop_explanation.clone(),
             breakpoints: data
                 .breakpoints
                 .values()
@@ -1257,6 +1299,7 @@ impl Dap {
                         return;
                     }
                     data.stop_seq += 1;
+                    data.stopped_once = true;
                     data.state = "paused";
                     data.phase = format!(
                         "Paused · {reason}{}",
@@ -2433,6 +2476,131 @@ mod tests {
         assert_eq!(view.exit, None);
         assert!(!view.exit_known);
         assert_eq!(view.exit, None);
+    }
+
+    /// Drives a running session to its end through the events the adapter really sends.
+    fn run_to_completion(dap: &Arc<Dap>, exit: Option<i32>) {
+        dap.data.lock().unwrap().state = "running";
+        if let Some(code) = exit {
+            dap.handle_message(
+                json!({ "seq": 1, "type": "event", "event": "exited", "body": { "exitCode": code } }),
+            );
+        }
+        dap.handle_message(json!({ "seq": 2, "type": "event", "event": "terminated", "body": {} }));
+    }
+
+    fn store_one_breakpoint(dap: &Arc<Dap>) {
+        dap.data.lock().unwrap().breakpoints.insert(
+            "Program.cs".to_string(),
+            vec![BreakpointView {
+                path: "Program.cs".to_string(),
+                line: 4,
+                verified: true,
+                message: None,
+                condition: None,
+            }],
+        );
+    }
+
+    #[test]
+    fn a_session_that_never_stopped_without_breakpoints_explains_the_completion() {
+        let (dap, _) = with_sink();
+        run_to_completion(&dap, Some(0));
+        let view = dap.view();
+        assert_eq!(view.state, "terminated");
+        assert_eq!(
+            view.no_stop_explanation.as_deref(),
+            Some("No breakpoints were set; the program ran to completion (exit 0). Its output is in the Console tab.")
+        );
+    }
+
+    #[test]
+    fn an_exit_that_was_never_reported_is_not_invented_in_the_explanation() {
+        let (dap, _) = with_sink();
+        run_to_completion(&dap, None);
+        let view = dap.view();
+        assert_eq!(
+            view.no_stop_explanation.as_deref(),
+            Some("No breakpoints were set; the program ran to completion. Its output is in the Console tab.")
+        );
+    }
+
+    #[test]
+    fn a_session_that_stopped_once_does_not_explain_its_end() {
+        let (dap, _) = with_sink();
+        dap.data.lock().unwrap().state = "preparing";
+        dap.handle_message(json!({
+            "seq": 1, "type": "event", "event": "stopped",
+            "body": { "reason": "breakpoint", "threadId": 7, "allThreadsStopped": true }
+        }));
+        assert_eq!(dap.view().state, "paused");
+        // Resuming does not undo the stop: the session did stop at least once.
+        dap.handle_message(json!({ "seq": 2, "type": "event", "event": "continued", "body": {} }));
+        run_to_completion(&dap, Some(0));
+        let view = dap.view();
+        assert_eq!(view.state, "terminated");
+        assert_eq!(view.no_stop_explanation, None);
+    }
+
+    #[test]
+    fn a_breakpoint_that_was_set_and_never_hit_is_not_reported_as_none() {
+        let (dap, _) = with_sink();
+        store_one_breakpoint(&dap);
+        run_to_completion(&dap, Some(0));
+        assert_eq!(dap.view().no_stop_explanation, None);
+    }
+
+    #[test]
+    fn muted_breakpoints_explain_the_end_as_muted() {
+        let (dap, _) = with_sink();
+        store_one_breakpoint(&dap);
+        dap.data.lock().unwrap().breakpoints_muted = true;
+        run_to_completion(&dap, Some(3));
+        assert_eq!(
+            dap.view().no_stop_explanation.as_deref(),
+            Some("Breakpoints are muted; the program ran to completion (exit 3). Its output is in the Console tab.")
+        );
+    }
+
+    #[test]
+    fn a_thrown_exception_filter_is_a_stop_source() {
+        let (dap, _) = with_sink();
+        dap.data.lock().unwrap().exception_filters = vec!["all".to_string()];
+        run_to_completion(&dap, Some(0));
+        assert_eq!(dap.view().no_stop_explanation, None);
+    }
+
+    #[test]
+    fn a_pending_run_to_cursor_is_a_stop_source() {
+        let (dap, _) = with_sink();
+        dap.data.lock().unwrap().run_to = Some(("Program.cs".to_string(), 4));
+        run_to_completion(&dap, Some(0));
+        assert_eq!(dap.view().no_stop_explanation, None);
+    }
+
+    #[test]
+    fn a_user_stop_never_claims_the_program_ran_to_completion() {
+        let registry = Arc::new(Mutex::new(Registry::new()));
+        let dap = Dap::with_registry(registry.clone());
+        dap.data.lock().unwrap().state = "running";
+        dap.shutdown(&registry, "the user pressed Stop", false).unwrap();
+        let view = dap.view();
+        assert_eq!(view.state, "cancelled");
+        assert_eq!(view.no_stop_explanation, None);
+        assert!(view.phase.contains("the user pressed Stop"), "{}", view.phase);
+    }
+
+    #[test]
+    fn a_failed_session_keeps_its_own_message() {
+        let (dap, _) = with_sink();
+        {
+            let mut data = dap.data.lock().unwrap();
+            data.state = "running";
+            data.finish("failed", "the debug adapter exited before answering");
+        }
+        let view = dap.view();
+        assert_eq!(view.state, "failed");
+        assert_eq!(view.no_stop_explanation, None);
     }
 
     #[test]
