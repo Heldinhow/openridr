@@ -1839,6 +1839,14 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
     Ok(operation("ok", Some(message), &text, &repo, None))
 }
 
+/// The update policy the dialog states. `--no-rebase` plus `--ff` are passed explicitly so the
+/// repository's `pull.rebase`/`pull.ff`/`merge.ff` cannot change what the dialog promised;
+/// `--no-edit` keeps git's merge message without an editor. Never `--no-ff` (a fast-forward stays
+/// one) and never a rebase: it rewrites local commits and leaves a rebase the app cannot finish
+/// or abort yet (#114).
+const UPDATE_FLAGS: [&str; 3] = ["--no-rebase", "--ff", "--no-edit"];
+const CONFLICT_PATH_LIMIT: usize = 20;
+
 pub fn pull(root: &Path) -> HostResult<Operation> {
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
@@ -1849,18 +1857,16 @@ pub fn pull(root: &Path) -> HostResult<Operation> {
             "No upstream is configured; nothing to pull.",
         ));
     }
-    let output = run(&repo.top, &["pull"])
+    let mut args = vec!["pull"];
+    args.extend(UPDATE_FLAGS);
+    let output = run(&repo.top, &args)
         .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     if !output.ok() {
         let stderr = mask_urls(output.stderr.trim());
         return Ok(operation(
             "failed",
-            Some(if stderr.is_empty() {
-                "git pull failed without output.".to_string()
-            } else {
-                tail(&stderr)
-            }),
+            Some(update_failure(&repo, &stderr)),
             &text,
             &repo,
             None,
@@ -1873,6 +1879,75 @@ pub fn pull(root: &Path) -> HostResult<Operation> {
         &repo,
         None,
     ))
+}
+
+/// Every failed update ends in the app's own words. For these three cases git explains itself by
+/// telling the user to edit configuration or run a shell command, which is exactly what the app
+/// must not dump; the raw output stays in `Operation.output` for anything the app does not know.
+fn update_failure(repo: &Repo, stderr: &str) -> String {
+    let lower = stderr.to_lowercase();
+    if lower.contains("identity unknown")
+        || lower.contains("please tell me who you are")
+        || lower.contains("unable to auto-detect email address")
+        || lower.contains("empty ident")
+    {
+        return "Update needs a Git identity for this repository: set user.name and user.email, then try again; a merge commit has no author without it. Nothing was changed.".to_string();
+    }
+    if lower.contains("not possible to fast-forward") || lower.contains("non-fast-forward") {
+        return "Update stopped: git refused a non-fast-forward update. OpenRidr reconciles a diverged branch with a merge commit. Nothing was changed.".to_string();
+    }
+    if let Ok(status) = read_status(repo) {
+        if status.operation == Some("merge") {
+            return abort_conflicting_merge(repo, &status);
+        }
+    }
+    if stderr.is_empty() {
+        "git pull failed without output.".to_string()
+    } else {
+        tail(stderr)
+    }
+}
+
+/// The merge this update started conflicted, and the app cannot finish or abort a merge from the
+/// UI yet (#114). Aborting keeps the promise that an update never leaves a dead end: the fetch
+/// already moved the tracking refs, so only the merge itself is undone.
+fn abort_conflicting_merge(repo: &Repo, status: &GitStatus) -> String {
+    let mut paths: Vec<&str> = status
+        .files
+        .iter()
+        .filter(|file| file.conflicted)
+        .map(|file| file.path.as_str())
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    let count = paths.len();
+    let shown = if count == 0 {
+        None
+    } else {
+        let head: Vec<&str> = paths.iter().take(CONFLICT_PATH_LIMIT).copied().collect();
+        Some(if count > CONFLICT_PATH_LIMIT {
+            format!("{}, …", head.join(", "))
+        } else {
+            head.join(", ")
+        })
+    };
+    let subject = match (count, shown.as_deref()) {
+        (1, Some(path)) => format!("1 file changed on both sides ({path})"),
+        (n, Some(listed)) => format!("{n} files changed on both sides ({listed})"),
+        _ => "the merge conflicted".to_string(),
+    };
+    let aborted = run(&repo.top, &["merge", "--abort"])
+        .map(|output| output.ok())
+        .unwrap_or(false);
+    if aborted {
+        format!(
+            "Update stopped: {subject}. OpenRidr aborted the merge; your branch and working tree are unchanged."
+        )
+    } else {
+        format!(
+            "Update stopped: {subject}, and the merge could not be aborted. Finish or abort it in a terminal before updating again."
+        )
+    }
 }
 
 fn first_remote(repo: &Repo) -> Option<String> {
@@ -2723,6 +2798,208 @@ mod tests {
         let created = branch_create(&root, "third", true).unwrap();
         assert_eq!(created.state, "ok");
         assert_eq!(created.status.branch.as_deref(), Some("third"));
+    }
+
+    /// A bare origin plus the clone the app would open, with identity only inside the throwaway
+    /// repository (never `--global`).
+    fn remote_repo(name: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let temp = tempfile::tempdir().unwrap();
+        let bare = temp.path().join("origin.git");
+        git(
+            temp.path(),
+            &["init", "-q", "--bare", "-b", "main", "origin.git"],
+        );
+        let user = temp.path().join(name);
+        git(
+            temp.path(),
+            &[
+                "clone",
+                "-q",
+                bare.to_str().unwrap(),
+                user.to_str().unwrap(),
+            ],
+        );
+        git(&user, &["config", "user.name", "OpenRidr Test"]);
+        git(&user, &["config", "user.email", "test@openridr.invalid"]);
+        fs::write(user.join("a.txt"), "one\n").unwrap();
+        fs::write(user.join("b.txt"), "one\n").unwrap();
+        commit_all(&user, "initial");
+        git(&user, &["push", "-q", "-u", "origin", "main"]);
+        (temp, user, bare)
+    }
+
+    /// The counterpart: a second clone driven only by git, the way a colleague publishes work.
+    fn peer_clone(temp: &Path, bare: &Path) -> PathBuf {
+        let peer = temp.join("peer");
+        git(
+            temp,
+            &[
+                "clone",
+                "-q",
+                bare.to_str().unwrap(),
+                peer.to_str().unwrap(),
+            ],
+        );
+        git(&peer, &["config", "user.name", "OpenRidr Peer"]);
+        git(&peer, &["config", "user.email", "peer@openridr.invalid"]);
+        peer
+    }
+
+    fn publish(peer: &Path, path: &str, content: &str, message: &str) {
+        fs::write(peer.join(path), content).unwrap();
+        commit_all(peer, message);
+        git(peer, &["push", "-q", "origin", "main"]);
+    }
+
+    fn parent_count(root: &Path) -> usize {
+        git(root, &["rev-list", "--parents", "-n", "1", "HEAD"])
+            .split_whitespace()
+            .count()
+            - 1
+    }
+
+    #[test]
+    fn update_fast_forwards_without_a_merge_commit() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "b.txt", "one\npeer\n", "peer change");
+        let before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let result = pull(&user).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert_ne!(git(&user, &["rev-parse", "HEAD"]).trim(), before);
+        assert_eq!(
+            parent_count(&user),
+            1,
+            "a fast-forward adds no merge commit"
+        );
+        assert_eq!(
+            git(&user, &["log", "-1", "--format=%s"]).trim(),
+            "peer change"
+        );
+        assert_eq!(result.status.ahead, 0);
+        assert_eq!(result.status.behind, 0);
+        assert_eq!(result.status.operation, None);
+    }
+
+    #[test]
+    fn update_merges_a_diverged_branch_preserving_both_sides() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "b.txt", "one\npeer\n", "peer change");
+        fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
+        commit_all(&user, "local change");
+        let local = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let result = pull(&user).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        let parents = git(&user, &["rev-list", "--parents", "-n", "1", "HEAD"]);
+        assert_eq!(parent_count(&user), 2, "a merge commit has two parents");
+        assert!(parents.contains(&local), "the local commit is a parent");
+        assert_eq!(
+            fs::read_to_string(user.join("a.txt")).unwrap(),
+            "one\nlocal\n"
+        );
+        assert_eq!(
+            fs::read_to_string(user.join("b.txt")).unwrap(),
+            "one\npeer\n"
+        );
+        assert_eq!(git(&user, &["status", "--porcelain"]).trim(), "");
+        // The merge commit itself is not pushed, so the branch now leads its upstream by the
+        // local commit plus the merge — and is no longer behind.
+        assert_eq!(result.status.ahead, 2);
+        assert_eq!(result.status.behind, 0);
+        assert_eq!(result.status.operation, None);
+    }
+
+    #[test]
+    fn update_ignores_the_repository_pull_rebase_setting() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        // The dialog states the policy, so the repository's preference cannot silently win.
+        git(&user, &["config", "pull.rebase", "true"]);
+        publish(&peer, "b.txt", "one\npeer\n", "peer change");
+        fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
+        commit_all(&user, "local change");
+
+        let result = pull(&user).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert_eq!(parent_count(&user), 2, "a merge commit, not a rebase");
+        assert_eq!(result.status.operation, None);
+    }
+
+    #[test]
+    fn update_aborts_a_conflicting_merge_and_keeps_both_commits() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "a.txt", "one\npeer\n", "peer change");
+        fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
+        commit_all(&user, "local change");
+        let head_before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let count_before = git(&user, &["rev-list", "--count", "HEAD"])
+            .trim()
+            .to_string();
+
+        let result = pull(&user).unwrap();
+
+        assert_eq!(result.state, "failed");
+        let message = result.message.clone().unwrap_or_default();
+        assert!(
+            message.contains("1 file changed on both sides (a.txt)"),
+            "{message}"
+        );
+        assert!(message.contains("aborted the merge"), "{message}");
+        assert!(message.contains("unchanged"), "{message}");
+        assert!(!message.contains("hint:"), "no git advice leaks: {message}");
+        let lower = message.to_lowercase();
+        assert!(!lower.contains("pull.rebase"), "{message}");
+        assert!(!lower.contains("pull.ff"), "{message}");
+        // The abort is real: no merge left, same commit, same history length, clean tree, and the
+        // local bytes survive (the peer's version was never applied).
+        assert!(!user.join(".git/MERGE_HEAD").exists());
+        assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head_before);
+        assert_eq!(
+            git(&user, &["rev-list", "--count", "HEAD"]).trim(),
+            count_before
+        );
+        assert_eq!(git(&user, &["status", "--porcelain"]).trim(), "");
+        assert_eq!(
+            fs::read_to_string(user.join("a.txt")).unwrap(),
+            "one\nlocal\n"
+        );
+        assert!(result.output.contains("CONFLICT"), "{}", result.output);
+        assert_eq!(result.status.operation, None);
+        assert_eq!(result.status.ahead, 1);
+        assert_eq!(result.status.behind, 1);
+    }
+
+    #[test]
+    fn update_reports_a_missing_identity_in_the_apps_own_words() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "b.txt", "one\npeer\n", "peer change");
+        fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
+        commit_all(&user, "local change");
+        // No guessing from the user or host name, and no local identity: the merge commit cannot
+        // be authored whatever the machine's global config says.
+        git(&user, &["config", "user.useConfigOnly", "true"]);
+        git(&user, &["config", "user.name", ""]);
+        git(&user, &["config", "user.email", ""]);
+        let head_before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let result = pull(&user).unwrap();
+
+        assert_eq!(result.state, "failed");
+        let message = result.message.clone().unwrap_or_default();
+        assert!(message.contains("needs a Git identity"), "{message}");
+        assert!(message.contains("user.name and user.email"), "{message}");
+        assert!(!message.contains("Please tell me who you are"), "{message}");
+        assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head_before);
+        assert_eq!(git(&user, &["status", "--porcelain"]).trim(), "");
+        assert!(!user.join(".git/MERGE_HEAD").exists());
     }
 
     #[test]
