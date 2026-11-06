@@ -34,13 +34,23 @@ Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `SDK .
 
 ### Gate do corpo do PR (#83)
 
-- `sh scripts/ci-pr-body-selfcheck.sh` → 9 casos, 9 ok: corpo completo (aceito), heading em português
-  (aceito), `Refs #N` sem fechar (aceito), sem issue (reprovado), com issue e sem Evidência
-  (reprovado), só o comentário-placeholder do template (reprovado), só `n/a` (reprovado),
-  `dependabot[bot]` e `renovate[bot]` (isentos).
+- `sh scripts/ci-pr-body-selfcheck.sh` → **13 casos, 13 ok**: corpo completo (aceito), heading em
+  português (aceito), `Refs #N` sem fechar (aceito), sem issue (reprovado), issue dentro de bloco de
+  código (reprovado), comentário HTML de várias linhas como Evidência (reprovado), comando dentro de
+  bloco de código como Evidência (aceito), com issue e sem Evidência (reprovado), só `n/a`
+  (reprovado), só o comentário-placeholder do template (reprovado), `dependabot[bot]` e
+  `renovate[bot]` (isentos) e o **template real** preenchido só com o número da issue (reprovado).
 - Mesmo resultado com `LC_ALL=C` (o heading acentuado não depende de locale).
 - O self-check não é vazio: com um gate falso (`exit 0`) no lugar do script, ele falha no terceiro
-  caso (`no-issue: expected rejected, got accepted`). Prova de que os casos de reprovação testam algo.
+  caso (`no-issue: expected rejected, got accepted`). Com o gate anterior à revisão, falha em
+  `issue-inside-code-fence: expected rejected, got accepted` — as falhas-antes de cada rodada de
+  aperto do gate ficam registradas aqui.
+- O caso `template-with-issue` lê `.github/pull_request_template.md` de verdade: se alguém transformar
+  de novo uma instrução em texto solto, o caso começa a aceitar e reprova.
+- Agregador (`ci`): lógica testada com `jq` sobre os quatro resultados possíveis — PR tudo verde
+  (passa), `push` com `governance` `skipped` (passa), PR com `rust` falhando (reprova, `rust:
+  failure`), `push` com `rust` `skipped` por acidente (reprova, `rust: skipped`). A versão anterior
+  aceitava qualquer `skipped`.
 
 ### Workflows (#82, #83, #84, #86)
 
