@@ -68,7 +68,7 @@ ambiente de trabalho do agente**, não sobre o produto.
 
 ## Números
 
-- 3 commits no PR mecânico (`ci/issue-56-fmt`) e 12 no PR de CI (`ci/issue-56-pr-checks`), um por
+- 3 commits no PR mecânico (`ci/issue-56-fmt`) e 13 no PR de CI (`ci/issue-56-pr-checks`), um por
   ticket mais os de spec/docs e os três de correção do code review.
 - `fmt`: 33 arquivos, 596 hunks; `clippy`: 51 linhas de warning → 0 com `-D warnings`;
   `cargo test -p openridr-host`: 427 testes verdes em duas rodadas (3 min 59 s com build quente, 2 min
