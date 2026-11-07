@@ -39,7 +39,7 @@ UI dirigida **somente** no app Tauri real via `agent-desktop` (sem navegador, se
 - `fetch_prune_cannot_reach_refs_outside_the_remote_tracking_namespace` — `remote.origin.fetch` espelhando em `refs/mirror/*`: o fetch do app não **cria**, não **atualiza** e não **apaga** essas refs (falha-antes medida duas vezes: sem o refspec explícito `refs/mirror/doomed` é apagada; sem `--refmap=` `refs/mirror/main` é criada).
 - `fetch_resolves_the_remote_from_the_branch_configuration` — remoto `team/origin` (nome com `/`) resolvido por `branch.main.remote`; upstream local (`.`) cai no primeiro remoto.
 
-Bateria completa: `cargo test -p openridr-host` → **496 passed, 0 failed, 64 ignored** (os ignorados são os testes isolados por processo, como antes). `cargo clippy --workspace --all-targets -- -D warnings` limpo; `cargo fmt --all` aplicado.
+Bateria completa (depois do merge de `origin/main` com o #140) — `cargo test -p openridr-host` → **519 passed, 0 failed, 64 ignored** (os ignorados são os testes isolados por processo, como antes). `cargo clippy --workspace --all-targets -- -D warnings` limpo; `cargo fmt --all --check` limpo; `bunx tsc --noEmit` limpo; `bun test tests/unit` → 86 passed.
 
 Falha-antes: sem `git::fetch` o host não tem como produzir `behind 1` sem `git pull`; os testes novos chamam `fetch`/`fetch_with`, que não existiam antes deste ticket. As guardas de regressão medidas foram duas: sem `process_group(0)` o teste do listener reprova listando os `git-remote-http` sobreviventes, e sem o refspec explícito o teste do refspec hostil reprova porque `refs/mirror/doomed` é podada.
 
