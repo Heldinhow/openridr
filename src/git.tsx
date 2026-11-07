@@ -446,6 +446,24 @@ export function BranchWidget({
 
   const remote = status.upstream?.split("/")[0] ?? status.remotes[0] ?? null;
 
+  async function completeMerge() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await call<GitOperation>("git.mergeContinue");
+      if (result.state === "ok") {
+        onMessage(result.message ?? "Merge completed.");
+      } else {
+        setError(result.message ?? "git commit failed.");
+      }
+      await Promise.all([onRefresh(), loadBranches()]);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function confirmMergeAbort() {
     setDialogBusy(true);
     setDialogError(null);
@@ -538,8 +556,16 @@ export function BranchWidget({
           {status.operation === "merge" && (
             <div className="branch-actions" data-testid="branch-merge">
               <span className="menu-note" data-testid="branch-merge-note">
-                A merge is in progress: resolve the conflicts in the editor, then abort it here.
+                A merge is in progress: resolve the conflicts in the editor, then finish or abort it here.
               </span>
+              <button
+                type="button"
+                data-testid="branch-merge-complete"
+                disabled={busy}
+                onClick={() => void completeMerge()}
+              >
+                Complete merge
+              </button>
               <button
                 type="button"
                 data-testid="branch-merge-abort"
@@ -813,6 +839,12 @@ export function CommitPanel({
   const groupCheck = useRef<HTMLInputElement>(null);
   const [expanded, setExpanded] = useState(true);
   const reason = !trusted ? TRUST_MESSAGE : unavailable(status, statusError);
+  // Git refuses a partial commit during a merge, so the app refuses first and names the way out.
+  const operationReason = status?.operation
+    ? status.operation === "merge"
+      ? "A merge is in progress; finish or abort it from the branch menu. A partial commit is not possible during a merge."
+      : `A ${status.operation} is in progress; finish or abort it in a terminal. A partial commit is not possible during a ${status.operation}.`
+    : null;
   const files = status?.state === "ok" ? status.files : [];
   const selected = useMemo(
     () => selection ?? new Set(files.filter((file) => !file.conflicted).map((file) => file.path)),
@@ -897,6 +929,9 @@ export function CommitPanel({
             <button type="button" aria-label="Show selected diff" title="Show selected diff" disabled={!diffPath} onClick={() => { const file = files.find((entry) => entry.path === diffPath); if (file) void showDiff(file); }}><Eye size={16} /></button>
             <span className="commit-selection-count" data-testid="commit-count">{commitPaths.length} of {files.length} selected</span>
           </div>
+          {operationReason && (
+            <p className="tree-note" data-testid="commit-operation-note">{operationReason}</p>
+          )}
           <div className="commit-group">
             <button type="button" aria-label={expanded ? "Collapse changes" : "Expand changes"} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
             <input ref={groupCheck} type="checkbox" aria-label="Select all changes" checked={files.some((file) => !file.conflicted) && commitPaths.length === files.filter((file) => !file.conflicted).length} disabled={busy || !files.some((file) => !file.conflicted)} onChange={(event) => setSelection(new Set(event.target.checked ? files.filter((file) => !file.conflicted).map((file) => file.path) : []))} />
@@ -916,14 +951,14 @@ export function CommitPanel({
                   aria-label={`Commit ${file.path}`}
                   checked={selected.has(file.path)}
                   disabled={busy || file.conflicted}
-                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.label}
+                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict in the editor, then finish or abort the merge from the branch menu." : file.label}
                   onChange={() => toggle(file.path)}
                 />
                 <button
                   type="button"
                   className="commit-file"
                   data-testid={`commit-file-${file.path}`}
-                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.path}
+                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict in the editor, then finish or abort the merge from the branch menu." : file.path}
                   onClick={() => void showDiff(file)}
                 >
                   <FileIcon path={file.path} />
@@ -967,7 +1002,8 @@ export function CommitPanel({
             <button
               type="button"
               data-testid="commit-submit"
-              disabled={busy || message.trim() === "" || commitPaths.length === 0}
+              disabled={busy || message.trim() === "" || commitPaths.length === 0 || operationReason !== null}
+              title={operationReason ?? undefined}
               onClick={() => void submit()}
             >
               {busy ? "Committing…" : amend ? "Amend commit" : "Commit"}

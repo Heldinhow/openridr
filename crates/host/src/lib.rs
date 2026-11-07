@@ -111,6 +111,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "git.fetch",
     "git.push",
     "git.mergeAbort",
+    "git.mergeContinue",
     "git.info",
     "nuget.list",
     "nuget.planUpdate",
@@ -715,6 +716,9 @@ impl Host {
         }
         if method == "git.mergeAbort" {
             return self.git_merge_abort();
+        }
+        if method == "git.mergeContinue" {
+            return self.git_merge_continue();
         }
         if method == "git.info" {
             return self.git_info();
@@ -6112,6 +6116,15 @@ impl Host {
         let root = self.workspace_root()?;
         let answer = git::merge_abort(&root)?;
         Ok(serde_json::to_value(answer).expect("git mergeAbort serializes"))
+    }
+
+    /// Finishes the merge in progress: stages the resolved paths and commits with the message Git
+    /// prepared. A leftover conflict marker refuses the call.
+    fn git_merge_continue(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.mergeContinue")?;
+        let root = self.workspace_root()?;
+        let answer = git::merge_continue(&root)?;
+        Ok(serde_json::to_value(answer).expect("git mergeContinue serializes"))
     }
 
     /// Reports the `git` PATH would run; no repository is opened and nothing is changed.

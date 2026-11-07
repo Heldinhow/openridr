@@ -1961,6 +1961,19 @@ pub fn commit(root: &Path, paths: &[String], message: &str, amend: bool) -> Host
     }
     let repo = require_repo(root)?;
     let before = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
+    // Git refuses a partial commit during a merge (`cannot do a partial commit during a merge`),
+    // so the app refuses first, in its own words and pointing at the way out (#114).
+    if let Some(operation) = before.operation {
+        return Err(HostError::new(
+            "git_operation_in_progress",
+            match operation {
+                "merge" => "Commit refused: a merge is in progress. Finish or abort it from the branch menu; a partial commit is not possible during a merge.".to_string(),
+                other => format!(
+                    "Commit refused: a {other} is in progress. Finish or abort it in a terminal; a partial commit is not possible during a {other}."
+                ),
+            },
+        ));
+    }
     let untracked: Vec<String> = paths
         .iter()
         .filter(|path| {
@@ -2392,14 +2405,10 @@ fn update_failure(repo: &Repo, stderr: &str, attempted: Option<&str>) -> String 
             "Update stopped: a {operation} is in progress, and OpenRidr cannot prove this update started it, so it did not abort it. Finish or abort it before updating again."
         );
     }
-    let lower = stderr.to_lowercase();
-    if lower.contains("identity unknown")
-        || lower.contains("please tell me who you are")
-        || lower.contains("unable to auto-detect email address")
-        || lower.contains("empty ident")
-    {
+    if missing_identity(stderr) {
         return "Update needs a Git identity for this repository: set user.name and user.email, then try again; a merge commit has no author without it. Nothing was changed.".to_string();
     }
+    let lower = stderr.to_lowercase();
     if lower.contains("not possible to fast-forward") || lower.contains("non-fast-forward") {
         return "Update stopped: git refused a non-fast-forward update. OpenRidr reconciles a diverged branch with a merge commit. Nothing was changed.".to_string();
     }
@@ -2502,6 +2511,193 @@ pub fn merge_abort(root: &Path) -> HostResult<Operation> {
         &repo,
         None,
     ))
+}
+
+/// How much of `git diff --check` output is kept: one line per problem, and the marker lines are
+/// what the guard reads. A truncated capture still reports every marker it saw.
+const CHECK_BYTES: usize = 64 * 1024;
+
+/// Finishes the merge in progress: stages the paths that were conflicted (the user resolved them in
+/// the editor) and commits with the message Git already prepared (`--no-edit`). A path that still
+/// holds a conflict marker refuses the whole call, so a click cannot commit `<<<<<<<`.
+pub fn merge_continue(root: &Path) -> HostResult<Operation> {
+    let repo = require_repo(root)?;
+    let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
+    match status.operation {
+        Some("merge") => {}
+        Some(operation) => {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "Complete merge refused: a {operation} is in progress, and OpenRidr only completes a merge. Finish or abort it in a terminal."
+                ),
+            ))
+        }
+        None => {
+            return Err(HostError::new(
+                "invalid_state",
+                "Complete merge refused: no merge is in progress; nothing was committed.",
+            ))
+        }
+    }
+    // The marker check is Git's own: `--check` reports `leftover conflict marker` for the worktree
+    // content that would be committed, including what is already staged.
+    let checked = spawn_bounded(
+        &repo.top,
+        &["diff", "--check", "--no-ext-diff", "HEAD"],
+        CHECK_BYTES,
+    )
+    .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let checked = checked.text();
+    if checked.code != Some(0) && checked.code != Some(2) {
+        let stderr = mask_urls(checked.stderr.trim());
+        return Err(HostError::new(
+            "git_failed",
+            if stderr.is_empty() {
+                "git diff --check failed without output.".to_string()
+            } else {
+                tail(&stderr)
+            },
+        ));
+    }
+    let markers = conflict_marker_paths(&checked.stdout);
+    if !markers.is_empty() {
+        return Err(HostError::new(
+            "invalid_state",
+            marker_message(&markers),
+        ));
+    }
+    let conflicted: Vec<String> = status
+        .files
+        .iter()
+        .filter(|file| file.conflicted)
+        .map(|file| file.path.clone())
+        .collect();
+    let mut text = String::new();
+    if !conflicted.is_empty() {
+        // `-u` also stages a resolution that deleted the file, and the pathspec keeps unrelated
+        // edits out of the merge commit. Nothing is staged when the list is empty: a bare
+        // `git add -u` would sweep the whole tree into the merge.
+        let mut args = vec!["add", "-u", "--"];
+        args.extend(conflicted.iter().map(String::as_str));
+        let added = run(&repo.top, &args)
+            .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+        text.push_str(&added.stdout);
+        text.push_str(&added.stderr);
+        if !added.ok() {
+            let stderr = mask_urls(added.stderr.trim());
+            return Err(HostError::new(
+                "git_failed",
+                if stderr.is_empty() {
+                    "git add failed without output.".to_string()
+                } else {
+                    tail(&stderr)
+                },
+            ));
+        }
+    }
+    let unmerged = run(&repo.top, &["ls-files", "-u"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    text.push_str(&unmerged.stdout);
+    text.push_str(&unmerged.stderr);
+    let still = unmerged_paths(&unmerged.stdout);
+    if !unmerged.ok() || !still.is_empty() {
+        return Err(HostError::new(
+            "invalid_state",
+            if still.is_empty() {
+                "Complete merge refused: git could not list the unmerged paths.".to_string()
+            } else {
+                format!(
+                    "Complete merge refused: {} still unmerged ({}). Resolve them in the editor first.",
+                    still.len(),
+                    list_paths(&still)
+                )
+            },
+        ));
+    }
+    let committed = run(&repo.top, &["commit", "--no-edit"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    text.push_str(&committed.stdout);
+    text.push_str(&committed.stderr);
+    if !committed.ok() {
+        let stderr = mask_urls(committed.stderr.trim());
+        let message = if missing_identity(&stderr) {
+            "Complete merge needs a Git identity for this repository: set user.name and user.email, then try again; a merge commit has no author without it. The merge is still in progress.".to_string()
+        } else if stderr.is_empty() {
+            "git commit failed without output; the merge is still in progress.".to_string()
+        } else {
+            format!(
+                "Complete merge failed; the merge is still in progress. {}",
+                tail(&stderr)
+            )
+        };
+        return Ok(operation("failed", Some(message), &text, &repo, None));
+    }
+    Ok(operation(
+        "ok",
+        Some("Merge completed.".to_string()),
+        &text,
+        &repo,
+        None,
+    ))
+}
+
+/// Paths with a leftover conflict marker in a `git diff --check` report (`<path>:<line>: leftover
+/// conflict marker`). The path is split from the right, so a name containing `:` survives.
+fn conflict_marker_paths(text: &str) -> Vec<String> {
+    let mut paths: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.strip_suffix(": leftover conflict marker"))
+        .filter_map(|head| head.rsplit_once(':'))
+        .map(|(path, _)| path.to_string())
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+}
+
+/// Paths from `git ls-files -u` (`<mode> <object> <stage>\t<path>`), deduplicated.
+fn unmerged_paths(text: &str) -> Vec<String> {
+    let mut paths: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .map(|(_, path)| path.to_string())
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+}
+
+/// Up to `CONFLICT_PATH_LIMIT` paths, comma separated, with `, …` when more were found.
+fn list_paths(paths: &[String]) -> String {
+    let head: Vec<&str> = paths.iter().take(CONFLICT_PATH_LIMIT).map(String::as_str).collect();
+    if paths.len() > CONFLICT_PATH_LIMIT {
+        format!("{}, …", head.join(", "))
+    } else {
+        head.join(", ")
+    }
+}
+
+fn marker_message(paths: &[String]) -> String {
+    format!(
+        "Complete merge refused: {} still contain conflict markers ({}). Resolve them in the editor first.",
+        if paths.len() == 1 {
+            "1 file".to_string()
+        } else {
+            format!("{} files", paths.len())
+        },
+        list_paths(paths)
+    )
+}
+
+/// Git's own words for "there is no author to write the commit with". The app says where to set it
+/// instead of dumping the hint.
+fn missing_identity(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("identity unknown")
+        || lower.contains("please tell me who you are")
+        || lower.contains("unable to auto-detect email address")
+        || lower.contains("empty ident")
 }
 
 fn remotes(repo: &Repo) -> Vec<String> {
@@ -3604,6 +3800,7 @@ mod tests {
     fn conflicted_merge(name: &str) -> (tempfile::TempDir, PathBuf) {
         let (temp, root) = init(name);
         fs::write(root.join("a.txt"), "one\n").unwrap();
+        fs::write(root.join("b.txt"), "one\n").unwrap();
         commit_all(&root, "initial");
         git(&root, &["checkout", "-qb", "other"]);
         fs::write(root.join("a.txt"), "other\n").unwrap();
@@ -3646,6 +3843,95 @@ mod tests {
         assert!(
             result.message.unwrap_or_default().contains("Merge aborted"),
             "the message says what happened"
+        );
+    }
+
+    #[test]
+    fn merge_continue_stages_the_resolution_and_commits_the_merge() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        fs::write(root.join("a.txt"), "one\nresolved\n").unwrap();
+        // An unrelated edit must not be swept into the merge commit.
+        fs::write(root.join("b.txt"), "one\nstray\n").unwrap();
+
+        let result = merge_continue(&root).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert!(!root.join(".git/MERGE_HEAD").exists());
+        assert_eq!(parent_count(&root), 2, "a merge commit has two parents");
+        assert!(
+            git(&root, &["rev-list", "--parents", "-n", "1", "HEAD"]).contains(&head),
+            "the pre-merge commit is a parent"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("a.txt")).unwrap(),
+            "one\nresolved\n"
+        );
+        assert_eq!(
+            git(&root, &["show", "HEAD:b.txt"]),
+            "one\n",
+            "the stray edit stays out of the merge commit"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("b.txt")).unwrap(),
+            "one\nstray\n"
+        );
+        assert_eq!(git(&root, &["status", "--porcelain"]).trim(), "M b.txt");
+        assert!(git(&root, &["ls-files", "-u"]).trim().is_empty());
+        assert_eq!(result.status.operation, None);
+    }
+
+    #[test]
+    fn merge_continue_refuses_while_a_conflict_marker_remains() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        // The file still holds the markers git wrote.
+        let error = merge_continue(&root).unwrap_err();
+
+        assert_eq!(error.code, "invalid_state");
+        assert!(error.message.contains("a.txt"), "{}", error.message);
+        assert!(
+            error.message.contains("conflict markers"),
+            "{}",
+            error.message
+        );
+        assert!(root.join(".git/MERGE_HEAD").exists(), "the merge stays");
+        assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
+        assert!(
+            !git(&root, &["ls-files", "-u"]).trim().is_empty(),
+            "nothing was staged"
+        );
+    }
+
+    #[test]
+    fn merge_continue_refuses_without_a_merge() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+
+        let error = merge_continue(&root).unwrap_err();
+
+        assert_eq!(error.code, "invalid_state");
+        assert!(
+            error.message.contains("no merge is in progress"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn commit_is_refused_while_a_merge_is_in_progress() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let error = commit(&root, &["b.txt".to_string()], "stray", false).unwrap_err();
+
+        assert_eq!(error.code, "git_operation_in_progress");
+        assert!(error.message.contains("branch menu"), "{}", error.message);
+        assert_eq!(
+            git(&root, &["rev-parse", "HEAD"]).trim(),
+            head,
+            "no commit was created"
         );
     }
 
