@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { revisionOf, settleRestore } from "./automatic";
 import { hostPort, seedVerifiedTools } from "./environment";
+import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 /**
  * Issue #47: hit count (counted by the host, because netcoredbg ignores `hitCondition`) and
@@ -18,53 +18,33 @@ const realAdapter = path.join(
   process.env.HOME ?? "",
   "Library/Application Support/OpenRidr/tools/netcoredbg/3.2.0-1092",
 );
-let home: string;
-let server: ChildProcess;
+let host: IsolatedHost;
 
 test.describe.configure({ mode: "serial", timeout: 180_000 });
 test.use({ viewport: { width: 1440, height: 900 } });
 
 test.beforeAll(async () => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-debug-advanced-home-"));
-  const bundled = seedVerifiedTools(home);
-  // The seed writes a script that only prints a version; replace it with the real adapter.
-  fs.rmSync(path.join(bundled, "netcoredbg"), { recursive: true, force: true });
-  if (fs.existsSync(realAdapter)) {
-    fs.cpSync(path.join(realAdapter, "netcoredbg"), path.join(bundled, "netcoredbg"), {
-      recursive: true,
-    });
-  }
-  server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: {
-      ...process.env,
-      OPENRIDR_HOME: home,
-      OPENRIDR_TRUST_STORE: "on",
-      OPENRIDR_ENABLE_PROBE: "1",
-      OPENRIDR_BUNDLED_NETCOREDBG: bundled,
+  host = await startIsolatedHost({
+    port,
+    homePrefix: "openridr-debug-advanced-home-",
+    env: { OPENRIDR_TRUST_STORE: "on", OPENRIDR_ENABLE_PROBE: "1" },
+    prepare: (home) => {
+      const bundled = seedVerifiedTools(home);
+      // The seed writes a script that only prints a version; replace it with the real adapter.
+      fs.rmSync(path.join(bundled, "netcoredbg"), { recursive: true, force: true });
+      if (fs.existsSync(realAdapter)) {
+        fs.cpSync(path.join(realAdapter, "netcoredbg"), path.join(bundled, "netcoredbg"), {
+          recursive: true,
+        });
+      }
+      return { OPENRIDR_BUNDLED_NETCOREDBG: bundled };
     },
-    stdio: "ignore",
   });
-  await expect
-    .poll(async () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false), {
-      timeout: 300_000,
-    })
-    .toBe(true);
 });
 
-test.afterAll(() => {
-  server?.kill();
-  if (home) fs.rmSync(home, { recursive: true, force: true });
+test.afterAll(async () => {
+  await host?.stop();
 });
-
-async function useIsolatedHost(page: Page) {
-  await page.route(/\/__host\/(call|health)$/, async (route) => {
-    const target = `http://127.0.0.1:${port}/${route.request().url().split("/").pop()}`;
-    await route
-      .fetch({ url: target })
-      .then((response) => route.fulfill({ response }))
-      .catch(() => {});
-  });
-}
 
 async function hostCall(method: string, params: object = {}) {
   const response = await fetch(`http://127.0.0.1:${port}/call`, {
@@ -106,7 +86,7 @@ async function prepare(page: Page, base: string, source: string, breakpointLine 
   const program = path.join(copy, "src/OrderDesk.Cli/Program.cs");
   fs.writeFileSync(program, source);
 
-  await useIsolatedHost(page);
+  await host.useFor(page);
   await page.goto("/");
   await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
   await page.getByTestId("workspace-open").click();

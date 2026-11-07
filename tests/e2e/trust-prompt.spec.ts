@@ -1,43 +1,32 @@
 import { expect, test, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hostPort, seedVerifiedTools } from "./environment";
+import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // The shared E2E host runs with OPENRIDR_TRUST_STORE=off (every open asks). This spec needs the real
 // per-project store, so it starts its own host on an isolated OPENRIDR_HOME and points the UI at it.
 const port = hostPort + 1;
 const fixture = path.resolve("fixtures/OrderDesk");
 let home: string;
-let server: ChildProcess;
+let host: IsolatedHost;
 
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-trust-home-"));
-  const bundled = seedVerifiedTools(home);
-  server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on", OPENRIDR_BUNDLED_NETCOREDBG: bundled },
-    stdio: "ignore",
+  host = await startIsolatedHost({
+    port,
+    homePrefix: "openridr-trust-home-",
+    env: { OPENRIDR_TRUST_STORE: "on" },
+    prepare: (prepared) => ({ OPENRIDR_BUNDLED_NETCOREDBG: seedVerifiedTools(prepared) }),
   });
-  await expect.poll(async () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false), {
-    timeout: 300_000,
-  }).toBe(true);
+  home = host.home;
 });
 
-test.afterAll(() => {
-  server?.kill();
-  fs.rmSync(home, { recursive: true, force: true });
+test.afterAll(async () => {
+  await host?.stop();
 });
-
-async function useIsolatedHost(page: Page) {
-  await page.route(/\/__host\/(call|health)$/, async (route) => {
-    const target = `http://127.0.0.1:${port}/${route.request().url().split("/").pop()}`;
-    // A poll still in flight when the test ends fails with "Test ended"; that is not a failure.
-    await route.fetch({ url: target }).then((response) => route.fulfill({ response })).catch(() => {});
-  });
-}
 
 function projectCopy() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-trust-prompt-"));
@@ -68,7 +57,7 @@ async function openedWorkspace(page: Page) {
 }
 
 test("asks once for a new project, then reopening goes straight in", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   const solution = projectCopy();
   await openPath(page, solution);
   const dialog = page.getByTestId("trust-prompt-dialog");
@@ -90,7 +79,7 @@ test("asks once for a new project, then reopening goes straight in", async ({ pa
 });
 
 test("a Restricted decision is remembered and not asked again", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   const solution = projectCopy();
   await openPath(page, solution);
   await page.getByTestId("trust-prompt-restricted").click();
@@ -104,7 +93,7 @@ test("a Restricted decision is remembered and not asked again", async ({ page })
 });
 
 test("Cancel and Esc return to the welcome screen without opening the project", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   const solution = projectCopy();
   await openPath(page, solution);
   await page.getByTestId("trust-prompt-cancel").click();
@@ -128,7 +117,7 @@ test("Cancel and Esc return to the welcome screen without opening the project", 
 });
 
 test("Cancel on a prompt raised from inside the IDE restores the previous workspace", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   const current = projectCopy();
   const other = projectCopy();
   // A legacy Recents entry with no decision: opening it from the IDE raises the prompt.
@@ -146,7 +135,7 @@ test("Cancel on a prompt raised from inside the IDE restores the previous worksp
 });
 
 test("the page behind the prompt is inert and a backdrop click keeps focus in the dialog", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   await openPath(page, projectCopy());
   await expect(page.getByTestId("trust-prompt-trust")).toBeFocused();
   await expect(page.locator("[inert]")).toHaveCount(1);
@@ -158,7 +147,7 @@ test("the page behind the prompt is inert and a backdrop click keeps focus in th
 });
 
 test("focus is trapped: Tab cycles Trust, Restricted, Cancel and Enter activates the focused button", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   await openPath(page, projectCopy());
   await expect(page.getByTestId("trust-prompt-trust")).toBeFocused();
   await page.keyboard.press("Tab");
