@@ -106,6 +106,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "git.log",
     "git.commit",
     "git.pull",
+    "git.fetch",
     "git.push",
     "git.info",
     "nuget.list",
@@ -697,6 +698,9 @@ impl Host {
         }
         if method == "git.pull" {
             return self.git_pull();
+        }
+        if method == "git.fetch" {
+            return self.git_fetch();
         }
         if method == "git.push" {
             return self.git_push(params);
@@ -6026,6 +6030,15 @@ impl Host {
         let root = self.workspace_root()?;
         let answer = git::pull(&root)?;
         Ok(serde_json::to_value(answer).expect("git pull serializes"))
+    }
+
+    /// Brings the remote's refs into the local copy. The only Git action with a deadline: a fetch
+    /// that hung on an unreachable remote would hold the lock every other host call waits on.
+    fn git_fetch(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.fetch")?;
+        let root = self.workspace_root()?;
+        let answer = git::fetch(&root)?;
+        Ok(serde_json::to_value(answer).expect("git fetch serializes"))
     }
 
     fn git_push(&self, params: Value) -> HostResult<Value> {
