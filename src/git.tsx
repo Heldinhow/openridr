@@ -545,20 +545,24 @@ export function BranchWidget({
   // Stops the network operation in flight. The host answers `cancelled: false` when it already
   // finished — the local merge of an Update is not cancellable — and the dialog says so instead of
   // pretending the click landed.
-  async function cancelNetwork(kind: "push" | "update") {
+  async function cancelNetwork(kind: "push" | "update" | "fetch") {
     if (cancelling) return;
     setCancelling(true);
     try {
       const answer = await call<{ cancelled: boolean }>("git.cancel");
       if (!answer.cancelled) {
-        setDialogError(
+        const note =
           kind === "push"
             ? "Nothing to cancel: the push already finished."
-            : "Nothing to cancel: the update is already merging.",
-        );
+            : kind === "update"
+              ? "Nothing to cancel: the update is already merging."
+              : "Nothing to cancel: the fetch already finished.";
+        if (kind === "fetch") setFetchError(note);
+        else setDialogError(note);
       }
     } catch (caught) {
-      setDialogError(messageOf(caught));
+      if (kind === "fetch") setFetchError(messageOf(caught));
+      else setDialogError(messageOf(caught));
     } finally {
       setCancelling(false);
     }
@@ -744,6 +748,11 @@ export function BranchWidget({
             >
               {fetching ? "Fetching…" : "Fetch"}
             </button>
+            {fetching && (
+              <button type="button" data-testid="branch-fetch-stop" disabled={cancelling} onClick={() => void cancelNetwork("fetch")}>
+                {cancelling ? "Cancelling…" : "Cancel fetch"}
+              </button>
+            )}
             <button type="button" data-testid="branch-commit" disabled={busy} onClick={() => { closeMenu(); onOpenCommit(); }}>
               Commit…
             </button>
