@@ -44,6 +44,11 @@ verdes. O diff do branch não toca `crates/` (é CI + docs), então não há evi
 hipótese é a instalação do csharp-ls (rede/NuGet) falhando sem registrar motivo. Não corrigido nesta
 frente: registrado aqui, não mascarado com skip.
 
+**Regra do smoke (#251).** Cada spec listado em `scripts/e2e-smoke.txt` tem que passar **sozinho**, numa
+máquina fria: `bunx playwright test <um spec>` numa runner nova. A ordem da lista não é prova —
+`workspace.spec.ts` antes de `build.spec.ts` aquece a máquina (restore, cache NuGet, descoberta e análise
+já pagos) e esconde a falha do primeiro build (linha de `build.spec.ts` acima).
+
 ## Medições
 
 ### Antes das mudanças (3 rodadas, HEAD `1921508`)

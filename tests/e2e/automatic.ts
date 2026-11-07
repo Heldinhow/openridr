@@ -44,6 +44,12 @@ export async function settleDiscovery(page: Page) {
       { timeout: 180_000 },
     )
     .toBe("settled");
+  // A discovery that failed is the app's own automation failing: say so here instead of letting
+  // the build run over a state the spec never checked.
+  const { state } = await discoverySnapshot(page);
+  expect(state, "the automatic test discovery did not finish").not.toMatch(
+    /^(failed|cancelled)$/,
+  );
 }
 
 /** Clicks Discover and waits for the new host revision to settle: an automatic discovery may

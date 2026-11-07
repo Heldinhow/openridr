@@ -73,8 +73,8 @@ async function buildFailureDetail(page: Page) {
     }
   };
   const log = await read("build-log");
-  const clipped =
-    log.length > buildLogLimit ? `${log.slice(0, buildLogLimit)}\n… clipped` : log;
+  // MSBuild repeats its errors at the end, so a long log keeps the tail.
+  const clipped = log.length > buildLogLimit ? `… clipped\n${log.slice(-buildLogLimit)}` : log;
   return [
     `build-command: ${await read("build-command")}`,
     `build-cwd: ${await read("build-cwd")}`,

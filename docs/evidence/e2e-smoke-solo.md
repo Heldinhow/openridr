@@ -52,11 +52,11 @@ período em que o build explícito roda:
 - O build explícito constrói o mesmo `OrderDesk.Core`. Duas construções do mesmo projeto ao mesmo tempo:
   uma delas perde em `GenerateDepsFile`.
 
-Por que parecia ordem: `workspace.spec.ts` rodando antes **esquenta a máquina** (restore, cache NuGet,
-descoberta e análise já pagos), então o primeiro build da execução seguinte não encontra a janela. Numa
-runner fria a restauração, a descoberta e a análise levam tempo suficiente para se sobrepor ao primeiro
-build. O segundo teste do mesmo arquivo passa porque a automação já assentou — e o mesmo vale para o
-`build.spec.ts` sozinho quando a automação termina antes do clique.
+Por que parecia ordem — **inferência, não medição**: rodar `workspace.spec.ts` antes paga restore, cache
+NuGet, descoberta e análise, então o primeiro build da execução seguinte encontra a máquina quente e não
+acha a janela. O que está **medido** é o efeito: o segundo teste do mesmo arquivo passa na mesma run, e
+`build.spec.ts` sozinho falhou 2 de 5 vezes, sempre no primeiro build. A explicação mecânica do efeito de
+ordem (máquina quente) é consistente com isso, mas não foi isolada por experimento.
 
 **Limite da medição:** o `lsof` do arquivo não pegou o dono em nenhuma das três runs de amostragem (o
 build passou nas três), então a atribuição vem do log + da lista de processos, não de um `lsof` no
@@ -69,7 +69,9 @@ spec fecha a janela do primeiro, e o bug do produto cobre os dois.
   falha passa a carregar `build-command`, `build-cwd` e o `build-log` cru. Falha-antes medida com um spec
   descartável e uma cópia do fixture que não compila.
 - **#257 (`1bd7dc1`)**: `settleDiscovery` em `tests/e2e/automatic.ts` (exportado) e o `build.spec.ts`
-  esperando a descoberta automática assentar antes do primeiro build, em `restoreAndReload`.
+  esperando a descoberta automática assentar antes do primeiro build, em `restoreAndReload`. Isso fecha a
+  janela do primeiro candidato (a descoberta); a análise continua fora da sincronização e é o que o bug do
+  produto (#275) cobre.
 
 ## Prova
 
@@ -77,6 +79,10 @@ spec fecha a janela do primeiro, e o bug do produto cobre os dois.
   [42414237554](https://github.com/Heldinhow/openridr/actions/runs/42414237554).
 - Local: 2/2 verde (42,9 s) com o fix.
 - Antes do fix, 2 de 5 runs sozinhas na runner falharam no primeiro build.
+
+Uma run verde depois do fix não prova **qual** dos dois candidatos segurava o arquivo: prova que o spec
+deixa de falhar no primeiro build com a descoberta sincronizada. A atribuição exata segue em aberto (ver
+limite acima) e é o que a #275 precisa fechar.
 
 ## Efeito colateral registrado
 
