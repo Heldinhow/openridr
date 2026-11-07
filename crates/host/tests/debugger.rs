@@ -74,7 +74,10 @@ fn wait_for(host: &Host, states: &[&str], timeout: Duration) -> Value {
 
 fn sha256(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// Minimal deterministic HTTP server: one route table, request counter and a clean shutdown.
