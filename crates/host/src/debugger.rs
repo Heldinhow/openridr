@@ -2015,7 +2015,7 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), payload);
         let mut hasher = Sha256::new();
         hasher.update(&payload);
-        assert_eq!(sha, format!("{:x}", hasher.finalize()));
+        assert_eq!(sha, hex(&hasher.finalize()));
     }
 
     /// The other half of #162: a connection that really stops has to fail with the app's sentence,
