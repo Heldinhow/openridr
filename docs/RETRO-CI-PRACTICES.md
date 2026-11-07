@@ -1,4 +1,4 @@
-# RETRO — Práticas de CI do T3 Code e do OpenChamber (issue #142, tickets #218–#221)
+# RETRO — Práticas de CI do T3 Code e do OpenChamber (issue #142, tickets #218–#221; #232/#238)
 
 Rodada de 2026-11-07, macOS arm64. Spec: [SPEC-CI-PRACTICES](SPEC-CI-PRACTICES.md). Evidência:
 [evidence/ci-practices.md](evidence/ci-practices.md). PR #225. Retro sobre **o ambiente de trabalho do
@@ -58,10 +58,10 @@ agente**, não sobre o produto.
 
 ## Candidatos de melhoria do ambiente, por severidade
 
-1. **Ligar o `vite build` ao job TypeScript** (alto, mecânico). O check já existe no `package.json` e
-   está desligado no CI — é exatamente o caso "guardrail que existe e ninguém roda". Um passo
-   `bunx vite build` depois do `tsc --noEmit` custa ~10–20 s e pega erro que o `tsc` não vê. Não entra
-   neste PR (que é `risk:high` e já passou por revisão): vira issue filha de #142.
+1. **Ligar o `vite build` ao job TypeScript** (alto, mecânico) — **feito na #232/#238**. O check já
+   existia no `package.json` e estava desligado no CI; o passo `bunx vite build` entrou depois do
+   `tsc --noEmit` e custou 1 s no run medido (job de 17 s → 22 s). Detalhes na rodada de 2026-11-08
+   abaixo.
 2. **O `AGENTS.md` agora carrega a armadilha do `src-tauri`** (alto, já feito neste PR). A nota diz que
    o CI não roda os vendor scripts, que as duas pastas são gitignored e que o `tauri-build` só exige a
    existência do caminho. É a única coisa desta frente que qualquer sessão futura vai precisar antes de
@@ -82,4 +82,67 @@ agente**, não sobre o produto.
 - O critério de promoção do `rust-tauri` está em 2 de 5 runs verdes.
 - O `if: always()` que faz os três scanners rodarem mesmo com um falhando está no YAML e foi lintado,
   mas não foi exercitado com uma falha real de scanner.
-- `vite build` continua fora de qualquer workflow — residual declarado na spec, candidato 1 acima.
+- `vite build` continua fora de qualquer workflow — **fechado na #232/#238**, ver a rodada de
+  2026-11-08 abaixo.
+
+## Rodada #232/#238 — `vite build` no CI (2026-11-08)
+
+Spec: [SPEC-CI-PRACTICES](SPEC-CI-PRACTICES.md) (seção `### #232`). Evidência:
+[evidence/ci-practices.md](evidence/ci-practices.md) (seção `## #238`). PR #239, ticket #238. Retro
+sobre **o ambiente de trabalho do agente**, não sobre o produto.
+
+### O que se sustentou
+
+- **O número decidiu o grill em uma rodada.** As sete perguntas foram ao orquestrador com medição
+  pronta (`tsc` exit 0 e `vite build` exit 1 no mesmo import; 0,88 s de build local; job de 17 s), e
+  voltaram as sete aprovadas como recomendadas, sem segunda rodada. Medir antes de perguntar continua
+  sendo o que encurta a entrevista.
+- **A falha-antes no runner custou dois runs, não um teste novo.** O commit descartável (`d7d2463`)
+  provou o que nenhum teste local provaria — "Type check" verde e "Build" vermelho no mesmo job — e o
+  revert (`758d56e`) devolveu o head verde. A skill `to-spec` recusou seam novo e acertou: não há o
+  que cobrir com unit test num `run:` de duas palavras.
+- **Um ticket, um subagente, e o merge foi fast-forward.** O escopo era cinco linhas de YAML e três
+  docs; dividir em duas fatias custaria mais em merge do que em trabalho. O implementer devolveu os
+  exit codes e a duração, e o diff veio sem surpresa.
+- **O review independente não achou defeito, e distinguiu residual de histórico.** Ele viu o
+  `vite build` ainda citado em `RETRO-CI-PRACTICES.md:85` e concluiu que era a retro datada da #142,
+  não uma declaração de estado — exatamente a distinção que o eixo Spec deveria fazer.
+
+### O que quebrou / custou
+
+- **O residual morava em três arquivos, e fechá-lo custou três edições.** Spec, evidência e `AGENTS.md`
+  diziam a mesma coisa em três lugares; o ticket tocou os três para uma linha de YAML. É a repetição
+  do achado da rodada anterior ("o mesmo número em três arquivos divergiu"), agora na forma de
+  residual: um fato declarado em N lugares custa N edições para deixar de ser verdade.
+- **`git revert` gera mensagem fora do padrão, e o caminho curto foi `--no-verify`.** O revert saiu
+  como `Revert "test(ci): ..."`, e o amend para uma mensagem conventional foi feito com
+  `--no-verify` — violação da regra do `AGENTS.md`, mesmo com o hook já tendo rodado no commit
+  original e com `bun run check` refeito à mão depois. O hook roda `cargo check` inteiro (~16 s) em
+  qualquer commit, inclusive um amend de mensagem, e é essa fricção que empurra para o atalho.
+- **Editar o corpo do PR dispara o workflow inteiro.** O `edited` está nos tipos do `pull_request`
+  para re-lintar o título, e a edição da Evidência no fim disparou um segundo run no mesmo head,
+  cancelando o que estava em voo pela `concurrency`: dois runs para um head, ~4 min cada. A evidência
+  final tem que ser a última edição antes de pedir merge — ou o check de corpo vira job próprio.
+- **`zizmor` não está na máquina e o `actionlint` está.** O job `governance` roda os dois; localmente
+  só um. O `AGENTS.md` nomeia `shellcheck` e `dash` para `scripts/`, mas não os dois linters de
+  workflow.
+
+### Candidatos de melhoria do ambiente, por severidade
+
+1. **Hook de pre-commit proporcional ao que mudou** (médio, mecânico). `.githooks/pre-commit` roda
+   `bun run check` (tsc + `cargo check --workspace`) em todo commit, inclusive docs e amend de
+   mensagem: ~16 s de cargo para uma linha de Markdown. Um filtro por caminho staged (docs-only →
+   nada; TS → tsc; Rust → cargo) remove a fricção que faz o `--no-verify` parecer razoável.
+2. **O `edited` do PR re-roda tudo** (médio, decisão de workflow). Ou o check de título/corpo vira job
+   próprio disparado por `edited`, ou o `AGENTS.md` diz que a última edição do corpo é a última ação
+   antes do merge. Hoje o custo é um run inteiro por edição de Evidência.
+3. **Nomear `actionlint` e `zizmor` no `AGENTS.md`** (baixo, uma linha). O job `governance` depende dos
+   dois e o Mac só tem o primeiro; a seção de CI já nomeia `shellcheck`/`dash` para `scripts/`.
+4. **Residual declarado em N lugares** (baixo, já praticado): a spec aponta para a evidência e o
+   `AGENTS.md` para a spec; a frase "nenhum job roda X" deveria existir num arquivo só.
+
+### O que fica sem prova
+
+- O `dist/` empacotado num DMG real: o passo novo prova o `vite build`, não o `tauri build` completo.
+- O aviso de chunk > 500 kB (bundle de 1,45 MB) continua só no log; virar gate é decisão separada.
+- O run da `main` depois do merge: o smoke noturno e o `dependency-audit` não foram tocados.

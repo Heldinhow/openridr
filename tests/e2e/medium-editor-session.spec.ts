@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hostPort, seedVerifiedTools } from "./environment";
+import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // The shared E2E host runs with OPENRIDR_SESSION_STORE=off so specs cannot restore each other's
 // tabs. Session persistence needs its own host, like trust-prompt.spec.ts does for trust.
@@ -11,36 +11,22 @@ const port = hostPort + 3;
 const fixture = path.resolve("fixtures/OrderDesk");
 const program = "src/OrderDesk.Cli/Program.cs";
 const order = "src/OrderDesk.Core/Order.cs";
-let home: string;
-let server: ChildProcess;
+let host: IsolatedHost;
 
 test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 test.beforeAll(async () => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-session-home-"));
-  const bundled = seedVerifiedTools(home);
-  server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on", OPENRIDR_BUNDLED_NETCOREDBG: bundled },
-    stdio: "ignore",
+  host = await startIsolatedHost({
+    port,
+    homePrefix: "openridr-session-home-",
+    env: { OPENRIDR_TRUST_STORE: "on" },
+    prepare: (home) => ({ OPENRIDR_BUNDLED_NETCOREDBG: seedVerifiedTools(home) }),
   });
-  await expect
-    .poll(async () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false), {
-      timeout: 300_000,
-    })
-    .toBe(true);
 });
 
-test.afterAll(() => {
-  server?.kill();
-  fs.rmSync(home, { recursive: true, force: true });
+test.afterAll(async () => {
+  await host?.stop();
 });
-
-async function useIsolatedHost(page: Page) {
-  await page.route(/\/__host\/(call|health)$/, async (route) => {
-    const target = `http://127.0.0.1:${port}/${route.request().url().split("/").pop()}`;
-    await route.fetch({ url: target }).then((response) => route.fulfill({ response })).catch(() => {});
-  });
-}
 
 function projectCopy() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-editor-session-"));
@@ -77,7 +63,7 @@ async function openWorkspace(page: Page, solution: string) {
 test("d9: reopening a solution restores tabs, cursor and breakpoints", async ({ page }) => {
   const { base, solution } = projectCopy();
   try {
-    await useIsolatedHost(page);
+    await host.useFor(page);
     await openWorkspace(page, solution);
     await page.getByTestId(`tree-file-${program}`).click();
     await expect(page.getByTestId(`tab-${program}`)).toBeVisible();
@@ -133,7 +119,7 @@ test("d9: reopening a solution restores tabs, cursor and breakpoints", async ({ 
 test("d9: breakpoints saved in Trusted mode return when trust is granted after a Restricted open", async ({ page }) => {
   const { base, solution } = projectCopy();
   try {
-    await useIsolatedHost(page);
+    await host.useFor(page);
     await openWorkspace(page, solution);
     await page.getByTestId(`tree-file-${program}`).click();
     const line = page.locator(".cm-line").nth(2);

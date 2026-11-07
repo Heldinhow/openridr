@@ -1,25 +1,27 @@
 import { expect, test, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { hostPort } from "./environment";
+import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // A fresh app home proves the mandatory setup: the first attempt fails like an unreachable
 // source, retry installs and verifies, and the trust prompt appears only after setup is done.
 const port = hostPort + 5;
 const fixture = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
-let home: string;
-let server: ChildProcess;
+let host: IsolatedHost;
 
 test.describe.configure({ mode: "serial", timeout: 240_000 });
 
 test.beforeAll(async () => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-tools-ux-home-"));
-  const installer = path.join(home, "probe-installer");
-  fs.writeFileSync(
-    installer,
-    `#!/bin/sh
+  host = await startIsolatedHost({
+    port,
+    homePrefix: "openridr-tools-ux-home-",
+    env: { OPENRIDR_TRUST_STORE: "on", OPENRIDR_ENABLE_PROBE: "1" },
+    prepare: (home) => {
+      const installer = path.join(home, "probe-installer");
+      fs.writeFileSync(
+        installer,
+        `#!/bin/sh
 staging="$OPENRIDR_HOME/tools/csharp-ls/0.28.staging"
 mkdir -p "$staging"
 dd if=/dev/zero of="$staging/partial.bin" bs=1024 count=512 2>/dev/null
@@ -33,42 +35,21 @@ touch "$OPENRIDR_HOME/probe-tools-failed"
 echo "error: Unable to load the service index for source https://api.nuget.org/v3/index.json. The HTTP request timed out." >&2
 exit 1
 `,
-  );
-  fs.chmodSync(installer, 0o755);
-  const bundled = path.join(home, "bundled");
-  fs.mkdirSync(bundled, { recursive: true });
-  const adapter = path.join(bundled, "netcoredbg");
-  fs.writeFileSync(adapter, "#!/bin/sh\nprintf 'netcoredbg 3.2.0-1092\\n'\n");
-  fs.chmodSync(adapter, 0o755);
-  server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: {
-      ...process.env,
-      OPENRIDR_HOME: home,
-      OPENRIDR_TRUST_STORE: "on",
-      OPENRIDR_ENABLE_PROBE: "1",
-      OPENRIDR_TOOLS_MUXER: installer,
-      OPENRIDR_BUNDLED_NETCOREDBG: bundled,
+      );
+      fs.chmodSync(installer, 0o755);
+      const bundled = path.join(home, "bundled");
+      fs.mkdirSync(bundled, { recursive: true });
+      const adapter = path.join(bundled, "netcoredbg");
+      fs.writeFileSync(adapter, "#!/bin/sh\nprintf 'netcoredbg 3.2.0-1092\\n'\n");
+      fs.chmodSync(adapter, 0o755);
+      return { OPENRIDR_TOOLS_MUXER: installer, OPENRIDR_BUNDLED_NETCOREDBG: bundled };
     },
-    stdio: "ignore",
   });
-  await expect
-    .poll(async () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false), {
-      timeout: 300_000,
-    })
-    .toBe(true);
 });
 
-test.afterAll(() => {
-  server?.kill();
-  fs.rmSync(home, { recursive: true, force: true });
+test.afterAll(async () => {
+  await host?.stop();
 });
-
-async function useIsolatedHost(page: Page) {
-  await page.route(/\/__host\/(call|health)$/, async (route) => {
-    const target = `http://127.0.0.1:${port}/${route.request().url().split("/").pop()}`;
-    await route.fetch({ url: target }).then((response) => route.fulfill({ response })).catch(() => {});
-  });
-}
 
 async function openWorkspace(page: Page) {
   await page.goto("/");
@@ -79,7 +60,7 @@ async function openWorkspace(page: Page) {
 test("setup blocks the workspace, reports the failure and retries without a plan", async ({
   page,
 }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   await openWorkspace(page);
 
   // Setup runs before trust: no trust prompt and no workspace while the tool is not ready.
@@ -109,7 +90,7 @@ test("setup blocks the workspace, reports the failure and retries without a plan
 });
 
 test("a second opening reuses the verified tools and never shows the gate", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   await openWorkspace(page);
   // The host verified the installation in the previous test; the trust prompt is the next step.
   await page.getByTestId("trust-prompt-dialog").waitFor({ timeout: 15_000 });
