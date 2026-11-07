@@ -220,6 +220,25 @@ fn child_home() -> PathBuf {
     app_home().join("toolhome")
 }
 
+/// The child `dotnet` resolves its home and NuGet state from `USERPROFILE`/`APPDATA` on Windows,
+/// not from `HOME`; without them `NuGet.Configuration.ConfigurationDefaults` throws before the
+/// install starts. The isolated home keeps every write under the app home on both platforms.
+fn isolate_child_home(command: &mut Command, home: &Path, temp: &Path) {
+    #[cfg(windows)]
+    {
+        command
+            .env("USERPROFILE", home)
+            .env("APPDATA", home.join("AppData/Roaming"))
+            .env("LOCALAPPDATA", home.join("AppData/Local"))
+            .env("TEMP", temp)
+            .env("TMP", temp);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (home, temp);
+    }
+}
+
 /// The launcher runs outside the workspace. The plan only announces this path; anything that
 /// spawns uses `neutral_cwd_ready()`.
 fn neutral_cwd() -> PathBuf {
@@ -916,11 +935,14 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
         .map_err(|error| format!("Could not create the isolated tool HOME: {error}"))?;
     let cwd = neutral_cwd_ready();
     let muxer = bundled::muxer(&analysis.runtime.root);
-    let child = Command::new(&muxer)
+    let mut command = Command::new(&muxer);
+    command
         .arg(&analysis.entry)
         .arg("--version")
         .current_dir(&cwd)
-        .env("HOME", &home)
+        .env("HOME", &home);
+    isolate_child_home(&mut command, &home, &std::env::temp_dir());
+    let child = command
         .env("DOTNET_ROOT", &analysis.runtime.root)
         .env("DOTNET_MULTILEVEL_LOOKUP", "0")
         .env("DOTNET_CLI_UI_LANGUAGE", "en")
@@ -1553,7 +1575,9 @@ impl Tools {
             // Isolated HOME pins the child to NuGet's default official source and keeps all
             // writes under the app home; user feed configuration is neither read nor logged.
             .env("HOME", &home)
-            .env("TMPDIR", &temp)
+            .env("TMPDIR", &temp);
+        isolate_child_home(&mut command, &home, &temp);
+        command
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_UI_LANGUAGE", "en")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")

@@ -1940,9 +1940,7 @@ fn evaluation_includes_a_project_outside_the_solution_directory() {
     assert_eq!(inside["kind"], "console");
     assert_eq!(inside["path"], "App.csproj");
     assert_eq!(inside["sources"], json!(["Program.cs"]));
-    assert!(inside["targetPath"]
-        .as_str()
-        .unwrap()
+    assert!(std::path::Path::new(inside["targetPath"].as_str().unwrap())
         .ends_with("app/bin/Debug/net8.0/App.dll"));
 
     let outside = project("Lib");

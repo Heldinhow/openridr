@@ -7,6 +7,8 @@
 
 #![allow(dead_code)]
 
+use std::path::Path;
+
 /// Install progress is polled (every 10 ms), so a transient state can be missed on a fast machine:
 /// the observable contract is that the pipeline only moved forward, `downloading` and `installing`
 /// were seen, and it ended `ready` — not that every intermediate state was caught.
@@ -144,6 +146,15 @@ pub fn controlled_command() -> std::process::Command {
         }
     }
     command
+}
+
+/// A path as the host reports it: forward slashes and no Windows verbatim prefix.
+pub fn portable(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    match text.strip_prefix("//?/") {
+        Some(rest) => rest.to_string(),
+        None => text,
+    }
 }
 
 /// Runs one isolated leaf of this binary in its own process. The leaf is marked `#[ignore]`
