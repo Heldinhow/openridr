@@ -72,6 +72,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 | App de dev em um comando + abrir workspace por argv (#91) | [SPEC-DEV-APP](SPEC-DEV-APP.md) | #172, #173 (GitHub) | [RETRO-DEV-APP](RETRO-DEV-APP.md) | [evidence/dev-app.md](evidence/dev-app.md) |
 | Os outros três menus da toolbar como botões acessíveis (#177) | [SPEC-TOOLBAR-MENUS-A11Y](SPEC-TOOLBAR-MENUS-A11Y.md) | tickets de #177 (GitHub); follow-up de #168 | [RETRO-TOOLBAR-MENUS-A11Y](RETRO-TOOLBAR-MENUS-A11Y.md) | [evidence/toolbar-menus-a11y.md](evidence/toolbar-menus-a11y.md) |
 | Proxy do macOS System Settings para o cliente HTTP do host (#132) | [SPEC-SYSTEM-PROXY](SPEC-SYSTEM-PROXY.md) | #181, #182 (GitHub) | [RETRO-SYSTEM-PROXY](RETRO-SYSTEM-PROXY.md) | [evidence/system-proxy.md](evidence/system-proxy.md) |
+| O item Commit… do menu de workspace actions executa a ação (#190) | [SPEC-COMMIT-MENU-ACTION](SPEC-COMMIT-MENU-ACTION.md) | #192 (GitHub); achado na #177 | [RETRO-COMMIT-MENU-ACTION](RETRO-COMMIT-MENU-ACTION.md) | [evidence/commit-menu-action.md](evidence/commit-menu-action.md) |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
 
 `decisions.md`, `GLOSSARY.md` e a tabela acima são **append-only**: cada frente acrescenta a sua linha e
