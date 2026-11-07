@@ -52,16 +52,17 @@ SHA em todos os disparos: `9829c8389eedf8019f49a94a5e1d9981baf4a1fc`. O spec des
 | Run | Resultado | O que falhou |
 |---|---|---|
 | [42412077351](https://github.com/Heldinhow/openridr/actions/runs/42412077351) | cancelada na fila, sem jobs | outra sessão disparou o mesmo workflow depois; o grupo `e2e-smoke` substitui o pendente mais antigo |
-| [42412536089](https://github.com/Heldinhow/openridr/actions/runs/42412536089) | vermelha, 27 passed / 1 failed | `workspace.spec.ts:326` — corrida com o poll de 1,5 s do `checkDisk` (3/3 verde local) |
-| [42413266179](https://github.com/Heldinhow/openridr/actions/runs/42413266179) | vermelha, 26 passed / 2 failed | `build.spec.ts:62` (`Build failed · exit 1` no runner) e `run.spec.ts:352` (mesma build) |
-| [42414123022](https://github.com/Heldinhow/openridr/actions/runs/42414123022) | vermelha, 27 passed / 1 failed | `build.spec.ts:62` de novo, mesmo sintoma |
+| [42412536089](https://github.com/Heldinhow/openridr/actions/runs/42412536089) | vermelha, 27 passed / 1 failed | `workspace.spec.ts:326` — corrida com o poll de 1,5 s do `checkDisk` (#273; 3/3 verde local) |
+| [42413266179](https://github.com/Heldinhow/openridr/actions/runs/42413266179) | vermelha, 26 passed / 2 failed | `build.spec.ts:62` (`Build failed · exit 1` no runner, **#251**) e `run.spec.ts:352` (caiu junto da build, mesma família da #251) |
+| [42414123022](https://github.com/Heldinhow/openridr/actions/runs/42414123022) | vermelha, 27 passed / 1 failed | `build.spec.ts:62` de novo, mesmo sintoma (**#251**) |
 
-A lista inteira do smoke passa local em 28/28 (2,9 min) no mesmo SHA, então as duas falhas acima são
-de outro terreno: `workspace.spec.ts:326` corre contra o poll de 1,5 s do `checkDisk` (se o poll
-atualizar o conflito antes do clique, não nasce o segundo banner) e `build.spec.ts:62` roda
-`dotnet build --no-restore` logo depois de um restore que o próprio teste afirma ter dado certo — o
-log do MSBuild não vai para o log do job e os artefatos do Playwright não são publicados, então o
-erro do runner não é legível daqui.
+A lista inteira do smoke passa local em 28/28 (2,9 min) no mesmo SHA, então as falhas acima são de
+outro terreno e têm dono: `workspace.spec.ts:326` corre contra o poll de 1,5 s do `checkDisk` (se o
+poll atualizar o conflito antes do clique, não nasce o segundo banner) e está na **#273**;
+`build.spec.ts:62` roda `dotnet build --no-restore` e sai 1 no runner logo depois de um restore que o
+próprio teste afirma ter dado certo — é a **#251**, que outra sessão está instrumentando no runner
+(nem o log do MSBuild nem os artefatos do Playwright saem do job, então o erro não é legível daqui).
+`run.spec.ts:352` só apareceu junto da build quebrada, não é família do flake do workspace.
 
 ## O que não foi verificado
 
@@ -72,5 +73,5 @@ erro do runner não é legível daqui.
   execuções; follow-up #264, sem quarentena (a taxa é baixa e o spec continua no smoke).
 - **`spawn_bounded` e `run_with_deadline` do host:** receberam o env por inspeção; o teste do shim
   cobre `spawn_bytes` e `info()`.
-- **`workspace.spec.ts:326` e `build.spec.ts:62` no runner:** fora do escopo desta issue e sem run
-  verde para o AC literal — ver a seção acima.
+- **`workspace.spec.ts:326` (#273) e `build.spec.ts:62` (#251) no runner:** fora do escopo desta
+  issue e sem run verde para o AC literal — ver a seção acima.
