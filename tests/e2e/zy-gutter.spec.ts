@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { clickDiscover, revisionOf, settleRestore } from "./automatic";
-import { host } from "./environment";
+import { host, screenshotsDir } from "./environment";
 
 // Order coupling: the host is shared and its discovery/run counters are global, and the
 // per-ticket suites assume an early discovery/run sequence. This spec runs a discovery and a
@@ -51,7 +51,8 @@ test("the test gutter runs one test from the editor and reports its result", asy
     await expect(page.getByTestId("editor")).toContainText("Id_is_preserved");
     const gutters = page.locator('[data-testid^="gutter-test-"]');
     await expect(gutters.first()).toBeVisible({ timeout: 15_000 });
-    await page.screenshot({ path: "docs/evidence/screenshots/d09-gutter-test.png" });
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+    await page.screenshot({ path: path.join(screenshotsDir, "d09-gutter-test.png") });
     await gutters.first().click();
     await page.getByTestId("bottom-tab-tests").click();
     await expect(page.getByTestId("tests-run-state")).toContainText("Run completed", { timeout: 120_000 });

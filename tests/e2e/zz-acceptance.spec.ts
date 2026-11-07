@@ -8,13 +8,12 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs";
 import { clickDiscover, openProjectDetails, revisionOf } from "./automatic";
-import { e2eHome, frontend, host } from "./environment";
+import { e2eHome, frontend, host, screenshotsDir as screenshots } from "./environment";
 import os from "node:os";
 import path from "node:path";
 import { openTrustPopover, reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
-const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 const logs = path.resolve(process.env.OPENRIDR_EVIDENCE_LOG_DIR ?? "docs/evidence/logs");
 const realAdapter = path.join(
   process.env.HOME ?? "",

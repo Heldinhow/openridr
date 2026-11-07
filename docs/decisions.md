@@ -1523,3 +1523,29 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   contrato do YAML + `AGENTS.md`) e #242 (prova), sub-issues de #215; evidência em
   `docs/evidence/nightly-smoke.md`. O smoke real continua vermelho por `solution-git-status.spec.ts:111`
   (issue #245), que é spec de UI e não desta frente. Nenhum `data-testid`, nenhuma mudança de produto.
+
+## 2026-11-07 — A captura do E2E sai do repositório por default; o caminho versionado vira opt-in (issue #217)
+
+- **Decisão.** O default do diretório das capturas deixa de ser `docs/evidence/screenshots` e passa a ser
+  `<tempdir>/openridr-e2e-screenshots-<porta da UI>`, derivado da porta como o E2E app home da #210;
+  `OPENRIDR_SCREENSHOT_DIR` continua vencendo, com valor relativo resolvido contra o diretório atual. O
+  caminho versionado só recebe captura quando a variável aponta para ele de propósito.
+- **Por que o default era um defeito, e não um incômodo.** O diretório está no `.gitignore`, mas **86 PNGs
+  dele estão versionados** — o `.gitignore` não vale para arquivo já rastreado. Uma execução que falhava
+  reescrevia evidência versionada (aparecia em `git status`) ou deixava arquivo não rastreado dentro do
+  repositório, que é o que faz `git worktree remove` recusar a worktree (o sintoma registrado na #210).
+  A saída era lembrar de exportar a variável antes de rodar, e a documentação precisava repetir o aviso.
+- **A chave é a porta, não o worktree.** Mesmo critério do E2E app home: duas sessões em portas diferentes
+  não se sobrescrevem, e duas na mesma porta não coexistem de qualquer forma (`strictPort` do Vite de
+  teste). `mkdtemp` por execução foi recusado porque ninguém acha a captura depois sem o log.
+- **Um seam só.** O caminho é calculado no módulo de ambiente do E2E, que já é por onde config,
+  `globalSetup` e specs leem portas, home e URLs; os specs importam de lá, inclusive os dois que gravavam
+  caminho literal e ignoravam a variável. Specs que só capturam quando pedido usam o mesmo módulo, sem
+  ganhar default.
+- **`outputDir` e `OPENRIDR_EVIDENCE_LOG_DIR` ficam onde estão.** `test-results/` e `playwright-report/`
+  já são ignorados e não sujam `git status`; `docs/evidence/logs` é ignorado e não tem arquivo versionado.
+  Mover não resolveria problema nenhum — decisão registrada para não ser reaberta.
+- **Consequência.** `docs/SPEC-E2E-EVIDENCE-OUTPUT.md`; tickets #248 (código + guarda) e #249 (docs
+  vivos), sub-issues de #217; evidência em `docs/evidence/e2e-evidence-output.md`. A guarda em
+  `tests/unit` roda no CI e reprova qualquer spec que volte a nomear o caminho versionado. Nenhuma
+  dependência nova, nenhum `data-testid`, nenhuma mudança de produto.
