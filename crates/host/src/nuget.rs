@@ -9,7 +9,6 @@ use crate::{HostError, HostResult};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -1355,38 +1354,6 @@ fn url_host(url: &str) -> Option<&str> {
     (!host.is_empty()).then_some(host)
 }
 
-fn private_host(host: &str) -> bool {
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return private_ip(ip);
-    }
-    if host == "localhost"
-        || host.ends_with(".localhost")
-        || host.ends_with(".local")
-        || host == "0.0.0.0"
-        || host == "::1"
-        || host.starts_with("fe80:")
-        || host.starts_with("fc")
-        || host.starts_with("fd")
-    {
-        return true;
-    }
-    let octets: Vec<u8> = host
-        .split('.')
-        .filter_map(|part| part.parse::<u8>().ok())
-        .collect();
-    if octets.len() == 4 {
-        return octets[0] == 0
-            || octets[0] == 10
-            || octets[0] == 127
-            || (octets[0] == 192 && octets[1] == 168)
-            || (octets[0] == 169 && octets[1] == 254)
-            || (octets[0] == 172 && (16..=31).contains(&octets[1]))
-            || (octets[0] == 100 && (64..=127).contains(&octets[1]));
-    }
-    false
-}
-
 /// SSRF guard shared by Discover and `dotnet list --source`: only HTTPS to a public host.
 /// A local path is allowed for configured folder sources; plain HTTP and private/loopback/
 /// link-local hosts are refused before any request or process.
@@ -1400,74 +1367,12 @@ pub fn validate_source_arg(source: &str) -> Result<(), String> {
     let Some(host) = url_host(source) else {
         return Err("The NuGet source URL is invalid.".to_string());
     };
-    if private_host(host) {
+    if crate::netguard::private_host(host) {
         return Err(format!(
             "The NuGet source host {host} is loopback, private or link-local and is refused."
         ));
     }
     Ok(())
-}
-
-fn private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            let octets = ip.octets();
-            ip.is_loopback()
-                || ip.is_private()
-                || ip.is_link_local()
-                || ip.is_unspecified()
-                || ip.is_broadcast()
-                || ip.is_multicast()
-                || octets[0] == 0
-                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
-                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
-        }
-        IpAddr::V6(ip) => {
-            // Mapped/compatible IPv4 and the NAT64 well-known prefix embed an IPv4 address
-            // that must be classified as IPv4, not as a public IPv6 literal.
-            if let Some(v4) = ip.to_ipv4() {
-                return private_ip(IpAddr::V4(v4));
-            }
-            let segments = ip.segments();
-            if segments[..6] == [0x0064, 0xff9b, 0, 0, 0, 0] {
-                let v4 = std::net::Ipv4Addr::new(
-                    (segments[6] >> 8) as u8,
-                    segments[6] as u8,
-                    (segments[7] >> 8) as u8,
-                    segments[7] as u8,
-                );
-                return private_ip(IpAddr::V4(v4));
-            }
-            ip.is_loopback()
-                || ip.is_unspecified()
-                || ip.is_multicast()
-                || (segments[0] & 0xfe00) == 0xfc00
-                || (segments[0] & 0xffc0) == 0xfe80
-        }
-    }
-}
-
-/// Resolves once and refuses the request if any answer is loopback/private/link-local. ureq
-/// connects to these same addresses, so a DNS answer changed after validation is not used.
-struct SafeResolver;
-
-impl ureq::Resolver for SafeResolver {
-    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
-        let addresses: Vec<SocketAddr> = netloc.to_socket_addrs()?.collect();
-        if addresses.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "the source host has no address",
-            ));
-        }
-        if addresses.iter().any(|address| private_ip(address.ip())) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "the source host resolves to a loopback, private or link-local address",
-            ));
-        }
-        Ok(addresses)
-    }
 }
 
 pub fn source_matches(source: &str, configured: &[Source]) -> bool {
@@ -1572,11 +1477,13 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
     if let Err(error) = validate_source_arg(source) {
         return failed(error);
     }
-    let agent = crate::http::agent_builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .redirects(0)
-        .resolver(SafeResolver)
-        .build();
+    let agent = match crate::http::agent_for(source) {
+        Ok(builder) => builder
+            .timeout(std::time::Duration::from_secs(20))
+            .redirects(0)
+            .build(),
+        Err(error) => return failed(format!("Could not read the NuGet source index: {error}")),
+    };
     let index: Value = match agent.get(source).call() {
         Ok(response) => match response.into_string() {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
@@ -1626,6 +1533,14 @@ pub fn search(source: &str, query: &str, prerelease: bool, take: usize) -> Searc
         take.clamp(1, 100),
         prerelease
     );
+    // The advertised endpoint is a different destination: route and guard it on its own.
+    let agent = match crate::http::agent_for(&url) {
+        Ok(builder) => builder
+            .timeout(std::time::Duration::from_secs(20))
+            .redirects(0)
+            .build(),
+        Err(error) => return failed(format!("NuGet search failed: {error}")),
+    };
     let body: Value = match agent.get(&url).call() {
         Ok(response) => match response.into_string() {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
@@ -2650,9 +2565,6 @@ mod tests {
         }
         assert!(validate_source_arg("https://api.nuget.org/v3/index.json").is_ok());
         assert!(validate_source_arg("/tmp/local-feed").is_err());
-        use ureq::Resolver;
-        assert!(SafeResolver.resolve("localhost:443").is_err());
-        assert!(SafeResolver.resolve("127.0.0.1:443").is_err());
         let unsafe_search = search("http://127.0.0.1:1/v3/index.json", "xunit", false, 5);
         assert_eq!(unsafe_search.state, "failed");
         assert!(unsafe_search.message.unwrap().contains("HTTPS"));
