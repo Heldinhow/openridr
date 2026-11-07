@@ -1813,3 +1813,11 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Falha-antes medida.** Sem o `.env("GIT_OPTIONAL_LOCKS", "0")` do `spawn_bytes` (e antes do conserto, nos quatro), o arquivo do shim fica com linhas vazias e o teste reprova com `GIT_OPTIONAL_LOCKS reached git as ["", "", "", "", "0"]` — as cinco execuções são `rev-parse` ×2, `status`, `remote` e `--version`.
 - **Bateria.** `cargo test -p openridr-host` 470 passed / 0 failed na lib (e os demais alvos verdes); `cargo clippy --workspace --all-targets -- -D warnings` limpo; `cargo fmt --all` aplicado; `bun run check` limpo; `bunx playwright test tests/e2e/solution-git-status.spec.ts` 3 passed (42,3 s) nas portas 1820/4717.
 - **Não verificado:** a taxa de `index.lock` antes/depois no spec (medida pela sessão-mãe, não por esta); Windows e macOS Intel.
+
+## Glifo único na linha de symlink (2026-11-07, #250)
+
+- **O conserto.** `TreeRow` desenha o glifo de corrente como ícone da linha quando ela é `symlink` e **não** recebe ícone próprio, e o badge de canto só quando é `symlink` **e** recebe ícone próprio (o arquivo de fonte avaliada, que mantém o glifo de arquivo). Os dois call sites do `SolutionTree` — pasta symlink no modo normal e entrada da listagem "Show all files" — deixaram de passar `icon={<Icon name="link" …/>}` à mão. Sem prop nova, sem `data-testid` novo, sem mudança no host.
+- **Causa raiz.** A linha desenhava os dois glifos desde o #49: o ícone passado à mão e o badge do `TreeRow`. O spec E2E do #49, escrito mas nunca executado naquela sessão, contava `.icon-link` = 1 — por isso o smoke noturno ficou vermelho de forma determinística, reproduzida local nas portas 1820/4717 com `Expected: 1, Received: 2`.
+- **Spec endurecido.** Além de `.icon-link` = 1 na linha do link de pasta, ela afirma `.symlink-mark` = 0; a linha do arquivo symlink avaliado continua com um `.symlink-mark`.
+- **Bateria.** `bun run check` limpo; `bun test tests/unit` 112 passed; `bunx playwright test tests/e2e/solution-git-status.spec.ts` 3 passed nas portas 1820/4717 (falha-antes medida antes do conserto, mesmo assert).
+- **Não verificado:** o app Tauri real (mudança de UI pura, sem nada de shell nativo); Windows e macOS Intel.
