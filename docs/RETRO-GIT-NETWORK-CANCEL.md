@@ -37,6 +37,15 @@ Dois eixos em paralelo (`gpt-6.1-terra`), fixed point `9097444`; correções em 
 - **`data-testid` em wrapper não responde "está aberto?".** Para saber se um popover está montado, o teste precisa de um elemento de dentro dele.
 - **Foco em botão que fica `disabled` vai para o `body`.** Atalho de teclado dentro de diálogo com ação em voo tem de ouvir a `window`, não o `div` do diálogo.
 
+## Melhorias de ambiente (skill `retro`)
+
+Candidatos para a próxima sessão, em ordem de severidade:
+
+- **Padrão de código (juízo) que faltou ao revisor: atalho de teclado em diálogo com ação em voo ouve a `window`.** Um botão focado que fica `disabled` move o foco para o `body`, e o `keydown` nunca chega ao `div` do diálogo — foi o que fez o Escape não cancelar. É regra de julgamento (não há lint que pegue), então o lugar é a lista de padrões que o revisor aplica; hoje ela só existe espalhada em `AGENTS.md`.
+- **Armadilha de navegação nos specs: `data-testid` no wrapper não responde "está aberto?".** `branch-menu` está no contêiner sempre montado, então `isVisible()` é sempre verdadeiro e o teste que "abre o menu" nunca abre. Duas saídas, ambas baratas: um `branch-menu-popover` no popover (testid novo, contrato permite) ou uma linha em `docs/MAPA.md` dizendo qual testid responde "aberto". Custou a maior parte do tempo de depuração do E2E.
+- **Verificação: o `AGENTS.md` ficou para trás da decisão.** A regra de prova de UI mudou em `docs/decisions.md` (#210) enquanto esta frente rodava, e a spec desta frente chegou a contradizer o `AGENTS.md` por horas. A convenção de marcar a entrada antiga com "Substituída em parte" já existe; o que falta é o `AGENTS.md` citar essa entrada em vez de repetir a regra — assim a mudança tem um lugar só.
+- **Economia de ferramenta: dois implementers em paralelo nos mesmos arquivos custam mais que rodar em série.** #207 e #208 tocam o mesmo `Kind`, o mesmo `git_pull`/`git_fetch` e o fim do mesmo `host.rs`; os conflitos custaram mais que a espera. Regra prática: fatiar por arquivo, não por ticket, quando os tickets são irmãos do mesmo mecanismo.
+
 ## Follow-ups
 
 - **`index.lock` entre `git status` e um comando local do host** (visto uma vez no E2E): se voltar, serializar os comandos locais do Git no host, sem tocar no passo de rede.
