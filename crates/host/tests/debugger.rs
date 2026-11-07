@@ -1325,6 +1325,8 @@ fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
     );
 }
 
+// The controlled artifact is a `#!/bin/sh` script; Windows cannot execute it.
+#[cfg(unix)]
 #[test]
 fn macos_arm64_installs_the_controlled_artifact_only_after_opt_in() {
     support::run_isolated_leaf(
@@ -1344,6 +1346,8 @@ fn a_changed_plan_after_confirmation_downloads_nothing() {
     support::run_isolated_leaf("a_changed_plan_after_confirmation_downloads_nothing_isolated");
 }
 
+// The controlled artifact is a `#!/bin/sh` script; Windows cannot execute it.
+#[cfg(unix)]
 #[test]
 fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
     support::run_isolated_leaf(
@@ -1351,11 +1355,15 @@ fn a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof() {
     );
 }
 
+// The controlled artifact is a `#!/bin/sh` script; Windows cannot execute it.
+#[cfg(unix)]
 #[test]
 fn a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it() {
     support::run_isolated_leaf("a_fresh_host_reports_an_installed_adapter_without_claiming_the_platform_blocks_it_isolated");
 }
 
+// The controlled artifact is a `#!/bin/sh` script; Windows cannot execute it.
+#[cfg(unix)]
 #[test]
 fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
     support::run_isolated_leaf(
@@ -1363,6 +1371,8 @@ fn a_failed_download_shows_the_error_and_retry_completes_the_confirmed_plan() {
     );
 }
 
+// The controlled artifact is a `#!/bin/sh` script; Windows cannot execute it.
+#[cfg(unix)]
 #[test]
 fn hash_version_corruption_and_traversal_are_rejected_without_promotion() {
     support::run_isolated_leaf(
@@ -1375,6 +1385,8 @@ fn origins_and_redirects_are_checked_before_any_download() {
     support::run_isolated_leaf("origins_and_redirects_are_checked_before_any_download_isolated");
 }
 
+// The controlled artifact is a `#!/bin/sh` script; Windows cannot execute it.
+#[cfg(unix)]
 #[test]
 fn cancel_keeps_partial_state_and_retry_completes() {
     support::run_isolated_leaf("cancel_keeps_partial_state_and_retry_completes_isolated");

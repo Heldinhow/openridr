@@ -3333,6 +3333,8 @@ mod tests {
         assert_eq!(answer.ignored, vec!["a.log".to_string()]);
     }
 
+    // The fixture names contain `*`, `?`, `[` or a newline, which Windows cannot create.
+    #[cfg(unix)]
     #[test]
     fn ignored_handles_spaces_and_newlines_in_paths() {
         let (_temp, root) = init("repo");
@@ -3381,6 +3383,8 @@ mod tests {
         assert!(answer.ignored.is_empty(), "the 257th path is never queried");
     }
 
+    // The fixture names contain `*`, `?`, `[` or a newline, which Windows cannot create.
+    #[cfg(unix)]
     #[test]
     fn ignored_treats_pathspecs_as_literal_names() {
         let (_temp, root) = init("repo");
