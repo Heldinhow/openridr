@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SetupScreen } from "./SetupScreen";
 import { SetupGate } from "./SetupGate";
 import { WorkspaceView } from "./WorkspaceView";
 import { TrustPrompt } from "./TrustPrompt";
+import { UpdateDialog } from "./UpdateDialog";
 import { call, messageOf, type Snapshot } from "./host/client";
 import { fetchRecent, type RecentProject } from "./welcome/recent";
 
@@ -24,6 +25,8 @@ export default function App() {
   const [externalOpen, setExternalOpen] = useState<{ path: string } | null>(null);
   // Increments on every Cmd+Q or app-menu Quit; WorkspaceView guards it with the unsaved-changes dialog.
   const [quitRequest, setQuitRequest] = useState(0);
+  // Set by "Restart now" in the update dialog: the same guard runs, and the exit restarts instead.
+  const [restartAfterQuit, setRestartAfterQuit] = useState(false);
   // Same for the setup screen, which opens the path with its own form flow (candidates, errors, trust).
   const [setupOpen, setSetupOpen] = useState<{ path: string } | null>(null);
   // Only for a failed listener or invoke of the shell; open errors show where the open was started.
@@ -199,22 +202,24 @@ export default function App() {
   const openExternalRef = useRef(openExternal);
   openExternalRef.current = openExternal;
 
-  async function quitNow() {
+  async function quitNow(restart: boolean) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("quit_app");
+      await invoke(restart ? "restart_app" : "quit_app");
     } catch (error) {
       setExternalError(`Could not quit OpenRidr: ${messageOf(error)}`);
     }
   }
 
-  function requestQuit() {
+  function requestQuit(restart = false) {
+    // Every request states its own intent, so a cancelled restart cannot turn a later Quit into one.
+    setRestartAfterQuit(restart);
     // Only the mounted workspace owns buffers; anywhere else there is nothing to save.
     if (stage === "workspace" && snapshot?.workspace && !prompt) {
       setQuitRequest((current) => current + 1);
       return;
     }
-    void quitNow();
+    void quitNow(restart);
   }
 
   const requestQuitRef = useRef(requestQuit);
@@ -278,8 +283,9 @@ export default function App() {
     </div>
   ) : null;
 
+  let body: ReactNode;
   if (stage === "gate" && snapshot?.workspace) {
-    return (
+    body = (
       <>
         {externalBand}
         <SetupGate
@@ -296,10 +302,8 @@ export default function App() {
         />
       </>
     );
-  }
-
-  if (stage === "workspace" && snapshot?.workspace && !prompt) {
-    return (
+  } else if (stage === "workspace" && snapshot?.workspace && !prompt) {
+    body = (
       <>
         {externalBand}
         <WorkspaceView
@@ -309,31 +313,39 @@ export default function App() {
           recentSolutions={recentSolutions}
           externalOpen={externalOpen}
           quitRequest={quitRequest}
+          restartOnQuit={restartAfterQuit}
           onOpenRecent={openRecent}
           onSnapshot={handleSnapshot}
           onClosed={handleClosed}
         />
       </>
     );
+  } else {
+    body = (
+      <>
+        {prompt && <TrustPrompt snapshot={prompt} onDecided={decided} onCancel={() => void cancelPrompt()} cancelError={cancelError} />}
+        {externalBand}
+        <div ref={background} style={{ display: "contents" }}>
+          <SetupScreen
+            key={lastPath}
+            snapshot={snapshot}
+            initialPath={lastPath}
+            recent={recentProjects}
+            onRecent={setRecentProjects}
+            onOpened={handleOpened}
+            onSnapshot={handleSnapshot}
+            onOpenGlobalJson={openGlobalJson}
+            externalOpen={setupOpen}
+          />
+        </div>
+      </>
+    );
   }
 
   return (
     <>
-    {prompt && <TrustPrompt snapshot={prompt} onDecided={decided} onCancel={() => void cancelPrompt()} cancelError={cancelError} />}
-    {externalBand}
-    <div ref={background} style={{ display: "contents" }}>
-    <SetupScreen
-      key={lastPath}
-      snapshot={snapshot}
-      initialPath={lastPath}
-      recent={recentProjects}
-      onRecent={setRecentProjects}
-      onOpened={handleOpened}
-      onSnapshot={handleSnapshot}
-      onOpenGlobalJson={openGlobalJson}
-      externalOpen={setupOpen}
-    />
-    </div>
+      {body}
+      <UpdateDialog onRestart={() => requestQuit(true)} />
     </>
   );
 }
