@@ -17,11 +17,14 @@ empurraram uma sessão para `--no-verify` num amend.
   testar, 12 casos em 283 linhas sem compilar nada.
 - **O implementer subagent entregou no primeiro round**, com a falha-antes medida por ele (hook antigo →
   18 `FAIL`) e sem tocar em `bun run check`, `commit-only.sh` ou no CI.
-- **O code review pagou o preço.** Achou dois caminhos em que o hook ficava **mais fraco** que o antigo:
-  nome não-ASCII citado pelo git (`"crates/a\303\247..."`) não casava com `crates/*` e pulava o
-  `cargo check`; renomeação listava só o destino, então mover um `.rs` para `docs/` passava como
-  documentação. Os dois viraram caso de teste e conserto (`core.quotePath=false`, `--no-renames`, e um
-  ramo que roda os dois checks quando o git insiste em citar o nome).
+- **O code review pagou o preço — três vezes.** Achou dois caminhos em que o hook ficava **mais fraco**
+  que o antigo: nome não-ASCII citado pelo git (`"crates/a\303\247..."`) não casava com `crates/*` e
+  pulava o `cargo check`; renomeação listava só o destino, então mover um `.rs` para `docs/` passava
+  como documentação. O re-check obrigatório (achado alto) achou o terceiro: `for path in $staged` divide
+  por espaço, e `crates/a.md b.rs` virava `crates/a.md` (documentação, porque `*.md` vem antes de
+  `crates/*`) mais `b.rs` (TypeScript) — sem `cargo check`. Os três viraram caso de teste e conserto
+  (`core.quotePath=false`, `--no-renames`, `while IFS= read -r`, e um ramo que roda os dois checks quando
+  o git insiste em citar o nome).
 - **A medição A/B saiu barata** com `CARGO_TARGET_DIR` apontando para o `target/` do worktree: 11,6 s
   (hook antigo) contra 108 ms (hook novo) num commit só de Markdown, sem esperar cargo frio.
 
@@ -62,7 +65,11 @@ empurraram uma sessão para `--no-verify` num amend.
   Citação e renomeação são transformações silenciosas; o default tem que ser "checar mais", nunca
   "checar menos".
 - **O aviso de escopo do briefing vira achado de review.** "O hook não pode ficar mais fraco" foi o que
-  fez o reviewer procurar exatamente os caminhos em que a classificação erra — e achou dois.
+  fez o reviewer procurar exatamente os caminhos em que a classificação erra — e achou três, o último
+  só no re-check.
+- **Iterar caminho de git em `sh` não é `for x in $lista`.** Espaço, glob e citação são três
+  transformações silenciosas no mesmo comando; `while IFS= read -r` com um caminho por linha é a única
+  forma de não classificar um pedaço de nome.
 - **Medir é conferir o que foi medido.** O caso "misto" que não era misto e o `set -e` que matou o script
   custaram uma rodada cada; ambos eram visíveis no log antes de virar número na evidência.
 

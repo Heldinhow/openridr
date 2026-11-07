@@ -20,14 +20,19 @@ fi
 
 ts=0
 rust=0
-for path in $staged; do
+# One path per line, never `for path in $staged`: word splitting would cut `crates/a.md b.rs` into
+# `crates/a.md` (documentation) and `b.rs` (TypeScript), and the Rust check would never run.
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
   case "$path" in
     '"'*) ts=1; rust=1 ;; # git quoted it (tab, quote, newline in the name): classify nothing, check both
     *.md | docs/*) ;;
     crates/* | src-tauri/* | Cargo.toml | Cargo.lock | rust-toolchain*) rust=1 ;;
     *) ts=1 ;;
   esac
-done
+done <<EOF
+$staged
+EOF
 
 if [ "$ts" -eq 0 ] && [ "$rust" -eq 0 ]; then
   echo 'pre-commit: nada a checar'

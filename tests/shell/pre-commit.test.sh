@@ -16,7 +16,8 @@
 # `git commit --only` from scripts/commit-only.sh with Rust dirty in the work tree (the work tree is not
 # classified), a failing check (the hook propagates the exit code and the commit is not created), a Rust
 # path with a non-ASCII name (git must not quote it out of the Rust patterns), a rename across buckets
-# (the deleted Rust path still runs cargo), and the hook run under dash, the runner's /bin/sh.
+# (the deleted Rust path still runs cargo), a Rust path with a space in the name (word splitting must not
+# cut it into a `.md` piece), and the hook run under dash, the runner's /bin/sh.
 set -eu
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -291,6 +292,14 @@ commit -m 'docs: move'
 expect_code 'rename' 0
 expect_log 'rename' 'cargo check --workspace --all-targets'
 expect_commits 'rename' 2
+
+# --- 13. a Rust path with a space: splitting it would cut a `.md` piece and skip cargo -----------------
+new_repo
+stage 'crates/host/src/a.md b.rs'
+commit -m 'feat(host): spaced'
+expect_code 'space in name' 0
+expect_log 'space in name' 'cargo check --workspace --all-targets'
+expect_commits 'space in name' 2
 
 echo
 if [ "$failures" -eq 0 ]; then

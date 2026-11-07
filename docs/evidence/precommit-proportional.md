@@ -11,7 +11,7 @@ O hook é o seam: cada caso faz um `git commit` de verdade num repositório temp
 
 | Comando | Resultado |
 |---|---|
-| `sh tests/shell/pre-commit.test.sh` | `all cases passed` (12 casos), exit 0 |
+| `sh tests/shell/pre-commit.test.sh` | `all cases passed` (13 casos), exit 0 |
 | `dash tests/shell/pre-commit.test.sh` | `all cases passed`, exit 0 |
 | `PRE_COMMIT_HOOK=<hook antigo> sh tests/shell/pre-commit.test.sh` | **falha-antes**: 18 `FAIL`, exit 1 |
 | `shellcheck .githooks/pre-commit tests/shell/pre-commit.test.sh` | limpo, exit 0 |
@@ -23,7 +23,8 @@ sem `node_modules` (falha antes do bun, diz `bun install`, nunca `command not fo
 criado); só documentação sem `node_modules` (passa); `scripts/commit-only.sh` com Rust sujo na árvore
 (o commit leva só o `.md` e nada roda — prova que a árvore de trabalho não entra na classificação);
 check que falha (o exit code do check vira exit do hook e o commit não é criado); um caminho Rust com
-nome não-ASCII; uma renomeação entre baldes; o hook rodado sob `dash`.
+nome não-ASCII; uma renomeação entre baldes; um caminho Rust com espaço no nome; o hook rodado sob
+`dash`.
 
 ## Achados do code review (corrigidos)
 
@@ -43,6 +44,12 @@ Prova falha-antes do conserto: `PRE_COMMIT_HOOK=<hook de 410d0a7> sh tests/shell
 → 6 `FAIL`, incluindo `non-ASCII rust: expected exit 0, got 1` (a mensagem de `bun install` no lugar do
 `cargo check`) e `rename: expected 'cargo check --workspace --all-targets', got ''`. Depois do conserto:
 `all cases passed` sob `sh` e sob `dash`; contra o hook original (`exec bun run check`), 21 `FAIL`.
+
+3. **Alto — espaço no nome do arquivo pulava o `cargo check`** (achado do re-check). `for path in
+   $staged` divide por espaço: `crates/host/src/a.md b.rs` virava `crates/host/src/a.md` (documentação,
+   porque `*.md` vem antes de `crates/*` no `case`) e `b.rs` (TypeScript) — o Rust não era checado.
+   Correção: os caminhos são lidos um por linha (`while IFS= read -r`), sem divisão nem glob. Caso 13 do
+   teste; contra o hook de `bcaa8e6` ele falha com 3 `FAIL` (`space in name: expected exit 0, got 1`).
 
 ## Medições reais (commit de verdade, repositório descartável com `CARGO_TARGET_DIR` do worktree)
 

@@ -78,7 +78,9 @@ substitui.
   `"crates/a\303\247..."`, que não casaria com os padrões de Rust e pularia o `cargo check` — e com
   `--no-renames`, para uma movimentação listar os dois lados: tirar um `.rs` de `crates/` continua
   rodando `cargo check`. Caminho que ainda sai entre aspas (tab, aspas ou quebra de linha no nome) não é
-  classificado: roda os dois checks.
+  classificado: roda os dois checks. Os caminhos são lidos **um por linha** (`while IFS= read -r`), nunca
+  com `for path in $staged`: a divisão por espaço corta `crates/a.md b.rs` em `crates/a.md` (documentação)
+  e `b.rs` (TypeScript), e o `cargo check` nunca roda.
 - **Classificação por caminho, três baldes.** Documentação = `*.md` em qualquer diretório mais
   `docs/**`. Rust = `crates/**`, `src-tauri/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*`. Qualquer
   outro caminho cai no balde do TypeScript. Não existe lista explícita de TS: "não é documentação nem
