@@ -727,16 +727,16 @@ impl Host {
             return self.git_commit(params);
         }
         if method == "git.pull" {
-            return self.git_pull();
+            return self.git_pull(params);
         }
         if method == "git.fetch" {
-            return self.git_fetch();
+            return self.git_fetch(params);
         }
         if method == "git.push" {
             return self.git_push(params);
         }
         if method == "git.cancel" {
-            return self.git_cancel();
+            return self.git_cancel(params);
         }
         if method == "git.mergeAbort" {
             return self.git_merge_abort();
@@ -6138,19 +6138,21 @@ impl Host {
         Ok(serde_json::to_value(answer).expect("git commit serializes"))
     }
 
-    fn git_pull(&self) -> HostResult<Value> {
+    fn git_pull(&self, params: Value) -> HostResult<Value> {
         let _token = self.require_trust("git.pull")?;
         let root = self.workspace_root()?;
-        let answer = git::pull(&root, &self.net)?;
+        let op_id = optional_str(&params, "opId");
+        let answer = git::pull(&root, &self.net, op_id.as_deref())?;
         Ok(serde_json::to_value(answer).expect("git pull serializes"))
     }
 
     /// Brings the remote's refs into the local copy. The only Git action with a deadline: a fetch
     /// that hung on an unreachable remote would hold the lock every other host call waits on.
-    fn git_fetch(&self) -> HostResult<Value> {
+    fn git_fetch(&self, params: Value) -> HostResult<Value> {
         let _token = self.require_trust("git.fetch")?;
         let root = self.workspace_root()?;
-        let answer = git::fetch(&root, &self.net)?;
+        let op_id = optional_str(&params, "opId");
+        let answer = git::fetch(&root, &self.net, op_id.as_deref())?;
         Ok(serde_json::to_value(answer).expect("git fetch serializes"))
     }
 
@@ -6163,9 +6165,12 @@ impl Host {
 
     /// Stops the network Git operation in flight. It changes nothing on disk and opens no
     /// repository, so it needs no trust decision and takes no host state lock: the whole point is to
-    /// answer while the operation it stops is still running.
-    fn git_cancel(&self) -> HostResult<Value> {
-        Ok(json!({ "cancelled": self.net.cancel() }))
+    /// answer while the operation it stops is still running. `opId` names the operation: one that
+    /// has not started yet is held for it, one that already ended is answered `false`, and without
+    /// an id it stops whatever is running.
+    fn git_cancel(&self, params: Value) -> HostResult<Value> {
+        let op_id = optional_str(&params, "opId");
+        Ok(json!({ "cancelled": self.net.cancel(op_id.as_deref()) }))
     }
 
     /// Aborts the merge in progress. Only a merge: rebase, cherry-pick and revert stay out of the

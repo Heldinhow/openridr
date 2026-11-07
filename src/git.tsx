@@ -16,6 +16,16 @@ export type GitFile = {
   label: string;
 };
 
+// One id per network operation, so a cancel can only stop the operation it names: the host holds a
+// cancel that arrives before its operation and answers `false` for one that already ended. The
+// prefix keeps ids apart across reloads of the webview.
+const opPrefix = Math.random().toString(36).slice(2, 8);
+let opSeq = 0;
+function nextOpId(): string {
+  opSeq += 1;
+  return `${opPrefix}-${opSeq}`;
+}
+
 export type GitStatus = {
   state: "ok" | "not_a_repository" | "git_missing" | "failed";
   message: string | null;
@@ -296,6 +306,8 @@ export function BranchWidget({
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  // The id of the network operation this component started and has not seen end yet.
+  const opRef = useRef<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   // A fetch takes seconds; the command palette can ask for another one while the first is still
@@ -445,8 +457,10 @@ export function BranchWidget({
     setFetching(true);
     setBusy(true);
     setFetchError(null);
+    const opId = nextOpId();
+    opRef.current = opId;
     try {
-      const result = await call<GitOperation>("git.fetch");
+      const result = await call<GitOperation>("git.fetch", { opId });
       if (result.state === "ok") {
         onMessage(result.message ?? "Fetched the remote.");
       } else {
@@ -456,6 +470,7 @@ export function BranchWidget({
     } catch (caught) {
       setFetchError(messageOf(caught));
     } finally {
+      opRef.current = null;
       fetchingRef.current = false;
       setFetching(false);
       setBusy(false);
@@ -465,8 +480,10 @@ export function BranchWidget({
   async function confirmUpdate() {
     setDialogBusy(true);
     setDialogError(null);
+    const opId = nextOpId();
+    opRef.current = opId;
     try {
-      const result = await call<GitOperation>("git.pull");
+      const result = await call<GitOperation>("git.pull", { opId });
       if (result.state === "ok") {
         onMessage(result.message ?? "Update completed.");
         setDialog(null);
@@ -477,6 +494,7 @@ export function BranchWidget({
     } catch (caught) {
       setDialogError(messageOf(caught));
     } finally {
+      opRef.current = null;
       setDialogBusy(false);
     }
   }
@@ -523,10 +541,13 @@ export function BranchWidget({
   async function confirmPush() {
     setDialogBusy(true);
     setDialogError(null);
+    const opId = nextOpId();
+    opRef.current = opId;
     try {
       const result = await call<GitOperation>("git.push", {
         confirm: true,
         remote: remote ?? undefined,
+        opId,
       });
       if (result.state === "ok") {
         onMessage(result.message ?? "Push completed.");
@@ -538,6 +559,7 @@ export function BranchWidget({
     } catch (caught) {
       setDialogError(messageOf(caught));
     } finally {
+      opRef.current = null;
       setDialogBusy(false);
     }
   }
@@ -546,17 +568,14 @@ export function BranchWidget({
   // finished — the local merge of an Update is not cancellable — and the dialog says so instead of
   // pretending the click landed.
   async function cancelNetwork(kind: "push" | "update" | "fetch") {
-    if (cancelling) return;
+    const opId = opRef.current;
+    if (cancelling || opId === null) return;
     setCancelling(true);
     try {
-      let answer = await call<{ cancelled: boolean }>("git.cancel");
-      if (!answer.cancelled) {
-        // The click can land while the call is still queued in the shell, before the host has the
-        // operation in its slot. One retry after a tick covers that gap; if it is still false the
-        // operation is past its network step and the note below is true.
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        answer = await call<{ cancelled: boolean }>("git.cancel");
-      }
+      // The id is what makes this safe: a cancel that arrives before the host dispatched the call is
+      // held for it, and one that names an operation that already ended is answered `false` instead
+      // of stopping whatever runs next.
+      const answer = await call<{ cancelled: boolean }>("git.cancel", { opId });
       if (!answer.cancelled) {
         const note =
           kind === "push"

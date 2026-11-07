@@ -577,20 +577,26 @@ fn spawn_bounded(cwd: &Path, args: &[&str], limit: usize) -> Result<Captured, Sp
 /// One slot per host instance, never a process-wide one: a `static` would let a test's cancel (the
 /// host tests run in parallel) or another app instance kill an operation it never started.
 ///
-/// The two flags live behind one mutex so `cancel` and the operation's own transitions cannot
-/// interleave: read-then-write on two atomics let a cancel aimed at a finished operation land on
-/// the next one.
+/// Every transition happens under one mutex, and every operation carries the id the caller gave it.
+/// The id is what makes a cancel safe: it can only stop the operation it names, a cancel that
+/// arrives before that operation is held for it, and one that arrives after it ended is answered
+/// instead of being applied to whatever runs next.
 #[derive(Default)]
 pub struct Net {
     slot: Mutex<Slot>,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default)]
 struct Slot {
-    /// The operation holds the slot: a cancel now reaches it.
-    running: bool,
-    /// A cancel landed. Cleared when the slot is taken and when it is freed.
+    /// The operation in flight, by the id the caller gave it.
+    running: Option<String>,
+    /// A cancel landed on the running operation.
     cancelled: bool,
+    /// A cancel that arrived before its operation did: that operation starts cancelled.
+    pending: Option<String>,
+    /// The last operation that ended, so a late cancel for it is answered "already finished"
+    /// instead of being held for a future operation.
+    finished: Option<String>,
 }
 
 impl Net {
@@ -598,14 +604,23 @@ impl Net {
     /// drop, so an early return (a dirty tree, no remote, a spawn failure) cannot leave it taken.
     /// Taking it this early is what makes a cancel clicked right after the button press reach the
     /// operation instead of reporting that nothing was running.
-    fn start(&self) -> SlotGuard<'_> {
+    fn start(&self, op_id: Option<&str>) -> SlotGuard<'_> {
         let mut slot = self.lock();
-        slot.running = true;
-        slot.cancelled = false;
+        let id = op_id.map(str::to_string);
+        // A cancel that arrived before the dispatch is honoured here, before any network work.
+        let held = match (&slot.pending, &id) {
+            (Some(pending), Some(id)) if pending == id => {
+                slot.pending = None;
+                true
+            }
+            _ => false,
+        };
+        slot.running = id;
+        slot.cancelled = held;
         SlotGuard { net: self }
     }
 
-    /// A panic elsewhere must not turn every later operation into a panic: the slot is two booleans,
+    /// A panic elsewhere must not turn every later operation into a panic: the slot is a few fields,
     /// so a poisoned lock is still readable.
     fn lock(&self) -> std::sync::MutexGuard<'_, Slot> {
         self.slot
@@ -619,22 +634,44 @@ impl Net {
         self.lock().cancelled
     }
 
-    /// The network step is over (the child is gone). A cancel from here on must report that there is
-    /// nothing to stop, even though the operation still has local work to do — the Update's merge
-    /// runs after this, and accepting a cancel there would promise a kill that cannot happen.
-    fn network_done(&self) {
-        self.lock().running = false;
+    /// Ends the network step: returns whether a cancel landed on it, and records the id as finished
+    /// so a late cancel for it is answered instead of being held for the next operation. Both under
+    /// the same lock as `cancel`, so a cancel either lands before this (and the operation reports
+    /// itself cancelled) or after (and `cancel` answers that there was nothing to stop). Without
+    /// that, a cancel could be accepted in the gap and the operation would carry on.
+    fn finish(&self) -> bool {
+        let mut slot = self.lock();
+        let cancelled = slot.cancelled;
+        if let Some(id) = slot.running.take() {
+            slot.finished = Some(id);
+        }
+        slot.cancelled = false;
+        cancelled
     }
 
-    /// Stops the operation in flight. `false` means there was nothing to stop (it already finished,
-    /// or it is past the network step) — a cancel that lands in that window changes nothing.
-    pub fn cancel(&self) -> bool {
+    /// Stops the operation in flight. With an id, only that operation is stopped: one that has not
+    /// started yet is held for it, and one that already ended is answered `false`. Without an id,
+    /// whatever is running is stopped (the contract from before ids existed).
+    pub fn cancel(&self, op_id: Option<&str>) -> bool {
         let mut slot = self.lock();
-        if !slot.running {
-            return false;
+        match (op_id, slot.running.as_deref()) {
+            (None, Some(_)) => {
+                slot.cancelled = true;
+                true
+            }
+            (Some(id), Some(running)) if id == running => {
+                slot.cancelled = true;
+                true
+            }
+            // A different operation is in flight: not ours to stop.
+            (Some(_), Some(_)) => false,
+            // Not started yet: held for the operation that carries this id.
+            (Some(id), None) if slot.finished.as_deref() != Some(id) => {
+                slot.pending = Some(id.to_string());
+                true
+            }
+            _ => false,
         }
-        slot.cancelled = true;
-        true
     }
 }
 
@@ -645,9 +682,7 @@ struct SlotGuard<'a> {
 
 impl Drop for SlotGuard<'_> {
     fn drop(&mut self) {
-        let mut slot = self.net.lock();
-        slot.running = false;
-        slot.cancelled = false;
+        self.net.finish();
     }
 }
 
@@ -669,6 +704,18 @@ fn run_with_deadline(
     deadline: Duration,
     net: &Net,
 ) -> Result<(Output, Stop), SpawnError> {
+    // A cancel that arrived before the dispatch must cost nothing: no child, no connection.
+    if net.cancelled() {
+        return Ok((
+            Output {
+                code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                truncated: false,
+            },
+            Stop::Cancelled,
+        ));
+    }
     let mut command = Command::new("git");
     command
         .args(args)
@@ -730,8 +777,11 @@ fn run_with_deadline(
         }
     };
     // Before the drain: the child is gone, so the network step is over even if reading its pipes
-    // still takes a moment.
-    net.network_done();
+    // still takes a moment. `finish` is atomic with `cancel`, so a cancel that lands here makes the
+    // operation report itself cancelled instead of being accepted and then ignored.
+    if stop == Stop::No && net.finish() {
+        stop = Stop::Cancelled;
+    }
     let stdout = out_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     let stderr = err_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     Ok((
@@ -783,6 +833,15 @@ fn drain_bounded<R: Read>(reader: &mut R) -> (Vec<u8>, bool) {
         dropped = true;
     }
     (kept, dropped)
+}
+
+/// The operation id a caller gave this call, if any. It is what a cancel names, so it travels with
+/// the request instead of being generated here: only the caller knows which click this is.
+pub fn op_id_of(params: &Value) -> Option<&str> {
+    params
+        .get("opId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
 }
 
 fn spawn_message(error: SpawnError) -> String {
@@ -2601,12 +2660,17 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
 /// to refuse: the worktree, the index, the local branches and `MERGE_HEAD` are all left alone. The
 /// deadline is the other half of the contract: a hung network command would hold the lock every
 /// host call waits behind, so fetch, push and the fetch of an update are all bounded.
-pub fn fetch(root: &Path, net: &Net) -> HostResult<Operation> {
-    fetch_with(root, FETCH_DEADLINE, net)
+pub fn fetch(root: &Path, net: &Net, op_id: Option<&str>) -> HostResult<Operation> {
+    fetch_with(root, FETCH_DEADLINE, net, op_id)
 }
 
-fn fetch_with(root: &Path, deadline: Duration, net: &Net) -> HostResult<Operation> {
-    let _slot = net.start();
+fn fetch_with(
+    root: &Path,
+    deadline: Duration,
+    net: &Net,
+    op_id: Option<&str>,
+) -> HostResult<Operation> {
+    let _slot = net.start(op_id);
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
     let Some(remote) = fetch_remote(&repo, &status) else {
@@ -2745,15 +2809,20 @@ fn fetch_failure(remote: &str, stderr: &str) -> String {
 const MERGE_FLAGS: [&str; 2] = ["--ff", "--no-edit"];
 const CONFLICT_PATH_LIMIT: usize = 20;
 
-pub fn pull(root: &Path, net: &Net) -> HostResult<Operation> {
-    pull_with(root, FETCH_DEADLINE, net)
+pub fn pull(root: &Path, net: &Net, op_id: Option<&str>) -> HostResult<Operation> {
+    pull_with(root, FETCH_DEADLINE, net, op_id)
 }
 
 /// The deadline covers the fetch only. The merge is local, so it cannot wait on a remote, and
 /// killing it mid-way would leave a half-applied merge — a worse state than the freeze the bound
 /// prevents. Because the fetch comes first, an update that runs out of time never starts a merge.
-fn pull_with(root: &Path, deadline: Duration, net: &Net) -> HostResult<Operation> {
-    let _slot = net.start();
+fn pull_with(
+    root: &Path,
+    deadline: Duration,
+    net: &Net,
+    op_id: Option<&str>,
+) -> HostResult<Operation> {
+    let _slot = net.start(op_id);
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
     require_clean(&status, "Update")?;
@@ -3177,11 +3246,17 @@ fn first_remote(repo: &Repo) -> Option<String> {
 /// Pushes the current branch. Bounded like every network command: a killed push may still have
 /// reached the remote, so the message says what to check instead of claiming the commit is there.
 pub fn push(root: &Path, params: &Value, net: &Net) -> HostResult<Operation> {
-    push_with(root, params, PUSH_DEADLINE, net)
+    push_with(root, params, PUSH_DEADLINE, net, op_id_of(params))
 }
 
-fn push_with(root: &Path, params: &Value, deadline: Duration, net: &Net) -> HostResult<Operation> {
-    let _slot = net.start();
+fn push_with(
+    root: &Path,
+    params: &Value,
+    deadline: Duration,
+    net: &Net,
+    op_id: Option<&str>,
+) -> HostResult<Operation> {
+    let _slot = net.start(op_id);
     if params.get("confirm").and_then(Value::as_bool) != Some(true) {
         return Err(HostError::new(
             "confirmation_required",
@@ -4395,7 +4470,7 @@ mod tests {
         assert!(dirty.message.contains("does not auto-stash"));
         assert_eq!(status(&root).branch.as_deref(), Some("main"));
 
-        let dirty_pull = pull(&root, &Net::default()).unwrap_err();
+        let dirty_pull = pull(&root, &Net::default(), None).unwrap_err();
         assert_eq!(dirty_pull.code, "git_dirty_tree");
 
         git(&root, &["checkout", "--", "a.txt"]);
@@ -4403,7 +4478,7 @@ mod tests {
         let merging = checkout(&root, "other").unwrap_err();
         assert_eq!(merging.code, "git_operation_in_progress");
         assert!(merging.message.contains("merge"));
-        let merging_pull = pull(&root, &Net::default()).unwrap_err();
+        let merging_pull = pull(&root, &Net::default(), None).unwrap_err();
         assert_eq!(merging_pull.code, "git_operation_in_progress");
         fs::remove_file(root.join(".git/MERGE_HEAD")).unwrap();
 
@@ -4711,7 +4786,7 @@ mod tests {
         publish(&peer, "b.txt", "one\npeer\n", "peer change");
         let before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_ne!(git(&user, &["rev-parse", "HEAD"]).trim(), before);
@@ -4738,7 +4813,7 @@ mod tests {
         commit_all(&user, "local change");
         let local = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         let parents = git(&user, &["rev-list", "--parents", "-n", "1", "HEAD"]);
@@ -4772,7 +4847,7 @@ mod tests {
         fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
         commit_all(&user, "local change");
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_eq!(parent_count(&user), 2, "a merge commit, not a rebase");
@@ -4791,7 +4866,7 @@ mod tests {
             .trim()
             .to_string();
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "failed");
         let message = result.message.clone().unwrap_or_default();
@@ -4844,7 +4919,7 @@ mod tests {
         commit_all(&user, "local change");
         let head_before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
 
-        let failed = pull(&user, &Net::default()).unwrap();
+        let failed = pull(&user, &Net::default(), None).unwrap();
         assert_eq!(failed.state, "failed");
         let aborted = merge_abort(&user).unwrap();
 
@@ -4873,7 +4948,7 @@ mod tests {
         git(&user, &["config", "user.email", ""]);
         let head_before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "failed");
         let message = result.message.clone().unwrap_or_default();
@@ -4966,7 +5041,7 @@ mod tests {
         let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
         let worktree_before = fs::read_to_string(user.join("b.txt")).unwrap();
 
-        let result = fetch(&user, &Net::default()).unwrap();
+        let result = fetch(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_eq!(result.remote.as_deref(), Some("origin"));
@@ -5001,7 +5076,7 @@ mod tests {
         fs::write(peer.join("doomed.txt"), "x\n").unwrap();
         commit_all(&peer, "doomed");
         git(&peer, &["push", "-q", "origin", "doomed"]);
-        fetch(&user, &Net::default()).unwrap();
+        fetch(&user, &Net::default(), None).unwrap();
         assert!(branches(&user)
             .remote
             .iter()
@@ -5011,7 +5086,7 @@ mod tests {
         let local_before = git(&user, &["rev-parse", "doomed"]).trim().to_string();
 
         git(&peer, &["push", "-q", "origin", "--delete", "doomed"]);
-        let result = fetch(&user, &Net::default()).unwrap();
+        let result = fetch(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert!(branches(&user)
@@ -5033,7 +5108,7 @@ mod tests {
         fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
         commit_all(&user, "local change");
         // The app's own action first, so the merge below has something to conflict with.
-        fetch(&user, &Net::default()).unwrap();
+        fetch(&user, &Net::default(), None).unwrap();
         // A real conflict, started outside the app: MERGE_HEAD exists and the tree is dirty.
         let _ = Command::new("git")
             .args(["merge", "origin/main"])
@@ -5043,7 +5118,7 @@ mod tests {
         assert!(user.join(".git/MERGE_HEAD").exists());
         let dirty = fs::read_to_string(user.join("a.txt")).unwrap();
 
-        let result = fetch(&user, &Net::default()).unwrap();
+        let result = fetch(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert!(user.join(".git/MERGE_HEAD").exists());
@@ -5057,7 +5132,7 @@ mod tests {
         fs::write(root.join("a.txt"), "one\n").unwrap();
         commit_all(&root, "initial");
 
-        let refused = fetch(&root, &Net::default()).unwrap_err();
+        let refused = fetch(&root, &Net::default(), None).unwrap_err();
 
         assert_eq!(refused.code, "git_no_remote");
         assert!(
@@ -5094,7 +5169,7 @@ mod tests {
         let began = Instant::now();
 
         // A deadline that is already spent: the child cannot finish, so it is killed.
-        let result = fetch_with(&user, Duration::ZERO, &Net::default()).unwrap();
+        let result = fetch_with(&user, Duration::ZERO, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "failed");
         let message = result.message.unwrap_or_default();
@@ -5136,7 +5211,7 @@ mod tests {
         let before = git(&user, &["for-each-ref", "refs/remotes"]);
         let began = Instant::now();
 
-        let result = fetch_with(&user, Duration::from_secs(1), &Net::default()).unwrap();
+        let result = fetch_with(&user, Duration::from_secs(1), &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "failed");
         let message = result.message.unwrap_or_default();
@@ -5207,6 +5282,7 @@ mod tests {
             &serde_json::json!({ "confirm": true }),
             Duration::from_secs(1),
             &Net::default(),
+            None,
         )
         .unwrap();
 
@@ -5261,7 +5337,7 @@ mod tests {
         let before = git(&user, &["for-each-ref", "refs/remotes"]);
         let began = Instant::now();
 
-        let result = pull_with(&user, Duration::from_secs(1), &Net::default()).unwrap();
+        let result = pull_with(&user, Duration::from_secs(1), &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "failed");
         let message = result.message.unwrap_or_default();
@@ -5296,6 +5372,7 @@ mod tests {
     /// the cancel — the same trick the deadline tests use with a spent deadline.
     fn cancel_in_flight<F>(
         net: &Net,
+        op_id: &str,
         accepted: &AtomicBool,
         operation: F,
     ) -> (HostResult<Operation>, Duration)
@@ -5313,7 +5390,10 @@ mod tests {
                 );
                 std::thread::sleep(Duration::from_millis(5));
             }
-            assert!(net.cancel(), "the cancel must find the operation in flight");
+            assert!(
+                net.cancel(Some(op_id)),
+                "the cancel must find the operation in flight"
+            );
             let result = running.join().expect("the operation thread returns");
             (result, began.elapsed())
         })
@@ -5341,12 +5421,13 @@ mod tests {
         let published = git(&bare, &["rev-parse", "main"]).trim().to_string();
         let net = Net::default();
 
-        let (result, elapsed) = cancel_in_flight(&net, &accepted, || {
+        let (result, elapsed) = cancel_in_flight(&net, "push-1", &accepted, || {
             push_with(
                 &user,
                 &serde_json::json!({ "confirm": true }),
                 Duration::from_secs(120),
                 &net,
+                Some("push-1"),
             )
         });
 
@@ -5399,8 +5480,8 @@ mod tests {
         let before = git(&user, &["for-each-ref", "refs/remotes"]);
         let net = Net::default();
 
-        let (result, elapsed) = cancel_in_flight(&net, &accepted, || {
-            pull_with(&user, Duration::from_secs(60), &net)
+        let (result, elapsed) = cancel_in_flight(&net, "update-1", &accepted, || {
+            pull_with(&user, Duration::from_secs(60), &net, Some("update-1"))
         });
 
         let result = result.unwrap();
@@ -5449,8 +5530,8 @@ mod tests {
         let before = git(&user, &["for-each-ref", "refs/remotes"]);
         let net = Net::default();
 
-        let (result, elapsed) = cancel_in_flight(&net, &accepted, || {
-            fetch_with(&user, Duration::from_secs(60), &net)
+        let (result, elapsed) = cancel_in_flight(&net, "fetch-1", &accepted, || {
+            fetch_with(&user, Duration::from_secs(60), &net, Some("fetch-1"))
         });
 
         let result = result.unwrap();
@@ -5483,13 +5564,146 @@ mod tests {
     fn a_cancel_after_the_operation_finished_reports_nothing_to_stop() {
         let (_temp, user, _bare) = remote_repo("user");
         let net = Net::default();
-        assert!(!net.cancel(), "an idle host has nothing to cancel");
+        assert!(!net.cancel(None), "an idle host has nothing to cancel");
 
-        fetch_with(&user, Duration::from_secs(60), &net).unwrap();
+        fetch_with(&user, Duration::from_secs(60), &net, Some("fetch-1")).unwrap();
 
         assert!(
-            !net.cancel(),
+            !net.cancel(Some("fetch-1")),
             "the slot must be free once the fetch returned"
+        );
+    }
+
+    /// The click can arrive before the host has the operation: the cancel is held for that id and the
+    /// operation starts cancelled, without spawning a child at all.
+    #[test]
+    fn a_cancel_that_arrives_before_the_dispatch_starts_the_operation_cancelled() {
+        let (_temp, user, bare) = remote_repo("user");
+        fs::write(user.join("a.txt"), "one\ntwo\n").unwrap();
+        commit_all(&user, "local change");
+        let published = git(&bare, &["rev-parse", "main"]).trim().to_string();
+        let net = Net::default();
+        assert!(
+            net.cancel(Some("push-1")),
+            "a cancel for an operation that has not started is accepted"
+        );
+
+        let began = Instant::now();
+        let result = push_with(
+            &user,
+            &serde_json::json!({ "confirm": true }),
+            Duration::from_secs(120),
+            &net,
+            Some("push-1"),
+        )
+        .unwrap();
+
+        assert_eq!(result.state, "failed");
+        assert!(
+            result
+                .message
+                .unwrap_or_default()
+                .contains("Push cancelled"),
+            "the operation must report the cancel it was born with"
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(2),
+            "no network wait: {:?}",
+            began.elapsed()
+        );
+        assert_eq!(
+            git(&bare, &["rev-parse", "main"]).trim(),
+            published,
+            "nothing was pushed"
+        );
+        assert!(
+            !net.cancel(Some("push-1")),
+            "the operation ended, so its id has nothing left to stop"
+        );
+    }
+
+    /// A cancel that names an operation that already ended must not touch the one running now: the id
+    /// is what separates them.
+    #[test]
+    fn a_cancel_for_a_finished_operation_does_not_stop_the_next_one() {
+        let (_temp, user, _bare) = remote_repo("user");
+        let net = Net::default();
+        fetch_with(&user, Duration::from_secs(60), &net, Some("fetch-1")).unwrap();
+        assert!(
+            !net.cancel(Some("fetch-1")),
+            "a cancel for a finished operation stops nothing"
+        );
+
+        let (port, accepted) = silent_remote();
+        git(
+            &user,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                &format!("http://127.0.0.1:{port}/repo.git"),
+            ],
+        );
+        std::thread::scope(|scope| {
+            let running =
+                scope.spawn(|| fetch_with(&user, Duration::from_secs(60), &net, Some("fetch-2")));
+            while !accepted.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(
+                !net.cancel(Some("fetch-1")),
+                "the finished id must not reach the new operation"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+            assert!(
+                !running.is_finished(),
+                "the stale cancel must not have stopped the new operation"
+            );
+            assert!(
+                net.cancel(Some("fetch-2")),
+                "the new operation is cancelled by its own id"
+            );
+            let result = running.join().expect("the fetch thread returns").unwrap();
+            assert_eq!(result.state, "failed");
+            assert!(
+                result
+                    .message
+                    .unwrap_or_default()
+                    .contains("Fetch cancelled"),
+                "the new operation reports its own cancel"
+            );
+        });
+    }
+
+    /// The end of the network step and a cancel are one transition: a cancel that lands before it is
+    /// reported to the operation, and one that lands after finds nothing to stop. Both under the same
+    /// lock, so there is no gap where a cancel is accepted and then ignored.
+    #[test]
+    fn the_end_of_the_network_step_is_atomic_with_the_cancel() {
+        let net = Net::default();
+        let guard = net.start(Some("op-1"));
+        assert!(net.cancel(Some("op-1")));
+        assert!(
+            net.finish(),
+            "a cancel that landed before the end is reported to the operation"
+        );
+        assert!(
+            !net.cancel(Some("op-1")),
+            "after the end there is nothing to stop"
+        );
+        drop(guard);
+        assert!(
+            !net.cancel(Some("op-1")),
+            "the guard's drop must not reopen the window"
+        );
+        assert!(
+            net.cancel(Some("op-2")),
+            "a cancel for an operation that has not started is held for it"
+        );
+        let _next = net.start(Some("op-2"));
+        assert!(
+            net.cancelled(),
+            "the held cancel makes that operation start cancelled"
         );
     }
 
@@ -5521,7 +5735,7 @@ mod tests {
             ],
         );
 
-        let result = fetch_with(&user, Duration::from_secs(20), &Net::default()).unwrap();
+        let result = fetch_with(&user, Duration::from_secs(20), &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "failed");
         let message = result.message.unwrap_or_default();
@@ -5574,7 +5788,7 @@ mod tests {
             ],
         );
         assert_eq!(git(&user, &["for-each-ref", "refs/mirror"]).trim(), "");
-        let first = fetch(&user, &Net::default()).unwrap();
+        let first = fetch(&user, &Net::default(), None).unwrap();
         assert_eq!(first.state, "ok", "{:?}", first.message);
         assert_eq!(
             git(&user, &["for-each-ref", "refs/mirror"]).trim(),
@@ -5589,7 +5803,7 @@ mod tests {
         publish(&peer, "b.txt", "one\npeer\n", "peer change");
 
         git(&peer, &["push", "-q", "origin", "--delete", "doomed"]);
-        let result = fetch(&user, &Net::default()).unwrap();
+        let result = fetch(&user, &Net::default(), None).unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_eq!(
