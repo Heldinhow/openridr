@@ -57,5 +57,32 @@ fechada já nomeia a origem desde o #181.
 
 ## 4. App real (agent-desktop)
 
-A preencher: prova no app Tauri de debug com o seam de debug apontando para um `scutil` falso e um
-proxy local, mais o "não verificado" do proxy realmente configurado no System Settings.
+O bundle distribuído não serve para esta prova: ele recusa o download de ferramenta por design
+("nothing is downloaded on first use"), então a única superfície com o cliente HTTP do app em ação é o
+binário de dev (o mesmo caminho do `tauri dev`).
+
+Preparo:
+
+- proxy local (um socket em Python) em `127.0.0.1:54499` que registra a request line e responde 502;
+- `scutil` falso imprimindo `<dictionary> { HTTPSEnable : 1  HTTPSPort : 54499  HTTPSProxy : 127.0.0.1 }`;
+- `OPENRIDR_SYSTEM_PROXY=<scutil falso>`, `OPENRIDR_HOME` isolado e a fixture `OrderDesk.sln` em argv;
+- **nenhuma** variável de proxy no ambiente do app (`ps eww` conferido: só `OPENRIDR_HOME` e
+  `OPENRIDR_SYSTEM_PROXY`).
+
+Resultado:
+
+- o proxy registrou `CONNECT api.nuget.org:443 HTTP/1.1` — uma requisição, e ela foi para o proxy;
+- a tela do Setup (árvore de acessibilidade do agent-desktop) mostrou:
+
+> Could not download csharp-ls: The proxy at 127.0.0.1:54499 (macOS system proxy) refused the
+> connection to https://api.nuget.org/v3-flatcontainer/csharp-ls/0.28.0/csharp-ls.0.28.0.nupkg.
+> Details: … Proxy failed to connect Transport(Transport { kind: ProxyConnect, … })
+
+Isso prova o caminho de usuário do #132 no app, não só no host: o processo do app leu a fonte do
+sistema (não havia variável de proxy), roteou a requisição por ela e o diagnóstico nomeou o proxy e a
+origem.
+
+Não verificado: proxy realmente configurado no System Settings — não altero a configuração de rede da
+máquina; o seam de debug substitui só o leitor, e a decisão de rota e a guarda são as de produção.
+Sem captura de tela: o texto da árvore de acessibilidade é a prova, e a captura mostraria o caminho
+home do usuário na linha do runtime .NET.
