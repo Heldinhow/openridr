@@ -1598,6 +1598,24 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `docs/evidence/doctor-disk-space.md`; teste em `tests/shell/doctor.test.sh` (rodado à mão, como os
   outros de `tests/shell/`). Nenhuma dependência nova, nenhum `data-testid`, nenhuma UI.
 
+## 2026-11-07 — O teste do conflito de disco segura o poll no bridge do host (issue #273)
+
+- **Decisão.** O teste `workspace.spec.ts` que prova a revalidação do `conflict-overwrite` passa a segurar
+  no bridge do host (`POST /__host/call`, via `page.route`) a chamada `file.read` do arquivo ativo, esperar
+  o poll do disco bater nela e só então escrever a segunda versão em disco e clicar. A leitura segurada
+  nunca chega ao host, então o conflito pendente não pode ser substituído entre a escrita e o clique.
+- **Por que no bridge e não no app.** O seam já existe e é por onde todo spec fala com o host; um intervalo
+  configurável em produção (`window.__…`, variável de ambiente) viraria contrato novo para resolver um
+  problema de teste. O mesmo padrão já segura `trust.grant` em `gates.spec.ts`.
+- **Por que esperar o poll bater no gate.** Sem essa espera o teste passa mesmo com o gate removido: a
+  janela é de ~100 ms contra um tick de 1500 ms (~7% por rodada, medido: 20/20 verdes sem ajuda). Com a
+  espera, remover o gate derruba o teste sempre — o gate vira prova, não enfeite.
+- **O release termina o handler antes do `unroute`.** `page.unroute` com o handler parado no gate faz o
+  `route.continue()` estourar `Route is already handled!` (medido); o release resolve o gate, espera o
+  handler e só então remove a rota.
+- **Consequência.** `docs/SPEC-E2E-DISK-CONFLICT.md`; ticket filho de #273; evidência em
+  `docs/evidence/e2e-disk-conflict.md`; ticket #278. Nenhuma linha de `src/`, nenhum `data-testid`, nenhuma dependência.
+
 ## 2026-11-07 — O pre-commit decide pelo diff do commit em andamento (issue #265)
 
 - **Decisão.** O hook de pre-commit deixa de rodar `bun run check` em todo commit e passa a rodar só o
