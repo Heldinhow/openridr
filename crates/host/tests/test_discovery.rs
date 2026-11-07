@@ -15,6 +15,11 @@ fn fixture() -> PathBuf {
         .expect("fixture OrderDesk exists")
 }
 
+fn outside_fixture() -> PathBuf {
+    fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OutsideSolution"))
+        .expect("fixture OutsideSolution exists")
+}
+
 fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for entry in fs::read_dir(from).unwrap() {
@@ -247,6 +252,48 @@ fn discovery_requires_an_explicit_test_project_and_a_matching_evaluated_tfm() {
     assert_eq!(tfm.code, "invalid_state");
     assert_eq!(tfm.details.unwrap()["reason"], "tfm_not_evaluated");
     assert!(discovery_processes(&snapshot(&host)).is_empty());
+}
+
+#[test]
+fn a_test_project_outside_the_solution_is_discovered_and_runs() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    let project = fs::canonicalize(fixture.join("tests"))
+        .unwrap()
+        .join("Lib.Tests.csproj");
+
+    let host = support::host();
+    open(&host, &app.join("App.sln"));
+    grant(&host);
+    prepare(&host, None);
+    let project = project.to_string_lossy().to_string();
+
+    host.dispatch("tests.discover", json!({ "project": project }))
+        .unwrap();
+    let discovery = wait_for_discovery(&host, Duration::from_secs(240));
+    assert_eq!(discovery["state"], "completed", "{}", discovery["log"]);
+    assert_eq!(discovery["project"]["path"], project.as_str());
+    let items = discovery["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{discovery}");
+    assert!(
+        items[0]["displayName"]
+            .as_str()
+            .is_some_and(|name| name.contains("ForNamesThePerson")),
+        "{discovery}"
+    );
+
+    host.dispatch(
+        "tests.run",
+        json!({ "project": project, "selection": "all" }),
+    )
+    .unwrap();
+    let run = wait_for_run(&host, Duration::from_secs(240));
+    assert_eq!(run["state"], "completed", "{}", run["log"]);
+    assert_eq!(run["exit"], 0);
+    assert_eq!(run["counts"]["passed"], 1, "{}", run["log"]);
+    assert_eq!(run["counts"]["failed"], 0);
 }
 
 #[cfg(target_os = "macos")]

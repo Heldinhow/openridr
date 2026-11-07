@@ -9,11 +9,13 @@ declare module "bun:test" {
     toBeUndefined(): void;
     toBeNull(): void;
     toHaveLength(expected: number): void;
+    toContain(expected: unknown): void;
     not: {
       toBe(expected: unknown): void;
       toEqual(expected: unknown): void;
       toBeUndefined(): void;
       toBeNull(): void;
+      toContain(expected: unknown): void;
     };
   };
 }

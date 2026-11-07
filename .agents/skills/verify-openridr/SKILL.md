@@ -60,6 +60,8 @@ agent-desktop snapshot --app OpenRidr -i --compact
 sh .agents/skills/verify-openridr/scripts/desktop.sh down
 ```
 
+Abrir workspace no app real é **por argv** — o mesmo caminho do Finder/CLI, e o que o `desktop.sh` faz. O campo do Welcome **não** recebe digitação (`set-value`/`type` voltam `delivered_unverified` com o valor vazio) e o botão **Open** com o campo vazio abre o seletor nativo do macOS, que deixa o app preso em "Opening…" (o seletor fica esperando, não é a UI). Para o binário de dev, sem bundle, `sh scripts/dev-app.sh <sln>` resolve o par embutido e passa o workspace em argv.
+
 Recusa subir se já houver um `openridr` rodando (bundle de debug e instalado têm o mesmo `CFBundleIdentifier`; a instância pode ser do usuário) e, depois do launch, confere que existe exatamente uma instância. `down` só diz `stopped` com o PID gravado morto e sai não-zero listando o que sobrou. Confira a versão do app (doctor) antes de concluir qualquer coisa: app velho = prova velha. Rebuild: `bun run app:install` ou `bun run tauri build --debug --bundles app`.
 
 ## Drive

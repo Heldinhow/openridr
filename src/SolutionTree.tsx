@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileIcon } from "./FileIcon";
+import type { GitStatus } from "./git";
 import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
 import { ProjectIcon } from "./icons/ProjectIcon";
 import { SYMBOL_LABEL } from "./icons/SymbolMark";
+import { createListingCache, type ListingEntry } from "./solutionListing";
+import { treeGitStatusMap, mergeIgnored, treeQueryId, type TreeGitStatus } from "./solutionGitStatus";
 import {
-  ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, nestSources,
-  visibleSourceFiles, type DependencyGroup, type SourceNode,
+  ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, isAbsolutePath,
+  nestSources, visibleSourceFiles, type DependencyGroup, type SourceNode,
 } from "./solutionNodes";
 import {
   dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, symbolKindOf,
@@ -22,7 +25,19 @@ export type TreeTarget =
   | { kind: "file"; path: string }
   | { kind: "dir"; path: string };
 
-type Entry = { name: string; path: string; dir: boolean; hidden: boolean };
+/** Accessible description parts: the row's glyph-only information, read after the name. */
+const describe = (...parts: Array<string | null | undefined>) =>
+  parts.filter(Boolean).join(". ");
+const SYMLINK_DESCRIPTION = "Symbolic link — not followed";
+const GIT_STATUS_LABEL: Record<TreeGitStatus, string> = {
+  modified: "Modified",
+  added: "Added",
+  untracked: "Untracked",
+  ignored: "Ignored",
+  conflicted: "Conflicted",
+};
+
+type Entry = ListingEntry;
 type SymbolCacheEntry = { kind: SymbolKind | null; modified: number };
 type SymbolEntry = { path: string; kind: string | null; modified: number };
 
@@ -109,6 +124,12 @@ type Props = {
   evaluationRevision: number;
   showAll: boolean;
   filter: string;
+  /** Snapshot the app already keeps; the tree never polls Git on its own. */
+  gitStatus: GitStatus | null;
+  /** Root of the open workspace, so repository paths can be mapped to tree paths. */
+  workspaceDir: string;
+  /** Bumped on every applied Git snapshot; ignore rules and links can change without the paths. */
+  gitRevision: number;
   onMenu: (position: MenuPosition, target: TreeTarget, row: HTMLElement) => void;
 };
 
@@ -117,9 +138,21 @@ export function SolutionTree(p: Props) {
   const filter = p.filter.trim().toLowerCase();
   const hit = (text: string) => text.toLowerCase().includes(filter);
   const [listing, setListing] = useState<Record<string, Entry[]>>({});
+  // The cache is a mutable object, so `ensureDir` never sees a stale `listing` closure; a reload
+  // drops every level and a late answer from the previous epoch is discarded by the cache itself.
+  const listingCache = useRef<ReturnType<typeof createListingCache> | null>(null);
+  if (!listingCache.current) {
+    listingCache.current = createListingCache(async (dir) => {
+      const result = await call<{ entries: Entry[] }>("workspace.tree", { dir });
+      return result.entries ?? [];
+    });
+  }
   const [symbolKinds, setSymbolKinds] = useState<Record<string, SymbolKind>>({});
   const symbolKindsRef = useRef<Record<string, SymbolKind>>({});
   const symbolCache = useRef(new Map<string, SymbolCacheEntry>());
+  const [symlinks, setSymlinks] = useState<Set<string>>(() => new Set());
+  const symlinkRef = useRef<Set<string>>(new Set());
+  const [ignoredPaths, setIgnoredPaths] = useState<string[]>([]);
   const sourceSet = useMemo(() => new Set(views.flatMap((view) => view.sources)), [views]);
   const projectDirs = useMemo(() => new Set(views.map((view) => dirOf(view.path))), [views]);
   const ancestors = useMemo(
@@ -131,27 +164,35 @@ export function SolutionTree(p: Props) {
     [views],
   );
   const projectFiles = useMemo(() => new Set(views.map((view) => view.path)), [views]);
+  const gitStatusByPath = useMemo(
+    () => mergeIgnored(treeGitStatusMap(p.gitStatus, p.workspaceDir), ignoredPaths),
+    [p.gitStatus, p.workspaceDir, ignoredPaths],
+  );
   const allSourcesKey = useMemo(
     () => Array.from(sourceSet).filter((path) => path.toLowerCase().endsWith(".cs")).sort().join("\n"),
     [sourceSet],
   );
 
-  // Show all files: load one directory level at a time; toggling the mode off drops the cache.
-  async function ensureDir(dir: string) {
-    if (listing[dir]) return;
-    try {
-      const result = await call<{ entries: Entry[] }>("workspace.tree", { dir });
-      setListing((current) => ({ ...current, [dir]: result.entries }));
-    } catch {
-      setListing((current) => ({ ...current, [dir]: [] }));
-    }
+  // Show all files: load one directory level at a time through the cache.
+  async function ensureDir(dir: string, force = false) {
+    await listingCache.current!.ensure(dir, force);
+    setListing(listingCache.current!.snapshot());
   }
-  const dirsToLoad = p.showAll ? ["", ...views.map((view) => dirOf(view.path))] : [];
+
+  // A new Git snapshot or workspace can change a path's type (link↔file) without changing the
+  // directory, so the levels the user already has open are listed again; the cache drops the
+  // previous epoch, so a late answer never repaints the tree. Expansion lives in `expanded` and is
+  // preserved; only levels the user opened are re-read (no recursive scan, no watcher).
   useEffect(() => {
-    if (!p.showAll) setListing({});
-    else dirsToLoad.forEach((dir) => void ensureDir(dir));
+    const open = Object.keys(listing);
+    listingCache.current!.reload();
+    setListing(listingCache.current!.snapshot());
+    if (!p.showAll) return;
+    const dirs = new Set<string>(["", ...views.map((view) => dirOf(view.path))]);
+    for (const dir of open) dirs.add(dir);
+    for (const dir of dirs) void ensureDir(dir, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.showAll, views.length]);
+  }, [p.showAll, p.gitRevision, p.workspaceDir, views.length]);
 
   // Only files the user can see (open project + open folders) are asked for; filter mode keeps the
   // badges already known and never starts a scan per keystroke.
@@ -187,6 +228,80 @@ export function SolutionTree(p: Props) {
     return Array.from(visible).sort().join("\n");
   }, [filter, p.expanded, p.showAll, views, listing, sourceSet, projectDirs, ancestors]);
 
+  // Same walk as `visibleSignature`, without the `.cs` filter: the ignore rules apply to every
+  // file row the tree is showing. While a filter is active the rows are not the expanded tree, so
+  // the ignored marker is dropped until the filter is cleared (the Git status itself stays).
+  const visibleFilePaths = useMemo(() => {
+    if (filter) return [];
+    const visible = new Set<string>();
+    if (p.showAll) {
+      const walk = (dir: string) => {
+        for (const entry of listing[dir] ?? []) {
+          if (entry.dir) {
+            const projectRoot = dir === "" && (projectDirs.has(entry.path) || ancestors.has(entry.path));
+            if (!projectRoot && p.expanded.has(dirKey(entry.path))) walk(entry.path);
+          } else {
+            visible.add(entry.path);
+          }
+        }
+      };
+      for (const view of views) {
+        if (p.expanded.has(view.path)) walk(dirOf(view.path));
+      }
+      if (p.expanded.has(ROOT_KEY)) walk("");
+    } else {
+      for (const view of views) {
+        if (!p.expanded.has(view.path)) continue;
+        for (const path of visibleSourceFiles(
+          nestSources(view.path, view.sources),
+          (key) => p.expanded.has(key),
+        )) {
+          visible.add(path);
+        }
+      }
+    }
+    return Array.from(visible).sort();
+  }, [filter, p.expanded, p.showAll, views, listing, projectDirs, ancestors]);
+
+  // `.gitignore` answers for the visible rows only, in batches, and only when the Git snapshot is
+  // available (trusted workspace): Restricted mode never calls Git. The request carries the Git
+  // revision, so a commit/checkout that changes `.gitignore` re-asks even when the paths are the
+  // same; the array is the request (no newline-joined signature, which would corrupt valid names).
+  const ignoredRequest = useMemo(() => {
+    if (!p.gitStatus || p.gitStatus.state !== "ok" || !p.gitStatus.root) return null;
+    return {
+      id: treeQueryId(`ignored:${p.workspaceDir}`, p.gitRevision, visibleFilePaths),
+      paths: visibleFilePaths,
+    };
+  }, [p.gitStatus, p.workspaceDir, p.gitRevision, visibleFilePaths]);
+
+  useEffect(() => {
+    // The previous answer belongs to an older snapshot: drop it before asking again, and let the
+    // cleanup flag discard a response that arrives after this request was replaced.
+    setIgnoredPaths((current) => (current.length === 0 ? current : []));
+    if (!ignoredRequest || ignoredRequest.paths.length === 0) return;
+    const paths = ignoredRequest.paths;
+    let alive = true;
+    void (async () => {
+      const ignored: string[] = [];
+      for (let start = 0; start < paths.length; start += 128) {
+        try {
+          const result = await call<{ ignored: string[] }>("git.ignored", {
+            paths: paths.slice(start, start + 128),
+          });
+          if (!alive) return;
+          ignored.push(...(result.ignored ?? []));
+        } catch {
+          break; // keep what the batches already proved; a missing marker is safer than a wrong one
+        }
+      }
+      if (!alive) return;
+      setIgnoredPaths(ignored);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [ignoredRequest]);
   // Batches of 128 keep the host's 256-file cap out of reach; `known` makes unchanged files a stat.
   useEffect(() => {
     if (!visibleSignature) return;
@@ -247,23 +362,79 @@ export function SolutionTree(p: Props) {
     }
   }, [allSourcesKey]);
 
+  // Symlinks of the evaluated rows (sources and their folders). "Show all files" already gets the
+  // flag from the listing, so the batch only runs in the evaluated mode. The workspace and the Git
+  // revision are part of the request: the same paths in another workspace, or after a checkout that
+  // swapped a link for a file, must be asked again; the array carries names verbatim.
+  const symlinkRequest = useMemo(() => {
+    if (p.showAll) return null;
+    const paths = new Set<string>();
+    for (const view of views) {
+      for (const source of view.sources) {
+        paths.add(source);
+        for (let dir = dirOf(source); dir; dir = dirOf(dir)) paths.add(dir);
+      }
+    }
+    const list = Array.from(paths).sort();
+    return { id: treeQueryId(`symlinks:${p.workspaceDir}`, p.gitRevision, list), paths: list };
+  }, [p.showAll, views, p.workspaceDir, p.gitRevision]);
+
+  useEffect(() => {
+    // A marker from the previous workspace/revision must not survive while the new answer is in
+    // flight, and a late response is dropped by the cleanup flag.
+    symlinkRef.current = new Set();
+    setSymlinks(symlinkRef.current);
+    if (!symlinkRequest || symlinkRequest.paths.length === 0) return;
+    const candidates = symlinkRequest.paths;
+    let alive = true;
+    void (async () => {
+      const links = new Set<string>();
+      for (let start = 0; start < candidates.length; start += 128) {
+        try {
+          const result = await call<{ entries: Array<{ path: string; symlink: boolean }> }>(
+            "workspace.symlinks",
+            { paths: candidates.slice(start, start + 128) },
+          );
+          if (!alive) return;
+          for (const entry of result.entries ?? []) if (entry.symlink) links.add(entry.path);
+        } catch {
+          break; // keep what the batches already proved; a missing marker is safer than a wrong one
+        }
+      }
+      if (!alive) return;
+      symlinkRef.current = links;
+      setSymlinks(links);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [symlinkRequest]);
+
   const open = (key: string) => (filter ? true : p.expanded.has(key));
 
   function rowMenu(target: TreeTarget) {
     return (position: MenuPosition, row: HTMLElement) => p.onMenu(position, target, row);
   }
 
-  function fileRow(path: string, level: number, noIndex = false) {
+  function fileRow(path: string, level: number, noIndex = false, symlink = false) {
     const kind = fileKind(path);
     const symbol = symbolKinds[path];
+    const git = gitStatusByPath.get(path);
     return (
       <TreeRow
         key={path}
         level={level}
         icon={<FileIcon path={path} symbolKind={symbol} />}
         name={baseOf(path)}
-        description={symbol ? `C# ${SYMBOL_LABEL[symbol]}` : undefined}
+        description={describe(
+          symbol ? `C# ${SYMBOL_LABEL[symbol]}` : null,
+          symlink ? SYMLINK_DESCRIPTION : null,
+          git ? `Git status: ${GIT_STATUS_LABEL[git.status]}` : null,
+        ) || undefined}
         noIndex={noIndex}
+        symlink={symlink}
+        gitStatus={git?.status}
+        gitLabel={git?.label}
         testId={`tree-file-${path}`}
         fileKind={kind}
         symbolKind={symbol}
@@ -278,28 +449,58 @@ export function SolutionTree(p: Props) {
 
   function sourceRows(nodes: SourceNode[], level: number): ReactNode[] {
     return nodes.flatMap((node) => {
-      if (node.kind === "file") return !filter || hit(node.name) ? [fileRow(node.path, level)] : [];
-      const children = sourceRows(node.children, level + 1);
+      if (node.kind === "file") {
+        return !filter || hit(node.name)
+          ? [fileRow(node.path, level, false, symlinks.has(node.path))]
+          : [];
+      }
+      const link = symlinks.has(node.path);
+      const children = link ? [] : sourceRows(node.children, level + 1);
       if (filter && children.length === 0) return [];
       return [
         <TreeRow
           key={node.path}
           level={level}
-          open={open(dirKey(node.path))}
+          open={link ? undefined : open(dirKey(node.path))}
+          icon={link ? <Icon name="link" className="tint-folder" /> : undefined}
+          symlink={link}
+          description={link ? SYMLINK_DESCRIPTION : undefined}
           name={node.name}
           testId={`tree-dir-${node.path}`}
-          onClick={() => p.onToggle(dirKey(node.path))}
+          onClick={() => {
+            if (!link) p.onToggle(dirKey(node.path));
+          }}
           onMenu={rowMenu({ kind: "dir", path: node.path })}
         />,
-        ...(open(dirKey(node.path)) ? children : []),
+        ...(link || !open(dirKey(node.path)) ? [] : children),
       ];
     });
   }
 
   // "Show all files": the real directory, including bin/obj/dotfiles marked "no index".
+  // A symlink is listed as a link object: the listing never stats the target to decide whether it
+  // points at a directory, so the row is a leaf with the link glyph and no expansion.
   function diskRows(dir: string, level: number, skip: (entry: Entry) => boolean): ReactNode[] {
     return (listing[dir] ?? []).filter((entry) => !skip(entry) && (!filter || hit(entry.name))).flatMap((entry) => {
-      if (!entry.dir) return [fileRow(entry.path, level, entry.hidden || !sourceSet.has(entry.path))];
+      if (entry.symlink) {
+        return [
+          <TreeRow
+            key={entry.path}
+            level={level}
+            icon={<Icon name="link" className="tint-folder" />}
+            symlink
+            description={SYMLINK_DESCRIPTION}
+            name={entry.name}
+            noIndex={entry.hidden}
+            testId={`tree-file-${entry.path}`}
+            onClick={() => undefined}
+            onMenu={rowMenu({ kind: "file", path: entry.path })}
+          />,
+        ];
+      }
+      if (!entry.dir) {
+        return [fileRow(entry.path, level, entry.hidden || !sourceSet.has(entry.path))];
+      }
       const key = dirKey(entry.path);
       return [
         <TreeRow
@@ -377,6 +578,15 @@ export function SolutionTree(p: Props) {
           }}
           suffix={
             <>
+              {isAbsolutePath(view.path) && (
+                <span
+                  className="tag"
+                  data-testid={`tree-project-outside-${view.name}`}
+                  title={`${view.path} is outside the solution directory`}
+                >
+                  outside
+                </span>
+              )}
               {view.failed && <span className="tag error">error</span>}
               {view.evaluated && view.restore !== "restored" && (
                 <span className="tag warning">{view.restore === "unknown" ? "restore unknown" : "partial context"}</span>

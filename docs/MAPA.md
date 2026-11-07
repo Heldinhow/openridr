@@ -9,7 +9,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | um `data-testid` | `grep -rn 'data-testid="build-panel"' src` (o contrato está em [implementation-notes](implementation-notes.md#testids-estáveis-e2e)) |
 | um método do host (`build.start`) | `grep -n '"build.start"' crates/host/src/lib.rs` → o `if method == ...` chama a função `start_build`; o módulo é `crates/host/src/build.rs` |
 | o wrapper TS de um método | `grep -n 'build.start' src/host/client.ts` (tipos do snapshot também estão ali) |
-| um atalho/ação | `src/actions/keymap.ts` (teclas) e `src/actions/registry.ts` (ações) |
+| um atalho/ação | `src/actions/keymap.ts` (teclas) e `src/actions/registry.ts` (ações); atalho que o menu nativo do macOS possui: `src/actions/reservedShortcuts.ts` + `src-tauri/src/main.rs` (`default_menu`) |
 | um termo do domínio | [GLOSSARY.md](../GLOSSARY.md) |
 | a cor/ícone de um projeto ou arquivo | `src/solutionVisuals.ts` (tipo e glifo) e `--icon-*` em `src/styles.css` (cor) |
 | uma decisão ("por quê?") | `grep -n '^## ' docs/decisions.md \| grep -i <tema>`; entradas "Substituída" já vêm marcadas |
@@ -53,6 +53,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | `test_discovery.rs`, `test_run.rs` | VSTest: descoberta e execução (TRX) |
 | `terminal.rs`, `process.rs` | PTY; registro de processos e término |
 | `tools.rs`, `nuget.rs`, `git.rs`, `search.rs` | instalação de ferramentas, NuGet, Git, busca de arquivos/texto |
+| `http.rs`, `netguard.rs`, `system_proxy.rs` | **única** porta de entrada do cliente HTTP do host (rota por proxy do ambiente e do macOS, guarda de endereço, downloads com inatividade); nenhum outro módulo constrói `ureq::AgentBuilder` |
 | `trusted.rs`, `recent.rs`, `settings.rs`, `fsutil.rs`, `logbuf.rs`, `error.rs` | estado persistido no app home, logs limitados, erros |
 
 Estado do app: `~/Library/Application Support/OpenRidr` (`OPENRIDR_HOME` troca; nos E2E é isolado).
@@ -62,10 +63,10 @@ Estado do app: `~/Library/Application Support/OpenRidr` (`OPENRIDR_HOME` troca; 
 | Pasta | O que é |
 |---|---|
 | `crates/host-http/` | ponte HTTP **só de dev/E2E** (127.0.0.1:4317) |
-| `src-tauri/` | janela Tauri; `src/main.rs` expõe `host_call` e a recepção de "abrir com"; `tauri.conf.json` tem versão e bundle. `resources/{netcoredbg,csharp-ls,dotnet}/` são gerados no build (`scripts/vendor-*.sh`) a partir de artefatos pinados em `vendor/` |
+| `src-tauri/` | janela Tauri; `src/main.rs` expõe `host_call`, a recepção de "abrir com" e o **menu nativo** (`default_menu`: Quit e Close Window substituídos para não engolir `⌘Q`/`⌘W`/`⌥⌘W` do keymap); `tauri.conf.json` tem versão e bundle. `resources/{netcoredbg,csharp-ls,dotnet}/` são gerados no build (`scripts/vendor-*.sh`) a partir de artefatos pinados em `vendor/` |
 | `tests/e2e/` | Playwright contra host real; arquivos `medium-*`, `qa-*`, `zz-acceptance` etc. por onda de trabalho; helpers `.ts` sem `.spec` |
 | `fixtures/` | `OrderDesk` (principal), `MultiConsole`, `BrokenImport`, `MissingSdk`, `CrashApp` |
-| `scripts/` | `install-app.sh` (`bun run app:install`), `openridr` (CLI "abrir com"), `openridr-selfcheck.sh`, `commit-only.sh` (`scripts/commit-only.sh "msg" <paths>`: `add -N` nos novos + `commit --only`), `release-macos.sh` (release: preflight `--check`, ensaio `--dry-run`, auditoria de Mach-O `--audit`, caminho completo), `release-selfcheck.sh`, `release-notes.sh` + `release-notes-selfcheck.sh`; `vendor-*.sh` geram as árvores assinadas |
+| `scripts/` | `install-app.sh` (`bun run app:install`), `openridr` (CLI "abrir com"), `openridr-selfcheck.sh`, `dev-app.sh` (`sh scripts/dev-app.sh [sln]`: app de dev com o par embutido e o workspace em argv) + `dev-app-selfcheck.sh`, `commit-only.sh` (`scripts/commit-only.sh "msg" <paths>`: `add -N` nos novos + `commit --only`), `release-macos.sh` (release: preflight `--check`, ensaio `--dry-run`, auditoria de Mach-O `--audit`, caminho completo), `release-selfcheck.sh`, `release-notes.sh` + `release-notes-selfcheck.sh`; `vendor-*.sh` geram as árvores assinadas |
 | `.github/workflows/release.yml` | release por tag `v*`: preflight, keychain temporário, `scripts/release-macos.sh`, notas e `gh release create`; ver [release-signing.md](release-signing.md) |
 | `.agents/skills/verify-openridr/` | skill de verificação: `SKILL.md`, `features/` (uma por feature), `scripts/{web,desktop,doctor}.sh`. Portas próprias 1520/4417. Evidência em `docs/evidence/verify-openridr.md` |
 | `crates/host/tests/trust_model.rs` | teste de propriedade do ciclo de trust contra um modelo de referência (ver `docs/VERIFICACAO-FORMAL.md`) |

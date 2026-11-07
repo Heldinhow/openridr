@@ -98,17 +98,11 @@ fn prepare_local_package(
     progress: impl Fn(u64, Option<u64>) -> bool,
 ) -> Result<(PathBuf, PathBuf), String> {
     let (url, sha512) = package_source();
-    let response = crate::http::agent_builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .get(&url)
-        .call()
-        .map_err(|error| {
-            format!(
-                "Could not download csharp-ls: {}",
-                crate::http::describe_error(&url, &error)
-            )
-        })?;
+    // `fetch` follows the redirects itself so every hop is routed and guarded again. The download is
+    // bounded by inactivity, never by a total deadline: a slow transfer that keeps receiving bytes
+    // must finish (#161).
+    let response = crate::http::fetch(&url, crate::http::DOWNLOAD_STALL)
+        .map_err(|error| format!("Could not download csharp-ls: {error}"))?;
     let total = response
         .header("Content-Length")
         .and_then(|value| value.parse().ok());
@@ -118,7 +112,7 @@ fn prepare_local_package(
     loop {
         let count = reader
             .read(&mut chunk)
-            .map_err(|error| format!("Could not read csharp-ls package: {error}"))?;
+            .map_err(|error| download_read_error(&url, &error))?;
         if count == 0 {
             break;
         }
@@ -132,6 +126,19 @@ fn prepare_local_package(
     }
     store_verified_package(temp, &bytes, &sha512)
 }
+/// A body read that timed out is the same stall as a server that stopped answering: the person gets
+/// the download sentence, not the transport's.
+fn download_read_error(url: &str, error: &std::io::Error) -> String {
+    if crate::http::is_stall(error) {
+        format!(
+            "Could not download csharp-ls: {}",
+            crate::http::stalled(url, crate::http::DOWNLOAD_STALL)
+        )
+    } else {
+        format!("Could not read csharp-ls package: {error}")
+    }
+}
+
 const SIGNATURE_LIMITATION: &str = "The NuGet package is checked against the pinned SHA-512 before local installation. dotnet reports skipping package signature verification. The installed launcher SHA-256 and version are recorded separately.";
 
 /// App-scoped root. Tests and isolated E2E runs override it with `OPENRIDR_HOME`.
@@ -208,8 +215,23 @@ fn child_home() -> PathBuf {
     app_home().join("toolhome")
 }
 
+/// The launcher runs outside the workspace. The plan only announces this path; anything that
+/// spawns uses `neutral_cwd_ready()`.
 fn neutral_cwd() -> PathBuf {
     std::env::temp_dir().join("openridr-neutral")
+}
+
+/// `current_dir` of a missing path fails the spawn before the launcher runs, which on a fresh
+/// machine reported a valid tool as invalid (issue #93). Created here, in the one place that
+/// spawns use, so no caller has to remember it.
+fn neutral_cwd_ready() -> PathBuf {
+    neutral_cwd_in(&std::env::temp_dir())
+}
+
+fn neutral_cwd_in(root: &Path) -> PathBuf {
+    let dir = root.join("openridr-neutral");
+    let _ = fs::create_dir_all(&dir);
+    dir
 }
 
 fn binary_name() -> &'static str {
@@ -505,10 +527,7 @@ pub fn verify_installed(destination: &Path, runtime_root: &Path) -> Existing {
 
     let home = child_home();
     let _ = fs::create_dir_all(&home);
-    // Same step as `verify_bundled`: on a fresh machine the neutral directory does not exist yet, and
-    // `current_dir` of a missing path fails the spawn before the launcher ever runs (issue #93).
-    let cwd = neutral_cwd();
-    let _ = fs::create_dir_all(&cwd);
+    let cwd = neutral_cwd_ready();
     let output = Command::new(&binary)
         .arg("--version")
         .current_dir(&cwd)
@@ -896,8 +915,7 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
     let home = child_home();
     fs::create_dir_all(&home)
         .map_err(|error| format!("Could not create the isolated tool HOME: {error}"))?;
-    let cwd = neutral_cwd();
-    let _ = fs::create_dir_all(&cwd);
+    let cwd = neutral_cwd_ready();
     let muxer = bundled::muxer(&analysis.runtime.root);
     let child = Command::new(&muxer)
         .arg(&analysis.entry)
@@ -1491,13 +1509,7 @@ impl Tools {
                 format!("Could not create the isolated tool HOME: {error}"),
             )
         })?;
-        let cwd = PathBuf::from(&plan.cwd);
-        fs::create_dir_all(&cwd).map_err(|error| {
-            HostError::new(
-                "operation_failed",
-                format!("Could not create the neutral install directory: {error}"),
-            )
-        })?;
+        let cwd = neutral_cwd_ready();
         // Keep NuGet's scratch files under the app home so fetched bytes are observable and never
         // land in the user's shared temp directory.
         let temp = install_temp(&plan.staging);
@@ -2152,6 +2164,30 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_read_timeout_is_the_download_stall_and_other_read_errors_are_not() {
+        let timeout =
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out reading response");
+        let message =
+            download_read_error("https://api.nuget.org/v3-flatcontainer/x.nupkg", &timeout);
+        assert!(
+            message.starts_with("Could not download csharp-ls: "),
+            "{message}"
+        );
+        assert!(message.contains("the connection stalled"), "{message}");
+        assert!(
+            message.contains("Nothing was installed or replaced"),
+            "{message}"
+        );
+        let other = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short body");
+        let message = download_read_error("https://api.nuget.org/v3-flatcontainer/x.nupkg", &other);
+        assert!(
+            message.starts_with("Could not read csharp-ls package: "),
+            "{message}"
+        );
+        assert!(!message.contains("stalled"), "{message}");
+    }
     use crate::sdk::RuntimeInstall;
 
     #[test]
@@ -2551,6 +2587,17 @@ mod tests {
             error.message
         );
         assert!(processes.views().is_empty());
+    }
+
+    #[test]
+    fn the_neutral_cwd_is_created_before_the_launcher_runs() {
+        // A fresh root has no `openridr-neutral`, and `current_dir` of a missing path fails the
+        // spawn before the launcher runs (issue #93). This reproves it on a warm machine too.
+        let root = tempfile::tempdir().unwrap();
+        let neutral = root.path().join("openridr-neutral");
+        assert!(!neutral.exists());
+        assert_eq!(neutral_cwd_in(root.path()), neutral);
+        assert!(neutral.is_dir());
     }
 
     #[cfg(unix)]

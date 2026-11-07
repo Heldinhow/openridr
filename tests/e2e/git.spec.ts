@@ -367,7 +367,7 @@ test("log lists commits and files; checkout and pull explain refusals; push need
 
   // Branch popup: create a branch, then show the dirty-tree refusal.
   await page.getByTestId("toolbar-branch").click();
-  await expect(page.getByTestId("branch-menu")).toHaveAttribute("open", "");
+  await expect(page.getByTestId("toolbar-branch")).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByTestId("branch-item-main")).toBeVisible();
   await expect(page.getByTestId("branch-item-feature")).toBeVisible();
   await page.getByTestId("branch-create-open").click();

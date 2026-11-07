@@ -173,6 +173,13 @@ export function SetupGate({ snapshot, error, onSnapshot, onRetry, onCancel }: Pr
             {failure}
           </p>
         )}
+        {/* The gate is the only surface while setup blocks the workspace: a tool that failed to
+            download has to say why here, not only in the panel behind the gate. */}
+        {tool.state === "failed" && tool.error && tool.error !== failure && (
+          <p className="error" role="alert" data-testid="setup-gate-tool-error">
+            {tool.error}
+          </p>
+        )}
 
         <div className="actions">
           <button

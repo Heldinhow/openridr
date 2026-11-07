@@ -50,6 +50,7 @@ A UI fala com o host por `dispatch`; não duplique lógica de host no React.
 bun install
 bun run dev            # Vite (UI em 1420)
 bun run tauri dev      # app desktop completo
+sh scripts/dev-app.sh  # app de dev com o par embutido (worktree nova); aceita .sln em argv
 bun run build          # tsc --noEmit + vite build
 bun run check          # tsc --noEmit + cargo check --workspace --all-targets
 bun run hooks          # uma vez por clone: aponta core.hooksPath para .githooks
@@ -103,8 +104,8 @@ A fonte única é a tabela de [`docs/evidence/test-stability.md`](docs/evidence/
 
 A sessão que termina **empurra a própria branch e abre o PR**: `git push -u origin <branch>` e `gh pr create` com o corpo do `.github/pull_request_template.md` (`Closes #N`, `## Summary`, `## Evidence`, `## Security review`, `## Merge danger`). Sem referência a issue e sem Evidência o job `governance` reprova o PR: é contrato, não sugestão.
 
-- **Merge não é da sessão.** Com o CI verde, quem mergeia é o mantenedor/orquestrador. A sessão não faz merge, não dá `--force` na branch depois do PR aberto e nunca usa `--no-verify`.
-- **PR de risco alto pede o Helder**: `.github/workflows/**`, `scripts/release*`, assinatura/entitlements, `scripts/vendor-*`, o modelo de trust, o updater e mudança de dependência (`Cargo.toml`/`package.json`).
+- **Merge não é da sessão.** Com o CI verde, quem mergeia é o mantenedor/orquestrador — exceto `risk:low`, que o GitHub mergeia sozinho quando os checks obrigatórios ficam verdes (ver “Risco do PR” abaixo). A sessão não faz merge, não dá `--force` na branch depois do PR aberto e nunca usa `--no-verify`.
+- **PR de risco alto pede o Helder**: `.github/workflows/**`, `.github/rulesets/**`, `AGENTS.md`, `scripts/release*`/`vendor-*`/`ci-*`, assinatura/entitlements, `src-tauri/tauri.conf.json`, o modelo de trust e mudança de dependência (`Cargo.lock`/`bun.lock`, ou tabela de dependência em `Cargo.toml`/`package.json`). O tier é calculado pelos caminhos (não por quem escreveu) e o gate não fica verde até a aprovação — ou, quando o autor do PR é o dono do repo, sem review nenhuma: ver “Risco do PR”.
 - **Squash de PR misto não é ignorável no blame.** `.git-blame-ignore-revs` só pode listar commits que existem na `main`, e o squash agrega o PR inteiro num commit só: se ele mistura formatação com mudança real (foi o caso do #89, squash `92722bc`: `cargo fmt` + clippy + guarda de teste + `make_writable`), ignorá-lo esconderia a edição. Formatação em massa vai num PR **separado** e sem nenhuma edição manual; sem isso, o blame aponta para o squash.
 - **Settings do GitHub não são da sessão**: ruleset, labels e auto-merge ficam em `.github/rulesets/main.json` e [docs/ci-main-ruleset.md](docs/ci-main-ruleset.md), para o Helder aplicar.
 
@@ -115,10 +116,33 @@ O que o CI (`.github/workflows/ci.yml`) roda em todo PR para `main`:
 | `typescript` (ubuntu) | `bun install --frozen-lockfile`, `tsc --noEmit`, `bun test tests/unit` |
 | `rust` (macos-15) | `cargo fmt --check` (workspace e `src-tauri`), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p openridr-host` com o SDK 8.0.408 das fixtures |
 | `governance` | `actionlint`, `zizmor`, título do PR no padrão conventional, corpo com issue + Evidência |
+| `risk` | tier calculado pelos caminhos, label `risk:*`, no alto o PR do dono passa sem review e os demais precisam de aprovação, auto-merge no baixo (`scripts/ci-risk-tier.sh`, `scripts/ci-risk-gate.sh`) |
 | `security` | `gitleaks` no histórico do PR |
-| `ci` | agregador; é o check obrigatório do ruleset |
+| `ci` | agregador (`scripts/ci-aggregate.sh`); é o check obrigatório do ruleset |
 
 O smoke E2E é noturno e não bloqueia PR: a lista de specs está em `scripts/e2e-smoke.txt` (caminho relativo à raiz, um por linha) e quem manda nela é a quarentena da #67.
+
+Antes de empurrar um PR que mexe em `scripts/` ou em `tests/shell/`, rode o que o CI vai rodar, com as duas ferramentas que o Mac não traz de fábrica: `brew install shellcheck dash` (o `actionlint` do job `governance` liga o shellcheck por padrão; sem ele, o local passa e o run reprova) e **`dash <arquivo>`** em vez de `sh <arquivo>` — o `/bin/sh` do runner é dash, o do Mac é bash, e `10#`, `local` e `[[ ]]` passam num e falham no outro.
+
+### Risco do PR: tier pelos caminhos, auto-merge no baixo, aprovação no alto
+
+O job `risk` calcula o tier pelos caminhos que o PR toca (`scripts/ci-risk-tier.sh`, tabela em
+[docs/SPEC-RISK-TIERS.md](docs/SPEC-RISK-TIERS.md)) e rotula o PR:
+
+| Tier | O que é | O que muda para a sessão |
+|---|---|---|
+| `risk:low` | `docs/**`, `*.md` (exceto `AGENTS.md`), `tests/**`, `crates/*/tests/**`, `*.css` | nada: o job arma auto-merge e o PR entra em squash quando `ci` e `security` ficam verdes |
+| `risk:medium` | código de produto (`src/**`, `crates/**`, `src-tauri/**`, `fixtures/**`) e o **default** para caminho que nenhuma regra conhece | entrega como hoje: o orquestrador confere a Evidência antes do merge |
+| `risk:high` | CI, rulesets, `AGENTS.md`, `scripts/release*`/`vendor-*`/`ci-*`, entitlements, `tauri.conf.json`, trust, mudança de dependência | abre o PR e para: sem auto-merge, o merge é manual do mantenedor/orquestrador |
+
+- **O label não é entrada do gate.** Quem decide é o cálculo pelos caminhos; editar o rótulo não baixa o tier nem substitui review.
+- **No alto, o PR do dono do repo passa sem review** (decisão do Helder de 2026-11-07, opção (b) da #149): o GitHub recusa autoaprovação (422) e o repo tem um mantenedor só, então o gate aceita `author_association == OWNER` do **autor** do PR. Custo aceito e escrito em [docs/decisions.md](docs/decisions.md): o tier alto não significa mais “outra pessoa olhou”.
+- **Para qualquer outro autor, aprovação no alto é review `APPROVED` na revisão atual**: de owner/member/collaborator, apontando para o commit que é o head do PR. Trazer `main` para o branch cria um commit e invalida a aprovação anterior: o mantenedor aprova de novo. Um `CHANGES_REQUESTED` posterior do mesmo revisor retira a aprovação.
+- **O classificador e o gate rodam da revisão base**, não do PR (um PR que muda `scripts/ci-*` não pode classificar nem aprovar a si mesmo). A brecha que sobra é o YAML do próprio workflow, que num `pull_request` vem do merge commit: mexer nele é `risk:high` e aparece no diff.
+- **Depois do APPROVED, o gate precisa de rerun:** `gh run rerun --failed <run-id>` (só os jobs que falharam rodam; o Rust não é refeito). O evento de review não dispara o workflow, de propósito — um workflow separado exigiria um terceiro check obrigatório no ruleset. No PR do dono não há APPROVED nem rerun: o gate fica verde no primeiro run.
+- **Auto-merge depende de setting do repo** (`allow_auto_merge`), ligado desde 2026-11-06: o job arma o merge no tier baixo e o GitHub faz o squash quando `ci` e `security` ficam verdes. Se o setting for desligado, o job avisa e o PR espera alguém — nunca reprova por isso. Estado e comando em [docs/ci-main-ruleset.md](docs/ci-main-ruleset.md).
+- **Mudar o gate é mudança de risco alto** (`scripts/ci-*`, `.github/workflows/**`): antes de empurrar, rode `sh scripts/ci-risk-tier-selfcheck.sh`, `sh tests/shell/ci-aggregate.test.sh`, `sh tests/shell/ci-risk-gate.test.sh`, `GATE_SHELL=dash sh tests/shell/ci-risk-gate.test.sh` e o mesmo par para `tests/shell/ci-workflow-bootstrap.test.sh` (o `GATE_SHELL` é o que faz o gate rodar sob o `/bin/sh` do runner, não só o teste), `actionlint` e `zizmor --offline --min-severity low .`. A tabela de risco tem uma fonte só: o código de `scripts/ci-risk-tier.sh` mais o teste; mudar um dos dois sem o outro deixa o `self-check` vermelho.
+- **PR do Dependabot cai em alto** (lockfile é mudança de dependência) e passa pelo mantenedor: é intencional.
 
 ### O que o CI não cobre
 
@@ -128,6 +152,17 @@ O smoke E2E é noturno e não bloqueia PR: a lista de specs está em `scripts/e2
 - Windows e macOS Intel continuam não verificados.
 
 Por isso a Evidência do PR é obrigatória e é da sessão: comando e resultado do que rodou, e "não verificado: <motivo>" no que não rodou.
+
+### Teto de três rodadas de revisão
+
+Depois de **três rodadas** de review/correção no mesmo PR sem verde, pare e repense a abordagem em vez de
+emendar a quarta: escreva em qual decisão o caminho está errado (issue do PR, ou um comentário no PR com
+a mudança de plano proposta) e espere. Cada rodada é uma passada completa de revisão com seus achados,
+não cada commit.
+
+**Todo achado é corrigido ou respondido por escrito.** Achado de revisão não é sugestão: ou entra no
+commit, ou fica no PR com o motivo concreto de não entrar (contraria a spec, fora de escopo com a issue
+filha aberta, risco maior que o problema). "Depois" não é resposta.
 
 ## Verificação antes de entregar
 
