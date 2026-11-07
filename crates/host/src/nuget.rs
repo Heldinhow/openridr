@@ -229,9 +229,15 @@ pub fn project_name(path: &Path) -> String {
 /// directory is outside the workspace scope and is never read.
 pub fn detect_cpm(root: &Path, project: &Path) -> Cpm {
     let project_dir = project.parent();
+    // The walk stops at the project's scope directory: the workspace root for a project inside it,
+    // the project's own directory for a project the solution names elsewhere.
+    let entry = match project_dir {
+        Some(dir) if !dir.starts_with(root) => dir,
+        _ => root,
+    };
     let mut dir = project_dir;
     while let Some(current) = dir {
-        if !current.starts_with(root) && Some(current) != project_dir {
+        if !current.starts_with(entry) {
             break;
         }
         let candidate = current.join("Directory.Packages.props");
@@ -258,7 +264,7 @@ pub fn detect_cpm(root: &Path, project: &Path) -> Cpm {
                 )),
             };
         }
-        if current == root || Some(current) == project_dir {
+        if current == entry {
             break;
         }
         dir = current.parent();
@@ -2112,6 +2118,43 @@ mod tests {
         )
         .unwrap();
         assert!(!detect_cpm(dir.path(), &project).enabled);
+    }
+
+    #[test]
+    fn cpm_detection_for_an_outside_project_stops_at_its_own_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        let lib = temp.path().join("lib");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("Lib.csproj"), PROJECT).unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+        let lib = fs::canonicalize(&lib).unwrap();
+        let project = lib.join("Lib.csproj");
+        let props = "<Project><PropertyGroup><ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally></PropertyGroup></Project>";
+
+        // Above the project's own directory is outside its scope entry: never read.
+        fs::write(temp.path().join("Directory.Packages.props"), props).unwrap();
+        assert!(!detect_cpm(&root, &project).enabled);
+
+        // Its own directory is the scope entry for a project outside the root.
+        fs::write(lib.join("Directory.Packages.props"), props).unwrap();
+        let cpm = detect_cpm(&root, &project);
+        assert!(cpm.enabled);
+        assert_eq!(
+            cpm.path.as_deref(),
+            Some(
+                lib.join("Directory.Packages.props")
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
+
+        // A project inside the root still walks up to the root, as before.
+        let inside = root.join("App.csproj");
+        fs::write(&inside, PROJECT).unwrap();
+        fs::write(root.join("Directory.Packages.props"), props).unwrap();
+        assert!(detect_cpm(&root, &inside).enabled);
     }
 
     #[test]
