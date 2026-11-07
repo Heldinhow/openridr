@@ -1523,3 +1523,77 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   contrato do YAML + `AGENTS.md`) e #242 (prova), sub-issues de #215; evidência em
   `docs/evidence/nightly-smoke.md`. O smoke real continua vermelho por `solution-git-status.spec.ts:111`
   (issue #245), que é spec de UI e não desta frente. Nenhum `data-testid`, nenhuma mudança de produto.
+
+## 2026-11-07 — A captura do E2E sai do repositório por default; o caminho versionado vira opt-in (issue #217)
+
+- **Decisão.** O default do diretório das capturas deixa de ser `docs/evidence/screenshots` e passa a ser
+  `<tempdir>/openridr-e2e-screenshots-<porta da UI>`, derivado da porta como o E2E app home da #210;
+  `OPENRIDR_SCREENSHOT_DIR` continua vencendo, com valor relativo resolvido contra o diretório atual. O
+  caminho versionado só recebe captura quando a variável aponta para ele de propósito.
+- **Por que o default era um defeito, e não um incômodo.** O diretório está no `.gitignore`, mas **86 PNGs
+  dele estão versionados** — o `.gitignore` não vale para arquivo já rastreado. Uma execução que falhava
+  reescrevia evidência versionada (aparecia em `git status`) ou deixava arquivo não rastreado dentro do
+  repositório, que é o que faz `git worktree remove` recusar a worktree (o sintoma registrado na #210).
+  A saída era lembrar de exportar a variável antes de rodar, e a documentação precisava repetir o aviso.
+- **A chave é a porta, não o worktree.** Mesmo critério do E2E app home: duas sessões em portas diferentes
+  não se sobrescrevem, e duas na mesma porta não coexistem de qualquer forma (`strictPort` do Vite de
+  teste). `mkdtemp` por execução foi recusado porque ninguém acha a captura depois sem o log.
+- **Um seam só.** O caminho é calculado no módulo de ambiente do E2E, que já é por onde config,
+  `globalSetup` e specs leem portas, home e URLs; os specs importam de lá, inclusive os dois que gravavam
+  caminho literal e ignoravam a variável. Specs que só capturam quando pedido usam o mesmo módulo, sem
+  ganhar default.
+- **`outputDir` e `OPENRIDR_EVIDENCE_LOG_DIR` ficam onde estão.** `test-results/` e `playwright-report/`
+  já são ignorados e não sujam `git status`; `docs/evidence/logs` é ignorado e não tem arquivo versionado.
+  Mover não resolveria problema nenhum — decisão registrada para não ser reaberta.
+- **Consequência.** `docs/SPEC-E2E-EVIDENCE-OUTPUT.md`; tickets #248 (código + guarda) e #249 (docs
+  vivos), sub-issues de #217; evidência em `docs/evidence/e2e-evidence-output.md`. A guarda em
+  `tests/unit` roda no CI e reprova qualquer spec que volte a nomear o caminho versionado. Nenhuma
+  dependência nova, nenhum `data-testid`, nenhuma mudança de produto.
+
+## 2026-11-07 — O validador de porta do E2E recusa porta restrita do Chrome (issue #258)
+
+- **Decisão.** A validação de `OPENRIDR_E2E_UI_PORT`/`OPENRIDR_E2E_HOST_PORT` passa a recusar, no load do
+  módulo de ambiente, as portas da `kRestrictedPorts` do Chromium (`net/base/port_util.cc`), com a lista
+  copiada inteira e a fonte/data no comentário. A recusa cobre também a faixa derivada `hostPort + 1` até
+  `+ 7` que os specs que sobem host próprio usam. A mensagem mantém o prefixo `Invalid E2E port` e
+  acrescenta que o Chrome bloqueia a porta.
+- **Por que o erro precisa ser de configuração, não de rede.** O `ERR_UNSAFE_PORT` só aparece no
+  `page.goto`, com host e Vite já de pé, e não diz qual das duas variáveis errou — a sessão perde a rodada
+  até reconhecer a mensagem (medido com 1720/4617 na sessão da #217). Falhar no load do módulo de ambiente
+  transforma isso num erro de configuração no primeiro segundo, antes de qualquer processo subir.
+- **Lista exata, não faixa.** A issue dizia "1719–1723"; o Chromium restringe 1719, 1720 e 1723, e aceita
+  1721 e 1722. Bloquear a faixa inteira seria mais curto e faria a mensagem mentir, então o teste pina
+  1721/1722/1725 como aceitas — é o que prova que a lista foi copiada em vez de inventada.
+- **As derivadas entram.** Sete specs usam `hostPort + 1` até `+ 7` e o navegador alcança essas portas
+  direto: um `hostPort` de 1716 quebra no `+ 3` exatamente como a issue descreve, só que no meio do run.
+  Recusar o par na hora custa poucas linhas e fecha a classe.
+- **Teste no CI de PR, não no Playwright.** O teste mora em `tests/unit` (job `typescript`), porque
+  Playwright não roda em PR; um subprocesso por variável prova o wiring das duas, e o critério "erro no
+  começo do run" fica como evidência executada (`playwright test --list` com porta restrita), não como teste
+  permanente.
+- **Consequência.** `docs/SPEC-E2E-RESTRICTED-PORTS.md`; ticket #261, filho de #258; evidência em
+  `docs/evidence/e2e-restricted-ports.md`. Uma cláusula no skill `verify-openridr`; `AGENTS.md` intocado.
+  Nenhuma dependência nova, nenhum script novo, nenhum `data-testid`.
+
+## 2026-11-07 — O doctor mede o espaço livre do `$TMPDIR` com piso de 3072 MiB (issue #259)
+
+- **Decisão.** O `doctor.sh` do skill `verify-openridr` passa a imprimir uma linha com o espaço livre em
+  MiB no volume de `${TMPDIR:-/tmp}`, medido com `df -Pk` (coluna `Available`, 1024-blocos ÷ 1024):
+  `ok` a partir de 3072 MiB, `note` entre 1024 e 3071, `FAIL` (exit 1) abaixo de 1024. Medição sem
+  número vira `note`, nunca `ok`. O script continua somente leitura.
+- **Por que o volume do `$TMPDIR`.** É onde o E2E escreve: um app home por porta da UI e o diretório de
+  capturas. O volume do repositório (`target/`, `node_modules`) é outra pergunta e ficou fora.
+- **Por que 3072/1024 MiB.** Até quatro sessões em paralelo, cada uma com ~200 MiB de app home mais
+  caches e builds; o orquestrador já manda sessões pararem abaixo de 3 GB. Os dois números e o motivo
+  ficam escritos ao lado do check no script e no parágrafo do Doctor do `SKILL.md`, para a próxima
+  sessão não redescobrir de onde vieram.
+- **Por que o doctor e não o harness.** O `ENOSPC` aparece numa cópia de arquivo, minutos depois do
+  começo do run (medido na #217: 127 MiB livres, `globalSetup` morto no download do csharp-ls). O doctor
+  é o passo que existe para descobrir isso antes, e agora ele mostra o número em vez de deixar a sessão
+  adivinhar.
+- **Teste sem encher disco.** O `df` resolvido pelo `PATH` é o seam: um `df` falso primeiro no `PATH` e
+  stubs das outras ferramentas deixam o exit code depender só do caso. Nenhuma variável só-de-teste no
+  script.
+- **Consequência.** `docs/SPEC-DOCTOR-DISK-SPACE.md`; ticket #267, filho de #259; evidência em
+  `docs/evidence/doctor-disk-space.md`; teste em `tests/shell/doctor.test.sh` (rodado à mão, como os
+  outros de `tests/shell/`). Nenhuma dependência nova, nenhum `data-testid`, nenhuma UI.

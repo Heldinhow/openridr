@@ -11,8 +11,7 @@ const core = path.join(fixture, "src/OrderDesk.Core/Order.cs");
 const coreTab = "src/OrderDesk.Core/Order.cs";
 const originalProgram = fs.readFileSync(program, "utf8");
 const originalCore = fs.readFileSync(core, "utf8");
-import { host } from "./environment";
-const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+import { host, requestedScreenshotsDir, screenshotsDir as screenshots } from "./environment";
 
 const executableMethods = [
   "evaluation.run",
@@ -38,7 +37,7 @@ test("welcome lists recent solutions, persists them and reopens one", async ({ p
   await expect(page.getByTestId("welcome-recent-0")).toContainText("OrderDesk.sln");
   await page.reload();
   await expect(page.getByTestId("welcome-recent-0")).toHaveAttribute("title", solution);
-  const directory = process.env.OPENRIDR_SCREENSHOT_DIR;
+  const directory = requestedScreenshotsDir;
   if (directory) await page.screenshot({ path: path.join(directory, "welcome-recent.png") });
   await page.getByTestId("welcome-recent-0").click();
   await page.getByTestId("trust-prompt-restricted").click();

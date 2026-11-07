@@ -1805,3 +1805,24 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Bateria.** `cargo test -p openridr-host --lib` 469 passed; `--test host` 111 passed; `cargo clippy --workspace --all-targets -- -D warnings` limpo; `cargo fmt --all -- --check` limpo (workspace e `src-tauri`); `bun run check` e `bun test tests/unit` (95) limpos; `bunx playwright test tests/e2e/git.spec.ts` 11 passed (57,1 s).
 - **Prova de UI:** `docs/evidence/git-network-cancel.md` (Playwright no modo web, só o spec do Git, com o slot do E2E — decisão “A superfície de verificação de UI segue o que mudou”, 2026-11-07).
 - **Não verificado:** Windows e macOS Intel; o app Tauri real com `agent-desktop` (opcional pela regra nova, não rodado); cancelar o merge local do Update (fora de escopo por decisão da #136).
+
+## Espaço livre no `doctor.sh` (2026-11-07, #259; ticket #267)
+
+- **O que é.** Uma linha nova no `doctor.sh` do skill `verify-openridr` com o espaço livre em MiB no
+  volume de `${TMPDIR:-/tmp}`, medido com `df -Pk` (coluna `Available`, 1024-blocos ÷ 1024): `ok` a
+  partir de 3072 MiB, `note` entre 1024 e 3071, `FAIL` (exit 1) abaixo de 1024. Medição sem número vira
+  `note`, nunca `ok`. O script continua somente leitura.
+- **Por que ali.** O E2E escreve no `$TMPDIR` (app home por porta da UI e diretório de capturas) e o
+  `ENOSPC` aparece numa cópia de arquivo, minutos depois do começo do run. O piso cobre quatro sessões em
+  paralelo (~200 MiB de app home cada) mais caches; o número e o motivo ficam ao lado do check e no
+  parágrafo do Doctor do `SKILL.md`.
+- **Teste.** `tests/shell/doctor.test.sh` (rodado à mão, como os outros de `tests/shell/`): um `df` falso
+  primeiro no `PATH`, árvore de repositório mínima e stubs de `bun`/`cargo`/`dotnet`/`pgrep`/`lsof`/
+  `agent-desktop`, então o exit code depende só do caso de disco. O `df` falso recusa qualquer chamada que
+  não seja `df -Pk <diretório medido>`, então trocar o volume ou as flags quebra os casos.
+- **Falha-antes medida.** Com o `doctor.sh` de `5779634`: **4 failure(s)** (nenhuma linha `disk`, e 900 MiB
+  saindo 0). Com `df -k` em vez de `df -Pk`: **3 failure(s)**.
+- **`data-testid`:** nenhum (não há UI). Zero dependência nova.
+- **Não verificado:** superfícies A/B/C do `verify-openridr` (nenhuma interface, host ou app mudou);
+  disco realmente cheio (`note`/`FAIL` provados com `df` falso, não enchendo o volume); Windows e macOS
+  Intel. Evidência: `docs/evidence/doctor-disk-space.md`.

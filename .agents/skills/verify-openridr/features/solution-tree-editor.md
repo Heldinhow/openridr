@@ -26,5 +26,5 @@ Prova de que funciona: a árvore lista os 3 projetos (`OrderDesk.Cli`, `OrderDes
 ## Gotchas
 
 - Logo após o Trust há restore automático ("Restoring packages…"); a árvore pode mostrar "Partial workspace · incomplete context" até ele terminar. Espere `eval-state`/`restore-state` em vez de dormir.
-- `workspace.spec.ts` e `run.spec.ts` gravam capturas em `docs/evidence/screenshots` (ignorado pelo git); aponte `OPENRIDR_SCREENSHOT_DIR` para `<tmp>` para não sujar a worktree.
+- `workspace.spec.ts` e `run.spec.ts` gravam capturas em `<tmpdir>/openridr-e2e-screenshots-<porta da UI>` por default, nunca no repositório; `docs/evidence/screenshots` só recebe captura com `OPENRIDR_SCREENSHOT_DIR` apontando para lá.
 - Viewport estreito esconde painéis; para a árvore completa use ≥ 1440×900.

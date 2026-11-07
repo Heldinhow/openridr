@@ -16,6 +16,20 @@ dotnet --list-sdks 2>/dev/null | grep -q '^8\.0\.408' && ok "dotnet SDK 8.0.408 
 for port in 1420 4317 4318 1520 4417; do
   lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1 && note "port $port is busy (another run, or the user's dev server): do not double-drive it"
 done
+# The E2E app home and the screenshots live in $TMPDIR: 4 parallel sessions at ~200 MiB each plus caches
+# need 3072 MiB, and under 1024 MiB a run dies with ENOSPC mid-copy. Read-only: measure, never delete.
+tmpdir=${TMPDIR:-/tmp}
+free_kb=$(df -Pk "$tmpdir" 2>/dev/null | awk 'NR==2 {print $4}')
+case "$free_kb" in '' | *[!0-9]*) free_mib= ;; *) free_mib=$((free_kb / 1024)) ;; esac
+if [ -z "$free_mib" ]; then
+  note "disk free space on $tmpdir unknown: df gave no number (floor 3072 MiB: up to 4 parallel sessions, ~200 MiB E2E home each + caches)"
+elif [ "$free_mib" -ge 3072 ]; then
+  ok "disk $free_mib MiB free on $tmpdir (floor 3072 MiB: up to 4 parallel sessions, ~200 MiB E2E home each + caches)"
+elif [ "$free_mib" -ge 1024 ]; then
+  note "disk $free_mib MiB free on $tmpdir (under the 3072 MiB floor: up to 4 parallel sessions, ~200 MiB E2E home each + caches; run one spec at a time)"
+else
+  no "disk $free_mib MiB free on $tmpdir (under the 1024 MiB hard floor: up to 4 parallel sessions, ~200 MiB E2E home each + caches)"
+fi
 version=$(sed -n 's/.*"version": "\(.*\)".*/\1/p' "$repo/package.json" | head -1)
 app=${1:-${OPENRIDR_APP:-/Applications/OpenRidr.app}}
 installed=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist" 2>/dev/null)

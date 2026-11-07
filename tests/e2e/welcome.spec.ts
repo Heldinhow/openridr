@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort, seedVerifiedTools } from "./environment";
+import { hostPort, requestedScreenshotsDir, seedVerifiedTools } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // The welcome lists what the host stored, so this spec runs its own host with a real, isolated
@@ -91,8 +91,8 @@ test("rows show name, short path, last opened and trust badge; search filters an
   await expect(first).toHaveAttribute("title", fs.realpathSync(inventory.solution));
   await expect(page.getByTestId("welcome-recent-0-badge")).toHaveText("Trusted");
   await expect(page.getByTestId("welcome-recent-1-badge")).toHaveText("Restricted");
-  if (process.env.OPENRIDR_SCREENSHOT_DIR) {
-    await page.screenshot({ path: path.join(process.env.OPENRIDR_SCREENSHOT_DIR, "welcome-projects.png") });
+  if (requestedScreenshotsDir) {
+    await page.screenshot({ path: path.join(requestedScreenshotsDir, "welcome-projects.png") });
   }
 
   const search = page.getByTestId("welcome-search");

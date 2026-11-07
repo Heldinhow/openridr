@@ -7,8 +7,7 @@ import { openTrustPopover } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
-import { host } from "./environment";
-const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+import { host, screenshotsDir as screenshots } from "./environment";
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
