@@ -121,6 +121,23 @@ export type GitFileDiff = {
   commit: GitDiffCommit | null;
 };
 
+/** The diff of one file of a commit: both sides are blobs, so the worktree cannot change it. */
+export type GitCommitDiff = {
+  state: "ok" | "empty" | "not_a_repository" | "git_missing" | "failed";
+  message: string | null;
+  path: string;
+  originalPath: string | null;
+  commit: GitDiffCommit | null;
+  parent: GitDiffCommit | null;
+  base: GitDiffSide;
+  current: GitDiffSide;
+  hunks: GitHunk[];
+  patch: string;
+  truncated: boolean;
+  full: boolean;
+  fullReason: "binary" | "too_large" | "unsupported_encoding" | "unreadable" | "unaligned" | null;
+};
+
 export type GitOperation = {
   state: "ok" | "failed";
   message: string | null;
@@ -1028,9 +1045,11 @@ export function CommitPanel({
 export function GitLogPanel({
   trusted,
   onError,
+  onOpenCommitFile,
 }: {
   trusted: boolean;
   onError: (text: string) => void;
+  onOpenCommitFile: (commit: GitCommit, file: GitCommitFile) => void;
 }) {
   const [log, setLog] = useState<GitLog | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -1137,9 +1156,17 @@ export function GitLogPanel({
                 <ul className="git-file-list" data-testid="git-log-files">
                   {selectedCommit.files.map((file) => (
                     <li key={`${file.status}-${file.path}`}>
-                      <span className="tag">{file.status}</span>
-                      <code>{file.path}</code>
-                      {file.originalPath && <span className="menu-note">from {file.originalPath}</span>}
+                      <button
+                        type="button"
+                        className="git-file"
+                        data-testid={`git-log-file-${file.path}`}
+                        title={`Open the diff of ${file.path} in ${selectedCommit.shortHash}`}
+                        onClick={() => onOpenCommitFile(selectedCommit, file)}
+                      >
+                        <span className="tag">{file.status}</span>
+                        <code>{file.path}</code>
+                        {file.originalPath && <span className="menu-note">from {file.originalPath}</span>}
+                      </button>
                     </li>
                   ))}
                 </ul>
