@@ -10,19 +10,26 @@ Testes em `crates/host/src/http.rs` (`mod tests`), contra um proxy local que ser
 
 | Caso | Antes (prazo total) | Depois (inatividade) |
 |---|---|---|
-| 15 pedaços de 4 KiB, 100 ms entre eles (~1,5 s), janela de 400 ms | `the whole body arrives: Custom { kind: TimedOut }` — morreu no primeiro pedaço | passa, `bytes.len() == 61440` |
+| 12 pedaços de 4 KiB, 200 ms entre eles (~2,4 s), janela de 1 s | `the whole body arrives: Custom { kind: TimedOut }` — morreu no primeiro pedaço | passa, `bytes.len() == 49152` |
 | Servidor que aceita e não responde, janela de 1 s | não terminaria antes dos 120 s do prazo total | volta com a frase do stall |
 | Servidor que manda 3 bytes de 1.000 prometidos e cala | `timed out reading response` (texto do transporte) | `is_stall` verdadeiro + a frase do app |
+| Conexão que nunca abre (TEST-NET-1, teto de 300 ms) | — | **não** recebe a frase de stall (erro de conexão ≠ inatividade) |
+| Leitura do corpo que estoura, na fronteira do instalador | `Could not read csharp-ls package: timed out reading response` | `Could not download csharp-ls: … the connection stalled …` |
 
 Comandos:
 
 ```sh
-cargo test -p openridr-host --lib http::tests          # 6 passam
-cargo test -p openridr-host --lib                      # 391 passam, 11 ignorados
+cargo test -p openridr-host --lib http::tests          # 7 passam
+cargo test -p openridr-host --lib tools::tests         # 20 passam
+cargo test -p openridr-host --lib                      # 393 passam, 11 ignorados
 cargo test -p openridr-host --test host -- tools_ a_download_without   # 5 wrappers passam (as folhas isoladas rodam em processo próprio)
 ```
 
 A falha-antes da **mensagem** foi medida isoladamente: com a política de inatividade e sem o mapeamento de `TimedOut` para a frase do app, o teste do servidor mudo reprova com o texto cru do `ureq` (`… Network Error: Error encountered in the status line: timed out reading response Transport(Transport { … })`).
+
+A falha-antes do **erro de conexão** também foi medida: sem a guarda de `ErrorKind::Io`, o teste do TEST-NET-1 reprova com `the connection stalled — no data arrived for 60 seconds` para uma conexão que nunca abriu. Achado da revisão independente, corrigido junto com `timeout_write` (uma escrita bloqueada pendurava o setup) e com o teste da fronteira do instalador.
+
+Limite conhecido: a **resolução de nome** não é interrompível pelo `ureq` e o prazo total anterior também não a limitava (é conferido entre operações, depois do resolvedor). O resolvedor do sistema tem os próprios timeouts; não há teto novo aqui e o spec diz isso.
 
 ## 2. Host isolado: transferência de 146 s completa (ponte HTTP)
 
