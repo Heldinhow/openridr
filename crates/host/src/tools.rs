@@ -200,10 +200,16 @@ fn child_home() -> PathBuf {
     app_home().join("toolhome")
 }
 
-/// The launcher runs outside the workspace. Created here, in the one place that names the
-/// directory: `current_dir` of a missing path fails the spawn before the launcher runs, which on a
-/// fresh machine reported a valid tool as invalid (issue #93).
+/// The launcher runs outside the workspace. The plan only announces this path; anything that
+/// spawns uses `neutral_cwd_ready()`.
 fn neutral_cwd() -> PathBuf {
+    std::env::temp_dir().join("openridr-neutral")
+}
+
+/// `current_dir` of a missing path fails the spawn before the launcher runs, which on a fresh
+/// machine reported a valid tool as invalid (issue #93). Created here, in the one place that
+/// spawns use, so no caller has to remember it.
+fn neutral_cwd_ready() -> PathBuf {
     neutral_cwd_in(&std::env::temp_dir())
 }
 
@@ -506,7 +512,7 @@ pub fn verify_installed(destination: &Path, runtime_root: &Path) -> Existing {
 
     let home = child_home();
     let _ = fs::create_dir_all(&home);
-    let cwd = neutral_cwd();
+    let cwd = neutral_cwd_ready();
     let output = Command::new(&binary)
         .arg("--version")
         .current_dir(&cwd)
@@ -894,7 +900,7 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
     let home = child_home();
     fs::create_dir_all(&home)
         .map_err(|error| format!("Could not create the isolated tool HOME: {error}"))?;
-    let cwd = neutral_cwd();
+    let cwd = neutral_cwd_ready();
     let muxer = bundled::muxer(&analysis.runtime.root);
     let child = Command::new(&muxer)
         .arg(&analysis.entry)
@@ -1488,7 +1494,7 @@ impl Tools {
                 format!("Could not create the isolated tool HOME: {error}"),
             )
         })?;
-        let cwd = neutral_cwd();
+        let cwd = neutral_cwd_ready();
         // Keep NuGet's scratch files under the app home so fetched bytes are observable and never
         // land in the user's shared temp directory.
         let temp = install_temp(&plan.staging);
