@@ -46,6 +46,16 @@ Leitura: o repositório não tem **nenhum** commit de revert na `main` (493 comm
 `git log --grep='Revert'` vazio), então 0% é o valor real, não um falso negativo do classificador. A
 linha de novembro é de um mês em curso e será substituída pela medição do mês fechado.
 
+## Limites da coleta
+
+- **Paginação**: `gh api --paginate` imprime um array por página e o script os achata com
+  `jq -s 'add // []'`, então um mês com mais de 100 commits é contado inteiro (há teste com duas páginas).
+- **Teto de resultados**: a busca de PRs mergeados usa `--limit 500` e o intervalo fecha no último dia
+  real do mês; bater o teto é **erro**, não truncamento silencioso. Um mês com mais de 500 PRs exige
+  subir o limite no script.
+- **Fuso**: a janela é UTC (`T00:00:00Z` a `T00:00:00Z` do mês seguinte), a mesma base das datas que o
+  GitHub devolve.
+
 ## O que este número não prova
 
 - Revert é um sinal grosseiro: PR que quebrou e foi corrigido por outro commit (sem revert) não aparece.

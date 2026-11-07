@@ -189,8 +189,8 @@ interna foi chamada.
   commit, então um PR que apaga o passo do gate do próprio `ci.yml` ainda pode ficar verde. O que esta
   frente faz é tirar a decisão das mãos do PR (classificador e gate vêm da base) e deixar a brecha
   residual num PR que mexe no YAML — visível e de risco alto. Fechar de vez exige `pull_request_target`
-  para o gate e um terceiro check obrigatório no ruleset, ou seja, settings: é decisão do Helder e vira
-  issue filha, não trabalho desta frente.
+  para o gate e um terceiro check obrigatório no ruleset, ou seja, settings: é decisão do Helder e virou
+  a issue filha #139, não trabalho desta frente.
 - Aplicar `allow_auto_merge` e criar labels por fora do job: settings são do Helder; o comando fica
   documentado.
 - CODEOWNERS e "require review from code owners".

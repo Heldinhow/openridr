@@ -178,7 +178,8 @@ O que **não** foi corrigido, e por quê: com `pull_request`, o YAML que roda é
 PR que apague o passo do gate do próprio `ci.yml` ainda pode ficar verde. Esta frente tira a decisão das
 mãos do PR (classificador e gate vêm da base) e deixa a brecha residual num diff de YAML, que é
 `risk:high` e visível; fechar de vez exige `pull_request_target` para o gate e um terceiro check
-obrigatório no ruleset — settings, portanto issue filha e decisão do Helder.
+obrigatório no ruleset — settings, portanto issue filha ([#139](https://github.com/Heldinhow/openridr/issues/139))
+e decisão do Helder.
 
 ## verify-openridr
 
