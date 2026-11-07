@@ -4,7 +4,6 @@ import type { Build, BuildLogLink, Evaluation, Run } from "./host/client";
 type Props = {
   build: Build;
   run: Run;
-  platform: string;
   shortcuts: { run?: string; build?: string; solution?: string };
   dirtyCount: number;
   runDisabledReason: string | null;
@@ -126,7 +125,6 @@ function buildLogContent(
 export function BuildPanel({
   build,
   run,
-  platform,
   shortcuts,
   dirtyCount,
   runDisabledReason,
@@ -163,7 +161,6 @@ export function BuildPanel({
       ? [evaluation.context.targetFramework, ...evaluation.availableTfms]
       : evaluation.availableTfms;
   const running = build.state === "running";
-  const runRunning = run.state === "running";
   const shortcut = shortcuts.run ?? "";
   const buildShortcut = shortcuts.build ?? "";
   const solutionShortcut = shortcuts.solution ?? "";

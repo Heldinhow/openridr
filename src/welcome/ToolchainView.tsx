@@ -98,7 +98,7 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
             {snapshot && (
               <details className="tool-row" data-testid="debug-adapter-card">
                 <summary><span>Debug adapter</span><span className={snapshot.debug.adapterState === "ready" ? "success" : "warning"}>{snapshot.debug.adapterState === "ready" ? "✓ Available" : "! Setup required"}</span></summary>
-                <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} />
+                <DebugAdapterPanel snapshot={snapshot} />
               </details>
             )}
 
