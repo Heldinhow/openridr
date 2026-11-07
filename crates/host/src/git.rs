@@ -2321,6 +2321,19 @@ pub fn commit(root: &Path, paths: &[String], message: &str, amend: bool) -> Host
     }
     let repo = require_repo(root)?;
     let before = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
+    // Git refuses a partial commit during a merge (`cannot do a partial commit during a merge`),
+    // so the app refuses first, in its own words and pointing at the way out (#114).
+    if let Some(operation) = before.operation {
+        return Err(HostError::new(
+            "git_operation_in_progress",
+            match operation {
+                "merge" => "Commit refused: a merge is in progress. Finish or abort it from the branch menu; a partial commit is not possible during a merge.".to_string(),
+                other => format!(
+                    "Commit refused: a {other} is in progress. Finish or abort it in a terminal; a partial commit is not possible during a {other}."
+                ),
+            },
+        ));
+    }
     let untracked: Vec<String> = paths
         .iter()
         .filter(|path| {
@@ -2621,11 +2634,10 @@ fn fetch_failure(remote: &str, stderr: &str) -> String {
 /// repository's `pull.rebase`/`pull.ff`/`merge.ff` cannot change what the dialog promised, and
 /// `--no-edit` keeps git's merge message without an editor. Never `--no-ff` (a fast-forward stays
 /// one) and never a rebase: it rewrites local commits and leaves a rebase the app cannot finish or
-/// abort yet (#114).
+/// abort (it only finishes or aborts a merge).
 ///
-/// Fetch and merge are separate commands on purpose. The fetch moves only refs; the merge is then
-/// started against a commit the host has named, so a failed merge can be attributed to this update
-/// before it is aborted — a merge another process started is never aborted here.
+/// Fetch and merge are separate commands on purpose: the fetch moves only refs, so a timeout or a
+/// network failure stops before the merge runs, and the merge itself is local and unbounded.
 const MERGE_FLAGS: [&str; 2] = ["--ff", "--no-edit"];
 const CONFLICT_PATH_LIMIT: usize = 20;
 
@@ -2669,25 +2681,22 @@ fn pull_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
         let stderr = mask_urls(fetched.stderr.trim());
         return Ok(operation(
             "failed",
-            Some(update_failure(&repo, &stderr, None)),
+            Some(update_failure(&repo, &stderr)),
             &text,
             &repo,
             None,
         ));
     }
 
-    // The commit this update means to merge. A merge whose `MERGE_HEAD` is another commit was not
-    // started here and must be left alone.
     let resolved = run(&repo.top, &["rev-parse", "@{upstream}"])
         .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
-    let target = resolved.stdout.trim().to_string();
-    if !resolved.ok() || target.is_empty() {
+    if !resolved.ok() || resolved.stdout.trim().is_empty() {
         text.push_str(&resolved.stdout);
         text.push_str(&resolved.stderr);
         let stderr = mask_urls(resolved.stderr.trim());
         return Ok(operation(
             "failed",
-            Some(update_failure(&repo, &stderr, None)),
+            Some(update_failure(&repo, &stderr)),
             &text,
             &repo,
             None,
@@ -2705,7 +2714,7 @@ fn pull_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
         let stderr = mask_urls(merged.stderr.trim());
         return Ok(operation(
             "failed",
-            Some(update_failure(&repo, &stderr, Some(&target))),
+            Some(update_failure(&repo, &stderr)),
             &text,
             &repo,
             None,
@@ -2720,46 +2729,29 @@ fn pull_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
     ))
 }
 
-/// The commits a merge in progress is merging. More than one line means an octopus merge, which
-/// the app never starts but can find.
-fn merge_head(repo: &Repo) -> Vec<String> {
-    fs::read_to_string(repo.git_dir.join("MERGE_HEAD"))
-        .map(|text| {
-            text.lines()
-                .map(|line| line.trim().to_string())
-                .filter(|line| !line.is_empty())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Every failed update ends in the app's own words. For these three cases git explains itself by
-/// telling the user to edit configuration or run a shell command, which is exactly what the app
-/// must not dump; the raw output stays in `Operation.output` for anything the app does not know.
-///
-/// `attempted` names the commit this update asked to merge. Only a merge in progress whose
-/// `MERGE_HEAD` is exactly that commit is this update's to abort; anything else is reported and
-/// left alone.
-fn update_failure(repo: &Repo, stderr: &str, attempted: Option<&str>) -> String {
+/// Every failed update ends in the app's own words. A merge that conflicts is **left in progress**:
+/// the branch menu finishes or aborts it (#114), so the update never undoes the user's chance to
+/// resolve it. Git's advice about configuration or shell commands is never dumped; the raw output
+/// stays in `Operation.output` for anything the app does not know.
+fn update_failure(repo: &Repo, stderr: &str) -> String {
     let status = read_status(repo).ok();
-    if let (Some(target), Some(status)) = (attempted, status.as_ref()) {
-        if status.operation == Some("merge") && merge_head(repo).iter().any(|head| head == target) {
-            return abort_conflicting_merge(repo, status);
+    if let Some(status) = status.as_ref() {
+        if let Some(operation) = status.operation {
+            if operation == "merge" {
+                return format!(
+                    "Update stopped: {}. The merge is still in progress: resolve the conflicted files in the editor, then finish or abort it from the branch menu.",
+                    conflict_subject(status)
+                );
+            }
+            return format!(
+                "Update stopped: a {operation} is in progress. Finish or abort it in a terminal before updating again."
+            );
         }
     }
-    if let Some(operation) = status.as_ref().and_then(|status| status.operation) {
-        return format!(
-            "Update stopped: a {operation} is in progress, and OpenRidr cannot prove this update started it, so it did not abort it. Finish or abort it before updating again."
-        );
-    }
-    let lower = stderr.to_lowercase();
-    if lower.contains("identity unknown")
-        || lower.contains("please tell me who you are")
-        || lower.contains("unable to auto-detect email address")
-        || lower.contains("empty ident")
-    {
+    if missing_identity(stderr) {
         return "Update needs a Git identity for this repository: set user.name and user.email, then try again; a merge commit has no author without it. Nothing was changed.".to_string();
     }
+    let lower = stderr.to_lowercase();
     if lower.contains("not possible to fast-forward") || lower.contains("non-fast-forward") {
         return "Update stopped: git refused a non-fast-forward update. OpenRidr reconciles a diverged branch with a merge commit. Nothing was changed.".to_string();
     }
@@ -2770,46 +2762,292 @@ fn update_failure(repo: &Repo, stderr: &str, attempted: Option<&str>) -> String 
     }
 }
 
-/// The merge this update started conflicted, and the app cannot finish or abort a merge from the
-/// UI yet (#114). Aborting keeps the promise that an update never leaves a dead end: the fetch
-/// already moved the tracking refs, so only the merge itself is undone.
-fn abort_conflicting_merge(repo: &Repo, status: &GitStatus) -> String {
-    let mut paths: Vec<&str> = status
+/// The conflicted paths in one clause: how many, and up to `CONFLICT_PATH_LIMIT` of them.
+fn conflict_subject(status: &GitStatus) -> String {
+    let mut paths: Vec<String> = status
         .files
         .iter()
         .filter(|file| file.conflicted)
-        .map(|file| file.path.as_str())
+        .map(|file| file.path.clone())
         .collect();
     paths.sort_unstable();
     paths.dedup();
-    let count = paths.len();
-    let shown = if count == 0 {
-        None
-    } else {
-        let head: Vec<&str> = paths.iter().take(CONFLICT_PATH_LIMIT).copied().collect();
-        Some(if count > CONFLICT_PATH_LIMIT {
-            format!("{}, …", head.join(", "))
-        } else {
-            head.join(", ")
-        })
-    };
-    let subject = match (count, shown.as_deref()) {
-        (1, Some(path)) => format!("1 file changed on both sides ({path})"),
-        (n, Some(listed)) => format!("{n} files changed on both sides ({listed})"),
-        _ => "the merge conflicted".to_string(),
-    };
-    let aborted = run(&repo.top, &["merge", "--abort"])
-        .map(|output| output.ok())
-        .unwrap_or(false);
-    if aborted {
-        format!(
-            "Update stopped: {subject}. OpenRidr aborted the merge; your branch and working tree are unchanged."
-        )
-    } else {
-        format!(
-            "Update stopped: {subject}, and the merge could not be aborted. Finish or abort it in a terminal before updating again."
-        )
+    match paths.len() {
+        0 => "the merge conflicted".to_string(),
+        n => format!(
+            "{n} file{} changed on both sides ({})",
+            if n == 1 { "" } else { "s" },
+            list_paths(&paths)
+        ),
     }
+}
+
+/// Aborts the merge in progress: `git merge --abort` puts the branch, index and working tree back
+/// where they were before the merge. Only a merge is offered here; a rebase, cherry-pick or revert
+/// in progress is refused and left to a terminal (#114 scope).
+pub fn merge_abort(root: &Path) -> HostResult<Operation> {
+    let repo = require_repo(root)?;
+    let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
+    match status.operation {
+        Some("merge") => {}
+        Some(operation) => {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "Abort refused: a {operation} is in progress, and OpenRidr only aborts a merge. Finish or abort it in a terminal."
+                ),
+            ))
+        }
+        None => {
+            return Err(HostError::new(
+                "invalid_state",
+                "Abort refused: no merge is in progress; nothing was aborted.",
+            ))
+        }
+    }
+    let output = run(&repo.top, &["merge", "--abort"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let text = format!("{}{}", output.stdout, output.stderr);
+    if !output.ok() {
+        let stderr = mask_urls(output.stderr.trim());
+        return Ok(operation(
+            "failed",
+            Some(if stderr.is_empty() {
+                "git merge --abort failed without output; the merge is still in progress."
+                    .to_string()
+            } else {
+                format!(
+                    "Abort failed; the merge is still in progress. {}",
+                    tail(&stderr)
+                )
+            }),
+            &text,
+            &repo,
+            None,
+        ));
+    }
+    Ok(operation(
+        "ok",
+        Some("Merge aborted; the merge is undone and your commits stay.".to_string()),
+        &text,
+        &repo,
+        None,
+    ))
+}
+
+/// How much of `git diff --check` output is kept: one line per problem, and the marker lines are
+/// what the guard reads. A cut-off capture refuses the call instead of guessing: the marker could
+/// be past the ceiling. One MiB is far more than a real resolution produces, so the refusal is a
+/// safety net, not a routine path.
+const CHECK_BYTES: usize = 1024 * 1024;
+
+/// Finishes the merge in progress: stages the paths that were conflicted (the user resolved them in
+/// the editor) and commits with the message Git already prepared (`--no-edit`). A path that still
+/// holds a conflict marker refuses the whole call, so a click cannot commit `<<<<<<<`.
+pub fn merge_continue(root: &Path) -> HostResult<Operation> {
+    merge_continue_with(root, CHECK_BYTES)
+}
+
+fn merge_continue_with(root: &Path, check_limit: usize) -> HostResult<Operation> {
+    let repo = require_repo(root)?;
+    let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
+    match status.operation {
+        Some("merge") => {}
+        Some(operation) => {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "Complete merge refused: a {operation} is in progress, and OpenRidr only completes a merge. Finish or abort it in a terminal."
+                ),
+            ))
+        }
+        None => {
+            return Err(HostError::new(
+                "invalid_state",
+                "Complete merge refused: no merge is in progress; nothing was committed.",
+            ))
+        }
+    }
+    let markers = marker_paths(&repo, check_limit)?;
+    if !markers.is_empty() {
+        return Err(HostError::new("invalid_state", marker_message(&markers)));
+    }
+    let conflicted: Vec<String> = status
+        .files
+        .iter()
+        .filter(|file| file.conflicted)
+        .map(|file| file.path.clone())
+        .collect();
+    let mut text = String::new();
+    if !conflicted.is_empty() {
+        // `-u` also stages a resolution that deleted the file, and the pathspec keeps unrelated
+        // edits out of the merge commit. Nothing is staged when the list is empty: a bare
+        // `git add -u` would sweep the whole tree into the merge. `--literal-pathspecs` keeps a
+        // name like `a*.txt` from matching `a-other.txt`.
+        let mut args = vec!["--literal-pathspecs", "add", "-u", "--"];
+        args.extend(conflicted.iter().map(String::as_str));
+        let added = run(&repo.top, &args)
+            .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+        text.push_str(&added.stdout);
+        text.push_str(&added.stderr);
+        if !added.ok() {
+            let stderr = mask_urls(added.stderr.trim());
+            return Err(HostError::new(
+                "git_failed",
+                if stderr.is_empty() {
+                    "git add failed without output.".to_string()
+                } else {
+                    tail(&stderr)
+                },
+            ));
+        }
+    }
+    let unmerged = run(&repo.top, &["ls-files", "-u"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    text.push_str(&unmerged.stdout);
+    text.push_str(&unmerged.stderr);
+    let still = unmerged_paths(&unmerged.stdout);
+    if !unmerged.ok() || !still.is_empty() {
+        return Err(HostError::new(
+            "invalid_state",
+            if still.is_empty() {
+                "Complete merge refused: git could not list the unmerged paths.".to_string()
+            } else {
+                format!(
+                    "Complete merge refused: {} still unmerged ({}). Resolve them in the editor first.",
+                    still.len(),
+                    list_paths(&still)
+                )
+            },
+        ));
+    }
+    let committed = run(&repo.top, &["commit", "--no-edit"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    text.push_str(&committed.stdout);
+    text.push_str(&committed.stderr);
+    if !committed.ok() {
+        let stderr = mask_urls(committed.stderr.trim());
+        let message = if missing_identity(&stderr) {
+            "Complete merge needs a Git identity for this repository: set user.name and user.email, then try again; a merge commit has no author without it. The merge is still in progress.".to_string()
+        } else if stderr.is_empty() {
+            "git commit failed without output; the merge is still in progress.".to_string()
+        } else {
+            format!(
+                "Complete merge failed; the merge is still in progress. {}",
+                tail(&stderr)
+            )
+        };
+        return Ok(operation("failed", Some(message), &text, &repo, None));
+    }
+    Ok(operation(
+        "ok",
+        Some("Merge completed.".to_string()),
+        &text,
+        &repo,
+        None,
+    ))
+}
+
+/// Paths with a leftover conflict marker in the content the merge commit would carry. Both the
+/// worktree (`git diff --check HEAD`) and the index (`--cached HEAD`) are checked: the commit uses
+/// the index, so markers staged and then removed from the worktree are invisible to the first
+/// check, and unmerged paths are invisible to the second. A cut-off capture refuses the call
+/// instead of proving nothing.
+fn marker_paths(repo: &Repo, limit: usize) -> HostResult<Vec<String>> {
+    let mut paths: Vec<String> = Vec::new();
+    for args in [
+        &["diff", "--check", "--no-ext-diff", "HEAD"][..],
+        &["diff", "--check", "--no-ext-diff", "--cached", "HEAD"][..],
+    ] {
+        let checked = spawn_bounded(&repo.top, args, limit)
+            .map_err(|error| HostError::new("git_failed", spawn_message(error)))?
+            .text();
+        // A cut-off capture is checked first: the kill that bounds it also changes the exit code.
+        if checked.truncated {
+            return Err(HostError::new(
+                "invalid_state",
+                "Complete merge refused: the conflict-marker check was cut off before the end of the diff, so OpenRidr cannot prove there are no markers left. Commit the merge from a terminal.",
+            ));
+        }
+        if checked.code != Some(0) && checked.code != Some(2) {
+            let stderr = mask_urls(checked.stderr.trim());
+            return Err(HostError::new(
+                "git_failed",
+                if stderr.is_empty() {
+                    "git diff --check failed without output.".to_string()
+                } else {
+                    tail(&stderr)
+                },
+            ));
+        }
+        paths.extend(conflict_marker_paths(&checked.stdout));
+    }
+    paths.sort_unstable();
+    paths.dedup();
+    Ok(paths)
+}
+
+/// Paths with a leftover conflict marker in a `git diff --check` report (`<path>:<line>: leftover
+/// conflict marker`). The path is split from the right, so a name containing `:` survives.
+fn conflict_marker_paths(text: &str) -> Vec<String> {
+    let mut paths: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.strip_suffix(": leftover conflict marker"))
+        .filter_map(|head| head.rsplit_once(':'))
+        .map(|(path, _)| path.to_string())
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+}
+
+/// Paths from `git ls-files -u` (`<mode> <object> <stage>\t<path>`), deduplicated.
+fn unmerged_paths(text: &str) -> Vec<String> {
+    let mut paths: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .map(|(_, path)| path.to_string())
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+}
+
+/// Up to `CONFLICT_PATH_LIMIT` paths, comma separated, with `, …` when more were found.
+fn list_paths(paths: &[String]) -> String {
+    let head: Vec<&str> = paths
+        .iter()
+        .take(CONFLICT_PATH_LIMIT)
+        .map(String::as_str)
+        .collect();
+    if paths.len() > CONFLICT_PATH_LIMIT {
+        format!("{}, …", head.join(", "))
+    } else {
+        head.join(", ")
+    }
+}
+
+fn marker_message(paths: &[String]) -> String {
+    match paths.len() {
+        1 => format!(
+            "Complete merge refused: 1 file still contains conflict markers ({}). Resolve it in the editor first.",
+            paths[0]
+        ),
+        n => format!(
+            "Complete merge refused: {n} files still contain conflict markers ({}). Resolve them in the editor first.",
+            list_paths(paths)
+        ),
+    }
+}
+
+/// Git's own words for "there is no author to write the commit with". The app says where to set it
+/// instead of dumping the hint.
+fn missing_identity(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("identity unknown")
+        || lower.contains("please tell me who you are")
+        || lower.contains("unable to auto-detect email address")
+        || lower.contains("empty ident")
 }
 
 fn remotes(repo: &Repo) -> Vec<String> {
@@ -4118,6 +4356,237 @@ mod tests {
             - 1
     }
 
+    /// A repository mid-merge: both sides changed `a.txt`, so the merge conflicts on purpose and
+    /// its exit status is expected to be non-zero.
+    fn conflicted_merge(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let (temp, root) = init(name);
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        fs::write(root.join("b.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+        git(&root, &["checkout", "-qb", "other"]);
+        fs::write(root.join("a.txt"), "other\n").unwrap();
+        commit_all(&root, "other");
+        git(&root, &["checkout", "-q", "main"]);
+        fs::write(root.join("a.txt"), "main\n").unwrap();
+        commit_all(&root, "main");
+        let _ = Command::new("git")
+            .args(["merge", "other"])
+            .current_dir(&root)
+            .output()
+            .expect("git runs");
+        assert!(
+            root.join(".git/MERGE_HEAD").exists(),
+            "the merge is in progress"
+        );
+        (temp, root)
+    }
+
+    #[test]
+    fn merge_abort_restores_the_state_before_the_merge() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        let count = git(&root, &["rev-list", "--count", "HEAD"])
+            .trim()
+            .to_string();
+        // A half-finished resolution must not survive the abort.
+        fs::write(root.join("a.txt"), "resolved by hand\n").unwrap();
+
+        let result = merge_abort(&root).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert!(!root.join(".git/MERGE_HEAD").exists());
+        assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
+        assert_eq!(git(&root, &["rev-list", "--count", "HEAD"]).trim(), count);
+        assert_eq!(git(&root, &["status", "--porcelain"]).trim(), "");
+        assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "main\n");
+        assert!(git(&root, &["ls-files", "-u"]).trim().is_empty());
+        assert_eq!(result.status.operation, None);
+        assert!(
+            result.message.unwrap_or_default().contains("Merge aborted"),
+            "the message says what happened"
+        );
+    }
+
+    #[test]
+    fn merge_continue_stages_the_resolution_and_commits_the_merge() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        fs::write(root.join("a.txt"), "one\nresolved\n").unwrap();
+        // An unrelated edit must not be swept into the merge commit.
+        fs::write(root.join("b.txt"), "one\nstray\n").unwrap();
+
+        let result = merge_continue(&root).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert!(!root.join(".git/MERGE_HEAD").exists());
+        assert_eq!(parent_count(&root), 2, "a merge commit has two parents");
+        assert!(
+            git(&root, &["rev-list", "--parents", "-n", "1", "HEAD"]).contains(&head),
+            "the pre-merge commit is a parent"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("a.txt")).unwrap(),
+            "one\nresolved\n"
+        );
+        assert_eq!(
+            git(&root, &["show", "HEAD:b.txt"]),
+            "one\n",
+            "the stray edit stays out of the merge commit"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("b.txt")).unwrap(),
+            "one\nstray\n"
+        );
+        assert_eq!(git(&root, &["status", "--porcelain"]).trim(), "M b.txt");
+        assert!(git(&root, &["ls-files", "-u"]).trim().is_empty());
+        assert_eq!(result.status.operation, None);
+    }
+
+    #[test]
+    fn merge_continue_refuses_while_a_conflict_marker_remains() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        // The file still holds the markers git wrote.
+        let error = merge_continue(&root).unwrap_err();
+
+        assert_eq!(error.code, "invalid_state");
+        assert!(error.message.contains("a.txt"), "{}", error.message);
+        assert!(
+            error
+                .message
+                .contains("1 file still contains conflict markers"),
+            "{}",
+            error.message
+        );
+        assert!(root.join(".git/MERGE_HEAD").exists(), "the merge stays");
+        assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
+        assert!(
+            !git(&root, &["ls-files", "-u"]).trim().is_empty(),
+            "nothing was staged"
+        );
+    }
+
+    #[test]
+    fn merge_continue_refuses_markers_staged_and_removed_from_the_worktree() {
+        let (_temp, root) = conflicted_merge("repo");
+        // Stage the file with its markers, then resolve only in the worktree: the commit would
+        // carry the staged markers, so the index check has to refuse too.
+        git(&root, &["add", "-u", "--", "a.txt"]);
+        fs::write(root.join("a.txt"), "one\nresolved\n").unwrap();
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let error = merge_continue(&root).unwrap_err();
+
+        assert_eq!(error.code, "invalid_state");
+        assert!(error.message.contains("a.txt"), "{}", error.message);
+        assert!(root.join(".git/MERGE_HEAD").exists(), "the merge stays");
+        assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
+    }
+
+    #[test]
+    fn merge_continue_stages_the_conflicted_name_literally() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a*.txt"), "base\n").unwrap();
+        fs::write(root.join("a-other.txt"), "base\n").unwrap();
+        commit_all(&root, "initial");
+        git(&root, &["checkout", "-qb", "other"]);
+        fs::write(root.join("a*.txt"), "other\n").unwrap();
+        commit_all(&root, "other");
+        git(&root, &["checkout", "-q", "main"]);
+        fs::write(root.join("a*.txt"), "main\n").unwrap();
+        commit_all(&root, "main");
+        let _ = Command::new("git")
+            .args(["merge", "other"])
+            .current_dir(&root)
+            .output()
+            .expect("git runs");
+        assert!(root.join(".git/MERGE_HEAD").exists());
+        fs::write(root.join("a*.txt"), "resolved\n").unwrap();
+        // A tracked file the glob would match if the name were a pathspec.
+        fs::write(root.join("a-other.txt"), "stray\n").unwrap();
+
+        let result = merge_continue(&root).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert_eq!(
+            git(&root, &["show", "HEAD:a-other.txt"]),
+            "base\n",
+            "the glob match stays out of the merge commit"
+        );
+        assert_eq!(
+            git(&root, &["status", "--porcelain"]).trim(),
+            "M a-other.txt"
+        );
+    }
+
+    #[test]
+    fn merge_continue_refuses_when_the_marker_check_is_cut_off() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        // A ceiling this small always truncates: the call must refuse instead of proving nothing.
+        let error = merge_continue_with(&root, 8).unwrap_err();
+
+        assert_eq!(error.code, "invalid_state");
+        assert!(error.message.contains("cut off"), "{}", error.message);
+        assert!(root.join(".git/MERGE_HEAD").exists(), "the merge stays");
+        assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
+    }
+
+    #[test]
+    fn merge_continue_refuses_without_a_merge() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+
+        let error = merge_continue(&root).unwrap_err();
+
+        assert_eq!(error.code, "invalid_state");
+        assert!(
+            error.message.contains("no merge is in progress"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn commit_is_refused_while_a_merge_is_in_progress() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let error = commit(&root, &["b.txt".to_string()], "stray", false).unwrap_err();
+
+        assert_eq!(error.code, "git_operation_in_progress");
+        assert!(error.message.contains("branch menu"), "{}", error.message);
+        assert_eq!(
+            git(&root, &["rev-parse", "HEAD"]).trim(),
+            head,
+            "no commit was created"
+        );
+    }
+
+    #[test]
+    fn merge_abort_refuses_without_a_merge_and_for_another_operation() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+
+        let nothing = merge_abort(&root).unwrap_err();
+        assert_eq!(nothing.code, "invalid_state");
+        assert!(nothing.message.contains("no merge is in progress"));
+
+        // The app only aborts a merge; another operation is named and left alone.
+        fs::create_dir_all(root.join(".git/rebase-merge")).unwrap();
+        let rebase = merge_abort(&root).unwrap_err();
+        assert_eq!(rebase.code, "invalid_state");
+        assert!(
+            rebase.message.contains("only aborts a merge"),
+            "{}",
+            rebase.message
+        );
+        assert!(root.join(".git/rebase-merge").exists());
+    }
+
     #[test]
     fn update_fast_forwards_without_a_merge_commit() {
         let (temp, user, bare) = remote_repo("user");
@@ -4194,53 +4663,7 @@ mod tests {
     }
 
     #[test]
-    fn update_leaves_a_merge_it_did_not_start_alone() {
-        let (_temp, root) = init("repo");
-        fs::write(root.join("a.txt"), "one\n").unwrap();
-        commit_all(&root, "initial");
-        git(&root, &["checkout", "-qb", "other"]);
-        fs::write(root.join("a.txt"), "other\n").unwrap();
-        commit_all(&root, "other");
-        git(&root, &["checkout", "-q", "main"]);
-        fs::write(root.join("a.txt"), "main\n").unwrap();
-        commit_all(&root, "main");
-        // A merge started outside the app, of a commit this update never asked to merge. It conflicts,
-        // so its exit status is expected to be non-zero.
-        let _ = Command::new("git")
-            .args(["merge", "other"])
-            .current_dir(&root)
-            .output()
-            .expect("git runs");
-        assert!(root.join(".git/MERGE_HEAD").exists());
-        let repo = repo_of(&root);
-        let other = git(&root, &["rev-parse", "other"]).trim().to_string();
-        let attempted = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
-
-        let message = update_failure(
-            &repo,
-            "CONFLICT (content): Merge conflict in a.txt",
-            Some(&attempted),
-        );
-
-        assert!(
-            message.contains("cannot prove this update started it"),
-            "{message}"
-        );
-        assert!(message.contains("did not abort"), "{message}");
-        assert!(
-            root.join(".git/MERGE_HEAD").exists(),
-            "the foreign merge stays"
-        );
-        assert_eq!(
-            fs::read_to_string(root.join(".git/MERGE_HEAD"))
-                .unwrap()
-                .trim(),
-            other
-        );
-    }
-
-    #[test]
-    fn update_aborts_a_conflicting_merge_and_keeps_both_commits() {
+    fn update_leaves_a_conflicting_merge_for_the_user_to_resolve() {
         let (temp, user, bare) = remote_repo("user");
         let peer = peer_clone(temp.path(), &bare);
         publish(&peer, "a.txt", "one\npeer\n", "peer change");
@@ -4259,29 +4682,64 @@ mod tests {
             message.contains("1 file changed on both sides (a.txt)"),
             "{message}"
         );
-        assert!(message.contains("aborted the merge"), "{message}");
-        assert!(message.contains("unchanged"), "{message}");
+        assert!(message.contains("still in progress"), "{message}");
+        assert!(message.contains("branch menu"), "{message}");
         assert!(!message.contains("hint:"), "no git advice leaks: {message}");
+        assert!(!message.contains("aborted"), "{message}");
         let lower = message.to_lowercase();
         assert!(!lower.contains("pull.rebase"), "{message}");
         assert!(!lower.contains("pull.ff"), "{message}");
-        // The abort is real: no merge left, same commit, same history length, clean tree, and the
-        // local bytes survive (the peer's version was never applied).
-        assert!(!user.join(".git/MERGE_HEAD").exists());
+        // Nothing was undone: the merge is there for the branch menu to finish or abort, both
+        // commits are intact, and the local bytes are untouched until the user resolves.
+        assert!(user.join(".git/MERGE_HEAD").exists());
         assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head_before);
         assert_eq!(
             git(&user, &["rev-list", "--count", "HEAD"]).trim(),
             count_before
         );
+        assert_eq!(result.status.operation, Some("merge"));
+        assert!(result
+            .status
+            .files
+            .iter()
+            .any(|file| file.path == "a.txt" && file.conflicted));
+        assert!(result.output.contains("CONFLICT"), "{}", result.output);
+
+        // The branch menu's Complete merge finishes exactly this state.
+        fs::write(user.join("a.txt"), "one\nresolved\n").unwrap();
+        let completed = merge_continue(&user).unwrap();
+        assert_eq!(completed.state, "ok", "{:?}", completed.message);
+        assert!(!user.join(".git/MERGE_HEAD").exists());
+        assert_eq!(parent_count(&user), 2, "a merge commit has two parents");
+        assert_eq!(git(&user, &["status", "--porcelain"]).trim(), "");
+        assert_eq!(
+            fs::read_to_string(user.join("a.txt")).unwrap(),
+            "one\nresolved\n"
+        );
+    }
+
+    #[test]
+    fn update_abort_undoes_the_conflicting_merge_when_asked() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "a.txt", "one\npeer\n", "peer change");
+        fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
+        commit_all(&user, "local change");
+        let head_before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let failed = pull(&user).unwrap();
+        assert_eq!(failed.state, "failed");
+        let aborted = merge_abort(&user).unwrap();
+
+        assert_eq!(aborted.state, "ok", "{:?}", aborted.message);
+        assert!(!user.join(".git/MERGE_HEAD").exists());
+        assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head_before);
         assert_eq!(git(&user, &["status", "--porcelain"]).trim(), "");
         assert_eq!(
             fs::read_to_string(user.join("a.txt")).unwrap(),
             "one\nlocal\n"
         );
-        assert!(result.output.contains("CONFLICT"), "{}", result.output);
-        assert_eq!(result.status.operation, None);
-        assert_eq!(result.status.ahead, 1);
-        assert_eq!(result.status.behind, 1);
+        assert_eq!(aborted.status.operation, None);
     }
 
     #[test]
