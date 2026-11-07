@@ -132,3 +132,46 @@ escutando em 4524 nem em 4599 depois das medições.
   (motivo na decisão de 2026-11-07 e em `docs/SPEC-E2E-HOST-OWNERSHIP.md`).
 - **Windows e macOS Intel.** Fora do alvo verificado; o `exec` do `cargo run` foi medido só no macOS
   arm64.
+
+## Verificação da sessão (branch de integração, depois do merge de `origin/main`)
+
+Rodada independente da sessão, no mesmo par **1620 (UI) / 4517 (host)**, depois de os três tickets
+estarem mesclados (`43bcb74`). O slot fixo 1420/4317 **não** foi usado: nada nesta frente depende dele,
+e a convenção de portas da #210 permite o par alternativo.
+
+```sh
+PATH=$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en OPENRIDR_E2E_UI_PORT=1620 OPENRIDR_E2E_HOST_PORT=4517 \
+OPENRIDR_SCREENSHOT_DIR=/tmp/216-verify/shots \
+bunx playwright test tests/e2e/isolated-host.spec.ts tests/e2e/trust-prompt.spec.ts \
+  tests/e2e/welcome.spec.ts tests/e2e/medium-editor-session.spec.ts \
+  tests/e2e/debug-advanced.spec.ts tests/e2e/tools-install-ux.spec.ts \
+  tests/e2e/analysis-gate.spec.ts tests/e2e/setup-gate-layout.spec.ts
+```
+
+```text
+Running 31 tests using 1 worker
+  31 passed (3.0m)
+```
+
+`bun run check` verde (tsc + `cargo check --workspace --all-targets`).
+
+### O critério de aceite, num spec real
+
+Com um decoy respondendo `/health` (`pid: 999999`) na porta auxiliar que `trust-prompt.spec.ts` usa
+(4518), o spec **falha no `beforeAll`** em vez de dirigir o decoy:
+
+```text
+Error: isolated host on port 4518 failed: port answered /health with pid 999999, expected child pid 40426
+    at isolated-host.ts:94
+    at tests/e2e/trust-prompt.spec.ts:18:10
+```
+
+É o mesmo cenário que, antes da #233, deixava o spec seguir contra o processo alheio (medido em (c)).
+Depois da rodada, `lsof` em 1620/4517/4518 voltou vazio.
+
+### Não verificado nesta rodada
+
+- **Portas padrão 1420/4317.** A verificação rodou em 1620/4517; o slot fixo não foi pedido porque nada
+  aqui depende dele. O caminho do smoke noturno (default) continua sem medição desta frente.
+- Windows e macOS Intel.
