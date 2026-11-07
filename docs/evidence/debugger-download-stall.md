@@ -29,10 +29,11 @@ A falha-antes de cada metade foi medida com o patch oposto, não deduzida:
 
 - **Prazo total**: `download_with` montando o cliente com `.timeout(stall)` (a forma antiga, com a janela do teste como prazo total) reprova o caso lento com 5.120 bytes; com `http::download_agent` passa com 15.360.
 - **Mensagem**: `read_failure` devolvendo sempre a frase antiga reprova o caso de stall com `The download was interrupted: timed out reading response; nothing was extracted.`
+- **URL assinada** (achado da revisão): com `loggable_url` só no argumento de `describe_error`, o caso de servidor que fecha a conexão reprova com `query: Some("X-Amz-Signature=secret")` no `Debug` do `ureq`; com `redact_url` passa sem o token.
 
 ## 2. Host real: 306 s de transferência até `ready`
 
-O `debug.install` do host real (`crates/host/tests/debugger.rs`, binário de teste, `Host::new` + `dispatch`, com o seam de artefato controlado) rodou contra um servidor local que entrega o zip em 66 pedaços de 5 s. O prazo total que a issue mediu era de **300 s**: a transferência passou dele e terminou.
+O caminho é o **binário de teste do host** (`crates/host/tests/debugger.rs`: `Host::new` + `dispatch` reais, seam de artefato controlado), não a ponte de dev — a ponte não alcança `debug.install` (seção 4). O servidor local entrega o zip em 66 pedaços de 5 s. O prazo total que a issue mediu era de **300 s**: a transferência passou dele e terminou.
 
 ```
 +  0s state downloading
@@ -47,7 +48,7 @@ controlled netcoredbg install: states ["downloading", "installing", "verifying",
   verifiedVersion "3.2.0", sha256 "cf028bf7…", server requests 1
 ```
 
-306 s — 6 s além do prazo de 300 s — com o progresso medido subindo e a instalação em `ready`. O servidor lento é um patch **local, não commitado**, no `Route::Slow` do harness (o teste commitado entrega o corpo de uma vez); o resto é o caminho de produto.
+306 s — 6 s além do prazo de 300 s — com o progresso medido subindo e a instalação em `ready`. O resto é o caminho de produto: o único patch é o do harness, abaixo, aplicado localmente e revertido com `git checkout crates/host/tests/debugger.rs` (não é commitado — o teste commitado entrega o corpo de uma vez).
 
 ## 3. Host real: stall de 60 s com a frase do app
 
@@ -62,6 +63,44 @@ O mesmo caminho, com o servidor mandando 100 bytes e calando:
 
 60 s é a janela do **produto** (`DOWNLOAD_STALL`), não a do teste: o stall real do host real falha com a frase do app em `debug.error` e no log, e não com o texto do transporte.
 
+### Patch do harness (local, não commitado) e comando
+
+O teste commitado usa `Route::Ok` e uma espera de 30 s. Para as duas medições acima, `crates/host/tests/debugger.rs` foi alterado assim e revertido depois:
+
+```diff
+@@ Route::Slow, no servidor do harness
+-                                let half = body.len() / 2;
+-                                let _ = stream.write_all(&body[..half]);
+-                                let _ = stream.flush();
+-                                std::thread::sleep(Duration::from_millis(400));
+-                                let _ = stream.write_all(&body[half..]);
++                                let chunks = 66usize;                       // lento: 66 x 5 s = 330 s
++                                let size = (body.len() + chunks - 1) / chunks;
++                                for index in 0..chunks {
++                                    let start = index * size;
++                                    if start >= body.len() { break; }
++                                    let end = (start + size).min(body.len());
++                                    let _ = stream.write_all(&body[start..end]);
++                                    let _ = stream.flush();
++                                    std::thread::sleep(Duration::from_secs(5));
++                                }
+@@ a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolated
+-    let server = Server::start(vec![("/asset.zip", Route::Ok(zip.clone()))]);
++    let server = Server::start(vec![("/asset.zip", Route::Slow(zip.clone()))]);
+-    let deadline = Instant::now() + Duration::from_secs(30);
++    let deadline = Instant::now() + Duration::from_secs(400);
++    // eprintln! do estado e do progresso a cada mudança, para as linhas `+Ns` acima
+```
+
+Para o stall, o mesmo bloco do servidor vira `write_all(&body[..100])` e `sleep(600 s)` (sem fechar a conexão). Comando das duas execuções:
+
+```sh
+cargo test -p openridr-host --test debugger -- --ignored --exact \
+  a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolated --nocapture
+```
+
+O que é reproduzível só com o repositório é a falha-antes de 1 s dos testes de unidade (seção 1); os dois números longos dependem desse patch.
+
 ## 4. Não verificado no app: o painel de Debug está atrás do gate
 
 Não houve prova de tela, e o motivo é estrutural, medido no host:
@@ -74,7 +113,7 @@ Resultado: em `tauri dev` o download do netcoredbg não é alcançável nem pela
 
 ## 5. Bateria completa
 
-`cargo test -p openridr-host` (uma vez, no fim): lib 423 ok / 14 ignoradas, bundled_analysis 11 ok / 11, discovery 1 ok / 1, debugger 15 ok / 14; `--test host` **107 ok, 1 falha conhecida** — `run_start_reports_restore_required_when_assets_are_invalidated_after_a_build` devolveu `restore_required` com `obj/project.assets.json is missing` sob carga, a mesma assinatura registrada em [`test-stability.md`](test-stability.md) (`build_start_needs_the_current_evaluation… / run_start_reports_restore_required…`). Isolado: **passa** (1 ok em 4,68 s). Não é regressão desta frente, que não toca restore, mtime nem `build.start`.
+`cargo test -p openridr-host` (uma vez, no fim): lib 423 ok / 14 ignoradas, bundled_analysis 11 ok / 11, discovery 1 ok / 1, debugger 15 ok / 14, corporate_proxy 1 ok / 1, test_run 7 ok, trust_model 1 ok / 1. `--test host`: **107 ok, 1 falha conhecida** — duas rodadas completas, uma falha diferente em cada, as duas já registradas em [`test-stability.md`](test-stability.md) como sensíveis a carga: `run_start_reports_restore_required_when_assets_are_invalidated_after_a_build` (`restore_required` com `obj/project.assets.json is missing`) e `initialize_failure_surfaces_the_sdk_message_and_kills_the_process`. Ambas **passam isoladas** (4,68 s e 1,99 s), e nesta rodada havia outra sessão rodando a suíte inteira do host em paralelo (`feat-issue-132-macos-system-proxy`) — a hipótese de carga da tabela se confirmou na prática. Nenhuma das duas toca o caminho desta frente (download, restore, mtime, `build.start`).
 
 `bunx tsc --noEmit` verde; `bun test tests/unit` 89 passam; `cargo fmt --all --check` e `cargo clippy --workspace --all-targets -- -D warnings` verdes.
 

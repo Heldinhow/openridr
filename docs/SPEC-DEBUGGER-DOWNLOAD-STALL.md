@@ -49,7 +49,7 @@ A política fica num lugar só: `http::download_agent(url, stall)` monta o clien
 
 A prova é no **host**, não na tela: em `tauri dev` o gate de setup só libera o workspace com `debug.adapterState == "ready"`, e o adaptador é justamente o que o download instala — o painel de Debug fica atrás do gate e o `debug.install` não é alcançável pela UI. Isso é limite do shell de dev (na release o adaptador é embutido e não há download), não defeito desta frente, e a evidência registra "não verificado no app" com esse motivo.
 
-A prova de host usa a ponte HTTP de dev (`bun run host:http`, `OPENRIDR_HOME` isolado) com `debug.plan` + `debug.install` reais contra um servidor local: uma transferência lenta que progride até `ready` e um stall que volta com a frase do app.
+A prova de host usa o **binário de teste do host** (`Host::new` + `dispatch` reais, seam de artefato controlado, `OPENRIDR_HOME` isolado) com `debug.plan` + `debug.install` contra um servidor local: uma transferência lenta que progride até `ready` e um stall que volta com a frase do app. A ponte HTTP de dev não serve para isso — ela também não alcança `debug.install`, porque `require_trust` exige setup pronto e o setup exige o adaptador que o download instala (medido: `trust.grant` responde `setup_required`).
 
 ## Out of scope
 
