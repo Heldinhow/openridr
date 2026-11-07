@@ -339,6 +339,10 @@ fn tool_dir(home: &Path) -> PathBuf {
     home.join("tools/netcoredbg")
 }
 
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 fn fake_netcoredbg(path: &Path) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();

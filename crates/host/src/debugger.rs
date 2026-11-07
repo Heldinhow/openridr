@@ -1886,6 +1886,10 @@ mod tests {
     use crate::test_harness::EnvVar;
 
     #[cfg(unix)]
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     fn fake_adapter(dir: &Path, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         fs::create_dir_all(dir).unwrap();
