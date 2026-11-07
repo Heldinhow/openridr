@@ -359,6 +359,7 @@ fn fake_netcoredbg(path: &Path) {
     }
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it_isolated() {
@@ -1149,6 +1150,7 @@ fn cancel_keeps_partial_state_and_retry_completes_isolated() {
     assert!(Path::new(finished["destination"].as_str().unwrap()).starts_with(seam.home.path()));
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn the_debugger_methods_are_gated_before_trust_like_the_other_executables_isolated() {
@@ -1313,6 +1315,7 @@ fn an_ambient_bundled_override_never_reaches_the_controlled_installer() {
 
 // Each leaf below writes `OPENRIDR_*` for its host, so it runs in its own process: the
 // shared test process never changes its environment.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
     support::run_isolated_leaf(
@@ -1375,6 +1378,7 @@ fn cancel_keeps_partial_state_and_retry_completes() {
     support::run_isolated_leaf("cancel_keeps_partial_state_and_retry_completes_isolated");
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn the_debugger_methods_are_gated_before_trust_like_the_other_executables() {
     support::run_isolated_leaf(
