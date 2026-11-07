@@ -1,35 +1,32 @@
-import { expect, test, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hostPort, seedVerifiedTools } from "./environment";
+import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // The welcome lists what the host stored, so this spec runs its own host with a real, isolated
 // OPENRIDR_HOME (recent.json + trusted.json) and points the UI at it, like trust-prompt.spec.ts.
 const port = hostPort + 2;
 const fixture = path.resolve("fixtures/OrderDesk");
 let home: string;
-let server: ChildProcess;
+let host: IsolatedHost;
 const bases: string[] = [];
 
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-welcome-home-"));
-  const bundled = seedVerifiedTools(home);
-  server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, OPENRIDR_HOME: home, OPENRIDR_TRUST_STORE: "on", OPENRIDR_BUNDLED_NETCOREDBG: bundled },
-    stdio: "ignore",
+  host = await startIsolatedHost({
+    port,
+    homePrefix: "openridr-welcome-home-",
+    env: { OPENRIDR_TRUST_STORE: "on" },
+    prepare: (prepared) => ({ OPENRIDR_BUNDLED_NETCOREDBG: seedVerifiedTools(prepared) }),
   });
-  await expect.poll(async () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false), {
-    timeout: 300_000,
-  }).toBe(true);
+  home = host.home;
 });
 
-test.afterAll(() => {
-  server?.kill();
-  fs.rmSync(home, { recursive: true, force: true });
+test.afterAll(async () => {
+  await host?.stop();
   for (const base of bases) fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -45,13 +42,6 @@ async function hostCall(method: string, params = {}) {
     body: JSON.stringify({ method, params }),
   });
   return (await response.json()) as { data: any };
-}
-
-async function useIsolatedHost(page: Page) {
-  await page.route(/\/__host\/(call|health)$/, async (route) => {
-    const target = `http://127.0.0.1:${port}/${route.request().url().split("/").pop()}`;
-    await route.fetch({ url: target }).then((response) => route.fulfill({ response }), () => {});
-  });
 }
 
 // A copy of the fixture whose solution is called `<name>.sln`, so rows are told apart by name.
@@ -77,7 +67,7 @@ async function storedDecision(solution: string) {
 }
 
 test("first run: empty state with Open highlighted and no list", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   await page.goto("/");
   await expect(page.getByTestId("welcome-empty")).toBeVisible();
   await expect(page.getByTestId("welcome-recent")).toHaveCount(0);
@@ -86,7 +76,7 @@ test("first run: empty state with Open highlighted and no list", async ({ page }
 });
 
 test("rows show name, short path, last opened and trust badge; search filters and counts", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   const billing = project("Billing");
   const inventory = project("Inventory");
   await seed(billing.solution, "restricted");
@@ -121,7 +111,7 @@ test("rows show name, short path, last opened and trust badge; search filters an
 });
 
 test("the ⋯ menu changes the Trust decision without opening, and removes only the list entry", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   const { solution } = project("Menu");
   await seed(solution, "restricted");
   await page.goto("/");
@@ -154,7 +144,7 @@ test("the ⋯ menu changes the Trust decision without opening, and removes only 
 });
 
 test("a project that cannot be opened shows the error on its own row", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   const gone = project("Gone");
   const kept = project("Kept");
   await seed(gone.solution, "trusted");
@@ -174,7 +164,7 @@ test("a project that cannot be opened shows the error on its own row", async ({ 
 });
 
 test("keyboard: ↑/↓ move between rows, Enter opens, / focuses search, ⌘O asks to open a folder", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   await seed(project("Alpha").solution, "trusted");
   await seed(project("Beta").solution, "trusted");
   // The real chooser is a native macOS dialog; answer it as "cancelled" and count the asks.
@@ -207,7 +197,7 @@ test("keyboard: ↑/↓ move between rows, Enter opens, / focuses search, ⌘O a
 });
 
 test("Toolchain lives in the second view and Projects returns", async ({ page }) => {
-  await useIsolatedHost(page);
+  await host.useFor(page);
   await page.goto("/");
   await expect(page.getByTestId("welcome-nav-projects")).toHaveAttribute("aria-current", "page");
   await expect(page.getByTestId("toolchain")).toBeHidden();
