@@ -63,6 +63,15 @@ describe("README.md", () => {
     expect(relativeTargets.filter((target) => !existsSync(resolve(root, target)))).toEqual([]);
   });
 
+  test("the contribution guide's relative links resolve on disk", () => {
+    const guide = readFileSync(resolve(root, "CONTRIBUTING.md"), "utf8");
+    const targets = [...guide.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)]
+      .map((match) => match[1])
+      .filter((target) => !/^[a-z]+:/i.test(target));
+    expect(targets.length).toBeGreaterThan(0);
+    expect(targets.filter((target) => !existsSync(resolve(root, target)))).toEqual([]);
+  });
+
   test("does not publish a personal path or email address", () => {
     expect(readme).not.toContain("/Users/");
     expect(readme.match(EMAIL)).toBeNull();

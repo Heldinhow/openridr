@@ -40,8 +40,8 @@ limitations are in [docs/RELEASE-ALPHA.md](docs/RELEASE-ALPHA.md).
 - **Build** with `dotnet`; **Run** with `Properties/launchSettings.json` profiles, including
   `applicationUrl`, environment variables, arguments and working directory.
 - **Debug** through the bundled netcoredbg: breakpoints (conditional ones too), stepping, locals and
-  expression evaluation. On Apple Silicon it is community supported and needs the experimental
-  opt-in in settings.
+  expression evaluation. On Apple Silicon it is community supported; pressing Debug enables the
+  experimental flag for the session, and the panel shows a non-blocking experimental note.
 - **Tests** through VSTest discovery and runs, with per-test results.
 - **Git**: log, diff, commit, branches, pull and push.
 - **Terminal**, **NuGet** package listing, **Search Everywhere** and a Rider/IntelliJ keymap.
@@ -75,13 +75,14 @@ issue, and open an issue to agree on the approach before a large change.
 - [Security policy](SECURITY.md) — report vulnerabilities through GitHub's private vulnerability
   reporting. The maintainer still has to enable that channel; until then there is no private
   reporting path, so do not open a public issue with exploit details.
-- Discussions are not enabled yet: the maintainer has to turn them on first, so until then the issue
-  tracker is the only channel for questions.
+- Discussions are not enabled yet. Until the maintainer turns them on, there is no dedicated
+  channel for general questions.
 - Documentation index: [docs/README.md](docs/README.md).
 
 ## License
 
-[MIT](LICENSE) © 2026 Helder Santos. Third-party components keep their own licenses and are listed in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); csharp-ls and netcoredbg (MIT) are bundled into the
+[MIT](LICENSE) © 2026 Helder Santos. Components in the app bundle are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); Rust and npm dependencies keep their own licenses.
+The csharp-ls and netcoredbg components (MIT) are bundled into the
 app, not committed here. OpenRidr is not affiliated with JetBrains; "Rider" and "IntelliJ" are
 trademarks of JetBrains s.r.o., used only to describe the keymap and the UX inspiration.
