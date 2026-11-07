@@ -1957,10 +1957,7 @@ fn evaluation_includes_a_project_outside_the_solution_directory() {
     assert_eq!(outside["state"], "ok", "{}", outside["log"]);
     assert_eq!(outside["kind"], "library");
     // Outside the root the path is absolute and canonical: no `..` crosses the host API.
-    assert_eq!(
-        outside["path"],
-        lib.join("Lib.csproj").to_string_lossy().as_ref()
-    );
+    assert_eq!(outside["path"], support::portable(&lib.join("Lib.csproj")));
     assert_eq!(outside["tfms"], json!(["net8.0"]));
     assert!(outside["targetPath"]
         .as_str()
@@ -2070,7 +2067,8 @@ fn the_scope_admits_the_outside_project_and_refuses_everything_else() {
         );
     }
     // A symlink inside the root that points at an in-scope directory is admitted: the target is in
-    // the scope, which is what containment is decided on.
+    // the scope, which is what containment is decided on. Windows has no symlink here.
+    #[cfg(unix)]
     assert!(
         host.dispatch(
             "file.read",
@@ -2281,7 +2279,7 @@ fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
     );
     assert_eq!(
         lib_outline["files"],
-        json!([lib.join("Greeting.cs").to_string_lossy()])
+        json!([support::portable(&lib.join("Greeting.cs"))])
     );
 
     grant(&host);
@@ -3740,7 +3738,12 @@ fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated(
         .map(|value| value.as_str().unwrap())
         .collect();
     assert_eq!(argv.len(), 8, "{argv:?}");
-    assert!(argv[0].ends_with("/dotnet"));
+    let dotnet = if cfg!(windows) {
+        "dotnet.exe"
+    } else {
+        "dotnet"
+    };
+    assert_eq!(std::path::Path::new(argv[0]).file_name().unwrap(), dotnet);
     assert_eq!(
         &argv[1..],
         [

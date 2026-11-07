@@ -233,7 +233,11 @@ fn isolate_child_home(command: &mut Command, home: &Path, temp: &Path) {
             .env("APPDATA", home)
             .env("LOCALAPPDATA", home)
             .env("TEMP", temp)
-            .env("TMP", temp);
+            .env("TMP", temp)
+            // `HOME`/`TMPDIR` are Unix names; leaving them set makes NuGet read a home that is
+            // not the isolated one.
+            .env_remove("HOME")
+            .env_remove("TMPDIR");
     }
     #[cfg(not(windows))]
     {
