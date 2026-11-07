@@ -126,6 +126,8 @@ test("symlinks are marked and a symlinked folder is not expanded", async ({ page
   await expect(linkDir).toHaveAttribute("data-symlink", "true");
   await expect(linkDir.locator(".tree-chevron.open")).toHaveCount(0);
   await expect(linkDir.locator(".icon-link")).toHaveCount(1);
+  // One glyph per row: the link is the row's own icon here, so no corner badge on top of it.
+  await expect(linkDir.locator(".symlink-mark")).toHaveCount(0);
   await linkDir.click();
   await expect(page.getByTestId("tree-file-LinkDir/Order.cs")).toHaveCount(0);
 });

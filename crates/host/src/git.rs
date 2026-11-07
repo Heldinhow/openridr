@@ -143,6 +143,9 @@ pub fn info() -> GitInfo {
     let path = path();
     let version = Command::new("git")
         .arg("--version")
+        // Off for the optional stat-cache lock only: the host must never hold `.git/index.lock`
+        // against the user's own git command. Real writes still take it.
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(Stdio::null())
         .output()
         .ok()
@@ -489,6 +492,9 @@ fn spawn_bytes(cwd: &Path, args: &[&str]) -> Result<(Option<i32>, Vec<u8>, Strin
         // A host without a terminal must fail instead of waiting on a username prompt. The
         // credential helper still answers, so the user's stored credentials keep working.
         .env("GIT_TERMINAL_PROMPT", "0")
+        // Off for the optional stat-cache lock only: the host must never hold `.git/index.lock`
+        // against the user's own git command. Real writes still take it.
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(Stdio::null())
         .output()
         .map_err(|error| match error.kind() {
@@ -520,6 +526,7 @@ fn spawn_bounded(cwd: &Path, args: &[&str], limit: usize) -> Result<Captured, Sp
         .args(args)
         .current_dir(cwd)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -799,6 +806,8 @@ fn run_with_deadline(
         .args(args)
         .current_dir(cwd)
         .env("GIT_TERMINAL_PROMPT", "0")
+        // Same as the other spawns: never hold the optional index lock for a read.
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -5953,6 +5962,51 @@ mod tests {
         assert_eq!(branches(plain.path()).state, "not_a_repository");
     }
 
+    /// `git status` degrades silently when it cannot take the index lock (measured with a held
+    /// `.git/index.lock`, a read-only index and a read-only `.git`: exit 0 every time), so the
+    /// child's environment is the only deterministic observation of what the host asked for. A
+    /// shim first on `PATH` records `GIT_OPTIONAL_LOCKS` and execs the real git.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "isolated leaf: it rewrites PATH for its own process"]
+    fn git_runs_do_not_take_the_optional_index_lock_isolated() {
+        use crate::test_harness::EnvVar;
+        use std::os::unix::fs::PermissionsExt;
+
+        let real = path().expect("git is on PATH");
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+
+        let shim_dir = tempfile::tempdir().unwrap();
+        let record = shim_dir.path().join("optional-locks.txt");
+        let shim = shim_dir.path().join("git");
+        fs::write(
+            &shim,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"${{GIT_OPTIONAL_LOCKS-}}\" >> '{}'\nexec '{}' \"$@\"\n",
+                record.display(),
+                real
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let old_path = std::env::var("PATH").unwrap_or_default();
+        let _path = EnvVar::set("PATH", format!("{}:{old_path}", shim_dir.path().display()));
+
+        assert_eq!(status(&root).state, "ok");
+        assert_eq!(info().state, "found");
+
+        let recorded = fs::read_to_string(&record).unwrap();
+        let values: Vec<&str> = recorded.lines().collect();
+        assert!(!values.is_empty(), "the shim git never ran");
+        assert!(
+            values.iter().all(|value| *value == "0"),
+            "GIT_OPTIONAL_LOCKS reached git as {values:?}"
+        );
+    }
+
     #[test]
     fn masked_output_hides_credentials() {
         let text =
@@ -5966,4 +6020,12 @@ mod tests {
         );
         assert_eq!(mask_urls("plain text"), "plain text");
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn git_runs_do_not_take_the_optional_index_lock() {
+    crate::test_harness::run_isolated_leaf(
+        "git::tests::git_runs_do_not_take_the_optional_index_lock_isolated",
+    );
 }
