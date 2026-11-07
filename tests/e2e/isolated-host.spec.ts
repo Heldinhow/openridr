@@ -84,3 +84,20 @@ test("prepare seeds the home and its env before the host starts", async () => {
   ).json()) as { data: { projects: { path: string; decision: string | null }[] } };
   expect(answer.data.projects).toEqual([{ path: project, openedAt: 1, decision: null }]);
 });
+
+test("a prepare that throws leaves no home behind", async () => {
+  const prefix = "openridr-isolated-prepare-fails-";
+  const error = await startIsolatedHost({
+    port,
+    homePrefix: prefix,
+    prepare: () => {
+      throw new Error("seed failed");
+    },
+  }).then(
+    () => null,
+    (failure: Error) => failure,
+  );
+  expect(error?.message).toContain(String(port));
+  expect(error?.message).toContain("seed failed");
+  expect(tempDirs(prefix)).toEqual([]);
+});

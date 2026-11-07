@@ -175,3 +175,32 @@ Depois da rodada, `lsof` em 1620/4517/4518 voltou vazio.
 - **Portas padrão 1420/4317.** A verificação rodou em 1620/4517; o slot fixo não foi pedido porque nada
   aqui depende dele. O caminho do smoke noturno (default) continua sem medição desta frente.
 - Windows e macOS Intel.
+
+## Code review (openai-codex/gpt-6.1-terra, 2026-11-07): achados e destino
+
+1. **Médio — `prepare` lançando deixava o home temporário.** Procede: o `mkdtemp` vinha antes do
+   `spawn` e o `fail` só existia depois dele. **Corrigido**: o `fail` agora é definido antes, trata o
+   filho ausente e apaga o home também nesse caminho; caso novo em `isolated-host.spec.ts`
+   (`a prepare that throws leaves no home behind`).
+2. **Médio — o timer de `SIGKILL` continuava armado depois da saída do filho.** Procede como higiene.
+   **Corrigido**: `clearTimeout` no evento `exit`. O risco citado (sinalizar um pid reciclado) não se
+   aplica — medido: depois da saída o `ChildProcess` do Node não tem mais handle e `kill()` devolve
+   `false` sem sinalizar nada.
+3. **Médio — o timeout do hook do Playwright cortava o helper antes dos 300 s.** Procede, e era o
+   achado mais caro: `trust-prompt` e `welcome` rodam com `timeout: 30_000`, então um build frio de
+   `cargo` matava o `beforeAll` sem a mensagem da porta e sem ninguém para parar o host (o `host` ainda
+   não existia no `afterAll`). **Corrigido e medido**: `startIsolatedHost` chama
+   `test.setTimeout(START_TIMEOUT_MS + 30_000)`. Prova: spec descartável com
+   `test.describe.configure({ timeout: 2_000 })` cujo `beforeAll` chamou o helper e dormiu 5 s —
+   **passou** (o orçamento do hook subiu); sem a chamada, o mesmo sleep falha com "hook timeout".
+   `test.info().timeout` não serve para conferir: ele continua reportando o timeout do teste (medido).
+4. **Médio — porta ocupada por um serviço que não responde `/health` válido.** **Não muda**, por
+   decisão: nesse caso o filho não consegue bindar e sai, e o helper cai no ramo "child exited with
+   code N before answering /health", cuja mensagem já nomeia a porta. O decoy do spec cobre o caso
+   oposto (alguém responde `/health`). Um listener mudo não consegue produzir o bug da #216 — verde
+   contra host alheio — porque o spec nunca chega a falar com ele.
+5. **Baixo — `spawn` que falha esperava 10 s.** Procede: sem pid não há `exit` para aguardar.
+   **Corrigido**: `stopProcess` volta na hora quando o filho nunca teve pid.
+
+Depois das correções: `isolated-host.spec.ts` **5 passed** e os sete specs **32 passed** no total, em
+1620/4517 (mesma rodada verde do critério de aceite acima).

@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Page } from "@playwright/test";
+import { test, type Page } from "@playwright/test";
 
 /**
  * The only way an E2E spec gets a host of its own. It owns the child process and a temporary
@@ -36,7 +36,7 @@ export interface IsolatedHost {
 }
 
 /** The first `cargo run` in a fresh worktree compiles the host; the shared harness waits as long. */
-const START_TIMEOUT_MS = 300_000;
+export const START_TIMEOUT_MS = 300_000;
 const POLL_INTERVAL_MS = 100;
 const PROBE_TIMEOUT_MS = 2_000;
 const KILL_TIMEOUT_MS = 10_000;
@@ -59,15 +59,20 @@ function hasExited(server: ChildProcess): boolean {
 }
 
 function stopProcess(server: ChildProcess): Promise<void> {
-  if (hasExited(server)) return Promise.resolve();
+  // A spawn that never produced a pid has nothing to kill and never emits "exit".
+  if (server.pid === undefined || hasExited(server)) return Promise.resolve();
   return new Promise((resolve) => {
-    server.once("exit", () => resolve());
-    server.kill();
-    // A host that ignores SIGTERM must not hang the suite.
-    setTimeout(() => {
+    // A host that ignores SIGTERM must not hang the suite; the timer dies with the process.
+    const escalate = setTimeout(() => {
       server.kill("SIGKILL");
       resolve();
-    }, KILL_TIMEOUT_MS).unref();
+    }, KILL_TIMEOUT_MS);
+    escalate.unref();
+    server.once("exit", () => {
+      clearTimeout(escalate);
+      resolve();
+    });
+    server.kill();
   });
 }
 
@@ -77,22 +82,35 @@ export async function startIsolatedHost({
   env = {},
   prepare,
 }: IsolatedHostOptions): Promise<IsolatedHost> {
+  // The helper waits up to START_TIMEOUT_MS; the hook that awaits it has to outlast that budget, or
+  // Playwright cuts the start and the child is left with nobody to stop it.
+  test.setTimeout(START_TIMEOUT_MS + 30_000);
+
   const base = `http://127.0.0.1:${port}`;
   const home = fs.mkdtempSync(path.join(os.tmpdir(), homePrefix));
-  const prepared = prepare?.(home) ?? {};
-  const server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, ...env, ...prepared, OPENRIDR_HOME: home },
-    stdio: "ignore",
-  });
-  const spawnError = new Promise<Error>((resolve) => server.once("error", resolve));
-  const pid = server.pid;
+  let server: ChildProcess | undefined;
 
   // Every failure path leaves no child and no home behind, so the next run starts clean.
   const fail = async (reason: string): Promise<never> => {
-    await stopProcess(server);
+    if (server) await stopProcess(server);
     fs.rmSync(home, { recursive: true, force: true });
     throw new Error(`isolated host on port ${port} failed: ${reason}`);
   };
+
+  let prepared: NodeJS.ProcessEnv;
+  try {
+    prepared = prepare?.(home) ?? {};
+  } catch (error) {
+    return fail(`prepare threw: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const child = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
+    env: { ...process.env, ...env, ...prepared, OPENRIDR_HOME: home },
+    stdio: "ignore",
+  });
+  server = child;
+  const spawnError = new Promise<Error>((resolve) => child.once("error", resolve));
+  const pid = child.pid;
 
   if (pid === undefined) return fail((await spawnError).message);
 
@@ -116,7 +134,7 @@ export async function startIsolatedHost({
           });
         },
         async stop() {
-          await stopProcess(server);
+          await stopProcess(child);
           fs.rmSync(home, { recursive: true, force: true });
         },
       };
