@@ -1390,7 +1390,7 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   em `.github/rulesets/**` ou em required check. O que entra é o menor artefato que fecha cada buraco,
   com o número que o justifica.
 - **Type check estrito em vez de linter (decisão do Helder).** `noUnusedLocals` e
-  `noUnusedParameters` entram no `tsconfig.json`: 17 achados reais hoje (13 variáveis e 4 parâmetros),
+  `noUnusedParameters` entram no `tsconfig.json`: 17 achados reais hoje (14 variáveis e 3 parâmetros),
   zero dependência nova e **zero deriva possível entre local e CI**, porque as flags moram no arquivo
   que o `tsc --noEmit` do CI já lê — nenhum passo novo no workflow, nenhum script novo no
   `package.json`. Recusado agora: Biome, com o baseline medido para a issue filha — 175 achados com
@@ -1398,7 +1398,7 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `useHookAtTopLevel` que são **todos falso positivo em spec Playwright** (Biome confunde o callback do
   `test()` com componente React), 1,1 MB de JS + 81 MB de binário de plataforma, e a config default
   inútil (596 erros + 407 warnings, mais 1127 `noReactNativeRawText`). `noUncheckedIndexedAccess`
-  fica registrado como próximo degrau com o número: 120.
+  fica registrado como próximo degrau com o número: 120. Cinco dos 17 achados estão em specs de E2E.
 - **`src-tauri` em job novo e paralelo, não em passo do job Rust.** O job Rust é o caminho crítico
   (3:38–4:21 de uma parede de ~4:20); somar 2–4 min a ele levaria todo PR a ~7 min, enquanto um job
   paralelo não muda a parede. Custo aceito: ~35 linhas de YAML, uma entrada no `needs` do agregador e
