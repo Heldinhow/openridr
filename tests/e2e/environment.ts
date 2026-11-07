@@ -31,6 +31,13 @@ export function screenshotsDirFor(uiPort: number, override: string | undefined):
 }
 
 export const screenshotsDir = screenshotsDirFor(uiPort, process.env.OPENRIDR_SCREENSHOT_DIR);
+/**
+ * The capture directory only when OPENRIDR_SCREENSHOT_DIR asked for one. Specs that capture on
+ * request stay silent without it; specs that always capture take `screenshotsDir`.
+ */
+export const requestedScreenshotsDir = process.env.OPENRIDR_SCREENSHOT_DIR
+  ? screenshotsDir
+  : undefined;
 
 /** Same pinned csharp-ls package SHA-512 the host verifies before installing. */
 const PACKAGE_SHA512 =

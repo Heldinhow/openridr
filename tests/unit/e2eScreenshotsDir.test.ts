@@ -9,7 +9,11 @@ import { screenshotsDirFor } from "../e2e/environment";
 // evidence, so the default lives outside the repository and only the override reaches it.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const e2eDir = resolve(root, "tests/e2e");
-const VERSIONED = "docs/evidence/screenshots";
+// `"docs/evidence/screenshots"` and `path.join("docs", "evidence", "screenshots")` are the same
+// path, so the scan compares letters only: separators, quotes and commas disappear.
+const VERSIONED_LETTERS = "docsevidencescreenshots";
+const lettersOf = (source: string) => source.toLowerCase().replace(/[^a-z]/g, "");
+const namesVersionedDir = (source: string) => lettersOf(source).includes(VERSIONED_LETTERS);
 
 describe("screenshotsDirFor", () => {
   test("defaults outside the repository, keyed by the UI port", () => {
@@ -31,11 +35,20 @@ describe("screenshotsDirFor", () => {
   });
 });
 
+describe("the versioned-dir guard", () => {
+  test("rejects the literal path and the segmented path.join form", () => {
+    expect(namesVersionedDir('path.resolve("docs/evidence/screenshots")')).toBe(true);
+    expect(namesVersionedDir('path.join("docs", "evidence", "screenshots")')).toBe(true);
+    expect(namesVersionedDir('path.join(screenshotsDir, "11-build-ok.png")')).toBe(false);
+  });
+});
+
 describe("E2E specs", () => {
   test("none names the versioned screenshots directory", () => {
-    const offenders = readdirSync(e2eDir)
+    const offenders = readdirSync(e2eDir, { recursive: true })
+      .map(String)
       .filter((name) => name.endsWith(".spec.ts"))
-      .filter((name) => readFileSync(path.join(e2eDir, name), "utf8").includes(VERSIONED));
+      .filter((name) => namesVersionedDir(readFileSync(path.join(e2eDir, name), "utf8")));
     expect(offenders).toEqual([]);
   });
 });

@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { openProjectDetails } from "./automatic";
-import { host } from "./environment";
+import { host, requestedScreenshotsDir } from "./environment";
 
 const temporaryWorkspaces: string[] = [];
 
@@ -23,7 +23,7 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     await expect(page.getByTestId("workspace-error")).toHaveCount(0);
     await expect(page.getByTestId("sdk-host")).toBeAttached();
     const capture = async (name: string) => {
-      const directory = process.env.OPENRIDR_SCREENSHOT_DIR;
+      const directory = requestedScreenshotsDir;
       if (!directory) return;
       fs.mkdirSync(directory, { recursive: true });
       await page.screenshot({ path: path.join(directory, `${name}-${viewport.width}x${viewport.height}.png`) });
