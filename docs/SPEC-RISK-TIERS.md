@@ -116,6 +116,13 @@ resolvido por escrito e revert rate medido por mês.
   `src-tauri/resources/*.entitlements`, `src-tauri/tauri.conf.json`,
   `crates/host/src/trusted.rs`; médio = `src/**`, `crates/**`, `src-tauri/**`, `fixtures/**`,
   `rust-toolchain.toml` e **qualquer caminho não casado**. Misto → o mais alto.
+- **O caminho chega cru, e o que não chega cru é `high`.** O diff é pedido com
+  `core.quotePath=false` (issue #276): sem isso um nome não-ASCII sai citado
+  (`"docs/evid\303\252ncia.md"`), não casa com nenhuma regra e cai no default — um PR só de
+  documentação virava `medium` e o auto-merge não armava. O caminho que o git **ainda** cita (tab, aspas
+  ou quebra de linha no nome) é `high` com o motivo `git quoted the path`: um caminho que o classificador
+  não consegue ler não é documentação, e tier baixo arma auto-merge. Mesma política do hook de pre-commit
+  (#265), que nesse caso roda os dois checks.
 - **Mudança de dependência** é diff de tabela, não arquivo tocado: `Cargo.lock` e `bun.lock` tocados
   são alto; em `package.json` e nos `Cargo.toml` (raiz e `src-tauri`) o script extrai as tabelas de
   dependência de cada lado (base via `git show`, head via árvore) e as compara ordenadas, para que
@@ -172,8 +179,10 @@ interna foi chamada.
   rulesets, release, vendor, ci-*, entitlements, tauri.conf.json, trusted.rs, caminho desconhecido),
   mistos (docs+src = medium, src+workflow = high), dependência (`Cargo.lock`, `bun.lock`,
   `package.json` com troca de versão de dependência, `package.json` só com mudança em `scripts`,
-  `Cargo.toml` só com `version`, `Cargo.toml` com dependência nova, manifesto adicionado) e os erros
-  (ref inexistente, diff vazio). Falha-antes: o script não existe, então o autoteste começa vermelho.
+  `Cargo.toml` só com `version`, `Cargo.toml` com dependência nova, manifesto adicionado), nome
+  não-ASCII em documentação (`low`) e em código de produto (`medium`), nome com espaço (`low`) e nome com
+  tab (`high`, motivo `git quoted the path`) e os erros (ref inexistente, diff vazio). Falha-antes: o
+  script não existe, então o autoteste começa vermelho.
 - **`scripts/ci-aggregate.sh`** (agregador extraído): teste em `tests/shell/`, com o JSON de `needs`
   como entrada. Casos: PR tudo verde passa; `push` com os dois PR-only `skipped` passa; PR com
   `governance: skipped` reprova; PR com `risk: skipped` reprova; PR com `rust: failure` reprova;

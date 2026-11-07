@@ -1615,3 +1615,60 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   handler e só então remove a rota.
 - **Consequência.** `docs/SPEC-E2E-DISK-CONFLICT.md`; ticket filho de #273; evidência em
   `docs/evidence/e2e-disk-conflict.md`; ticket #278. Nenhuma linha de `src/`, nenhum `data-testid`, nenhuma dependência.
+
+## 2026-11-07 — O pre-commit decide pelo diff do commit em andamento (issue #265)
+
+- **Decisão.** O hook de pre-commit deixa de rodar `bun run check` em todo commit e passa a rodar só o
+  que os caminhos daquele commit pedem: documentação (`*.md`, `docs/**`) nada; Rust (`crates/**`,
+  `src-tauri/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*`) `cargo check --workspace --all-targets`;
+  qualquer outro caminho `tsc --noEmit`; misto, os dois. `bun run check` fica intocado como o check
+  completo manual e do CI: o hook filtra, não substitui.
+- **Por que `git diff --cached --name-only`, não `git diff --name-only HEAD`.** Com `git commit --only`
+  (o do `scripts/commit-only.sh`) o git aponta `GIT_INDEX_FILE` para um index temporário, então o diff do
+  index lista exatamente os caminhos do commit; o diff contra `HEAD` lista também o que está sujo na
+  árvore de trabalho, que é o custo de hoje. Verificado num repositório descartável: `--only`, `-a` e
+  amend só de mensagem (diff vazio) se comportam como a classificação precisa.
+- **Por que caminho ambíguo roda só `tsc`.** O que sobra é `scripts/**`, `fixtures/**`, `.githooks/**`,
+  `.github/**`: `tsc` custa 0,8 s e pega config da UI quebrada; `cargo check` ali não tem o que checar. O
+  check completo só quando o commit tem Rust e não-Rust.
+- **Por que não há limiar de diff grande.** O check é por linguagem, não por tamanho: diff grande só de
+  TS não tem Rust para checar e o misto já roda os dois. Um limiar seria um número inventado pagando
+  `cargo check` sem mudança de Rust.
+- **Três guardas do code review.** O diff sai com `core.quotePath=false` e `--no-renames`: sem o
+  primeiro, um nome não-ASCII em `crates/` vira `"crates/a\303\247..."` e não casa com o padrão de Rust
+  (o `cargo check` seria pulado); sem o segundo, mover um `.rs` para `docs/` lista só o destino e o
+  commit passa como documentação. Caminho que ainda sai entre aspas roda os dois checks. E os caminhos
+  são lidos um por linha, nunca com `for path in $staged`: a divisão por espaço corta `crates/a.md b.rs`
+  em `crates/a.md` (documentação) e `b.rs` (TypeScript), e o `cargo check` não roda.
+- **`node_modules` só no ramo do TS.** O gate é `node_modules/.bin/tsc` e a mensagem diz `bun install`.
+  Commit só de documentação numa worktree nova passa — antes ele morria com `tsc: command not found`.
+- **Consequência.** `docs/SPEC-PRECOMMIT-PROPORTIONAL.md`; ticket #271, filho de #265; teste em
+  `tests/shell/pre-commit.test.sh` (rodado à mão, como os outros; ligar `tests/shell/` no CI é a #269);
+  uma linha do `AGENTS.md` corrigida, o que faz o PR ser `risk:high`. Nenhuma dependência nova, nenhum
+  `data-testid`, nenhuma mudança em `bun run check`.
+
+## 2026-11-07 — O risk tier lê o caminho cru que o git cita (issue #276)
+
+- **Decisão.** O classificador de risco pede o diff com `git -c core.quotePath=false diff --name-only
+  --no-renames "$base...$head"`, e o caminho que o git **ainda** cita (tab, aspas ou quebra de linha no
+  nome) é `high`, com o motivo `git quoted the path`. Nada mais muda: a tabela de caminhos, o gate, o
+  agregador e o workflow ficam como estão.
+- **Por que.** `core.quotePath` é `true` por default, então `docs/evidência.md` chegava como
+  `"docs/evid\303\252ncia.md"`, não casava com `docs/*` e caía no default (`medium`): um PR só de
+  documentação não recebia `risk:low`, o job `risk` não armava o auto-merge e o mantenedor era chamado à
+  toa. Onde o tier certo já era `medium` o defeito era invisível, porque o default coincidia.
+- **Por que falhar fechado no que continua citado.** `core.quotePath=false` resolve o não-ASCII, mas o git
+  cita de qualquer jeito um nome com tab, aspas ou quebra de linha (medido: `"docs/tab\there.md"`).
+  Despir as aspas seria adivinhar; `high` é a mesma política do hook de pre-commit (#265), que nesse caso
+  roda os dois checks. Custo aceito: um PR que toque um desses nomes passa a exigir o mantenedor.
+- **Por que não `-z`.** `git diff -z` é imune a citação por construção, mas a leitura NUL-delimitada exige
+  `read -d ''`, que o `dash` — o `/bin/sh` do runner — não tem. A flag resolve o caso que existe sem
+  trocar a forma de ler.
+- **Por que o loop de leitura ficou como está.** `IFS` com quebra de linha, `for path in $paths` e
+  `set -f` já leem um caminho por linha, sem divisão por espaço e sem glob; medido, os dois estilos se
+  comportam igual. O caso de nome com espaço entrou no autoteste como prova de regressão, não como
+  mudança.
+- **Consequência.** `docs/SPEC-RISK-TIER-QUOTED-PATHS.md`; critérios em `docs/SPEC-RISK-TIERS.md`; ticket
+  #276; autoteste de 45 para 51 casos (`unicode-docs`, `unicode-product`, `unicode-product-reason`,
+  `space-in-name`, `quoted-tab`, `quoted-tab-reason`); `AGENTS.md` intocado (ele não afirmava nada falso sobre citação). Nenhuma
+  dependência nova, nenhum script novo, nenhum `data-testid`.

@@ -36,8 +36,9 @@ fi
 # `...` is the pull-request diff (merge base to head), not the two-tip diff: commits that landed on the
 # base branch after the branch started are not this pull request's risk. `--no-renames` reports a rename
 # as a deletion plus an addition, so both the old and the new path get classified (deleting
-# `trusted.rs` must not read as "an unknown path").
-paths=$(git diff --name-only --no-renames "$base...$head") || {
+# `trusted.rs` must not read as "an unknown path"). `core.quotePath=false` keeps a non-ASCII name raw
+# instead of `"docs/evid\303\252ncia.md"`, which matches no rule and would raise the tier.
+paths=$(git -c core.quotePath=false diff --name-only --no-renames "$base...$head") || {
   echo "risk tier: could not diff $base...$head" >&2
   exit 2
 }
@@ -155,6 +156,11 @@ IFS='
 set -f
 for path in $paths; do
   case "$path" in
+    '"'*)
+      # git still quotes a name with a tab, a quote or a newline even with core.quotePath=false. A path
+      # this script cannot read is not documentation: fail closed instead of guessing a lower tier.
+      bump high "$path" 'git quoted the path'
+      ;;
     .github/workflows/* | .github/rulesets/*)
       bump high "$path" 'CI workflow or branch ruleset'
       ;;
