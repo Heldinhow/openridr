@@ -43,7 +43,25 @@ Cobre, numa raiz falsa com `bun`, `pgrep` e `tauri` falsos: par vendorizado (exp
 
 `shellcheck -s sh` nos dois scripts: só `SC1007` no idioma `CDPATH= cd -- …`, o mesmo que `scripts/openridr` e `install-app.sh` já produzem.
 
+## O script no app real (superfície C, `agent-desktop`; sem Playwright)
+
+Worktree sem `src-tauri/resources`, `OPENRIDR_HOME` isolado em `/tmp/verify-openridr-501-issue91/home`, cópia da fixture em `.../work/OrderDesk`:
+
+```sh
+$ OPENRIDR_HOME=/tmp/verify-openridr-501-issue91/home sh scripts/dev-app.sh /tmp/verify-openridr-501-issue91/work/OrderDesk/OrderDesk.sln
+dev-app.sh: pair from /Applications/OpenRidr.app 0.3.0-alpha.9
+dev-app.sh: workspace /private/tmp/verify-openridr-501-issue91/work/OrderDesk/OrderDesk.sln
+...
+   Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.51s
+   Running `target/debug/openridr /private/tmp/verify-openridr-501-issue91/work/OrderDesk/OrderDesk.sln --no-default-features --color always --`
+```
+
+- `agent-desktop snapshot` mostrou `dialog: Trust “OrderDesk.sln”?`; o clique em **Trust project** levou à árvore carregada (`OrderDesk · 3 projects`, `src · 2 projects`, `tests · 1 project`) — captura em [dev-app/dev-app-workspace.png](dev-app/dev-app-workspace.png).
+- Estado no disco: `trusted.json` com o `.sln`, `hostroot` composto, e **sem** `tools/` no home — nada foi baixado, o par veio dos três overrides.
+- Guard de instância: com o app vivo, rodar o script de novo saiu com `exit 1` e `dev-app.sh: an OpenRidr is already running; close it first.`
+- Encerrado pelo PID do app (72727); `pgrep -x openridr` vazio, 1420/4317 livres.
+
 ## Não verificado
 
-- **`scripts/dev-app.sh` no app real (superfície C da skill).** O comando que ele executa foi medido à mão acima, mas o script em si ainda não rodou com o app: o slot do app estava com outra sessão. Entra aqui quando rodar: comando, Trust, árvore, recusa por instância viva, e `pgrep` vazio no fim.
 - Windows e macOS Intel: fora do alvo.
+- O caminho "par vendorizado" no app real: o self-check cobre os exports e o argv, e o app real foi provado com o par do `/Applications` (o caso que a issue descreve). Vendorizar exige rede e não muda o que o app recebe.
