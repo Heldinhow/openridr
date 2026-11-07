@@ -237,7 +237,7 @@ fn isolate_child_home(command: &mut Command, home: &Path, temp: &Path) {
     }
     #[cfg(not(windows))]
     {
-        let _ = (home, temp);
+        let _ = (command, home, temp);
     }
 }
 
