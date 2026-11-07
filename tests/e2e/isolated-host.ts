@@ -16,6 +16,12 @@ export interface IsolatedHostOptions {
   homePrefix: string;
   /** Host variables the spec needs (OPENRIDR_TRUST_STORE, OPENRIDR_ENABLE_PROBE, ...). */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Seeds the home before the host starts (recent.json, a fake installer, the real debug adapter).
+   * Variables it returns are merged over `env`, which is how a spec points OPENRIDR_TOOLS_MUXER or
+   * OPENRIDR_BUNDLED_NETCOREDBG at a path inside the home it does not know yet.
+   */
+  prepare?: (home: string) => NodeJS.ProcessEnv | void;
 }
 
 export interface IsolatedHost {
@@ -69,11 +75,13 @@ export async function startIsolatedHost({
   port,
   homePrefix,
   env = {},
+  prepare,
 }: IsolatedHostOptions): Promise<IsolatedHost> {
   const base = `http://127.0.0.1:${port}`;
   const home = fs.mkdtempSync(path.join(os.tmpdir(), homePrefix));
+  const prepared = prepare?.(home) ?? {};
   const server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: { ...process.env, ...env, OPENRIDR_HOME: home },
+    env: { ...process.env, ...env, ...prepared, OPENRIDR_HOME: home },
     stdio: "ignore",
   });
   const spawnError = new Promise<Error>((resolve) => server.once("error", resolve));

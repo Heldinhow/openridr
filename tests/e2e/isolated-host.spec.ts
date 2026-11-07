@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { hostPort } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
@@ -59,4 +60,27 @@ test("stop kills the host and removes its home", async () => {
     .poll(() => fetch(`${started.base}/health`).then(() => true, () => false))
     .toBe(false);
   expect(fs.existsSync(started.home)).toBe(false);
+});
+
+test("prepare seeds the home and its env before the host starts", async () => {
+  // An existing path, because recent.list hides entries whose file is gone.
+  const project = path.resolve("fixtures");
+  host = await startIsolatedHost({
+    port,
+    homePrefix: "openridr-isolated-prepared-",
+    prepare: (home) => {
+      fs.writeFileSync(path.join(home, "recent.json"), JSON.stringify([{ path: project, openedAt: 1 }]));
+      fs.writeFileSync(path.join(home, "trusted.json"), JSON.stringify({ [project]: "trusted" }));
+      // The store off is how the host shows the env came from prepare, not from the caller.
+      return { OPENRIDR_TRUST_STORE: "off" };
+    },
+  });
+  const answer = (await (
+    await fetch(`${host.base}/call`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method: "recent.list", params: {} }),
+    })
+  ).json()) as { data: { projects: { path: string; decision: string | null }[] } };
+  expect(answer.data.projects).toEqual([{ path: project, openedAt: 1, decision: null }]);
 });
