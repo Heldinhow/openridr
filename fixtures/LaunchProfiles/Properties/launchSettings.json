@@ -12,6 +12,12 @@
       "applicationUrl": "https://localhost:7259;http://localhost:5083",
       "environmentVariables": { "PROFILE_ENV": "https" }
     },
+    "expand": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5084/?home=%HOME%",
+      "environmentVariables": { "PROFILE_ENV": "%HOME%", "EXPANDED": "$(HOME)" },
+      "commandLineArgs": "%HOME% $(HOME)"
+    },
     "IIS Express": { "commandName": "IISExpress" }
   }
 }
