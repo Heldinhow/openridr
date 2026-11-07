@@ -153,7 +153,11 @@ function unavailable(status: GitStatus | null, error: string | null): string | n
 function cleanReason(status: GitStatus | null): string | null {
   if (!status || status.state !== "ok") return null;
   if (status.operation) {
-    return `A ${status.operation} is in progress; finish or abort it before checking out or updating.`;
+    // Only a merge can be finished or aborted from the app (#114); the others are named as a
+    // terminal job instead of promising a button that does not exist.
+    return status.operation === "merge"
+      ? "A merge is in progress; finish or abort it from the branch menu before checking out or updating."
+      : `A ${status.operation} is in progress; finish or abort it in a terminal before checking out or updating.`;
   }
   if (!status.clean) {
     return "The working tree has uncommitted changes; commit them first. OpenRidr does not auto-stash.";
@@ -258,7 +262,7 @@ export function BranchWidget({
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [dialog, setDialog] = useState<"update" | "push" | null>(null);
+  const [dialog, setDialog] = useState<"update" | "push" | "mergeAbort" | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -442,6 +446,43 @@ export function BranchWidget({
 
   const remote = status.upstream?.split("/")[0] ?? status.remotes[0] ?? null;
 
+  async function completeMerge() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await call<GitOperation>("git.mergeContinue");
+      if (result.state === "ok") {
+        onMessage(result.message ?? "Merge completed.");
+      } else {
+        setError(result.message ?? "git commit failed.");
+      }
+      await Promise.all([onRefresh(), loadBranches()]);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmMergeAbort() {
+    setDialogBusy(true);
+    setDialogError(null);
+    try {
+      const result = await call<GitOperation>("git.mergeAbort");
+      if (result.state === "ok") {
+        onMessage(result.message ?? "Merge aborted.");
+        setDialog(null);
+      } else {
+        setDialogError(result.message ?? "git merge --abort failed.");
+      }
+      await Promise.all([onRefresh(), loadBranches()]);
+    } catch (caught) {
+      setDialogError(messageOf(caught));
+    } finally {
+      setDialogBusy(false);
+    }
+  }
+
   async function confirmPush() {
     setDialogBusy(true);
     setDialogError(null);
@@ -512,6 +553,29 @@ export function BranchWidget({
               : "No upstream"}
             {status.operation ? ` · ${status.operation} in progress` : ""}
           </span>
+          {status.operation === "merge" && (
+            <div className="branch-actions" data-testid="branch-merge">
+              <span className="menu-note" data-testid="branch-merge-note">
+                A merge is in progress: resolve the conflicts in the editor, then finish or abort it here.
+              </span>
+              <button
+                type="button"
+                data-testid="branch-merge-complete"
+                disabled={busy}
+                onClick={() => void completeMerge()}
+              >
+                Complete merge
+              </button>
+              <button
+                type="button"
+                data-testid="branch-merge-abort"
+                disabled={busy}
+                onClick={() => { setDialogError(null); setDialog("mergeAbort"); }}
+              >
+                Abort merge…
+              </button>
+            </div>
+          )}
           <input
             className="branch-search"
             data-testid="branch-search"
@@ -670,9 +734,9 @@ export function BranchWidget({
               into a merge commit (<code>git fetch</code>, then{" "}
               <code>git merge --ff --no-edit</code>); a fast-forward stays a fast-forward. The
               repository's <code>pull.rebase</code>, <code>pull.ff</code> and{" "}
-              <code>merge.ff</code> settings do not change that. If the merge conflicts, OpenRidr
-              aborts it and leaves your branch, commits and working tree unchanged; if it cannot
-              abort, the dialog says so.
+              <code>merge.ff</code> settings do not change that. If the merge conflicts, it stays in
+              progress: resolve the files in the editor, then finish or abort it from the branch
+              menu. Nothing is pushed.
             </p>
             <p className="hint">
               A dirty tree or an in-progress operation refuses the update; OpenRidr never stashes.
@@ -685,6 +749,28 @@ export function BranchWidget({
                 {dialogBusy ? "Updating…" : "Update"}
               </button>
               <button type="button" data-testid="update-cancel" onClick={() => setDialog(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dialog === "mergeAbort" && (
+        <div className="modal-backdrop">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-abort-title" data-testid="merge-abort-dialog" onKeyDown={dialogKeyDown}>
+            <h2 id="merge-abort-title">Abort merge</h2>
+            <p className="hint">
+              This undoes the merge: conflict resolutions and anything staged during the merge are
+              discarded, and your commits stay. Uncommitted changes that existed before the merge
+              may not come back.
+            </p>
+            {dialogError && (
+              <p className="error" role="alert" data-testid="merge-abort-error">{dialogError}</p>
+            )}
+            <div className="actions">
+              <button type="button" data-testid="merge-abort-confirm" autoFocus disabled={dialogBusy} onClick={() => void confirmMergeAbort()}>
+                {dialogBusy ? "Aborting…" : "Abort merge"}
+              </button>
+              <button type="button" data-testid="merge-abort-cancel" onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>
@@ -753,6 +839,12 @@ export function CommitPanel({
   const groupCheck = useRef<HTMLInputElement>(null);
   const [expanded, setExpanded] = useState(true);
   const reason = !trusted ? TRUST_MESSAGE : unavailable(status, statusError);
+  // Git refuses a partial commit during a merge, so the app refuses first and names the way out.
+  const operationReason = status?.operation
+    ? status.operation === "merge"
+      ? "A merge is in progress; finish or abort it from the branch menu. A partial commit is not possible during a merge."
+      : `A ${status.operation} is in progress; finish or abort it in a terminal. A partial commit is not possible during a ${status.operation}.`
+    : null;
   const files = status?.state === "ok" ? status.files : [];
   const selected = useMemo(
     () => selection ?? new Set(files.filter((file) => !file.conflicted).map((file) => file.path)),
@@ -837,6 +929,9 @@ export function CommitPanel({
             <button type="button" aria-label="Show selected diff" title="Show selected diff" disabled={!diffPath} onClick={() => { const file = files.find((entry) => entry.path === diffPath); if (file) void showDiff(file); }}><Eye size={16} /></button>
             <span className="commit-selection-count" data-testid="commit-count">{commitPaths.length} of {files.length} selected</span>
           </div>
+          {operationReason && (
+            <p className="tree-note" data-testid="commit-operation-note">{operationReason}</p>
+          )}
           <div className="commit-group">
             <button type="button" aria-label={expanded ? "Collapse changes" : "Expand changes"} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
             <input ref={groupCheck} type="checkbox" aria-label="Select all changes" checked={files.some((file) => !file.conflicted) && commitPaths.length === files.filter((file) => !file.conflicted).length} disabled={busy || !files.some((file) => !file.conflicted)} onChange={(event) => setSelection(new Set(event.target.checked ? files.filter((file) => !file.conflicted).map((file) => file.path) : []))} />
@@ -856,14 +951,14 @@ export function CommitPanel({
                   aria-label={`Commit ${file.path}`}
                   checked={selected.has(file.path)}
                   disabled={busy || file.conflicted}
-                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.label}
+                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict in the editor, then finish or abort the merge from the branch menu." : file.label}
                   onChange={() => toggle(file.path)}
                 />
                 <button
                   type="button"
                   className="commit-file"
                   data-testid={`commit-file-${file.path}`}
-                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.path}
+                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict in the editor, then finish or abort the merge from the branch menu." : file.path}
                   onClick={() => void showDiff(file)}
                 >
                   <FileIcon path={file.path} />
@@ -907,7 +1002,8 @@ export function CommitPanel({
             <button
               type="button"
               data-testid="commit-submit"
-              disabled={busy || message.trim() === "" || commitPaths.length === 0}
+              disabled={busy || message.trim() === "" || commitPaths.length === 0 || operationReason !== null}
+              title={operationReason ?? undefined}
               onClick={() => void submit()}
             >
               {busy ? "Committing…" : amend ? "Amend commit" : "Commit"}
