@@ -5,6 +5,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { host } from "./environment";
@@ -479,4 +480,134 @@ test("restricted mode and a non-repository explain themselves and every git meth
   const status = await (await hostCall(page, "git.status")).json();
   expect(status.ok).toBe(true);
   expect(status.data.state).toBe("not_a_repository");
+});
+
+/**
+ * A remote that accepts the connection and never answers — the same scenario the host tests and
+ * #136 use. Only the cancel can end the wait before the deadline, so a passing assertion here is
+ * the cancel doing its job.
+ */
+function silentRemote() {
+  const sockets: net.Socket[] = [];
+  const server = net.createServer((socket) => sockets.push(socket));
+  return new Promise<{ port: number; close: () => void }>((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const port = (server.address() as net.AddressInfo).port;
+      resolve({
+        port,
+        close: () => {
+          for (const socket of sockets) socket.destroy();
+          server.close();
+        },
+      });
+    });
+  });
+}
+
+/** The branch popover closes on any pointerdown outside it, including inside a dialog. */
+async function openBranchMenu(page: Page) {
+  if (!(await page.getByTestId("branch-refresh").isVisible())) {
+    await page.getByTestId("toolbar-branch").click();
+  }
+  await expect(page.getByTestId("branch-refresh")).toBeVisible();
+}
+
+test("cancelling a push, an update and a fetch returns in seconds while the app answers", async ({
+  page,
+}) => {
+  const silent = await silentRemote();
+  try {
+    git(["checkout", "-qb", "e2e/cancel"]);
+    git(["remote", "add", "origin", `http://127.0.0.1:${silent.port}/repo.git`]);
+    // An upstream that exists without touching the network: Update needs one to be offered.
+    git(["update-ref", "refs/remotes/origin/e2e/cancel", "HEAD"]);
+    git(["branch", "--set-upstream-to=origin/e2e/cancel"]);
+
+    await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+
+    // Push → Cancel push: the dialog stays open with the app's message.
+    await openBranchMenu(page);
+    await page.getByTestId("branch-push").click();
+    await expect(page.getByTestId("push-dialog")).toBeVisible();
+    await page.getByTestId("push-confirm").click();
+    await expect(page.getByTestId("push-stop")).toBeVisible();
+    // The app keeps answering while the push waits: the same bridge the panel polls.
+    const began = Date.now();
+    const during = await (await hostCall(page, "git.status")).json();
+    expect(during.data.state).toBe("ok");
+    // The bridge is sequential: this proves the push is not holding it, not that the answer is instant.
+    expect(Date.now() - began).toBeLessThan(5000);
+    await page.getByTestId("push-stop").click();
+    await expect(page.getByTestId("push-error")).toContainText("Push cancelled", { timeout: 5000 });
+    await expect(page.getByTestId("push-error")).toContainText("may already have reached the remote");
+    await expect(page.getByTestId("push-dialog")).toBeVisible();
+    await page.getByTestId("push-cancel").click();
+
+    // Escape cancels the operation in flight instead of closing the dialog.
+    await openBranchMenu(page);
+    await page.getByTestId("branch-push").click();
+    await page.getByTestId("push-confirm").click();
+    await expect(page.getByTestId("push-stop")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("push-error")).toContainText("Push cancelled", { timeout: 5000 });
+    await page.getByTestId("push-cancel").click();
+
+    // Update → Cancel update: nothing was merged and no merge is left behind.
+    await openBranchMenu(page);
+    await page.getByTestId("branch-update").click();
+    await expect(page.getByTestId("update-dialog")).toBeVisible();
+    await page.getByTestId("update-confirm").click();
+    await expect(page.getByTestId("update-stop")).toBeVisible();
+    await page.getByTestId("update-stop").click();
+    await expect(page.getByTestId("update-error")).toContainText("Update cancelled", { timeout: 5000 });
+    await expect(page.getByTestId("update-error")).toContainText("nothing was merged");
+    expect(fs.existsSync(path.join(repo, ".git", "MERGE_HEAD"))).toBe(false);
+    await page.getByTestId("update-cancel").click();
+
+    // Fetch → Cancel fetch.
+    await openBranchMenu(page);
+    await page.getByTestId("branch-fetch").click();
+    await expect(page.getByTestId("branch-fetch-stop")).toBeVisible();
+    await page.getByTestId("branch-fetch-stop").click();
+    await expect(page.getByTestId("branch-fetch-error")).toContainText("Fetch cancelled", {
+      timeout: 5000,
+    });
+  } finally {
+    silent.close();
+  }
+});
+
+test("an update whose fetch already finished says there is nothing to cancel", async ({ page }) => {
+  // A real remote, so the fetch completes; the merge is local and cannot be cancelled, and the
+  // post-merge hook holds it open long enough for the click to land after the network step.
+  const bare = path.join(base, "origin.git");
+  git(["init", "-q", "--bare", "-b", "main", bare], base);
+  git(["remote", "add", "origin", bare]);
+  git(["push", "-q", "-u", "origin", "main"]);
+  const peer = path.join(base, "peer");
+  git(["clone", "-q", bare, peer], base);
+  fs.writeFileSync(path.join(peer, "peer.txt"), "peer\n");
+  git(["add", "."], peer);
+  git(["commit", "-qm", "peer"], peer);
+  git(["push", "-q", "origin", "main"], peer);
+  fs.writeFileSync(path.join(repo, "local.txt"), "local\n");
+  git(["add", "."]);
+  git(["commit", "-qm", "local"]);
+  const merging = path.join(base, "merging");
+  const hook = path.join(repo, ".git", "hooks", "post-merge");
+  fs.writeFileSync(hook, `#!/bin/sh\ntouch '${merging}'\nsleep 3\n`);
+  fs.chmodSync(hook, 0o755);
+
+  await openTrusted(page, path.join(repo, "OrderDesk.sln"));
+  await openBranchMenu(page);
+  await page.getByTestId("branch-update").click();
+  await page.getByTestId("update-confirm").click();
+  await expect.poll(() => fs.existsSync(merging), { timeout: 30_000 }).toBe(true);
+  await page.getByTestId("update-stop").click();
+  await expect(page.getByTestId("update-error")).toContainText(
+    "Nothing to cancel: the update is already merging.",
+  );
+  // The merge finishes on its own and the dialog closes with the app's message.
+  await expect(page.getByTestId("update-dialog")).toBeHidden({ timeout: 30_000 });
+  expect(fs.existsSync(path.join(repo, ".git", "MERGE_HEAD"))).toBe(false);
 });
