@@ -9,7 +9,7 @@
 
 use crate::error::{HostError, HostResult};
 use crate::logbuf::LogBuffer;
-use crate::tools::app_home;
+use crate::tools::{app_home, hex};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -600,7 +600,7 @@ fn sha256_file(path: &Path) -> Option<String> {
     loop {
         let read = file.read(&mut buffer).ok()?;
         if read == 0 {
-            return Some(format!("{:x}", hasher.finalize()));
+            return Some(hex(&hasher.finalize()));
         }
         hasher.update(&buffer[..read]);
     }
@@ -1502,7 +1502,7 @@ impl Debugger {
         data.log.push(format!(
             "downloaded {downloaded} bytes (measured; no percentage)"
         ));
-        Ok(format!("{:x}", hasher.finalize()))
+        Ok(hex(&hasher.finalize()))
     }
 
     fn dwell(&self, ms: u64) {
@@ -1657,10 +1657,20 @@ fn extract_zip(archive: &Path, target: &Path) -> Result<(), String> {
         let mut entry = zip
             .by_index(index)
             .map_err(|error| format!("The archive entry {index} is unreadable: {error}"))?;
-        let Some(relative) = entry.enclosed_name() else {
+        // zip 9 hands back a fallible name; one that cannot be decoded is rejected with the rest.
+        let name = entry
+            .name()
+            .map(|name| name.into_owned())
+            .unwrap_or_default();
+        // zip 9 drops the leading `/` (or drive prefix) of an absolute entry instead of refusing
+        // it, so the raw name decides: an absolute entry is an escape, not a file to rename.
+        let absolute = matches!(
+            Path::new(&name).components().next(),
+            Some(Component::Prefix(_) | Component::RootDir)
+        );
+        let Some(relative) = entry.enclosed_name().filter(|_| !absolute) else {
             return Err(format!(
-                "Rejected archive entry {:?}: it escapes the extraction directory.",
-                entry.name()
+                "Rejected archive entry {name:?}: it escapes the extraction directory."
             ));
         };
         let apple_double = relative
@@ -1677,30 +1687,26 @@ fn extract_zip(archive: &Path, target: &Path) -> Result<(), String> {
                 .any(|part| !matches!(part, Component::Normal(_) | Component::CurDir))
         {
             return Err(format!(
-                "Rejected archive entry {:?}: absolute paths and parent segments are not allowed.",
-                entry.name()
+                "Rejected archive entry {name:?}: absolute paths and parent segments are not allowed."
             ));
         }
         if let Some(mode) = entry.unix_mode() {
             let kind = mode & 0o170000;
             if kind == 0o120000 {
                 return Err(format!(
-                    "Rejected archive entry {:?}: symlinks are not extracted.",
-                    entry.name()
+                    "Rejected archive entry {name:?}: symlinks are not extracted."
                 ));
             }
             if kind != 0 && kind != 0o100000 && kind != 0o040000 {
                 return Err(format!(
-                    "Rejected archive entry {:?}: only regular files and directories are extracted.",
-                    entry.name()
+                    "Rejected archive entry {name:?}: only regular files and directories are extracted."
                 ));
             }
         }
         let destination = target.join(&relative);
         if !destination.starts_with(target) {
             return Err(format!(
-                "Rejected archive entry {:?}: the target is outside staging.",
-                entry.name()
+                "Rejected archive entry {name:?}: the target is outside staging."
             ));
         }
         if entry.is_dir() {

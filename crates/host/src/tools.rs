@@ -60,8 +60,13 @@ fn package_redirected() -> bool {
     }
 }
 
+/// Lowercase hex for a digest. `sha2` 0.11 hands back a hybrid-array, which has no `LowerHex`.
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 fn verify_package_hash(bytes: &[u8], expected: &str) -> Result<(), String> {
-    let actual = format!("{:x}", Sha512::digest(bytes));
+    let actual = hex(&Sha512::digest(bytes));
     if actual == expected {
         Ok(())
     } else {
@@ -588,13 +593,7 @@ pub fn verify_installed(destination: &Path, runtime_root: &Path) -> Existing {
 
 fn sha256_file(path: &Path) -> Option<String> {
     let bytes = fs::read(path).ok()?;
-    let digest = Sha256::digest(&bytes);
-    Some(
-        digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>(),
-    )
+    Some(hex(&Sha256::digest(&bytes)))
 }
 
 /// Records the verified launcher. The package SHA-512 pins the source archive, but there is no
@@ -906,7 +905,7 @@ fn content_digest(analysis: &bundled::Analysis) -> Option<String> {
             hasher.update(&buffer[..read]);
         }
     }
-    Some(format!("{:x}", hasher.finalize()))
+    Some(hex(&hasher.finalize()))
 }
 
 /// Runs the bundled pair once: `<bundle>/dotnet <entry> --version`. No network, no installation
