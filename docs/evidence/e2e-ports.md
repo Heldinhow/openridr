@@ -27,18 +27,40 @@ feitos antes (o build não é parte da medição), rodando `tests/e2e/build.spec
 | checkout detached do mesmo commit, em `<tmp>` | 1532 / 4439 | `<tmpdir>/openridr-e2e-home-1532` | **2 passed, exit 0** (1,1 min) |
 
 Janela medida: início `1794069106`, fim `1794069173` (epoch) — as duas execuções se sobrepuseram do
-começo ao fim. Comando de cada lado:
+começo ao fim. Os dois comandos rodaram **ao mesmo tempo**, um em cada checkout:
 
 ```sh
+# worktree A (a branch da frente)
 PATH=$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
 DOTNET_CLI_UI_LANGUAGE=en OPENRIDR_E2E_UI_PORT=1531 OPENRIDR_E2E_HOST_PORT=4438 \
 OPENRIDR_SCREENSHOT_DIR=/tmp/210-shots-a bunx playwright test tests/e2e/build.spec.ts
+
+# checkout B (detached no mesmo commit, em <tmp>)
+PATH=$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet \
+DOTNET_CLI_UI_LANGUAGE=en OPENRIDR_E2E_UI_PORT=1532 OPENRIDR_E2E_HOST_PORT=4439 \
+OPENRIDR_SCREENSHOT_DIR=/tmp/210-shots-b bunx playwright test tests/e2e/build.spec.ts
 ```
+
+Os pares precisam ficar longe: cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`,
+então 4438 e 4439 só funcionaram porque `build.spec.ts` não sobe host auxiliar. Para dois pares
+vizinhos, o `trust-prompt.spec.ts` da primeira sessão tentaria a porta principal da segunda.
 
 Cada execução abriu o próprio home: os dois diretórios existem no disco, cada um com `tools/`,
 `bundled/`, `hostroot/`, `toolhome/` e `recent.json` escritos pelo host daquela execução. Antes da
 mudança os dois usariam o mesmo `<tmpdir>/openridr-e2e-home`, e o `globalSetup` de cada execução
 apagaria e recriaria `tools/csharp-ls/0.28` e o cache `real-tools` embaixo da outra.
+
+## Spec do módulo de ambiente (#211)
+
+```sh
+OPENRIDR_E2E_UI_PORT=1531 OPENRIDR_E2E_HOST_PORT=4438 \
+bunx playwright test tests/e2e/environment.spec.ts
+# 3 passed (9.2s), exit 0
+```
+
+Os três testes: validação de porta e recusa de origem estrangeira no proxy; o home derivado da porta
+(1420 e 1531 dão homes diferentes, o override vence); e o host abrindo exatamente o `e2eHome` da
+execução. Nenhum skip.
 
 ## Caminho do smoke noturno (par default, isolado)
 
