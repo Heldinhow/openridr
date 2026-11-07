@@ -1549,3 +1549,28 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   vivos), sub-issues de #217; evidência em `docs/evidence/e2e-evidence-output.md`. A guarda em
   `tests/unit` roda no CI e reprova qualquer spec que volte a nomear o caminho versionado. Nenhuma
   dependência nova, nenhum `data-testid`, nenhuma mudança de produto.
+
+## 2026-11-07 — O validador de porta do E2E recusa porta restrita do Chrome (issue #258)
+
+- **Decisão.** A validação de `OPENRIDR_E2E_UI_PORT`/`OPENRIDR_E2E_HOST_PORT` passa a recusar, no load do
+  módulo de ambiente, as portas da `kRestrictedPorts` do Chromium (`net/base/port_util.cc`), com a lista
+  copiada inteira e a fonte/data no comentário. A recusa cobre também a faixa derivada `hostPort + 1` até
+  `+ 7` que os specs que sobem host próprio usam. A mensagem mantém o prefixo `Invalid E2E port` e
+  acrescenta que o Chrome bloqueia a porta.
+- **Por que o erro precisa ser de configuração, não de rede.** O `ERR_UNSAFE_PORT` só aparece no
+  `page.goto`, com host e Vite já de pé, e não diz qual das duas variáveis errou — a sessão perde a rodada
+  até reconhecer a mensagem (medido com 1720/4617 na sessão da #217). Falhar no load do módulo de ambiente
+  transforma isso num erro de configuração no primeiro segundo, antes de qualquer processo subir.
+- **Lista exata, não faixa.** A issue dizia "1719–1723"; o Chromium restringe 1719, 1720 e 1723, e aceita
+  1721 e 1722. Bloquear a faixa inteira seria mais curto e faria a mensagem mentir, então o teste pina
+  1721/1722/1725 como aceitas — é o que prova que a lista foi copiada em vez de inventada.
+- **As derivadas entram.** Sete specs usam `hostPort + 1` até `+ 7` e o navegador alcança essas portas
+  direto: um `hostPort` de 1716 quebra no `+ 3` exatamente como a issue descreve, só que no meio do run.
+  Recusar o par na hora custa poucas linhas e fecha a classe.
+- **Teste no CI de PR, não no Playwright.** O teste mora em `tests/unit` (job `typescript`), porque
+  Playwright não roda em PR; um subprocesso por variável prova o wiring das duas, e o critério "erro no
+  começo do run" fica como evidência executada (`playwright test --list` com porta restrita), não como teste
+  permanente.
+- **Consequência.** `docs/SPEC-E2E-RESTRICTED-PORTS.md`; ticket #261, filho de #258; evidência em
+  `docs/evidence/e2e-restricted-ports.md`. Uma cláusula no skill `verify-openridr`; `AGENTS.md` intocado.
+  Nenhuma dependência nova, nenhum script novo, nenhum `data-testid`.
