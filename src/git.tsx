@@ -249,6 +249,19 @@ function counters(status: GitStatus) {
   return parts.join(" ");
 }
 
+/**
+ * The branch menu trigger's accessible name, and its tooltip: the ref, its upstream and counters,
+ * plus the one state a screen-reader user cannot see — a merge waiting to be finished here.
+ */
+export function branchTriggerLabel(status: GitStatus): string {
+  const ahead = counters(status);
+  return `Current branch: ${branchName(status)}${
+    status.upstream ? ` · upstream ${status.upstream}` : " · no upstream"
+  }${ahead ? ` · ${status.ahead} ahead, ${status.behind} behind` : ""}${
+    status.operation === "merge" ? " · merge in progress — complete or abort it here" : ""
+  }`;
+}
+
 function shortDate(value: string) {
   return value.slice(0, 16).replace("T", " ");
 }
@@ -287,7 +300,8 @@ export function BranchWidget({
   // A fetch takes seconds; the command palette can ask for another one while the first is still
   // running. The ref is the guard the state cannot be: it is read at call time, not at render time.
   const fetchingRef = useRef(false);
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   async function loadBranches() {
     try {
@@ -299,10 +313,17 @@ export function BranchWidget({
     }
   }
 
+  // Hooks live above the early returns below: a hook after them runs only on some renders.
   useEffect(() => {
     if (!menuOpen) return;
     void loadBranches();
     void onRefresh();
+    // The workspace closes <details> menus on an outside click; this popover is not one.
+    function onPointerDown(event: PointerEvent) {
+      if (!wrapRef.current?.contains(event.target as Node)) closeMenu();
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
     // Only when the popup opens; refresh() is stable per trust state.
   }, [menuOpen]);
 
@@ -359,9 +380,7 @@ export function BranchWidget({
   }
 
   const ahead = counters(status);
-  const title = `Current branch: ${branchName(status)}${
-    status.upstream ? ` · upstream ${status.upstream}` : " · no upstream"
-  }${ahead ? ` · ${status.ahead} ahead, ${status.behind} behind` : ""}`;
+  const label = branchTriggerLabel(status);
   const remoteReason =
     status.upstream === null && status.remotes.length === 0
       ? "No remote is configured; add one with git remote add."
@@ -524,7 +543,8 @@ export function BranchWidget({
 
   function closeMenu() {
     setMenuOpen(false);
-    detailsRef.current?.removeAttribute("open");
+    setError(null);
+    setCreating(false);
   }
 
   // Escape dismisses the dialog unless an operation is in flight.
@@ -537,32 +557,37 @@ export function BranchWidget({
 
   return (
     <>
-      <details
-        ref={detailsRef}
+      <div
+        ref={wrapRef}
         className="toolbar-menu branch-menu"
         data-testid="branch-menu"
-        open={menuOpen}
-        onToggle={(event) => {
-          const isOpen = event.currentTarget.open;
-          setMenuOpen(isOpen);
-          if (!isOpen) {
-            setError(null);
-            setCreating(false);
-          }
-        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             closeMenu();
-            event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
+            triggerRef.current?.focus();
           }
         }}
       >
-        <summary data-testid="toolbar-branch" title={title} aria-label={title}>
+        <button
+          ref={triggerRef}
+          type="button"
+          data-testid="toolbar-branch"
+          title={label}
+          aria-label={label}
+          aria-expanded={menuOpen}
+          onClick={() => {
+            if (menuOpen) {
+              closeMenu();
+              return;
+            }
+            setMenuOpen(true);
+          }}
+        >
           <Icon name="git" />
           <span data-testid="branch-current"><MidText text={branchName(status)} /></span>
           {ahead && <span className="branch-counters">{ahead}</span>}
-        </summary>
-        <div className="menu-content branch-menu-content">
+        </button>
+        {menuOpen && <div className="menu-content branch-menu-content">
           <span className="menu-heading">Branches</span>
           <span className="menu-note" data-testid="branch-upstream">
             {status.upstream
@@ -729,8 +754,8 @@ export function BranchWidget({
               <span className="menu-note" data-testid="branch-checkout-reason">{checkoutBlocked}</span>
             )}
           </div>
-        </div>
-      </details>
+        </div>}
+      </div>
 
       {dialog === "update" && (
         <div className="modal-backdrop">
