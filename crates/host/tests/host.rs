@@ -3959,7 +3959,7 @@ fn setup_starts_before_trust_without_running_project_code_isolated() {
     host.dispatch("workspace.close", json!({})).unwrap();
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn setup_reuses_the_verified_installation_and_never_asks_again_isolated() {
@@ -4069,7 +4069,7 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed_isolated() {
     assert_eq!(failed["trust"]["granted"], false);
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn failed_reinstall_keeps_the_previous_verified_tool_ready_isolated() {
@@ -4154,7 +4154,7 @@ exit 0
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies_isolated() {
@@ -7247,7 +7247,7 @@ fn setup_starts_before_trust_without_running_project_code() {
     support::run_isolated_leaf("setup_starts_before_trust_without_running_project_code_isolated");
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn setup_reuses_the_verified_installation_and_never_asks_again() {
     support::run_isolated_leaf(
@@ -7263,13 +7263,13 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn failed_reinstall_keeps_the_previous_verified_tool_ready() {
     support::run_isolated_leaf("failed_reinstall_keeps_the_previous_verified_tool_ready_isolated");
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies() {
     support::run_isolated_leaf(

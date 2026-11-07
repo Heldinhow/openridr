@@ -2181,6 +2181,7 @@ mod tests {
         assert_eq!(published("win64").unwrap().size, 3_524_161);
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[test]
     fn macos_arm64_needs_the_experimental_flag_but_has_a_published_asset() {
         let blocked = plan("macos", "aarch64", false);

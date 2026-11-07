@@ -51,6 +51,8 @@ const FETCH_POLL: Duration = Duration::from_millis(20);
 /// How long the bounded fetch waits for its pipe readers after the child is gone. A reader that is
 /// still blocked after this is holding a pipe nothing here can close; the call returns anyway.
 const DRAIN_GRACE: Duration = Duration::from_secs(2);
+/// A diff or blob read that has not finished by now is a hung `git`, not a slow one.
+const DIFF_DEADLINE: Duration = Duration::from_secs(30);
 /// Unique suffix for the private decoded-diff files (`pid` plus this counter).
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -508,9 +510,12 @@ fn run(cwd: &Path, args: &[&str]) -> Result<Output, SpawnError> {
     })
 }
 
-/// A git run whose stdout never exceeds `limit` bytes. Once the ceiling is hit the child is
-/// killed and `truncated` is set, so a runaway diff cannot become an unbounded allocation in the
-/// host; stderr is drained on its own thread (bounded copy) so a chatty failure cannot deadlock.
+/// A git run whose stdout never exceeds `limit` bytes. Once the ceiling is hit the reader stops
+/// and `truncated` is set, so a runaway diff cannot become an unbounded allocation in the host;
+/// stderr is drained on its own thread (bounded copy) so a chatty failure cannot deadlock. The
+/// child is also bounded in time: a `git` that never closes its pipe (measured on Windows) would
+/// otherwise hang the host call forever, and the readers report through channels so the wait is
+/// always bounded even when the kill cannot reach a grandchild holding the pipe.
 fn spawn_bounded(cwd: &Path, args: &[&str], limit: usize) -> Result<Captured, SpawnError> {
     let mut child = Command::new("git")
         .args(args)
@@ -524,46 +529,53 @@ fn spawn_bounded(cwd: &Path, args: &[&str], limit: usize) -> Result<Captured, Sp
             std::io::ErrorKind::NotFound => SpawnError::Missing,
             _ => SpawnError::Failed(error.to_string()),
         })?;
+    let pid = child.id();
     let mut stdout = child.stdout.take().expect("piped stdout");
-    let stderr = child.stderr.take().expect("piped stderr");
-    let drained = std::thread::spawn(move || {
-        let mut kept = Vec::new();
-        let mut buffer = [0u8; 4096];
-        let mut reader = stderr;
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    let (out_tx, out_rx) = mpsc::channel();
+    let (err_tx, err_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut truncated = false;
+        let mut buffer = [0u8; 8192];
         loop {
-            match reader.read(&mut buffer) {
+            match stdout.read(&mut buffer) {
                 Ok(0) | Err(_) => break,
                 Ok(count) => {
-                    if kept.len() < STDERR_BYTES {
-                        let room = STDERR_BYTES - kept.len();
-                        kept.extend_from_slice(&buffer[..count.min(room)]);
+                    if captured.len() + count > limit {
+                        let room = limit.saturating_sub(captured.len());
+                        captured.extend_from_slice(&buffer[..room]);
+                        truncated = true;
+                        break;
                     }
+                    captured.extend_from_slice(&buffer[..count]);
                 }
             }
         }
-        kept
+        let _ = out_tx.send((captured, truncated));
     });
-    let mut captured = Vec::new();
-    let mut truncated = false;
-    let mut buffer = [0u8; 8192];
-    loop {
-        match stdout.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(count) => {
-                if captured.len() + count > limit {
-                    let room = limit.saturating_sub(captured.len());
-                    captured.extend_from_slice(&buffer[..room]);
-                    truncated = true;
-                    let _ = child.kill();
-                    break;
+    std::thread::spawn(move || {
+        let _ = err_tx.send(drain_bounded(&mut stderr));
+    });
+    let began = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if began.elapsed() >= DIFF_DEADLINE {
+                    kill_tree(&mut child, pid);
+                    break child.wait().ok();
                 }
-                captured.extend_from_slice(&buffer[..count]);
+                std::thread::sleep(FETCH_POLL);
             }
-            Err(_) => break,
+            Err(_) => {
+                kill_tree(&mut child, pid);
+                break child.wait().ok();
+            }
         }
-    }
-    let status = child.wait().ok();
-    let stderr = drained.join().unwrap_or_default();
+    };
+    let (captured, truncated) = out_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
+    let (stderr, _) = err_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     Ok(Captured {
         code: status.and_then(|status| status.code()),
         stdout: captured,

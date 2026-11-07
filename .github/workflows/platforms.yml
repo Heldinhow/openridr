@@ -66,7 +66,7 @@ jobs:
       # One thread: the git fixtures create and delete repositories in the temp directory, and the
       # Windows runner's file locking makes the parallel run hang.
       - name: Host tests
-        run: cargo test -p openridr-host -- --test-threads=1
+        run: cargo test -p openridr-host -- --test-threads=1 --no-fail-fast
 
   rust-macos-intel:
     name: Host tests (macOS Intel)
