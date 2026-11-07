@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
@@ -35,8 +34,7 @@ const executableMethods = [
 test("welcome lists recent solutions, persists them and reopens one", async ({ page }) => {
   await openWorkspace(page, solution);
   await enterTextOnly(page);
-  await reveal(page.getByTestId("close-workspace"));
-  await page.getByTestId("close-workspace").click();
+  await closeWorkspace(page);
   await expect(page.getByTestId("welcome-recent-0")).toContainText("OrderDesk.sln");
   await page.reload();
   await expect(page.getByTestId("welcome-recent-0")).toHaveAttribute("title", solution);
@@ -79,6 +77,12 @@ async function replaceEditorText(page: Page, text: string) {
   await editor.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(text);
+}
+
+// The item lives in the workspace actions popover, which only mounts when the menu opens (#177).
+async function closeWorkspace(page: Page) {
+  await page.getByRole("button", { name: "Workspace actions" }).click();
+  await page.getByTestId("close-workspace").click();
 }
 
 async function dispatchWindowFocus(page: Page) {
@@ -240,15 +244,13 @@ test("closing a modified buffer or workspace requires an explicit choice", async
 
   await openProgram(page);
   await replaceEditorText(page, "// workspace buffer\n");
-  await reveal(page.getByTestId("close-workspace"));
-  await page.getByTestId("close-workspace").click();
+  await closeWorkspace(page);
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Close workspace with unsaved changes?");
   await page.getByTestId("confirm-keep").click();
   await expect(page.getByTestId("tree")).toBeVisible();
 
-  await reveal(page.getByTestId("close-workspace"));
-  await page.getByTestId("close-workspace").click();
+  await closeWorkspace(page);
   await page.getByTestId("confirm-discard").click();
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
 });
@@ -311,8 +313,7 @@ test("saves every modified buffer from the workspace close dialog", async ({ pag
   await replaceEditorText(page, "// save all core\n");
   await expect(page.getByTestId("status-dirty")).toContainText("2 modified buffers");
 
-  await reveal(page.getByTestId("close-workspace"));
-  await page.getByTestId("close-workspace").click();
+  await closeWorkspace(page);
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Close workspace with unsaved changes?");
   await expect(dialog).toContainText("2 modified buffers");
