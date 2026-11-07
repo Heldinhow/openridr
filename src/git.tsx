@@ -543,13 +543,20 @@ export function BranchWidget({
   }
 
   // Stops the network operation in flight. The host answers `cancelled: false` when it already
-  // finished, and the dialog says so instead of pretending the click landed.
-  async function cancelPush() {
+  // finished — the local merge of an Update is not cancellable — and the dialog says so instead of
+  // pretending the click landed.
+  async function cancelNetwork(kind: "push" | "update") {
     if (cancelling) return;
     setCancelling(true);
     try {
       const answer = await call<{ cancelled: boolean }>("git.cancel");
-      if (!answer.cancelled) setDialogError("Nothing to cancel: the push already finished.");
+      if (!answer.cancelled) {
+        setDialogError(
+          kind === "push"
+            ? "Nothing to cancel: the push already finished."
+            : "Nothing to cancel: the update is already merging.",
+        );
+      }
     } catch (caught) {
       setDialogError(messageOf(caught));
     } finally {
@@ -570,7 +577,8 @@ export function BranchWidget({
     event.preventDefault();
     event.stopPropagation();
     if (dialogBusy) {
-      if (dialog === "push") void cancelPush();
+      if (dialog === "push") void cancelNetwork("push");
+      else if (dialog === "update") void cancelNetwork("update");
       return;
     }
     setDialog(null);
@@ -811,7 +819,12 @@ export function BranchWidget({
               <button type="button" data-testid="update-confirm" autoFocus disabled={dialogBusy} onClick={() => void confirmUpdate()}>
                 {dialogBusy ? "Updating…" : "Update"}
               </button>
-              <button type="button" data-testid="update-cancel" onClick={() => setDialog(null)}>Cancel</button>
+              {dialogBusy && (
+                <button type="button" data-testid="update-stop" disabled={cancelling} onClick={() => void cancelNetwork("update")}>
+                  {cancelling ? "Cancelling…" : "Cancel update"}
+                </button>
+              )}
+              <button type="button" data-testid="update-cancel" disabled={dialogBusy} onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>
@@ -868,7 +881,7 @@ export function BranchWidget({
                 {dialogBusy ? "Pushing…" : "Push"}
               </button>
               {dialogBusy && (
-                <button type="button" data-testid="push-stop" disabled={cancelling} onClick={() => void cancelPush()}>
+                <button type="button" data-testid="push-stop" disabled={cancelling} onClick={() => void cancelNetwork("push")}>
                   {cancelling ? "Cancelling…" : "Cancel push"}
                 </button>
               )}
