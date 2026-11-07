@@ -368,6 +368,12 @@ export function BranchWidget({
     // A new command runs once per shortcut press.
   }, [intent?.nonce]);
 
+  // The push, the update and the fetch are asynchronous: their buttons follow the host's record,
+  // not an await.
+  const pushBusy = starting === "push" || pending?.kind === "push";
+  const updateBusy = starting === "update" || pending?.kind === "update";
+  const fetchBusy = pending?.kind === "fetch";
+
   // The operation this component started reached its end: the host published the state and the
   // message, so the UI only renders them. The id is what tells our operation from a later one.
   useEffect(() => {
@@ -387,6 +393,34 @@ export function BranchWidget({
     void Promise.all([onRefresh(), loadBranches()]);
     // Only the operation this component started; refresh() is stable per trust state.
   }, [net, pending]);
+
+  // Escape dismisses the dialog, and while an operation is in flight it cancels it instead: closing
+  // the dialog would hide the only place the result is shown. The listener is on the window because
+  // disabling the focused button moves focus to the body, and a keydown there never reaches the
+  // dialog.
+  useEffect(() => {
+    if (dialog === null) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (pushBusy) {
+        void cancelNetwork("push");
+        return;
+      }
+      if (updateBusy) {
+        void cancelNetwork("update");
+        return;
+      }
+      // Aborting a merge is local and not cancellable: Escape only keeps the dialog open.
+      if (dialogBusy) return;
+      setDialog(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // `pending` and `cancelling` are read by the handler: without them the listener keeps a closure
+    // from before the start returned and the cancel has no id to name.
+  }, [dialog, pending, pushBusy, updateBusy, dialogBusy, cancelling]);
 
   if (!trusted) {
     return (
@@ -425,9 +459,6 @@ export function BranchWidget({
       : cleanReason(status);
   const checkoutBlocked = cleanReason(status);
   // The push and the fetch are asynchronous: their buttons follow the host's record, not an await.
-  const pushBusy = starting === "push" || pending?.kind === "push";
-  const updateBusy = starting === "update" || pending?.kind === "update";
-  const fetchBusy = pending?.kind === "fetch";
   const query = filter.trim().toLowerCase();
   const matches = (branch: GitBranch) =>
     query === "" || branch.name.toLowerCase().includes(query);
@@ -595,24 +626,6 @@ export function BranchWidget({
     setCreating(false);
   }
 
-  // Escape dismisses the dialog, and while an operation is in flight it cancels it instead: closing
-  // the dialog would hide the only place the result is shown.
-  function dialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (pushBusy) {
-      void cancelNetwork("push");
-      return;
-    }
-    if (updateBusy) {
-      void cancelNetwork("update");
-      return;
-    }
-    // Aborting a merge is local and not cancellable: Escape only keeps the dialog open.
-    if (dialogBusy) return;
-    setDialog(null);
-  }
 
   return (
     <>
@@ -823,7 +836,7 @@ export function BranchWidget({
 
       {dialog === "update" && (
         <div className="modal-backdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-dialog" onKeyDown={dialogKeyDown}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-dialog">
             <h2 id="update-title">Update project</h2>
             <dl>
               <dt>Branch</dt>
@@ -854,7 +867,7 @@ export function BranchWidget({
               <button type="button" data-testid="update-confirm" autoFocus disabled={updateBusy} onClick={() => void confirmUpdate()}>
                 {updateBusy ? "Updating…" : "Update"}
               </button>
-              {updateBusy && (
+              {pending?.kind === "update" && (
                 <button type="button" data-testid="update-stop" disabled={cancelling} onClick={() => void cancelNetwork("update")}>
                   {cancelling ? "Cancelling…" : "Cancel update"}
                 </button>
@@ -867,7 +880,7 @@ export function BranchWidget({
 
       {dialog === "mergeAbort" && (
         <div className="modal-backdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-abort-title" data-testid="merge-abort-dialog" onKeyDown={dialogKeyDown}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-abort-title" data-testid="merge-abort-dialog">
             <h2 id="merge-abort-title">Abort merge</h2>
             <p className="hint">
               This undoes the merge: conflict resolutions and anything staged during the merge are
@@ -889,7 +902,7 @@ export function BranchWidget({
 
       {dialog === "push" && (
         <div className="modal-backdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="push-title" data-testid="push-dialog" onKeyDown={dialogKeyDown}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="push-title" data-testid="push-dialog">
             <h2 id="push-title">Push</h2>
             <dl>
               <dt>Remote</dt>
@@ -915,7 +928,7 @@ export function BranchWidget({
               <button type="button" data-testid="push-confirm" autoFocus={remote !== null} disabled={pushBusy || remote === null} onClick={() => void confirmPush()}>
                 {pushBusy ? "Pushing…" : "Push"}
               </button>
-              {pushBusy && (
+              {pending?.kind === "push" && (
                 <button type="button" data-testid="push-stop" disabled={cancelling} onClick={() => void cancelNetwork("push")}>
                   {cancelling ? "Cancelling…" : "Cancel push"}
                 </button>
