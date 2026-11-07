@@ -1225,8 +1225,11 @@ impl Dap {
                 let dap = Arc::clone(&self);
                 let alive = Arc::clone(&self);
                 std::thread::spawn(move || {
-                    let line =
-                        crate::browser::open_when_ready(&url, move || alive.state() == "running");
+                    // A startup breakpoint pauses the debuggee before it listens; the session is
+                    // still alive, so the wait must not give up on a pause.
+                    let line = crate::browser::open_when_ready(&url, move || {
+                        matches!(alive.state(), "running" | "paused")
+                    });
                     dap.log_line(line);
                 });
             }

@@ -437,11 +437,12 @@ fn expand_value_with(value: &str, lookup: impl Fn(&str) -> Option<String>) -> St
 
 /// Splits `commandLineArgs` with the rules the .NET CLI uses: `dotnet run` hands the string to
 /// `ProcessStartInfo.Arguments`, which the child process splits with `CommandLineToArgvW`
-/// semantics on every platform. Whitespace separates outside quotes, a run of backslashes only
-/// escapes the quote that follows it (2n → n backslashes and the quote is a delimiter, 2n+1 → n
-/// backslashes and a literal quote), `""` inside quotes is a literal quote, and an unclosed quote
-/// is tolerated instead of refused. `#` and `'` are literal. The matrix in the tests was measured
-/// against the real `dotnet run` (SDK 8.0.408).
+/// semantics on every platform. Only space and tab separate outside quotes (a newline or a
+/// non-breaking space stays in the argument), a run of backslashes only escapes the quote that
+/// follows it (2n → n backslashes and the quote is a delimiter, 2n+1 → n backslashes and a literal
+/// quote), `""` inside quotes is a literal quote — including right after an even run of
+/// backslashes — and an unclosed quote is tolerated instead of refused. `#` and `'` are literal.
+/// The matrix in the tests was measured against the real `dotnet run` (SDK 8.0.408).
 fn split_launch_args(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut args = Vec::new();
@@ -460,10 +461,16 @@ fn split_launch_args(text: &str) -> Vec<String> {
                     current.extend(std::iter::repeat_n('\\', count / 2));
                     if count % 2 == 1 {
                         current.push('"');
+                        index += count + 1;
+                    } else if quoted && chars.get(index + count + 1) == Some(&'"') {
+                        // The even-run quote is a delimiter, so the pair rule applies to it: two
+                        // quotes inside a quoted string are one literal quote (measured).
+                        current.push('"');
+                        index += count + 2;
                     } else {
                         quoted = !quoted;
+                        index += count + 1;
                     }
-                    index += count + 1;
                 } else {
                     current.extend(std::iter::repeat_n('\\', count));
                     index += count;
@@ -480,7 +487,7 @@ fn split_launch_args(text: &str) -> Vec<String> {
                 }
                 started = true;
             }
-            value if value.is_whitespace() && !quoted => {
+            value if matches!(value, ' ' | '\t') && !quoted => {
                 if started {
                     args.push(std::mem::take(&mut current));
                     started = false;
@@ -1426,7 +1433,21 @@ mod tests {
             ("a\\ b", vec!["a\\", "b"]),
             ("a \\\\ b", vec!["a", "\\\\", "b"]),
             ("\"a\"b\"c\"d", vec!["abcd"]),
-            ("a \"b\\\\\" c\"", vec!["a", "b\\", "c"]),
+            // Space and tab are the only separators; other whitespace stays in the argument.
+            ("a\nb", vec!["a\nb"]),
+            ("a\rb", vec!["a\rb"]),
+            ("a\u{a0}b", vec!["a\u{a0}b"]),
+            ("a\u{b}b", vec!["a\u{b}b"]),
+            // An even run of backslashes followed by a quote pair: one backslash and a literal
+            // quote, still inside the quoted string.
+            ("a \"b\\\\\"\" c\"", vec!["a", "b\\\" c"]),
+            ("a \"b\\\\\\\\\"\" c\"", vec!["a", "b\\\\\" c"]),
+            ("a \"b\\\\\"\"\" c", vec!["a", "b\\\"", "c"]),
+            ("a \"b\\\\\"\" c\"\" d\"", vec!["a", "b\\\" c\" d"]),
+            ("\"a\\\\\"\"b\"", vec!["a\\\"b"]),
+            ("a \"b\\\\\\\"\" c\"", vec!["a", "b\\\"", "c"]),
+            ("a \"b\\\\\\\"\"\" c\"", vec!["a", "b\\\"\" c"]),
+            ("a \"b\\\\\"\"\"\" c\"", vec!["a", "b\\\"\" c"]),
         ];
         for (input, expected) in matrix {
             assert_eq!(

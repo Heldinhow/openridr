@@ -109,40 +109,57 @@ fn command(url: &str) -> Option<Command> {
     Some(command)
 }
 
+/// Runs the opener and reports what it did. This runs on the browser worker thread, never on the
+/// host lock, so waiting for the opener to exit costs nothing; its exit status is the only proof
+/// that the browser was actually asked to open.
 fn open(url: &str) -> Result<(), String> {
     let Some(mut command) = command(url) else {
         return Err("opening a browser is not supported on this platform.".to_string());
     };
-    let mut child = command
-        .spawn()
+    let status = command
+        .status()
         .map_err(|error| format!("the system opener could not start ({error})."))?;
-    // The opener exits on its own; waiting in a thread reaps it instead of leaving a zombie.
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
+    if !status.success() {
+        return Err(match status.code() {
+            Some(code) => format!("the system opener exited with code {code}."),
+            None => "the system opener was terminated by a signal.".to_string(),
+        });
+    }
     Ok(())
 }
 
 fn wait_ready(target: &Target, alive: &dyn Fn() -> bool, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
-        if connects(target) {
-            return true;
-        }
-        if !alive() || Instant::now() >= deadline {
+        // A launch that already ended never gets its browser, even if something else listens on
+        // the port by then.
+        if !alive() {
             return false;
         }
-        std::thread::sleep(RETRY);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        if connects(target, remaining.min(CONNECT_TIMEOUT)) {
+            return true;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        std::thread::sleep(RETRY.min(remaining));
     }
 }
 
-fn connects(target: &Target) -> bool {
+/// Name resolution has no deadline in `std`; the worker thread is detached, so a slow resolver
+/// only delays this line, it never blocks the host.
+fn connects(target: &Target, timeout: Duration) -> bool {
     let Ok(addresses) = (target.host.as_str(), target.port).to_socket_addrs() else {
         return false;
     };
     addresses
         .into_iter()
-        .any(|address| TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).is_ok())
+        .any(|address| TcpStream::connect_timeout(&address, timeout).is_ok())
 }
 
 /// The scheme of an absolute URL (`http:`, `file:`, `javascript:`), or `None` for a relative one.
@@ -340,6 +357,15 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let target = parse(&format!("http://127.0.0.1:{port}/")).unwrap();
         assert!(wait_ready(&target, &|| true, Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn the_wait_never_opens_for_a_launch_that_already_ended() {
+        // Something listens on the port (a leftover process), but this launch is gone.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let target = parse(&format!("http://127.0.0.1:{port}/")).unwrap();
+        assert!(!wait_ready(&target, &|| false, Duration::from_secs(2)));
     }
 
     #[test]
