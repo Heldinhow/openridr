@@ -462,7 +462,6 @@ export function SolutionTree(p: Props) {
           key={node.path}
           level={level}
           open={link ? undefined : open(dirKey(node.path))}
-          icon={link ? <Icon name="link" className="tint-folder" /> : undefined}
           symlink={link}
           description={link ? SYMLINK_DESCRIPTION : undefined}
           name={node.name}
@@ -487,7 +486,6 @@ export function SolutionTree(p: Props) {
           <TreeRow
             key={entry.path}
             level={level}
-            icon={<Icon name="link" className="tint-folder" />}
             symlink
             description={SYMLINK_DESCRIPTION}
             name={entry.name}

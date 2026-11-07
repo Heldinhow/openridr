@@ -102,7 +102,10 @@ export function TreeRow({
         />
       ))}
       <span className="tree-icon">
-        {!icon && open !== undefined ? (
+        {symlink && !icon ? (
+          // A link with no glyph of its own is drawn as the link: one chain per row.
+          <Icon name="link" className="tint-folder" />
+        ) : !icon && open !== undefined ? (
           <span className="solution-folder-icon" aria-hidden="true">
             <Icon name="folder" />
             {name.toLowerCase() === "config" && <span className="folder-config-badge">↗</span>}
@@ -117,7 +120,7 @@ export function TreeRow({
         ) : testId?.startsWith("tree-framework-") || (testId?.startsWith("tree-deps-group-") && testId.endsWith("-frameworks")) ? (
           <Icon name="settings" className="framework-glyph" />
         ) : icon}
-        {symlink && (
+        {symlink && icon && (
           <span className="symlink-mark" aria-hidden="true">
             <Icon name="link" />
           </span>
