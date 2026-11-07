@@ -3199,6 +3199,9 @@ mod tests {
         git(&root, &["init", "-q", "-b", "main"]);
         git(&root, &["config", "user.name", "OpenRidr Test"]);
         git(&root, &["config", "user.email", "test@openridr.invalid"]);
+        // Git for Windows defaults to `core.autocrlf=true`; the fixtures write LF and the tests
+        // compare exact bytes, so the checkout conversion must be off on every platform.
+        git(&root, &["config", "core.autocrlf", "false"]);
         (temp, root)
     }
 

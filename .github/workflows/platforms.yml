@@ -63,8 +63,10 @@ jobs:
       - name: Clippy
         run: cargo clippy -p openridr-host --lib -- -D warnings
 
+      # One thread: the git fixtures create and delete repositories in the temp directory, and the
+      # Windows runner's file locking makes the parallel run hang.
       - name: Host tests
-        run: cargo test -p openridr-host
+        run: cargo test -p openridr-host -- --test-threads=1
 
   rust-macos-intel:
     name: Host tests (macOS Intel)
