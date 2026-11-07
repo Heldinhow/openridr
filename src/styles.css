@@ -383,7 +383,7 @@ p {
 .toolbar > button { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; }
 kbd { font: 11px var(--sans); color: var(--muted); }
 .toolbar-menu { position: relative; flex: 0 0 auto; }
-.toolbar-menu > summary { cursor: pointer; list-style: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; }
+.toolbar-menu > :is(summary, button) { cursor: pointer; list-style: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; font-weight: inherit; }
 .toolbar-menu > summary::-webkit-details-marker { display: none; }
 .menu-content { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: 240px; padding: 6px; display: grid; gap: 4px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 24px #0006; }
 .menu-content button { text-align: left; }
@@ -2542,7 +2542,7 @@ mark.search-hit {
 
 /* Git: branch popup, Commit tool window and Git log */
 
-.branch-menu > summary {
+.branch-menu > :is(summary, button) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2741,7 +2741,7 @@ mark.search-hit {
 .git-diff-modal .eval-pre { max-height: 55vh; overflow: auto; white-space: pre; }
 
 /* Audit 23: keep actions visible and make long details locally inspectable. */
-.branch-menu > summary { max-width: 132px; }
+.branch-menu > :is(summary, button) { max-width: 132px; }
 .branch-menu [data-testid="branch-current"] { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; }
 .branch-menu .branch-counters { flex: 0 0 auto; }
 .inspector-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -2774,8 +2774,8 @@ mark.search-hit {
 
 /* Rider (dark) header, rail and status chrome. */
 .toolbar { background: var(--chrome); border-bottom: 1px solid var(--line); min-height: 52px; gap: 6px; padding: 0 12px; }
-.toolbar > button, .toolbar-disabled > button, .toolbar-menu > summary { background: transparent; border-color: transparent; border-radius: var(--r-lg); box-shadow: none; min-height: var(--control-h); }
-.toolbar > button:hover:not(:disabled), .toolbar-menu > summary:hover, .toolbar-disabled > button:hover:not(:disabled) { background: var(--accent-surface-strong); border-color: transparent; }
+.toolbar > button, .toolbar-disabled > button, .toolbar-menu > :is(summary, button) { background: transparent; border-color: transparent; border-radius: var(--r-lg); box-shadow: none; min-height: var(--control-h); }
+.toolbar > button:hover:not(:disabled), .toolbar-menu > :is(summary, button):hover, .toolbar-disabled > button:hover:not(:disabled) { background: var(--accent-surface-strong); border-color: transparent; }
 .toolbar .icon { width: 18px; height: 18px; }
 .toolbar-icon-button { width: 32px; height: 32px; padding: 0; }
 .toolbar .run-button .icon { color: var(--success); }
@@ -2783,7 +2783,7 @@ mark.search-hit {
 .toolbar .stop-button .icon { color: var(--error); fill: currentColor; }
 .workspace-brand .icon { color: var(--muted); }
 .workspace-brand strong { font-weight: 500; }
-.toolbar-menu[open] > summary { background: var(--accent-surface-strong); }
+.toolbar-menu[open] > summary, .toolbar-menu > button[aria-expanded="true"] { background: var(--accent-surface-strong); }
 .run-config-tag { display: none; }
 .run-config-menu > summary { max-width: 240px; }
 .toolrail { background: var(--chrome); border-right: 0; }
@@ -2857,8 +2857,8 @@ label.run-config-field > :not(span:first-child):not(input):not(select):not(texta
 .nav-button { color: var(--muted); }
 .nav-button:disabled { background: transparent; border-color: transparent; opacity: 0.45; }
 .project-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--accent-surface-strong); color: var(--fg); font-size: var(--fs-badge); font-weight: 600; }
-.toolbar-menu > summary { display: flex; align-items: center; gap: 6px; }
-.toolbar-menu > summary .icon-chevron { width: 12px; height: 12px; color: var(--muted); }
+.toolbar-menu > :is(summary, button) { display: flex; align-items: center; gap: 6px; }
+.toolbar-menu > :is(summary, button) .icon-chevron { width: 12px; height: 12px; color: var(--muted); }
 .workspace-brand .icon-chevron { color: var(--muted); }
 .toolbar .icon-settings, .toolbar .icon-debug, .toolbar .icon-build { stroke-width: 1.5; }
 
@@ -2992,9 +2992,9 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .mid-tail { flex: none; white-space: pre; }
 .workspace-brand { min-width: 140px; max-width: 280px; }
 .workspace-brand strong { display: flex; min-width: 0; }
-.toolbar-menu > summary { min-width: 0; }
+.toolbar-menu > :is(summary, button) { min-width: 0; }
 [data-testid="branch-current"], [data-testid="run-config-active"] { display: inline-flex; min-width: 0; }
-.toolbar-menu[data-testid] > summary, .toolbar-menu > summary[data-testid="toolbar-branch"] { max-width: 220px; }
+.toolbar-menu[data-testid] > :is(summary, button), .toolbar-menu > :is(summary, button)[data-testid="toolbar-branch"] { max-width: 220px; }
 .status { font-variant-numeric: tabular-nums; font-size: var(--fs-meta); gap: 6px; padding: 0 8px; overflow: hidden; }
 .status > span { min-width: 0; }
 .status > [data-testid="status-workspace"], .status > [data-testid="status-mode"], .status > [data-testid="status-keymap"], .status > [data-testid="status-cursor"], .status > [data-testid="status-encoding"], .status > [data-testid="status-indent"], .status > [data-testid="status-dirty"], .status > [data-testid="status-restore"] { flex: 0 0 auto; }
