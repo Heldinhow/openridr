@@ -215,7 +215,13 @@ mesmo run de release, não um segundo pipeline.
 - **A assinatura é conferida com a chave do app.** Depois de assinar, o script compara o *key id*
   minisign da assinatura com o da `pubkey` do `tauri.conf.json` e recusa a release quando diferem:
   um secret registrado com outra chave publicaria um artefato que todo app instalado rejeita, com o
-  DMG válido e nenhum erro visível.
+  DMG válido e nenhum erro visível. É conferência de identidade, não verificação criptográfica — a
+  verificação de verdade acontece no app, na instalação.
+- **Republicar uma versão já publicada tem janela.** O artefato é re-uploadado com `--clobber` (a
+  mesma política do DMG), então entre esse upload e a troca do manifesto o manifesto antigo aponta
+  para bytes novos com a assinatura antiga e um cliente que checar naquele instante recusa. Se o run
+  falhar no meio, o update daquela versão fica recusado até o próximo release. A assinatura continua
+  sendo o que decide o que instala.
 - **`requireSignedVersion`.** O app recusa um manifesto cuja `version` não é a versão gravada no
   trusted comment da assinatura — é o que impede um manifesto adulterado de parear uma versão nova
   com um artefato antigo genuíno.

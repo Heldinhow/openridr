@@ -152,17 +152,18 @@ pub async fn update_check(
     if !updatable_executable(&executable) {
         return Ok(CheckResult::unsupported());
     }
+    // The startup check is silent in the UI, so this line is the only trace it leaves.
+    let fail = |error: &dyn std::fmt::Display| {
+        let message = check_error(&error.to_string());
+        eprintln!("update: {message}");
+        message
+    };
     let updater = app
         .updater_builder()
         .configure_client(|builder| builder.connect_timeout(CONNECT_TIMEOUT))
         .build()
-        .map_err(|error| check_error(&error.to_string()))?;
-    let update = updater.check().await.map_err(|error| {
-        let message = check_error(&error.to_string());
-        // The startup check is silent in the UI, so this line is the only trace it leaves.
-        eprintln!("update: {message}");
-        message
-    })?;
+        .map_err(|error| fail(&error))?;
+    let update = updater.check().await.map_err(|error| fail(&error))?;
     let result = match &update {
         Some(update) => CheckResult::available(update),
         None => CheckResult::current(app.package_info().version.to_string()),

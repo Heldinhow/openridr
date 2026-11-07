@@ -59,6 +59,17 @@ achados, todos reais e corrigidos.
 
 Nenhum achado de padrão de código (a revisão não encontrou violação documentada nem smell).
 
+**Re-check (rodada 2, mesmo alvo, escopo bc28521 + os cinco achados).** Quatro correções parciais
+viraram completas: (a) fechar o modal durante uma checagem liberava a trava (`checking`/`installing`
+agora são refs separadas e só o fim da requisição limpa a primeira); (b) o erro ao construir o
+updater não era logado (as duas falhas passam pela mesma closure do stderr); (c) o modal mostrava só
+a porcentagem (agora `% de <tamanho>`); (d) o comentário da conferência de chave prometia verificação
+criptográfica e ela é conferência de identidade — o texto passou a dizer isso. O quinto — republicar
+uma versão já publicada deixa uma janela em que o manifesto antigo aponta para bytes novos — ficou
+**declarado, não corrigido**: corrigir exigiria tornar a versão publicada imutável, mudando a
+política de republicar tag que o projeto já tem, e a assinatura continua sendo o que decide o que
+instala. Está escrito na spec e em `release-signing.md`.
+
 ## Follow-ups
 
 - **Canal real do GitHub não exercitado**: o passo `Publish the update channel` do `release.yml` só roda no próximo release por tag; até lá o upload e o download pelo app estão não verificados.

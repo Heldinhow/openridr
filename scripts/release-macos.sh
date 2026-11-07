@@ -633,8 +633,10 @@ minisign_key_id() {
 
 # The app verifies the artifact with the `pubkey` in `tauri.conf.json`, and nothing else in the run
 # does: a registered secret that is a different key would publish an artifact every installed app
-# rejects, with the DMG perfectly fine. Comparing the key id of the signature with the one in the
-# configured public key proves the artifact was signed by the key the app trusts.
+# rejects, with the DMG perfectly fine. The 8-byte key id a minisign signature and public key both
+# carry is what identifies the key, so comparing them catches a wrong secret. It is an identity
+# check, not a signature verification: the cryptographic one happens in the app on install, and
+# this run's job is to refuse an artifact the app would reject.
 verify_updater_signature() {
   archive=$1
   conf="$ROOT/src-tauri/tauri.conf.json"

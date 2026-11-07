@@ -37,11 +37,13 @@ export function UpdateDialog({ onRestart }: { onRestart: () => void }) {
   const [view, setView] = useState<View>({ kind: "closed" });
   // One update operation at a time: a second check would replace the pending update the user is
   // looking at, and a check during the download would hide the progress that proves it is running.
-  const busy = useRef(false);
+  // Closing the dialog does not cancel the request, so the check flag is only cleared when it ends.
+  const checking = useRef(false);
+  const installingNow = useRef(false);
 
   const check = useCallback(async (manual: boolean) => {
-    if (busy.current) return;
-    busy.current = true;
+    if (checking.current || installingNow.current) return;
+    checking.current = true;
     // The startup check stays invisible until it has something to say; the menu one shows itself.
     if (manual) setView({ kind: "checking" });
     try {
@@ -62,7 +64,7 @@ export function UpdateDialog({ onRestart }: { onRestart: () => void }) {
       // A check that fails at startup is a log line in the shell, not a dialog nobody asked for.
       if (manual) setView({ kind: "notice", message: messageOf(error) });
     } finally {
-      busy.current = false;
+      checking.current = false;
     }
   }, []);
 
@@ -98,7 +100,7 @@ export function UpdateDialog({ onRestart }: { onRestart: () => void }) {
   }, [check]);
 
   async function install(update: CheckResult) {
-    busy.current = true;
+    installingNow.current = true;
     setView({ kind: "downloading", update, progress: null });
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -107,12 +109,14 @@ export function UpdateDialog({ onRestart }: { onRestart: () => void }) {
       setView({ kind: "installed", update });
     } catch (error) {
       setView({ kind: "failed", update, message: messageOf(error) });
-      busy.current = false;
+      installingNow.current = false;
     }
   }
 
   function close() {
-    busy.current = false;
+    // A check in flight keeps its flag: its answer would otherwise reopen this dialog behind a new
+    // one. An install already finished has nothing left to protect.
+    installingNow.current = false;
     setView({ kind: "closed" });
   }
 
@@ -180,7 +184,7 @@ export function UpdateDialog({ onRestart }: { onRestart: () => void }) {
               <p className="muted">
                 {total === null
                   ? `Downloading… ${megabytes(downloaded)}`
-                  : `Downloading… ${Math.floor((downloaded / total) * 100)}%`}
+                  : `Downloading… ${Math.floor((downloaded / total) * 100)}% of ${megabytes(total)}`}
               </p>
             </>
           ))}
