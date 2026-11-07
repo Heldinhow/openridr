@@ -92,6 +92,21 @@ describe("full-file rows", () => {
     expect(buildCommitRows("a\n", "b\n", [])).toBeNull();
   });
 
+  test("aligns a commit rename: the base is the original path's text and the current the new one", () => {
+    // What git.commitDiff returns for a rename with an edit: base = parent:<original>, current = <commit>:<path>.
+    const original = "one\ntwo\nthree\nfour\n";
+    const renamed = original.replace("two", "TWO");
+    const result = buildCommitRows(original, renamed, [{ oldStart: 2, oldCount: 1, newStart: 2, newCount: 1 }])!;
+    expect(result.rows.map((row) => [row.left.text, row.right.text])).toEqual([
+      ["one", "one"],
+      ["two", "TWO"],
+      ["three", "three"],
+      ["four", "four"],
+    ]);
+    expect(result.rows[1].left.kind).toBe("modified");
+    expect(result.differences).toBe(1);
+  });
+
   test("keeps an unchanged file as context with no differences", () => {
     const result = buildCommitRows("a\nb\n", "a\nb\n", [])!;
     expect(result.differences).toBe(0);

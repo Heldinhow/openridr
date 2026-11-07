@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from "lucide-react";
 import { call, messageOf } from "./host/client";
-import type { GitFile, GitFileDiff } from "./git";
+import type { GitCommitDiff, GitCommitFile, GitFile, GitFileDiff } from "./git";
 import { buildCommitRows, fullFileReason, loadDiffMode, parseCommitPatch, saveDiffMode, type DiffMode, type DiffRows } from "./commitDiffRows";
 import { SplitDiff } from "./SplitDiff";
 import { UnifiedDiff } from "./UnifiedDiff";
@@ -14,28 +14,48 @@ const FULL_REASONS: Record<string, string> = {
   unaligned: "full file not available: the changed blocks could not be aligned.",
 };
 
-export function CommitDiff({ path, files, onNavigate }: { path: string; files: GitFile[]; onNavigate: (path: string) => void }) {
-  const [diff, setDiff] = useState<GitFileDiff | null>(null);
+/** What a commit diff tab knows about the commit it shows. */
+export type CommitDiffTarget = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  originalPath: string | null;
+};
+
+type WorktreeDiffProps = { path: string; files: GitFile[]; onNavigate: (path: string) => void };
+type CommitFileDiffProps = { path: string; files: GitCommitFile[]; onNavigate: (path: string) => void; target: CommitDiffTarget };
+
+/** One panel for both diffs: the working tree's (index/HEAD against the worktree) and a commit's
+ * (the commit's blobs against its first parent). Only the read and the labels differ. */
+export function CommitDiff(props: WorktreeDiffProps | CommitFileDiffProps) {
+  const { path, files, onNavigate } = props;
+  const worktree = "target" in props ? null : props;
+  const target = "target" in props ? props.target : null;
+  const [diff, setDiff] = useState<GitFileDiff | GitCommitDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [difference, setDifference] = useState(0);
   const [mode, setMode] = useState<DiffMode>(loadDiffMode);
-  const file = files.find((entry) => entry.path === path);
+  const file = worktree?.files.find((entry) => entry.path === path);
   const staged = !!file?.staged && file.worktree === " ";
   const index = files.findIndex((entry) => entry.path === path);
   useEffect(() => {
     let live = true;
     setDiff(null); setError(null); setDifference(0);
-    call<GitFileDiff>("git.fileDiff", { path, staged }).then((result) => { if (live) setDiff(result); }).catch((caught) => { if (live) setError(messageOf(caught)); });
+    const request = target
+      ? call<GitCommitDiff>("git.commitDiff", { hash: target.hash, path, originalPath: target.originalPath })
+      : call<GitFileDiff>("git.fileDiff", { path, staged });
+    request.then((result) => { if (live) setDiff(result); }).catch((caught) => { if (live) setError(messageOf(caught)); });
     return () => { live = false; };
-  }, [path, staged, file?.index, file?.worktree]);
+  }, [path, staged, file?.index, file?.worktree, target?.hash, target?.originalPath]);
   const built = useMemo(
     () => (diff?.full ? buildCommitRows(diff.base.text, diff.current.text, diff.hunks) : null),
     [diff],
   );
   const parsed = useMemo<DiffRows>(() => (diff ? built ?? parseCommitPatch(diff.patch) : { rows: [], differences: 0 }), [diff, built]);
   const fullFile = built !== null;
-  const leftLabel = !diff ? "" : !diff.base.exists ? "No previous file" : staged ? `HEAD${diff.commit ? ` · ${diff.commit.shortHash}` : ""}` : "Index";
-  const rightLabel = !diff ? "" : !diff.current.exists ? "No current file" : staged ? "Index" : "Worktree";
+  const parentShort = diff && "parent" in diff ? diff.parent?.shortHash ?? null : null;
+  const leftLabel = !diff ? "" : !diff.base.exists ? "No previous file" : target ? `parent${parentShort ? ` · ${parentShort}` : ""}` : staged ? `HEAD${diff.commit ? ` · ${diff.commit.shortHash}` : ""}` : "Index";
+  const rightLabel = !diff ? "" : !diff.current.exists ? "No current file" : target ? diff.commit?.shortHash ?? "" : staged ? "Index" : "Worktree";
   const reasonKey = fullFile
     ? null
     : fullFileReason(!!diff?.full, built !== null, diff?.fullReason ?? null);
@@ -49,7 +69,13 @@ export function CommitDiff({ path, files, onNavigate }: { path: string; files: G
     setMode(next);
     saveDiffMode(next);
   }
-  return <section className="git-diff-view" data-testid="commit-diff" aria-label={`Git diff for ${path}`} role="tabpanel" id="commit-diff-content">
+  return <section
+    className="git-diff-view"
+    data-testid="commit-diff"
+    aria-label={target ? `Commit diff for ${path} at ${target.shortHash}` : `Git diff for ${path}`}
+    role="tabpanel"
+    id={target ? "commit-file-diff-content" : "commit-diff-content"}
+  >
     <div className="git-diff-toolbar">
       <button aria-label="Previous difference" title="Previous difference" disabled={difference <= 0} onClick={() => setDifference(difference - 1)}><ArrowUp size={16} /></button>
       <button aria-label="Next difference" title="Next difference" disabled={difference >= parsed.differences - 1} onClick={() => setDifference(difference + 1)}><ArrowDown size={16} /></button>
@@ -67,7 +93,7 @@ export function CommitDiff({ path, files, onNavigate }: { path: string; files: G
       <span data-testid="commit-diff-left-label">{leftLabel}</span>
       <span data-testid="commit-diff-right-label">{rightLabel}</span>
     </div>
-    {diff?.commit && <p className="git-diff-commit" data-testid="commit-diff-commit" title={diff.commit.hash}>HEAD <code>{diff.commit.shortHash}</code> · {diff.commit.subject}</p>}
+    {diff?.commit && <p className="git-diff-commit" data-testid="commit-diff-commit" title={diff.commit.hash}>{target ? <><code>{diff.commit.shortHash}</code> · {diff.commit.subject}</> : <>HEAD <code>{diff.commit.shortHash}</code> · {diff.commit.subject}</>}</p>}
     {!diff && !error && <p className="tree-note">Loading diff…</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {diff && (parsed.rows.length

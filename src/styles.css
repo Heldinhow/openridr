@@ -116,6 +116,14 @@
   --icon-config: #8fa1a8;
   --icon-script: #8dc149;
   --icon-text: #adadb1;
+  /* Git status of a tree file row. Brighter than Rider's palette on purpose: the name keeps
+     4.5:1 or better over panel, hover, the selected/focused row and the no-index row in the
+     shipped dark theme (measurements in docs/evidence/solution-git-status.md). */
+  --git-modified: #82c0f0;
+  --git-added: #8ad07d;
+  --git-untracked: #eda773;
+  --git-ignored: #b3b3b3;
+  --git-conflicted: #f9a1a1;
 }
 
 /* `light-dark()` is used only where the engine supports it; the dark fallback above stays valid. */
@@ -150,6 +158,11 @@
     --icon-doc: light-dark(#84848a, #adadb1);
     --icon-docker: light-dark(#1a85d4, #69b1ff);
     --icon-git: light-dark(#ff8c5b, #d5512f);
+    --git-modified: light-dark(#1f5f9e, #82c0f0);
+    --git-added: light-dark(#2f6f24, #8ad07d);
+    --git-untracked: light-dark(#8a4a12, #eda773);
+    --git-ignored: light-dark(#6a6a6a, #b3b3b3);
+    --git-conflicted: light-dark(#a51f1f, #f9a1a1);
   }
 }
 
@@ -370,7 +383,7 @@ p {
 .toolbar > button { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; }
 kbd { font: 11px var(--sans); color: var(--muted); }
 .toolbar-menu { position: relative; flex: 0 0 auto; }
-.toolbar-menu > summary { cursor: pointer; list-style: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; }
+.toolbar-menu > :is(summary, button) { cursor: pointer; list-style: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; font-weight: inherit; }
 .toolbar-menu > summary::-webkit-details-marker { display: none; }
 .menu-content { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: 240px; padding: 6px; display: grid; gap: 4px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 24px #0006; }
 .menu-content button { text-align: left; }
@@ -2529,7 +2542,7 @@ mark.search-hit {
 
 /* Git: branch popup, Commit tool window and Git log */
 
-.branch-menu > summary {
+.branch-menu > :is(summary, button) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2577,6 +2590,8 @@ mark.search-hit {
 .git-file-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-meta); }
 .git-file-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .git-file-list code, .git-file-list .menu-note { overflow-wrap: anywhere; }
+.git-file { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; padding: 2px 4px; text-align: left; background: transparent; border: 0; border-radius: 3px; color: inherit; font: inherit; cursor: pointer; }
+.git-file:hover { background: var(--accent-surface); }
 
 /* NuGet (F9): installed/outdated per project, plan confirmation and explicit restore. */
 .nuget-panel { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-meta); min-height: 0; }
@@ -2728,7 +2743,7 @@ mark.search-hit {
 .git-diff-modal .eval-pre { max-height: 55vh; overflow: auto; white-space: pre; }
 
 /* Audit 23: keep actions visible and make long details locally inspectable. */
-.branch-menu > summary { max-width: 132px; }
+.branch-menu > :is(summary, button) { max-width: 132px; }
 .branch-menu [data-testid="branch-current"] { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; }
 .branch-menu .branch-counters { flex: 0 0 auto; }
 .inspector-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -2761,8 +2776,8 @@ mark.search-hit {
 
 /* Rider (dark) header, rail and status chrome. */
 .toolbar { background: var(--chrome); border-bottom: 1px solid var(--line); min-height: 52px; gap: 6px; padding: 0 12px; }
-.toolbar > button, .toolbar-disabled > button, .toolbar-menu > summary { background: transparent; border-color: transparent; border-radius: var(--r-lg); box-shadow: none; min-height: var(--control-h); }
-.toolbar > button:hover:not(:disabled), .toolbar-menu > summary:hover, .toolbar-disabled > button:hover:not(:disabled) { background: var(--accent-surface-strong); border-color: transparent; }
+.toolbar > button, .toolbar-disabled > button, .toolbar-menu > :is(summary, button) { background: transparent; border-color: transparent; border-radius: var(--r-lg); box-shadow: none; min-height: var(--control-h); }
+.toolbar > button:hover:not(:disabled), .toolbar-menu > :is(summary, button):hover, .toolbar-disabled > button:hover:not(:disabled) { background: var(--accent-surface-strong); border-color: transparent; }
 .toolbar .icon { width: 18px; height: 18px; }
 .toolbar-icon-button { width: 32px; height: 32px; padding: 0; }
 .toolbar .run-button .icon { color: var(--success); }
@@ -2770,7 +2785,7 @@ mark.search-hit {
 .toolbar .stop-button .icon { color: var(--error); fill: currentColor; }
 .workspace-brand .icon { color: var(--muted); }
 .workspace-brand strong { font-weight: 500; }
-.toolbar-menu[open] > summary { background: var(--accent-surface-strong); }
+.toolbar-menu[open] > summary, .toolbar-menu > button[aria-expanded="true"] { background: var(--accent-surface-strong); }
 .run-config-tag { display: none; }
 .run-config-menu > summary { max-width: 240px; }
 .toolrail { background: var(--chrome); border-right: 0; }
@@ -2844,8 +2859,8 @@ label.run-config-field > :not(span:first-child):not(input):not(select):not(texta
 .nav-button { color: var(--muted); }
 .nav-button:disabled { background: transparent; border-color: transparent; opacity: 0.45; }
 .project-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--accent-surface-strong); color: var(--fg); font-size: var(--fs-badge); font-weight: 600; }
-.toolbar-menu > summary { display: flex; align-items: center; gap: 6px; }
-.toolbar-menu > summary .icon-chevron { width: 12px; height: 12px; color: var(--muted); }
+.toolbar-menu > :is(summary, button) { display: flex; align-items: center; gap: 6px; }
+.toolbar-menu > :is(summary, button) .icon-chevron { width: 12px; height: 12px; color: var(--muted); }
 .workspace-brand .icon-chevron { color: var(--muted); }
 .toolbar .icon-settings, .toolbar .icon-debug, .toolbar .icon-build { stroke-width: 1.5; }
 
@@ -2979,9 +2994,9 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .mid-tail { flex: none; white-space: pre; }
 .workspace-brand { min-width: 140px; max-width: 280px; }
 .workspace-brand strong { display: flex; min-width: 0; }
-.toolbar-menu > summary { min-width: 0; }
+.toolbar-menu > :is(summary, button) { min-width: 0; }
 [data-testid="branch-current"], [data-testid="run-config-active"] { display: inline-flex; min-width: 0; }
-.toolbar-menu[data-testid] > summary, .toolbar-menu > summary[data-testid="toolbar-branch"] { max-width: 220px; }
+.toolbar-menu[data-testid] > :is(summary, button), .toolbar-menu > :is(summary, button)[data-testid="toolbar-branch"] { max-width: 220px; }
 .status { font-variant-numeric: tabular-nums; font-size: var(--fs-meta); gap: 6px; padding: 0 8px; overflow: hidden; }
 .status > span { min-width: 0; }
 .status > [data-testid="status-workspace"], .status > [data-testid="status-mode"], .status > [data-testid="status-keymap"], .status > [data-testid="status-cursor"], .status > [data-testid="status-encoding"], .status > [data-testid="status-indent"], .status > [data-testid="status-dirty"], .status > [data-testid="status-restore"] { flex: 0 0 auto; }
@@ -3461,6 +3476,39 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .symbol-mark.symbol-record { background: var(--icon-symbol-record); }
 .symbol-mark.symbol-struct { background: var(--icon-symbol-struct); }
 
+/* Symlink: a chain sticker on the glyph corner. The row description says "not followed", so the
+   marker is not the only channel; a symlinked folder loses its chevron and never expands. */
+.sol-row .tree-icon { position: relative; }
+.symlink-mark {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 9px;
+  height: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  background: var(--icon-folder);
+  color: #0b0b0b;
+  box-shadow: 0 0 0 1px var(--panel);
+}
+.symlink-mark .icon { width: 7px; height: 7px; }
+
 .sol-row.no-index .tree-name { color: var(--muted); }
 .sol-row.no-index .tree-icon { opacity: 0.6; }
+
+/* Git status: the tag word is the non-colour channel; the name tint reinforces it. The `no index`
+   background stays, and the selected/focused row keeps the tint (measured on those surfaces). */
+.sol-row[data-git-status="modified"] .tree-name,
+.sol-row[data-git-status="modified"] .tag.git-status { color: var(--git-modified); }
+.sol-row[data-git-status="added"] .tree-name,
+.sol-row[data-git-status="added"] .tag.git-status { color: var(--git-added); }
+.sol-row[data-git-status="untracked"] .tree-name,
+.sol-row[data-git-status="untracked"] .tag.git-status { color: var(--git-untracked); }
+.sol-row[data-git-status="ignored"] .tree-name,
+.sol-row[data-git-status="ignored"] .tag.git-status { color: var(--git-ignored); }
+.sol-row[data-git-status="conflicted"] .tree-name,
+.sol-row[data-git-status="conflicted"] .tag.git-status { color: var(--git-conflicted); }
+.sol-row .tag.git-status { flex: 0 0 auto; }
 .status-partial { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--warning); }

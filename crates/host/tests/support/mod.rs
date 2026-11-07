@@ -44,6 +44,7 @@ const AMBIENT: &[&str] = &[
     "OPENRIDR_FORCE_HOSTROOT",
     "OPENRIDR_HOME",
     "OPENRIDR_SESSION_STORE",
+    "OPENRIDR_SYSTEM_PROXY",
     "OPENRIDR_TOOLS_MUXER",
     "OPENRIDR_TOOLS_PACKAGE_SHA512",
     "OPENRIDR_TOOLS_PACKAGE_URL",
@@ -87,7 +88,9 @@ static HOME: OnceLock<tempfile::TempDir> = OnceLock::new();
 ///
 /// - removes the ambient `OPENRIDR_*` values of whoever ran `cargo test`;
 /// - points the app home at a temporary directory for this process;
-/// - turns the development-only probe on for every test.
+/// - turns the development-only probe on for every test;
+/// - turns the macOS system proxy source off, so the suite does not depend on the network settings
+///   of the machine that runs it. A leaf that needs a system proxy sets the seam itself.
 pub fn prepare() {
     PURGE.call_once(|| {
         for key in AMBIENT {
@@ -96,6 +99,7 @@ pub fn prepare() {
         let home = tempfile::tempdir().expect("create the process test app home");
         std::env::set_var("OPENRIDR_HOME", home.path());
         std::env::set_var("OPENRIDR_ENABLE_PROBE", "1");
+        std::env::set_var("OPENRIDR_SYSTEM_PROXY", "off");
         let _ = HOME.set(home);
     });
 }

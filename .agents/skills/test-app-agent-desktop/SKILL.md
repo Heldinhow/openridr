@@ -72,6 +72,7 @@ Valores de campo: `grep` no snapshot completo, por exemplo `textfield: Editor = 
 | `press cmd+q`: `POLICY_DENIED` ("dangerous shortcut") | Bloqueio de atalho perigoso | `--force`, só em teste isolado |
 | `close-app` / `screenshot` com duas instâncias: `AMBIGUOUS_TARGET` | Mais de uma `openridr` | Não rode duas. Feche com osascript pelo caminho do bundle. `snapshot --window-id` funciona; `screenshot` com `--window-id` não |
 | Duas instâncias ao executar o binário direto | Binário direto não passa por LaunchServices | Feche antes; use `open -a` para reutilizar |
+| `set-value`/`type` no campo de caminho do Welcome: `delivered_unverified` e valor vazio; "Open" com o campo vazio abre o seletor nativo e o app fica em "Opening…" | O campo do WKWebView não recebe digitação semântica, e o seletor nativo é modal e nunca é respondido | Abra o workspace por argv (`sh scripts/dev-app.sh <sln>`, ou o binário com o `.sln` depois dele); não clique em "Open" com o campo vazio |
 | `press cmd+f`: `APP_UNRESPONSIVE menu_modifier_value_invalid` | Erro da tool ao mandar Cmd+F | Não resolvido. Não testado: buscar o item no menubar (`snapshot --surface menubar`) |
 | Foco de teclado (Tab) não aparece | Conteúdo web: a árvore vê só `webarea` | Não verificável por esta superfície; registre "não verificado" |
 | Disclosure ("Project: OrderDesk.sln") sem `ref_id` | Não exposto como ação | Use outro caminho (ex.: Search Everywhere) ou registre como não alcançado |
