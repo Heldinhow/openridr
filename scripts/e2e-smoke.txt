@@ -6,6 +6,10 @@
 # lista (decisão de 2026-11-07, issue #212; docs/SPEC-E2E-PORTS.md). O app real com agent-desktop
 # fica para o que é nativo do shell.
 #
+# Contrato (decisão da #251): cada spec listado aqui tem que passar SOZINHO, numa máquina fria — a
+# ordem da lista não pode ser o que esconde a falha. A prova é `bunx playwright test <um spec>`
+# numa runner nova: `build.spec.ts` sozinho falhou 2 de 5 vezes antes do fix da #251.
+#
 # Conjunto escolhido por cobrir o caminho que mais dói quebrar: abrir solução/trust/editar
 # (workspace), Build, Run e Problems. Medido em 2026-11-06: 25 testes, ~2,8 min, verde em duas
 # rodadas seguidas (headless, workers=1, um host por execução).
