@@ -22,18 +22,19 @@ O teste novo (`the_neutral_cwd_is_created_before_the_launcher_runs`) usa um `tem
 
 ## Bateria completa
 
-`PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH" DOTNET_ROOT=$HOME/.dotnet cargo test -p openridr-host`:
+`PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH" DOTNET_ROOT=$HOME/.dotnet cargo test -p openridr-host`, rodada final no HEAD da frente (depois da correção da revisão): **tudo verde**.
 
 - `--lib`: **389 passed**, 0 failed, 11 ignored (inclui o teste novo).
-- `--test bundled_analysis`: 11 passed; `--test debugger`: 1 passed; `--test test_discovery`: 15 passed; os demais binários verdes.
-- `--test host`: **106 passed**, 27 ignored, e **3 falhas** — `tools_install_is_real_verified_and_reused`, `lsp_start_requires_tool_sdk_and_current_restore` e `lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke`, todas aos ~120 s.
+- `--test host`: **108 passed**, 0 failed, 27 ignored (445,41 s).
+- Os outros binários verdes: `bundled_analysis` 11, `corporate_proxy` 1, `debugger` 15, `test_discovery` 11, `test_run` 7, `trust_model` 1 (e doc-tests 0).
 
-As três falhas são **de rede, não do diff**, e medidas assim:
+Numa rodada anterior, com a rede lenta, a mesma bateria teve **3 falhas** — `tools_install_is_real_verified_and_reused`, `lsp_start_requires_tool_sdk_and_current_restore` e `lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke`, todas aos ~120 s. São **de rede, não do diff**, e medidas assim:
 
 - `prepare_local_package` baixa o `csharp-ls.0.28.0.nupkg` (21.643.814 bytes) com prazo de 120 s. Nesta rede, `curl` do mesmo pacote mediu **151,19 s** (`http=200 size=21643814`): o download não cabe no prazo.
 - O mesmo teste, com o `tools.rs` **revertido para o `origin/main`** (`git checkout -- crates/host/src/tools.rs`), falha igual em 120,34 s — não é regressão desta frente.
 - Quando o download terminou dentro do prazo, o teste passou: `tools_install_is_real_verified_and_reused ... ok` em **108,79 s**.
 - Rodar os três com `--test-threads=1` não ajuda: são 3 × 120 s, cada um estourando o prazo próprio.
+- Na rodada final os três passaram, e a bateria fechou verde: o download coube no prazo.
 
 Registrado em [`test-stability.md`](test-stability.md) como falha de ambiente/rede observada, não como passe.
 
