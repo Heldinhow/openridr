@@ -109,6 +109,23 @@ $ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 $ bun run test:unit                          # 95 passed
 ```
 
+## Re-prova depois da revisão (rodada 2)
+
+A revisão mudou a assinatura de `update_install` (passou a receber a versão mostrada) e o merge do
+`main` trouxe React 19 / TS 7 / Vite 8. A prova foi refeita com esse código, mesmo procedimento
+(build local do alpha.11 com o endpoint em loopback, artefato alpha.12 já assinado, `agent-desktop`):
+
+| Passo | Resultado |
+|---|---|
+| Menu **Check for Updates…** | "OpenRidr 0.3.0-alpha.12 is available; you have 0.3.0-alpha.11." |
+| "Download and install" | baixa e instala com o novo argumento `version` ([reproof-progress.png](in-app-updater/reproof-progress.png)) |
+| Fim do download | "OpenRidr 0.3.0-alpha.12 is installed." + **Restart now** |
+| "Restart now" com buffer sujo | prompt "Close OpenRidr with unsaved changes?" ([reproof-restart-guard.png](in-app-updater/reproof-restart-guard.png)) |
+| "Discard and close app" | PID novo (38036 → 39144); `Info.plist` em disco e menu **Check for Updates…** dizem `0.3.0-alpha.12` ([reproof-version.png](in-app-updater/reproof-version.png)) |
+
+O app foi fechado pelo item **Quit OpenRidr** do menu, `desktop.sh down` = `stopped`, `pgrep` vazio,
+servidor local parado.
+
 ## Doctor e limpeza
 
 - `sh .agents/skills/verify-openridr/scripts/doctor.sh <bundle>` rodado **depois** da prova, não
