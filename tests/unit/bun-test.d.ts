@@ -10,12 +10,15 @@ declare module "bun:test" {
     toBeNull(): void;
     toHaveLength(expected: number): void;
     toContain(expected: unknown): void;
+    toBeGreaterThan(expected: number): void;
+    toMatch(expected: RegExp): void;
     not: {
       toBe(expected: unknown): void;
       toEqual(expected: unknown): void;
       toBeUndefined(): void;
       toBeNull(): void;
       toContain(expected: unknown): void;
+      toMatch(expected: RegExp): void;
     };
   };
 }
