@@ -91,6 +91,23 @@ com ela, remover o gate derruba o teste sempre — o vermelho do item 1 é essa 
 `finally` e o `unroute` só acontece depois que o handler terminou (senão o `route.continue()` estoura
 `Route is already handled!`, medido na sessão do spike).
 
+## 4. Regressão da área e pós-merge (sessão mãe, integration branch)
+
+Depois do merge do ticket e antes do merge de `main`:
+
+```sh
+bunx playwright test tests/e2e/workspace.spec.ts
+# 16 passed (56.4s) — o teste alvo levou 4,2 s (2,5 s antes do gate: o untilHeld espera até um tick)
+```
+
+Depois do merge de `origin/main` (`2265461`, que trouxe #265, #276 e #251/#277) e da resolução dos
+conflitos append-only de `GLOSSARY.md`/`docs/README.md`/`docs/decisions.md`:
+
+```sh
+bunx playwright test tests/e2e/workspace.spec.ts -g "revalidates a second disk change" --repeat-each=8
+# 8 passed (1.0m)
+```
+
 ## O que ficou sem prova
 
 - **Runner do GitHub**: nada disso foi medido no CI; as três baterias são locais, na máquina acima. O
