@@ -206,6 +206,37 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
 
+      - name: Take the classifier and the gate from the base revision
+        id: trusted
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          # The classifier and the gate decide whether this pull request may merge, so they must not come
+          # from the pull request: a change to scripts/ci-* would otherwise classify itself as low or
+          # approve itself, which is exactly the path this gate exists to protect. They are read from the
+          # base revision and executed from there, with the workspace as the git repository.
+          #
+          # The base revision has no copy on the pull request that introduces it (bootstrap): then the
+          # workspace copy runs and the job says so, loudly. From the next pull request on, the base wins.
+          mkdir -p "$RUNNER_TEMP/trusted/scripts"
+          bootstrap=0
+          for name in ci-risk-tier.sh ci-risk-gate.sh; do
+            if git show "origin/$BASE_REF:scripts/$name" >"$RUNNER_TEMP/trusted/scripts/$name" 2>/dev/null; then
+              echo "scripts/$name: from origin/$BASE_REF"
+            else
+              cp "scripts/$name" "$RUNNER_TEMP/trusted/scripts/$name"
+              bootstrap=1
+              echo "::warning::origin/$BASE_REF has no scripts/$name; running the copy from this pull request (bootstrap)"
+            fi
+          done
+          echo "bootstrap=$bootstrap" >>"$GITHUB_OUTPUT"
+          if [ "$bootstrap" = 1 ]; then
+            {
+              echo
+              echo '**Bootstrap**: the base revision has no risk classifier or gate yet, so this run used the copies from this pull request.'
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Compute the risk tier
         id: tier
         env:
@@ -213,7 +244,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Fail closed: a tier that cannot be computed is the highest one, never the lowest.
-          if tier=$(sh scripts/ci-risk-tier.sh "origin/$BASE_REF" "$HEAD_SHA" 2>"$RUNNER_TEMP/risk-reasons.txt"); then
+          if tier=$(sh "$RUNNER_TEMP/trusted/scripts/ci-risk-tier.sh" "origin/$BASE_REF" "$HEAD_SHA" 2>"$RUNNER_TEMP/risk-reasons.txt"); then
             :
           else
             tier=high
@@ -259,7 +290,9 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           TIER: ${{ steps.tier.outputs.tier }}
-        run: sh scripts/ci-risk-gate.sh
+          # The approval has to name this commit, so the gate needs the head it is gating.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: sh "$RUNNER_TEMP/trusted/scripts/ci-risk-gate.sh"
 
       - name: Arm auto-merge for a low-risk pull request
         if: steps.tier.outputs.tier == 'low'
@@ -269,12 +302,27 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # Auto-merge waits for the required checks (`ci` and `security`) by itself. It needs the
-          # repository setting allow_auto_merge, which is a maintainer decision; until it is on this
-          # call fails and the pull request simply does not merge by itself, as today.
-          if gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --auto; then
+          # repository setting allow_auto_merge, which is a maintainer decision; until it is on, the call
+          # fails and the pull request simply does not merge by itself, as today.
+          #
+          # The failure is reported as it came, not as a guess about its cause: a read-only token and an
+          # API error look different and both need the maintainer's eyes.
+          if output=$(gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --auto 2>&1); then
             echo 'auto-merge armed: merges in squash when the required checks are green'
+            echo 'Auto-merge armed.' >>"$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::auto-merge not armed: the repository needs allow_auto_merge (maintainer setting): gh api --method PATCH repos/$REPO -F allow_auto_merge=true"
+            echo "::warning::auto-merge not armed: $output"
+            {
+              echo
+              echo '**Auto-merge not armed** (the pull request is still mergeable by hand once the checks are green):'
+              echo
+              echo '```'
+              printf '%s\n' "$output"
+              echo '```'
+              echo
+              echo 'If the cause is the repository setting, the maintainer enables it with:'
+              echo '`gh api --method PATCH repos/'"$REPO"' -F allow_auto_merge=true`.'
+            } >>"$GITHUB_STEP_SUMMARY"
           fi
 
   # Single required check with a stable name: adding or renaming an internal job does not touch the
@@ -293,6 +341,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Fetch the base branch for the trusted aggregator
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: git fetch --depth=1 --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+
       - name: Fail when a required job did not pass
         env:
           NEEDS: ${{ toJSON(needs) }}
@@ -303,4 +357,17 @@ jobs:
           # one. On a pull request every name here must also be present in `needs`, so dropping the gate
           # from the list cannot silently disable it.
           PR_ONLY: "governance,risk"
-        run: sh scripts/ci-aggregate.sh
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          # The aggregator decides whether the required check is green, so it must not come from the pull
+          # request: a change to scripts/ci-aggregate.sh would otherwise pass itself. It is read from the
+          # base revision; the pull request that introduces it (bootstrap) runs its own copy and says so.
+          script=scripts/ci-aggregate.sh
+          if [ "$EVENT" = pull_request ]; then
+            if git show "origin/$BASE_REF:$script" >"$RUNNER_TEMP/aggregate.sh" 2>/dev/null; then
+              script=$RUNNER_TEMP/aggregate.sh
+            else
+              echo "::warning::origin/$BASE_REF has no $script; running the copy from this pull request (bootstrap)"
+            fi
+          fi
+          sh "$script"

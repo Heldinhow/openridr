@@ -42,26 +42,50 @@ paths=$(git diff --name-only --no-renames "$base...$head") || {
   exit 2
 }
 
+# The same point the path diff uses. Comparing a manifest against the base *tip* would miss a dependency
+# the base branch changed after the branch started: both sides would agree and the change would read as
+# "no dependency change".
+merge_base=$(git merge-base "$base" "$head") || {
+  echo "risk tier: $base and $head have no merge base" >&2
+  exit 2
+}
+
 if [ -z "$paths" ]; then
   echo "risk tier: $base...$head changes no path" >&2
   exit 2
 fi
 
+# A TOML table header is unindented and is the whole line, with an optional trailing comment. A line that
+# starts like one and is not (a multiline value, a typo) means this extractor cannot tell a dependency
+# table from anything else: the caller then fails closed instead of reporting "no dependency change".
+toml_is_parseable() {
+  awk '
+    /^\[/ {
+      header = $0
+      sub(/[ \t]+#.*$/, "", header)
+      sub(/[ \t]+$/, "", header)
+      if (header !~ /^\[\[?[^][]*\]\]?$/) bad = 1
+    }
+    END { exit(bad ? 1 : 0) }'
+}
+
 # Dependency tables of a TOML file, one line per entry, sorted: section headers are kept so that moving
-# a dependency between tables still counts, and reordering inside a table does not.
+# a dependency between tables still counts, and reordering inside a table does not. Any table whose name
+# mentions dependencies carries them, which includes the target-specific form
+# `[target.'cfg(unix)'.dependencies.foo]`; `patch`/`replace` change where a dependency comes from.
 toml_deps() {
   awk '
     {
       line = $0
       sub(/\r$/, "", line)
-      if (line ~ /^[ \t]*\[/) {
+      if (line ~ /^\[/) {
         name = line
-        sub(/^[ \t]*\[+/, "", name)
-        sub(/\]+[ \t]*$/, "", name)
+        sub(/[ \t]+#.*$/, "", name)
+        sub(/[ \t]+$/, "", name)
+        sub(/^\[+/, "", name)
+        sub(/\]+$/, "", name)
         gsub(/[ \t]/, "", name)
-        keep = (name ~ /^(dependencies|dev-dependencies|build-dependencies|patch)$/ ||
-                name ~ /^(dependencies|dev-dependencies|build-dependencies|patch)\./ ||
-                name ~ /\.(dependencies|dev-dependencies|build-dependencies)$/)
+        keep = (tolower(name) ~ /dependencies/ || name ~ /^(patch|replace)(\.|$)/)
         if (keep) print "[" name "]"
         next
       }
@@ -82,10 +106,11 @@ json_deps() {
          else . end'
 }
 
-# Returns 0 when the dependency tables of $1 differ between base and head (or when either side cannot be
-# read: an added or deleted manifest is a dependency change), 1 when they are identical.
+# Returns 0 when the dependency tables of $1 differ between the merge base and head (or when either side
+# cannot be read or parsed: an added, deleted or unparseable manifest is a dependency change), 1 when
+# they are identical.
 manifest_dependencies_changed() {
-  before=$(git show "$base:$1" 2>/dev/null) || return 0
+  before=$(git show "$merge_base:$1" 2>/dev/null) || return 0
   after=$(git show "$head:$1" 2>/dev/null) || return 0
   case "$1" in
     *.json)
@@ -93,11 +118,15 @@ manifest_dependencies_changed() {
       right=$(printf '%s\n' "$after" | json_deps 2>/dev/null) || return 0
       ;;
     *)
+      printf '%s\n' "$before" | toml_is_parseable || return 0
+      printf '%s\n' "$after" | toml_is_parseable || return 0
       left=$(printf '%s\n' "$before" | toml_deps)
       right=$(printf '%s\n' "$after" | toml_deps)
       ;;
   esac
-  [ "$left" = "$right" ] && return 1
+  if [ "$left" = "$right" ]; then
+    return 1
+  fi
   return 0
 }
 

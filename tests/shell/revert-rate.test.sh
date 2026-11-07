@@ -114,11 +114,39 @@ JSON
 expect 0 conventional-type '| 2026-10 | 2 | 1 | 50.0% |' '' 2026-10 \
   "$scratch/merged-revert.json" "$scratch/reverts-conventional.json"
 
-# Inputs are validated, not guessed.
-printf 'not an array\n' >"$scratch/bad.json"
+# The month can be positional, which is how the ticket spelled it.
+set +e
+sh "$script" 2026-10 --merged "$scratch/merged-revert.json" --reverts "$scratch/reverts-conventional.json" \
+  >"$scratch/stdout" 2>"$scratch/stderr"
+code=$?
+set -e
+if [ "$code" -eq 0 ] && grep -qF '| 2026-10 | 2 | 1 | 50.0% |' "$scratch/stdout"; then
+  pass "positional-month"
+else
+  fail "positional-month: exit $code ($(cat "$scratch/stderr"))"
+fi
+
+# `gh api --paginate` prints one array per page. A fixture with two concatenated arrays stands in for
+# two pages, and both must be counted: reading only the first page would miss the revert on page two.
+cat >"$scratch/reverts-two-pages.json" <<'JSON'
+[
+  { "sha": "p1", "commit": { "message": "feat: unrelated (#3)", "committer": { "date": "2026-10-11T10:00:00Z" } } },
+  { "sha": "p2", "commit": { "message": "feat: two (#2)", "committer": { "date": "2026-10-12T10:00:00Z" } } }
+]
+[
+  { "sha": "p3", "commit": { "message": "Revert \"feat: two (#2)\"", "committer": { "date": "2026-10-13T10:00:00Z" } } }
+]
+JSON
+expect 0 paginated-reverts '| 2026-10 | 2 | 1 | 50.0% |' 'reverted=1' 2026-10 \
+  "$scratch/merged-revert.json" "$scratch/reverts-two-pages.json"
+
+# Inputs are validated, not guessed: not JSON at all, and JSON that is not an array, are different errors.
+printf 'not json at all\n' >"$scratch/bad.json"
+printf '{"number": 1}\n' >"$scratch/object.json"
 expect 2 invalid-month '' 'is not a month in YYYY-MM form' 2026-13 "$scratch/merged.json" "$scratch/reverts.json"
 expect 2 missing-file '' 'does not exist' 2026-10 "$scratch/nope.json" "$scratch/reverts.json"
-expect 2 not-an-array '' 'is not a JSON array' 2026-10 "$scratch/bad.json" "$scratch/reverts.json"
+expect 2 not-json '' 'is not JSON' 2026-10 "$scratch/bad.json" "$scratch/reverts.json"
+expect 2 not-an-array '' 'is not a JSON array' 2026-10 "$scratch/object.json" "$scratch/reverts.json"
 
 if [ "$failures" -ne 0 ]; then
   echo "revert-rate tests: $failures failure(s)"

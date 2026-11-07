@@ -2,7 +2,7 @@
 # How much of what we merged had to be reverted? One number per month, from the repository's own history:
 # the merged pull requests in the window and the revert commits that point back at them.
 #
-# Usage: sh scripts/revert-rate.sh [--month YYYY-MM] [--merged FILE] [--reverts FILE]
+# Usage: sh scripts/revert-rate.sh [YYYY-MM] [--month YYYY-MM] [--merged FILE] [--reverts FILE]
 #   No arguments: the previous calendar month, fetched with `gh api`.
 #   --merged FILE    JSON array of merged pull requests (`number`, `mergedAt`), instead of fetching.
 #   --reverts FILE   JSON array of commits on main (`commit.committer.date`, `commit.message`), instead
@@ -14,8 +14,9 @@ set -eu
 
 usage() {
   cat >&2 <<'EOF'
-usage: sh scripts/revert-rate.sh [--month YYYY-MM] [--merged FILE] [--reverts FILE]
+usage: sh scripts/revert-rate.sh [YYYY-MM] [--month YYYY-MM] [--merged FILE] [--reverts FILE]
 
+  YYYY-MM           month to measure, positionally (same as --month)
   --month YYYY-MM   month to measure (default: the previous calendar month)
   --merged FILE     merged pull requests as JSON (number, mergedAt), skips the network
   --reverts FILE    commits on main as JSON (commit.committer.date, commit.message), skips the network
@@ -26,6 +27,7 @@ EOF
 month=
 merged_file=
 reverts_file=
+limit=500
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --month | --merged | --reverts)
@@ -38,9 +40,18 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     -h | --help) usage ;;
-    *)
+    -*)
       echo "revert-rate: unknown argument $1" >&2
       usage
+      ;;
+    *)
+      # The ticket spelled the month as a positional argument; accept both spellings.
+      if [ -n "$month" ]; then
+        echo "revert-rate: the month was given twice ('$month' and '$1')" >&2
+        usage
+      fi
+      month=$1
+      shift
       ;;
   esac
 done
@@ -73,6 +84,18 @@ else
 fi
 start=$month-01T00:00:00Z
 
+case "$mm" in
+  01 | 03 | 05 | 07 | 08 | 10 | 12) last=31 ;;
+  04 | 06 | 09 | 11) last=30 ;;
+  02)
+    if [ $((year % 4)) -eq 0 ] && { [ $((year % 100)) -ne 0 ] || [ $((year % 400)) -eq 0 ]; }; then
+      last=29
+    else
+      last=28
+    fi
+    ;;
+esac
+
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/openridr-revert-rate.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 
@@ -87,34 +110,51 @@ if [ -z "$merged_file" ] || [ -z "$reverts_file" ]; then
   }
   if [ -z "$merged_file" ]; then
     merged_file=$scratch/merged.json
-    # `merged:` takes whole days and a fixed upper bound (`-31`) is wrong for a 30-day month; the
-    # exact window is the one the jq program applies, so only the lower bound goes to the search.
-    gh pr list --state merged --limit 500 \
-      --search "merged:>=$month-01" \
+    # The search is bounded on both ends with the real last day of the month: an open lower bound plus a
+    # result cap would let newer pull requests crowd out the month being measured.
+    gh pr list --state merged --limit "$limit" \
+      --search "merged:$month-01..$month-$last" \
       --json number,title,mergedAt >"$merged_file" || {
       echo 'revert-rate: could not list the merged pull requests' >&2
       exit 2
     }
+    if [ "$(jq 'length' "$merged_file")" -ge "$limit" ]; then
+      echo "revert-rate: the search returned $limit merged pull requests, which is the cap; the month may be truncated. Raise --limit in the script." >&2
+      exit 2
+    fi
   fi
   if [ -z "$reverts_file" ]; then
     reverts_file=$scratch/reverts.json
+    # `--paginate` prints one JSON array per page; `jq -s add` flattens them into the single array the
+    # classification expects. Without it, only the first 100 commits of the month would be seen.
     gh api --paginate "repos/$repo/commits?sha=main&since=$start&until=$end&per_page=100" \
-      >"$reverts_file" || {
+      | jq -s 'add // []' >"$reverts_file" || {
       echo 'revert-rate: could not list the commits on main' >&2
       exit 2
     }
   fi
 fi
 
+# Both inputs are normalised to a single JSON array: a fixture may be one array, or several concatenated
+# arrays standing in for paginated pages.
 for file in "$merged_file" "$reverts_file"; do
   [ -f "$file" ] || {
     echo "revert-rate: $file does not exist" >&2
     exit 2
   }
-  jq -e 'type == "array"' "$file" >/dev/null 2>&1 || {
+  normalised=$scratch/$(basename "$file").normalised.json
+  if ! jq -s 'add // []' "$file" >"$normalised" 2>/dev/null; then
+    echo "revert-rate: $file is not JSON" >&2
+    exit 2
+  fi
+  if ! jq -e 'type == "array"' "$normalised" >/dev/null 2>&1; then
     echo "revert-rate: $file is not a JSON array" >&2
     exit 2
-  }
+  fi
+  case "$file" in
+    "$merged_file") merged_file=$normalised ;;
+    *) reverts_file=$normalised ;;
+  esac
 done
 
 # The classification, as one jq program over the two arrays:

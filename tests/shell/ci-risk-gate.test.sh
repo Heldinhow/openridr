@@ -1,14 +1,15 @@
 #!/bin/sh
 # Focused tests for scripts/ci-risk-gate.sh, the rule that only the maintainer may merge a high-risk pull
-# request. No network and no GitHub: a stub `gh` answers the two `gh api` calls the gate makes, with the
-# real `jq` applying the real `--jq` expression to the fixture.
+# request. No network and no GitHub: a stub `gh` answers the `gh api` call the gate makes, with the real
+# `jq` applying the real `--jq` expression to the fixture.
 #
 #   sh tests/shell/ci-risk-gate.test.sh
 #
 # Covers: no gate for low/medium, an approval of the current revision, an approval of an older revision,
-# an approval from someone without write access, a dismissed approval, no reviews at all, an approval at
-# exactly the head timestamp, the gate reading the right pull request, an unreadable commit list, an
-# unknown tier and the missing inputs.
+# an approval withdrawn by a later CHANGES_REQUESTED or by a dismissal, an approval from someone without
+# write access, a reviewer whose latest review is a comment, an approval at the head of a mixed history,
+# the gate reading the right pull request, an unreadable review list, an unknown tier and the missing
+# inputs.
 set -eu
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -24,8 +25,10 @@ trap 'rm -rf "$scratch"' EXIT
 owner=Heldinhow
 repo_name=openridr
 pr=74
+head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+older=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
-# A stub gh: it answers the two `gh api --paginate <url> --jq <expr>` calls the gate makes, and refuses
+# A stub gh: it answers the one `gh api --paginate <url> --jq <expr>` call the gate makes, and refuses
 # anything else. It checks the URL, so a gate that read the wrong pull request fails here.
 cat >"$scratch/gh" <<'STUB'
 #!/bin/sh
@@ -39,8 +42,13 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
-  "repos/$EXPECT_REPO/pulls/$EXPECT_PR/commits") file=$FAKE_COMMITS ;;
-  "repos/$EXPECT_REPO/pulls/$EXPECT_PR/reviews") file=$FAKE_REVIEWS ;;
+  "repos/$EXPECT_REPO/pulls/$EXPECT_PR/reviews")
+    if [ -n "${FAKE_FAIL:-}" ]; then
+      echo 'stub gh: HTTP 502' >&2
+      exit 1
+    fi
+    file=$FAKE_REVIEWS
+    ;;
   *)
     echo "stub gh: unexpected url '$url'" >&2
     exit 1
@@ -49,14 +57,6 @@ esac
 if [ -n "$expr" ]; then jq -r "$expr" "$file"; else cat "$file"; fi
 STUB
 chmod +x "$scratch/gh"
-
-cat >"$scratch/commits.json" <<'JSON'
-[
-  { "sha": "aaa", "commit": { "committer": { "date": "2026-11-06T10:00:00Z" } } },
-  { "sha": "bbb", "commit": { "committer": { "date": "2026-11-06T12:00:00Z" } } },
-  { "sha": "ccc", "commit": { "committer": { "date": "2026-11-06T11:00:00Z" } } }
-]
-JSON
 
 reviews() { # writes $scratch/reviews.json from stdin
   cat >"$scratch/reviews.json"
@@ -67,9 +67,8 @@ run() {
   tier=$1
   shift
   set +e
-  env GH="$scratch/gh" REPO="$owner/$repo_name" PR_NUMBER="$pr" TIER="$tier" \
-    EXPECT_REPO="$owner/$repo_name" EXPECT_PR="$pr" \
-    FAKE_COMMITS="$scratch/commits.json" FAKE_REVIEWS="$scratch/reviews.json" \
+  env GH="$scratch/gh" REPO="$owner/$repo_name" PR_NUMBER="$pr" TIER="$tier" HEAD_SHA="$head" \
+    EXPECT_REPO="$owner/$repo_name" EXPECT_PR="$pr" FAKE_REVIEWS="$scratch/reviews.json" \
     "$@" sh "$script" >"$scratch/stdout" 2>"$scratch/stderr"
   code=$?
   set -e
@@ -77,14 +76,14 @@ run() {
   err=$(cat "$scratch/stderr")
 }
 
-# expect <pass|fail> <exit> <name> <tier> <stdout fragment> <stderr fragment> [env assignment...]
+# expect <exit> <name> <tier> <stdout fragment> <stderr fragment> [env assignment...]
 expect() {
-  want_code=$2
-  name=$3
-  tier=$4
-  out_fragment=$5
-  err_fragment=$6
-  shift 6
+  want_code=$1
+  name=$2
+  tier=$3
+  out_fragment=$4
+  err_fragment=$5
+  shift 5
   run "$tier" "$@"
   if [ "$code" -ne "$want_code" ]; then
     fail "$name: expected exit $want_code, got $code ($err)"
@@ -105,84 +104,97 @@ reviews <<'JSON'
 []
 JSON
 
-# No maintainer, no gate: low and medium go through without a single call to gh (the fixture files are
-# not even needed).
-expect pass 0 low-no-gate low 'needs no maintainer approval' ''
-expect pass 0 medium-no-gate medium 'needs no maintainer approval' ''
+# No maintainer, no gate: low and medium go through without reading a single review.
+expect 0 low-no-gate low 'needs no maintainer approval' ''
+expect 0 medium-no-gate medium 'needs no maintainer approval' ''
 
-# The head is the newest committer date (12:00Z), not the last element of the list (11:00Z).
-reviews <<'JSON'
+# The approval must name the current head commit.
+reviews <<JSON
 [
-  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "user": { "login": "Heldinhow" } }
+  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } }
 ]
 JSON
-expect pass 0 approval-after-head high 'Heldinhow approved this revision at 2026-11-06T12:30:00Z' ''
+expect 0 approval-on-head high 'Heldinhow approved' ''
 
-reviews <<'JSON'
+reviews <<JSON
 [
-  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T11:30:00Z", "user": { "login": "Heldinhow" } }
+  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "commit_id": "$older", "user": { "login": "Heldinhow" } }
 ]
 JSON
-expect fail 1 approval-before-head high 'high-risk pull request' ''
+expect 1 approval-on-older-commit high 'high-risk pull request' ''
 
-reviews <<'JSON'
+# A later CHANGES_REQUESTED withdraws the approval, even though the APPROVED stays in the history.
+reviews <<JSON
 [
-  { "state": "APPROVED", "author_association": "CONTRIBUTOR", "submitted_at": "2026-11-06T13:00:00Z", "user": { "login": "someone" } }
+  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } },
+  { "state": "CHANGES_REQUESTED", "author_association": "OWNER", "submitted_at": "2026-11-06T13:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } }
 ]
 JSON
-expect fail 1 approval-without-write-access high 'high-risk pull request' ''
+expect 1 withdrawn-by-changes-requested high 'high-risk pull request' ''
 
-reviews <<'JSON'
+# A dismissal (what a push does when stale reviews are dismissed) withdraws it too.
+reviews <<JSON
 [
-  { "state": "DISMISSED", "author_association": "OWNER", "submitted_at": "2026-11-06T13:00:00Z", "user": { "login": "Heldinhow" } }
+  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } },
+  { "state": "DISMISSED", "author_association": "OWNER", "submitted_at": "2026-11-06T13:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } }
 ]
 JSON
-expect fail 1 dismissed-approval high 'high-risk pull request' ''
+expect 1 withdrawn-by-dismissal high 'high-risk pull request' ''
 
-reviews <<'JSON'
+# Re-approving after the change of mind counts again: the latest review is the approval.
+reviews <<JSON
 [
-  { "state": "COMMENTED", "author_association": "MEMBER", "submitted_at": "2026-11-06T13:00:00Z", "user": { "login": "member" } }
+  { "state": "CHANGES_REQUESTED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } },
+  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T13:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } }
 ]
 JSON
-expect fail 1 comment-is-not-approval high 'high-risk pull request' ''
+expect 0 reapproved high 'Heldinhow approved' ''
+
+reviews <<JSON
+[
+  { "state": "APPROVED", "author_association": "CONTRIBUTOR", "submitted_at": "2026-11-06T13:00:00Z", "commit_id": "$head", "user": { "login": "someone" } }
+]
+JSON
+expect 1 approval-without-write-access high 'high-risk pull request' ''
+
+reviews <<JSON
+[
+  { "state": "COMMENTED", "author_association": "MEMBER", "submitted_at": "2026-11-06T13:00:00Z", "commit_id": "$head", "user": { "login": "member" } }
+]
+JSON
+expect 1 comment-is-not-approval high 'high-risk pull request' ''
 
 reviews <<'JSON'
 []
 JSON
-expect fail 1 no-reviews high 'high-risk pull request' ''
+expect 1 no-reviews high 'high-risk pull request' ''
 
-# An approval submitted in the same second as the head commit counts: the approver saw that revision.
-reviews <<'JSON'
+# One valid approval is enough even when another reviewer asked for changes, and the withdrawn one does
+# not hide it.
+reviews <<JSON
 [
-  { "state": "APPROVED", "author_association": "MEMBER", "submitted_at": "2026-11-06T12:00:00Z", "user": { "login": "member" } }
+  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T09:00:00Z", "commit_id": "$older", "user": { "login": "Heldinhow" } },
+  { "state": "CHANGES_REQUESTED", "author_association": "MEMBER", "submitted_at": "2026-11-06T13:00:00Z", "commit_id": "$head", "user": { "login": "member" } },
+  { "state": "APPROVED", "author_association": "COLLABORATOR", "submitted_at": "2026-11-06T14:00:00Z", "commit_id": "$head", "user": { "login": "collaborator" } }
 ]
 JSON
-expect pass 0 approval-at-head high 'member approved this revision' ''
-
-# One valid approval is enough even when an older one comes first, and a stale one does not hide it.
-reviews <<'JSON'
-[
-  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T09:00:00Z", "user": { "login": "Heldinhow" } },
-  { "state": "APPROVED", "author_association": "COLLABORATOR", "submitted_at": "2026-11-06T14:00:00Z", "user": { "login": "collaborator" } }
-]
-JSON
-expect pass 0 mixed-histories high 'collaborator approved this revision' ''
+expect 0 mixed-reviewers high 'collaborator approved' ''
 
 # The gate must read the pull request it was told about (the stub gh fails on any other URL).
-reviews <<'JSON'
+reviews <<JSON
 [
-  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "user": { "login": "Heldinhow" } }
+  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } }
 ]
 JSON
-expect fail 2 wrong-pull-request high '' 'could not read the commits' EXPECT_PR=999
+expect 2 wrong-pull-request high '' 'could not read the reviews' EXPECT_PR=999
 
-# An unreadable commit list is an error, not an approval and not a pass.
-printf '[]\n' >"$scratch/commits-empty.json"
-expect fail 2 no-commits high '' 'could not read the commits' FAKE_COMMITS="$scratch/commits-empty.json"
+# An unreadable review list is an error, never an approval and never a pass.
+expect 2 api-failure high '' 'could not read the reviews' FAKE_FAIL=1
 
 # Inputs are validated.
-expect fail 2 unknown-tier dodgy '' "is not a risk tier"
-expect fail 2 missing-repo high '' 'usage:' REPO=
+expect 2 unknown-tier dodgy '' 'is not a risk tier'
+expect 2 missing-repo high '' 'usage:' REPO=
+expect 2 missing-head high '' 'usage:' HEAD_SHA=
 
 if [ "$failures" -ne 0 ]; then
   echo "ci-risk-gate tests: $failures failure(s)"

@@ -269,6 +269,123 @@ write_case pkg-dependency-version high package.json <<'JSON'
 }
 JSON
 
+# --- dependency tables the extractor must not mistake for "no change" --------------------------------
+
+# A target-specific dependency subtable carries a dependency too: `[target.'cfg(...)'.dependencies.foo]`
+# used to be dropped, so adding a dependency there read as "no dependency change".
+write_case cargo-target-dep high Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+
+[target.'cfg(unix)'.dependencies.libc]
+version = "0.2"
+TOML
+
+# A multiline value whose continuation starts with `[` is not a table header. An extractor that cannot
+# tell them apart drops the rest of the table; the guard makes it fail closed instead.
+write_case cargo-multiline-array high Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+libc = "0.2"
+matrix = [
+  ["unix", "windows"],
+]
+TOML
+
+# --- the manifest is compared at the merge base, not at the base tip --------------------------------
+
+# Both branches add the same dependency: against the base *tip* the two sides would agree and the change
+# would read as "no dependency change". The pull request still introduced it, so it is high.
+diverged_manifest() {
+  name=$1
+  want=$2
+  base_ref=$3
+  head_ref=$4
+  cases=$((cases + 1))
+  set +e
+  got=$(cd "$repo" && sh "$tier" "$base_ref" "$head_ref" 2>"$scratch/$name.err")
+  code=$?
+  set -e
+  if [ "$code" -ne 0 ] || [ "$got" != "$want" ]; then
+    echo "FAIL $name: expected $want, got ${got:-<nothing>} (exit $code)"
+    sed 's/^/    /' "$scratch/$name.err"
+    failures=$((failures + 1))
+  else
+    printf 'ok   %-26s %s\n' "$name" "$got"
+  fi
+}
+
+# Two branches that each add the same dependency, on top of the same ancestor.
+git -C "$repo" checkout -q -b diverged-base
+write Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+libc = "0.2"
+rand = "0.8"
+TOML
+commit diverged-base-adds-rand
+git -C "$repo" checkout -q -
+write Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+libc = "0.2"
+rand = "0.8"
+TOML
+commit pull-request-adds-rand
+diverged_manifest cargo-same-dependency-both-sides high diverged-base HEAD
+
+# A change that lives only inside a value the extractor cannot classify: identical extracted tables, so
+# only the fail-closed guard catches it.
+git -C "$repo" checkout -q -b unparseable-base
+write Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+matrix = [
+["a"],
+]
+TOML
+commit unparseable-base
+git -C "$repo" checkout -q -
+write Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+matrix = [
+["b"],
+]
+TOML
+commit pull-request-changes-unparseable-value
+diverged_manifest cargo-unparseable-value high unparseable-base HEAD
+
 # --- errors: a caller bug is never "low" ------------------------------------------------------------
 
 expect_exit() { # <name> <expected exit> <args>...
