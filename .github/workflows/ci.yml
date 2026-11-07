@@ -75,7 +75,8 @@ jobs:
           # src-tauri is a separate workspace; it formats with its own manifest.
           cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
-      # src-tauri is left out on purpose: it builds the whole Tauri stack and no PR here changes it.
+      # src-tauri is left out of this job on purpose: it is a separate workspace that builds the whole
+      # Tauri stack, so it has its own job (`rust-tauri`) running in parallel.
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -95,6 +96,51 @@ jobs:
 
       - name: Host tests
         run: cargo test -p openridr-host
+
+  rust-tauri:
+    # src-tauri is its own workspace, so `cargo clippy --workspace` and `cargo test -p openridr-host`
+    # never reached it: its 6 tests ran on nobody's runner. It runs in parallel with the Rust job so the
+    # pull request wall time does not change, and it is informative for now: `continue-on-error` makes
+    # the job result `success` (actions/runner#1161: the UI still shows the failure), so the `ci`
+    # aggregator stays green and no ruleset or required check changes.
+    #
+    # Promotion (issue #219): 5 consecutive green runs, at least one with a cold cache, a stable
+    # duration under 5 minutes and no flake. Promoting is removing `continue-on-error` in its own pull
+    # request; the `ci` aggregator is the only required check, so the job then blocks without touching
+    # any repository setting.
+    name: Tauri (clippy + tests)
+    runs-on: macos-15
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same source of truth as the Rust job: the channel and the components come from
+      # rust-toolchain.toml, so there is no second place where the Rust version lives.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --component rustfmt --component clippy
+
+      # The workspace is src-tauri, not the repository root: rust-cache has to be told where the
+      # manifest and the `target` directory are.
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: "src-tauri -> target"
+
+      # tauri-build validates the bundle resources, and both vendor directories are gitignored, so a
+      # clean checkout fails with `resource path 'resources/csharp-ls' doesn't exist`. CI does not run
+      # the vendor scripts and does not need their content here: only the existence of the path matters.
+      - name: Create the empty resource directories
+        run: mkdir -p src-tauri/resources/csharp-ls src-tauri/resources/dotnet
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
   governance:
     name: Governance (workflows, PR title, PR body)
@@ -416,7 +462,7 @@ jobs:
   # ruleset. A skipped PR-only job is not a failure, so `push` to main can pass without them.
   ci:
     name: ci
-    needs: [typescript, rust, governance, risk, security]
+    needs: [typescript, rust, rust-tauri, governance, risk, security]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
