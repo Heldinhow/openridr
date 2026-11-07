@@ -2123,7 +2123,10 @@ fn fetch_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
         next.message = Some(fetch_failure(&remote, &stderr));
         return Ok(next);
     }
-    next.message = Some(format!("Fetched {remote}: {}.", tracking_line(&next.status)));
+    next.message = Some(format!(
+        "Fetched {remote}: {}.",
+        tracking_line(&next.status)
+    ));
     Ok(next)
 }
 
@@ -2136,7 +2139,10 @@ fn tracking_line(status: &GitStatus) -> String {
             "{branch} is {} ahead, {} behind {upstream}",
             status.ahead, status.behind
         ),
-        None => format!("{branch} is {} ahead, {} behind", status.ahead, status.behind),
+        None => format!(
+            "{branch} is {} ahead, {} behind",
+            status.ahead, status.behind
+        ),
     }
 }
 
@@ -3652,10 +3658,7 @@ mod tests {
         let (temp, user, bare) = remote_repo("user");
         let peer = peer_clone(temp.path(), &bare);
         publish(&peer, "b.txt", "one\npeer\n", "peer change");
-        git(
-            &peer,
-            &["checkout", "-qb", "published", "origin/main"],
-        );
+        git(&peer, &["checkout", "-qb", "published", "origin/main"]);
         // A branch only the counterpart knows about, published from a second commit.
         fs::write(peer.join("c.txt"), "peer only\n").unwrap();
         commit_all(&peer, "peer branch");
@@ -3778,7 +3781,10 @@ mod tests {
             "origin",
             "fatal: could not read Username for 'https://example.com': terminal prompts disabled",
         );
-        assert!(message.contains("needs credentials for origin"), "{message}");
+        assert!(
+            message.contains("needs credentials for origin"),
+            "{message}"
+        );
         assert!(message.contains("credential helper"), "{message}");
         assert!(message.contains("Nothing was changed"), "{message}");
         assert!(!message.contains("terminal prompts"), "{message}");
