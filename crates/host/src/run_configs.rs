@@ -6,6 +6,7 @@
 //! `debug.start` instead of a second pipeline.
 
 use crate::error::{HostError, HostResult};
+use crate::scope::Scope;
 use crate::tools::app_home;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -471,9 +472,19 @@ pub fn write_session(params: &Value) -> HostResult<Value> {
 
 fn write_session_at(path: &Path, solution: &Path, params: &Value) -> HostResult<Store> {
     let mut store = read_at(path, solution)?;
-    store.session = session_param(params)?;
+    store.session = session_param(params, &workspace_scope_for(solution))?;
     write_at(path, &store)?;
     Ok(store)
+}
+
+/// The scope the session's paths must stay inside: the solution's root plus the directories of the
+/// projects it names. A tab of a project outside the root is stored by its absolute path.
+fn workspace_scope_for(solution: &Path) -> Scope {
+    let root = solution.parent().unwrap_or(solution);
+    let is_solution = solution.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("sln") || extension.eq_ignore_ascii_case("slnx")
+    });
+    crate::outline::resolve_workspace_scope(root, solution, is_solution).scope
 }
 
 fn store_from_params(path: &Path, solution: &Path, params: &Value) -> HostResult<Store> {
@@ -522,7 +533,7 @@ fn store_from_params(path: &Path, solution: &Path, params: &Value) -> HostResult
     })
 }
 
-fn session_param(params: &Value) -> HostResult<SessionState> {
+fn session_param(params: &Value, scope: &Scope) -> HostResult<SessionState> {
     let session = params
         .get("session")
         .cloned()
@@ -530,18 +541,18 @@ fn session_param(params: &Value) -> HostResult<SessionState> {
         .transpose()
         .map_err(|error| invalid(format!("session is not a valid editor session: {error}")))?
         .unwrap_or_default();
-    validate_session(&session)?;
+    validate_session(&session, scope)?;
     Ok(session)
 }
 
-fn validate_session(session: &SessionState) -> HostResult<()> {
+fn validate_session(session: &SessionState, scope: &Scope) -> HostResult<()> {
     if session.tabs.len() > MAX_SESSION_TABS {
         return Err(invalid(format!(
             "At most {MAX_SESSION_TABS} editor tabs are supported."
         )));
     }
     for tab in &session.tabs {
-        validate_session_path(&tab.path)?;
+        validate_session_path(&tab.path, scope)?;
         if tab.line >= MAX_SESSION_POSITION || tab.character >= MAX_SESSION_POSITION {
             return Err(invalid(
                 "A tab cursor position is out of range; nothing was saved.",
@@ -549,10 +560,10 @@ fn validate_session(session: &SessionState) -> HostResult<()> {
         }
     }
     if let Some(path) = &session.active_path {
-        validate_session_path(path)?;
+        validate_session_path(path, scope)?;
     }
     for (path, lines) in &session.breakpoints {
-        validate_session_path(path)?;
+        validate_session_path(path, scope)?;
         if lines.len() > MAX_SESSION_BREAKPOINTS
             || lines
                 .iter()
@@ -566,14 +577,18 @@ fn validate_session(session: &SessionState) -> HostResult<()> {
     Ok(())
 }
 
-fn validate_session_path(path: &str) -> HostResult<()> {
-    if path.trim().is_empty()
-        || path.len() > 1024
-        || path.contains('\0')
-        || Path::new(path).is_absolute()
-    {
+fn validate_session_path(path: &str, scope: &Scope) -> HostResult<()> {
+    if path.trim().is_empty() || path.len() > 1024 || path.contains('\0') {
         return Err(invalid(
-            "Session paths must be relative, non-empty and at most 1024 characters; nothing was saved.",
+            "Session paths must be non-empty and at most 1024 characters; nothing was saved.",
+        ));
+    }
+    // A file of a project the solution names outside its directory is stored by its absolute path;
+    // it must stay inside the workspace scope, so the session cannot reopen something the host
+    // would refuse anyway.
+    if Path::new(path).is_absolute() && !scope.contains(Path::new(path)) {
+        return Err(invalid(
+            "A session path outside the workspace scope was refused; nothing was saved.",
         ));
     }
     Ok(())
@@ -1707,6 +1722,64 @@ mod tests {
         assert_eq!(rewritten.session, session);
         let startup = set_startup_at(&path, &solution, &json!({ "startupProject": null })).unwrap();
         assert_eq!(startup.session, session);
+    }
+
+    #[test]
+    fn an_editor_session_accepts_a_file_of_a_project_outside_the_solution() {
+        let home = tempfile::tempdir().unwrap();
+        let app = home.path().join("app");
+        let lib = home.path().join("lib");
+        fs::create_dir_all(&app).unwrap();
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("Lib.csproj"), "<Project />\n").unwrap();
+        let solution_file = app.join("App.sln");
+        fs::write(
+            &solution_file,
+            "Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Lib\", \"..\\lib\\Lib.csproj\", \"{1}\"\nEndProject\nGlobal\nEndGlobal\n",
+        )
+        .unwrap();
+        let solution = fs::canonicalize(&solution_file).unwrap();
+        let lib = fs::canonicalize(&lib).unwrap();
+        let path = home.path().join("run-configs").join("store.json");
+        let outside = lib.join("Greeting.cs");
+        fs::write(&outside, "").unwrap();
+
+        let written = write_session_at(
+            &path,
+            &solution,
+            &json!({
+                "session": {
+                    "tabs": [{ "path": outside.to_string_lossy(), "line": 1, "character": 0 }],
+                    "activePath": outside.to_string_lossy(),
+                    "breakpoints": { outside.to_string_lossy(): [3] },
+                },
+            }),
+        )
+        .unwrap();
+        assert_eq!(written.session.tabs[0].path, outside.to_string_lossy());
+        assert_eq!(
+            written.session.breakpoints[&outside.to_string_lossy().to_string()],
+            vec![3]
+        );
+
+        // Outside the scope the session is refused and the stored one is untouched.
+        let outside_scope = home.path().join("Outside.cs");
+        fs::write(&outside_scope, "").unwrap();
+        let error = write_session_at(
+            &path,
+            &solution,
+            &json!({
+                "session": {
+                    "tabs": [{ "path": outside_scope.to_string_lossy(), "line": 1, "character": 0 }],
+                },
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_run_configs");
+        assert_eq!(
+            read_at(&path, &solution).unwrap().session.tabs[0].path,
+            outside.to_string_lossy()
+        );
     }
 
     #[test]
