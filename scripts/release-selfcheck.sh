@@ -11,6 +11,10 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/release-selfcheck.XXXXXX")
 trap 'rm -rf "$work"' EXIT INT TERM
 
 VERSION=0.3.0-alpha.11
+# The pubkey the fixture's tauri.conf.json carries, and a valid one from another keypair: the
+# release must accept a signature made by the first and refuse one made by the second.
+updater_pubkey='dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzMERFNUJBRkFFOTVDNUUKUldSZVhPbjZ1dVVOMC9hNTJxT3lEelFxWW5hdDFvT0VvdS9YOEowTHpoYkkwK1AralVYUXp4UTUK'
+other_pubkey='dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU0NjFENkVGNkNBQkExMjQKUldRa29hdHM3OVpoNUl3RTBDSnRlRi85TFNmN0s5RWJiaW5EaGxLUmpMd1k1a1pSdjl3OTA2V0gK'
 fail() {
   printf 'self-check failed: %s\n' "$1" >&2
   exit 1
@@ -33,7 +37,8 @@ add_version() {
 }"
   plant "$root/src-tauri/tauri.conf.json" "{
   \"productName\": \"OpenRidr\",
-  \"version\": \"$1\"
+  \"version\": \"$1\",
+  \"plugins\": { \"updater\": { \"pubkey\": \"$updater_pubkey\" } }
 }"
   for crate in src-tauri crates/host crates/host-http; do
     plant "$root/$crate/Cargo.toml" "[package]
@@ -467,7 +472,8 @@ run_signed() {
   mode=$1
   home=$2
   mkdir -p "$home"
-  NOTARY_MODE=$mode RELEASE_ROOT=$root RUNNER_TEMP=$home RELEASE_APP=$stub \
+  NOTARY_MODE=$mode FAKE_PUBKEY=${FAKE_PUBKEY:-$work/pubkey.txt} \
+    RELEASE_ROOT=$root RUNNER_TEMP=$home RELEASE_APP=$stub \
     APPLE_CERTIFICATE=$canary APPLE_CERTIFICATE_PASSWORD=$canary \
     APPLE_API_KEY=${SELFTEST_KEY:-$release_key} APPLE_API_KEY_ID=SELFTEST123 \
     APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
@@ -491,10 +497,27 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$file" ] || { echo "fake tauri: no file to sign" >&2; exit 1; }
 [ -n "$version" ] || { echo "fake tauri: no --app-version" >&2; exit 1; }
-printf 'untrusted comment: signature from tauri secret key\nversion:%s\n' "$version" |
-  openssl base64 -A >"$file.sig"
+[ -f "$FAKE_PUBKEY" ] || { echo "fake tauri: no public key at $FAKE_PUBKEY" >&2; exit 1; }
+# The real signature file shape: comment, blob (alg + key id + 64 bytes), trusted comment, global
+# signature. The key id comes from the public key the self-check planted, so the release's key id
+# comparison is exercised with a matching and a mismatching key.
+blob=$(mktemp)
+printf 'ED' >"$blob"
+printf '%s' "$(cat "$FAKE_PUBKEY")" | openssl base64 -d -A | sed -n '2p' | openssl base64 -d -A |
+  dd bs=1 skip=2 count=8 >>"$blob" 2>/dev/null
+dd if=/dev/zero bs=1 count=64 >>"$blob" 2>/dev/null
+{
+  printf 'untrusted comment: signature from tauri secret key\n'
+  openssl base64 -A -in "$blob"
+  printf '\ntrusted comment: timestamp:%s\tfile:%s\tversion:%s\n' "$(date +%s)" \
+    "$(basename "$file")" "$version"
+  printf 'AAAA\n'
+} | openssl base64 -A >"$file.sig"
+rm -f "$blob"
 FAKETAURI
 chmod +x "$root/node_modules/.bin/tauri"
+printf '%s' "$updater_pubkey" >"$work/pubkey.txt"
+printf '%s' "$other_pubkey" >"$work/other-pubkey.txt"
 
 ok_home="$work/run-signed-ok"
 seen="$work/key-seen"
@@ -514,6 +537,8 @@ first=$(tar -tzf "$ok_home/OpenRidr.app.tar.gz" | head -n 1)
 [ "$first" = "OpenRidr.app/" ] || fail "the archive root is '$first', expected 'OpenRidr.app/'"
 openssl base64 -d -A <"$ok_home/OpenRidr.app.tar.gz.sig" | grep -q "version:$VERSION" ||
   fail "the signature was not bound to the version being released"
+grep -q "updater signature key id matches the pubkey" "$work/err" ||
+  fail "the release did not compare the signature key id with the configured pubkey"
 grep -q "notarization accepted: OpenRidr-notary" "$work/err" ||
   fail "the app was not sent to the (fake) notary: $(cat "$work/err")"
 leftovers=$(leftovers_in "$ok_home")
@@ -521,6 +546,13 @@ leftovers=$(leftovers_in "$ok_home")
 grep -Eq '^600 .*/notary-key\.[0-9]+/AuthKey_SELFTEST123\.p8$' "$seen" ||
   fail "the key was not at the deterministic path with 0600 while being written: $(cat "$seen")"
 grep -q '^dir 700$' "$seen" || fail "the key directory is not private: $(cat "$seen")"
+
+wrong_key_home="$work/run-signed-wrong-key"
+if FAKE_PUBKEY=$work/other-pubkey.txt run_signed ok "$wrong_key_home" >"$work/out" 2>"$work/err"; then
+  fail "a signature from a key the app does not trust was accepted"
+fi
+grep -q "but the app trusts" "$work/err" ||
+  fail "the key id mismatch is not reported: $(cat "$work/err")"
 
 bad_home="$work/run-signed-reject"
 if run_signed reject "$bad_home" >"$work/out" 2>"$work/err"; then

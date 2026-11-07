@@ -40,7 +40,24 @@ Rodada de 2026-11-07, macOS arm64. Spec: [SPEC-IN-APP-UPDATER](SPEC-IN-APP-UPDAT
 
 ## Correções da revisão independente
 
-Preenchido depois do `/code-review` (rodada 1).
+`/code-review` (rodada 1, subagente único, fixed point `git merge-base origin/main HEAD`): cinco
+achados, todos reais e corrigidos.
+
+- **Alto — a assinatura do artefato nunca era conferida com a chave que o app confia.** O release
+  assinava e verificava a assinatura Apple, mas nada ligava o secret à `pubkey` do `tauri.conf.json`:
+  um secret com outra chave publicaria um artefato que todo app instalado rejeita, com o DMG
+  perfeito. Agora `verify_updater_signature` compara o key id minisign (8 bytes no offset 2, nos dois
+  blobs) e o self-check cobre a chave errada — falha-antes medida desligando a comparação.
+- **Médio — o arquivo do canal era mutável.** Trocar o `.tar.gz` no canal antes do manifesto deixava
+  o manifesto antigo apontando para bytes novos com assinatura antiga. O artefato passou para a
+  release da versão (URL imutável); só o `latest.json` mora no canal.
+- **Médio — checagens sobrepostas podiam trocar o update depois da confirmação.** A UI serializa as
+  operações e `update_install` recebe a versão mostrada e recusa outra.
+- **Baixo — o erro da checagem de startup não deixava rastro.** O comando escreve a frase no stderr.
+- **Baixo — a spec pedia o tamanho antes da confirmação.** O tamanho só existe com o `Content-Length`;
+  a spec passou a dizer isso em vez de prometer um número que não há.
+
+Nenhum achado de padrão de código (a revisão não encontrou violação documentada nem smell).
 
 ## Follow-ups
 

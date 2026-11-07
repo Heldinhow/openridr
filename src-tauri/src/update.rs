@@ -157,10 +157,12 @@ pub async fn update_check(
         .configure_client(|builder| builder.connect_timeout(CONNECT_TIMEOUT))
         .build()
         .map_err(|error| check_error(&error.to_string()))?;
-    let update = updater
-        .check()
-        .await
-        .map_err(|error| check_error(&error.to_string()))?;
+    let update = updater.check().await.map_err(|error| {
+        let message = check_error(&error.to_string());
+        // The startup check is silent in the UI, so this line is the only trace it leaves.
+        eprintln!("update: {message}");
+        message
+    })?;
     let result = match &update {
         Some(update) => CheckResult::available(update),
         None => CheckResult::current(app.package_info().version.to_string()),
@@ -173,10 +175,17 @@ pub async fn update_check(
 pub async fn update_install(
     app: AppHandle,
     pending: State<'_, PendingUpdate>,
+    version: String,
 ) -> Result<(), String> {
     let Some(update) = pending.0.lock().unwrap().take() else {
         return Err(install_error("there is no update to install; check again"));
     };
+    // The user confirmed one version: a check that finished in between must not install another.
+    if update.version != version {
+        return Err(install_error(&format!(
+            "{version} is no longer the version to install; check again"
+        )));
+    }
     let sink = ProgressSink::new(app);
     update
         .download_and_install(|chunk, total| sink.chunk(chunk, total), || sink.finish())

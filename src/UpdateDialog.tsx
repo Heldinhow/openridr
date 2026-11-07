@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { messageOf } from "./host/client";
 
 /** What `update_check` answers; mirrors `CheckResult` in the shell. */
@@ -35,8 +35,13 @@ function megabytes(bytes: number) {
  */
 export function UpdateDialog({ onRestart }: { onRestart: () => void }) {
   const [view, setView] = useState<View>({ kind: "closed" });
+  // One update operation at a time: a second check would replace the pending update the user is
+  // looking at, and a check during the download would hide the progress that proves it is running.
+  const busy = useRef(false);
 
   const check = useCallback(async (manual: boolean) => {
+    if (busy.current) return;
+    busy.current = true;
     // The startup check stays invisible until it has something to say; the menu one shows itself.
     if (manual) setView({ kind: "checking" });
     try {
@@ -56,6 +61,8 @@ export function UpdateDialog({ onRestart }: { onRestart: () => void }) {
     } catch (error) {
       // A check that fails at startup is a log line in the shell, not a dialog nobody asked for.
       if (manual) setView({ kind: "notice", message: messageOf(error) });
+    } finally {
+      busy.current = false;
     }
   }, []);
 
@@ -91,17 +98,21 @@ export function UpdateDialog({ onRestart }: { onRestart: () => void }) {
   }, [check]);
 
   async function install(update: CheckResult) {
+    busy.current = true;
     setView({ kind: "downloading", update, progress: null });
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("update_install");
+      // The shell installs exactly the version this dialog is showing.
+      await invoke("update_install", { version: update.version });
       setView({ kind: "installed", update });
     } catch (error) {
       setView({ kind: "failed", update, message: messageOf(error) });
+      busy.current = false;
     }
   }
 
   function close() {
+    busy.current = false;
     setView({ kind: "closed" });
   }
 

@@ -621,7 +621,32 @@ updater_artifact() {
   (cd "$ROOT" && "$cli" signer sign --app-version "$version" "$archive" >/dev/null) ||
     fail "cannot sign $archive (TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD)"
   [ -s "$archive.sig" ] || fail "the signing step produced no $archive.sig"
+  verify_updater_signature "$archive"
   printf '%s' "$archive"
+}
+
+# The 8-byte key id a minisign public key and a signature both carry, as hex.
+minisign_key_id() {
+  printf '%s' "$1" | openssl base64 -d -A 2>/dev/null | dd bs=1 skip=2 count=8 2>/dev/null |
+    od -An -tx1 | tr -d ' \n'
+}
+
+# The app verifies the artifact with the `pubkey` in `tauri.conf.json`, and nothing else in the run
+# does: a registered secret that is a different key would publish an artifact every installed app
+# rejects, with the DMG perfectly fine. Comparing the key id of the signature with the one in the
+# configured public key proves the artifact was signed by the key the app trusts.
+verify_updater_signature() {
+  archive=$1
+  conf="$ROOT/src-tauri/tauri.conf.json"
+  pubkey=$(sed -n 's/.*"pubkey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$conf" | head -n 1)
+  [ -n "$pubkey" ] || fail "no plugins.updater.pubkey in $conf"
+  trusted=$(minisign_key_id "$(printf '%s' "$pubkey" | openssl base64 -d -A 2>/dev/null | sed -n '2p')")
+  signed=$(minisign_key_id "$(openssl base64 -d -A <"$archive.sig" 2>/dev/null | sed -n '2p')")
+  [ ${#trusted} = 16 ] || fail "cannot read the minisign key id from the pubkey in $conf"
+  [ ${#signed} = 16 ] || fail "cannot read the minisign key id from $archive.sig"
+  [ "$trusted" = "$signed" ] ||
+    fail "the updater artifact was signed with key $signed but the app trusts $trusted: check TAURI_SIGNING_PRIVATE_KEY"
+  note "updater signature key id matches the pubkey in tauri.conf.json ($trusted)"
 }
 
 # Proves the artifact before it is published: the app inside the archive is the signed, notarized

@@ -147,28 +147,34 @@ jobs:
         if: github.event_name == 'push' || inputs.publish == true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_DMG: ${{ steps.release.outputs.dmg }}
+          RELEASE_ARCHIVE: ${{ steps.release.outputs.updater_archive }}
+          RELEASE_SIG: ${{ steps.release.outputs.updater_sig }}
         run: |
-          tag="v${{ steps.release.outputs.version }}"
-          dmg="${{ steps.release.outputs.dmg }}"
+          tag="v$RELEASE_VERSION"
           prerelease=
           case "$tag" in
             *-*) prerelease=--prerelease ;;
           esac
+          # The updater archive lives here, not on the channel: its URL is versioned, so the bytes a
+          # published manifest points at never change under it.
           if gh release view "$tag" >/dev/null 2>&1; then
             # Upload first: the body names a hash, so it must never be published while the attached
             # DMG is still the previous one.
-            gh release upload "$tag" "$dmg" --clobber
-            gh release edit "$tag" --title "OpenRidr ${{ steps.release.outputs.version }}" \
+            gh release upload "$tag" "$RELEASE_DMG" "$RELEASE_ARCHIVE" "$RELEASE_SIG" --clobber
+            gh release edit "$tag" --title "OpenRidr $RELEASE_VERSION" \
               --notes-file "$RUNNER_TEMP/notes.md" $prerelease
           else
-            gh release create "$tag" "$dmg" \
-              --title "OpenRidr ${{ steps.release.outputs.version }}" \
+            gh release create "$tag" "$RELEASE_DMG" "$RELEASE_ARCHIVE" "$RELEASE_SIG" \
+              --title "OpenRidr $RELEASE_VERSION" \
               --notes-file "$RUNNER_TEMP/notes.md" $prerelease
           fi
 
       # The app reads this manifest, not the release page: the channel is a fixed tag so the
-      # endpoint never changes, and its assets are replaced in place on every release. The manifest
-      # goes last, so a client never reads a URL that is not there yet.
+      # endpoint never changes, and only the manifest is replaced there. The archive it names stays
+      # on the versioned release (immutable), so switching the manifest is the only step a client
+      # can observe — and it happens after the release that holds the bytes exists.
       - name: Publish the update channel
         if: github.event_name == 'push' || inputs.publish == true
         env:
@@ -178,7 +184,7 @@ jobs:
           RELEASE_SIG: ${{ steps.release.outputs.updater_sig }}
         run: |
           tag=updater-alpha
-          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$(basename "$RELEASE_ARCHIVE")"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/v$RELEASE_VERSION/$(basename "$RELEASE_ARCHIVE")"
           sh scripts/release-updater-manifest.sh "$RELEASE_VERSION" "$url" "$RELEASE_SIG" \
             >"$RUNNER_TEMP/latest.json"
           printf '%s\n' "--- update manifest ---"
@@ -187,7 +193,6 @@ jobs:
             gh release create "$tag" --prerelease --title "Update channel" \
               --notes "Update channel for the in-app updater; install OpenRidr from the release of the version you want."
           fi
-          gh release upload "$tag" "$RELEASE_ARCHIVE" "$RELEASE_SIG" --clobber
           gh release upload "$tag" "$RUNNER_TEMP/latest.json" --clobber
 
       - name: Keep the DMG as a workflow artifact

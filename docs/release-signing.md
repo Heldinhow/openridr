@@ -205,11 +205,17 @@ mesmo run de release, não um segundo pipeline.
 - **Manifesto.** `scripts/release-updater-manifest.sh` monta o `latest.json` (version, notes,
   pub_date, `platforms.darwin-aarch64.{signature,url}`) a partir da versão, da URL do arquivo e do
   `.sig`; o `notes` é o `docs/RELEASE-ALPHA.md`.
-- **Canal de tag fixa.** O endpoint é
+- **Canal de tag fixa, artefato imutável.** O endpoint é
   `https://github.com/Heldinhow/openridr/releases/download/updater-alpha/latest.json`. A release
-  `updater-alpha` é pré-release, com assets re-uploadados (`--clobber`) a cada versão: artefato,
-  assinatura e, por último, o manifesto. `releases/latest/download/latest.json` não serve porque
-  toda release do projeto é pré-release.
+  `updater-alpha` é pré-release e guarda **só** o manifesto, substituído a cada versão; o
+  `OpenRidr.app.tar.gz` e o `.sig` ficam na release da versão
+  (`releases/download/v<versão>/OpenRidr.app.tar.gz`), cuja URL nunca muda. Assim o manifesto antigo
+  continua apontando para bytes que existem, e trocar o manifesto é o único passo observável.
+  `releases/latest/download/latest.json` não serve porque toda release do projeto é pré-release.
+- **A assinatura é conferida com a chave do app.** Depois de assinar, o script compara o *key id*
+  minisign da assinatura com o da `pubkey` do `tauri.conf.json` e recusa a release quando diferem:
+  um secret registrado com outra chave publicaria um artefato que todo app instalado rejeita, com o
+  DMG válido e nenhum erro visível.
 - **`requireSignedVersion`.** O app recusa um manifesto cuja `version` não é a versão gravada no
   trusted comment da assinatura — é o que impede um manifesto adulterado de parear uma versão nova
   com um artefato antigo genuíno.
