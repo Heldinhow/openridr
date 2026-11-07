@@ -2081,6 +2081,57 @@ fn the_scope_admits_the_outside_project_and_refuses_everything_else() {
 }
 
 #[test]
+fn breakpoints_accept_a_file_of_the_outside_project_and_nothing_beyond_the_scope() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    let lib = fs::canonicalize(fixture.join("lib")).unwrap();
+    let outside = temp.path().join("Outside.cs");
+    fs::write(&outside, "class Outside {}\n").unwrap();
+
+    let host = support::host();
+    open(&host, &app.join("App.sln"));
+    grant(&host);
+
+    let source = lib.join("Greeting.cs");
+    let snapshot = host
+        .dispatch(
+            "debug.setBreakpoints",
+            json!({ "path": source.to_string_lossy(), "lines": [5] }),
+        )
+        .unwrap();
+    let entry = snapshot["dap"]["breakpoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|breakpoint| breakpoint["path"] == json!(source.to_string_lossy()))
+        .expect("the breakpoint of the outside project is stored");
+    assert_eq!(entry["line"], 5);
+
+    host.dispatch(
+        "debug.setBreakpointCondition",
+        json!({
+            "path": source.to_string_lossy(),
+            "line": 5,
+            "condition": "name != null",
+        }),
+    )
+    .unwrap();
+
+    for raw in [
+        outside.to_string_lossy().to_string(),
+        "../Outside.cs".to_string(),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("debug.setBreakpoints", json!({ "path": raw, "lines": [1] }))),
+            "outside_workspace",
+            "{raw}"
+        );
+    }
+}
+
+#[test]
 fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = temp.path().join("OutsideSolution");

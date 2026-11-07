@@ -2282,7 +2282,11 @@ impl Host {
                 .unwrap_or_else(|| "unknown".to_string()),
             workspace_id: token.workspace_id,
             context_id: token.context_id,
-            root: root.clone(),
+            scope: inner
+                .workspace
+                .as_ref()
+                .map(|workspace| workspace.scope.clone())
+                .unwrap_or_default(),
             saved_note,
             solution,
         }));
@@ -2384,7 +2388,11 @@ impl Host {
             target_framework: target_framework.clone(),
             command: Vec::new(),
             cwd: root.clone(),
-            root: root.clone(),
+            scope: inner
+                .workspace
+                .as_ref()
+                .map(|workspace| workspace.scope.clone())
+                .unwrap_or_default(),
             sdk_root: sdk_root.clone(),
             sdk_version,
             workspace_id: token.workspace_id,
@@ -9550,6 +9558,25 @@ mod tests {
             definition_location(&Scope::new(&root), &target(&root.join("src/Missing.cs")))
                 .is_none()
         );
+
+        // A project the solution names outside the root is in the scope: its files are navigable,
+        // and the path is absolute because it is not under the root.
+        let lib = temp.path().join("lib");
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("Lib.csproj"), "<Project />\n").unwrap();
+        let lib_file = lib.join("Greeting.cs");
+        fs::write(&lib_file, "class Greeting {}\n").unwrap();
+        let scope = crate::scope::resolve(&root, ["../lib/Lib.csproj".to_string()]).scope;
+        let location = definition_location(&scope, &target(&lib_file)).expect("outside location");
+        assert_eq!(
+            location["path"],
+            fs::canonicalize(&lib_file)
+                .unwrap()
+                .to_string_lossy()
+                .as_ref()
+        );
+        // The same target stays refused when the scope does not include its directory.
+        assert!(definition_location(&Scope::new(&root), &target(&lib_file)).is_none());
         let remote = lsp::DefinitionTarget {
             uri: "https://example.com/Order.cs".to_string(),
             ..target(&inside)
