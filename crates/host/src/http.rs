@@ -25,7 +25,7 @@ mod proxy_tests;
 /// Builds the agent every host request starts from. The route is decided by [`agent_for`], which
 /// is the only public way in; nothing here picks a proxy up from the environment on its own.
 fn agent_builder() -> ureq::AgentBuilder {
-    agent_builder_with_certs(rustls_native_certs::load_native_certs().unwrap_or_default())
+    agent_builder_with_certs(rustls_native_certs::load_native_certs().certs)
 }
 
 fn agent_builder_with_certs(
@@ -421,7 +421,42 @@ pub(crate) const DOWNLOAD_STALL: std::time::Duration = std::time::Duration::from
 /// deadline it replaced could not either (it is checked between operations, after the resolver
 /// returns). The system resolver keeps its own timeouts, so a hung lookup is a pre-existing limit of
 /// every host request, not something this download introduced.
-const DOWNLOAD_CONNECT: std::time::Duration = std::time::Duration::from_secs(15);
+pub(crate) const DOWNLOAD_CONNECT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The client every download starts from: the route and the destination guard of [`agent_for`], no
+/// redirects of its own (each hop is a new destination) and the inactivity policy in one place —
+/// [`DOWNLOAD_CONNECT`] for a connection that never opens, `stall` for a socket that stops sending
+/// or a write that blocks because the peer stopped reading. There is deliberately no total deadline.
+pub(crate) fn download_agent(
+    url: &str,
+    stall: std::time::Duration,
+) -> Result<ureq::AgentBuilder, String> {
+    download_agent_with(
+        url,
+        stall,
+        DOWNLOAD_CONNECT,
+        &process_env,
+        crate::system_proxy::read().as_ref(),
+    )
+}
+
+/// `connect` is a parameter only so a test can prove that a connection that never opens is not
+/// reported as a stall; the product always passes [`DOWNLOAD_CONNECT`]. Both sources are injected
+/// so a test never reads the machine's environment or network settings.
+fn download_agent_with(
+    url: &str,
+    stall: std::time::Duration,
+    connect: std::time::Duration,
+    env: &dyn Fn(&str) -> Option<String>,
+    system: Option<&crate::system_proxy::SystemProxy>,
+) -> Result<ureq::AgentBuilder, String> {
+    Ok(agent_for_with(url, env, system)?
+        .redirects(0)
+        .timeout_connect(connect)
+        .timeout_read(stall)
+        // A write that blocks because the peer stopped reading must not hang setup either.
+        .timeout_write(stall))
+}
 
 /// Downloads with up to [`MAX_DOWNLOAD_REDIRECTS`] hops, rebuilding the client for every one: a
 /// redirect is a new destination, so the route and the destination guard have to run again. With a
@@ -448,13 +483,7 @@ fn fetch_with(
 ) -> Result<ureq::Response, String> {
     let mut url = url.to_string();
     for _ in 0..=MAX_DOWNLOAD_REDIRECTS {
-        let agent = agent_for_with(&url, env, system)?
-            .redirects(0)
-            .timeout_connect(connect)
-            .timeout_read(stall)
-            // A write that blocks because the peer stopped reading must not hang setup either.
-            .timeout_write(stall)
-            .build();
+        let agent = download_agent_with(&url, stall, connect, env, system)?.build();
         let location = match agent.get(&url).call() {
             Ok(response) if (300..400).contains(&response.status()) => {
                 let status = response.status();
@@ -525,7 +554,7 @@ pub(crate) fn is_stall(error: &std::io::Error) -> bool {
 /// its source chain; the message text is never inspected. A connect failure is not a stall — the
 /// socket never opened, so no data was ever expected — and `ureq` reports it as
 /// `ConnectionFailed`, which is why the kind is checked before the chain.
-fn timed_out(error: &ureq::Error) -> bool {
+pub(crate) fn timed_out(error: &ureq::Error) -> bool {
     if error.kind() != ureq::ErrorKind::Io {
         return false;
     }

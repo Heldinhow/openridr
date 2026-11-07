@@ -1753,6 +1753,16 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Prova no app real:** `docs/evidence/toolbar-menus-a11y.md` (três gatilhos como `button` com `ref_id`, `aria-expanded`, popover por papel e nome, Escape devolvendo o foco, clique físico fora fechando, comparação visual com a captura da #168).
 - **Não verificado:** ordem de tabulação (o `agent-desktop` só vê `webarea` no conteúdo web), leitor de tela real (VoiceOver), suíte Playwright, Windows e macOS Intel, e o caso desabilitado do run configuration no app real.
 
+## O item Commit… do menu de workspace actions executa a ação (2026-11-07, #190; ticket #192)
+
+- **UI — uma linha em `src/WorkspaceView.tsx`.** O `onClick` de `git-commit-action` chama `close()` (a render prop do `ToolbarMenu`) e depois `commitAction.execute()`, como `build-solution-menu`, `open-find-action`, `open-keymap` e `sdk-open-global-json`. O defeito nasceu na #177: os vizinhos trocaram `closest("details")?.removeAttribute("open")` por `close()` e este item ficou sem handler nenhum.
+- **A ação não muda.** `git.commit` continua definida uma vez na registry (`execute: () => openCommitPanel()`) e serve ⌥⇧⌘K, Find Action, menu nativo e agora o botão. `disabled`/`title` continuam vindo de `commitAction.disabledReason` (`gitBlockedReason`), intocados.
+- **Fora de escopo, deliberado:** `sdk-redetect` continua com o menu aberto (decisão da #177: mostra o inventário recém-detectado) e `close-workspace` não fecha antes de agir (fecha o workspace inteiro).
+- **`data-testid`:** nenhum criado, renomeado ou removido. `git-commit-action` mantido.
+- **Teste:** nenhum novo, e nenhum Playwright executado. Decisão do Helder no grill da issue: o critério "um teste cobre o caso habilitado" é substituído pela prova no app real — a mudança é fiação sem seam puro e o repo não tem infraestrutura de DOM. `bun run check` limpo e `bun test tests/unit` = 95 pass.
+- **Prova no app real:** `docs/evidence/commit-menu-action.md` (restrito: `Commit…` `disabled`; confiado com repo Git: clique abre o painel de Commit, popover desmonta e o foco volta ao gatilho).
+- **Não verificado:** falha-antes no app (exigiria um bundle sem o conserto), leitor de tela real (VoiceOver), ordem de tabulação, suíte Playwright, Windows e macOS Intel.
+
 ## Atualização dentro do app pelo updater do Tauri (2026-11-07, #55; tickets #195, #196, #197, #198)
 
 - **Shell — `src-tauri/src/update.rs` (novo).** Três comandos: `update_check` (devolve `available` com versão/notas, `current` com a versão em execução, `unsupported` fora de um bundle, ou erro), `update_install` (pega o `Update` guardado em `PendingUpdate`, baixa, verifica e instala, emitindo `openridr-update-progress` com `{downloaded,total}`) e `restart_app` (fecha o workspace do host, aprova a saída e chama `AppHandle::restart()`). `updatable_executable` é função pura sobre o caminho do executável (`<Algo>.app/Contents/MacOS/`), com teste; `check_error`/`install_error` são as frases que a UI mostra verbatim; `should_emit` é o throttle de 200 ms.

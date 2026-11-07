@@ -4462,6 +4462,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               data-testid="git-commit-action"
               disabled={commitAction.disabledReason !== null}
               title={commitAction.disabledReason ?? commitAction.title}
+              onClick={() => {
+                close();
+                commitAction.execute();
+              }}
             >
               {commitAction.title}
             </button>
