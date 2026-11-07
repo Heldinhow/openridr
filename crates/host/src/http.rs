@@ -25,7 +25,7 @@ mod proxy_tests;
 /// Builds the agent every host request starts from. The route is decided by [`agent_for`], which
 /// is the only public way in; nothing here picks a proxy up from the environment on its own.
 fn agent_builder() -> ureq::AgentBuilder {
-    agent_builder_with_certs(rustls_native_certs::load_native_certs().unwrap_or_default())
+    agent_builder_with_certs(rustls_native_certs::load_native_certs().certs)
 }
 
 fn agent_builder_with_certs(
