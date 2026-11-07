@@ -1,3 +1,4 @@
+mod browser;
 mod build;
 pub mod bundled;
 mod dap;
@@ -110,6 +111,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "git.pull",
     "git.fetch",
     "git.push",
+    "git.mergeAbort",
+    "git.mergeContinue",
     "git.info",
     "nuget.list",
     "nuget.planUpdate",
@@ -711,6 +714,12 @@ impl Host {
         }
         if method == "git.push" {
             return self.git_push(params);
+        }
+        if method == "git.mergeAbort" {
+            return self.git_merge_abort();
+        }
+        if method == "git.mergeContinue" {
+            return self.git_merge_continue();
         }
         if method == "git.info" {
             return self.git_info();
@@ -3303,6 +3312,23 @@ impl Host {
         };
         inner.run.note_process(piped.id);
         let shared = inner.run.clone();
+        match &options.browser {
+            browser::Launch::Open(url) => {
+                let url = url.clone();
+                let run = shared.clone();
+                let alive = shared.clone();
+                std::thread::spawn(move || {
+                    let line = browser::open_when_ready(&url, move || {
+                        alive.running_process_id().is_some()
+                    });
+                    run.append_line(&line, false);
+                });
+            }
+            browser::Launch::Skip(reason) => {
+                shared.append_line(&format!("Launch browser skipped: {reason}"), false);
+            }
+            browser::Launch::None => {}
+        }
         if let Some(stdout) = piped.stdout {
             let sink = shared.clone();
             std::thread::spawn(move || run::pump(stdout, sink, false));
@@ -4009,6 +4035,7 @@ impl Host {
             watches: watches.clone(),
             breakpoints_muted,
             exception_filters: exception_filters.clone(),
+            browser: options.browser.clone(),
         };
 
         // Every reason a saved build cannot launch this session starts the same
@@ -6099,6 +6126,24 @@ impl Host {
         let root = self.workspace_root()?;
         let answer = git::push(&root, &params)?;
         Ok(serde_json::to_value(answer).expect("git push serializes"))
+    }
+
+    /// Aborts the merge in progress. Only a merge: rebase, cherry-pick and revert stay out of the
+    /// app's reach (#114), and the refusal names that.
+    fn git_merge_abort(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.mergeAbort")?;
+        let root = self.workspace_root()?;
+        let answer = git::merge_abort(&root)?;
+        Ok(serde_json::to_value(answer).expect("git mergeAbort serializes"))
+    }
+
+    /// Finishes the merge in progress: stages the resolved paths and commits with the message Git
+    /// prepared. A leftover conflict marker refuses the call.
+    fn git_merge_continue(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.mergeContinue")?;
+        let root = self.workspace_root()?;
+        let answer = git::merge_continue(&root)?;
+        Ok(serde_json::to_value(answer).expect("git mergeContinue serializes"))
     }
 
     /// Reports the `git` PATH would run; no repository is opened and nothing is changed.
