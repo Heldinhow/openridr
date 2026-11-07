@@ -1,42 +1,30 @@
 import { expect, test, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hostPort, seedVerifiedTools } from "./environment";
+import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // A fresh app home proves the missing-analysis gate: nothing is installed here, and the plan the
 // notice asks for is inert until the explicit confirmation in the tools panel.
 const port = hostPort + 6;
 const base = `http://127.0.0.1:${port}`;
 const fixture = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
-let home: string;
-let server: ChildProcess;
+let host: IsolatedHost;
 
 test.describe.configure({ mode: "serial", timeout: 240_000 });
 
 test.beforeAll(async () => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-analysis-gate-"));
-  const bundled = seedVerifiedTools(home);
-  server = spawn("cargo", ["run", "-p", "openridr-host-http", "--", "--port", String(port)], {
-    env: {
-      ...process.env,
-      OPENRIDR_HOME: home,
-      OPENRIDR_TRUST_STORE: "on",
-      OPENRIDR_BUNDLED_NETCOREDBG: bundled,
-    },
-    stdio: "ignore",
+  host = await startIsolatedHost({
+    port,
+    homePrefix: "openridr-analysis-gate-",
+    env: { OPENRIDR_TRUST_STORE: "on" },
+    prepare: (home) => ({ OPENRIDR_BUNDLED_NETCOREDBG: seedVerifiedTools(home) }),
   });
-  await expect
-    .poll(async () => fetch(`${base}/health`).then((response) => response.ok, () => false), {
-      timeout: 300_000,
-    })
-    .toBe(true);
 });
 
-test.afterAll(() => {
-  server?.kill();
-  fs.rmSync(home, { recursive: true, force: true });
+test.afterAll(async () => {
+  await host?.stop();
 });
 
 test.beforeEach(async ({ request }) => {
@@ -47,13 +35,6 @@ test.afterEach(async ({ request }) => {
   await request.post(`${base}/call`, { data: { method: "lsp.stop", params: {} } }).catch(() => {});
   await request.post(`${base}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => {});
 });
-
-async function useIsolatedHost(page: Page) {
-  await page.route(/\/__host\/(call|health)$/, async (route) => {
-    const target = `${base}/${route.request().url().split("/").pop()}`;
-    await route.fetch({ url: target }).then((response) => route.fulfill({ response })).catch(() => {});
-  });
-}
 
 async function openWorkspace(page: Page, solution: string) {
   await page.goto("/");
@@ -81,7 +62,7 @@ async function trustAndEnter(page: Page) {
 test("Restricted mode keeps the trust gate and offers no analysis install", async ({ page }) => {
   const copy = tempSolution();
   try {
-    await useIsolatedHost(page);
+    await host.useFor(page);
     await openWorkspace(page, copy.solution);
     await page.getByTestId("trust-prompt-restricted").click();
     await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
@@ -101,7 +82,7 @@ test("Restricted mode keeps the trust gate and offers no analysis install", asyn
 test("the tool drawer is diagnosis, not an install gate", async ({ page }) => {
   const copy = tempSolution();
   try {
-    await useIsolatedHost(page);
+    await host.useFor(page);
     await openWorkspace(page, copy.solution);
     await trustAndEnter(page);
     await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
