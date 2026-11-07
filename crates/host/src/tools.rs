@@ -226,10 +226,12 @@ fn child_home() -> PathBuf {
 fn isolate_child_home(command: &mut Command, home: &Path, temp: &Path) {
     #[cfg(windows)]
     {
+        // The directories must exist: `NuGet.Configuration.ConfigurationDefaults` throws when
+        // `APPDATA` names a missing path. The isolated home is created by the caller.
         command
             .env("USERPROFILE", home)
-            .env("APPDATA", home.join("AppData/Roaming"))
-            .env("LOCALAPPDATA", home.join("AppData/Local"))
+            .env("APPDATA", home)
+            .env("LOCALAPPDATA", home)
             .env("TEMP", temp)
             .env("TMP", temp);
     }

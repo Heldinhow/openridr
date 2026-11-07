@@ -329,6 +329,9 @@ fn file_access_is_confined_to_the_workspace() {
     }
 }
 
+// The escape target is built from a Unix absolute path (`/tmp/...`); Windows paths are not
+// expressible that way. The scope itself is still covered by the other tests here.
+#[cfg(unix)]
 #[test]
 fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     let (_outer, root, outside) = nested_workspace();
@@ -1096,7 +1099,11 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     assert_eq!(status["message"], "Not a git repository");
     let info = host.dispatch("git.info", json!({})).unwrap();
     assert_eq!(info["state"], "found");
-    assert!(info["path"].as_str().unwrap().ends_with("git"));
+    let git_path = info["path"].as_str().unwrap();
+    assert!(
+        git_path.ends_with("git") || git_path.ends_with("git.exe"),
+        "{git_path}"
+    );
     assert!(info["version"].as_str().unwrap().contains("git version"));
     assert_eq!(
         error_code(host.dispatch("git.checkout", json!({ "name": "main" }))),
@@ -1323,6 +1330,9 @@ fn nuget_list_rejects_a_source_that_is_not_configured_or_not_https() {
     }
 }
 
+// The Windows runner's `dotnet nuget list source` does not list the workspace source, so the
+// configured-source guard cannot be exercised there. Not verified on Windows, written down in #199.
+#[cfg(unix)]
 #[test]
 fn discover_only_accepts_a_configured_https_source() {
     let host = support::host();
@@ -2049,7 +2059,8 @@ fn the_scope_admits_the_outside_project_and_refuses_everything_else() {
     assert!(!renamed.exists());
 
     // A symlink inside the scope that carries the path outside is refused, and the refusal does not
-    // depend on whether the target exists.
+    // depend on whether the target exists. Windows has no symlink here, so the path is simply absent.
+    #[cfg(unix)]
     for path in [lib.join("LinkOut/Secret.cs"), lib.join("Dangling.cs")] {
         assert_eq!(
             error_code(host.dispatch("file.read", json!({ "path": path.to_string_lossy() }))),
@@ -2207,7 +2218,7 @@ fn breakpoints_accept_a_file_of_the_outside_project_and_nothing_beyond_the_scope
         .as_array()
         .unwrap()
         .iter()
-        .find(|breakpoint| breakpoint["path"] == json!(source.to_string_lossy()))
+        .find(|breakpoint| breakpoint["path"] == json!(support::portable(&source)))
         .expect("the breakpoint of the outside project is stored");
     assert_eq!(entry["line"], 5);
 
@@ -2266,7 +2277,7 @@ fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
     // path, the same form the evaluated model uses.
     assert_eq!(
         lib_outline["path"],
-        json!(lib.join("Lib.csproj").to_string_lossy())
+        json!(support::portable(&lib.join("Lib.csproj")))
     );
     assert_eq!(
         lib_outline["files"],
@@ -2382,10 +2393,11 @@ fn a_slnx_solution_evaluates_projects_outside_its_directory() {
     assert_eq!(lib["state"], "ok", "{}", lib["log"]);
     assert_eq!(
         lib["path"],
-        json!(fs::canonicalize(fixture.join("lib"))
-            .unwrap()
-            .join("Lib.csproj")
-            .to_string_lossy())
+        json!(support::portable(
+            &fs::canonicalize(fixture.join("lib"))
+                .unwrap()
+                .join("Lib.csproj")
+        ))
     );
     assert_eq!(
         evaluated["workspace"]["scope"].as_array().unwrap().len(),
@@ -3716,7 +3728,7 @@ fn tools_plan_cancel_is_inert_and_install_needs_trust_and_confirmation_isolated(
     assert!(Path::new(destination).is_absolute());
     assert!(destination.starts_with(home.path().to_string_lossy().as_ref()));
     assert!(
-        destination.ends_with("tools/csharp-ls/0.28"),
+        std::path::Path::new(destination).ends_with("tools/csharp-ls/0.28"),
         "{destination}"
     );
     let staging = plan["staging"].as_str().unwrap();
@@ -7438,8 +7450,10 @@ fn env_writes_are_confined_to_isolated_leaves() {
     let mut wrappers = Vec::new();
     for path in &sources {
         let name = path.to_string_lossy().to_string();
-        let is_harness = name.ends_with("test_harness.rs") || name.ends_with("support/mod.rs");
-        let is_test_binary = name.contains("/tests/");
+        let normalized = name.replace('\\', "/");
+        let is_harness =
+            normalized.ends_with("test_harness.rs") || normalized.ends_with("support/mod.rs");
+        let is_test_binary = normalized.contains("/tests/");
         let text = fs::read_to_string(path).unwrap();
         for function in source_functions(&text) {
             if function.name == "env_writes_are_confined_to_isolated_leaves" {
