@@ -2324,7 +2324,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let sdk_root = temp.path().join("sdk-root");
         fs::create_dir_all(&sdk_root).unwrap();
-        fs::write(sdk_root.join("dotnet"), "").unwrap();
+        fs::write(sdk_root.join(crate::sdk::dotnet_exe()), "").unwrap();
         let runtime_root = temp.path().join("runtime-root");
         fs::create_dir_all(&runtime_root).unwrap();
         (
@@ -2368,7 +2368,7 @@ mod tests {
         assert_eq!(plan.tool, TOOL);
         assert_eq!(plan.version, VERSION);
         assert_eq!(plan.source.url, NUGET_SOURCE);
-        assert!(plan.argv[0].ends_with("sdk-root/dotnet"));
+        assert!(plan.argv[0].ends_with(&format!("sdk-root/{}", crate::sdk::dotnet_exe())));
         assert_eq!(
             plan.dotnet_root,
             inventory.runtimes[0].root.to_string_lossy()

@@ -205,12 +205,10 @@ pub fn resolve_project(scope: &Scope, raw: &str) -> HostResult<(PathBuf, String)
         ));
     }
     let display = match scope.root() {
-        Some(root) => canonical
-            .strip_prefix(root)
-            .unwrap_or(&canonical)
-            .to_string_lossy()
-            .replace('\\', "/"),
-        None => canonical.to_string_lossy().replace('\\', "/"),
+        Some(root) => {
+            crate::fsutil::portable_path(canonical.strip_prefix(root).unwrap_or(&canonical))
+        }
+        None => crate::fsutil::portable_path(&canonical),
     };
     Ok((canonical, display))
 }
@@ -2141,14 +2139,8 @@ mod tests {
         fs::write(lib.join("Directory.Packages.props"), props).unwrap();
         let cpm = detect_cpm(&root, &project);
         assert!(cpm.enabled);
-        assert_eq!(
-            cpm.path.as_deref(),
-            Some(
-                lib.join("Directory.Packages.props")
-                    .to_string_lossy()
-                    .as_ref()
-            )
-        );
+        let expected = crate::fsutil::portable_path(&lib.join("Directory.Packages.props"));
+        assert_eq!(cpm.path.as_deref(), Some(expected.as_str()));
 
         // A project inside the root still walks up to the root, as before.
         let inside = root.join("App.csproj");

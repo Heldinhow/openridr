@@ -1605,10 +1605,16 @@ mod tests {
         }
     }
 
+    fn test_home() -> String {
+        std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .expect("a home directory is set on the supported platforms")
+    }
+
     #[test]
     fn launch_profile_expands_environment_and_application_url_but_not_arguments() {
-        // HOME is set on every platform this app supports; the test fails loudly if it is not.
-        let home = std::env::var("HOME").expect("HOME is set on the supported platform");
+        // The host resolves the home directory from `HOME` on Unix and `USERPROFILE` on Windows.
+        let home = test_home();
         let (_temp, project) = profile_fixture(
             r#"{"profiles":{"expand":{"commandName":"Project","applicationUrl":"http://localhost:5084/?home=%HOME%","environmentVariables":{"PROFILE_ENV":"%HOME%","DOLLAR":"$(HOME)","LITERAL":"%NOPE%","PERCENT":"100%"},"commandLineArgs":"%HOME% $(HOME)"}}}"#,
         );
@@ -1787,18 +1793,16 @@ mod tests {
             "{stdout}"
         );
         assert!(stdout.contains("ARGS=--message|hello world"), "{stdout}");
-        assert!(
-            stdout.contains(&format!(
-                "CWD={}",
-                fs::canonicalize(temp.path()).unwrap().display()
-            )),
-            "{stdout}"
-        );
+        // The fixture prints the current directory as the OS names it: no `\\?\` prefix on Windows.
+        let cwd = fs::canonicalize(temp.path()).unwrap();
+        let cwd = cwd.to_string_lossy();
+        let cwd = cwd.strip_prefix(r"\\?\").unwrap_or(&cwd);
+        assert!(stdout.contains(&format!("CWD={cwd}")), "{stdout}");
     }
 
     #[test]
     fn launch_profile_runs_fixture_with_expanded_values() {
-        let home = std::env::var("HOME").expect("HOME is set on the supported platform");
+        let home = test_home();
         let temp = tempfile::tempdir().unwrap();
         launch_profile_fixture_copy(temp.path());
         let Some(stdout) = run_launch_profile_fixture(temp.path(), "expand") else {

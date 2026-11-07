@@ -3230,7 +3230,8 @@ mod tests {
     fn info_reports_the_git_that_path_would_run() {
         let info = info();
         assert_eq!(info.state, "found");
-        assert!(info.path.unwrap().ends_with("git"));
+        let path = info.path.unwrap();
+        assert!(path.ends_with("git") || path.ends_with("git.exe"), "{path}");
         assert!(info.version.unwrap().contains("git version"));
     }
 
@@ -4331,6 +4332,9 @@ mod tests {
         );
         git(&user, &["config", "user.name", "OpenRidr Test"]);
         git(&user, &["config", "user.email", "test@openridr.invalid"]);
+        // Git for Windows defaults to `core.autocrlf=true`; the fixtures write LF and the tests
+        // compare exact bytes, so the clone must keep LF on every platform.
+        git(&user, &["config", "core.autocrlf", "false"]);
         // A machine-wide signing requirement must not decide whether a test can merge.
         git(&user, &["config", "commit.gpgsign", "false"]);
         fs::write(user.join("a.txt"), "one\n").unwrap();
@@ -4354,6 +4358,7 @@ mod tests {
         );
         git(&peer, &["config", "user.name", "OpenRidr Peer"]);
         git(&peer, &["config", "user.email", "peer@openridr.invalid"]);
+        git(&peer, &["config", "core.autocrlf", "false"]);
         git(&peer, &["config", "commit.gpgsign", "false"]);
         peer
     }
@@ -4498,6 +4503,8 @@ mod tests {
         assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
     }
 
+    // `*` is not a valid file name on Windows, so the literal-glob case only exists on Unix.
+    #[cfg(unix)]
     #[test]
     fn merge_continue_stages_the_conflicted_name_literally() {
         let (_temp, root) = init("repo");

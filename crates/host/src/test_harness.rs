@@ -83,7 +83,30 @@ pub fn prepare() {
 pub fn controlled_command() -> std::process::Command {
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     command.env_clear();
-    for key in ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"] {
+    // Windows cannot start a socket without `SystemRoot` (WSAStartup loads its providers from
+    // there) and its temp directory comes from `TEMP`, not `TMPDIR`.
+    let keys: &[&str] = if cfg!(windows) {
+        &[
+            "PATH",
+            "HOME",
+            "TMPDIR",
+            "LANG",
+            "LC_ALL",
+            "SystemRoot",
+            "SystemDrive",
+            "WINDIR",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "USERPROFILE",
+            "TEMP",
+            "TMP",
+            "PATHEXT",
+            "COMSPEC",
+        ]
+    } else {
+        &["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"]
+    };
+    for key in keys {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
         }

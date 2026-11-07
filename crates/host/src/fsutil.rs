@@ -32,6 +32,17 @@ pub(crate) struct TextFormat {
     crlf: bool,
 }
 
+/// A path as the UI shows it: forward slashes and no Windows verbatim prefix. `canonicalize` on
+/// Windows returns `\\?\C:\...`, which the user must never see and which would make the same
+/// file compare unequal to the path the project file names.
+pub(crate) fn portable_path(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    match text.strip_prefix("//?/") {
+        Some(rest) => rest.to_string(),
+        None => text,
+    }
+}
+
 /// The editor always works in LF; the host restores the file's line ending on write.
 pub(crate) fn normalize_newlines(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")

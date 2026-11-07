@@ -515,7 +515,7 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn dotnet_exe() -> &'static str {
+pub(crate) fn dotnet_exe() -> &'static str {
     if cfg!(windows) {
         "dotnet.exe"
     } else {

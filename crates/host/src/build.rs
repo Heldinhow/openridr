@@ -1092,7 +1092,7 @@ mod tests {
 
         match parse_line(&scope, &line) {
             Line::Problem(problem) => {
-                assert_eq!(problem.path, source.to_string_lossy());
+                assert_eq!(problem.path, crate::fsutil::portable_path(&source));
                 assert_eq!(problem.code.as_deref(), Some("CS1002"));
                 let position = problem.position.expect("a position");
                 assert_eq!(position.line, 2);

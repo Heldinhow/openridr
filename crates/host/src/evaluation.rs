@@ -390,9 +390,7 @@ fn plan_project(
     // A project outside the root is addressed by its canonical absolute path, so no `..` ever
     // crosses the host API; a project that could not be evaluated keeps the text the file used.
     let path = match &abs_path {
-        Some(canonical) if !canonical.starts_with(root) => {
-            canonical.to_string_lossy().replace('\\', "/")
-        }
+        Some(canonical) if !canonical.starts_with(root) => crate::fsutil::portable_path(canonical),
         _ => normalized,
     };
     PlanProject {
@@ -960,10 +958,7 @@ fn now_ms() -> u64 {
 }
 
 pub fn relative_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    crate::fsutil::portable_path(path.strip_prefix(root).unwrap_or(path))
 }
 
 pub fn display_path(root: &Path, path: &Path) -> String {

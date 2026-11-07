@@ -8516,7 +8516,7 @@ fn definition_location(scope: &Scope, target: &lsp::DefinitionTarget) -> Option<
     }
     let rel = match scope.root() {
         Some(root) => workspace_relative(root, &canonical),
-        None => canonical.to_string_lossy().replace('\\', "/"),
+        None => crate::fsutil::portable_path(&canonical),
     };
     let chosen = target.selection_range.as_ref().unwrap_or(&target.range);
     let start = chosen.get("start")?;
@@ -8742,10 +8742,7 @@ fn publication_in_scope(scope: Option<&Scope>, publication: &lsp::Publication) -
 
 /// The workspace-relative display path (`/`-separated) every snapshot and UI answer uses.
 fn workspace_relative(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    crate::fsutil::portable_path(path.strip_prefix(root).unwrap_or(path))
 }
 
 /// Resolves a caller path to (workspace-relative, absolute) without following the leaf: the real
@@ -9149,7 +9146,9 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(
             items[0]["path"],
-            json!(fs::canonicalize(&lib_file).unwrap().to_string_lossy())
+            json!(crate::fsutil::portable_path(
+                &fs::canonicalize(&lib_file).unwrap()
+            ))
         );
         let capped = lsp::WorkspaceSymbolList {
             truncated: true,
@@ -9750,10 +9749,7 @@ mod tests {
         let location = definition_location(&scope, &target(&lib_file)).expect("outside location");
         assert_eq!(
             location["path"],
-            fs::canonicalize(&lib_file)
-                .unwrap()
-                .to_string_lossy()
-                .as_ref()
+            crate::fsutil::portable_path(&fs::canonicalize(&lib_file).unwrap())
         );
         // The same target stays refused when the scope does not include its directory.
         assert!(definition_location(&Scope::new(&root), &target(&lib_file)).is_none());

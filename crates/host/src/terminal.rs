@@ -746,6 +746,7 @@ mod tests {
         move |path: &Path| names.iter().any(|name| path == Path::new(name))
     }
 
+    #[cfg(unix)]
     #[test]
     fn shell_discovery_prefers_an_absolute_executable_env_value() {
         let candidates = vec![PathBuf::from("/bin/zsh"), PathBuf::from("/bin/sh")];
