@@ -98,17 +98,9 @@ fn prepare_local_package(
     progress: impl Fn(u64, Option<u64>) -> bool,
 ) -> Result<(PathBuf, PathBuf), String> {
     let (url, sha512) = package_source();
-    let response = crate::http::agent_builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .get(&url)
-        .call()
-        .map_err(|error| {
-            format!(
-                "Could not download csharp-ls: {}",
-                crate::http::describe_error(&url, &error)
-            )
-        })?;
+    // `fetch` follows the redirects itself so every hop is routed and guarded again.
+    let response = crate::http::fetch(&url, std::time::Duration::from_secs(120))
+        .map_err(|error| format!("Could not download csharp-ls: {error}"))?;
     let total = response
         .header("Content-Length")
         .and_then(|value| value.parse().ok());
