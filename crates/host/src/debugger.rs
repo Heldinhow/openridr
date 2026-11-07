@@ -1423,10 +1423,18 @@ impl Debugger {
                     };
                     url = crate::http::resolve_location(&url, location);
                 }
-                Err(ureq::Error::Status(code, _)) => {
+                Err(ureq::Error::Status(code, response)) => {
+                    // A proxy answering in absolute form reports 407 as a plain status; it needs the
+                    // same credentials advice as the CONNECT path.
+                    if code == 407 {
+                        return Err(Stop::Failed(format!(
+                            "The download failed: {}; nothing was extracted.",
+                            crate::http::describe_error(&url, &ureq::Error::Status(code, response))
+                        )));
+                    }
                     return Err(Stop::Failed(format!(
                         "The download failed with HTTP {code}; nothing was extracted."
-                    )))
+                    )));
                 }
                 Err(ureq::Error::Transport(error)) => {
                     return Err(Stop::Failed(format!(

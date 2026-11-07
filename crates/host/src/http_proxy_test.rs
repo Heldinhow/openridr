@@ -348,6 +348,102 @@ fn proxy_credentials_reach_the_client_but_never_the_label() {
         authorization.ends_with("basic b3BlbnJpZHI6czNjcmV0"),
         "unexpected authorization header: {authorization}"
     );
+
+    // The scheme-less form is what many corporate instructions show: the credentials must survive
+    // it too, and the label must still be clean.
+    let (_, route) = plan(
+        "https://1.1.1.1/v3/index.json",
+        &env_of(vec![(
+            "HTTPS_PROXY",
+            format!("openridr:s3cret@127.0.0.1:{}", proxy.port),
+        )]),
+    )
+    .expect("a scheme-less proxy with credentials is usable");
+    assert_eq!(
+        route.label(),
+        Some(format!("127.0.0.1:{}", proxy.port).as_str())
+    );
+    let agent = agent_for_with(
+        "https://1.1.1.1/v3/index.json",
+        &env_of(vec![(
+            "HTTPS_PROXY",
+            format!("openridr:s3cret@127.0.0.1:{}", proxy.port),
+        )]),
+    )
+    .expect("the client builds")
+    .timeout(std::time::Duration::from_secs(10))
+    .build();
+    let _ = agent.get("https://1.1.1.1/v3/index.json").call();
+    let heads = proxy.heads();
+    let last = heads.last().expect("the second request reached the proxy");
+    let authorization = last
+        .lines()
+        .find(|line| line.to_lowercase().starts_with("proxy-authorization:"))
+        .expect("the scheme-less proxy must authenticate too");
+    assert!(
+        authorization.ends_with("basic b3BlbnJpZHI6czNjcmV0"),
+        "unexpected authorization header: {authorization}"
+    );
+}
+
+#[test]
+fn relative_redirects_resolve_against_the_request_url() {
+    let cases = [
+        (
+            "https://api.nuget.org/v3/package.nupkg",
+            "package2.nupkg",
+            "https://api.nuget.org/v3/package2.nupkg",
+        ),
+        (
+            "https://api.nuget.org/v3/package.nupkg",
+            "/other/file.nupkg",
+            "https://api.nuget.org/other/file.nupkg",
+        ),
+        (
+            "https://api.nuget.org/v3/a?x=1",
+            "?y=2",
+            "https://api.nuget.org/v3/a?y=2",
+        ),
+        (
+            "https://api.nuget.org/v3/a",
+            "//cdn.example/file",
+            "https://cdn.example/file",
+        ),
+        (
+            "https://api.nuget.org/v3/deep/a",
+            "../b",
+            "https://api.nuget.org/v3/b",
+        ),
+        ("https://api.nuget.org/a", "b", "https://api.nuget.org/b"),
+        (
+            "https://api.nuget.org/v3/a",
+            "b#fragment",
+            "https://api.nuget.org/v3/b",
+        ),
+    ];
+    for (base, location, expected) in cases {
+        assert_eq!(
+            resolve_location(base, location),
+            expected,
+            "base={base} location={location}"
+        );
+    }
+}
+
+#[test]
+fn an_impossible_no_proxy_port_does_not_match_every_port() {
+    assert!(
+        !no_proxy_matches("corp.example:99999", "corp.example", 443),
+        "a port that cannot exist must not turn into 'any port'"
+    );
+    assert!(
+        !no_proxy_matches("corp.example:99999", "corp.example", 65535),
+        "the entry is broken, not a wildcard"
+    );
+    assert!(
+        no_proxy_matches("corp.example:443", "corp.example", 443),
+        "a valid port keeps working"
+    );
 }
 
 #[test]

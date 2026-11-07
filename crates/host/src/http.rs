@@ -259,11 +259,12 @@ fn proxy_target(variable: &str, value: &str) -> Result<ProxyTarget, String> {
         ));
     }
     let netloc = format!("{host}:{port}");
-    // The client needs the credentials; the label never leaves this function with them.
+    // The client needs the credentials; the label never leaves this function with them. Without a
+    // scheme `ureq` reads `user:pass@host:port` itself, so the raw value is what it gets.
     let url = if value.contains("://") {
         format!("{scheme}://{rest}")
     } else {
-        host_port.to_string()
+        value.to_string()
     };
     if ureq::Proxy::new(&url).is_err() {
         return Err(format!(
@@ -276,14 +277,55 @@ fn proxy_target(variable: &str, value: &str) -> Result<ProxyTarget, String> {
 /// How many redirects one download may follow before it is refused.
 const MAX_DOWNLOAD_REDIRECTS: usize = 5;
 
-/// Resolves a `Location` header against the URL that produced it.
+/// Resolves a `Location` header against the URL that produced it, following the reference forms
+/// HTTP actually sends: absolute, scheme-relative (`//host/path`), absolute path, query-only and
+/// path-relative (`file.nupkg`, `../x`). A fragment is dropped: it is never sent.
 pub(crate) fn resolve_location(base: &str, location: &str) -> String {
+    let location = location.split('#').next().unwrap_or_default();
     if location.contains("://") {
         return location.to_string();
     }
     let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
-    let authority = rest.split('/').next().unwrap_or_default();
-    format!("{scheme}://{authority}{location}")
+    let (authority, path_and_query) = match rest.find('/') {
+        Some(index) => (&rest[..index], &rest[index..]),
+        None => (rest, "/"),
+    };
+    if let Some(network) = location.strip_prefix("//") {
+        return format!("{scheme}://{network}");
+    }
+    let path = path_and_query.split('?').next().unwrap_or(path_and_query);
+    if let Some(query) = location.strip_prefix('?') {
+        return format!("{scheme}://{authority}{path}?{query}");
+    }
+    if location.starts_with('/') {
+        return format!("{scheme}://{authority}{}", normalize_path(location));
+    }
+    let directory = match path.rfind('/') {
+        Some(index) => &path[..=index],
+        None => "/",
+    };
+    let joined = normalize_path(&format!("{directory}{location}"));
+    format!("{scheme}://{authority}{joined}")
+}
+
+/// Removes `.` and `..` segments from an absolute path, keeping the leading slash.
+fn normalize_path(path: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            other => segments.push(other),
+        }
+    }
+    let trailing = path.ends_with('/') && !segments.is_empty();
+    let mut normalized = format!("/{}", segments.join("/"));
+    if trailing {
+        normalized.push('/');
+    }
+    normalized
 }
 
 /// A redirect target must stay on HTTPS: a proxy or a compromised host cannot downgrade the
@@ -357,7 +399,12 @@ fn no_proxy_matches(list: &str, host: &str, port: u16) -> bool {
                             .chars()
                             .all(|character| character.is_ascii_digit()) =>
                 {
-                    (name, port_text.parse::<u16>().ok())
+                    match port_text.parse::<u16>() {
+                        Ok(port) => (name, Some(port)),
+                        // A port that cannot exist is a broken entry, not "any port": matching it
+                        // would send the destination direct when the operator named a port.
+                        Err(_) => return false,
+                    }
                 }
                 _ => (entry, None),
             };
