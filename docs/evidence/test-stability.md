@@ -32,6 +32,7 @@ Windows e macOS Intel não foram executados.
 | `real_run_reports_trx_outcomes_positions_and_only_the_selected_identity` falhou 1× no run completo e passou isolado 2× | `--test test_run` | 1 falha em `cargo test -p openridr-host` na sessão da #55 (2026-11-07), no mesmo run em que `--test host` fez 108 verdes; a asserção esperava `tests/OrderDesk.Tests/OrderTests.cs` e recebeu `Null`; isolado: `1 passed` em 5,94 s e de novo em 7,16 s | Não determinada; o teste roda `dotnet test` real e depende do TRX sob carga (mesma classe das linhas acima) | **Observado 1×, não reproduzido** (isolado verde 2×; nenhuma mudança da frente toca `crates/`) |
 | `export_carries_the_discovery_and_the_real_last_run` falhou 1× no run completo e passou isolado | `--test test_run` | 1 falha em `cargo test -p openridr-host` na sessão da #150 (2026-11-07), logo depois do merge da `main` (que trouxe a #55); isolado: `1 passed` em 9,40 s e o `--test test_run` inteiro verde em 28,47 s | Não determinada; mesma classe das linhas acima (`dotnet test`/TRX real sob carga) | **Observado 1×, não reproduzido** (isolado verde; a frente da #150 não toca `crates/host/tests/test_run.rs` nem o caminho de testes) |
 | `real_vstest_discovery_lists_the_fixture_tests_with_stable_identities` falhou 1× no run completo e passou isolado | `--test test_discovery` | 1 falha em `cargo test -p openridr-host` na bateria final da #55 (2026-11-07): o MSBuild abortou com `MSB4166: Child node "3" exited prematurely` e a descoberta voltou `failed`; isolado: `1 passed` em 4,06 s | MSBuild derrubando nós filhos sob carga (o erro é do MSBuild, não do host) | **Observado 1×, não reproduzido** (isolado verde; nenhuma mudança da frente toca `crates/`) |
+| `build.spec.ts` falha sozinho numa runner fria com `Build failed · exit 1` | `tests/e2e/build.spec.ts` | 2 de 5 runs sozinhas na `macos-15` (2026-11-07): o primeiro build do fixture termina em `MSB4018` `GenerateDepsFile` + `IOException` no `OrderDesk.Core.deps.json` "being used by another process"; o segundo teste do mesmo arquivo passa; nunca reproduziu local, nem com `NUGET_PACKAGES`/`DOTNET_CLI_HOME` frios | **Não é ordem de specs**: a descoberta automática de testes (`dotnet test --list-tests`, que constrói o projeto de teste e as referências) e a análise (csharp-ls, BuildHost do MSBuild) rodam sozinhas depois do trust e constroem o mesmo `OrderDesk.Core` que o build explícito; numa runner fria a janela se sobrepõe. `workspace.spec.ts` antes só esquenta a máquina. Amostragem de processos viu as três vivas ao mesmo tempo; o `lsof` não pegou o dono do arquivo (3 runs de amostragem verdes) | **Spec corrigido** (#257: espera a descoberta automática antes do primeiro build; falha carrega o log cru, #255). **Bug do produto aberto** (#275: build explícito concorrente com a automação do app) |
 
 **Reincidência da classe "restore/LSP falham no run completo" (2026-11-06, sessão da issue #74, branch
 `ci/issue-74-risk-tiers`).** O run completo de `cargo test -p openridr-host` falhou 1 de 3 vezes em
@@ -42,6 +43,11 @@ espera. O mesmo teste rodado sozinho em seguida passa (75,6 s) e os outros dois 
 verdes. O diff do branch não toca `crates/` (é CI + docs), então não há evidência de relação com ele; a
 hipótese é a instalação do csharp-ls (rede/NuGet) falhando sem registrar motivo. Não corrigido nesta
 frente: registrado aqui, não mascarado com skip.
+
+**Regra do smoke (#251).** Cada spec listado em `scripts/e2e-smoke.txt` tem que passar **sozinho**, numa
+máquina fria: `bunx playwright test <um spec>` numa runner nova. A ordem da lista não é prova —
+`workspace.spec.ts` antes de `build.spec.ts` aquece a máquina (restore, cache NuGet, descoberta e análise
+já pagos) e esconde a falha do primeiro build (linha de `build.spec.ts` acima).
 
 ## Medições
 
