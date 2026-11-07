@@ -240,6 +240,10 @@ no_issue
 run RESULT=green
 expect 0 1 green-no-issue-writes-nothing
 out_has 'nothing to write'
+# The only call is the search, so this is the place to pin the page size: the default page is 30 and the
+# exact-title match happens after it, so a small page could hide the tracking issue.
+arg --limit
+arg 100
 
 # --- a failing gh: non-zero and ::error:: -----------------------------------------------------------
 no_issue
@@ -307,9 +311,18 @@ yaml_lacks "$top_permissions" 'issues:'
 
 yaml_has "$(block concurrency)" 'cancel-in-progress: false'
 
-# Everything after `jobs:` is the job, permissions included.
-jobs_block=$(awk '/^jobs:/ {inside = 1} inside' "$workflow")
-yaml_has "$jobs_block" 'issues: write'
+# The write belongs to the `smoke` job, not to any job and not to a comment: the assertion reads that
+# job's own `permissions:` block, so moving the permission to another job (or mentioning it in a
+# comment) fails here.
+job() {
+  awk -v want="$1" '$0 == "  " want ":" {inside = 1; next} inside && /^  [a-z]/ {inside = 0} inside' "$workflow"
+}
+job_permissions() {
+  awk '/^    permissions:/ {inside = 1; next} inside && /^    [a-z]/ {inside = 0} inside'
+}
+smoke_permissions=$(job smoke | job_permissions)
+yaml_has "$smoke_permissions" 'issues: write'
+yaml_has "$smoke_permissions" 'contents: read'
 
 specs_step=$(step 'Run the specs listed')
 yaml_has "$specs_step" '--reporter=list,json'

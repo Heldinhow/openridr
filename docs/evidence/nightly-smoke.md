@@ -101,6 +101,19 @@ YAML anterior (14 falhas) e contra cópias do YAML novo com `pull_request`, `can
   #49, marcada como "ainda NÃO medido"): o teste de symlink espera 1 ícone e recebe 2. Fora do escopo
   desta frente; issue **#245**.
 
+## Code review (subagente único, `gpt-6.1-terra`, fixed point `d458e2c`)
+
+Três achados, todos corrigidos:
+
+| Severidade | Achado | Correção |
+|---|---|---|
+| médio | `gh issue list` usava a página default (30) e o casamento exato do título acontece depois dela: uma página pequena esconderia a issue e o script abriria uma segunda | `--limit 100` com o motivo no código, e o teste pina `--limit`/`100` no caso em que a busca é a única chamada |
+| médio | falha do **checkout** deixava o passo vermelho morrer em `No such file`, sem reportar nada | o passo detecta o script ausente e falha com `::error::` dizendo que a issue não foi aberta; o caso entrou em "Out of Scope" da spec com o motivo (a alternativa seria uma segunda cópia do corpo inline) |
+| baixo | a asserção de `issues: write` procurava em tudo depois de `jobs:`, então passaria com a permissão em outro job ou num comentário | a asserção lê o bloco `permissions:` do job `smoke`; provado com um YAML onde a permissão vira comentário (`FAIL - workflow lacks 'issues: write'`) |
+
+Depois das correções: `sh` e `dash` do teste verdes, `shellcheck` clean, `actionlint` ok, `zizmor` sem
+achados.
+
 ## Não verificado
 
 - **A noturna de verdade** (`schedule` às 03:30 UTC) com este workflow: as runs de prova são

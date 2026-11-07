@@ -96,7 +96,16 @@ jobs:
           SHA: ${{ github.sha }}
           REPO: ${{ github.repository }}
           REPORT: ${{ runner.temp }}/playwright-report.json
-        run: sh scripts/e2e-smoke-issue.sh
+        run: |
+          # A failed checkout leaves no script behind, so the tracking issue cannot be opened at all:
+          # there is no code to read the report with and no code to report from. Say that instead of
+          # dying on a missing file, and keep the run red. The boundary is written in the spec's
+          # "Out of Scope": reporting a checkout failure would mean a second copy of the body inline.
+          if [ ! -f scripts/e2e-smoke-issue.sh ]; then
+            echo "::error::the checkout failed, so scripts/e2e-smoke-issue.sh is missing and the tracking issue was not opened; see the failed step above"
+            exit 1
+          fi
+          sh scripts/e2e-smoke-issue.sh
 
       - name: Report the green run in the tracking issue
         if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')

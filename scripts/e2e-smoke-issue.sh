@@ -52,8 +52,11 @@ command -v "$gh" >/dev/null 2>&1 || {
 # search syntax reads the brackets of the title as a qualifier; the exact match happens here. If more
 # than one open issue matches, the lowest number wins and the others are left alone (a state that only
 # manual intervention creates).
+# `--limit` is explicit: the default page is 30 and the exact-title match runs after it, so a page that
+# small could hide the tracking issue and this script would open a second one. The search is narrow
+# (`e2e-smoke` in the title), so 100 is far above what the repository can hold.
 if ! open=$("$gh" issue list --repo "$REPO" --state open --search 'e2e-smoke in:title' \
-  --json number,title); then
+  --limit 100 --json number,title); then
   fail "could not list the open issues of $REPO"
 fi
 if ! number=$(printf '%s' "$open" |

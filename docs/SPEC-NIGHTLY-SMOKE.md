@@ -91,6 +91,9 @@ os dois caminhos sem esperar a noite, e porque disparo manual é ato deliberado.
   interpreta) e o casamento exato acontece depois, no shell.
 - Se mais de uma issue aberta casar, a de menor número é a que vale; as outras não são tocadas. É um
   estado que só existe por intervenção manual.
+- A listagem usa `--limit 100`: o default é uma página de 30, e o casamento exato acontece **depois**
+  dela, então uma página pequena esconderia a issue e o script abriria uma segunda. A busca é estreita
+  (`e2e-smoke` no título), então 100 é muito acima do que o repositório comporta.
 
 ### Vermelho com a issue já aberta: reescrever o corpo (Q3)
 
@@ -101,10 +104,15 @@ issue é o "vermelho desde".
 ### Um job só (Q4)
 
 Os passos de reportar ficam no mesmo job `smoke`, com `if: failure()` e `if: success()`. Isso cobre
-falha de teste, falha de instalação, falha de download do navegador e falha de qualquer passo anterior,
-porque um passo com `if: failure()` roda mesmo assim. O que **não** é coberto é timeout de 60 min e
-cancelamento: o job morre e nenhum passo posterior roda. Limite aceito e escrito como `shortcut:` no
-script e na spec.
+falha de teste, falha de instalação, falha de download do navegador e falha de qualquer passo **depois
+do checkout**, porque um passo com `if: failure()` roda mesmo assim. Dois limites, ambos aceitos e
+escritos:
+
+- **Timeout de 60 min e cancelamento**: o job morre e nenhum passo posterior roda. `shortcut:` no script.
+- **Falha do próprio checkout**: sem checkout não há script para rodar, então a issue não é aberta. O
+  passo de vermelho detecta o script ausente e falha com `::error::` dizendo exatamente isso, em vez de
+  morrer num `No such file`. Reportar esse caso exigiria uma segunda cópia do corpo inline no YAML —
+  duplicação que o repositório não aceita por um caso em que o Actions inteiro já está quebrado.
 
 ### Fechar falhando deixa o job vermelho (Q5)
 
@@ -207,6 +215,9 @@ e nenhum `data-testid`.
   com `2` ícones onde o spec espera `1`). Vira issue avulsa, não filha desta: é spec de UI, não CI.
 - Rodar Playwright em PR, transformar o smoke em check obrigatório, ou mexer no ruleset.
 - Cobertura de timeout de 60 min e de cancelamento do job (limite aceito, com `shortcut:` no código).
+- Reportar a falha do **próprio checkout**: sem código não há script, e a alternativa seria uma segunda
+  cópia do corpo da issue inline no YAML. O passo de vermelho só diz, com `::error::`, que a issue não
+  foi aberta por isso.
 - Label nova de rastreio (setting do repositório).
 - Artefato do relatório do Playwright (`upload-artifact`): o relatório é lido no mesmo job.
 - Comentar na issue a cada noite vermelha.
