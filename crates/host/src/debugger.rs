@@ -212,8 +212,15 @@ fn controlled_asset() -> Option<ControlledAsset> {
     None
 }
 
+/// The file name of a controlled asset URL, without its query or fragment: the probe seam can point
+/// at a signed URL, and this name goes to the plan and the log.
 fn base_name(url: &str) -> String {
-    url.rsplit('/').next().unwrap_or("asset.zip").to_string()
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    path.rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("asset.zip")
+        .to_string()
 }
 
 fn origin(url: &str) -> Option<(String, String, Option<String>)> {
@@ -265,8 +272,8 @@ fn describe_failure(url: &str, error: &ureq::Error) -> String {
 fn redact_url(message: String, url: &str) -> String {
     let message = message.replace(url, &loggable_url(url));
     match url.split_once('?') {
-        Some((_, query)) => message.replace(query, "<redacted>"),
-        None => message,
+        Some((_, query)) if !query.is_empty() => message.replace(query, "<redacted>"),
+        _ => message,
     }
 }
 
@@ -1911,6 +1918,25 @@ mod tests {
         format!("http://{address}/asset.zip")
     }
 
+    /// A server that answers one redirect to `location`, like the release asset hop.
+    fn redirect_server(location: &str) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let location = location.to_string();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            let head = format!(
+                "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            let _ = std::io::Write::write_all(&mut stream, head.as_bytes());
+        });
+        format!("http://{address}/asset.zip")
+    }
+
     /// A server that accepts the connection and closes it without answering, like a proxy that
     /// died between the request and the response.
     fn closing_server() -> String {
@@ -2061,6 +2087,11 @@ mod tests {
             "the advice still names the destination: {message}"
         );
 
+        // The signed URL arrives as a redirect target, which is how the release asset is served.
+        let target = format!("{}?X-Amz-Signature=secret", closing_server());
+        let message = download(&redirect_server(&target));
+        assert!(!message.contains("secret"), "{message}");
+
         // The two paths that never reach the network: the host allowlist and the route/guard.
         let message = download("https://example.invalid/asset.zip?X-Amz-Signature=secret");
         assert!(message.contains("Refused to download from"), "{message}");
@@ -2069,6 +2100,23 @@ mod tests {
         let message = download("https://github.com:99999/asset.zip?X-Amz-Signature=secret");
         assert!(message.contains("Nothing was downloaded"), "{message}");
         assert!(!message.contains("secret"), "{message}");
+    }
+
+    #[test]
+    fn a_url_without_a_query_is_left_alone_and_the_asset_name_drops_it() {
+        let url = "http://127.0.0.1:1/asset.zip?";
+        let message = "the request for http://127.0.0.1:1/asset.zip? failed".to_string();
+        let redacted = redact_url(message, url);
+        assert_eq!(
+            redacted,
+            "the request for http://127.0.0.1:1/asset.zip failed"
+        );
+        assert!(!redacted.contains("<redacted>"), "{redacted}");
+        assert_eq!(
+            base_name("http://127.0.0.1:1/asset.zip?X-Amz-Signature=secret#frag"),
+            "asset.zip"
+        );
+        assert_eq!(base_name("http://127.0.0.1:1/"), "asset.zip");
     }
 
     #[test]

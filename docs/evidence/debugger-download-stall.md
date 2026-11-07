@@ -92,7 +92,25 @@ O teste commitado usa `Route::Ok` e uma espera de 30 s. Para as duas medições 
 +    // eprintln! do estado e do progresso a cada mudança, para as linhas `+Ns` acima
 ```
 
-Para o stall, o mesmo bloco do servidor vira `write_all(&body[..100])` e `sleep(600 s)` (sem fechar a conexão). Comando das duas execuções:
+Para o stall, o bloco do servidor e a asserção final mudam (o teste termina em `failed`, não em `ready`):
+
+```diff
+@@ Route::Slow, no servidor do harness
+-                                let chunks = 66usize;
+-                                ... (bloco lento acima)
++                                let _ = stream.write_all(&body[..100]);
++                                let _ = stream.flush();
++                                std::thread::sleep(Duration::from_secs(600));   // sem fechar a conexão
+@@ a_controlled_install_reaches_ready_is_reused_and_records_no_dap_proof_isolated
+-    assert_eq!(finished["adapterState"], "ready", "{}", finished["log"]);
++    assert_eq!(finished["adapterState"], "failed", "{}", finished["log"]);
++    assert!(finished["error"]
++        .as_str()
++        .unwrap()
++        .contains("the connection stalled"));
+```
+
+Comando das duas execuções (o `eprintln!` de estado/progresso/erro é o que produz as linhas `+Ns` acima):
 
 ```sh
 cargo test -p openridr-host --test debugger -- --ignored --exact \
@@ -122,4 +140,5 @@ Resultado: em `tauri dev` o download do netcoredbg não é alcançável nem pela
 - **Resolução de nome** continua não interrompível pelo `ureq`; o prazo total anterior também não a limitava. Limite do host inteiro, herdado da #161.
 - **Sem prazo total**: um servidor que pinga um byte a cada 59 s mantém o download vivo; o teto que existe é `MAX_DOWNLOAD_BYTES` (20 MiB). Custo aceito na #161 e mantido.
 - **A frase diz "retry the setup"**, e o botão do painel de Debug se chama "Retry adapter install". Reusar a frase da #161 foi decisão do grill (uma frase só); o descompasso fica escrito.
-- **A URL assinada do asset** saiu das mensagens de erro desta função (`loggable_url` também nos dois `describe_error`), mas `describe_error` de outros caminhos do host continua recebendo a URL crua — não foi auditado aqui.
+- **A URL assinada do asset** saiu de todos os caminhos de erro e de log **do download do netcoredbg**: stall, transporte/407 (`redact_url`), recusa do allowlist de host, erro de rota/guarda, linha de log e nome do asset controlado. `describe_error` de outros caminhos do host continua recebendo a URL crua — não foi auditado aqui.
+- **A URL do artefato controlado aparece no plano**, e isso é intencional: ela é o valor que o operador põe em `OPENRIDR_DEBUG_ASSET_URL` (seam de probe, só em build de debug) e o plano tem de mostrar o que será baixado. O que não entra no plano é a URL assinada do redirect oficial — ela só existe dentro do download. O nome do asset não carrega mais query/fragmento (`base_name`), então o log também não.
