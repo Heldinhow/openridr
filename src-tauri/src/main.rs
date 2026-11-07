@@ -16,6 +16,9 @@ const OPEN_EVENT: &str = "openridr-open";
 /// Event that tells the UI the user asked to quit; the UI calls `quit_app` after its decision.
 const QUIT_EVENT: &str = "openridr-quit";
 const QUIT_MENU_ID: &str = "quit";
+/// Event that asks the UI to check for updates now; the app menu item owns it.
+const UPDATE_CHECK_EVENT: &str = "openridr-update-check";
+const CHECK_UPDATES_MENU_ID: &str = "app.check-updates";
 /// macOS resolves a menu key equivalent before the webview sees the key, so a native item that
 /// owns a keymap shortcut makes the advertised shortcut dead. `Close Window` (⌘W) swallowed
 /// `editor.closeTab`, and the AppKit injects `Close All` (⌥⌘W) next to a `performClose:` item,
@@ -157,6 +160,9 @@ fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .build(app)?;
     app_menu.remove_at(position)?;
     app_menu.insert(&quit, position)?;
+    // Right after About, where macOS apps put it.
+    let check = MenuItemBuilder::with_id(CHECK_UPDATES_MENU_ID, "Check for Updates…").build(app)?;
+    app_menu.insert(&check, 1)?;
 
     // The File submenu holds only the predefined Close Window item; replace it so the accelerator
     // table above stops owning ⌘W. AppKit derives the `Close All` item it injects into this same
@@ -216,6 +222,8 @@ fn main() {
                 request_quit(app);
             } else if event.id() == CLOSE_WINDOW_MENU_ID {
                 close_main_window(app);
+            } else if event.id() == CHECK_UPDATES_MENU_ID {
+                let _ = app.emit(UPDATE_CHECK_EVENT, ());
             }
         })
         .manage(Arc::new(Host::new()))
