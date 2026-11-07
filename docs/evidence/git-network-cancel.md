@@ -28,18 +28,20 @@ Com o `if net.cancelled(id)` removido do laço de espera de `run_with_deadline` 
 
 ## Playwright (modo web, só `tests/e2e/git.spec.ts`)
 
-`bunx playwright test tests/e2e/git.spec.ts` → **11 passed** (57,1 s), incluindo os dois cenários novos:
+`bunx playwright test tests/e2e/git.spec.ts` → **11 passed** (1,4 min), incluindo os dois cenários novos:
 
 - **`cancelling a push, an update and a fetch returns in seconds while the app answers`** — com o `origin` apontando para o listener que não responde: Push → `Cancel push` devolve `Push cancelled: … may already have reached the remote…` com o diálogo aberto; um `git.status` pelo mesmo bridge responde em **menos de 5 s durante o push**; Escape no diálogo em voo cancela em vez de fechar; Update → `Cancel update` mostra `Update cancelled: … nothing was merged…` e **não existe `MERGE_HEAD`** depois; Fetch → `Cancel fetch` mostra `Fetch cancelled: …`.
 - **`an update whose fetch already finished says there is nothing to cancel`** — remoto real + hook `post-merge` de 3 s: o clique em `Cancel update` chega com o fetch já terminado, o host responde `cancelled: false` e o diálogo mostra `Nothing to cancel: the update is already merging.`; o merge termina sozinho e o diálogo fecha com a mensagem do app.
 
 Os 9 cenários que já existiam no spec continuam verdes (o contrato novo do `git.push` — start que devolve id, "sem remoto" como `failed` no snapshot — está coberto pelo cenário de log/checkout/pull/push).
 
+**Uma rodada falhou por carga, não por código**: com a máquina ocupada (a suíte inteira levou 2,5 min contra 1,4 min), `full-file diff shows the whole file…` estourou `toHaveCount` em 29 s; isolado passa em 5,7 s e a rodada seguinte passou inteira. É um teste de diff, sem relação com o cancelamento — fica registrado como intermitência de carga, não como verde.
+
 **Dois defeitos de UI que só a prova de UI pegou**, corrigidos na mesma rodada: o botão de cancelar aparecia enquanto o start ainda estava em voo (sem id para nomear, o clique não fazia nada) e o Escape do diálogo usava uma closure anterior ao `pending` (o handler ficava com `pending: null` e o cancel não tinha id). Ambos estão no commit `6560827`.
 
 ## O que ficou sem prova
 
-- **App Tauri real (`agent-desktop`)**: pela regra nova de verificação, fluxo do host se prova no Playwright; a checagem no binário ficou opcional e **não foi feita**. O que ela cobriria — a janela e o menu nativo — não muda nesta frente.
+- **App Tauri real (`agent-desktop`)**: pela decisão de 2026-11-07 (`docs/decisions.md`), fluxo do host se prova no Playwright no modo web; a checagem no binário ficou opcional e **não foi feita**. O que ela cobriria — a janela e o menu nativo — não muda nesta frente.
 - **Windows e macOS Intel.**
 - **Cancelar o merge local do Update**: fora de escopo por decisão da #136; o que se prova é que o cancel ali devolve `false` e a UI diz isso.
 - **A ponte de dev (`host-http`) medida à mão**: a fila/overtake saiu e o laço atende uma requisição por vez; o comportamento é o mesmo do E2E, que roda a mesma ponte, mas não houve medição isolada de latência nesta rodada.
