@@ -5,6 +5,7 @@
 //! `dotnet add ... --no-restore`; the explicit restore is a separate user action. Central
 //! Package Management is listed but never edited: an update refuses before spawning anything.
 
+use crate::scope::Scope;
 use crate::{HostError, HostResult};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -183,15 +184,15 @@ struct Exec {
     spawn_error: Option<String>,
 }
 
-/// Canonicalizes a project path and rejects anything outside the workspace. The containment step is
-/// the host's single implementation (`crate::confine_raw`), so an absolute path whose prefix is a
-/// symlink or differs in case is accepted, while a symlink that carries the path outside is refused
-/// whether or not the project file exists.
-pub fn resolve_project(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
+/// Canonicalizes a project path and rejects anything outside the workspace scope. The containment
+/// step is the host's single implementation (`crate::confine_raw`), so an absolute path whose prefix
+/// is a symlink or differs in case is accepted, while a symlink that carries the path outside is
+/// refused whether or not the project file exists.
+pub fn resolve_project(scope: &Scope, raw: &str) -> HostResult<(PathBuf, String)> {
     if raw.trim().is_empty() {
         return Err(HostError::new("path_not_allowed", "Project path is empty."));
     }
-    let canonical = crate::confine_raw(root, raw, "Project not found")?;
+    let canonical = crate::confine_raw(scope, raw, "Project not found")?;
     if !canonical.is_file()
         || canonical
             .extension()
@@ -203,11 +204,14 @@ pub fn resolve_project(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> 
             format!("Not a .csproj file: {raw}"),
         ));
     }
-    let display = canonical
-        .strip_prefix(root)
-        .unwrap_or(&canonical)
-        .to_string_lossy()
-        .replace('\\', "/");
+    let display = match scope.root() {
+        Some(root) => canonical
+            .strip_prefix(root)
+            .unwrap_or(&canonical)
+            .to_string_lossy()
+            .replace('\\', "/"),
+        None => canonical.to_string_lossy().replace('\\', "/"),
+    };
     Ok((canonical, display))
 }
 
@@ -219,10 +223,15 @@ pub fn project_name(path: &Path) -> String {
 
 /// Central Package Management is enabled by the nearest Directory.Packages.props unless that
 /// file explicitly turns the property off. The MVP never edits central versions.
+///
+/// The walk stops at the project's scope directory: the workspace root for a project inside it, the
+/// project's own directory for a project the solution names elsewhere. A props file above that
+/// directory is outside the workspace scope and is never read.
 pub fn detect_cpm(root: &Path, project: &Path) -> Cpm {
-    let mut dir = project.parent();
+    let project_dir = project.parent();
+    let mut dir = project_dir;
     while let Some(current) = dir {
-        if !current.starts_with(root) {
+        if !current.starts_with(root) && Some(current) != project_dir {
             break;
         }
         let candidate = current.join("Directory.Packages.props");
@@ -249,7 +258,7 @@ pub fn detect_cpm(root: &Path, project: &Path) -> Cpm {
                 )),
             };
         }
-        if current == root {
+        if current == root || Some(current) == project_dir {
             break;
         }
         dir = current.parent();
@@ -1931,18 +1940,18 @@ mod tests {
         fs::write(root.join("App.csproj"), PROJECT).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("Link")).unwrap();
 
-        let (path, rel) = resolve_project(&root, "App.csproj").unwrap();
+        let (path, rel) = resolve_project(&Scope::new(&root), "App.csproj").unwrap();
         assert_eq!(path, root.join("App.csproj"));
         assert_eq!(rel, "App.csproj");
 
         // The project does not exist, but the symlink carries the path outside: the refusal must say
         // outside, exactly as it does when the file exists there.
-        let error = resolve_project(&root, "Link/missing.csproj").unwrap_err();
+        let error = resolve_project(&Scope::new(&root), "Link/missing.csproj").unwrap_err();
         assert_eq!(error.code, "outside_workspace");
         fs::write(outside.join("There.csproj"), PROJECT).unwrap();
-        let error = resolve_project(&root, "Link/There.csproj").unwrap_err();
+        let error = resolve_project(&Scope::new(&root), "Link/There.csproj").unwrap_err();
         assert_eq!(error.code, "outside_workspace");
-        let error = resolve_project(&root, "missing.csproj").unwrap_err();
+        let error = resolve_project(&Scope::new(&root), "missing.csproj").unwrap_err();
         assert_eq!(error.code, "not_found");
 
         // A dangling link exists but points nowhere provable: refused the same way whether or not
@@ -1956,7 +1965,7 @@ mod tests {
         )
         .unwrap();
         for project in ["Dangling.csproj", "DanglingThere.csproj"] {
-            let error = resolve_project(&root, project).unwrap_err();
+            let error = resolve_project(&Scope::new(&root), project).unwrap_err();
             assert_eq!(error.code, "outside_workspace", "{project}");
         }
     }

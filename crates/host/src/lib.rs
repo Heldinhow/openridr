@@ -38,6 +38,7 @@ pub use error::{HostError, HostResult};
 pub use evaluation::{Evaluation, EvaluationContext};
 pub use outline::{GlobalJson, Outline, OutlineProject};
 pub use restore::{RestoreView, GATED_METHODS as RESTORE_GATED_METHODS};
+use scope::Scope;
 
 use outline::build_outline;
 use process::Registry;
@@ -4917,14 +4918,14 @@ impl Host {
         match response {
             Ok(value) => match lsp::parse_definition(&value) {
                 Some(view) => {
-                    let root = self
+                    let scope = self
                         .inner
                         .lock()
                         .unwrap()
                         .workspace
                         .as_ref()
-                        .map(|workspace| workspace.root.clone());
-                    let Some(root) = root else {
+                        .map(|workspace| workspace.scope.clone());
+                    let Some(scope) = scope else {
                         return Ok(request.base.answer(
                             "unavailable",
                             Some(
@@ -4936,7 +4937,7 @@ impl Host {
                     let mut locations = Vec::new();
                     let mut rejected = view.rejected;
                     for target in view.targets {
-                        match definition_location(&root, &target) {
+                        match definition_location(&scope, &target) {
                             Some(location) => locations.push(location),
                             None => rejected += 1,
                         }
@@ -5125,7 +5126,7 @@ impl Host {
                 ));
             }
         };
-        let (root, open) = {
+        let (scope, open) = {
             let inner = self.inner.lock().unwrap();
             let Some(workspace) = inner.workspace.as_ref() else {
                 return Ok(request.base.answer(
@@ -5136,13 +5137,13 @@ impl Host {
                     ),
                 ));
             };
-            (workspace.root.clone(), request.lsp.open_documents())
+            (workspace.scope.clone(), request.lsp.open_documents())
         };
         let open: HashMap<String, (String, i64)> = open
             .into_iter()
             .map(|document| (document.path, (document.text, document.version)))
             .collect();
-        let (documents, total_edits) = match workspace_edit_preview(&root, &edits, &open) {
+        let (documents, total_edits) = match workspace_edit_preview(&scope, &edits, &open) {
             Ok(preview) => preview,
             Err(reason) => {
                 request
@@ -5272,7 +5273,7 @@ impl Host {
                 ),
             ));
         };
-        let (root, open) = {
+        let (scope, open) = {
             let inner = self.inner.lock().unwrap();
             let Some(workspace) = inner.workspace.as_ref() else {
                 return Ok(request.base.answer(
@@ -5283,7 +5284,7 @@ impl Host {
                     ),
                 ));
             };
-            (workspace.root.clone(), request.lsp.open_documents())
+            (workspace.scope.clone(), request.lsp.open_documents())
         };
         let open: HashMap<String, (String, i64)> = open
             .into_iter()
@@ -5311,7 +5312,7 @@ impl Host {
         let mut actions = Vec::with_capacity(parsed.actions.len());
         let mut unsupported = 0;
         for (index, action) in parsed.actions.iter().enumerate() {
-            let mut view = code_action_document_preview(&root, action, &open);
+            let mut view = code_action_document_preview(&scope, action, &open);
             if !view["supported"].as_bool().unwrap_or(false) {
                 unsupported += 1;
             }
@@ -5418,7 +5419,7 @@ impl Host {
                 ),
             ));
         };
-        let root = {
+        let scope = {
             let inner = self.inner.lock().unwrap();
             let Some(workspace) = inner.workspace.as_ref() else {
                 return Ok(request.base.answer(
@@ -5429,12 +5430,12 @@ impl Host {
                     ),
                 ));
             };
-            workspace.root.clone()
+            workspace.scope.clone()
         };
         let mut locations = Vec::new();
         let mut rejected = parsed.rejected;
         for target in &parsed.targets {
-            match definition_location(&root, target) {
+            match definition_location(&scope, target) {
                 Some(location) => locations.push(location),
                 None => rejected += 1,
             }
@@ -5754,6 +5755,15 @@ impl Host {
             .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))
     }
 
+    fn workspace_scope(&self) -> HostResult<scope::Scope> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.scope.clone())
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))
+    }
+
     fn workspace_files(&self) -> HostResult<Value> {
         let root = self.workspace_root()?;
         let list = search::list_files(&root, search::FILE_LIMIT);
@@ -5769,10 +5779,13 @@ impl Host {
     /// A symlinked directory is never expanded: following it would either leave the workspace or
     /// re-enter an ancestor (a cycle), so the refusal happens before anything is listed.
     fn workspace_tree(&self, params: &Value) -> HostResult<Value> {
-        let root = self.workspace_root()?;
+        let scope = self.workspace_scope()?;
+        let root = scope
+            .root()
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
         let raw = params.get("dir").and_then(Value::as_str).unwrap_or("");
         let candidate = root.join(raw);
-        let dir = confine(&root, &candidate, shape_of(raw)).map_err(|error| match error {
+        let dir = confine(&scope, &candidate, shape_of(raw)).map_err(|error| match error {
             fsutil::ConfineError::Outside => HostError::new(
                 "outside_workspace",
                 format!("Not a folder inside the workspace: {raw}"),
@@ -5785,7 +5798,7 @@ impl Host {
         // (already refused above) or re-enter an ancestor (a cycle). The link is detected on the
         // entry itself, never by resolving the target, so an inside link is refused the same way
         // as a loop and the listing never walks through one.
-        if shape_of(raw) == Shape::Joined && has_symlink_component(&root, &candidate) {
+        if shape_of(raw) == Shape::Joined && has_symlink_component(&scope, &candidate) {
             return Err(HostError::new(
                 "invalid_state",
                 format!("Not a folder to list: {raw} is a symbolic link."),
@@ -5797,7 +5810,7 @@ impl Host {
                 format!("Not a folder inside the workspace: {raw}"),
             ));
         }
-        let entries = search::list_dir(&root, &dir).map_err(|error| {
+        let entries = search::list_dir(root, &dir).map_err(|error| {
             HostError::new("operation_failed", format!("Could not list {raw}: {error}"))
         })?;
         Ok(json!({ "dir": raw, "entries": entries }))
@@ -5817,10 +5830,10 @@ impl Host {
                     "workspace.symlinks requires a paths array.",
                 )
             })?;
-        let root = self.workspace_root()?;
+        let scope = self.workspace_scope()?;
         let mut entries = Vec::new();
         for raw in paths.iter().filter_map(Value::as_str).take(256) {
-            let Some((relative, absolute)) = confined_entry(&root, raw) else {
+            let Some((relative, absolute)) = confined_entry(&scope, raw) else {
                 continue;
             };
             let Ok(metadata) = fs::symlink_metadata(&absolute) else {
@@ -5858,12 +5871,12 @@ impl Host {
                 )
             })?;
         let known = params.get("known").and_then(Value::as_object);
-        let root = {
+        let scope = {
             let inner = self.inner.lock().unwrap();
             inner
                 .workspace
                 .as_ref()
-                .map(|workspace| workspace.root.clone())
+                .map(|workspace| workspace.scope.clone())
                 .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?
         };
         let mut entries = Vec::new();
@@ -5873,7 +5886,7 @@ impl Host {
             if !raw.to_ascii_lowercase().ends_with(".cs") {
                 continue;
             }
-            let Ok((path, rel)) = resolve_in_root(&root, raw) else {
+            let Ok((path, rel)) = resolve_in_scope(&scope, raw) else {
                 continue;
             };
             let Ok(metadata) = fs::metadata(&path) else {
@@ -6086,7 +6099,7 @@ impl Host {
                 .workspace
                 .as_ref()
                 .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
-            let (project, display) = nuget::resolve_project(&workspace.root, &raw)?;
+            let (project, display) = nuget::resolve_project(&workspace.scope, &raw)?;
             (
                 workspace.root.clone(),
                 project,
@@ -6130,7 +6143,8 @@ impl Host {
                 .as_ref()
                 .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
             let root = workspace.root.clone();
-            let (project, display) = nuget::resolve_project(&root, &raw)?;
+            let scope = workspace.scope.clone();
+            let (project, display) = nuget::resolve_project(&scope, &raw)?;
             let sdk = inner.project_sdk.clone();
             inner.nuget_seq += 1;
             (root, project, display, sdk, inner.nuget_seq)
@@ -6229,7 +6243,7 @@ impl Host {
                     .map(|project| project.path.clone())
             })
             .unwrap_or_else(|| workspace.name.clone());
-        let (project, display) = nuget::resolve_project(&workspace.root, &requested)
+        let (project, display) = nuget::resolve_project(&workspace.scope, &requested)
             .unwrap_or_else(|_| (workspace.root.join("Probe.csproj"), requested.clone()));
         let target_framework =
             optional_str(&params, "targetFramework").filter(|tfm| !tfm.is_empty());
@@ -6280,7 +6294,7 @@ impl Host {
                 .workspace
                 .as_ref()
                 .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
-            nuget::resolve_project(&workspace.root, &raw_project)?;
+            nuget::resolve_project(&workspace.scope, &raw_project)?;
             (workspace.root.clone(), inner.project_sdk.clone())
         };
         let (muxer, sdk_root, _) = project_muxer(&sdk)?;
@@ -6344,7 +6358,7 @@ impl Host {
                 let raw = raw.as_str().ok_or_else(|| {
                     HostError::new("invalid_state", "A project path was not a string.")
                 })?;
-                projects.push(nuget::resolve_project(&workspace.root, raw)?);
+                projects.push(nuget::resolve_project(&workspace.scope, raw)?);
             }
             (workspace.root.clone(), inner.project_sdk.clone(), projects)
         };
@@ -6420,14 +6434,18 @@ impl Host {
                 "A batch update is limited to 50 package updates.",
             ));
         }
-        let (root, sdk) = {
+        let (root, scope, sdk) = {
             let inner = self.inner.lock().unwrap();
             accept_locked(&inner, token)?;
             let workspace = inner
                 .workspace
                 .as_ref()
                 .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
-            (workspace.root.clone(), inner.project_sdk.clone())
+            (
+                workspace.root.clone(),
+                workspace.scope.clone(),
+                inner.project_sdk.clone(),
+            )
         };
         let (muxer, sdk_root, _) = project_muxer(&sdk)?;
         let mut batch = Vec::new();
@@ -6453,7 +6471,7 @@ impl Host {
                 .get("targetFramework")
                 .and_then(Value::as_str)
                 .filter(|tfm| !tfm.is_empty());
-            let (project, display) = nuget::resolve_project(&root, raw_project)?;
+            let (project, display) = nuget::resolve_project(&scope, raw_project)?;
             seq += 1;
             let id = nuget::plan_id(seq, token.context_id, &display, package, version);
             batch.push(nuget::make_plan(nuget::PlanRequest {
@@ -7040,16 +7058,16 @@ impl Host {
     /// gate; the containment check is the only thing between the UI and the filesystem.
     fn reveal_path(&self, params: Value) -> HostResult<Value> {
         let raw = required_str(&params, "path")?;
-        let root = {
+        let scope = {
             let inner = self.inner.lock().unwrap();
             inner
                 .workspace
                 .as_ref()
                 .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?
-                .root
+                .scope
                 .clone()
         };
-        let (path, rel) = resolve_reveal_in_workspace(&root, &raw)?;
+        let (path, rel) = resolve_reveal_in_workspace(&scope, &raw)?;
         let (program, args) = fsutil::reveal_command(std::env::consts::OS, &path)?;
         let status = Command::new(program)
             .args(&args)
@@ -8171,11 +8189,9 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default();
-    let outline = build_outline(&root, path, matches!(kind, WorkspaceKind::Solution));
-    let resolved = scope::resolve(
-        &root,
-        outline.projects.iter().map(|project| project.path.clone()),
-    );
+    let is_solution = matches!(kind, WorkspaceKind::Solution);
+    let resolved = outline::resolve_workspace_scope(&root, path, is_solution);
+    let outline = build_outline(&root, path, is_solution, &resolved.scope);
     Ok(Workspace {
         id: 0,
         path: path.to_path_buf(),
@@ -8191,7 +8207,7 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
 /// inside the workspace, every range must be valid and non-overlapping, and the caps reject
 /// the complete set instead of truncating it.
 fn workspace_edit_preview(
-    root: &Path,
+    scope: &Scope,
     edits: &[lsp::RenameDocumentEdits],
     open: &HashMap<String, (String, i64)>,
 ) -> Result<(Vec<Value>, usize), String> {
@@ -8207,7 +8223,7 @@ fn workspace_edit_preview(
     let mut documents = Vec::with_capacity(edits.len());
     let mut seen = HashSet::new();
     for document in edits {
-        let preview = rename_document_preview(root, document, open)?;
+        let preview = rename_document_preview(scope, document, open)?;
         let path = preview["path"].as_str().unwrap_or_default().to_string();
         if !seen.insert(path.clone()) {
             return Err(format!("csharp-ls returned two edits for {path}"));
@@ -8252,7 +8268,7 @@ fn range_covers_position(range: &Value, line: u64, character: u64) -> bool {
 /// A server `Command` is listed with its reason, never executed; an edit is validated by the
 /// same whole-set preview used by rename.
 fn code_action_document_preview(
-    root: &Path,
+    scope: &Scope,
     action: &lsp::CodeActionView,
     open: &HashMap<String, (String, i64)>,
 ) -> Value {
@@ -8292,7 +8308,7 @@ fn code_action_document_preview(
         Ok(edits) => edits,
         Err(reason) => return unsupported(format!("the edit is not supported ({reason})")),
     };
-    match workspace_edit_preview(root, &edits, open) {
+    match workspace_edit_preview(scope, &edits, open) {
         Ok((documents, edit_count)) => {
             let document_count = documents.len();
             json!({
@@ -8318,7 +8334,7 @@ fn count_document_symbols(symbols: &[lsp::DocumentSymbolView]) -> usize {
 /// text comes from the analysis session for open documents and from disk for unopened ones,
 /// and all UTF-16 positions are resolved here so the UI never does offset math.
 fn rename_document_preview(
-    root: &Path,
+    scope: &Scope,
     document: &lsp::RenameDocumentEdits,
     open: &HashMap<String, (String, i64)>,
 ) -> Result<Value, String> {
@@ -8328,13 +8344,14 @@ fn rename_document_preview(
     // an unprovable target is refused, and only the wording differs because this path answers to
     // the analysis session instead of the UI.
     let canonical =
-        confine(root, Path::new(&raw), shape_of(&raw)).map_err(|error| match error {
+        confine(scope, Path::new(&raw), shape_of(&raw)).map_err(|error| match error {
             fsutil::ConfineError::Outside => format!("{raw} is outside the workspace"),
             fsutil::ConfineError::Missing => format!("{raw} is not readable"),
         })?;
     if !canonical.is_file() {
         return Err(format!("{raw} is not a file"));
     }
+    let root = scope.root().unwrap_or(&canonical);
     let rel = canonical
         .strip_prefix(root)
         .unwrap_or(&canonical)
@@ -8400,15 +8417,18 @@ fn rename_document_preview(
     }))
 }
 
-fn definition_location(root: &Path, target: &lsp::DefinitionTarget) -> Option<Value> {
+fn definition_location(scope: &Scope, target: &lsp::DefinitionTarget) -> Option<Value> {
     let raw = lsp::uri_to_path(&target.uri)?;
     // Same contract as every other frontier: a target outside the workspace — including one behind a
     // dangling symlink — is dropped, never offered as a location.
-    let canonical = confine(root, Path::new(&raw), shape_of(&raw)).ok()?;
+    let canonical = confine(scope, Path::new(&raw), shape_of(&raw)).ok()?;
     if !canonical.is_file() {
         return None;
     }
-    let rel = workspace_relative(root, &canonical);
+    let rel = match scope.root() {
+        Some(root) => workspace_relative(root, &canonical),
+        None => canonical.to_string_lossy().replace('\\', "/"),
+    };
     let chosen = target.selection_range.as_ref().unwrap_or(&target.range);
     let start = chosen.get("start")?;
     Some(json!({
@@ -8446,10 +8466,14 @@ fn resolve_path_in_workspace(
             format!("Path is outside the workspace: {raw}"),
         ));
     }
+    let root = workspace
+        .scope
+        .root()
+        .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
     let candidate = if requested.is_absolute() {
         requested.to_path_buf()
     } else {
-        workspace.root.join(requested)
+        root.join(requested)
     };
     let name = candidate.file_name().ok_or_else(|| {
         HostError::new(
@@ -8465,7 +8489,7 @@ fn resolve_path_in_workspace(
     })?;
     // The shared contract: a joined path that normalizes outside is refused by shape, then the
     // canonical step decides containment (and sees through a symlinked folder).
-    let parent = confine(&workspace.root, parent, shape_of(raw))
+    let parent = confine(&workspace.scope, parent, shape_of(raw))
         .map_err(|error| confine_error(error, raw, "Folder not found"))?;
     if !parent.is_dir() {
         return Err(HostError::new(
@@ -8474,10 +8498,10 @@ fn resolve_path_in_workspace(
         ));
     }
     let target = parent.join(name);
-    if target == workspace.root {
+    if workspace.scope.roots().iter().any(|entry| entry == &target) {
         return Err(HostError::new(
             "path_not_allowed",
-            "The workspace root cannot be renamed or deleted.",
+            "A workspace directory cannot be renamed or deleted.",
         ));
     }
     if must_exist && fs::symlink_metadata(&target).is_err() {
@@ -8486,7 +8510,7 @@ fn resolve_path_in_workspace(
             format!("File or folder not found: {raw}"),
         ));
     }
-    let rel = workspace_relative(&workspace.root, &target);
+    let rel = workspace_relative(root, &target);
     Ok((target, rel))
 }
 
@@ -8500,7 +8524,10 @@ fn resolve_existing_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBu
 
 /// Reveal accepts files and folders, including the workspace root itself (empty path); every
 /// other resolver refuses the root because they rename or delete their target.
-fn resolve_reveal_in_workspace(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
+fn resolve_reveal_in_workspace(scope: &Scope, raw: &str) -> HostResult<(PathBuf, String)> {
+    let root = scope
+        .root()
+        .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
     let requested = Path::new(raw);
     let candidate = if raw.trim().is_empty() {
         root.to_path_buf()
@@ -8509,7 +8536,7 @@ fn resolve_reveal_in_workspace(root: &Path, raw: &str) -> HostResult<(PathBuf, S
     } else {
         root.join(requested)
     };
-    let canonical = confine(root, &candidate, shape_of(raw))
+    let canonical = confine(scope, &candidate, shape_of(raw))
         .map_err(|error| confine_error(error, raw, "File or folder not found"))?;
     Ok((canonical.clone(), workspace_relative(root, &canonical)))
 }
@@ -8519,22 +8546,25 @@ fn resolve_in_workspace(inner: &Inner, raw: &str) -> HostResult<(PathBuf, String
         .workspace
         .as_ref()
         .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
-    resolve_in_root(&workspace.root, raw)
+    resolve_in_scope(&workspace.scope, raw)
 }
 
-/// Same confinement rules as `resolve_in_workspace`, but takes the root directly so callers can
+/// Same confinement rules as `resolve_in_workspace`, but takes the scope directly so callers can
 /// drop the host lock before touching the disk.
-fn resolve_in_root(root: &Path, raw: &str) -> HostResult<(PathBuf, String)> {
+fn resolve_in_scope(scope: &Scope, raw: &str) -> HostResult<(PathBuf, String)> {
     if raw.trim().is_empty() {
         return Err(HostError::new("path_not_allowed", "File path is empty."));
     }
-    let canonical = confine_raw(root, raw, "File not found")?;
+    let canonical = confine_raw(scope, raw, "File not found")?;
     if !canonical.is_file() {
         return Err(HostError::new(
             "path_not_allowed",
             format!("Not a file: {raw}"),
         ));
     }
+    let root = scope
+        .root()
+        .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
     Ok((canonical.clone(), workspace_relative(root, &canonical)))
 }
 
@@ -8561,19 +8591,27 @@ pub(crate) fn shape_of(raw: &str) -> Shape {
 /// The confinement contract, implemented once for every frontier (`file.*`, analysis,
 /// `workspace.tree`, `file.reveal`, NuGet):
 /// 1. a joined relative path that normalizes outside the root is refused by shape, before any I/O;
-/// 2. the nearest **existing** ancestor must canonicalize inside the root, so a symlink that carries
-///    the path outside is refused the same way whether or not the target exists (no existence
-///    oracle: `LinkDir/etc/hosts` and `LinkDir/missing` answer alike);
+/// 2. the nearest **existing** ancestor must canonicalize inside the scope, so a symlink that
+///    carries the path outside is refused the same way whether or not the target exists (no
+///    existence oracle: `LinkDir/etc/hosts` and `LinkDir/missing` answer alike);
 /// 3. the target itself is canonicalized and checked again.
+///
+/// A relative path is always read against the workspace root; a path outside the root (a project
+/// the solution names elsewhere) is addressed absolutely, so `..` never crosses the API.
 pub(crate) fn confine(
-    root: &Path,
+    scope: &Scope,
     candidate: &Path,
     shape: Shape,
 ) -> Result<PathBuf, fsutil::ConfineError> {
-    if shape == Shape::Joined && !fsutil::stays_inside(root, candidate) {
-        return Err(fsutil::ConfineError::Outside);
+    if shape == Shape::Joined {
+        let Some(root) = scope.root() else {
+            return Err(fsutil::ConfineError::Outside);
+        };
+        if !fsutil::stays_inside(root, candidate) {
+            return Err(fsutil::ConfineError::Outside);
+        }
     }
-    fsutil::canonical_confined(root, candidate)
+    fsutil::canonical_confined(scope, candidate)
 }
 
 fn confine_error(error: fsutil::ConfineError, raw: &str, missing: &str) -> HostError {
@@ -8588,14 +8626,17 @@ fn confine_error(error: fsutil::ConfineError, raw: &str, missing: &str) -> HostE
 
 /// Resolves a caller path (absolute or relative) against the workspace root; used by the NuGet
 /// plan too, so every frontier shares one implementation of the contract above.
-pub(crate) fn confine_raw(root: &Path, raw: &str, missing: &str) -> HostResult<PathBuf> {
+pub(crate) fn confine_raw(scope: &Scope, raw: &str, missing: &str) -> HostResult<PathBuf> {
     let requested = Path::new(raw);
     let candidate = if requested.is_absolute() {
         requested.to_path_buf()
     } else {
-        root.join(requested)
+        scope
+            .root()
+            .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?
+            .join(requested)
     };
-    confine(root, &candidate, shape_of(raw)).map_err(|error| confine_error(error, raw, missing))
+    confine(scope, &candidate, shape_of(raw)).map_err(|error| confine_error(error, raw, missing))
 }
 
 /// The workspace-relative display path (`/`-separated) every snapshot and UI answer uses.
@@ -8609,7 +8650,8 @@ fn workspace_relative(root: &Path, path: &Path) -> String {
 /// Resolves a caller path to (workspace-relative, absolute) without following the leaf: the real
 /// parent directory must canonicalize inside the root, and the leaf keeps whatever the entry is.
 /// A path that escapes, or whose parent is a symlink leading outside, is refused by omission.
-fn confined_entry(root: &Path, raw: &str) -> Option<(String, PathBuf)> {
+fn confined_entry(scope: &Scope, raw: &str) -> Option<(String, PathBuf)> {
+    let root = scope.root()?;
     let requested = Path::new(raw);
     let candidate = if requested.is_absolute() {
         requested.to_path_buf()
@@ -8619,25 +8661,24 @@ fn confined_entry(root: &Path, raw: &str) -> Option<(String, PathBuf)> {
     let name = candidate.file_name()?;
     let parent = candidate.parent()?;
     let canonical_parent = fs::canonicalize(parent).ok()?;
-    if !canonical_parent.starts_with(root) {
+    if !scope.contains(&canonical_parent) {
         return None;
     }
     let absolute = canonical_parent.join(name);
-    let relative = absolute
-        .strip_prefix(root)
-        .ok()?
-        .to_string_lossy()
-        .replace('\\', "/");
+    let relative = workspace_relative(root, &absolute);
     Some((relative, absolute))
 }
 
-/// Whether any component of `candidate` below `root` is a symbolic link. Each entry is checked on
-/// itself (`symlink_metadata`), so the link is detected without resolving where it points.
-fn has_symlink_component(root: &Path, candidate: &Path) -> bool {
-    let Ok(relative) = candidate.strip_prefix(root) else {
+/// Whether any component of `candidate` below its scope directory is a symbolic link. Each entry is
+/// checked on itself (`symlink_metadata`), so the link is detected without resolving where it points.
+fn has_symlink_component(scope: &Scope, candidate: &Path) -> bool {
+    let Some(base) = scope.entry_of(candidate) else {
         return false;
     };
-    let mut probe = root.to_path_buf();
+    let Ok(relative) = candidate.strip_prefix(base) else {
+        return false;
+    };
+    let mut probe = base.to_path_buf();
     for component in relative.components() {
         probe.push(component);
         match fs::symlink_metadata(&probe) {
@@ -8879,22 +8920,23 @@ mod tests {
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/App.cs"), "").unwrap();
 
-        let (path, rel) = resolve_reveal_in_workspace(&root, "src/App.cs").unwrap();
+        let scope = Scope::new(&root);
+        let (path, rel) = resolve_reveal_in_workspace(&scope, "src/App.cs").unwrap();
         assert_eq!(rel, "src/App.cs");
         assert_eq!(path, root.join("src/App.cs"));
-        assert_eq!(resolve_reveal_in_workspace(&root, "src").unwrap().1, "src");
+        assert_eq!(resolve_reveal_in_workspace(&scope, "src").unwrap().1, "src");
         // The solution row reveals the workspace root, which the rename/delete resolver refuses.
-        assert_eq!(resolve_reveal_in_workspace(&root, "").unwrap().1, "");
+        assert_eq!(resolve_reveal_in_workspace(&scope, "").unwrap().1, "");
 
         let outside = tempfile::tempdir().unwrap();
         let outside_file = fs::canonicalize(outside.path()).unwrap().join("App.cs");
         fs::write(&outside_file, "").unwrap();
         let error =
-            resolve_reveal_in_workspace(&root, &outside_file.to_string_lossy()).unwrap_err();
+            resolve_reveal_in_workspace(&scope, &outside_file.to_string_lossy()).unwrap_err();
         assert_eq!(error.code, "outside_workspace");
-        let error = resolve_reveal_in_workspace(&root, "../").unwrap_err();
+        let error = resolve_reveal_in_workspace(&scope, "../").unwrap_err();
         assert_eq!(error.code, "outside_workspace");
-        let error = resolve_reveal_in_workspace(&root, "missing.cs").unwrap_err();
+        let error = resolve_reveal_in_workspace(&scope, "missing.cs").unwrap_err();
         assert_eq!(error.code, "not_found");
     }
 
@@ -9496,19 +9538,23 @@ mod tests {
         let outside = temp.path().join("Outside.cs");
         fs::write(&outside, "class Outside {}\n").unwrap();
 
-        let location = definition_location(&root, &target(&inside)).expect("inside location");
+        let location =
+            definition_location(&Scope::new(&root), &target(&inside)).expect("inside location");
         assert_eq!(location["path"], "src/Order.cs");
         assert_eq!(location["line"], 2);
         assert_eq!(location["character"], 20);
         assert_eq!(location["uri"], lsp::file_uri(&inside));
 
-        assert!(definition_location(&root, &target(&outside)).is_none());
-        assert!(definition_location(&root, &target(&root.join("src/Missing.cs"))).is_none());
+        assert!(definition_location(&Scope::new(&root), &target(&outside)).is_none());
+        assert!(
+            definition_location(&Scope::new(&root), &target(&root.join("src/Missing.cs")))
+                .is_none()
+        );
         let remote = lsp::DefinitionTarget {
             uri: "https://example.com/Order.cs".to_string(),
             ..target(&inside)
         };
-        assert!(definition_location(&root, &remote).is_none());
+        assert!(definition_location(&Scope::new(&root), &remote).is_none());
     }
     fn rename_edit(line: u64, start: u64, end: u64, text: &str) -> lsp::RenameTextEdit {
         lsp::RenameTextEdit {
@@ -9541,7 +9587,8 @@ mod tests {
                 rename_edit(2, 4, 9, "Purchase"),
             ],
         };
-        let preview = rename_document_preview(&root, &document, &HashMap::new()).expect("preview");
+        let preview = rename_document_preview(&Scope::new(&root), &document, &HashMap::new())
+            .expect("preview");
         assert_eq!(preview["path"], "src/Order.cs");
         assert_eq!(preview["opened"], false);
         assert_eq!(preview["documentVersion"], Value::Null);
@@ -9572,7 +9619,8 @@ mod tests {
             version: Some(4),
             edits: vec![rename_edit(0, 4, 9, "Purchase")],
         };
-        let preview = rename_document_preview(&root, &document, &open).expect("open preview");
+        let preview =
+            rename_document_preview(&Scope::new(&root), &document, &open).expect("open preview");
         assert_eq!(preview["opened"], true);
         assert_eq!(preview["documentVersion"], 4);
         assert_eq!(preview["baseContent"], "new Order(1);\n");
@@ -9583,7 +9631,8 @@ mod tests {
             version: Some(3),
             ..document
         };
-        let error = rename_document_preview(&root, &stale, &open).expect_err("stale version");
+        let error =
+            rename_document_preview(&Scope::new(&root), &stale, &open).expect_err("stale version");
         assert!(error.contains("version"), "{error}");
     }
 
@@ -9603,7 +9652,7 @@ mod tests {
             version: None,
             edits: vec![rename_edit(0, 6, 11, "Purchase")],
         };
-        let error = rename_document_preview(&root, &outside_document, &HashMap::new())
+        let error = rename_document_preview(&Scope::new(&root), &outside_document, &HashMap::new())
             .expect_err("outside workspace");
         assert!(error.contains("outside the workspace"), "{error}");
 
@@ -9612,18 +9661,22 @@ mod tests {
             version: None,
             edits: vec![rename_edit(0, 0, 1, "Purchase")],
         };
-        assert!(rename_document_preview(&root, &missing, &HashMap::new())
-            .expect_err("missing file")
-            .contains("not readable"));
+        assert!(
+            rename_document_preview(&Scope::new(&root), &missing, &HashMap::new())
+                .expect_err("missing file")
+                .contains("not readable")
+        );
 
         let invalid = lsp::RenameDocumentEdits {
             uri: lsp::file_uri(&inside),
             version: None,
             edits: vec![rename_edit(9, 0, 1, "Purchase")],
         };
-        assert!(rename_document_preview(&root, &invalid, &HashMap::new())
-            .expect_err("invalid range")
-            .contains("outside the document"));
+        assert!(
+            rename_document_preview(&Scope::new(&root), &invalid, &HashMap::new())
+                .expect_err("invalid range")
+                .contains("outside the document")
+        );
         assert_eq!(fs::read_to_string(&inside).unwrap(), "class Order {}\n");
     }
 
@@ -9672,7 +9725,7 @@ mod tests {
         fs::write(&file, base).unwrap();
 
         let action = action_with_edit(lsp::file_uri(&file), 0, 6, 11, "Purchase");
-        let preview = code_action_document_preview(&root, &action, &HashMap::new());
+        let preview = code_action_document_preview(&Scope::new(&root), &action, &HashMap::new());
         assert_eq!(preview["supported"], true);
         assert_eq!(preview["documentCount"], 1);
         assert_eq!(preview["editCount"], 1);
@@ -9705,7 +9758,7 @@ mod tests {
             title: "Apply fix".to_string(),
             command: "csharp.applyFix".to_string(),
         });
-        let preview = code_action_document_preview(&root, &command, &HashMap::new());
+        let preview = code_action_document_preview(&Scope::new(&root), &command, &HashMap::new());
         assert_eq!(preview["supported"], false);
         assert!(preview["reason"]
             .as_str()
@@ -9716,7 +9769,7 @@ mod tests {
         let mut deferred = action_with_value(Value::Null);
         deferred.edit = None;
         deferred.has_data = true;
-        let preview = code_action_document_preview(&root, &deferred, &HashMap::new());
+        let preview = code_action_document_preview(&Scope::new(&root), &deferred, &HashMap::new());
         assert_eq!(preview["supported"], false);
         assert!(preview["reason"]
             .as_str()
@@ -9725,12 +9778,13 @@ mod tests {
 
         let mut disabled = action_with_edit(lsp::file_uri(&file), 0, 6, 11, "Purchase");
         disabled.disabled = Some("not available here".to_string());
-        let preview = code_action_document_preview(&root, &disabled, &HashMap::new());
+        let preview = code_action_document_preview(&Scope::new(&root), &disabled, &HashMap::new());
         assert_eq!(preview["supported"], false);
         assert!(preview["reason"].as_str().unwrap().contains("disabled"));
 
         let outside_action = action_with_edit(lsp::file_uri(&outside), 0, 6, 11, "Purchase");
-        let preview = code_action_document_preview(&root, &outside_action, &HashMap::new());
+        let preview =
+            code_action_document_preview(&Scope::new(&root), &outside_action, &HashMap::new());
         assert_eq!(preview["supported"], false);
         assert!(preview["reason"]
             .as_str()
@@ -9744,14 +9798,15 @@ mod tests {
             0,
             "class Missing {}",
         );
-        let preview = code_action_document_preview(&root, &missing, &HashMap::new());
+        let preview = code_action_document_preview(&Scope::new(&root), &missing, &HashMap::new());
         assert_eq!(preview["supported"], false);
         assert!(preview["reason"].as_str().unwrap().contains("not readable"));
 
         let file_operation = action_with_value(json!({
             "documentChanges": [{ "kind": "create", "uri": lsp::file_uri(&file) }]
         }));
-        let preview = code_action_document_preview(&root, &file_operation, &HashMap::new());
+        let preview =
+            code_action_document_preview(&Scope::new(&root), &file_operation, &HashMap::new());
         assert_eq!(preview["supported"], false);
         assert!(preview["reason"]
             .as_str()
@@ -9770,7 +9825,7 @@ mod tests {
                 edits: vec![rename_edit(0, 0, 1, "X")],
             })
             .collect();
-        let error = workspace_edit_preview(root.path(), &documents, &HashMap::new())
+        let error = workspace_edit_preview(&Scope::new(root.path()), &documents, &HashMap::new())
             .expect_err("document cap");
         assert!(error.contains("at most"), "{error}");
 
@@ -9779,8 +9834,9 @@ mod tests {
             version: None,
             edits: (0..2001).map(|_| rename_edit(0, 0, 1, "X")).collect(),
         };
-        let error = workspace_edit_preview(root.path(), &[many_edits], &HashMap::new())
-            .expect_err("edit cap");
+        let error =
+            workspace_edit_preview(&Scope::new(root.path()), &[many_edits], &HashMap::new())
+                .expect_err("edit cap");
         assert!(error.contains("2000"), "{error}");
     }
 

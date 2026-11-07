@@ -8,6 +8,9 @@ export const depGroupKey = (project: string, group: DependencyGroup) =>
 export const dirKey = (dir: string) => `solution:dir:${dir}`;
 
 export const dirOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+
+/** True when a model path is absolute — how a project outside the workspace root is named. */
+export const isAbsolutePath = (path: string) => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
 export const baseOf = (path: string) => path.split("/").pop() ?? path;
 export const countLabel = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 

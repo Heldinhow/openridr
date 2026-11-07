@@ -41,6 +41,11 @@ impl Scope {
         &self.roots
     }
 
+    /// The workspace root: the first entry, the directory of the solution (or project) file.
+    pub fn root(&self) -> Option<&Path> {
+        self.roots.first().map(PathBuf::as_path)
+    }
+
     /// Whether `path` is inside one of the scope directories. Both sides are expected canonical,
     /// and the comparison is by component, so `/work/app` does not contain `/work/applications`.
     pub fn contains(&self, path: &Path) -> bool {

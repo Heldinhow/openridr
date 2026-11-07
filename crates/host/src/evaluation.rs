@@ -4,7 +4,7 @@
 //! solution only supplies the project list, configurations and folders. Evaluation never
 //! restores or builds; `obj/project.assets.json` is only inspected to report partial context.
 
-use crate::scope::{self, ResolvedScope, Scope};
+use crate::scope::{ResolvedScope, Scope};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -317,12 +317,10 @@ pub fn plan_workspace(workspace_file: &Path, root: &Path, is_solution: bool) -> 
         let text = fs::read_to_string(workspace_file).unwrap_or_default();
         let model = parse_solution(&text);
         configurations = model.configurations;
-        // The scope comes from the solution file itself: a project it names outside the root is
-        // part of the workspace, and nothing else is.
-        resolved = scope::resolve(
-            root,
-            model.projects.iter().map(|project| project.path.clone()),
-        );
+        // The scope comes from the workspace file itself: a project it names outside the root is
+        // part of the workspace, and nothing else is. The same helper builds the outline's scope,
+        // so the two can never disagree.
+        resolved = crate::outline::resolve_workspace_scope(root, workspace_file, true);
         for project in model.projects {
             projects.push(plan_project(
                 root,
@@ -339,7 +337,7 @@ pub fn plan_workspace(workspace_file: &Path, root: &Path, is_solution: bool) -> 
             .file_stem()
             .map(|stem| stem.to_string_lossy().to_string())
             .unwrap_or_else(|| rel.clone());
-        resolved = scope::resolve(root, [rel.clone()]);
+        resolved = crate::outline::resolve_workspace_scope(root, workspace_file, false);
         projects.push(plan_project(root, &resolved, name, rel, None));
     }
     let mut configurations = configurations;

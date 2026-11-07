@@ -1968,6 +1968,234 @@ fn evaluation_includes_a_project_outside_the_solution_directory() {
     );
 }
 
+/// The scope is the only thing between the UI and the filesystem: the outside project's directory
+/// is admitted, everything else keeps answering exactly as before.
+#[test]
+fn the_scope_admits_the_outside_project_and_refuses_everything_else() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    let lib = fs::canonicalize(fixture.join("lib")).unwrap();
+    let outside = temp.path().join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("Secret.cs"), "class Secret {}\n").unwrap();
+    let outside = fs::canonicalize(&outside).unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&outside, lib.join("LinkOut")).unwrap();
+        std::os::unix::fs::symlink(outside.join("Missing.cs"), lib.join("Dangling.cs")).unwrap();
+        std::os::unix::fs::symlink(&lib, app.join("LinkIn")).unwrap();
+    }
+
+    let host = support::host();
+    open(&host, &app.join("App.sln"));
+    grant(&host);
+
+    let greeting = lib.join("Greeting.cs");
+    let read = host
+        .dispatch("file.read", json!({ "path": greeting.to_string_lossy() }))
+        .unwrap();
+    assert!(read["content"].as_str().unwrap().contains("class Greeting"));
+
+    let saved = "namespace Lib;\n\npublic static class Greeting\n{\n    public static string For(string name) => name;\n}\n";
+    host.dispatch(
+        "file.write",
+        json!({
+            "path": greeting.to_string_lossy(),
+            "content": saved,
+            "expected_hash": read["hash"],
+        }),
+    )
+    .unwrap();
+    assert_eq!(fs::read_to_string(&greeting).unwrap(), saved);
+
+    let created = lib.join("Extra.cs");
+    host.dispatch(
+        "file.create",
+        json!({ "path": created.to_string_lossy(), "content": "class Extra {}\n" }),
+    )
+    .unwrap();
+    assert!(created.is_file());
+    let renamed = lib.join("Renamed.cs");
+    host.dispatch(
+        "file.rename",
+        json!({ "from": created.to_string_lossy(), "to": renamed.to_string_lossy() }),
+    )
+    .unwrap();
+    assert!(renamed.is_file() && !created.exists());
+    host.dispatch("file.delete", json!({ "path": renamed.to_string_lossy() }))
+        .unwrap();
+    assert!(!renamed.exists());
+
+    // A symlink inside the scope that carries the path outside is refused, and the refusal does not
+    // depend on whether the target exists.
+    for path in [lib.join("LinkOut/Secret.cs"), lib.join("Dangling.cs")] {
+        assert_eq!(
+            error_code(host.dispatch("file.read", json!({ "path": path.to_string_lossy() }))),
+            "outside_workspace",
+            "{}",
+            path.display()
+        );
+    }
+    // A symlink inside the root that points at an in-scope directory is admitted: the target is in
+    // the scope, which is what containment is decided on.
+    assert!(
+        host.dispatch(
+            "file.read",
+            json!({ "path": app.join("LinkIn/Greeting.cs").to_string_lossy() })
+        )
+        .is_ok(),
+        "a link to an in-scope directory is inside the scope"
+    );
+
+    // Everything outside the scope is refused, by absolute path and by shape.
+    for raw in [
+        outside.join("Secret.cs").to_string_lossy().to_string(),
+        "../outside/Secret.cs".to_string(),
+        "../outside".to_string(),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("file.read", json!({ "path": raw }))),
+            "outside_workspace",
+            "{raw}"
+        );
+    }
+    // A write outside the scope changes nothing.
+    let secret = fs::read_to_string(outside.join("Secret.cs")).unwrap();
+    assert_eq!(
+        error_code(host.dispatch(
+            "file.write",
+            json!({
+                "path": outside.join("Secret.cs").to_string_lossy(),
+                "content": "class Pwned {}\n",
+                "expected_hash": "fnv1a64:0000000000000000",
+            })
+        )),
+        "outside_workspace"
+    );
+    assert_eq!(
+        fs::read_to_string(outside.join("Secret.cs")).unwrap(),
+        secret
+    );
+}
+
+#[test]
+fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    let lib = fs::canonicalize(fixture.join("lib")).unwrap();
+    let outside = temp.path().join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("Secret.cs"), "class Secret {}\n").unwrap();
+    fs::write(
+        outside.join("Other.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
+    )
+    .unwrap();
+    let outside = fs::canonicalize(&outside).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, lib.join("LinkOut")).unwrap();
+
+    let host = support::host();
+    let opened = open(&host, &app.join("App.sln"));
+
+    // The text outline reads the outside project and lists its sources, before any evaluation.
+    let outline = opened["outline"]["projects"].as_array().unwrap();
+    let lib_outline = outline
+        .iter()
+        .find(|project| project["name"] == "Lib")
+        .unwrap();
+    assert_eq!(lib_outline["kind"], "library");
+    assert_eq!(
+        lib_outline["files"],
+        json!([lib.join("Greeting.cs").to_string_lossy()])
+    );
+
+    grant(&host);
+    let tree = host
+        .dispatch("workspace.tree", json!({ "dir": lib.to_string_lossy() }))
+        .unwrap();
+    assert!(
+        tree["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["name"] == "Greeting.cs"
+                && entry["path"] == json!(lib.join("Greeting.cs").to_string_lossy())),
+        "{tree}"
+    );
+    for raw in [
+        outside.to_string_lossy().to_string(),
+        "../outside".to_string(),
+    ] {
+        assert_eq!(
+            error_code(host.dispatch("workspace.tree", json!({ "dir": raw }))),
+            "outside_workspace",
+            "{raw}"
+        );
+    }
+
+    // Symlink metadata answers for an in-scope path and omits an out-of-scope one.
+    let links = host
+        .dispatch(
+            "workspace.symlinks",
+            json!({
+                "paths": [
+                    lib.join("LinkOut").to_string_lossy(),
+                    outside.join("Secret.cs").to_string_lossy(),
+                ],
+            }),
+        )
+        .unwrap();
+    let entries = links["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1, "{links}");
+    assert_eq!(
+        entries[0]["path"],
+        json!(lib.join("LinkOut").to_string_lossy())
+    );
+    assert_eq!(entries[0]["symlink"], true);
+
+    let kinds = host
+        .dispatch(
+            "workspace.symbolKinds",
+            json!({ "paths": [lib.join("Greeting.cs").to_string_lossy()] }),
+        )
+        .unwrap();
+    assert_eq!(kinds["entries"][0]["kind"], "class");
+
+    // NuGet plans an update for the outside project and refuses a project outside the scope.
+    let plan = host
+        .dispatch(
+            "nuget.planUpdate",
+            json!({
+                "project": lib.join("Lib.csproj").to_string_lossy(),
+                "id": "Newtonsoft.Json",
+                "version": "13.0.3",
+                "install": true,
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        plan["project"],
+        json!(lib.join("Lib.csproj").to_string_lossy())
+    );
+    assert_eq!(
+        error_code(host.dispatch(
+            "nuget.planUpdate",
+            json!({
+                "project": outside.join("Other.csproj").to_string_lossy(),
+                "id": "Newtonsoft.Json",
+                "version": "13.0.3",
+                "install": true,
+            })
+        )),
+        "outside_workspace"
+    );
+}
+
 #[test]
 fn an_edit_in_a_project_outside_the_solution_marks_the_model_stale() {
     let temp = tempfile::tempdir().unwrap();

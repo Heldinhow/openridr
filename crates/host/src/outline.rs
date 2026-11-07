@@ -1,3 +1,4 @@
+use crate::scope::{self, ResolvedScope, Scope};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,20 +30,16 @@ pub struct Outline {
     pub global_json: Option<GlobalJson>,
 }
 
-pub fn build_outline(root: &Path, workspace_file: &Path, is_solution: bool) -> Outline {
+pub fn build_outline(
+    root: &Path,
+    workspace_file: &Path,
+    is_solution: bool,
+    scope: &Scope,
+) -> Outline {
     let projects = if is_solution {
-        let text = fs::read_to_string(workspace_file).unwrap_or_default();
-        let entries = if workspace_file
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("slnx"))
-        {
-            parse_slnx(&text)
-        } else {
-            parse_solution(&text)
-        };
-        entries
+        solution_projects(workspace_file)
             .into_iter()
-            .map(|(name, rel)| outline_project(root, &rel, &name))
+            .map(|(name, rel)| outline_project(root, scope, &rel, &name))
             .collect()
     } else {
         let rel = relative(root, workspace_file);
@@ -50,7 +47,7 @@ pub fn build_outline(root: &Path, workspace_file: &Path, is_solution: bool) -> O
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| rel.clone());
-        vec![outline_project(root, &rel, &name)]
+        vec![outline_project(root, scope, &rel, &name)]
     };
 
     Outline {
@@ -60,7 +57,39 @@ pub fn build_outline(root: &Path, workspace_file: &Path, is_solution: bool) -> O
     }
 }
 
-fn outline_project(root: &Path, rel: &str, name: &str) -> OutlineProject {
+/// The projects the workspace file names, in file order: `.sln` text or `.slnx` XML.
+fn solution_projects(workspace_file: &Path) -> Vec<(String, String)> {
+    let text = fs::read_to_string(workspace_file).unwrap_or_default();
+    if workspace_file
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("slnx"))
+    {
+        parse_slnx(&text)
+    } else {
+        parse_solution(&text)
+    }
+}
+
+/// The scope a workspace file implies: its root plus the canonical directories of the projects it
+/// names. Derived from the file itself, never from a caller-supplied path, so a request cannot
+/// widen it.
+pub fn resolve_workspace_scope(
+    root: &Path,
+    workspace_file: &Path,
+    is_solution: bool,
+) -> ResolvedScope {
+    let paths = if is_solution {
+        solution_projects(workspace_file)
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect()
+    } else {
+        vec![relative(root, workspace_file)]
+    };
+    scope::resolve(root, paths)
+}
+
+fn outline_project(root: &Path, scope: &Scope, rel: &str, name: &str) -> OutlineProject {
     let rel = normalize_rel(rel);
     let unknown = || OutlineProject {
         name: name.to_string(),
@@ -71,9 +100,12 @@ fn outline_project(root: &Path, rel: &str, name: &str) -> OutlineProject {
         files: Vec::new(),
     };
 
-    // Never read project text outside the workspace, even if the .sln names such a path: the same
-    // contract as the editor frontiers, so a symlink or `..` cannot pull the outline outside.
-    let canonical = match crate::confine(root, &root.join(&rel), crate::Shape::Joined) {
+    // Never read project text outside the workspace scope, even if the .sln names such a path: the
+    // same contract as the editor frontiers, so a symlink cannot pull the outline outside. The path
+    // comes from the workspace file itself, so it is canonicalized rather than refused by shape:
+    // the scope was derived from these same paths, and `..` in a `.sln` is how a project outside
+    // the root is named.
+    let canonical = match crate::confine(scope, &root.join(&rel), crate::Shape::Absolute) {
         Ok(path) => path,
         Err(_) => return unknown(),
     };

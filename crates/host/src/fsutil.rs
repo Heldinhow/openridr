@@ -1,6 +1,7 @@
 //! Shared file helpers for the host's own state files and editor text files.
 
 use crate::error::{HostError, HostResult};
+use crate::scope::Scope;
 use serde::Serialize;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -218,17 +219,17 @@ pub(crate) enum ConfineError {
 }
 
 /// Whether the deepest existing ancestor of `candidate` — the path itself when it exists — resolves
-/// inside `root`. Deciding on the nearest *existing* ancestor is what stops a symlink that carries a
-/// missing target outside from hiding behind `not_found`.
+/// inside the scope. Deciding on the nearest *existing* ancestor is what stops a symlink that
+/// carries a missing target outside from hiding behind `not_found`.
 ///
 /// A dangling symlink (or a loop) exists but cannot be resolved, so where it points is unknown and
 /// containment cannot be proven: it is refused, and it is refused the same way whether or not the
 /// missing target exists — otherwise the answer would reveal what lives outside the workspace.
-fn existing_ancestor_resolves_inside(root: &Path, candidate: &Path) -> bool {
+fn existing_ancestor_resolves_inside(scope: &Scope, candidate: &Path) -> bool {
     let mut probe = candidate;
     loop {
         match fs::canonicalize(probe) {
-            Ok(canonical) => return canonical.starts_with(root),
+            Ok(canonical) => return scope.contains(&canonical),
             Err(_) if fs::symlink_metadata(probe).is_ok() => return false,
             Err(_) => match probe.parent() {
                 Some(parent) if parent != probe => probe = parent,
@@ -242,14 +243,14 @@ fn existing_ancestor_resolves_inside(root: &Path, candidate: &Path) -> bool {
 /// The canonical form of a candidate that already passed `stays_inside` (when it applies).
 ///
 /// A target that does not exist is `Missing` only after its nearest existing ancestor was proven to
-/// be inside the root; when that ancestor resolves outside (a symlink pointing out, with any number
+/// be inside the scope; when that ancestor resolves outside (a symlink pointing out, with any number
 /// of missing components after it) the answer is `Outside`, the same as for an existing target.
 /// That is what keeps the refusal independent of what exists outside the workspace.
-pub(crate) fn canonical_confined(root: &Path, candidate: &Path) -> Result<PathBuf, ConfineError> {
+pub(crate) fn canonical_confined(scope: &Scope, candidate: &Path) -> Result<PathBuf, ConfineError> {
     match fs::canonicalize(candidate) {
-        Ok(canonical) if canonical.starts_with(root) => Ok(canonical),
+        Ok(canonical) if scope.contains(&canonical) => Ok(canonical),
         Ok(_) => Err(ConfineError::Outside),
-        Err(_) if existing_ancestor_resolves_inside(root, candidate) => Err(ConfineError::Missing),
+        Err(_) if existing_ancestor_resolves_inside(scope, candidate) => Err(ConfineError::Missing),
         Err(_) => Err(ConfineError::Outside),
     }
 }
@@ -294,32 +295,33 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         fs::write(root.join("App.cs"), "class C {}\n").unwrap();
         let root = fs::canonicalize(&root).unwrap();
+        let scope = Scope::new(&root);
         std::os::unix::fs::symlink(&outside, root.join("Link")).unwrap();
 
         assert_eq!(
-            canonical_confined(&root, &root.join("App.cs")).unwrap(),
+            canonical_confined(&scope, &root.join("App.cs")).unwrap(),
             root.join("App.cs")
         );
         // Existing escape and missing escape answer alike: no existence oracle.
         assert_eq!(
-            canonical_confined(&root, &root.join("Link")),
+            canonical_confined(&scope, &root.join("Link")),
             Err(ConfineError::Outside)
         );
         assert_eq!(
-            canonical_confined(&root, &root.join("Link/missing.txt")),
+            canonical_confined(&scope, &root.join("Link/missing.txt")),
             Err(ConfineError::Outside)
         );
         assert_eq!(
-            canonical_confined(&root, &root.join("Link/deep/missing.txt")),
+            canonical_confined(&scope, &root.join("Link/deep/missing.txt")),
             Err(ConfineError::Outside)
         );
         // Missing inside the workspace stays missing.
         assert_eq!(
-            canonical_confined(&root, &root.join("missing.txt")),
+            canonical_confined(&scope, &root.join("missing.txt")),
             Err(ConfineError::Missing)
         );
         assert_eq!(
-            canonical_confined(&root, &root.join("missing/deep.txt")),
+            canonical_confined(&scope, &root.join("missing/deep.txt")),
             Err(ConfineError::Missing)
         );
     }
@@ -334,6 +336,7 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("There.cs"), "class T {}\n").unwrap();
         let root = fs::canonicalize(&root).unwrap();
+        let scope = Scope::new(&root);
 
         // Same link, two targets: one that exists outside and one that does not.
         std::os::unix::fs::symlink(outside.join("There.cs"), root.join("There.cs")).unwrap();
@@ -346,12 +349,12 @@ mod tests {
 
         for link in ["There.cs", "Missing.cs", "Pending.cs", "Loop.cs"] {
             assert_eq!(
-                canonical_confined(&root, &root.join(link)),
+                canonical_confined(&scope, &root.join(link)),
                 Err(ConfineError::Outside),
                 "{link} must be refused as outside"
             );
             assert_eq!(
-                canonical_confined(&root, &root.join(link).join("child.cs")),
+                canonical_confined(&scope, &root.join(link).join("child.cs")),
                 Err(ConfineError::Outside),
                 "{link} as an intermediate component must be refused as outside"
             );
@@ -359,11 +362,11 @@ mod tests {
         // Nothing inside the workspace changed hands. (`absent.cs`: `missing.cs` would be the same
         // name as the dangling `Missing.cs` on a case-insensitive filesystem.)
         assert_eq!(
-            canonical_confined(&root, &root.join("absent.cs")),
+            canonical_confined(&scope, &root.join("absent.cs")),
             Err(ConfineError::Missing)
         );
         assert_eq!(
-            canonical_confined(&root, &root.join("absent/deep.cs")),
+            canonical_confined(&scope, &root.join("absent/deep.cs")),
             Err(ConfineError::Missing)
         );
     }
