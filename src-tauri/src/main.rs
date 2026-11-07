@@ -9,6 +9,8 @@ use serde_json::Value;
 use tauri::menu::{Menu, MenuItemBuilder};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, Url, WindowEvent};
 
+mod update;
+
 /// Event that tells the UI a path is waiting in `take_pending_open`.
 const OPEN_EVENT: &str = "openridr-open";
 /// Event that tells the UI the user asked to quit; the UI calls `quit_app` after its decision.
@@ -62,11 +64,16 @@ fn take_pending_quit(pending: State<'_, PendingQuit>) -> bool {
     pending.0.swap(false, Ordering::SeqCst)
 }
 
+/// The UI approved the exit: a `restart_app` in flight must not be stopped by `ExitRequested`.
+fn approve_exit() {
+    QUITTING.store(true, Ordering::SeqCst);
+}
+
 /// End of the quit flow: the UI already saved or discarded, so nothing may prevent the exit.
 #[tauri::command]
 fn quit_app(app: AppHandle, host: State<'_, Arc<Host>>) {
     let _ = host.dispatch("workspace.close", Value::Null);
-    QUITTING.store(true, Ordering::SeqCst);
+    approve_exit();
     app.exit(0);
 }
 
@@ -202,6 +209,7 @@ fn main() {
                 offer_open(app, path);
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(default_menu)
         .on_menu_event(|app, event| {
             if event.id() == QUIT_MENU_ID {
@@ -213,11 +221,15 @@ fn main() {
         .manage(Arc::new(Host::new()))
         .manage(PendingOpen::default())
         .manage(PendingQuit::default())
+        .manage(update::PendingUpdate::default())
         .invoke_handler(tauri::generate_handler![
             host_call,
             take_pending_open,
             take_pending_quit,
-            quit_app
+            quit_app,
+            update::update_check,
+            update::update_install,
+            update::restart_app
         ])
         .setup(|app| {
             let cwd = std::env::current_dir().ok();
