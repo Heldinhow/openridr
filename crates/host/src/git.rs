@@ -619,6 +619,13 @@ impl Net {
         self.lock().cancelled
     }
 
+    /// The network step is over (the child is gone). A cancel from here on must report that there is
+    /// nothing to stop, even though the operation still has local work to do — the Update's merge
+    /// runs after this, and accepting a cancel there would promise a kill that cannot happen.
+    fn network_done(&self) {
+        self.lock().running = false;
+    }
+
     /// Stops the operation in flight. `false` means there was nothing to stop (it already finished,
     /// or it is past the network step) — a cancel that lands in that window changes nothing.
     pub fn cancel(&self) -> bool {
@@ -722,6 +729,9 @@ fn run_with_deadline(
             }
         }
     };
+    // Before the drain: the child is gone, so the network step is over even if reading its pipes
+    // still takes a moment.
+    net.network_done();
     let stdout = out_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     let stderr = err_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     Ok((
@@ -2743,7 +2753,7 @@ pub fn pull(root: &Path, net: &Net) -> HostResult<Operation> {
 /// killing it mid-way would leave a half-applied merge — a worse state than the freeze the bound
 /// prevents. Because the fetch comes first, an update that runs out of time never starts a merge.
 fn pull_with(root: &Path, deadline: Duration, net: &Net) -> HostResult<Operation> {
-    let slot = net.start();
+    let _slot = net.start();
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
     require_clean(&status, "Update")?;
@@ -2781,10 +2791,9 @@ fn pull_with(root: &Path, deadline: Duration, net: &Net) -> HostResult<Operation
         ));
     }
 
-    // The merge is local and not cancellable: the slot is released before it starts, so a cancel
-    // from here on reports that there is nothing to stop instead of promising a kill that will never
-    // come. Killing a merge mid-way would leave a half-applied merge (the #136 decision).
-    drop(slot);
+    // The merge is local and not cancellable: the slot was released when the fetch child ended, so a
+    // cancel from here on reports that there is nothing to stop instead of promising a kill that
+    // will never come. Killing a merge mid-way would leave a half-applied merge (#136 decision).
     let resolved = run(&repo.top, &["rev-parse", "@{upstream}"])
         .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     if !resolved.ok() || resolved.stdout.trim().is_empty() {
@@ -3262,6 +3271,8 @@ mod tests {
     use super::*;
     use std::fs;
     use std::process::Command;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
 
     fn git(cwd: &Path, args: &[&str]) -> String {
         let output = Command::new("git")
@@ -5112,7 +5123,7 @@ mod tests {
     #[test]
     fn a_fetch_against_a_remote_that_never_answers_returns_at_the_deadline() {
         let (_temp, user, _bare) = remote_repo("user");
-        let port = silent_remote();
+        let (port, _accepted) = silent_remote();
         git(
             &user,
             &[
@@ -5151,18 +5162,22 @@ mod tests {
     }
 
     /// A remote that accepts the connection and holds it open without ever answering, on a port the
-    /// caller can point a clone at. The accepting thread is left detached: joining it would put its
-    /// sleep on the test's clock.
-    fn silent_remote() -> u16 {
+    /// caller can point a clone at, plus a flag set once the connection was accepted: the tests that
+    /// kill the child wait for it, so the kill has a live connection to reach. The accepting thread
+    /// is left detached: joining it would put its sleep on the test's clock.
+    fn silent_remote() -> (u16, Arc<AtomicBool>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
+        let accepted = Arc::new(AtomicBool::new(false));
+        let signal = Arc::clone(&accepted);
         std::thread::spawn(move || {
             if let Ok((stream, _)) = listener.accept() {
+                signal.store(true, Ordering::SeqCst);
                 std::thread::sleep(Duration::from_secs(10));
                 drop(stream);
             }
         });
-        port
+        (port, accepted)
     }
 
     /// A push is the one network command whose kill can land after the remote accepted the refs, so
@@ -5171,7 +5186,7 @@ mod tests {
     #[test]
     fn a_push_against_a_remote_that_never_answers_returns_at_the_deadline() {
         let (_temp, user, bare) = remote_repo("user");
-        let port = silent_remote();
+        let (port, _accepted) = silent_remote();
         git(
             &user,
             &[
@@ -5232,7 +5247,7 @@ mod tests {
     #[test]
     fn an_update_against_a_remote_that_never_answers_returns_at_the_deadline() {
         let (_temp, user, _bare) = remote_repo("user");
-        let port = silent_remote();
+        let (port, _accepted) = silent_remote();
         git(
             &user,
             &[
@@ -5273,15 +5288,17 @@ mod tests {
         }
     }
 
-    /// Runs `operation` on its own thread and cancels it once the git helper that talks to `port`
-    /// is alive — waiting for the slot alone would cancel before the connection exists, and the
-    /// "no descendant survived" assertion would pass without the kill ever having a target. Where
-    /// `pgrep` does not exist the connection gets a fixed grace instead (the assertion is skipped
-    /// there anyway).
+    /// Runs `operation` on its own thread and cancels it once `silent_remote` accepted the
+    /// connection — waiting for the slot alone would cancel before the connection exists, and the
+    /// "no descendant survived" assertion would pass without the kill ever having a target.
     ///
     /// The deadline is far longer than the bound the test asserts, so returning early can only be
     /// the cancel — the same trick the deadline tests use with a spent deadline.
-    fn cancel_in_flight<F>(net: &Net, port: u16, operation: F) -> (HostResult<Operation>, Duration)
+    fn cancel_in_flight<F>(
+        net: &Net,
+        accepted: &AtomicBool,
+        operation: F,
+    ) -> (HostResult<Operation>, Duration)
     where
         F: FnOnce() -> HostResult<Operation> + Send,
         F::Output: Send,
@@ -5289,20 +5306,12 @@ mod tests {
         let began = Instant::now();
         std::thread::scope(|scope| {
             let running = scope.spawn(operation);
-            let needle = port.to_string();
-            loop {
+            while !accepted.load(Ordering::SeqCst) {
                 assert!(
                     began.elapsed() < Duration::from_secs(10),
                     "the operation never reached the remote"
                 );
-                match descendants_of(&needle) {
-                    Some(found) if !found.is_empty() => break,
-                    None => {
-                        std::thread::sleep(Duration::from_millis(300));
-                        break;
-                    }
-                    _ => std::thread::sleep(Duration::from_millis(10)),
-                }
+                std::thread::sleep(Duration::from_millis(5));
             }
             assert!(net.cancel(), "the cancel must find the operation in flight");
             let result = running.join().expect("the operation thread returns");
@@ -5315,7 +5324,7 @@ mod tests {
     #[test]
     fn a_push_stopped_by_the_cancel_returns_before_the_deadline() {
         let (_temp, user, bare) = remote_repo("user");
-        let port = silent_remote();
+        let (port, accepted) = silent_remote();
         git(
             &user,
             &[
@@ -5332,7 +5341,7 @@ mod tests {
         let published = git(&bare, &["rev-parse", "main"]).trim().to_string();
         let net = Net::default();
 
-        let (result, elapsed) = cancel_in_flight(&net, port, || {
+        let (result, elapsed) = cancel_in_flight(&net, &accepted, || {
             push_with(
                 &user,
                 &serde_json::json!({ "confirm": true }),
@@ -5375,7 +5384,7 @@ mod tests {
     #[test]
     fn an_update_stopped_by_the_cancel_returns_before_the_deadline() {
         let (_temp, user, _bare) = remote_repo("user");
-        let port = silent_remote();
+        let (port, accepted) = silent_remote();
         git(
             &user,
             &[
@@ -5390,7 +5399,7 @@ mod tests {
         let before = git(&user, &["for-each-ref", "refs/remotes"]);
         let net = Net::default();
 
-        let (result, elapsed) = cancel_in_flight(&net, port, || {
+        let (result, elapsed) = cancel_in_flight(&net, &accepted, || {
             pull_with(&user, Duration::from_secs(60), &net)
         });
 
@@ -5422,7 +5431,7 @@ mod tests {
     #[test]
     fn a_fetch_stopped_by_the_cancel_returns_before_the_deadline() {
         let (_temp, user, _bare) = remote_repo("user");
-        let port = silent_remote();
+        let (port, accepted) = silent_remote();
         git(
             &user,
             &[
@@ -5440,7 +5449,7 @@ mod tests {
         let before = git(&user, &["for-each-ref", "refs/remotes"]);
         let net = Net::default();
 
-        let (result, elapsed) = cancel_in_flight(&net, port, || {
+        let (result, elapsed) = cancel_in_flight(&net, &accepted, || {
             fetch_with(&user, Duration::from_secs(60), &net)
         });
 

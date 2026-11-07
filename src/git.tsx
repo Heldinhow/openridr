@@ -549,7 +549,14 @@ export function BranchWidget({
     if (cancelling) return;
     setCancelling(true);
     try {
-      const answer = await call<{ cancelled: boolean }>("git.cancel");
+      let answer = await call<{ cancelled: boolean }>("git.cancel");
+      if (!answer.cancelled) {
+        // The click can land while the call is still queued in the shell, before the host has the
+        // operation in its slot. One retry after a tick covers that gap; if it is still false the
+        // operation is past its network step and the note below is true.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        answer = await call<{ cancelled: boolean }>("git.cancel");
+      }
       if (!answer.cancelled) {
         const note =
           kind === "push"
