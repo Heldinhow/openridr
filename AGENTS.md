@@ -54,7 +54,7 @@ sh scripts/dev-app.sh  # app de dev com o par embutido (worktree nova); aceita .
 bun run build          # tsc --noEmit + vite build
 bun run check          # tsc --noEmit + cargo check --workspace --all-targets
 bun run hooks          # uma vez por clone: aponta core.hooksPath para .githooks
-bun run test:e2e       # Playwright; não rode junto com dev (portas 1420/4317)
+bun run test:e2e       # Playwright; default 1420/4317, outro par se essas portas estiverem em uso
 bun run host:http      # ponte HTTP de dev na 4317, com OPENRIDR_HOME em .scratch/host-home
 ```
 
@@ -84,13 +84,15 @@ A fonte única é a tabela de [`docs/evidence/test-stability.md`](docs/evidence/
 
 ## E2E
 
-- **Playwright é só smoke noturno** (decisão do Helder, issue #67): nunca em PR, nunca como verificação de UI por sessão de agente — sessão verifica UI com `agent-desktop`. A lista do smoke é [`scripts/e2e-smoke.txt`](scripts/e2e-smoke.txt) (`bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)`); a quarentena com motivos está em [`docs/evidence/e2e-quarantine.md`](docs/evidence/e2e-quarantine.md). O workflow noturno é a issue #56.
+- **A superfície de verificação segue o que mudou** (decisão do Helder, 2026-11-07). Mudança de interface pura → **Playwright em modo web**, só os specs da área, escrevendo/atualizando o spec do cenário. Nativo do shell — menu nativo, atalhos do sistema, updater, seletor nativo, árvore de acessibilidade do WebKit, single-instance, DMG — → **app Tauri real com `agent-desktop`**, uma instância por vez. O **host isolado** (`scripts/web.sh`, no skill `verify-openridr`) fica para o que não tem spec ou precisa de captura.
+- **Playwright nunca em PR.** O único E2E automatizado é o smoke noturno (workflow da issue #56): a lista é [`scripts/e2e-smoke.txt`](scripts/e2e-smoke.txt) (`bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)`) e a quarentena com motivos está em [`docs/evidence/e2e-quarantine.md`](docs/evidence/e2e-quarantine.md). Spec quarentenado não é passe.
+- **Portas: default 1420 (UI) / 4317 (host).** Sessão que roda em paralelo, ou junto com `bun run dev`, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`; porta ocupada falha na hora pelo `strictPort` do Vite de teste. O app home do E2E é derivado da porta da UI, então pares diferentes não brigam.
 - `bun run test:e2e` roda a suíte inteira e sobe o host e o Vite sozinho, na 1420 (UI) e 4317 (host). Portas alternativas: `OPENRIDR_E2E_UI_PORT` e `OPENRIDR_E2E_HOST_PORT`. Não use `OPENRIDR_SCREENSHOT_DIR` default se não quiser reescrever `docs/evidence/screenshots/`.
 - No Mac com o SDK em `~/.dotnet`, rode com `PATH=$HOME/.dotnet:$HOME/.dotnet/tools:$PATH DOTNET_ROOT=$HOME/.dotnet DOTNET_CLI_UI_LANGUAGE=en bun run test:e2e` (ou `bunx playwright test tests/e2e/<spec>.ts` para um spec).
 - `playwright.config.ts` usa `channel: "chrome"` por padrão. Sem Chrome (ex.: VPS Linux), rode `PLAYWRIGHT_CHANNEL=chromium bun run test:e2e`.
 - Os specs usam `fixtures/OrderDesk` de verdade e restauram o arquivo; workers = 1 porque host e arquivos são estado compartilhado.
 - Specs que dependem de dotnet/csharp-ls/netcoredbg real fazem `skip` quando o ambiente não tem a ferramenta. Skip não é passe: leia o motivo e registre "não verificado".
-- Não rode a suíte inteira por reflexo durante outra execução; as portas e a fixture são compartilhadas.
+- Não rode a suíte inteira por reflexo: rode os specs da área. O par de portas separa worktrees, não dois specs do mesmo worktree — a fixture é a mesma.
 
 ### Projeto de referência para validar no app real (repo privado)
 
@@ -146,7 +148,7 @@ O job `risk` calcula o tier pelos caminhos que o PR toca (`scripts/ci-risk-tier.
 
 ### O que o CI não cobre
 
-- **Nada de UI**: nenhum Playwright em PR, nenhum app Tauri real, nenhum visual. Check verde não é prova de que a tela funciona.
+- **Nada de UI**: nenhum Playwright em PR, nenhum app Tauri real, nenhum visual. Check verde não é prova de que a tela funciona: a prova de UI é da sessão, pela superfície que a mudança pede (ver `## E2E`).
 - E2E completo e tudo o que depende de rede (NuGet, csharp-ls).
 - `src-tauri` fica fora do clippy (compila o Tauri inteiro em todo PR).
 - Windows e macOS Intel continuam não verificados.
@@ -169,7 +171,7 @@ filha aberta, risco maior que o problema). "Depois" não é resposta.
 O passo `/code-review` é, por padrão:
 
 1. **Checagem objetiva e curta** do diff contra a spec/ticket e os padrões deste arquivo (`## Regras`, `data-testid`, dependências). Lista só desvios concretos com `arquivo:linha`.
-2. **Rodar o skill `verify-openridr`** (`.agents/skills/verify-openridr/SKILL.md`) nas features tocadas. UI de sessão é o **app Tauri real dirigido por `agent-desktop`** (receitas em `.agents/skills/test-app-agent-desktop`) mais o host isolado; Playwright **não** é prova de sessão — ele existe só no smoke noturno do CI. O que não rodou entra como "não verificado".
+2. **Rodar o skill `verify-openridr`** (`.agents/skills/verify-openridr/SKILL.md`) nas features tocadas, pela superfície que a mudança pede: **Playwright em modo web** para interface pura (só os specs da área, escrevendo/atualizando o spec do cenário); **app Tauri real com `agent-desktop`** (receitas em `.agents/skills/test-app-agent-desktop`) só para o que é nativo do shell — menu nativo, atalhos do sistema, updater, seletor nativo, árvore de acessibilidade do WebKit, single-instance, DMG; **host isolado** (`web.sh`) para o que não tem spec ou precisa de captura. O que não rodou entra como "não verificado".
 3. **Code review em subagente único** (decisão de 2026-11-06) depois da implementação, antes do retro/PR: `delegate_task` do T3 com target Pi, model `openai-codex/gpt-6.1-terra` e option `thinking=medium`; fixed point = `git merge-base origin/main HEAD`; spec = a issue (e as filhas). Corrija achado alto/médio na hora; baixo, só se for simples. Sem `delegate_task` disponível: avise o orquestrador com o SHA do commit e siga. Revisão adversarial aberta/multi-agente continua só se o usuário pedir.
 
 Resto do fluxo (grill → spec → tickets → implement → retro) segue igual. Propostas de verificação formal: [docs/VERIFICACAO-FORMAL.md](docs/VERIFICACAO-FORMAL.md); a PoC de trust roda com `cargo test -p openridr-host --test trust_model`.

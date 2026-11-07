@@ -1,8 +1,12 @@
 # E2E — conjunto de smoke e quarentena (issue #67)
 
-Decisão do Helder (2026-11-06, issue #67): **Playwright roda só como smoke noturno automatizado**.
-Nunca em PR, nunca como verificação de UI por sessão de agente (sessão usa `agent-desktop`). O
-workflow noturno que consome a lista é a issue #56; este ticket entrega só a lista e a quarentena.
+Decisão do Helder (2026-11-06, issue #67): **o smoke noturno é o único E2E automatizado** e **nunca
+roda em PR**. O workflow noturno que consome a lista é a issue #56; este ticket entrega só a lista e
+a quarentena.
+
+Verificação de UI por sessão de agente é Playwright em modo web, só os specs da área (decisão do
+Helder de 2026-11-07, issue #212; ver [SPEC-E2E-PORTS](../SPEC-E2E-PORTS.md)); o app Tauri real com
+`agent-desktop` fica para o que é nativo do shell.
 
 ## Conjunto de smoke
 
