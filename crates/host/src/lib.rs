@@ -11,6 +11,7 @@ pub mod hostroot;
 mod http;
 mod logbuf;
 mod lsp;
+mod netguard;
 mod nuget;
 mod outline;
 pub mod process;
@@ -8747,6 +8748,31 @@ fn workspace_symbol_items(list: &lsp::WorkspaceSymbolList, root: &Path) -> (Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dotnet_command_neither_sets_nor_strips_proxy_variables() {
+        // A proxy configured for the host must reach `dotnet restore`/`build`/`test` unchanged: the
+        // child inherits the environment, and touching a proxy key here would be the only way to
+        // break that silently.
+        let root = tempfile::tempdir().unwrap();
+        let command = dotnet_command(
+            &["dotnet".to_string(), "--version".to_string()],
+            root.path(),
+            root.path(),
+        );
+        let touched: Vec<String> = command
+            .get_envs()
+            .map(|(key, _)| key.to_string_lossy().to_string())
+            .filter(|key| {
+                let key = key.to_ascii_lowercase();
+                key.contains("proxy")
+            })
+            .collect();
+        assert!(
+            touched.is_empty(),
+            "the dotnet command must inherit proxy variables, not manage them: {touched:?}"
+        );
+    }
 
     #[test]
     fn debug_adapter_uses_project_muxer_before_inherited_path() {
