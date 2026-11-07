@@ -50,11 +50,42 @@ if pgrep -x openridr >/dev/null 2>&1; then
   exit 1
 fi
 
+# A runtime directory the host accepts: `10.<minor>[.<patch>...]`, digits only, no prerelease.
+# `Version::parse` also drops build metadata, so a `+` suffix is not a prerelease.
+is_stable_10() {
+  case "$1" in
+  10.*) ;;
+  *) return 1 ;;
+  esac
+  name=${1%%+*}
+  case "$name" in
+  *-*) return 1 ;;
+  esac
+  rest=${name#10.}
+  case "$rest" in
+  '' | .* | *. | *..*) return 1 ;;
+  esac
+  case "$rest" in
+  *[!0-9.]*) return 1 ;;
+  esac
+  return 0
+}
+
 has_10x() {
-  for dir in "$1"/10.*; do
-    [ -d "$dir" ] && return 0
+  for dir in "$1"/*; do
+    [ -d "$dir" ] || continue
+    is_stable_10 "$(basename -- "$dir")" && return 0
   done
   return 1
+}
+
+# The script changes to the repository root before starting the app, so every path it exports
+# has to be absolute first.
+absolute() {
+  case "$1" in
+  /*) printf '%s\n' "$1" ;;
+  *) printf '%s\n' "$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)/$(basename -- "$1")" ;;
+  esac
 }
 
 # The host walks the adapter root, so a nested binary is a valid pair.
@@ -125,6 +156,7 @@ else
       ;;
     esac
     [ -d "$app" ] || { echo "dev-app.sh: no app bundle at $app" >&2; exit 1; }
+    app=$(absolute "$app")
     csharp="$app/Contents/Resources/csharp-ls"
     runtime="$app/Contents/Resources/dotnet"
     netcoredbg="$app/Contents/Resources/netcoredbg"
@@ -141,6 +173,9 @@ if [ -n "$gaps" ]; then
   exit 1
 fi
 
+csharp=$(absolute "$csharp")
+runtime=$(absolute "$runtime")
+netcoredbg=$(absolute "$netcoredbg")
 echo "dev-app.sh: pair from $source_note" >&2
 echo "dev-app.sh: workspace ${workspace:-<welcome>}" >&2
 cd "$repo"
