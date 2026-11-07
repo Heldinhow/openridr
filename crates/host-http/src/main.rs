@@ -1,6 +1,6 @@
 use openridr_host::{Host, HostError};
 use serde_json::{json, Value};
-use tiny_http::{Header, Method, Response, Server};
+use tiny_http::{Header, Method, Request, Response, Server};
 
 const ALLOWED_ORIGINS: [&str; 2] = ["http://localhost:1420", "http://127.0.0.1:1420"];
 
@@ -15,72 +15,93 @@ fn main() {
     println!("openridr-host-http listening on http://{address}");
     println!("dev bridge only: no authentication, never ship this binary");
 
-    for mut request in server.incoming_requests() {
-        let origin = request
-            .headers()
-            .iter()
-            .find(|header| header.field.equiv("Origin"))
-            .map(|header| header.value.as_str().to_string());
-        let method = request.method().clone();
-        let url = request.url().to_string();
-        eprintln!("{method} {url}");
-
-        if method == Method::Options {
-            respond(request.respond(with_cors(
-                Response::from_string("").with_status_code(204),
-                origin.as_deref(),
-            )));
-            continue;
-        }
-
-        if method == Method::Get && url == "/health" {
-            let body = json!({
-                "ok": true,
-                "service": "openridr-host-http",
-                "version": env!("CARGO_PKG_VERSION"),
-                "pid": std::process::id(),
-            });
-            respond(
-                request.respond(with_cors(
-                    Response::from_string(body.to_string())
-                        .with_status_code(200)
-                        .with_header(json_header()),
-                    origin.as_deref(),
-                )),
-            );
-            continue;
-        }
-
-        if method == Method::Post && url == "/call" {
+    // One request at a time, like the app shell: no method needs to overtake another, because the
+    // network Git operations return at once and publish their state in the snapshot.
+    while let Ok(mut request) = server.recv() {
+        let is_call = *request.method() == Method::Post && request.url() == "/call";
+        let body = if is_call {
             let mut body = String::new();
-            if let Err(error) = request.as_reader().read_to_string(&mut body) {
-                respond(
-                    request.respond(with_cors(
-                        Response::from_string(error_envelope(HostError::new(
-                            "invalid_state",
-                            format!("Could not read request body: {error}"),
-                        )))
-                        .with_header(json_header()),
-                        origin.as_deref(),
-                    )),
-                );
-                continue;
+            match request.as_reader().read_to_string(&mut body) {
+                Ok(_) => Some(body),
+                Err(error) => {
+                    let origin = origin_of(&request);
+                    respond(
+                        request.respond(with_cors(
+                            Response::from_string(error_envelope(HostError::new(
+                                "invalid_state",
+                                format!("Could not read request body: {error}"),
+                            )))
+                            .with_header(json_header()),
+                            origin.as_deref(),
+                        )),
+                    );
+                    continue;
+                }
             }
-            let envelope = match serde_json::from_str::<Value>(&body) {
-                Ok(payload) => dispatch(&host, &payload),
-                Err(error) => error_envelope(HostError::new(
-                    "invalid_state",
-                    format!("Request body is not JSON: {error}"),
-                )),
-            };
-            respond(request.respond(with_cors(
-                Response::from_string(envelope).with_header(json_header()),
-                origin.as_deref(),
-            )));
-            continue;
-        }
+        } else {
+            None
+        };
+        handle(request, &host, body);
+    }
+}
 
+fn origin_of(request: &Request) -> Option<String> {
+    request
+        .headers()
+        .iter()
+        .find(|header| header.field.equiv("Origin"))
+        .map(|header| header.value.as_str().to_string())
+}
+
+fn handle(request: Request, host: &Host, body: Option<String>) {
+    let origin = origin_of(&request);
+    let method = request.method().clone();
+    let url = request.url().to_string();
+    eprintln!("{method} {url}");
+
+    if method == Method::Options {
         respond(request.respond(with_cors(
+            Response::from_string("").with_status_code(204),
+            origin.as_deref(),
+        )));
+        return;
+    }
+
+    if method == Method::Get && url == "/health" {
+        let body = json!({
+            "ok": true,
+            "service": "openridr-host-http",
+            "version": env!("CARGO_PKG_VERSION"),
+            "pid": std::process::id(),
+        });
+        respond(
+            request.respond(with_cors(
+                Response::from_string(body.to_string())
+                    .with_status_code(200)
+                    .with_header(json_header()),
+                origin.as_deref(),
+            )),
+        );
+        return;
+    }
+
+    if method == Method::Post && url == "/call" {
+        let envelope = match serde_json::from_str::<Value>(&body.unwrap_or_default()) {
+            Ok(payload) => dispatch(host, &payload),
+            Err(error) => error_envelope(HostError::new(
+                "invalid_state",
+                format!("Request body is not JSON: {error}"),
+            )),
+        };
+        respond(request.respond(with_cors(
+            Response::from_string(envelope).with_header(json_header()),
+            origin.as_deref(),
+        )));
+        return;
+    }
+
+    respond(
+        request.respond(with_cors(
             Response::from_string(
                 json!({ "ok": false, "error": { "code": "not_found", "message": "Not found" } })
                     .to_string(),
@@ -88,8 +109,8 @@ fn main() {
             .with_status_code(404)
             .with_header(json_header()),
             origin.as_deref(),
-        )));
-    }
+        )),
+    );
 }
 
 fn parse_port() -> u16 {

@@ -51,6 +51,9 @@ async fn host_call(
     // Tokio's Mutex is FIFO, so this keeps the old synchronous ordering without running the
     // dispatch on the main thread.
     let lock = HOST_CALL.get_or_init(|| tauri::async_runtime::Mutex::new(()));
+    // The lock keeps the calls the UI fires without awaiting (`lsp.didChange`, `session.write`) in
+    // send order. No method is exempt: the network Git operations return at once (their state is in
+    // the snapshot), so nothing holds this lock while waiting on a remote.
     let _guard = lock.lock().await;
     tauri::async_runtime::spawn_blocking(move || host.dispatch(&method, params))
         .await

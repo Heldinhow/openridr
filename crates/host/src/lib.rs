@@ -164,6 +164,8 @@ struct Inner {
     restore_seq: u64,
     build: Arc<build::Build>,
     build_seq: u64,
+    /// The network Git operation in flight, published in the snapshot like a build.
+    net: Arc<git::Net>,
     run: Arc<run::Run>,
     run_seq: u64,
     /// A run waiting for the build it started; `None` when nothing is pending.
@@ -389,6 +391,7 @@ struct Snapshot {
     processes: Vec<Value>,
     restore: RestoreView,
     build: build::BuildView,
+    git: git::NetView,
     run: run::RunView,
     terminal: terminal::TerminalView,
     tests: test_discovery::TestsView,
@@ -439,6 +442,7 @@ impl Host {
                 restore_seq: 0,
                 build: Arc::new(build::Build::idle()),
                 build_seq: 0,
+                net: Arc::new(git::Net::default()),
                 run: Arc::new(run::Run::idle()),
                 run_seq: 0,
                 pending_run: None,
@@ -719,6 +723,9 @@ impl Host {
         }
         if method == "git.push" {
             return self.git_push(params);
+        }
+        if method == "git.cancel" {
+            return self.git_cancel(params);
         }
         if method == "git.mergeAbort" {
             return self.git_merge_abort();
@@ -1184,6 +1191,7 @@ impl Host {
             processes: inner.processes.lock().unwrap().views(),
             restore: inner.restore.view(),
             build: inner.build.view(),
+            git: inner.net.view(),
             run: inner.run.view(),
             terminal: inner.terminal.view(),
             tests: tests_view,
@@ -6120,27 +6128,75 @@ impl Host {
         Ok(serde_json::to_value(answer).expect("git commit serializes"))
     }
 
+    /// Starts an update: trust and an open workspace are the only checks here. The host registers
+    /// the operation, returns its id at once and runs the fetch and the merge on a thread; the
+    /// state and the final message arrive through the snapshot. Only the fetch is cancellable — the
+    /// merge is local (#136).
     fn git_pull(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.pull")?;
         let root = self.workspace_root()?;
-        let answer = git::pull(&root)?;
-        Ok(serde_json::to_value(answer).expect("git pull serializes"))
+        self.spawn_net(root, git::Kind::Update, git::pull)
     }
 
-    /// Brings the remote's refs into the local copy. The only Git action with a deadline: a fetch
-    /// that hung on an unreachable remote would hold the lock every other host call waits on.
+    /// Starts a fetch: trust and an open workspace are the only checks here, and they fail without
+    /// touching the network. The host registers the operation, returns its id at once and runs the
+    /// repository work (open, status, remote, `git fetch`) on a thread; the state and the final
+    /// message arrive through the snapshot.
     fn git_fetch(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.fetch")?;
         let root = self.workspace_root()?;
-        let answer = git::fetch(&root)?;
-        Ok(serde_json::to_value(answer).expect("git fetch serializes"))
+        self.spawn_net(root, git::Kind::Fetch, git::fetch)
     }
 
+    /// The network Git operation in flight, cloned out of the state lock: the start returns before
+    /// the work runs, so the thread must not hold the lock every other call waits on.
+    fn net(&self) -> Arc<git::Net> {
+        self.inner.lock().unwrap().net.clone()
+    }
+
+    /// Starts a push: trust, an open workspace and `confirm: true` are the only checks here, and
+    /// they fail without touching the network. The host registers the operation, returns its id at
+    /// once and runs the repository work (open, status, remote, `git push`) on a thread; the state
+    /// and the final message arrive through the snapshot.
     fn git_push(&self, params: Value) -> HostResult<Value> {
         let _token = self.require_trust("git.push")?;
         let root = self.workspace_root()?;
-        let answer = git::push(&root, &params)?;
-        Ok(serde_json::to_value(answer).expect("git push serializes"))
+        if params.get("confirm").and_then(Value::as_bool) != Some(true) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "git.push requires confirm:true; no push was run.",
+            ));
+        }
+        self.spawn_net(root, git::Kind::Push, move |root, net, id| {
+            git::push(root, &params, net, id)
+        })
+    }
+
+    /// The lifecycle every network start shares: register the operation (refusing a second one),
+    /// return the id the host issued, and publish the result where the snapshot reads it. One place,
+    /// so the three starts cannot drift apart.
+    fn spawn_net<F>(&self, root: PathBuf, kind: git::Kind, work: F) -> HostResult<Value>
+    where
+        F: FnOnce(&Path, &git::Net, &str) -> HostResult<git::Operation> + Send + 'static,
+    {
+        let net = self.net();
+        let id = net
+            .begin(kind)
+            .map_err(|message| HostError::new("invalid_state", message))?;
+        let task_id = id.clone();
+        std::thread::spawn(move || {
+            let result = work(&root, &net, &task_id);
+            net.end(&task_id, result);
+        });
+        Ok(json!({ "id": id }))
+    }
+
+    /// Stops the network operation the host issued with this id, and only while its network step is
+    /// in flight. It changes nothing on disk and opens no repository, so it needs no trust decision.
+    fn git_cancel(&self, params: Value) -> HostResult<Value> {
+        let id = required_str(&params, "id")?;
+        let inner = self.inner.lock().unwrap();
+        Ok(json!({ "cancelled": inner.net.cancel(&id) }))
     }
 
     /// Aborts the merge in progress. Only a merge: rebase, cherry-pick and revert stay out of the

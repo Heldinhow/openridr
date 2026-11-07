@@ -7573,3 +7573,384 @@ fn a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child() 
         "a_real_pty_shell_reads_input_writes_output_and_ctrl_c_interrupts_the_child_isolated",
     );
 }
+
+fn git(cwd: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// A workspace inside a real repository whose `origin` accepts the connection and never answers:
+/// the push hangs on the handshake, so only a cancel can make it return before the 120 s deadline.
+/// The accepting thread is left detached (joining it would put its sleep on the test's clock).
+fn silent_remote_repo() -> (
+    tempfile::TempDir,
+    u16,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let accepted = Arc::new(AtomicBool::new(false));
+    let signal = Arc::clone(&accepted);
+    std::thread::spawn(move || {
+        if let Ok((stream, _)) = listener.accept() {
+            signal.store(true, std::sync::atomic::Ordering::SeqCst);
+            std::thread::sleep(Duration::from_secs(10));
+            drop(stream);
+        }
+    });
+    let workspace = temp_workspace(&["App.csproj"]);
+    let root = workspace.path();
+    git(root, &["init", "-q", "-b", "main"]);
+    git(root, &["config", "user.name", "OpenRidr Test"]);
+    git(root, &["config", "user.email", "test@openridr.invalid"]);
+    git(root, &["add", "."]);
+    git(root, &["commit", "-qm", "initial"]);
+    git(
+        root,
+        &[
+            "remote",
+            "add",
+            "origin",
+            &format!("http://127.0.0.1:{port}/repo.git"),
+        ],
+    );
+    (workspace, port, accepted)
+}
+
+/// Processes whose command line mentions `needle`, or `None` when the platform has no `pgrep` (the
+/// assertion is then skipped rather than guessed).
+fn descendants_of(needle: &str) -> Option<Vec<String>> {
+    let output = std::process::Command::new("pgrep")
+        .args(["-fl", needle])
+        .output()
+        .ok()?;
+    Some(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+/// The push is a start: the host registers the operation, returns its id at once and runs the
+/// network step on a thread. Nothing holds the host while it waits, the cancel names the id the
+/// host issued, and the end of the network step is atomic with it.
+#[test]
+fn a_push_start_answers_at_once_and_its_cancel_publishes_the_cancelled_state() {
+    use std::sync::atomic::Ordering;
+    let host = support::host();
+    let (workspace, port, accepted) = silent_remote_repo();
+    open(&host, &workspace.path().join("App.csproj"));
+    grant(&host);
+    let head = git(workspace.path(), &["rev-parse", "HEAD"]);
+
+    let began = Instant::now();
+    let started = host
+        .dispatch("git.push", json!({ "confirm": true }))
+        .expect("the push starts");
+    let started_in = began.elapsed();
+    let id = started["id"]
+        .as_str()
+        .expect("the start returns the host id")
+        .to_string();
+    assert!(id.starts_with("git:"), "{id}");
+    assert!(
+        started_in < Duration::from_secs(1),
+        "the start must return at once: {started_in:?}"
+    );
+    assert_eq!(snapshot(&host)["git"]["state"], "running");
+    assert_eq!(snapshot(&host)["git"]["id"], id.as_str());
+    assert_eq!(snapshot(&host)["git"]["kind"], "push");
+
+    // Nothing holds the host: another call answers while the push waits on the remote.
+    let status = host
+        .dispatch("git.status", json!({}))
+        .expect("git.status answers during the push");
+    assert_eq!(status["state"], "ok");
+
+    // One network operation per host.
+    assert_eq!(
+        error_code(host.dispatch("git.push", json!({ "confirm": true }))),
+        "invalid_state"
+    );
+
+    // The kill needs a live connection to reach.
+    let connected = Instant::now();
+    while !accepted.load(Ordering::SeqCst) {
+        assert!(
+            connected.elapsed() < Duration::from_secs(10),
+            "the push never reached the remote"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let cancel = host
+        .dispatch("git.cancel", json!({ "id": id }))
+        .expect("the cancel answers");
+    assert_eq!(cancel["cancelled"], true);
+
+    let cancelled = Instant::now();
+    let git_view = loop {
+        let view = snapshot(&host)["git"].clone();
+        if view["state"] != "running" {
+            break view;
+        }
+        assert!(
+            cancelled.elapsed() < Duration::from_secs(5),
+            "the cancel must return well before the 120 s deadline: {:?}",
+            cancelled.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(git_view["state"], "cancelled");
+    assert_eq!(git_view["id"], id.as_str());
+    assert_eq!(git_view["kind"], "push");
+    let message = git_view["message"].as_str().unwrap_or_default();
+    assert!(message.contains("Push cancelled"), "{message}");
+    assert!(
+        message.contains("may already have reached the remote"),
+        "{message}"
+    );
+
+    // A cancel that names nothing is answered, never applied to whatever runs next.
+    assert_eq!(
+        host.dispatch("git.cancel", json!({ "id": "git:999" }))
+            .unwrap()["cancelled"],
+        false
+    );
+    assert_eq!(
+        host.dispatch("git.cancel", json!({ "id": id })).unwrap()["cancelled"],
+        false
+    );
+
+    // The local state is intact and no helper survived the kill.
+    assert_eq!(git(workspace.path(), &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(workspace.path(), &["status", "--porcelain"]), "");
+    if let Some(survivors) = descendants_of(&port.to_string()) {
+        assert!(
+            survivors.is_empty(),
+            "the helper survived the cancel: {survivors:?}"
+        );
+    }
+}
+
+/// The fetch is a start on the same mechanism: the host issues the id, the snapshot publishes the
+/// state, and the cancel names that id. Fetch moves only refs, so the cancelled message promises the
+/// branch, the index and the working tree were not touched.
+#[test]
+fn a_fetch_start_answers_at_once_and_its_cancel_publishes_the_cancelled_state() {
+    use std::sync::atomic::Ordering;
+    let host = support::host();
+    let (workspace, port, accepted) = silent_remote_repo();
+    open(&host, &workspace.path().join("App.csproj"));
+    grant(&host);
+    let head = git(workspace.path(), &["rev-parse", "HEAD"]);
+    let branch = git(workspace.path(), &["rev-parse", "--abbrev-ref", "HEAD"]);
+    let remotes = git(workspace.path(), &["for-each-ref", "refs/remotes"]);
+
+    let began = Instant::now();
+    let started = host
+        .dispatch("git.fetch", json!({}))
+        .expect("the fetch starts");
+    let started_in = began.elapsed();
+    let id = started["id"]
+        .as_str()
+        .expect("the start returns the host id")
+        .to_string();
+    assert!(id.starts_with("git:"), "{id}");
+    assert!(
+        started_in < Duration::from_secs(1),
+        "the start must return at once: {started_in:?}"
+    );
+    assert_eq!(snapshot(&host)["git"]["state"], "running");
+    assert_eq!(snapshot(&host)["git"]["id"], id.as_str());
+    assert_eq!(snapshot(&host)["git"]["kind"], "fetch");
+
+    // Nothing holds the host: another call answers while the fetch waits on the remote.
+    let status = host
+        .dispatch("git.status", json!({}))
+        .expect("git.status answers during the fetch");
+    assert_eq!(status["state"], "ok");
+
+    // One network operation per host.
+    assert_eq!(
+        error_code(host.dispatch("git.fetch", json!({}))),
+        "invalid_state"
+    );
+
+    // The kill needs a live connection to reach.
+    let connected = Instant::now();
+    while !accepted.load(Ordering::SeqCst) {
+        assert!(
+            connected.elapsed() < Duration::from_secs(10),
+            "the fetch never reached the remote"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let cancel = host
+        .dispatch("git.cancel", json!({ "id": id }))
+        .expect("the cancel answers");
+    assert_eq!(cancel["cancelled"], true);
+
+    let cancelled = Instant::now();
+    let git_view = loop {
+        let view = snapshot(&host)["git"].clone();
+        if view["state"] != "running" {
+            break view;
+        }
+        assert!(
+            cancelled.elapsed() < Duration::from_secs(5),
+            "the cancel must return well before the 60 s deadline: {:?}",
+            cancelled.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(git_view["state"], "cancelled");
+    assert_eq!(git_view["id"], id.as_str());
+    assert_eq!(git_view["kind"], "fetch");
+    let message = git_view["message"].as_str().unwrap_or_default();
+    assert!(message.contains("Fetch cancelled"), "{message}");
+    assert!(
+        message.contains("were not touched"),
+        "the message keeps the fetch's own promise: {message}"
+    );
+
+    // A cancel that names nothing is answered, never applied to whatever runs next.
+    assert_eq!(
+        host.dispatch("git.cancel", json!({ "id": "git:999" }))
+            .unwrap()["cancelled"],
+        false
+    );
+    assert_eq!(
+        host.dispatch("git.cancel", json!({ "id": id })).unwrap()["cancelled"],
+        false
+    );
+
+    // The local state is intact — fetch moves only remote-tracking refs — and no helper survived.
+    assert_eq!(git(workspace.path(), &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        git(workspace.path(), &["rev-parse", "--abbrev-ref", "HEAD"]),
+        branch
+    );
+    assert_eq!(git(workspace.path(), &["status", "--porcelain"]), "");
+    assert_eq!(
+        git(workspace.path(), &["for-each-ref", "refs/remotes"]),
+        remotes
+    );
+    if let Some(survivors) = descendants_of(&port.to_string()) {
+        assert!(
+            survivors.is_empty(),
+            "the helper survived the cancel: {survivors:?}"
+        );
+    }
+}
+
+/// The update is a start like the push: the fetch runs on a thread, the cancel names the id the
+/// host issued, and the merge — local, after the fetch — is not cancellable. A cancelled update
+/// never merges, so no `MERGE_HEAD` is left behind and the branch, the tree and the tracking refs
+/// are untouched.
+#[test]
+fn an_update_start_answers_at_once_and_its_cancel_publishes_the_cancelled_state() {
+    use std::sync::atomic::Ordering;
+    let host = support::host();
+    let (workspace, port, accepted) = silent_remote_repo();
+    let root = workspace.path();
+    // The update follows the upstream; the remote it names is the silent listener.
+    git(root, &["config", "branch.main.remote", "origin"]);
+    git(root, &["config", "branch.main.merge", "refs/heads/main"]);
+    open(&host, &root.join("App.csproj"));
+    grant(&host);
+    let head = git(root, &["rev-parse", "HEAD"]);
+    let tree = git(root, &["status", "--porcelain"]);
+    let refs = git(root, &["for-each-ref", "refs/remotes"]);
+
+    let began = Instant::now();
+    let started = host
+        .dispatch("git.pull", json!({}))
+        .expect("the update starts");
+    let started_in = began.elapsed();
+    let id = started["id"]
+        .as_str()
+        .expect("the start returns the host id")
+        .to_string();
+    assert!(id.starts_with("git:"), "{id}");
+    assert!(
+        started_in < Duration::from_secs(1),
+        "the start must return at once: {started_in:?}"
+    );
+    assert_eq!(snapshot(&host)["git"]["state"], "running");
+    assert_eq!(snapshot(&host)["git"]["id"], id.as_str());
+    assert_eq!(snapshot(&host)["git"]["kind"], "update");
+
+    // Nothing holds the host: another call answers while the update waits on the remote.
+    let status = host
+        .dispatch("git.status", json!({}))
+        .expect("git.status answers during the update");
+    assert_eq!(status["state"], "ok");
+
+    // The kill needs a live connection to reach.
+    let connected = Instant::now();
+    while !accepted.load(Ordering::SeqCst) {
+        assert!(
+            connected.elapsed() < Duration::from_secs(10),
+            "the update never reached the remote"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let cancel = host
+        .dispatch("git.cancel", json!({ "id": id }))
+        .expect("the cancel answers");
+    assert_eq!(cancel["cancelled"], true);
+
+    let cancelled = Instant::now();
+    let git_view = loop {
+        let view = snapshot(&host)["git"].clone();
+        if view["state"] != "running" {
+            break view;
+        }
+        assert!(
+            cancelled.elapsed() < Duration::from_secs(5),
+            "the cancel must return well before the 60 s deadline: {:?}",
+            cancelled.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(git_view["state"], "cancelled");
+    assert_eq!(git_view["id"], id.as_str());
+    assert_eq!(git_view["kind"], "update");
+    let message = git_view["message"].as_str().unwrap_or_default();
+    assert!(message.contains("Update cancelled"), "{message}");
+    assert!(message.contains("nothing was merged"), "{message}");
+
+    // A cancel that names nothing is answered, never applied to whatever runs next.
+    assert_eq!(
+        host.dispatch("git.cancel", json!({ "id": id })).unwrap()["cancelled"],
+        false
+    );
+
+    // Nothing was merged and nothing local moved.
+    assert!(!root.join(".git/MERGE_HEAD").exists());
+    assert_eq!(git(root, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(root, &["status", "--porcelain"]), tree);
+    assert_eq!(git(root, &["for-each-ref", "refs/remotes"]), refs);
+    if let Some(survivors) = descendants_of(&port.to_string()) {
+        assert!(
+            survivors.is_empty(),
+            "the helper survived the cancel: {survivors:?}"
+        );
+    }
+}

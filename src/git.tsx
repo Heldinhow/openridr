@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { call, messageOf } from "./host/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { call, messageOf, type GitNet } from "./host/client";
 import { Icon } from "./Icon";
 import { MidText } from "./shell/MidText";
 import { FileIcon } from "./FileIcon";
@@ -273,6 +273,7 @@ export function BranchWidget({
   statusError,
   trusted,
   intent,
+  net,
   onRefresh,
   onOpenCommit,
   onMessage,
@@ -281,6 +282,7 @@ export function BranchWidget({
   statusError: string | null;
   trusted: boolean;
   intent: GitIntent | null;
+  net: GitNet;
   onRefresh: () => Promise<void>;
   onOpenCommit: () => void;
   onMessage: (text: string) => void;
@@ -295,11 +297,22 @@ export function BranchWidget({
   const [dialog, setDialog] = useState<"update" | "push" | "mergeAbort" | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  // The network operation this component started and has not seen end yet. The id is the host's:
+  // the snapshot carries its state, so no await spans the network wait.
+  const [pending, setPending] = useState<{ kind: "push" | "update" | "fetch"; id: string } | null>(
+    null,
+  );
+  // Set before the start returns, so a second click cannot ask for a second operation in the gap.
+  const [starting, setStarting] = useState<"push" | "update" | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [fetching, setFetching] = useState(false);
-  // A fetch takes seconds; the command palette can ask for another one while the first is still
-  // running. The ref is the guard the state cannot be: it is read at call time, not at render time.
-  const fetchingRef = useRef(false);
+  // The host's id only reaches the state after the start returns, so a second click in that gap
+  // would ask for a second operation. The ref is the guard the state cannot be: it is read at call
+  // time, not at render time.
+  const startingRef = useRef(false);
+  // The user asked to cancel while the start was still in flight: there is no id to name yet, so the
+  // intent waits for the id instead of being dropped.
+  const cancelOnStart = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -339,7 +352,7 @@ export function BranchWidget({
       // because it writes no branch, no index and no file.
       if (status && status.state === "ok" && status.remotes.length === 0) {
         setFetchError(gitFetchBlockedReason(status, null, true));
-      } else if (!fetchingRef.current) {
+      } else if (!startingRef.current && pending === null) {
         void runFetch();
       }
     } else if (intent.kind === "update") {
@@ -357,6 +370,64 @@ export function BranchWidget({
     }
     // A new command runs once per shortcut press.
   }, [intent?.nonce]);
+
+  // The push, the update and the fetch are asynchronous: their buttons follow the host's record,
+  // not an await.
+  const pushBusy = starting === "push" || pending?.kind === "push";
+  const updateBusy = starting === "update" || pending?.kind === "update";
+  const fetchBusy = pending?.kind === "fetch";
+
+  // The operation this component started reached its end: the host published the state and the
+  // message, so the UI only renders them. The id is what tells our operation from a later one.
+  useEffect(() => {
+    if (!pending || net.id !== pending.id) return;
+    if (net.state !== "ok" && net.state !== "failed" && net.state !== "cancelled") return;
+    const text = net.message ?? "git failed without a message.";
+    if (pending.kind === "fetch") {
+      if (net.state === "ok") onMessage(text);
+      else setFetchError(text);
+    } else if (net.state === "ok") {
+      onMessage(text);
+      setDialog(null);
+    } else {
+      setDialogError(text);
+    }
+    setPending(null);
+    void Promise.all([onRefresh(), loadBranches()]);
+    // Only the operation this component started; refresh() is stable per trust state.
+  }, [net, pending]);
+
+  // Escape dismisses the dialog, and while an operation is in flight it cancels it instead: closing
+  // the dialog would hide the only place the result is shown. The listener is on the window because
+  // disabling the focused button moves focus to the body, and a keydown there never reaches the
+  // dialog.
+  useEffect(() => {
+    if (dialog === null) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (starting !== null) {
+        cancelOnStart.current = true;
+        return;
+      }
+      if (pushBusy) {
+        void cancelNetwork("push");
+        return;
+      }
+      if (updateBusy) {
+        void cancelNetwork("update");
+        return;
+      }
+      // Aborting a merge is local and not cancellable: Escape only keeps the dialog open.
+      if (dialogBusy) return;
+      setDialog(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // `pending` and `cancelling` are read by the handler: without them the listener keeps a closure
+    // from before the start returned and the cancel has no id to name.
+  }, [dialog, pending, starting, pushBusy, updateBusy, dialogBusy, cancelling]);
 
   if (!trusted) {
     return (
@@ -394,6 +465,7 @@ export function BranchWidget({
       ? "No upstream is configured; nothing to pull."
       : cleanReason(status);
   const checkoutBlocked = cleanReason(status);
+  // The push and the fetch are asynchronous: their buttons follow the host's record, not an await.
   const query = filter.trim().toLowerCase();
   const matches = (branch: GitBranch) =>
     query === "" || branch.name.toLowerCase().includes(query);
@@ -438,46 +510,44 @@ export function BranchWidget({
     }
   }
 
-  async function runFetch() {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-    setFetching(true);
-    setBusy(true);
-    setFetchError(null);
+  // The fetch is a start too: the host returns its id at once and the snapshot carries the state.
+  // The three starts share one lifecycle: one operation at a time, the id the host issued kept in
+  // `pending`, and the error where that surface shows it. A second start while one is in flight would
+  // replace the id the dialog is waiting for, and the first operation's message would never appear.
+  async function startNetwork(
+    kind: "push" | "update" | "fetch",
+    start: () => Promise<{ id: string }>,
+    setError: (value: string | null) => void,
+  ) {
+    if (startingRef.current || pending !== null) return;
+    startingRef.current = true;
+    setStarting(kind === "fetch" ? null : kind);
+    setError(null);
     try {
-      const result = await call<GitOperation>("git.fetch");
-      if (result.state === "ok") {
-        onMessage(result.message ?? "Fetched the remote.");
-      } else {
-        setFetchError(result.message ?? "git fetch failed.");
+      const started = await start();
+      setPending({ kind, id: started.id });
+      if (cancelOnStart.current) {
+        cancelOnStart.current = false;
+        void cancelNetwork(kind, started.id);
       }
-      await Promise.all([onRefresh(), loadBranches()]);
     } catch (caught) {
-      setFetchError(messageOf(caught));
+      cancelOnStart.current = false;
+      setError(messageOf(caught));
     } finally {
-      fetchingRef.current = false;
-      setFetching(false);
-      setBusy(false);
+      startingRef.current = false;
+      setStarting(null);
     }
   }
 
-  async function confirmUpdate() {
-    setDialogBusy(true);
-    setDialogError(null);
-    try {
-      const result = await call<GitOperation>("git.pull");
-      if (result.state === "ok") {
-        onMessage(result.message ?? "Update completed.");
-        setDialog(null);
-      } else {
-        setDialogError(result.message ?? "git pull failed.");
-      }
-      await Promise.all([onRefresh(), loadBranches()]);
-    } catch (caught) {
-      setDialogError(messageOf(caught));
-    } finally {
-      setDialogBusy(false);
-    }
+  // The fetch is a start too: the host returns its id at once and the snapshot carries the state.
+  function runFetch() {
+    return startNetwork("fetch", () => call<{ id: string }>("git.fetch"), setFetchError);
+  }
+
+  // The update is a start like the push: the host returns its id at once and the snapshot carries
+  // the state, so the dialog stays open until the operation reaches a terminal state.
+  function confirmUpdate() {
+    return startNetwork("update", () => call<{ id: string }>("git.pull"), setDialogError);
   }
 
   const remote = status.upstream?.split("/")[0] ?? status.remotes[0] ?? null;
@@ -519,25 +589,41 @@ export function BranchWidget({
     }
   }
 
-  async function confirmPush() {
-    setDialogBusy(true);
-    setDialogError(null);
+  // The push is a start: the host returns its id at once and the snapshot carries the state. The
+  // dialog stays open until the operation reaches a terminal state, so the final message is shown
+  // where the click happened.
+  function confirmPush() {
+    return startNetwork(
+      "push",
+      () => call<{ id: string }>("git.push", { confirm: true, remote: remote ?? undefined }),
+      setDialogError,
+    );
+  }
+
+  // Stops the network operation in flight. The host answers `cancelled: false` when its network step
+  // already ended — the local merge of an Update is not cancellable — and the dialog says so
+  // instead of pretending the click landed.
+  async function cancelNetwork(kind: "push" | "update" | "fetch", id?: string) {
+    const target = id ?? (pending?.kind === kind ? pending.id : null);
+    if (cancelling || target === null) return;
+    setCancelling(true);
     try {
-      const result = await call<GitOperation>("git.push", {
-        confirm: true,
-        remote: remote ?? undefined,
-      });
-      if (result.state === "ok") {
-        onMessage(result.message ?? "Push completed.");
-        setDialog(null);
-      } else {
-        setDialogError(result.message ?? "git push failed.");
+      const answer = await call<{ cancelled: boolean }>("git.cancel", { id: target });
+      if (!answer.cancelled) {
+        const note =
+          kind === "push"
+            ? "Nothing to cancel: the push already finished."
+            : kind === "update"
+              ? "Nothing to cancel: the update is already merging."
+              : "Nothing to cancel: the fetch already finished.";
+        if (kind === "fetch") setFetchError(note);
+        else setDialogError(note);
       }
-      await Promise.all([onRefresh(), loadBranches()]);
     } catch (caught) {
-      setDialogError(messageOf(caught));
+      if (kind === "fetch") setFetchError(messageOf(caught));
+      else setDialogError(messageOf(caught));
     } finally {
-      setDialogBusy(false);
+      setCancelling(false);
     }
   }
 
@@ -547,13 +633,6 @@ export function BranchWidget({
     setCreating(false);
   }
 
-  // Escape dismisses the dialog unless an operation is in flight.
-  function dialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Escape" || dialogBusy) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setDialog(null);
-  }
 
   return (
     <>
@@ -603,7 +682,7 @@ export function BranchWidget({
               <button
                 type="button"
                 data-testid="branch-merge-complete"
-                disabled={busy}
+                disabled={busy || fetchBusy}
                 onClick={() => void completeMerge()}
               >
                 Complete merge
@@ -611,7 +690,7 @@ export function BranchWidget({
               <button
                 type="button"
                 data-testid="branch-merge-abort"
-                disabled={busy}
+                disabled={busy || fetchBusy}
                 onClick={() => { setDialogError(null); setDialog("mergeAbort"); }}
               >
                 Abort merge…
@@ -639,7 +718,7 @@ export function BranchWidget({
                 data-testid={`branch-item-${branch.name}`}
                 aria-current={branch.current ? "true" : undefined}
                 title={checkoutBlocked ?? `Check out ${branch.name}`}
-                disabled={busy || checkoutBlocked !== null}
+                disabled={busy || fetchBusy || checkoutBlocked !== null}
                 onClick={() => void checkout(branch.name)}
               >
                 {branch.name}
@@ -654,7 +733,7 @@ export function BranchWidget({
                 type="button"
                 data-testid={`branch-item-${branch.name}`}
                 title={checkoutBlocked ?? `Check out ${branch.name} as a local tracking branch`}
-                disabled={busy || checkoutBlocked !== null}
+                disabled={busy || fetchBusy || checkoutBlocked !== null}
                 onClick={() => void checkout(branch.name)}
               >
                 {branch.name}
@@ -682,7 +761,7 @@ export function BranchWidget({
                   onChange={(event) => setName(event.target.value)}
                   autoFocus
                 />
-                <button type="submit" data-testid="branch-create-submit" disabled={busy || name.trim() === ""}>
+                <button type="submit" data-testid="branch-create-submit" disabled={busy || fetchBusy || name.trim() === ""}>
                   Create
                 </button>
                 <button type="button" data-testid="branch-create-cancel" onClick={() => setCreating(false)}>
@@ -690,14 +769,14 @@ export function BranchWidget({
                 </button>
               </form>
             ) : (
-              <button type="button" data-testid="branch-create-open" disabled={busy} onClick={() => setCreating(true)}>
+              <button type="button" data-testid="branch-create-open" disabled={busy || fetchBusy} onClick={() => setCreating(true)}>
                 New branch…
               </button>
             )}
             <button
               type="button"
               data-testid="branch-refresh"
-              disabled={busy}
+              disabled={busy || fetchBusy}
               onClick={() => void Promise.all([onRefresh(), loadBranches()])}
             >
               Refresh
@@ -709,20 +788,25 @@ export function BranchWidget({
                 fetchReason ??
                 `Fetch ${remote ?? "the remote"} and prune branches deleted there (git fetch --prune). OpenRidr never touches your tree, index or local branches.`
               }
-              disabled={busy || fetchReason !== null}
-              aria-busy={fetching || undefined}
+              disabled={busy || fetchBusy || fetchReason !== null}
+              aria-busy={fetchBusy || undefined}
               onClick={() => void runFetch()}
             >
-              {fetching ? "Fetching…" : "Fetch"}
+              {fetchBusy ? "Fetching…" : "Fetch"}
             </button>
-            <button type="button" data-testid="branch-commit" disabled={busy} onClick={() => { closeMenu(); onOpenCommit(); }}>
+            {fetchBusy && (
+              <button type="button" data-testid="branch-fetch-stop" disabled={cancelling} onClick={() => void cancelNetwork("fetch")}>
+                {cancelling ? "Cancelling…" : "Cancel fetch"}
+              </button>
+            )}
+            <button type="button" data-testid="branch-commit" disabled={busy || fetchBusy} onClick={() => { closeMenu(); onOpenCommit(); }}>
               Commit…
             </button>
             <button
               type="button"
               data-testid="branch-update"
               title={updateReason ?? "Pull the upstream branch. OpenRidr never auto-stashes."}
-              disabled={busy || updateReason !== null}
+              disabled={busy || fetchBusy || updateReason !== null}
               onClick={() => { setDialogError(null); setDialog("update"); }}
             >
               Update…
@@ -731,7 +815,7 @@ export function BranchWidget({
               type="button"
               data-testid="branch-push"
               title={remoteReason ?? "Push after an explicit confirmation. OpenRidr never forces."}
-              disabled={busy || remoteReason !== null}
+              disabled={busy || fetchBusy || remoteReason !== null}
               onClick={() => { setDialogError(null); setDialog("push"); }}
             >
               Push…
@@ -759,7 +843,7 @@ export function BranchWidget({
 
       {dialog === "update" && (
         <div className="modal-backdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-dialog" onKeyDown={dialogKeyDown}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-dialog">
             <h2 id="update-title">Update project</h2>
             <dl>
               <dt>Branch</dt>
@@ -787,10 +871,15 @@ export function BranchWidget({
               <p className="error" role="alert" data-testid="update-error">{dialogError}</p>
             )}
             <div className="actions">
-              <button type="button" data-testid="update-confirm" autoFocus disabled={dialogBusy} onClick={() => void confirmUpdate()}>
-                {dialogBusy ? "Updating…" : "Update"}
+              <button type="button" data-testid="update-confirm" autoFocus disabled={updateBusy} onClick={() => void confirmUpdate()}>
+                {updateBusy ? "Updating…" : "Update"}
               </button>
-              <button type="button" data-testid="update-cancel" onClick={() => setDialog(null)}>Cancel</button>
+              {pending?.kind === "update" && (
+                <button type="button" data-testid="update-stop" disabled={cancelling} onClick={() => void cancelNetwork("update")}>
+                  {cancelling ? "Cancelling…" : "Cancel update"}
+                </button>
+              )}
+              <button type="button" data-testid="update-cancel" disabled={updateBusy} onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>
@@ -798,7 +887,7 @@ export function BranchWidget({
 
       {dialog === "mergeAbort" && (
         <div className="modal-backdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-abort-title" data-testid="merge-abort-dialog" onKeyDown={dialogKeyDown}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-abort-title" data-testid="merge-abort-dialog">
             <h2 id="merge-abort-title">Abort merge</h2>
             <p className="hint">
               This undoes the merge: conflict resolutions and anything staged during the merge are
@@ -820,7 +909,7 @@ export function BranchWidget({
 
       {dialog === "push" && (
         <div className="modal-backdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="push-title" data-testid="push-dialog" onKeyDown={dialogKeyDown}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="push-title" data-testid="push-dialog">
             <h2 id="push-title">Push</h2>
             <dl>
               <dt>Remote</dt>
@@ -843,10 +932,15 @@ export function BranchWidget({
               <p className="error" role="alert" data-testid="push-error">{dialogError}</p>
             )}
             <div className="actions">
-              <button type="button" data-testid="push-confirm" autoFocus={remote !== null} disabled={dialogBusy || remote === null} onClick={() => void confirmPush()}>
-                {dialogBusy ? "Pushing…" : "Push"}
+              <button type="button" data-testid="push-confirm" autoFocus={remote !== null} disabled={pushBusy || remote === null} onClick={() => void confirmPush()}>
+                {pushBusy ? "Pushing…" : "Push"}
               </button>
-              <button type="button" data-testid="push-cancel" autoFocus={remote === null} onClick={() => setDialog(null)}>Cancel</button>
+              {pending?.kind === "push" && (
+                <button type="button" data-testid="push-stop" disabled={cancelling} onClick={() => void cancelNetwork("push")}>
+                  {cancelling ? "Cancelling…" : "Cancel push"}
+                </button>
+              )}
+              <button type="button" data-testid="push-cancel" autoFocus={remote === null} disabled={pushBusy} onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>
