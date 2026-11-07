@@ -67,6 +67,14 @@ As duas runs de prova usam uma lista de **um spec** porque o smoke real está ve
 motivo alheio a esta frente (`solution-git-status.spec.ts:111`, issue #245). A prova é do reporte, não
 da lista.
 
+## Superfície de verificação
+
+A skill `verify-openridr` oferece três superfícies: A (Playwright), B (navegador contra o host isolado) e
+C (app Tauri real com `agent-desktop`). **Nenhuma das três se aplica**: esta frente não toca UI, host nem
+produto — o diff é `.github/workflows/e2e-smoke.yml`, `scripts/e2e-smoke-issue.sh`, `tests/shell/`,
+`AGENTS.md` e `docs/`. A superfície empírica da mudança é a **run do workflow**, e é ela que prova o
+aceite (as quatro runs acima). O que sobra de verificação é o teste do script e os linters do CI.
+
 ## Verificação local (na integration branch, depois dos merges)
 
 | Comando | Resultado |
@@ -88,11 +96,10 @@ YAML anterior (14 falhas) e contra cópias do YAML novo com `pull_request`, `can
   fails on a compile error and navigates to it` recebeu `Build failed · exit 1` onde esperava
   `Build succeeded`. O mesmo spec passou na noturna de 10:32, onde roda **depois** de
   `workspace.spec.ts`. Não investigado: é a ordem da lista (o spec depende de a solução já estar
-  aberta?) ou flake de restore. Fica como achado do rastreio — é exatamente o tipo de coisa que a
-  issue de rastreio passa a mostrar.
+  aberta?) ou flake de restore a frio. Fora do escopo desta frente; issue **#251** (bug).
 - **`solution-git-status.spec.ts:111` vermelho na `main`** desde que entrou na lista (revisão r1 da
   #49, marcada como "ainda NÃO medido"): o teste de symlink espera 1 ícone e recebe 2. Fora do escopo
-  desta frente; issue #245.
+  desta frente; issue **#245**.
 
 ## Não verificado
 
