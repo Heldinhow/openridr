@@ -349,6 +349,59 @@ impl GitFileDiff {
     }
 }
 
+/// The diff of one file of a commit. Both sides are blobs of the commit and its first parent, so
+/// nothing here reads the worktree: an uncommitted edit cannot change the answer.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitDiff {
+    pub state: &'static str,
+    pub message: Option<String>,
+    pub path: String,
+    pub original_path: Option<String>,
+    /// The commit whose file is shown; `None` only when the read itself failed.
+    pub commit: Option<DiffCommit>,
+    /// The first parent, or `None` for a root commit.
+    pub parent: Option<DiffCommit>,
+    pub base: DiffSide,
+    pub current: DiffSide,
+    pub hunks: Vec<DiffHunk>,
+    pub patch: String,
+    pub truncated: bool,
+    pub full: bool,
+    pub full_reason: Option<&'static str>,
+}
+
+impl GitCommitDiff {
+    fn unavailable(
+        state: &'static str,
+        message: impl Into<String>,
+        path: &str,
+        original_path: Option<&str>,
+    ) -> Self {
+        Self {
+            state,
+            message: Some(message.into()),
+            path: path.to_string(),
+            original_path: original_path.map(str::to_string),
+            commit: None,
+            parent: None,
+            base: DiffSide {
+                exists: false,
+                text: None,
+            },
+            current: DiffSide {
+                exists: false,
+                text: None,
+            },
+            hunks: Vec::new(),
+            patch: String::new(),
+            truncated: false,
+            full: false,
+            full_reason: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Committed {
@@ -1620,8 +1673,8 @@ fn parse_hunks(patch: &str) -> Vec<DiffHunk> {
     hunks
 }
 
-fn head_commit(repo: &Repo) -> Option<DiffCommit> {
-    let output = run(&repo.top, &["log", "-1", "--format=%H\t%h\t%s"]).ok()?;
+fn commit_ref(repo: &Repo, rev: &str) -> Option<DiffCommit> {
+    let output = run(&repo.top, &["log", "-1", "--format=%H\t%h\t%s", rev]).ok()?;
     if !output.ok() {
         return None;
     }
@@ -1638,6 +1691,10 @@ fn head_commit(repo: &Repo) -> Option<DiffCommit> {
         short_hash,
         subject,
     })
+}
+
+fn head_commit(repo: &Repo) -> Option<DiffCommit> {
+    commit_ref(repo, "HEAD")
 }
 
 fn outside_message(path: &str) -> String {
@@ -1729,6 +1786,96 @@ fn decoded_hunks(base: &str, current: &str) -> Option<Vec<DiffHunk>> {
     Some(parse_hunks(&String::from_utf8_lossy(&output.stdout)))
 }
 
+/// What both diff reads return: the two sides, the ranges that align them, the bounded patch as
+/// fallback, and why the full file cannot be shown.
+struct Assembled {
+    state: &'static str,
+    message: Option<String>,
+    base: DiffSide,
+    current: DiffSide,
+    hunks: Vec<DiffHunk>,
+    patch: String,
+    truncated: bool,
+    full: bool,
+    full_reason: Option<&'static str>,
+}
+
+/// The tail shared by the worktree diff and the commit diff: only how the two sides were resolved
+/// differs between the two reads, so everything after that lives here once.
+fn assemble(
+    path: &str,
+    base_bytes: SideBytes,
+    current_bytes: SideBytes,
+    patch_output: Captured,
+    hunk_output: Captured,
+) -> Assembled {
+    let mut hunks = Vec::new();
+    if !hunk_output.truncated && (hunk_output.code == Some(0) || hunk_output.code == Some(1)) {
+        hunks = parse_hunks(&String::from_utf8_lossy(&hunk_output.stdout));
+    }
+    let (base, base_reason) = read_side(base_bytes);
+    let (current, current_reason) = read_side(current_bytes);
+    let mut full_reason = base_reason.or(current_reason);
+    let mut full =
+        (!base.exists || base.text.is_some()) && (!current.exists || current.text.is_some());
+
+    // Git calls some text binary (UTF-16 with a BOM is the common case) and then emits no ranges.
+    let text_differs = match (base.text.as_deref(), current.text.as_deref()) {
+        (Some(base_text), Some(current_text)) => base_text != current_text,
+        _ => false,
+    };
+    if full && hunks.is_empty() && text_differs {
+        hunks = decoded_hunks(
+            base.text.as_deref().expect("full implies text"),
+            current.text.as_deref().expect("full implies text"),
+        )
+        .unwrap_or_default();
+    }
+
+    let text = mask_urls(&String::from_utf8_lossy(&patch_output.stdout));
+    if text.trim().is_empty() {
+        // "No diff" would be a lie when a side exists and could not be read.
+        let unreadable = base_reason == Some("unreadable") || current_reason == Some("unreadable");
+        let (state, message) = if unreadable {
+            (
+                "failed",
+                format!("The file could not be read for the diff: {path}."),
+            )
+        } else {
+            ("empty", format!("No diff for {path}."))
+        };
+        return Assembled {
+            state,
+            message: Some(message),
+            base,
+            current,
+            hunks,
+            patch: String::new(),
+            truncated: false,
+            full,
+            full_reason,
+        };
+    }
+    if full && text_differs && hunks.is_empty() {
+        // Something changed in the text, but the block ranges that align the two texts are
+        // missing: showing the full file would be a guess.
+        full = false;
+        full_reason = Some("unaligned");
+    }
+    let (patch, truncated) = cap(&text, DIFF_LIMIT);
+    Assembled {
+        state: "ok",
+        message: None,
+        base,
+        current,
+        hunks,
+        patch,
+        truncated,
+        full,
+        full_reason,
+    }
+}
+
 /// The read behind the diff panel: full base and current texts, the changed block ranges that
 /// align them, the bounded patch as fallback, and the repository HEAD commit as context.
 pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDiff> {
@@ -1778,11 +1925,6 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
             ))
         }
     };
-    let mut hunks = Vec::new();
-    if !hunk_output.truncated && (hunk_output.code == Some(0) || hunk_output.code == Some(1)) {
-        hunks = parse_hunks(&String::from_utf8_lossy(&hunk_output.stdout));
-    }
-
     // Unstaged compares the index with the worktree; staged compares HEAD with the index.
     let base_spec = if staged {
         format!("HEAD:{path}")
@@ -1815,73 +1957,256 @@ pub fn file_diff(root: &Path, path: &str, staged: bool) -> HostResult<GitFileDif
     } else {
         read_worktree(&repo, path)
     };
-    let (base, base_reason) = read_side(base_bytes);
-    let (current, current_reason) = read_side(current_bytes);
-    let mut full_reason = base_reason.or(current_reason);
-    let mut full =
-        (!base.exists || base.text.is_some()) && (!current.exists || current.text.is_some());
-
-    // Git calls some text binary (UTF-16 with a BOM is the common case) and then emits no ranges.
-    let text_differs = match (base.text.as_deref(), current.text.as_deref()) {
-        (Some(base_text), Some(current_text)) => base_text != current_text,
-        _ => false,
-    };
-    if full && hunks.is_empty() && text_differs {
-        hunks = decoded_hunks(
-            base.text.as_deref().expect("full implies text"),
-            current.text.as_deref().expect("full implies text"),
-        )
-        .unwrap_or_default();
-    }
-
-    let text = mask_urls(&String::from_utf8_lossy(&patch_output.stdout));
     let commit = head_commit(&repo);
-    if text.trim().is_empty() {
-        // "No diff" would be a lie when a side exists and could not be read.
-        let unreadable = base_reason == Some("unreadable") || current_reason == Some("unreadable");
-        let (state, message) = if unreadable {
-            (
-                "failed",
-                format!("The file could not be read for the diff: {path}."),
-            )
-        } else {
-            ("empty", format!("No diff for {path}."))
-        };
-        return Ok(GitFileDiff {
-            state,
-            message: Some(message),
-            path: path.to_string(),
-            staged,
-            base,
-            current,
-            hunks,
-            patch: String::new(),
-            truncated: false,
-            full,
-            full_reason,
-            commit,
-        });
-    }
-    if full && text_differs && hunks.is_empty() {
-        // Something changed in the text, but the block ranges that align the two texts are
-        // missing: showing the full file would be a guess.
-        full = false;
-        full_reason = Some("unaligned");
-    }
-    let (patch, truncated) = cap(&text, DIFF_LIMIT);
+    let assembled = assemble(path, base_bytes, current_bytes, patch_output, hunk_output);
     Ok(GitFileDiff {
-        state: "ok",
-        message: None,
+        state: assembled.state,
+        message: assembled.message,
         path: path.to_string(),
         staged,
-        base,
-        current,
-        hunks,
-        patch,
-        truncated,
-        full,
-        full_reason,
+        base: assembled.base,
+        current: assembled.current,
+        hunks: assembled.hunks,
+        patch: assembled.patch,
+        truncated: assembled.truncated,
+        full: assembled.full,
+        full_reason: assembled.full_reason,
         commit,
+    })
+}
+
+fn validate_commit(hash: &str) -> HostResult<()> {
+    // A hash is hex: anything else would reach `git rev-parse` as an option or a revision syntax.
+    let valid = (4..=64).contains(&hash.len()) && hash.chars().all(|c| c.is_ascii_hexdigit());
+    if !valid {
+        return Err(HostError::new(
+            "invalid_state",
+            format!("Not a commit hash: {hash}"),
+        ));
+    }
+    Ok(())
+}
+
+/// The empty tree of this repository's hash algorithm, so a root commit has a base to diff against.
+fn empty_tree(repo: &Repo) -> Result<String, SpawnError> {
+    let output = spawn_bounded(&repo.top, &["hash-object", "-t", "tree", "--stdin"], 128)?;
+    if output.code != Some(0) || output.truncated {
+        return Err(SpawnError::Failed(
+            "the empty tree could not be resolved".to_string(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// The two commits a commit diff compares. The pathspec names both sides of a rename: with only the
+/// new path Git reports an add and a delete instead of the rename with its changes.
+struct CommitRange {
+    base: String,
+    head: String,
+    paths: Vec<String>,
+}
+
+fn commit_diff_output(
+    repo: &Repo,
+    range: &CommitRange,
+    unified: &str,
+) -> Result<Captured, SpawnError> {
+    let limit = if unified == "-U0" {
+        HUNK_BYTES
+    } else {
+        PATCH_BYTES
+    };
+    let mut args = vec![
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        unified,
+        range.base.as_str(),
+        range.head.as_str(),
+        "--",
+    ];
+    args.extend(range.paths.iter().map(String::as_str));
+    spawn_bounded(&repo.top, &args, limit)
+}
+
+/// The read behind a commit's diff tab: both sides are blobs of the commit and its first parent.
+pub fn commit_diff(
+    root: &Path,
+    hash: &str,
+    path: &str,
+    original_path: Option<&str>,
+) -> HostResult<GitCommitDiff> {
+    validate_commit(hash)?;
+    validate_path(path)?;
+    if let Some(original) = original_path {
+        validate_path(original)?;
+    }
+    let repo = match open(root) {
+        Ok(repo) => repo,
+        Err(error) => {
+            let (state, message) = open_data_error(error);
+            return Ok(GitCommitDiff::unavailable(
+                state,
+                message,
+                path,
+                original_path,
+            ));
+        }
+    };
+    let spec = format!("{hash}^{{commit}}");
+    let resolved = match run(&repo.top, &["rev-parse", "--verify", "--quiet", &spec]) {
+        Ok(output) => output,
+        Err(error) => {
+            return Ok(GitCommitDiff::unavailable(
+                spawn_state(&error),
+                spawn_message(error),
+                path,
+                original_path,
+            ))
+        }
+    };
+    let full = resolved.stdout.trim().to_string();
+    if resolved.code != Some(0) || full.is_empty() {
+        // A hash the log showed but that no longer exists (amend, rebase) is not a diff.
+        return Ok(GitCommitDiff::unavailable(
+            "failed",
+            format!("Commit not found: {hash}."),
+            path,
+            original_path,
+        ));
+    }
+    let parent_spec = format!("{full}^");
+    let parent_hash = match run(
+        &repo.top,
+        &["rev-parse", "--verify", "--quiet", &parent_spec],
+    ) {
+        Ok(output) if output.code == Some(0) => {
+            let text = output.stdout.trim().to_string();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
+        }
+        // Exit 1 is a root commit: it has no parent, which is not an error.
+        Ok(output) if output.code == Some(1) => None,
+        Ok(output) => {
+            return Ok(GitCommitDiff::unavailable(
+                "failed",
+                mask_urls(output.stderr.trim()),
+                path,
+                original_path,
+            ))
+        }
+        Err(error) => {
+            return Ok(GitCommitDiff::unavailable(
+                spawn_state(&error),
+                spawn_message(error),
+                path,
+                original_path,
+            ))
+        }
+    };
+    let base_path = original_path.unwrap_or(path);
+    let base_bytes = match parent_hash.as_deref() {
+        Some(parent) => match read_blob(&repo, &format!("{parent}:{base_path}")) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Ok(GitCommitDiff::unavailable(
+                    spawn_state(&error),
+                    spawn_message(error),
+                    path,
+                    original_path,
+                ))
+            }
+        },
+        // A root commit has no parent to compare with: the empty tree has no entries, so the base
+        // is absent and the panel says "No previous file", exactly like an added file.
+        None => SideBytes::Missing,
+    };
+    let current_bytes = match read_blob(&repo, &format!("{full}:{path}")) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Ok(GitCommitDiff::unavailable(
+                spawn_state(&error),
+                spawn_message(error),
+                path,
+                original_path,
+            ))
+        }
+    };
+    let base_rev = match parent_hash.as_deref() {
+        Some(parent) => parent.to_string(),
+        None => match empty_tree(&repo) {
+            Ok(tree) => tree,
+            Err(error) => {
+                return Ok(GitCommitDiff::unavailable(
+                    spawn_state(&error),
+                    spawn_message(error),
+                    path,
+                    original_path,
+                ))
+            }
+        },
+    };
+    let mut paths = vec![path.to_string()];
+    if base_path != path {
+        paths.push(base_path.to_string());
+    }
+    let range = CommitRange {
+        base: base_rev,
+        head: full.clone(),
+        paths,
+    };
+    let patch_output = match commit_diff_output(&repo, &range, "-U3") {
+        Ok(output) => output,
+        Err(error) => {
+            return Ok(GitCommitDiff::unavailable(
+                spawn_state(&error),
+                spawn_message(error),
+                path,
+                original_path,
+            ))
+        }
+    };
+    if !patch_output.truncated && patch_output.code != Some(0) && patch_output.code != Some(1) {
+        return Ok(GitCommitDiff::unavailable(
+            "failed",
+            mask_urls(patch_output.stderr.trim()),
+            path,
+            original_path,
+        ));
+    }
+    let hunk_output = match commit_diff_output(&repo, &range, "-U0") {
+        Ok(output) => output,
+        Err(error) => {
+            return Ok(GitCommitDiff::unavailable(
+                spawn_state(&error),
+                spawn_message(error),
+                path,
+                original_path,
+            ))
+        }
+    };
+    let commit = commit_ref(&repo, &full);
+    let parent = parent_hash
+        .as_deref()
+        .and_then(|parent| commit_ref(&repo, parent));
+    let assembled = assemble(path, base_bytes, current_bytes, patch_output, hunk_output);
+    Ok(GitCommitDiff {
+        state: assembled.state,
+        message: assembled.message,
+        path: path.to_string(),
+        original_path: original_path.map(str::to_string),
+        commit,
+        parent,
+        base: assembled.base,
+        current: assembled.current,
+        hunks: assembled.hunks,
+        patch: assembled.patch,
+        truncated: assembled.truncated,
+        full: assembled.full,
+        full_reason: assembled.full_reason,
     })
 }
 
@@ -3038,6 +3363,156 @@ mod tests {
 
         let outside = file_diff(&root, "../escape.txt", false).unwrap_err();
         assert_eq!(outside.code, "invalid_state");
+    }
+
+    #[test]
+    fn commit_diff_returns_both_blobs_hunks_and_the_two_commits() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+        commit_all(&root, "initial");
+        fs::write(root.join("a.txt"), "one\nTWO\nthree\nfour\n").unwrap();
+        commit_all(&root, "second");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        let parent_hash = git(&root, &["rev-parse", "HEAD^"]).trim().to_string();
+        // A commit's diff is the commit's blobs: an uncommitted edit must not change it.
+        fs::write(root.join("a.txt"), "worktree only\n").unwrap();
+
+        let answer = commit_diff(&root, &head, "a.txt", None).unwrap();
+        assert_eq!(answer.state, "ok");
+        assert!(answer.full, "{:?}", answer.full_reason);
+        assert_eq!(answer.base.text.as_deref(), Some("one\ntwo\nthree\nfour\n"));
+        assert_eq!(
+            answer.current.text.as_deref(),
+            Some("one\nTWO\nthree\nfour\n")
+        );
+        assert_eq!(
+            answer.hunks,
+            vec![DiffHunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1
+            }]
+        );
+        let commit = answer.commit.expect("the commit is reported");
+        assert_eq!(commit.hash, head);
+        assert_eq!(
+            commit.short_hash,
+            git(&root, &["rev-parse", "--short", "HEAD"]).trim()
+        );
+        assert_eq!(commit.subject, "second");
+        let parent = answer.parent.expect("the first parent is reported");
+        assert_eq!(parent.hash, parent_hash);
+        assert_eq!(parent.subject, "initial");
+        assert!(answer.patch.contains("+TWO"));
+    }
+
+    #[test]
+    fn commit_diff_marks_added_and_deleted_files_of_the_commit() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("gone.txt"), "a\nb\n").unwrap();
+        commit_all(&root, "initial");
+        fs::remove_file(root.join("gone.txt")).unwrap();
+        fs::write(root.join("new.txt"), "brand new\n").unwrap();
+        commit_all(&root, "remove and add");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let added = commit_diff(&root, &head, "new.txt", None).unwrap();
+        assert_eq!(added.state, "ok");
+        assert!(!added.base.exists);
+        assert_eq!(added.base.text, None);
+        assert_eq!(added.current.text.as_deref(), Some("brand new\n"));
+        assert!(added.full);
+        assert_eq!(added.hunks.len(), 1);
+
+        let deleted = commit_diff(&root, &head, "gone.txt", None).unwrap();
+        assert!(!deleted.current.exists);
+        assert_eq!(deleted.current.text, None);
+        assert_eq!(deleted.base.text.as_deref(), Some("a\nb\n"));
+        assert!(deleted.full);
+    }
+
+    #[test]
+    fn commit_diff_uses_the_original_path_as_the_base_of_a_rename() {
+        let (_temp, root) = init("repo");
+        let original: String = (1..=20).map(|n| format!("line {n}\n")).collect();
+        fs::write(root.join("old.txt"), &original).unwrap();
+        commit_all(&root, "initial");
+        git(&root, &["mv", "old.txt", "new.txt"]);
+        let edited = original.replace("line 10\n", "line TEN\n");
+        fs::write(root.join("new.txt"), &edited).unwrap();
+        commit_all(&root, "rename and edit");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        // The log reports the rename source; the base comes from it, not from the new path.
+        assert!(git(&root, &["show", "--name-status", "--format=", "HEAD"]).contains("R0"));
+
+        let answer = commit_diff(&root, &head, "new.txt", Some("old.txt")).unwrap();
+        assert_eq!(answer.original_path.as_deref(), Some("old.txt"));
+        assert_eq!(answer.base.text.as_deref(), Some(original.as_str()));
+        assert_eq!(answer.current.text.as_deref(), Some(edited.as_str()));
+        assert_eq!(
+            answer.hunks,
+            vec![DiffHunk {
+                old_start: 10,
+                old_count: 1,
+                new_start: 10,
+                new_count: 1
+            }]
+        );
+
+        // Without the rename source the base is the new path in the parent, which does not exist.
+        let without = commit_diff(&root, &head, "new.txt", None).unwrap();
+        assert!(!without.base.exists);
+        assert_eq!(without.current.text.as_deref(), Some(edited.as_str()));
+    }
+
+    #[test]
+    fn commit_diff_of_a_root_commit_has_no_parent_and_no_base() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
+        commit_all(&root, "root");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let answer = commit_diff(&root, &head, "a.txt", None).unwrap();
+        assert_eq!(answer.state, "ok");
+        assert!(answer.parent.is_none());
+        assert!(!answer.base.exists);
+        assert_eq!(answer.current.text.as_deref(), Some("one\ntwo\n"));
+        assert!(answer.full);
+        assert_eq!(answer.hunks.len(), 1);
+        assert!(answer.patch.contains("+one"));
+    }
+
+    #[test]
+    fn commit_diff_falls_back_for_binary_and_rejects_unknown_commits() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("bin.dat"), b"ab\0cd").unwrap();
+        commit_all(&root, "binary");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let binary = commit_diff(&root, &head, "bin.dat", None).unwrap();
+        assert_eq!(binary.state, "ok");
+        assert!(!binary.full);
+        assert_eq!(binary.full_reason, Some("binary"));
+        assert!(!binary.patch.is_empty());
+
+        let unknown = commit_diff(
+            &root,
+            "0123456789abcdef0123456789abcdef01234567",
+            "bin.dat",
+            None,
+        )
+        .unwrap();
+        assert_eq!(unknown.state, "failed");
+        assert!(unknown.message.unwrap().contains("not found"));
+
+        let shape = commit_diff(&root, "--help", "bin.dat", None).unwrap_err();
+        assert_eq!(shape.code, "invalid_state");
+        let outside = commit_diff(&root, &head, "../escape.txt", None).unwrap_err();
+        assert_eq!(outside.code, "invalid_state");
+        let outside_original =
+            commit_diff(&root, &head, "bin.dat", Some("../escape.txt")).unwrap_err();
+        assert_eq!(outside_original.code, "invalid_state");
     }
 
     #[test]
