@@ -1,6 +1,6 @@
 # Evidência — os três menus da toolbar como botões acessíveis (issue #177, tickets #184, #185, #186, #187)
 
-Rodada de 2026-11-07, macOS arm64, medida no commit `9510124` (o último commit de código da frente; o commit de docs desta evidência vem depois e não toca `src/`). Spec: [SPEC-TOOLBAR-MENUS-A11Y](../SPEC-TOOLBAR-MENUS-A11Y.md). Bundle debug `0.3.0-alpha.11` construído desta branch (`bun run tauri build --debug --bundles app`), copiado para `~/Applications-test/OpenRidr-issue177/OpenRidr.app`, `OPENRIDR_HOME` isolado e workspace próprio (cópia do `fixtures/OrderDesk` feita pelo `desktop.sh` da skill de verificação).
+Rodada de 2026-11-07, macOS arm64. Duas sessões: a primeira medida no commit `9510124` e a segunda no `3b47368` (o commit dos consertos do code review; só os dois últimos critérios da tabela dependem dele). Spec: [SPEC-TOOLBAR-MENUS-A11Y](../SPEC-TOOLBAR-MENUS-A11Y.md). Bundle debug `0.3.0-alpha.11` construído desta branch (`bun run tauri build --debug --bundles app`), copiado para `~/Applications-test/OpenRidr-issue177/OpenRidr.app`, `OPENRIDR_HOME` isolado e workspace próprio (cópia do `fixtures/OrderDesk` feita pelo `desktop.sh` da skill de verificação; a segunda sessão usou uma cópia isolada do `fixtures/MissingSdk`).
 
 ## O que foi provado, e como
 
@@ -15,6 +15,8 @@ Rodada de 2026-11-07, macOS arm64, medida no commit `9510124` (o último commit 
 | Escape fecha e devolve o foco | Com o foco dentro do popover (`OrderDesk.sln (current)`, `Build Solution`, `Edit run configurations…`), `press escape`: popover fora da árvore e o gatilho com `states: ['focused']`. Testado nos três. |
 | Clique fora fecha | Workspace actions aberto, clique físico (`mouse-click --xy 900,500 --headed`) no editor: `Build Solution` e `Close Workspace` saem da árvore, só o gatilho fica. Clique semântico (`AXPress`) não serve para esta prova — ele não gera `pointerdown`, como o retro da #168 registrou. |
 | Sem mudança visual | Comparação direta com `evidence/branch-menu-a11y/menu-open-with-merge.png` (mesma janela de 1440×900, mesma fixture): os três gatilhos aparecem na mesma posição e com o mesmo tamanho, e o destaque de "aberto" é o mesmo fundo de antes. |
+| Fechar por item devolve o foco (2ª sessão) | Run configuration aberto, clique em `Run OrderDesk.Cli`: o popover sai da árvore e o gatilho fica `states: ['focused']` — o foco volta para o gatilho, não para o `body`. |
+| Abrir `global.json` fecha o menu (2ª sessão) | Workspace `MissingSdk` (cópia isolada, `global.json` com SDK `8.0.999`), onde a ação fica habilitada: clique em `Open global.json` fecha o popover, deixa o gatilho `states: ['focused']` e abre o arquivo no editor (aba `Close global.json`). |
 
 ## O que o app pegou que o `tsc` não pegaria
 
@@ -22,8 +24,9 @@ Nada quebrou nesta rodada, mas a armadilha do #168 foi evitada por construção:
 
 ## Teste automatizado
 
-- `bun run check` (`tsc --noEmit` + `cargo check --workspace --all-targets`) limpo.
+- `bun run check` (`tsc --noEmit` + `cargo check --workspace --all-targets`) limpo; `bun run build` (tsc + vite) limpo.
 - `bun test tests/unit` → 95 pass, 0 fail. Nenhum teste novo: não há seam puro nesta mudança (os nomes acessíveis não mudaram) e o repo não tem infraestrutura de DOM — decisão registrada na spec e em `decisions.md`.
+- `cargo fmt --all --check` e `cargo fmt --manifest-path src-tauri/Cargo.toml --check` limpos; `cargo clippy --workspace --all-targets -- -D warnings` limpo; `cargo test -p openridr-host` → 580 passed, 0 failed, 54 ignored (as suítes que exigem rede/ferramentas continuam `ignored`, como antes da frente).
 - Os 13 locators de E2E que apontavam para o `<summary>` do menu de workspace actions passaram a `getByRole("button", { name: "Workspace actions" })`. **Nenhum Playwright foi executado nesta rodada** (decisão da issue #67: Playwright é smoke noturno), então essa atualização está **não verificada**.
 
 ## Capturas
