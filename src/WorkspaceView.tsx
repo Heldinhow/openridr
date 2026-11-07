@@ -97,6 +97,7 @@ import {
   defaultSettings,
   matches,
   normalizeSettings,
+  typesACharacter,
   type AppSettings,
   type Keymap,
 } from "./actions/keymap";
@@ -3718,6 +3719,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       });
       if (!action) return;
       if (inEditor && !action.editor) return;
+      // An Option-only binding that would type a character belongs to the editor: ⌥⇧U is a dead key
+      // and ⌥W types ∑, so the matcher's physical key must not swallow typing (issue #129).
+      const binding = action.shortcuts.find((item) => matches(event, item, snapshot.app.platform));
+      if (inEditor && binding && typesACharacter(event, binding)) return;
       // Capture, before CodeMirror: the app's shortcuts and chords outrank its keymap.
       event.preventDefault();
       event.stopPropagation();
