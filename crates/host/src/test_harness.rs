@@ -27,6 +27,7 @@ const AMBIENT: &[&str] = &[
     "OPENRIDR_FORCE_HOSTROOT",
     "OPENRIDR_HOME",
     "OPENRIDR_SESSION_STORE",
+    "OPENRIDR_SYSTEM_PROXY",
     "OPENRIDR_TOOLS_MUXER",
     "OPENRIDR_TOOLS_PACKAGE_SHA512",
     "OPENRIDR_TOOLS_PACKAGE_URL",
@@ -71,6 +72,8 @@ pub fn prepare() {
         }
         let home = tempfile::tempdir().expect("create the process test app home");
         std::env::set_var("OPENRIDR_HOME", home.path());
+        // The macOS proxy source reads the machine's network settings; a test must not.
+        std::env::set_var("OPENRIDR_SYSTEM_PROXY", "off");
         let _ = HOME.set(home);
     });
 }

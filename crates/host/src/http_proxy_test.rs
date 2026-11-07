@@ -97,7 +97,9 @@ fn env_of(pairs: Vec<(&'static str, String)>) -> impl Fn(&str) -> Option<String>
 }
 
 fn route(url: &str, pairs: Vec<(&'static str, String)>) -> Route {
-    plan(url, &env_of(pairs)).expect("the plan must be valid").1
+    plan(url, &env_of(pairs), None)
+        .expect("the plan must be valid")
+        .1
 }
 
 fn pairs_of(items: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
@@ -116,19 +118,19 @@ fn proxy_variables_are_read_in_order_with_lowercase_first() {
             ("HTTPS_PROXY", "http://other.corp:8080"),
         ]),
     );
-    assert_eq!(lowercase.label(), Some("proxy.corp:3128"));
+    assert_eq!(lowercase.described().as_deref(), Some("proxy.corp:3128"));
 
     let fallback = route(
         "https://api.nuget.org/v3/index.json",
         pairs_of(&[("HTTP_PROXY", "http://proxy.corp:8080")]),
     );
-    assert_eq!(fallback.label(), Some("proxy.corp:8080"));
+    assert_eq!(fallback.described().as_deref(), Some("proxy.corp:8080"));
 
     let all_proxy = route(
         "https://api.nuget.org/v3/index.json",
         pairs_of(&[("ALL_PROXY", "http://all.corp:9090")]),
     );
-    assert_eq!(all_proxy.label(), Some("all.corp:9090"));
+    assert_eq!(all_proxy.described().as_deref(), Some("all.corp:9090"));
 
     let direct = route("https://api.nuget.org/v3/index.json", pairs_of(&[]));
     assert!(matches!(direct, Route::Direct));
@@ -193,7 +195,7 @@ fn a_bare_host_and_port_is_read_as_an_http_proxy() {
         "https://api.nuget.org/v3/index.json",
         pairs_of(&[("HTTPS_PROXY", "proxy.corp:3128")]),
     );
-    assert_eq!(route.label(), Some("proxy.corp:3128"));
+    assert_eq!(route.described().as_deref(), Some("proxy.corp:3128"));
 }
 
 #[test]
@@ -206,6 +208,7 @@ fn an_unusable_proxy_value_fails_closed_without_leaking_credentials() {
         let error = plan(
             "https://api.nuget.org/v3/index.json",
             &env_of(vec![("HTTPS_PROXY", value.to_string())]),
+            None,
         )
         .unwrap_err();
         assert!(error.contains("HTTPS_PROXY"), "{error}");
@@ -220,6 +223,7 @@ fn a_malformed_proxy_value_fails_closed() {
     let error = plan(
         "https://api.nuget.org/v3/index.json",
         &env_of(vec![("HTTPS_PROXY", "http://".to_string())]),
+        None,
     )
     .unwrap_err();
     assert!(error.contains("HTTPS_PROXY"), "{error}");
@@ -255,7 +259,7 @@ fn destinations_are_parsed_with_default_ports_and_bracketed_ipv6() {
 fn a_proxy_receives_the_connect_instead_of_the_destination() {
     let proxy = TestProxy::start();
     let url = "https://1.1.1.1/v3/index.json";
-    let agent = agent_for_with(url, &env_of(vec![("HTTPS_PROXY", proxy.url())]))
+    let agent = agent_for_with(url, &env_of(vec![("HTTPS_PROXY", proxy.url())]), None)
         .expect("a local proxy is usable")
         .timeout(std::time::Duration::from_secs(10))
         .build();
@@ -282,6 +286,7 @@ fn a_proxied_private_destination_never_reaches_the_proxy() {
     let error = agent_for_with(
         "https://127.0.0.1:9/v3/index.json",
         &env_of(vec![("HTTPS_PROXY", proxy.url())]),
+        None,
     )
     .unwrap_err();
     assert!(error.contains("127.0.0.1"), "{error}");
@@ -295,12 +300,20 @@ fn a_proxied_private_destination_never_reaches_the_proxy() {
 
 #[test]
 fn a_public_destination_without_a_proxy_builds_direct() {
-    let (destination, route) = plan("https://api.nuget.org/v3/index.json", &env_of(Vec::new()))
-        .expect("a public destination with no proxy is a valid plan");
+    let (destination, route) = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(Vec::new()),
+        None,
+    )
+    .expect("a public destination with no proxy is a valid plan");
     assert!(matches!(route, Route::Direct));
     assert_eq!(destination.host, "api.nuget.org");
-    let agent = agent_for_with("https://api.nuget.org/v3/index.json", &env_of(Vec::new()))
-        .expect("a direct route builds");
+    let agent = agent_for_with(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(Vec::new()),
+        None,
+    )
+    .expect("a direct route builds");
     drop(agent);
 }
 
@@ -314,10 +327,11 @@ fn proxy_credentials_reach_the_client_but_never_the_label() {
     let (destination, route) = plan(
         "https://1.1.1.1/v3/index.json",
         &env_of(vec![("HTTPS_PROXY", value)]),
+        None,
     )
     .expect("an authenticated http proxy is usable");
     assert_eq!(destination.port, 443);
-    let label = route.label().expect("a proxied route").to_string();
+    let label = route.described().expect("a proxied route");
     assert_eq!(label, format!("127.0.0.1:{}", proxy.port));
     assert!(
         !label.contains("s3cret") && !label.contains("openridr"),
@@ -330,6 +344,7 @@ fn proxy_credentials_reach_the_client_but_never_the_label() {
             "HTTPS_PROXY",
             format!("http://openridr:s3cret@127.0.0.1:{}", proxy.port),
         )]),
+        None,
     )
     .expect("the client builds")
     .timeout(std::time::Duration::from_secs(10))
@@ -357,10 +372,11 @@ fn proxy_credentials_reach_the_client_but_never_the_label() {
             "HTTPS_PROXY",
             format!("openridr:s3cret@127.0.0.1:{}", proxy.port),
         )]),
+        None,
     )
     .expect("a scheme-less proxy with credentials is usable");
     assert_eq!(
-        route.label(),
+        route.described().as_deref(),
         Some(format!("127.0.0.1:{}", proxy.port).as_str())
     );
     let agent = agent_for_with(
@@ -369,6 +385,7 @@ fn proxy_credentials_reach_the_client_but_never_the_label() {
             "HTTPS_PROXY",
             format!("openridr:s3cret@127.0.0.1:{}", proxy.port),
         )]),
+        None,
     )
     .expect("the client builds")
     .timeout(std::time::Duration::from_secs(10))
@@ -450,7 +467,7 @@ fn an_impossible_no_proxy_port_does_not_match_every_port() {
 fn a_proxy_answer_of_407_is_explained_as_credentials() {
     let proxy = TestProxy::with_response("HTTP/1.1 407 Proxy Authentication Required");
     let url = "https://1.1.1.1/v3/index.json";
-    let agent = agent_for_with(url, &env_of(vec![("HTTPS_PROXY", proxy.url())]))
+    let agent = agent_for_with(url, &env_of(vec![("HTTPS_PROXY", proxy.url())]), None)
         .expect("the client builds")
         .timeout(std::time::Duration::from_secs(10))
         .build();
@@ -459,6 +476,7 @@ fn a_proxy_answer_of_407_is_explained_as_credentials() {
         url,
         &format!("{error:?}"),
         Some(&format!("127.0.0.1:{}", proxy.port)),
+        None,
     );
     assert!(message.contains("407"), "{message}");
     assert!(message.contains("HTTPS_PROXY"), "{message}");
@@ -494,4 +512,273 @@ fn a_redirect_to_plain_http_is_refused() {
     assert!(error.contains("only HTTPS destinations"), "{error}");
     assert!(error.contains("Nothing was downloaded"), "{error}");
     assert!(redirected("https://api.nuget.org/v3/a", "/v3/b").is_ok());
+}
+
+/// A macOS setting in the shape the reader produces. `unsupported` belongs to the diagnostics
+/// ticket, so it stays empty here.
+fn setting(
+    https: Option<&str>,
+    http: Option<&str>,
+    exceptions: &[&str],
+) -> crate::system_proxy::SystemProxy {
+    crate::system_proxy::SystemProxy {
+        https: https.map(str::to_string),
+        http: http.map(str::to_string),
+        exceptions: exceptions
+            .iter()
+            .map(|entry| (*entry).to_string())
+            .collect(),
+        unsupported: None,
+    }
+}
+
+fn route_with_setting(url: &str, setting: &crate::system_proxy::SystemProxy) -> Route {
+    plan(url, &env_of(Vec::new()), Some(setting))
+        .expect("the plan must be valid")
+        .1
+}
+
+#[test]
+fn a_proxy_from_the_system_settings_is_used_when_the_environment_is_empty() {
+    let setting = setting(Some("proxy.corp:3128"), Some("plain.corp:8080"), &[]);
+    assert_eq!(
+        route_with_setting("https://api.nuget.org/v3/index.json", &setting)
+            .described()
+            .as_deref(),
+        Some("proxy.corp:3128 (macOS system proxy)")
+    );
+    assert_eq!(
+        route_with_setting("http://api.nuget.org/v3/index.json", &setting)
+            .described()
+            .as_deref(),
+        Some("plain.corp:8080 (macOS system proxy)"),
+        "an http destination uses the http setting"
+    );
+}
+
+#[test]
+fn an_environment_proxy_wins_over_the_system_setting() {
+    let setting = setting(Some("system.corp:3128"), None, &[]);
+    let (_, route) = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(pairs_of(&[("HTTPS_PROXY", "http://env.corp:8080")])),
+        Some(&setting),
+    )
+    .expect("the plan must be valid");
+    assert_eq!(route.described().as_deref(), Some("env.corp:8080"));
+}
+
+/// The system source is the last item of #51's ordered list, so even `HTTP_PROXY` — the last resort
+/// among the variables — wins over the Mac's `HTTPSProxy`. An environment that names a proxy is the
+/// operator's decision for this app.
+#[test]
+fn an_environment_http_proxy_also_wins_over_the_system_setting() {
+    let setting = setting(Some("system.corp:3128"), None, &[]);
+    let (_, route) = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(pairs_of(&[("HTTP_PROXY", "http://env.corp:8080")])),
+        Some(&setting),
+    )
+    .expect("the plan must be valid");
+    assert_eq!(route.described().as_deref(), Some("env.corp:8080"));
+}
+
+#[test]
+fn the_system_exceptions_send_the_destination_direct() {
+    let setting = setting(Some("proxy.corp:3128"), None, &["*.local", ".corp.example"]);
+    assert!(
+        matches!(
+            route_with_setting("https://feed.corp.example/v3/index.json", &setting),
+            Route::Direct
+        ),
+        "an exception is a direct route"
+    );
+    assert_eq!(
+        route_with_setting("https://api.nuget.org/v3/index.json", &setting)
+            .described()
+            .as_deref(),
+        Some("proxy.corp:3128 (macOS system proxy)")
+    );
+}
+
+#[test]
+fn an_environment_no_proxy_wins_over_the_system_exceptions() {
+    let setting = setting(Some("proxy.corp:3128"), None, &["corp.example"]);
+    let (_, route) = plan(
+        "https://feed.corp.example/v3/index.json",
+        &env_of(pairs_of(&[("NO_PROXY", "other.example")])),
+        Some(&setting),
+    )
+    .expect("the plan must be valid");
+    assert_eq!(
+        route.described().as_deref(),
+        Some("proxy.corp:3128 (macOS system proxy)"),
+        "the environment list is the only one read"
+    );
+}
+
+#[test]
+fn a_private_destination_never_reaches_a_system_proxy() {
+    if std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() == Ok("1") {
+        eprintln!("skipped: OPENRIDR_ENABLE_PROBE=1 opens the controlled-installer seam");
+        return;
+    }
+    let proxy = TestProxy::start();
+    let setting = setting(Some(&format!("127.0.0.1:{}", proxy.port)), None, &[]);
+    let error = agent_for_with(
+        "https://127.0.0.1:9/v3/index.json",
+        &env_of(Vec::new()),
+        Some(&setting),
+    )
+    .unwrap_err();
+    assert!(error.contains("127.0.0.1"), "{error}");
+    assert!(error.to_lowercase().contains("refused"), "{error}");
+    assert!(
+        proxy.hits().is_empty(),
+        "the guard must run before any connection: {:?}",
+        proxy.hits()
+    );
+}
+
+#[test]
+fn a_system_proxy_receives_the_connect_instead_of_the_destination() {
+    let proxy = TestProxy::start();
+    let setting = setting(Some(&format!("127.0.0.1:{}", proxy.port)), None, &[]);
+    let url = "https://1.1.1.1/v3/index.json";
+    let agent = agent_for_with(url, &env_of(Vec::new()), Some(&setting))
+        .expect("a local proxy is usable")
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+    let error = agent.get(url).call().unwrap_err();
+    assert!(
+        format!("{error:?}").to_lowercase().contains("proxy"),
+        "the failure must be reported as a proxy failure: {error:?}"
+    );
+    let hits = proxy.hits();
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert!(
+        hits[0].starts_with("CONNECT 1.1.1.1:443"),
+        "the proxy must be asked to reach the destination: {hits:?}"
+    );
+}
+
+/// A message that names the system settings tells the person which knob to turn; a proxy from the
+/// environment needs no origin, because the variable is the knob.
+#[test]
+fn the_system_proxy_label_names_its_origin() {
+    let setting = setting(Some("proxy.corp:3128"), None, &[]);
+    let (_, from_system) = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(Vec::new()),
+        Some(&setting),
+    )
+    .expect("the plan must be valid");
+    assert_eq!(
+        from_system.described().as_deref(),
+        Some("proxy.corp:3128 (macOS system proxy)")
+    );
+    let (_, from_env) = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(pairs_of(&[("HTTPS_PROXY", "http://env.corp:8080")])),
+        Some(&setting),
+    )
+    .expect("the plan must be valid");
+    assert_eq!(from_env.described().as_deref(), Some("env.corp:8080"));
+}
+
+#[test]
+fn the_download_log_names_the_system_proxy_and_its_origin() {
+    let setting = setting(Some("proxy.corp:3128"), None, &[]);
+    let url = "https://github.com/o/r/asset.zip";
+    let label = proxy_label_with(url, &env_of(Vec::new()), Some(&setting));
+    assert_eq!(
+        log_line(url, label.as_deref()),
+        "GET https://github.com/o/r/asset.zip via proxy proxy.corp:3128 (macOS system proxy)"
+    );
+}
+
+/// A Mac set to SOCKS has no proxy this client can use, so the failure has to say why instead of
+/// leaving the person to guess that the NuGet feed is down.
+#[test]
+fn a_failure_with_socks_names_the_setting_and_the_way_out() {
+    let message = describe_via(
+        "https://api.nuget.org/v3/index.json",
+        "Transport(ConnectionFailed)",
+        None,
+        Some("a SOCKS proxy"),
+    );
+    assert!(message.contains("a SOCKS proxy"), "{message}");
+    assert!(message.contains("does not support"), "{message}");
+    assert!(message.contains("HTTPS_PROXY"), "{message}");
+}
+
+#[test]
+fn a_failure_with_a_pac_file_names_the_setting() {
+    let message = describe_via(
+        "https://api.nuget.org/v3/index.json",
+        "Transport(ConnectionFailed)",
+        None,
+        Some("automatic proxy configuration (PAC/WPAD)"),
+    );
+    assert!(
+        message.contains("automatic proxy configuration (PAC/WPAD)"),
+        "{message}"
+    );
+    assert!(message.contains("HTTPS_PROXY"), "{message}");
+}
+
+/// A value from the system settings that the client cannot use names the settings, not a variable
+/// the person never set.
+#[test]
+fn an_unusable_system_proxy_names_the_system_settings() {
+    let setting = setting(Some("[::1]:8080"), None, &[]);
+    let error = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(Vec::new()),
+        Some(&setting),
+    )
+    .unwrap_err();
+    assert!(error.contains("macOS system proxy"), "{error}");
+    assert!(error.contains("IPv6"), "{error}");
+    assert!(!error.contains("HTTPS_PROXY"), "{error}");
+}
+
+/// A stall behind a Mac set to SOCKS or PAC is not a network problem the person can fix without
+/// knowing that the setting is not used.
+#[test]
+fn a_stall_names_the_system_setting_when_there_is_no_usable_proxy() {
+    let message = stalled_with(
+        "https://github.com/o/r/asset.zip",
+        std::time::Duration::from_secs(60),
+        Some("a SOCKS proxy"),
+    );
+    assert!(message.contains("stalled"), "{message}");
+    assert!(message.contains("a SOCKS proxy"), "{message}");
+    assert!(message.contains("HTTPS_PROXY"), "{message}");
+}
+
+/// The Mac's unusable setting must not be blamed when the request did use a proxy.
+#[test]
+fn the_system_setting_is_not_blamed_when_a_proxy_was_used() {
+    let proxy = TestProxy::start();
+    let setting = crate::system_proxy::SystemProxy {
+        unsupported: Some("automatic proxy configuration (PAC/WPAD)"),
+        ..setting(None, None, &[])
+    };
+    let env = env_of(vec![("HTTPS_PROXY", proxy.url())]);
+    let url = "https://1.1.1.1/v3/index.json";
+    let agent = agent_for_with(url, &env, Some(&setting))
+        .expect("the client builds")
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+    let error = agent.get(url).call().unwrap_err();
+    let message = describe_error_with(url, &error, &env, Some(&setting));
+    assert!(
+        message.contains(&format!("127.0.0.1:{}", proxy.port)),
+        "{message}"
+    );
+    assert!(
+        !message.contains("automatic proxy configuration"),
+        "the setting did not cause this failure: {message}"
+    );
 }

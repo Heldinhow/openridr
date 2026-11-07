@@ -183,3 +183,74 @@ fn discover_through_a_local_proxy_reports_the_proxy_isolated() {
         "the proxy must be asked to reach the source: {hits:?}"
     );
 }
+
+/// A program that prints the `scutil --proxy` dictionary pointing at `proxy`. Pointing the seam at
+/// it lets the product path read a "system setting" without touching the machine's network
+/// configuration.
+fn fake_scutil(proxy: &LocalProxy) -> (tempfile::TempDir, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let program = directory.path().join("fake-scutil");
+    fs::write(
+        &program,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' '<dictionary> {{' '  HTTPSEnable : 1' '  HTTPSPort : {}' '  HTTPSProxy : 127.0.0.1' '}}'\n",
+            proxy.port
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    (directory, program)
+}
+
+#[test]
+fn discover_through_the_system_proxy_reports_the_proxy() {
+    support::run_isolated_leaf("discover_through_the_system_proxy_reports_the_proxy_isolated");
+}
+
+/// The issue in one test: no proxy variable anywhere, only the macOS setting, and Discover still
+/// reaches the proxy instead of trying the destination directly.
+#[test]
+#[ignore = "isolated leaf: it points OPENRIDR_SYSTEM_PROXY at a fake scutil for its own host"]
+fn discover_through_the_system_proxy_reports_the_proxy_isolated() {
+    if !dotnet_is_available() {
+        eprintln!("not verified: no dotnet on PATH, so the configured source cannot be listed");
+        return;
+    }
+    let proxy = LocalProxy::start();
+    let (_directory, program) = fake_scutil(&proxy);
+    let host = support::host();
+    // After `host()`: `prepare()` turns the source off for the whole suite, and this leaf is the one
+    // that wants it on.
+    let _seam = support::EnvVar::set("OPENRIDR_SYSTEM_PROXY", &program);
+    let temp = tempfile::tempdir().unwrap();
+    let copy = workspace(temp.path());
+    open_and_trust(&host, &copy.join("OrderDesk.sln"));
+
+    let result = host
+        .dispatch(
+            "nuget.search",
+            json!({
+                "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+                "source": PROXIED_SOURCE,
+                "query": "xunit"
+            }),
+        )
+        .expect("a configured source is accepted");
+    assert_eq!(result["state"], "failed", "{result}");
+    let message = result["message"].as_str().unwrap_or_default().to_string();
+    assert!(
+        message.contains(&proxy.label()),
+        "the failure must name the proxy from the system settings: {message}"
+    );
+    let hits = proxy.hits();
+    assert_eq!(
+        hits.len(),
+        1,
+        "one request, and it went to the proxy: {hits:?}"
+    );
+    assert!(
+        hits[0].starts_with("CONNECT 1.1.1.1:443"),
+        "the proxy must be asked to reach the source: {hits:?}"
+    );
+}
