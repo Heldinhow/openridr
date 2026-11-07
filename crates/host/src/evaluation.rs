@@ -4,6 +4,7 @@
 //! solution only supplies the project list, configurations and folders. Evaluation never
 //! restores or builds; `obj/project.assets.json` is only inspected to report partial context.
 
+use crate::scope::{ResolvedScope, Scope};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -256,6 +257,8 @@ pub struct PlanProject {
 pub struct EvalPlan {
     pub projects: Vec<PlanProject>,
     pub configurations: Vec<String>,
+    /// The directories this workspace may touch: its root plus the projects' directories.
+    pub scope: Scope,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -309,17 +312,34 @@ struct InvokeError {
 pub fn plan_workspace(workspace_file: &Path, root: &Path, is_solution: bool) -> EvalPlan {
     let mut projects = Vec::new();
     let configurations;
+    let resolved;
     if is_solution {
         let text = fs::read_to_string(workspace_file).unwrap_or_default();
         let model = parse_solution(&text);
         configurations = model.configurations;
-        for project in model.projects {
-            projects.push(plan_project(
-                root,
-                project.name,
-                project.path,
-                project.folder,
-            ));
+        // The scope comes from the workspace file itself: a project it names outside the root is
+        // part of the workspace, and nothing else is. The same helper builds the outline's scope,
+        // so the two can never disagree.
+        resolved = crate::outline::resolve_workspace_scope(root, workspace_file, true);
+        if workspace_file
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("slnx"))
+        {
+            // `.slnx` lists projects as XML, which the text parser above does not read: the project
+            // list comes from the same parser the outline and the scope use.
+            for (name, path) in crate::outline::solution_projects(workspace_file) {
+                projects.push(plan_project(root, &resolved, name, path, None));
+            }
+        } else {
+            for project in model.projects {
+                projects.push(plan_project(
+                    root,
+                    &resolved,
+                    project.name,
+                    project.path,
+                    project.folder,
+                ));
+            }
         }
     } else {
         configurations = vec!["Debug".to_string(), "Release".to_string()];
@@ -328,7 +348,8 @@ pub fn plan_workspace(workspace_file: &Path, root: &Path, is_solution: bool) -> 
             .file_stem()
             .map(|stem| stem.to_string_lossy().to_string())
             .unwrap_or_else(|| rel.clone());
-        projects.push(plan_project(root, name, rel, None));
+        resolved = crate::outline::resolve_workspace_scope(root, workspace_file, false);
+        projects.push(plan_project(root, &resolved, name, rel, None));
     }
     let mut configurations = configurations;
     if configurations.is_empty() {
@@ -337,21 +358,28 @@ pub fn plan_workspace(workspace_file: &Path, root: &Path, is_solution: bool) -> 
     EvalPlan {
         projects,
         configurations,
+        scope: resolved.scope,
     }
 }
 
-fn plan_project(root: &Path, name: String, rel: String, folder: Option<String>) -> PlanProject {
+fn plan_project(
+    root: &Path,
+    resolved: &ResolvedScope,
+    name: String,
+    rel: String,
+    folder: Option<String>,
+) -> PlanProject {
     let normalized = normalize_rel(&rel);
     let candidate = root.join(&normalized);
     let canonical = fs::canonicalize(&candidate).ok();
     let (abs_path, error) = match canonical {
-        Some(path) if path.starts_with(root) => (Some(path), None),
-        Some(_) => (
-            None,
-            Some(format!(
-                "{normalized} resolves outside the workspace; it was not evaluated."
-            )),
-        ),
+        Some(path) if resolved.scope.contains(&path) => (Some(path), None),
+        Some(path) => {
+            let reason = resolved.refused.get(&path).cloned().unwrap_or_else(|| {
+                format!("{normalized} is outside the workspace scope; it was not evaluated.")
+            });
+            (None, Some(reason))
+        }
         None => (
             None,
             Some(format!(
@@ -359,9 +387,17 @@ fn plan_project(root: &Path, name: String, rel: String, folder: Option<String>) 
             )),
         ),
     };
+    // A project outside the root is addressed by its canonical absolute path, so no `..` ever
+    // crosses the host API; a project that could not be evaluated keeps the text the file used.
+    let path = match &abs_path {
+        Some(canonical) if !canonical.starts_with(root) => {
+            canonical.to_string_lossy().replace('\\', "/")
+        }
+        _ => normalized,
+    };
     PlanProject {
         name,
-        path: normalized,
+        path,
         abs_path,
         folder,
         error,
@@ -371,6 +407,7 @@ fn plan_project(root: &Path, name: String, rel: String, folder: Option<String>) 
 pub fn watch_paths(
     workspace_file: &Path,
     root: &Path,
+    scope: &Scope,
     projects: &[PlanProject],
     sources: &[String],
 ) -> Vec<Watched> {
@@ -420,7 +457,7 @@ pub fn watch_paths(
         if dirs.len() >= MAX_WATCHED_DIRS {
             break;
         }
-        if !dir.starts_with(root) || !dir.is_dir() {
+        if !scope.contains(&dir) || !dir.is_dir() {
             continue;
         }
         dirs.push(dir.clone());
@@ -475,6 +512,7 @@ pub fn evaluate_project(
     muxer: &Path,
     sdk_root: &Path,
     root: &Path,
+    scope: &Scope,
     project: &PlanProject,
     configuration: &str,
     target_framework: Option<&str>,
@@ -607,12 +645,12 @@ pub fn evaluate_project(
     let sources = result
         .compile
         .iter()
-        .filter(|path| path.starts_with(root))
+        .filter(|path| scope.contains(path))
         .filter(|path| {
             path.extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("cs"))
         })
-        .filter(|path| !has_dir(path, root, "bin") && !has_dir(path, root, "obj"))
+        .filter(|path| !has_dir(path, scope, "bin") && !has_dir(path, scope, "obj"))
         .map(|path| relative_path(root, path))
         .collect();
 
@@ -859,8 +897,11 @@ fn project_kind(is_test: Option<&str>, output_type: Option<&str>) -> &'static st
     }
 }
 
-fn has_dir(path: &Path, root: &Path, name: &str) -> bool {
-    path.strip_prefix(root)
+fn has_dir(path: &Path, scope: &Scope, name: &str) -> bool {
+    // Below the scope directory that owns the path, so a root or project directory that happens to
+    // be called `bin`/`obj` does not hide every source of the project.
+    let base = scope.entry_of(path).unwrap_or(path);
+    path.strip_prefix(base)
         .unwrap_or(path)
         .components()
         .any(|component| component.as_os_str().eq_ignore_ascii_case(name))
@@ -1208,7 +1249,8 @@ EndGlobal\n";
             "src/App/Program.cs".to_string(),
             "src/App/Models/Order.cs".to_string(),
         ];
-        let watched = watch_paths(&workspace_file, root, &projects, &sources);
+        let scope = Scope::new(root);
+        let watched = watch_paths(&workspace_file, root, &scope, &projects, &sources);
         let paths: Vec<&Path> = watched
             .iter()
             .map(|watched| watched.path.as_path())
@@ -1218,6 +1260,85 @@ EndGlobal\n";
         assert!(paths.contains(&root.join("src/App/Models").as_path()));
         assert!(!paths.contains(&root.join("src/App/obj").as_path()));
         assert!(!paths.contains(&root.join("src/App/bin").as_path()));
+    }
+
+    #[test]
+    fn a_solution_project_outside_the_root_joins_the_scope_and_a_missing_one_does_not() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        let lib = temp.path().join("lib");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("Lib.csproj"), "<Project />\n").unwrap();
+        let solution = root.join("App.sln");
+        fs::write(
+            &solution,
+            "Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Lib\", \"..\\lib\\Lib.csproj\", \"{1}\"\nEndProject\nProject(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Nope\", \"..\\nope\\Nope.csproj\", \"{2}\"\nEndProject\nGlobal\nEndGlobal\n",
+        )
+        .unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+        let lib = fs::canonicalize(&lib).unwrap();
+
+        let plan = plan_workspace(&solution, &root, true);
+        assert_eq!(plan.projects.len(), 2);
+        let outside = &plan.projects[0];
+        assert_eq!(outside.name, "Lib");
+        assert!(outside.error.is_none(), "{:?}", outside.error);
+        assert_eq!(
+            outside.abs_path.as_deref(),
+            Some(lib.join("Lib.csproj").as_path())
+        );
+        assert_eq!(outside.path, lib.join("Lib.csproj").to_string_lossy());
+        let missing = &plan.projects[1];
+        assert!(missing.abs_path.is_none());
+        assert!(
+            missing
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("was not found on disk"),
+            "{:?}",
+            missing.error
+        );
+        assert_eq!(plan.scope.roots(), &[root, lib]);
+    }
+
+    #[test]
+    fn a_project_beyond_the_scope_cap_is_reported_with_the_reason() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        fs::create_dir_all(&root).unwrap();
+        let mut text = String::new();
+        for index in 0..=crate::scope::MAX_EXTRA_ROOTS {
+            let dir = temp.path().join(format!("p{index}"));
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("P.csproj"), "<Project />\n").unwrap();
+            text.push_str(&format!(
+                "Project(\"{{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}}\") = \"P{index}\", \"..\\p{index}\\P.csproj\", \"{{{index}}}\"\nEndProject\n"
+            ));
+        }
+        let solution = root.join("App.sln");
+        fs::write(&solution, format!("{text}Global\nEndGlobal\n")).unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+
+        let plan = plan_workspace(&solution, &root, true);
+        assert_eq!(plan.projects.len(), crate::scope::MAX_EXTRA_ROOTS + 1);
+        let refused = plan.projects.last().unwrap();
+        assert!(refused.abs_path.is_none());
+        assert!(
+            refused
+                .error
+                .as_deref()
+                .unwrap()
+                .contains(&crate::scope::MAX_EXTRA_ROOTS.to_string()),
+            "{:?}",
+            refused.error
+        );
+        assert_eq!(
+            plan.scope.roots().len(),
+            crate::scope::MAX_EXTRA_ROOTS + 1,
+            "the root plus the accepted extras"
+        );
     }
 
     #[test]

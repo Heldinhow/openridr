@@ -250,15 +250,6 @@ fn loggable_url(url: &str) -> String {
     url[..cut].to_string()
 }
 
-fn resolve_location(base: &str, location: &str) -> String {
-    if location.contains("://") {
-        return location.to_string();
-    }
-    let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
-    let authority = rest.split('/').next().unwrap_or_default();
-    format!("{scheme}://{authority}{location}")
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Source {
@@ -1378,11 +1369,6 @@ impl Debugger {
 
     /// Downloads the asset to `path`, validating every origin and redirect, while hashing.
     fn download(&self, asset: &AssetView, path: &Path) -> Result<String, Stop> {
-        let agent = crate::http::agent_builder()
-            .redirects(0)
-            .timeout_connect(Duration::from_secs(15))
-            .timeout(Duration::from_secs(300))
-            .build();
         let mut url = asset.url.clone();
         for _ in 0..=MAX_REDIRECTS {
             if !allowed_url(&url) {
@@ -1391,7 +1377,20 @@ impl Debugger {
                     ALLOWED_HOSTS.join(", ")
                 )));
             }
-            self.log(&format!("GET {}", loggable_url(&url)));
+            // Every hop is its own destination: route and guard it again instead of reusing the
+            // client that was built for the previous host.
+            let agent = match crate::http::agent_for(&url) {
+                Ok(builder) => builder
+                    .redirects(0)
+                    .timeout_connect(Duration::from_secs(15))
+                    .timeout(Duration::from_secs(300))
+                    .build(),
+                Err(error) => return Err(Stop::Failed(format!("{error} Nothing was downloaded."))),
+            };
+            self.log(&crate::http::log_line(
+                &loggable_url(&url),
+                crate::http::proxy_label(&url).as_deref(),
+            ));
             match agent.get(&url).call() {
                 Ok(response) if (300..400).contains(&response.status()) => {
                     let Some(location) = response.header("location") else {
@@ -1400,7 +1399,7 @@ impl Debugger {
                             response.status()
                         )));
                     };
-                    url = resolve_location(&url, location);
+                    url = crate::http::resolve_location(&url, location);
                 }
                 Ok(response) => {
                     let total = response
@@ -1422,12 +1421,20 @@ impl Debugger {
                             "The server answered {code} without a Location; nothing was downloaded."
                         )));
                     };
-                    url = resolve_location(&url, location);
+                    url = crate::http::resolve_location(&url, location);
                 }
-                Err(ureq::Error::Status(code, _)) => {
+                Err(ureq::Error::Status(code, response)) => {
+                    // A proxy answering in absolute form reports 407 as a plain status; it needs the
+                    // same credentials advice as the CONNECT path.
+                    if code == 407 {
+                        return Err(Stop::Failed(format!(
+                            "The download failed: {}; nothing was extracted.",
+                            crate::http::describe_error(&url, &ureq::Error::Status(code, response))
+                        )));
+                    }
                     return Err(Stop::Failed(format!(
                         "The download failed with HTTP {code}; nothing was extracted."
-                    )))
+                    )));
                 }
                 Err(ureq::Error::Transport(error)) => {
                     return Err(Stop::Failed(format!(
@@ -1913,11 +1920,11 @@ mod tests {
         assert!(!allowed_url("https://github.com.evil.invalid/x.zip"));
         assert!(!allowed_url("file:///etc/passwd"));
         assert_eq!(
-            resolve_location("https://github.com/a/b", "/c/d"),
+            crate::http::resolve_location("https://github.com/a/b", "/c/d"),
             "https://github.com/c/d"
         );
         assert_eq!(
-            resolve_location(
+            crate::http::resolve_location(
                 "https://github.com/a/b",
                 "https://objects.githubusercontent.com/x"
             ),

@@ -121,6 +121,23 @@ export type GitFileDiff = {
   commit: GitDiffCommit | null;
 };
 
+/** The diff of one file of a commit: both sides are blobs, so the worktree cannot change it. */
+export type GitCommitDiff = {
+  state: "ok" | "empty" | "not_a_repository" | "git_missing" | "failed";
+  message: string | null;
+  path: string;
+  originalPath: string | null;
+  commit: GitDiffCommit | null;
+  parent: GitDiffCommit | null;
+  base: GitDiffSide;
+  current: GitDiffSide;
+  hunks: GitHunk[];
+  patch: string;
+  truncated: boolean;
+  full: boolean;
+  fullReason: "binary" | "too_large" | "unsupported_encoding" | "unreadable" | "unaligned" | null;
+};
+
 export type GitOperation = {
   state: "ok" | "failed";
   message: string | null;
@@ -153,7 +170,11 @@ function unavailable(status: GitStatus | null, error: string | null): string | n
 function cleanReason(status: GitStatus | null): string | null {
   if (!status || status.state !== "ok") return null;
   if (status.operation) {
-    return `A ${status.operation} is in progress; finish or abort it before checking out or updating.`;
+    // Only a merge can be finished or aborted from the app (#114); the others are named as a
+    // terminal job instead of promising a button that does not exist.
+    return status.operation === "merge"
+      ? "A merge is in progress; finish or abort it from the branch menu before checking out or updating."
+      : `A ${status.operation} is in progress; finish or abort it in a terminal before checking out or updating.`;
   }
   if (!status.clean) {
     return "The working tree has uncommitted changes; commit them first. OpenRidr does not auto-stash.";
@@ -186,6 +207,24 @@ export function gitPushBlockedReason(
   return null;
 }
 
+/**
+ * A Fetch action is unavailable only when no remote exists. Unlike Checkout and Update it never
+ * refuses a dirty tree or an in-progress operation: fetch moves refs, not the tree.
+ */
+export function gitFetchBlockedReason(
+  status: GitStatus | null,
+  error: string | null,
+  trusted: boolean,
+): string | null {
+  if (!trusted || error || !status || status.state !== "ok") {
+    return gitBlockedReason(status, error, trusted);
+  }
+  if (status.remotes.length === 0) {
+    return "No remote is configured; add one with git remote add.";
+  }
+  return null;
+}
+
 /** Update (pull) needs a clean tree and an upstream; it never auto-stashes. */
 export function gitUpdateBlockedReason(
   status: GitStatus | null,
@@ -210,11 +249,24 @@ function counters(status: GitStatus) {
   return parts.join(" ");
 }
 
+/**
+ * The branch menu trigger's accessible name, and its tooltip: the ref, its upstream and counters,
+ * plus the one state a screen-reader user cannot see — a merge waiting to be finished here.
+ */
+export function branchTriggerLabel(status: GitStatus): string {
+  const ahead = counters(status);
+  return `Current branch: ${branchName(status)}${
+    status.upstream ? ` · upstream ${status.upstream}` : " · no upstream"
+  }${ahead ? ` · ${status.ahead} ahead, ${status.behind} behind` : ""}${
+    status.operation === "merge" ? " · merge in progress — complete or abort it here" : ""
+  }`;
+}
+
 function shortDate(value: string) {
   return value.slice(0, 16).replace("T", " ");
 }
 
-export type GitIntent = { kind: "push" | "update" | "branchCreate"; nonce: number };
+export type GitIntent = { kind: "push" | "update" | "fetch" | "branchCreate"; nonce: number };
 
 export function BranchWidget({
   status,
@@ -240,10 +292,16 @@ export function BranchWidget({
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [dialog, setDialog] = useState<"update" | "push" | null>(null);
+  const [dialog, setDialog] = useState<"update" | "push" | "mergeAbort" | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  // A fetch takes seconds; the command palette can ask for another one while the first is still
+  // running. The ref is the guard the state cannot be: it is read at call time, not at render time.
+  const fetchingRef = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   async function loadBranches() {
     try {
@@ -255,10 +313,17 @@ export function BranchWidget({
     }
   }
 
+  // Hooks live above the early returns below: a hook after them runs only on some renders.
   useEffect(() => {
     if (!menuOpen) return;
     void loadBranches();
     void onRefresh();
+    // The workspace closes <details> menus on an outside click; this popover is not one.
+    function onPointerDown(event: PointerEvent) {
+      if (!wrapRef.current?.contains(event.target as Node)) closeMenu();
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
     // Only when the popup opens; refresh() is stable per trust state.
   }, [menuOpen]);
 
@@ -267,8 +332,17 @@ export function BranchWidget({
     setMenuOpen(true);
     setError(null);
     setDialogError(null);
+    setFetchError(null);
     const blocked = status ? cleanReason(status) : null;
-    if (intent.kind === "update") {
+    if (intent.kind === "fetch") {
+      // Fetch is the one action that runs straight from the command: it needs no confirmation
+      // because it writes no branch, no index and no file.
+      if (status && status.state === "ok" && status.remotes.length === 0) {
+        setFetchError(gitFetchBlockedReason(status, null, true));
+      } else if (!fetchingRef.current) {
+        void runFetch();
+      }
+    } else if (intent.kind === "update") {
       if (status && status.state === "ok" && status.upstream === null) {
         setError("No upstream is configured; nothing to pull.");
       } else if (blocked) {
@@ -306,13 +380,15 @@ export function BranchWidget({
   }
 
   const ahead = counters(status);
-  const title = `Current branch: ${branchName(status)}${
-    status.upstream ? ` · upstream ${status.upstream}` : " · no upstream"
-  }${ahead ? ` · ${status.ahead} ahead, ${status.behind} behind` : ""}`;
+  const label = branchTriggerLabel(status);
   const remoteReason =
     status.upstream === null && status.remotes.length === 0
       ? "No remote is configured; add one with git remote add."
       : null;
+  // Fetch needs a remote and nothing else: it moves refs, so a dirty tree or an operation in
+  // progress is not a reason to disable it.
+  const fetchReason =
+    status.remotes.length === 0 ? "No remote is configured; add one with git remote add." : null;
   const updateReason =
     status.upstream === null
       ? "No upstream is configured; nothing to pull."
@@ -362,6 +438,29 @@ export function BranchWidget({
     }
   }
 
+  async function runFetch() {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    setFetching(true);
+    setBusy(true);
+    setFetchError(null);
+    try {
+      const result = await call<GitOperation>("git.fetch");
+      if (result.state === "ok") {
+        onMessage(result.message ?? "Fetched the remote.");
+      } else {
+        setFetchError(result.message ?? "git fetch failed.");
+      }
+      await Promise.all([onRefresh(), loadBranches()]);
+    } catch (caught) {
+      setFetchError(messageOf(caught));
+    } finally {
+      fetchingRef.current = false;
+      setFetching(false);
+      setBusy(false);
+    }
+  }
+
   async function confirmUpdate() {
     setDialogBusy(true);
     setDialogError(null);
@@ -382,6 +481,43 @@ export function BranchWidget({
   }
 
   const remote = status.upstream?.split("/")[0] ?? status.remotes[0] ?? null;
+
+  async function completeMerge() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await call<GitOperation>("git.mergeContinue");
+      if (result.state === "ok") {
+        onMessage(result.message ?? "Merge completed.");
+      } else {
+        setError(result.message ?? "git commit failed.");
+      }
+      await Promise.all([onRefresh(), loadBranches()]);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmMergeAbort() {
+    setDialogBusy(true);
+    setDialogError(null);
+    try {
+      const result = await call<GitOperation>("git.mergeAbort");
+      if (result.state === "ok") {
+        onMessage(result.message ?? "Merge aborted.");
+        setDialog(null);
+      } else {
+        setDialogError(result.message ?? "git merge --abort failed.");
+      }
+      await Promise.all([onRefresh(), loadBranches()]);
+    } catch (caught) {
+      setDialogError(messageOf(caught));
+    } finally {
+      setDialogBusy(false);
+    }
+  }
 
   async function confirmPush() {
     setDialogBusy(true);
@@ -407,7 +543,8 @@ export function BranchWidget({
 
   function closeMenu() {
     setMenuOpen(false);
-    detailsRef.current?.removeAttribute("open");
+    setError(null);
+    setCreating(false);
   }
 
   // Escape dismisses the dialog unless an operation is in flight.
@@ -420,32 +557,37 @@ export function BranchWidget({
 
   return (
     <>
-      <details
-        ref={detailsRef}
+      <div
+        ref={wrapRef}
         className="toolbar-menu branch-menu"
         data-testid="branch-menu"
-        open={menuOpen}
-        onToggle={(event) => {
-          const isOpen = event.currentTarget.open;
-          setMenuOpen(isOpen);
-          if (!isOpen) {
-            setError(null);
-            setCreating(false);
-          }
-        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             closeMenu();
-            event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
+            triggerRef.current?.focus();
           }
         }}
       >
-        <summary data-testid="toolbar-branch" title={title} aria-label={title}>
+        <button
+          ref={triggerRef}
+          type="button"
+          data-testid="toolbar-branch"
+          title={label}
+          aria-label={label}
+          aria-expanded={menuOpen}
+          onClick={() => {
+            if (menuOpen) {
+              closeMenu();
+              return;
+            }
+            setMenuOpen(true);
+          }}
+        >
           <Icon name="git" />
           <span data-testid="branch-current"><MidText text={branchName(status)} /></span>
           {ahead && <span className="branch-counters">{ahead}</span>}
-        </summary>
-        <div className="menu-content branch-menu-content">
+        </button>
+        {menuOpen && <div className="menu-content branch-menu-content">
           <span className="menu-heading">Branches</span>
           <span className="menu-note" data-testid="branch-upstream">
             {status.upstream
@@ -453,6 +595,29 @@ export function BranchWidget({
               : "No upstream"}
             {status.operation ? ` · ${status.operation} in progress` : ""}
           </span>
+          {status.operation === "merge" && (
+            <div className="branch-actions" data-testid="branch-merge">
+              <span className="menu-note" data-testid="branch-merge-note">
+                A merge is in progress: resolve the conflicts in the editor, then finish or abort it here.
+              </span>
+              <button
+                type="button"
+                data-testid="branch-merge-complete"
+                disabled={busy}
+                onClick={() => void completeMerge()}
+              >
+                Complete merge
+              </button>
+              <button
+                type="button"
+                data-testid="branch-merge-abort"
+                disabled={busy}
+                onClick={() => { setDialogError(null); setDialog("mergeAbort"); }}
+              >
+                Abort merge…
+              </button>
+            </div>
+          )}
           <input
             className="branch-search"
             data-testid="branch-search"
@@ -537,6 +702,19 @@ export function BranchWidget({
             >
               Refresh
             </button>
+            <button
+              type="button"
+              data-testid="branch-fetch"
+              title={
+                fetchReason ??
+                `Fetch ${remote ?? "the remote"} and prune branches deleted there (git fetch --prune). OpenRidr never touches your tree, index or local branches.`
+              }
+              disabled={busy || fetchReason !== null}
+              aria-busy={fetching || undefined}
+              onClick={() => void runFetch()}
+            >
+              {fetching ? "Fetching…" : "Fetch"}
+            </button>
             <button type="button" data-testid="branch-commit" disabled={busy} onClick={() => { closeMenu(); onOpenCommit(); }}>
               Commit…
             </button>
@@ -558,6 +736,14 @@ export function BranchWidget({
             >
               Push…
             </button>
+            {fetchReason && (
+              <span className="menu-note" data-testid="branch-fetch-reason">{fetchReason}</span>
+            )}
+            {fetchError && (
+              <p className="error" role="alert" data-testid="branch-fetch-error">
+                {fetchError}
+              </p>
+            )}
             {updateReason && updateReason !== checkoutBlocked && (
               <span className="menu-note" data-testid="branch-update-reason">{updateReason}</span>
             )}
@@ -568,8 +754,8 @@ export function BranchWidget({
               <span className="menu-note" data-testid="branch-checkout-reason">{checkoutBlocked}</span>
             )}
           </div>
-        </div>
-      </details>
+        </div>}
+      </div>
 
       {dialog === "update" && (
         <div className="modal-backdrop">
@@ -580,12 +766,22 @@ export function BranchWidget({
               <dd>{branchName(status)}</dd>
               <dt>Upstream</dt>
               <dd>{status.upstream ?? "Not set"}</dd>
+              <dt>Ahead</dt>
+              <dd data-testid="update-ahead">{status.ahead}</dd>
               <dt>Behind</dt>
               <dd>{status.behind}</dd>
             </dl>
+            <p className="hint" data-testid="update-policy">
+              When the branch and its upstream both moved, Update fetches and merges the upstream
+              into a merge commit (<code>git fetch</code>, then{" "}
+              <code>git merge --ff --no-edit</code>); a fast-forward stays a fast-forward. The
+              repository's <code>pull.rebase</code>, <code>pull.ff</code> and{" "}
+              <code>merge.ff</code> settings do not change that. If the merge conflicts, it stays in
+              progress: resolve the files in the editor, then finish or abort it from the branch
+              menu. Nothing is pushed.
+            </p>
             <p className="hint">
-              Runs <code>git pull</code>. A dirty tree or an in-progress operation refuses the
-              update; OpenRidr never stashes.
+              A dirty tree or an in-progress operation refuses the update; OpenRidr never stashes.
             </p>
             {dialogError && (
               <p className="error" role="alert" data-testid="update-error">{dialogError}</p>
@@ -595,6 +791,28 @@ export function BranchWidget({
                 {dialogBusy ? "Updating…" : "Update"}
               </button>
               <button type="button" data-testid="update-cancel" onClick={() => setDialog(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dialog === "mergeAbort" && (
+        <div className="modal-backdrop">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-abort-title" data-testid="merge-abort-dialog" onKeyDown={dialogKeyDown}>
+            <h2 id="merge-abort-title">Abort merge</h2>
+            <p className="hint">
+              This undoes the merge: conflict resolutions and anything staged during the merge are
+              discarded, and your commits stay. Uncommitted changes that existed before the merge
+              may not come back.
+            </p>
+            {dialogError && (
+              <p className="error" role="alert" data-testid="merge-abort-error">{dialogError}</p>
+            )}
+            <div className="actions">
+              <button type="button" data-testid="merge-abort-confirm" autoFocus disabled={dialogBusy} onClick={() => void confirmMergeAbort()}>
+                {dialogBusy ? "Aborting…" : "Abort merge"}
+              </button>
+              <button type="button" data-testid="merge-abort-cancel" onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>
@@ -663,6 +881,12 @@ export function CommitPanel({
   const groupCheck = useRef<HTMLInputElement>(null);
   const [expanded, setExpanded] = useState(true);
   const reason = !trusted ? TRUST_MESSAGE : unavailable(status, statusError);
+  // Git refuses a partial commit during a merge, so the app refuses first and names the way out.
+  const operationReason = status?.operation
+    ? status.operation === "merge"
+      ? "A merge is in progress; finish or abort it from the branch menu. A partial commit is not possible during a merge."
+      : `A ${status.operation} is in progress; finish or abort it in a terminal. A partial commit is not possible during a ${status.operation}.`
+    : null;
   const files = status?.state === "ok" ? status.files : [];
   const selected = useMemo(
     () => selection ?? new Set(files.filter((file) => !file.conflicted).map((file) => file.path)),
@@ -747,6 +971,9 @@ export function CommitPanel({
             <button type="button" aria-label="Show selected diff" title="Show selected diff" disabled={!diffPath} onClick={() => { const file = files.find((entry) => entry.path === diffPath); if (file) void showDiff(file); }}><Eye size={16} /></button>
             <span className="commit-selection-count" data-testid="commit-count">{commitPaths.length} of {files.length} selected</span>
           </div>
+          {operationReason && (
+            <p className="tree-note" data-testid="commit-operation-note">{operationReason}</p>
+          )}
           <div className="commit-group">
             <button type="button" aria-label={expanded ? "Collapse changes" : "Expand changes"} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
             <input ref={groupCheck} type="checkbox" aria-label="Select all changes" checked={files.some((file) => !file.conflicted) && commitPaths.length === files.filter((file) => !file.conflicted).length} disabled={busy || !files.some((file) => !file.conflicted)} onChange={(event) => setSelection(new Set(event.target.checked ? files.filter((file) => !file.conflicted).map((file) => file.path) : []))} />
@@ -766,14 +993,14 @@ export function CommitPanel({
                   aria-label={`Commit ${file.path}`}
                   checked={selected.has(file.path)}
                   disabled={busy || file.conflicted}
-                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.label}
+                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict in the editor, then finish or abort the merge from the branch menu." : file.label}
                   onChange={() => toggle(file.path)}
                 />
                 <button
                   type="button"
                   className="commit-file"
                   data-testid={`commit-file-${file.path}`}
-                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict first." : file.path}
+                  title={file.conflicted ? "Conflicted files cannot be committed; resolve the conflict in the editor, then finish or abort the merge from the branch menu." : file.path}
                   onClick={() => void showDiff(file)}
                 >
                   <FileIcon path={file.path} />
@@ -817,7 +1044,8 @@ export function CommitPanel({
             <button
               type="button"
               data-testid="commit-submit"
-              disabled={busy || message.trim() === "" || commitPaths.length === 0}
+              disabled={busy || message.trim() === "" || commitPaths.length === 0 || operationReason !== null}
+              title={operationReason ?? undefined}
               onClick={() => void submit()}
             >
               {busy ? "Committing…" : amend ? "Amend commit" : "Commit"}
@@ -842,9 +1070,11 @@ export function CommitPanel({
 export function GitLogPanel({
   trusted,
   onError,
+  onOpenCommitFile,
 }: {
   trusted: boolean;
   onError: (text: string) => void;
+  onOpenCommitFile: (commit: GitCommit, file: GitCommitFile) => void;
 }) {
   const [log, setLog] = useState<GitLog | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -951,9 +1181,17 @@ export function GitLogPanel({
                 <ul className="git-file-list" data-testid="git-log-files">
                   {selectedCommit.files.map((file) => (
                     <li key={`${file.status}-${file.path}`}>
-                      <span className="tag">{file.status}</span>
-                      <code>{file.path}</code>
-                      {file.originalPath && <span className="menu-note">from {file.originalPath}</span>}
+                      <button
+                        type="button"
+                        className="git-file"
+                        data-testid={`git-log-file-${file.path}`}
+                        title={`Open the diff of ${file.path} in ${selectedCommit.shortHash}`}
+                        onClick={() => onOpenCommitFile(selectedCommit, file)}
+                      >
+                        <span className="tag">{file.status}</span>
+                        <code>{file.path}</code>
+                        {file.originalPath && <span className="menu-note">from {file.originalPath}</span>}
+                      </button>
                     </li>
                   ))}
                 </ul>

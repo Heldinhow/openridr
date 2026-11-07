@@ -10,6 +10,7 @@ use crate::build::{self, BuildProblem};
 use crate::evaluation::PackageRef;
 use crate::logbuf::LogBuffer;
 use crate::process::{ProcessStatus, Termination};
+use crate::scope::Scope;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -39,8 +40,8 @@ pub struct Start {
     pub target_framework: Option<String>,
     pub command: Vec<String>,
     pub cwd: PathBuf,
-    /// Workspace root, used to resolve file paths in compile diagnostics.
-    pub root: PathBuf,
+    /// Directories this workspace may touch: the root plus the projects the solution names.
+    pub scope: Scope,
     pub sdk_root: PathBuf,
     pub sdk_version: String,
     pub workspace_id: u64,
@@ -123,7 +124,7 @@ struct Data {
     target_framework: Option<String>,
     command: Vec<String>,
     cwd: String,
-    root: PathBuf,
+    scope: Scope,
     sdk_root: String,
     sdk_version: String,
     workspace_id: u64,
@@ -169,7 +170,7 @@ impl Tests {
                 target_framework: None,
                 command: Vec::new(),
                 cwd: String::new(),
-                root: PathBuf::new(),
+                scope: Scope::default(),
                 sdk_root: String::new(),
                 sdk_version: String::new(),
                 workspace_id: 0,
@@ -368,7 +369,7 @@ impl Tests {
         } else {
             line.to_string()
         });
-        if let build::Line::Problem(problem) = build::parse_line(&data.root, line) {
+        if let build::Line::Problem(problem) = build::parse_line(&data.scope, line) {
             let discovery_id = data.discovery_id.clone();
             let revision = data.revision;
             let Data {
@@ -463,7 +464,7 @@ fn data_for(
         target_framework: start.target_framework,
         command: start.command,
         cwd: start.cwd.to_string_lossy().to_string(),
-        root: start.root,
+        scope: start.scope,
         sdk_root: start.sdk_root.to_string_lossy().to_string(),
         sdk_version: start.sdk_version,
         workspace_id: start.workspace_id,
@@ -605,7 +606,7 @@ mod tests {
             target_framework: None,
             command: vec!["dotnet".to_string(), "test".to_string()],
             cwd: PathBuf::from("/work/Order Desk"),
-            root: PathBuf::from("/work/Order Desk"),
+            scope: Scope::new(std::path::Path::new("/work/Order Desk")),
             sdk_root: PathBuf::from("/sdk/8.0.408"),
             sdk_version: "8.0.408".to_string(),
             workspace_id: 1,
