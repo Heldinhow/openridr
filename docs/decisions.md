@@ -1597,3 +1597,34 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Consequência.** `docs/SPEC-DOCTOR-DISK-SPACE.md`; ticket #267, filho de #259; evidência em
   `docs/evidence/doctor-disk-space.md`; teste em `tests/shell/doctor.test.sh` (rodado à mão, como os
   outros de `tests/shell/`). Nenhuma dependência nova, nenhum `data-testid`, nenhuma UI.
+
+## 2026-11-07 — O pre-commit decide pelo diff do commit em andamento (issue #265)
+
+- **Decisão.** O hook de pre-commit deixa de rodar `bun run check` em todo commit e passa a rodar só o
+  que os caminhos daquele commit pedem: documentação (`*.md`, `docs/**`) nada; Rust (`crates/**`,
+  `src-tauri/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*`) `cargo check --workspace --all-targets`;
+  qualquer outro caminho `tsc --noEmit`; misto, os dois. `bun run check` fica intocado como o check
+  completo manual e do CI: o hook filtra, não substitui.
+- **Por que `git diff --cached --name-only`, não `git diff --name-only HEAD`.** Com `git commit --only`
+  (o do `scripts/commit-only.sh`) o git aponta `GIT_INDEX_FILE` para um index temporário, então o diff do
+  index lista exatamente os caminhos do commit; o diff contra `HEAD` lista também o que está sujo na
+  árvore de trabalho, que é o custo de hoje. Verificado num repositório descartável: `--only`, `-a` e
+  amend só de mensagem (diff vazio) se comportam como a classificação precisa.
+- **Por que caminho ambíguo roda só `tsc`.** O que sobra é `scripts/**`, `fixtures/**`, `.githooks/**`,
+  `.github/**`: `tsc` custa 0,8 s e pega config da UI quebrada; `cargo check` ali não tem o que checar. O
+  check completo só quando o commit tem Rust e não-Rust.
+- **Por que não há limiar de diff grande.** O check é por linguagem, não por tamanho: diff grande só de
+  TS não tem Rust para checar e o misto já roda os dois. Um limiar seria um número inventado pagando
+  `cargo check` sem mudança de Rust.
+- **Três guardas do code review.** O diff sai com `core.quotePath=false` e `--no-renames`: sem o
+  primeiro, um nome não-ASCII em `crates/` vira `"crates/a\303\247..."` e não casa com o padrão de Rust
+  (o `cargo check` seria pulado); sem o segundo, mover um `.rs` para `docs/` lista só o destino e o
+  commit passa como documentação. Caminho que ainda sai entre aspas roda os dois checks. E os caminhos
+  são lidos um por linha, nunca com `for path in $staged`: a divisão por espaço corta `crates/a.md b.rs`
+  em `crates/a.md` (documentação) e `b.rs` (TypeScript), e o `cargo check` não roda.
+- **`node_modules` só no ramo do TS.** O gate é `node_modules/.bin/tsc` e a mensagem diz `bun install`.
+  Commit só de documentação numa worktree nova passa — antes ele morria com `tsc: command not found`.
+- **Consequência.** `docs/SPEC-PRECOMMIT-PROPORTIONAL.md`; ticket #271, filho de #265; teste em
+  `tests/shell/pre-commit.test.sh` (rodado à mão, como os outros; ligar `tests/shell/` no CI é a #269);
+  uma linha do `AGENTS.md` corrigida, o que faz o PR ser `risk:high`. Nenhuma dependência nova, nenhum
+  `data-testid`, nenhuma mudança em `bun run check`.
