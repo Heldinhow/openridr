@@ -57,7 +57,12 @@ jobs:
       # no new third-party action, and the version cannot drift. The checksum is for
       # cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz, the static build that runs on any Linux
       # runner. Installed under $RUNNER_TEMP so nothing here depends on the image's Rust setup.
+      #
+      # `if: always()` on this and on both audits below: the three scanners are independent, and one
+      # finding (or one fetch failure) must not hide what the other two would have said. The job is
+      # still red when any step failed — `always()` changes what runs, not the conclusion.
       - name: Install cargo-audit 0.22.2
+        if: always()
         env:
           SHA256: 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
         run: |
@@ -88,7 +93,9 @@ jobs:
       # Nothing executes that date: the weekly run and a human reading it are the reminder. Declared
       # limitation, not a promise.
       - name: Audit the root Cargo.lock
+        if: always()
         run: cargo-audit audit --file Cargo.lock
 
       - name: Audit the src-tauri Cargo.lock
+        if: always()
         run: cargo-audit audit --file src-tauri/Cargo.lock

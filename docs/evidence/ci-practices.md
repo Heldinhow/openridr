@@ -15,26 +15,30 @@ SDK .NET 8.0.408. Base: `40b7a1f` (`ci/issue-142-ci-practices`, head do PR #225)
 | [`42395791925`](https://github.com/Heldinhow/openridr/actions/runs/42395791925) | `workflow_dispatch` | `40b7a1f` | `Dependency audit` verde em 29 s | 29 s |
 | [`42395786265`](https://github.com/Heldinhow/openridr/actions/runs/42395786265) | `pull_request` (filtro de caminho) | `40b7a1f` | `Dependency audit` verde em 29 s | 29 s |
 
-Jobs do run `42395785621`, cada um no seu tempo (`startedAt` → `completedAt`):
+Jobs do run `42395785621`, com os horários que a API devolve (`startedAt` → `completedAt`):
 
-| Job | Duração |
-|---|---|
-| TypeScript (tsc + unit) | 21 s |
-| Governance (workflows, PR title, PR body) | 19 s |
-| Risk tier and maintainer approval | 15 s |
-| security (gitleaks) | 22 s |
-| **Tauri (clippy + tests)** — job novo, informativo | **2:41** |
-| Rust (fmt, clippy, host tests) | **4:08** |
-| `ci` (agregador) | 13 s |
+| Job | Início → fim | Duração |
+|---|---|---|
+| TypeScript (tsc + unit) | 17:20:06 → 17:20:27 | 21 s |
+| Governance (workflows, PR title, PR body) | 17:20:06 → 17:20:25 | 19 s |
+| Risk tier and maintainer approval | 17:20:06 → 17:20:21 | 15 s |
+| security (gitleaks) | 17:20:07 → 17:20:29 | 22 s |
+| **Tauri (clippy + tests)** — job novo, informativo | 17:20:06 → **17:22:47** | **2:41** |
+| Rust (fmt, clippy, host tests) | 17:20:06 → **17:24:14** | **4:08** |
+| `ci` (agregador) | 17:24:15 → 17:24:28 | 13 s |
 
 **Parede: 4:22** — primeiro job às 17:20:06 e o agregador fechando às 17:24:28 (o `created_at` →
-`updated_at` da API dá 4:24: os 2 s de diferença são o setup do run antes do primeiro job). O
-`rust-tauri` terminou **1:27 antes** do Rust, então a parede continua sendo o job Rust e o job novo
-não custou parede. A variação do próprio runner é maior que o job novo: nos oito runs verdes de
-`ci.yml` de 2026-11-07, a parede foi de 4:19 a 5:07 e o job Rust de 4:01 a 4:49. Dois deles rodaram
-**depois** deste, em outras branches e sem o job novo — `42396382712` parede 4:43 (Rust 4:26) e
-`42396447606` parede 4:51 (Rust 4:27) —, contra 4:22 (Rust 4:08) do run entregue. A medição anterior
-da spec, mais cedo no dia, tinha dado parede ≈ 4:20 com Rust 3:38–4:21.
+`updated_at` da API dá 4:24: os 2 s de diferença são o setup do run antes do primeiro job).
+
+O `completedAt` do `rust-tauri` é **17:22:47** e o do Rust é **17:24:14**: o job novo terminou 1:27
+antes do job que fecha a parede, medido nos horários de conclusão e não por subtração de duração. Como
+o agregador só começa depois de todos os jobs, a parede continua sendo o Rust — o `rust-tauri` cabe
+inteiro na folga dele, e o job novo não acrescentou tempo de parede. A variação do próprio runner é
+maior que o job novo: nos oito runs verdes de `ci.yml` de 2026-11-07, a parede foi de 4:19 a 5:07 e o
+job Rust de 4:01 a 4:49. Dois deles rodaram **depois** deste, em outras branches e sem o job novo —
+`42396382712` parede 4:43 (Rust 4:26) e `42396447606` parede 4:51 (Rust 4:27) —, contra 4:22
+(Rust 4:08) do run entregue. A medição anterior da spec, mais cedo no dia, tinha dado parede ≈ 4:20
+com Rust 3:38–4:21.
 
 O PR #225 é `risk:high` (mexe em `.github/workflows/**`), calculado pelo job `risk` no run acima.
 
