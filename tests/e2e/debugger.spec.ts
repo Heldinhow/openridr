@@ -36,16 +36,6 @@ async function hostCall(request: APIRequestContext, method: string, params = {})
   return response.json();
 }
 
-// The workspace is opened through the host and the page loaded afterwards, so the Toolchain cards can be
-// inspected without the Trust prompt (which the form would raise) covering them.
-async function openWorkspace(page: Page) {
-  await page.request.post(`${host}/call`, { data: { method: "workspace.open", params: { path: fixture } } });
-  await page.goto("/");
-  await openToolchain(page);
-  await reveal(page.getByTestId("sdk-debug-adapter"));
-  await expect(page.getByTestId("sdk-debug-adapter")).toBeVisible();
-}
-
 async function selectEvaluationTfm(page: Page, value: string) {
   const trigger = page.getByRole("button", { name: "Workspace actions" });
   await trigger.click();
