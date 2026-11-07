@@ -10,6 +10,7 @@ use crate::evaluation::{relative_path, EvaluatedProject};
 use crate::logbuf::LogBuffer;
 use crate::process::ProcessStatus;
 use crate::process::Termination;
+use crate::scope::Scope;
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -38,7 +39,8 @@ pub struct Start {
     pub sdk_version: String,
     pub workspace_id: u64,
     pub context_id: u64,
-    pub root: PathBuf,
+    /// Directories this workspace may touch: the root plus the projects the solution names.
+    pub scope: Scope,
     pub saved_note: Option<String>,
     /// `true` when the command built the workspace .sln instead of one project.
     pub solution: bool,
@@ -152,7 +154,7 @@ struct Data {
     sdk_version: Option<String>,
     workspace_id: u64,
     context_id: u64,
-    root: PathBuf,
+    scope: Scope,
     process_id: Option<u64>,
     exit: Option<i32>,
     termination: Option<Termination>,
@@ -270,7 +272,7 @@ impl Build {
                 sdk_version: None,
                 workspace_id: 0,
                 context_id: 0,
-                root: PathBuf::new(),
+                scope: Scope::default(),
                 process_id: None,
                 exit: None,
                 termination: None,
@@ -315,7 +317,7 @@ impl Build {
                 sdk_version: Some(start.sdk_version),
                 workspace_id: start.workspace_id,
                 context_id: start.context_id,
-                root: start.root,
+                scope: start.scope,
                 process_id: None,
                 exit: None,
                 termination: None,
@@ -522,7 +524,7 @@ impl Build {
         if data.sealed {
             return;
         }
-        let parsed = parse_line(&data.root, line);
+        let parsed = parse_line(&data.scope, line);
         let link = match &parsed {
             Line::Problem(problem) => problem.position.clone().and_then(|position| {
                 location_columns(line, stderr).map(|(start, end)| BuildLogLink {
@@ -656,7 +658,7 @@ fn problem(
 
 /// Conservative parse of `path(line,column): error CS0246: message [project]`. Anything
 /// that does not match exactly keeps no position and does not become a problem.
-pub fn parse_line(root: &Path, line: &str) -> Line {
+pub fn parse_line(scope: &Scope, line: &str) -> Line {
     let trimmed = line.trim_start();
     let Some((path_text, numbers, suffix, _)) = split_location(trimmed) else {
         return Line::Ignored;
@@ -677,7 +679,7 @@ pub fn parse_line(root: &Path, line: &str) -> Line {
     if message.is_empty() {
         return Line::Ignored;
     }
-    let Some(path) = resolve_inside(root, path_text.trim()) else {
+    let Some(path) = resolve_inside(scope, path_text.trim()) else {
         return Line::Rejected;
     };
     let (position, range) = match numbers.as_slice() {
@@ -692,7 +694,7 @@ pub fn parse_line(root: &Path, line: &str) -> Line {
         severity,
         code,
         message,
-        relative_path(root, &path),
+        relative_path(scope.root().unwrap_or(Path::new("")), &path),
         position,
         range,
         trimmed,
@@ -792,26 +794,29 @@ fn strip_project_suffix(message: &str) -> String {
     }
 }
 
-/// Workspace-relative or absolute path, canonicalized when it exists. A path that resolves
-/// outside the workspace is rejected instead of being presented as navigable.
-fn resolve_inside(root: &Path, raw: &str) -> Option<PathBuf> {
+/// Workspace-relative or absolute path, canonicalized when it exists. A path that resolves outside
+/// the workspace scope is rejected instead of being presented as navigable. A relative path is read
+/// against the root and refused by shape when it escapes; an absolute path (how MSBuild reports a
+/// project the solution names elsewhere) is decided by scope containment.
+fn resolve_inside(scope: &Scope, raw: &str) -> Option<PathBuf> {
     if raw.is_empty() || raw.contains("://") {
         return None;
     }
     let candidate = Path::new(raw);
-    let candidate = if candidate.is_absolute() {
+    let absolute = candidate.is_absolute();
+    let candidate = if absolute {
         candidate.to_path_buf()
     } else {
-        root.join(candidate)
+        scope.root()?.join(candidate)
     };
     let normalized = normalize(&candidate);
-    if !normalized.starts_with(root) {
+    if !absolute && !normalized.starts_with(scope.root()?) {
         return None;
     }
     match std::fs::canonicalize(&normalized) {
-        Ok(path) if path.starts_with(root) => Some(path),
+        Ok(path) if scope.contains(&path) => Some(path),
         Ok(_) => None,
-        Err(_) => Some(normalized),
+        Err(_) => scope.contains(&normalized).then_some(normalized),
     }
 }
 
@@ -970,7 +975,7 @@ mod tests {
     }
 
     fn accepted(line: &str) -> BuildProblem {
-        match parse_line(&root(), line) {
+        match parse_line(&Scope::new(&root()), line) {
             Line::Problem(problem) => problem,
             Line::Rejected => panic!("line was rejected: {line}"),
             Line::Ignored => panic!("line was not recognized: {line}"),
@@ -1062,10 +1067,50 @@ mod tests {
             "/work/Order Desk/Program.cs(5,1): note XY0001: not a build severity",
         ] {
             assert!(
-                matches!(parse_line(&root(), line), Line::Ignored),
+                matches!(parse_line(&Scope::new(&root()), line), Line::Ignored),
                 "unexpected parse: {line}"
             );
         }
+    }
+
+    #[test]
+    fn a_diagnostic_in_a_project_outside_the_root_is_navigable_inside_the_scope() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        fs::create_dir_all(&root).unwrap();
+        let lib = temp.path().join("lib");
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("Lib.csproj"), "<Project />\n").unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+        let lib = fs::canonicalize(&lib).unwrap();
+        let scope = crate::scope::resolve(&root, ["../lib/Lib.csproj".to_string()]).scope;
+        let source = lib.join("Greeting.cs");
+        let line = format!(
+            "{}(3,5): error CS1002: ; expected [lib/Lib.csproj]",
+            source.display()
+        );
+
+        match parse_line(&scope, &line) {
+            Line::Problem(problem) => {
+                assert_eq!(problem.path, source.to_string_lossy());
+                assert_eq!(problem.code.as_deref(), Some("CS1002"));
+                let position = problem.position.expect("a position");
+                assert_eq!(position.line, 2);
+                assert_eq!(position.character, 4);
+            }
+            _ => panic!("outside project diagnostic was not accepted: {line}"),
+        }
+
+        // The same line stays text when the scope does not include that directory, and a relative
+        // path that escapes the root is still refused by shape.
+        assert!(matches!(
+            parse_line(&Scope::new(&root), &line),
+            Line::Rejected
+        ));
+        assert!(matches!(
+            parse_line(&scope, "../lib/Greeting.cs(1,1): error CS1002: nope"),
+            Line::Rejected
+        ));
     }
 
     #[test]
@@ -1076,7 +1121,7 @@ mod tests {
             "../Outside.cs(1,1): error CS0246: outside",
             "https://example.test/Program.cs(1,1): error CS0246: not a file",
         ] {
-            assert!(matches!(parse_line(&root(), line), Line::Rejected), "{line}");
+            assert!(matches!(parse_line(&Scope::new(&root()), line), Line::Rejected), "{line}");
         }
     }
 
@@ -1218,7 +1263,7 @@ mod tests {
             sdk_version: "8.0.408".to_string(),
             workspace_id: 1,
             context_id: 1,
-            root: root.clone(),
+            scope: Scope::new(&root),
             saved_note: Some("Built saved content.".to_string()),
             solution: false,
         });
@@ -1273,7 +1318,7 @@ mod tests {
             sdk_version: "8.0.408".to_string(),
             workspace_id: 1,
             context_id: 1,
-            root: root.clone(),
+            scope: Scope::new(&root),
             saved_note: None,
             solution: false,
         }));
@@ -1315,7 +1360,7 @@ mod tests {
             sdk_version: "8.0.408".to_string(),
             workspace_id: 1,
             context_id: 1,
-            root: root.to_path_buf(),
+            scope: Scope::new(root),
             saved_note: None,
             solution: false,
         })
@@ -1460,7 +1505,7 @@ mod tests {
             sdk_version: "8.0.408".to_string(),
             workspace_id: 1,
             context_id: 1,
-            root: root.clone(),
+            scope: Scope::new(&root),
             saved_note: None,
             solution: false,
         });
@@ -1492,7 +1537,7 @@ mod tests {
             sdk_version: "8.0.408".to_string(),
             workspace_id: 1,
             context_id: 1,
-            root: root.clone(),
+            scope: Scope::new(&root),
             saved_note: None,
             solution: false,
         });
@@ -1518,7 +1563,7 @@ mod tests {
             sdk_version: "8.0.408".to_string(),
             workspace_id: 1,
             context_id: 1,
-            root: PathBuf::from("/work"),
+            scope: Scope::new(Path::new("/work")),
             saved_note: None,
             solution: false,
         });
