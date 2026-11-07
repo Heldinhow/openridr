@@ -18,3 +18,5 @@ serde_json = "1"
 tauri = { version = "2", features = [] }
 # Approved dependency (ticket 10): one process per app identifier, argv forwarded to it.
 tauri-plugin-single-instance = "2.5.5"
+# Approved dependency (issue #55): signed in-app updates from the release channel.
+tauri-plugin-updater = "2.14.1"
