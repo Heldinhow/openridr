@@ -1,0 +1,249 @@
+{
+  "config": {
+    "argv": [
+      "/Users/helder/.hermes/node/bin/node",
+      "/Volumes/DevSSD/t3-worktrees/openridr/ci-issue-215-nightly-tracking-issue/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      "/tmp/pw-fixture/playwright.config.ts",
+      "--reporter=list,json",
+      "--output=/tmp/pw-fixture/out"
+    ],
+    "configFile": "/tmp/pw-fixture/playwright.config.ts",
+    "rootDir": "/tmp/pw-fixture/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/tmp/pw-fixture/out",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/tmp/pw-fixture/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/tmp/pw-fixture/out",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "",
+        "testDir": "/tmp/pw-fixture/tests/e2e",
+        "snapshotDir": "/tmp/pw-fixture/tests/e2e",
+        "testIgnore": [],
+        "testMatch": "**/*.@(spec|test).?(c|m)[jt]s?(x)",
+        "timeout": 30000,
+        "use": {},
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": ""
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 4,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "workspace.spec.ts",
+      "file": "workspace.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "opens the fixture asking for a Trust decision",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-07T19:20:51.314Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b163ed09f68681248ada-eb1399f86d94a5bdaf92",
+          "file": "../../../../private/tmp/pw-fixture/tests/e2e/workspace.spec.ts",
+          "line": 2,
+          "column": 5
+        },
+        {
+          "title": "saves the edited file",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-07T19:20:51.544Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b163ed09f68681248ada-edea94b124d61b15e006",
+          "file": "../../../../private/tmp/pw-fixture/tests/e2e/workspace.spec.ts",
+          "line": 6,
+          "column": 5
+        }
+      ],
+      "suites": [
+        {
+          "title": "workspace actions",
+          "file": "../../../../private/tmp/pw-fixture/tests/e2e/workspace.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "reveals the close action",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 4,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /private/tmp/pw-fixture/tests/e2e/workspace.spec.ts:4:60",
+                        "location": {
+                          "file": "/private/tmp/pw-fixture/tests/e2e/workspace.spec.ts",
+                          "column": 60,
+                          "line": 4
+                        },
+                        "snippet": "  2 | test(\"opens the fixture asking for a Trust decision\", async () => { expect(1).toBe(1); });\n  3 | test.describe(\"workspace actions\", () => {\n> 4 |   test(\"reveals the close action\", async () => { expect(1).toBe(2); });\n    |                                                            ^\n  5 | });\n  6 | test(\"saves the edited file\", async () => { expect(\"a\").toBe(\"a\"); });\n  7 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/private/tmp/pw-fixture/tests/e2e/workspace.spec.ts",
+                            "column": 60,
+                            "line": 4
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  2 | test(\"opens the fixture asking for a Trust decision\", async () => { expect(1).toBe(1); });\n  3 | test.describe(\"workspace actions\", () => {\n> 4 |   test(\"reveals the close action\", async () => { expect(1).toBe(2); });\n    |                                                            ^\n  5 | });\n  6 | test(\"saves the edited file\", async () => { expect(\"a\").toBe(\"a\"); });\n  7 |\n    at /private/tmp/pw-fixture/tests/e2e/workspace.spec.ts:4:60"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-07T19:20:51.333Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/tmp/pw-fixture/out/workspace-workspace-actions-reveals-the-close-action/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/private/tmp/pw-fixture/tests/e2e/workspace.spec.ts",
+                        "column": 60,
+                        "line": 4
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "b163ed09f68681248ada-8e81edc9460dea4c395f",
+              "file": "../../../../private/tmp/pw-fixture/tests/e2e/workspace.spec.ts",
+              "line": 4,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-07T19:20:51.093Z",
+    "duration": 474.005,
+    "expected": 2,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}
