@@ -1,3 +1,4 @@
+import "./does-not-exist.png";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installNativeContextMenuGuard } from "./nativeMenu";
