@@ -120,7 +120,7 @@ fn outline_project(root: &Path, scope: &Scope, rel: &str, name: &str) -> Outline
     let path = if canonical.starts_with(root) {
         rel
     } else {
-        canonical.to_string_lossy().replace('\\', "/")
+        crate::fsutil::portable_path(&canonical)
     };
     OutlineProject {
         name: name.to_string(),
@@ -287,10 +287,7 @@ fn normalize_rel(rel: &str) -> String {
 }
 
 fn relative(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    crate::fsutil::portable_path(path.strip_prefix(root).unwrap_or(path))
 }
 
 fn list_cs_files(project_dir: &Path, root: &Path) -> Vec<String> {

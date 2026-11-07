@@ -718,7 +718,8 @@ fn invoke(
     let mut command = Command::new(muxer);
     command
         .arg("msbuild")
-        .arg(project)
+        // MSBuild refuses the `\\?\` prefix `canonicalize` adds on Windows (MSB3202).
+        .arg(crate::fsutil::process_path(project))
         .arg("-nologo")
         .arg("-getProperty:Configuration")
         .arg("-getProperty:TargetFramework")

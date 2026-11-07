@@ -8165,8 +8165,14 @@ fn debug_adapter_command(adapter: &Path, sdk_root: &Path) -> HostResult<Command>
 /// English output and no telemetry/nologo noise. Values are never written to the log.
 fn dotnet_command(command: &[String], cwd: &Path, sdk_root: &Path) -> Command {
     let mut process = Command::new(&command[0]);
+    // Every dotnet child gets plain paths: MSBuild refuses the `\\?\` prefix `canonicalize` adds
+    // on Windows (MSB3202), and no argument but a path can start with the verbatim prefix.
     process
-        .args(&command[1..])
+        .args(
+            command[1..]
+                .iter()
+                .map(|arg| crate::fsutil::process_path(Path::new(arg))),
+        )
         .current_dir(cwd)
         .env("DOTNET_ROOT", sdk_root)
         .env("DOTNET_MULTILEVEL_LOOKUP", "0")
@@ -8939,6 +8945,28 @@ mod tests {
             touched.is_empty(),
             "the dotnet command must inherit proxy variables, not manage them: {touched:?}"
         );
+    }
+
+    #[test]
+    fn the_dotnet_command_passes_paths_without_the_windows_verbatim_prefix() {
+        // `canonicalize` names the workspace `\\?\C:\...` on Windows and MSBuild then fails with
+        // MSB3202; every dotnet child must get the plain path instead.
+        let root = tempfile::tempdir().unwrap();
+        let command = dotnet_command(
+            &[
+                "dotnet".to_string(),
+                "build".to_string(),
+                r"\\?\C:\work\app\App.sln".to_string(),
+                "--no-restore".to_string(),
+            ],
+            root.path(),
+            root.path(),
+        );
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, ["build", r"C:\work\app\App.sln", "--no-restore"]);
     }
 
     #[test]

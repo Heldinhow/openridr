@@ -43,6 +43,27 @@ pub(crate) fn portable_path(path: &Path) -> String {
     }
 }
 
+/// A path for an external process's argv: `canonicalize` returns `\\?\C:\...` on Windows and
+/// MSBuild refuses that form (`MSB3202: The project file "\\\\?\C:\..." was not found`), so
+/// dotnet and MSBuild get the plain path instead.
+pub(crate) fn process_path(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    let Some(rest) = text
+        .strip_prefix(r"\\?\")
+        .or_else(|| text.strip_prefix("//?/"))
+    else {
+        return path.to_path_buf();
+    };
+    // `\\?\UNC\server\share` is the verbatim spelling of `\\server\share`.
+    match rest
+        .strip_prefix("UNC\\")
+        .or_else(|| rest.strip_prefix("UNC/"))
+    {
+        Some(unc) => PathBuf::from(format!(r"\\{unc}")),
+        None => PathBuf::from(rest),
+    }
+}
+
 /// The editor always works in LF; the host restores the file's line ending on write.
 pub(crate) fn normalize_newlines(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")
@@ -294,6 +315,25 @@ mod tests {
             normalize_lexically(Path::new("/a/./b/../c")),
             Path::new("/a/c")
         );
+    }
+
+    #[test]
+    fn process_path_strips_the_windows_verbatim_prefix() {
+        assert_eq!(
+            process_path(Path::new(r"\\?\C:\work\app\App.sln")),
+            PathBuf::from(r"C:\work\app\App.sln")
+        );
+        assert_eq!(
+            process_path(Path::new("//?/C:/work/app/App.sln")),
+            PathBuf::from("C:/work/app/App.sln")
+        );
+        // The verbatim UNC form must keep its share, not become a relative `UNC\` path.
+        assert_eq!(
+            process_path(Path::new(r"\\?\UNC\server\share\App.sln")),
+            PathBuf::from(r"\\server\share\App.sln")
+        );
+        let plain = Path::new("/work/app/App.sln");
+        assert_eq!(process_path(plain), plain);
     }
 
     #[cfg(unix)]
