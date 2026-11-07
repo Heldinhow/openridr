@@ -1,8 +1,9 @@
 # SPEC — Práticas de CI aproveitadas do T3 Code e do OpenChamber, sem duplicar os gates existentes
 
 Status: ready-for-agent, issue-mãe #142. Tickets: #218 (type check estrito), #219 (job `rust-tauri`),
-#220 (`dependency-audit.yml`), #221 (inventário, cobertura e evidência). Follow-ups fora desta frente:
-#222 (linter de TS) e #223 (dependências importadas sem declarar). Insumo:
+#220 (`dependency-audit.yml`), #221 (inventário, cobertura e evidência). Follow-up desta frente: #232
+(`vite build` no job `typescript`). Follow-ups fora desta frente: #222 (linter de TS) e #223
+(dependências importadas sem declarar). Insumo:
 [research/ci-quality.md](research/ci-quality.md) (pesquisa da #73) e a pesquisa somente leitura de
 06/11/2026 citada na #142. Medições de 2026-11-07 nesta worktree, macOS arm64, `bun 1.3.9`,
 `rustc 1.99.0`, base `39c4c17`.
@@ -30,7 +31,7 @@ próxima sessão reabre a mesma pesquisa e propõe de novo o que já foi recusad
 
 ## Solution
 
-Quatro entregas pequenas, cada uma com o número que a justifica, e nenhuma delas mexe em ruleset,
+Cinco entregas pequenas, cada uma com o número que a justifica, e nenhuma delas mexe em ruleset,
 required check ou settings do repositório:
 
 1. **Type check estrito, sem dependência nova.** `noUnusedLocals` e `noUnusedParameters` entram no
@@ -42,6 +43,9 @@ required check ou settings do repositório:
 4. **Documento de inventário e cobertura**: o que cada referência oferece, o que já existe, o que foi
    adotado, o que foi recusado e por quê — mais a tabela de cobertura dos gates de risco que a #142
    pede no item 4.
+5. **`vite build` no job `typescript`** (#232): o comando que produz o `dist/` empacotado pelo
+   `tauri build` passa a rodar em todo PR, com a duração medida. O `tsc --noEmit` não cobre bundling:
+   um import de asset inexistente passa nele e falha no `vite build`.
 
 O que **não** entra: linter de TS (Biome fica numa issue filha com o baseline já medido), `knip`,
 filtro de job por caminho, mudança de ruleset, e qualquer coisa em `release.yml`/`platforms.yml` (a
@@ -83,6 +87,12 @@ filtro de job por caminho, mudança de ruleset, e qualquer coisa em `release.yml
     para poder reproduzir a falha antes de empurrar a branch.
 17. Como mantenedor, quero a duração de cada job medida e registrada, para não aceitar nem prometer
     ganho de velocidade sem comparação.
+18. Como mantenedor, quero que o job TypeScript rode o mesmo `vite build` que o `tauri build` chama,
+    para que um erro de bundling fique vermelho no PR em vez de aparecer no DMG.
+19. Como sessão de agente, quero a falha do bundle medida no runner, para saber que o passo novo
+    realmente barra o PR e não é só um comando que passa.
+20. Como mantenedor, quero a duração do passo de build registrada, para saber o que ele custa na
+    parede do run.
 
 ## Implementation Decisions
 
@@ -90,7 +100,7 @@ filtro de job por caminho, mudança de ruleset, e qualquer coisa em `release.yml
 
 | Prática da referência | Já existe no OpenRidr? | Decisão |
 |---|---|---|
-| Separação de lint/build/typecheck/testes (T3 Code) | Parcial: jobs `typescript` (tsc + unit) e `rust` (fmt, clippy, testes) separados; **nenhum job roda `vite build`** | **Nada a fazer nesta frente**: o tipo é coberto pelo `tsc --noEmit` que já roda; o build da UI nunca rodou no CI — residual declarado, não fechado aqui |
+| Separação de lint/build/typecheck/testes (T3 Code) | Sim: jobs `typescript` (tsc + build + unit) e `rust` (fmt, clippy, testes) separados | **Nada a fazer** |
 | Verificação de dependência não usada (T3 Code) | Não | **Adiado**: `knip` medido (2 famílias de dependência não usadas, 3 importadas sem declarar, 8 exports e 7 tipos sem uso; remedido em 2026-11-07 com os mesmos números); adotar é dependência nova. As 3 sem declarar viram issue filha (#223). |
 | Verificação de arquivo gerado (T3 Code) | Parcial: `dist/` e `target/` são gitignored; `src-tauri/resources/{dotnet,csharp-ls}` também | **Nada a fazer**: não há arquivo gerado versionado para conferir |
 | Jobs independentes e paralelos (OpenChamber) | Sim | **Nada a fazer** |
@@ -200,6 +210,25 @@ há.
 - `AGENTS.md` ganha os dois comandos locais novos na seção **Comandos** e a nota de que o CI não roda
   os vendor scripts do `src-tauri`.
 
+### #232 — `vite build` no job `typescript`
+
+**Problema medido.** `bun run build` (`tsc --noEmit && vite build`) produz o `dist/` que o
+`tauri.conf.json` empacota (`frontendDist: "../dist"`), e nenhum workflow o exercitava. O
+`tsc --noEmit` não cobre bundling: com `import "./does-not-exist.png"` em `src/main.tsx` ele sai
+**0** (`vite/client` declara `*.png`) e o `vite build` sai **1**.
+
+**Decisão.** Passo próprio `bunx vite build` no job `typescript`, entre "Type check" e "Unit tests",
+e o job passa a se chamar `TypeScript (tsc + build + unit)`. `bunx vite build` e não `bun run build`
+porque o `tsc` já rodou no passo anterior e duplicá-lo só somaria tempo. Nenhum cache de `dist/`: o
+artefato é descartável no runner.
+
+**Prova.** Falha-antes no runner: commit descartável na branch do PR com o import inexistente, job
+vermelho, revert no commit seguinte. As duas URLs de run e a duração do passo vão para a evidência.
+
+**Docs.** A linha "nenhum job roda `vite build`" da tabela de inventário e o residual de "Não
+verificado" desta spec e da evidência deixam de valer; a tabela de CI do `AGENTS.md` ganha o build
+na linha do job `typescript`.
+
 ## Testing Decisions
 
 O trabalho é configuração de CI: dois jobs, uma flag de `tsconfig` e um workflow. Não há branch,
@@ -215,6 +244,10 @@ reusados:
 3. **`tsc --noEmit`** no job TypeScript: com as flags no `tsconfig.json`, o fail-antes/passa-depois é
    medido com o próprio comando (17 achados hoje, 0 depois). O repo não tem infraestrutura de DOM e
    não ganha uma por causa disto.
+
+Para a #232 o seam é o mesmo run de CI, com um passo a mais: o `vite build` do job `typescript`. A
+falha-antes é medida no runner, não por teste: o `tsc --noEmit` passa no import de asset inexistente
+(medido, exit 0) e só o bundler falha (exit 1), então um teste unitário não reproduziria a lacuna.
 
 O que **não** se cria, e por quê: nenhum `scripts/ci-*.sh` novo (o workflow chama as ferramentas
 direto e quem decide vermelho/verde é o exit code delas, já medido); nenhum `tests/shell/*.test.sh`
@@ -234,6 +267,8 @@ automatizado.
 - Qualquer mudança em `.github/rulesets/**`, required checks ou settings do repositório.
 - `.github/workflows/release.yml` e o `platforms.yml` da #54.
 - Path filter de job por caminho.
+- Tratar o aviso de chunk > 500 kB (bundle de 1,45 MB) como falha, ou dividir o bundle: o aviso
+  continua só no log; virar gate é decisão separada.
 - Reformatação, refatoração geral e qualquer mudança de produto.
 
 ## Further Notes
@@ -276,5 +311,4 @@ passos do cargo-audit): um achado não esconde o que os outros dois diriam.
   `dependency-audit` em 29 s nos dois gatilhos, incluindo o `workflow_dispatch`.
 - **Só configuração existente, não exercitada por esta frente**: os gates de risco e o ruleset.
 - **Não verificado**: o `schedule` semanal (só se prova depois do merge na default); o critério de
-  promoção do `rust-tauri` (1 de 5 runs verdes); `vite build`, que nenhum workflow roda — residual
-  declarado.
+  promoção do `rust-tauri` (1 de 5 runs verdes).

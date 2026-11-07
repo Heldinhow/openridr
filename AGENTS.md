@@ -119,7 +119,7 @@ O que o CI (`.github/workflows/ci.yml`) roda em todo PR para `main`:
 
 | Job | O que roda |
 |---|---|
-| `typescript` (ubuntu) | `bun install --frozen-lockfile`, `tsc --noEmit`, `bun test tests/unit` |
+| `typescript` (ubuntu) | `bun install --frozen-lockfile`, `tsc --noEmit`, `vite build`, `bun test tests/unit` |
 | `rust` (macos-15) | `cargo fmt --check` (workspace e `src-tauri`), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p openridr-host` com o SDK 8.0.408 das fixtures |
 | `rust-tauri` (macos-15) | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` e `cargo test --manifest-path src-tauri/Cargo.toml`, com as duas pastas de resource vazias; **informativo** |
 | `governance` | `actionlint`, `zizmor`, título do PR no padrão conventional, corpo com issue + Evidência |

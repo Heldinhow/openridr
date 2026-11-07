@@ -3,7 +3,7 @@
 Spec: [SPEC-CI-PRACTICES.md](../SPEC-CI-PRACTICES.md). Decisões: `docs/decisions.md` (2026-11-07,
 "Três buracos medidos do CI fechados sem dependência nova e sem tocar no ruleset"). Tickets: #218
 (type check estrito), #219 (job `rust-tauri`), #220 (`dependency-audit.yml`), #221 (inventário,
-cobertura e evidência).
+cobertura e evidência), #238 (`vite build` no job `typescript`).
 Ambiente: macOS 27.2, Apple Silicon (arm64), `bun 1.3.9`, `rustc 1.99.0`, `cargo-audit 0.22.2`,
 SDK .NET 8.0.408. Base: `40b7a1f` (`ci/issue-142-ci-practices`, head do PR #225).
 
@@ -136,7 +136,7 @@ não conferiu foi corrigido na spec.
 
 | Prática da referência | Como foi conferido | Resultado |
 |---|---|---|
-| Separação de lint/build/typecheck/testes (T3 Code) | `ci.yml`: jobs `typescript` e `rust`; `grep -rn "bun run build\|vite build" .github/workflows/` | jobs separados, mas **nenhum job roda `vite build`** — a linha virou "Parcial" |
+| Separação de lint/build/typecheck/testes (T3 Code) | `ci.yml`: jobs `typescript` (tsc + build + unit) e `rust`; `grep -rn "vite build" .github/workflows/` | jobs separados, com o `vite build` no job `typescript` desde a #238 |
 | Verificação de dependência não usada (T3 Code) | `bunx knip --reporter compact` | 1 linha de dependência não usada (2 pacotes `@fontsource-variable/*`), 1 linha de importada sem declarar (3 pacotes), **8** exports e **7** tipos sem uso — os números da spec conferem |
 | Verificação de arquivo gerado (T3 Code) | `.gitignore` (`dist/`, `target/`, `src-tauri/resources/{dotnet,csharp-ls}/`) e `git ls-files` filtrando esses caminhos | vazio: nenhum artefato de build versionado |
 | Jobs independentes e paralelos (OpenChamber) | `ci.yml`: 6 jobs + agregador com `needs` | confere |
@@ -177,6 +177,34 @@ roda os vendor scripts (`resources/csharp-ls/` e `resources/dotnet/` são gitign
 só exige que o caminho exista). Na seção de CI, a linha do job `rust-tauri` na tabela, o critério de
 promoção e a correção do bullet "`src-tauri` fica fora do clippy", que deixou de ser verdade.
 
+## #238 — `vite build` no job `typescript`
+
+O job `typescript` do `ci.yml` ganhou o passo `Build` (`bunx vite build`) entre "Type check" e
+"Unit tests", e passou a se chamar `TypeScript (tsc + build + unit)`. `bunx vite build` e não
+`bun run build` porque o `tsc` já rodou no passo anterior. Nenhum cache de `dist/`: o artefato é
+descartável no runner.
+
+Medido nesta worktree (macOS arm64, `bun 1.3.9`, base `baa9821`), com `bun install` antes:
+
+| Comando | `src/main.tsx` | Exit | Duração |
+|---|---|---|---|
+| `bunx vite build` | limpo | **0** | 1,57 s (o Vite reporta `built in 545ms`) |
+| `bunx tsc --noEmit` | `import "./does-not-exist.png"` na primeira linha | **0** | 1,26 s |
+| `bunx vite build` | idem | **1** (`[UNRESOLVED_IMPORT] Could not resolve './does-not-exist.png' in src/main.tsx`) | 0,39 s |
+
+A terceira linha é a falha-antes local: o `tsc` aceita o import porque `vite/client` declara `*.png`,
+e só o bundler recusa.
+
+**Falha-antes e passa-depois no runner** (os dois runs do PR #239, `ubuntu-latest`):
+
+| Run | Head | Job TypeScript | O que aconteceu |
+|---|---|---|---|
+| [42404555286](https://github.com/Heldinhow/openridr/actions/runs/42404555286) | `d7d2463` | **vermelho** | "Type check" verde; "Build" vermelho com `[UNRESOLVED_IMPORT] Could not resolve './does-not-exist.png' in src/main.tsx`; "Unit tests" pulado; agregador `ci` vermelho |
+| [42405012826](https://github.com/Heldinhow/openridr/actions/runs/42405012826) | `758d56e` | verde | "Build" verde, Vite reporta `built in 460ms`; job TypeScript em **22 s** (era 17 s no run de 2026-11-07) |
+
+O commit `d7d2463` é descartável: `758d56e` o reverte e o diff final do PR não tem o import. O
+`dist/` gerado no runner é descartável e continua gitignored.
+
 ## O que é configuração existente, o que foi executado e o que não foi
 
 - **Configuração existente, não exercitada por esta frente**: os gates de risco e o ruleset
@@ -184,7 +212,7 @@ promoção e a correção do bullet "`src-tauri` fica fora do clippy", que deixo
   `dependency-audit` e o smoke noturno.
 - **Execução comprovada**: os cinco runs da tabela do topo — no SHA entregue `05b44af`, os 7 jobs do
   `ci` e o `dependency-audit`; em `40b7a1f`, os mesmos 7 jobs e o `dependency-audit` por
-  `workflow_dispatch` e por `pull_request`; `bunx tsc --noEmit` (0),
+  `workflow_dispatch` e por `pull_request`; `bunx tsc --noEmit` (0), `bunx vite build` (0, 1,57 s),
   `bun test tests/unit` (95/0), `bun run check`, clippy e os 6 testes de `src-tauri`, `bun audit`,
   `cargo-audit` nos dois lockfiles, o probe com advisory real, as duas falhas de rede dos scanners e
   os quatro scripts de CI (45 + 13 + 23 + 27 casos). `knip` foi remedido para conferir o inventário.
@@ -192,6 +220,6 @@ promoção e a correção do bullet "`src-tauri` fica fora do clippy", que deixo
   promoção do `rust-tauri` (**2 de 5** runs verdes); o caminho de aprovação por review de um PR
   `risk:high` de autor que não é o dono (coberto por teste, não por run); o caminho "um scanner falha
   e os outros dois ainda rodam" — o `if: always()` está no YAML e foi lintado, mas não foi exercitado
-  com uma falha real; `vite build`, que nenhum workflow roda — residual declarado, fora do escopo.
+  com uma falha real.
 - **Nada de UI**: nenhuma tela foi tocada, nenhum Playwright, nenhum app Tauri aberto. A superfície
   verificável aqui é YAML e shell, e ela foi exercitada de verdade.
