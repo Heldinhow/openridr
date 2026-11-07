@@ -1785,6 +1785,11 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Re-check da revisão (rodada 2).** `checking`/`installing` separados (fechar o modal durante uma checagem não libera mais a trava); o erro ao construir o updater também vai para o stderr; o modal mostra `% de <tamanho>`; o comentário da conferência de chave diz que é identidade, não verificação criptográfica. A janela de republicar uma versão já publicada ficou declarada na spec e em `release-signing.md`.
 - **Não verificado:** canal real do GitHub (a prova usou servidor local), assinatura Developer ID + notarização + grampo no artefato de update (a prova foi ad-hoc; `verify_updater_artifact` só rodou com os fakes do self-check), Gatekeeper/quarentena no app atualizado, TCC depois do update, proxy corporativo no updater, Windows/Linux e leitor de tela real.
 
+## Comunidade open source (#224, #226–#229)
+
+- README, políticas de conduta e segurança, CONTRIBUTING e templates de issue/PR; evidência em `docs/evidence/open-source-ready.md`.
+- Não verificado: issue chooser e community profile após merge, Discussions e reporte privado até ativação pelo mantenedor; app e E2E não se aplicam. Meta de 3–5 issues rotuladas permanece pendente por falta de candidatas adequadas.
+
 ## Cancelar push, update e fetch em andamento (2026-11-07, #150; tickets #206, #207, #208)
 
 - **O desenho.** O Git de rede entrou no padrão que Build/Run/Tests já usavam: `git.push`, `git.pull` e `git.fetch` são **start** — validam só o barato (trust, workspace aberto, `confirm: true` no push), registram a operação com um id **do host** e devolvem `{ "id": "git:<n>" }` na hora; o trabalho que depende do repositório (abrir o repo, `git status`, achar o remoto, o `git` de rede) roda numa thread com o prazo da #136. O estado publicado vai no **snapshot** que a UI já consulta a cada 400 ms (`git: { id, kind, state, message }`), e `git.cancel { id }` cancela só a operação que o host emitiu, e só enquanto o passo de rede dela está em voo. A tentativa anterior (síncrona, com `opId` do cliente e uma exceção no lock do shell) foi reprovada em quatro rodadas de review e está registrada em `docs/decisions.md` como o caminho recusado.

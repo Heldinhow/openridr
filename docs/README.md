@@ -22,6 +22,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 
 | Feature / onda | Spec | Tickets | Retro / review | Evidência |
 |---|---|---|---|---|
+| Comunidade open source (#224) | [SPEC-OPEN-SOURCE-READY](SPEC-OPEN-SOURCE-READY.md) | #226–#229 | [RETRO-OPEN-SOURCE-READY](RETRO-OPEN-SOURCE-READY.md) | [evidence/open-source-ready.md](evidence/open-source-ready.md) |
 | P0 original (Trust, SDK, MSBuild, LSP, build, run, DAP, PTY, VSTest) | [SPEC](SPEC.md) | [tickets/](tickets/README.md) (01–18) | [release-decision](release-decision.md) (histórico) | `evidence/NN-*.md`, [acceptance-matrix](acceptance-matrix.md) |
 | MVP Rider F1–F9, auditorias, Solution Explorer | [SPEC-MVP-RIDER](SPEC-MVP-RIDER.md), [SPEC-SOLUTION-EXPLORER](SPEC-SOLUTION-EXPLORER.md) | [tickets-mvp/](tickets-mvp/README.md) (01–41) | [RETRO-MVP-RIDER](RETRO-MVP-RIDER.md), [REVIEW-MVP-RIDER](REVIEW-MVP-RIDER.md), [RETRO-SOLUTION-EXPLORER](RETRO-SOLUTION-EXPLORER.md) | `evidence/`, [UI-AUDIT](UI-AUDIT.md) |
 | Welcome + Trust uma vez | [SPEC-WELCOME-TRUST](SPEC-WELCOME-TRUST.md) | [tickets-welcome-trust/](tickets-welcome-trust/) | [RETRO-WELCOME-TRUST](RETRO-WELCOME-TRUST.md), [REVIEW-WELCOME-TRUST](REVIEW-WELCOME-TRUST.md) | `evidence/welcome-trust/` |
@@ -76,6 +77,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 | Proxy do macOS System Settings para o cliente HTTP do host (#132) | [SPEC-SYSTEM-PROXY](SPEC-SYSTEM-PROXY.md) | #181, #182 (GitHub) | [RETRO-SYSTEM-PROXY](RETRO-SYSTEM-PROXY.md) | [evidence/system-proxy.md](evidence/system-proxy.md) |
 | O item Commit… do menu de workspace actions executa a ação (#190) | [SPEC-COMMIT-MENU-ACTION](SPEC-COMMIT-MENU-ACTION.md) | #192 (GitHub); achado na #177 | [RETRO-COMMIT-MENU-ACTION](RETRO-COMMIT-MENU-ACTION.md) | [evidence/commit-menu-action.md](evidence/commit-menu-action.md) |
 | E2E com portas por sessão e Playwright como verificação de UI (#210) | [SPEC-E2E-PORTS](SPEC-E2E-PORTS.md) | #211, #212, #213 (GitHub) | [RETRO-E2E-PORTS](RETRO-E2E-PORTS.md) | [evidence/e2e-ports.md](evidence/e2e-ports.md) |
+| Práticas de CI do T3 Code e do OpenChamber (#142): type check estrito, `src-tauri` no CI, auditoria semanal, inventário | [SPEC-CI-PRACTICES](SPEC-CI-PRACTICES.md) | #218, #219, #220, #221 (GitHub); follow-ups #222, #223, #232 | [RETRO-CI-PRACTICES](RETRO-CI-PRACTICES.md) | [evidence/ci-practices.md](evidence/ci-practices.md) |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
 
 `decisions.md`, `GLOSSARY.md` e a tabela acima são **append-only**: cada frente acrescenta a sua linha e

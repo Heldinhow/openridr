@@ -277,9 +277,8 @@ function debugStateLabel(state: Snapshot["debug"]["adapterState"]) {
 
 export function DebugAdapterPanel({
   snapshot,
-  onChange,
   compact = false,
-}: Props & { compact?: boolean }) {
+}: { snapshot: Snapshot; compact?: boolean }) {
   const debug = snapshot.debug;
   const plan = debug.plan;
   const active =

@@ -1375,12 +1375,68 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Correções da revisão independente (rodada 1).** Cinco achados, todos reais. (a) **Alto: nada provava que o artefato foi assinado pela chave que o app confia.** O release assinava e verificava a assinatura Apple, mas um secret registrado com outra chave publicaria um artefato que todo app instalado rejeita — com o DMG perfeitamente válido. `verify_updater_signature` passou a comparar o *key id* minisign (8 bytes no offset 2 do blob, tanto na pública quanto na assinatura) com o da `pubkey` do `tauri.conf.json`; o `release-selfcheck.sh` assina com a chave certa e com uma de outro par, e reprova a segunda (falha-antes medida desligando a comparação). (b) **Médio: o arquivo do canal era mutável.** Trocar `OpenRidr.app.tar.gz` no canal antes do manifesto deixava o manifesto antigo apontando para bytes novos com assinatura antiga. O artefato passou para a release da versão (URL imutável) e só o `latest.json` mora no canal. (c) **Médio: checagens sobrepostas podiam trocar o update depois da confirmação.** A UI serializa as operações (`busy`) e `update_install` recebe a versão mostrada e recusa outra. (d) **Baixo: o erro da checagem de startup não deixava rastro.** O comando agora escreve a frase no stderr; a spec deixou de prometer "log" que não existia. (e) **Baixo: a spec pedia o tamanho antes da confirmação.** O tamanho só existe quando o `Content-Length` chega; a spec passou a dizer isso em vez de prometer um número que não há.
 - **Re-check da revisão (rodada 2).** Cinco achados, quatro corrigidos e um declarado. (a) Fechar o modal durante uma checagem liberava a trava e uma segunda checagem podia sobrepor — `checking`/`installing` passaram a ser refs separadas, e só o fim da requisição limpa a primeira. (b) O erro ao construir o updater (config inválida) não era logado — as duas falhas passam pela mesma closure que escreve no stderr. (c) O modal mostrava só a porcentagem quando o total era conhecido — agora mostra `% de <tamanho>`. (d) O comentário da conferência de chave prometia verificação criptográfica; passou a dizer o que ela é (identidade pelo key id; a verificação de verdade é a do app na instalação). (e) **Declarado, não corrigido:** republicar uma versão já publicada re-uploada o artefato com `--clobber` (a mesma política do DMG) e, entre esse upload e a troca do manifesto, o manifesto antigo aponta para bytes novos com assinatura antiga — quem checar nessa janela baixa e recusa. Aceito e escrito na spec e em `release-signing.md`: a alternativa (versão publicada imutável) mudaria a política de republicar tag que o projeto já tem, e a assinatura continua sendo o que decide o que instala.
 - **Consequência.** `docs/SPEC-IN-APP-UPDATER.md`, tickets #195 (shell), #196 (release), #197 (UI) e #198 (prova + evidência), evidência em `docs/evidence/in-app-updater.md`, retro em `docs/RETRO-IN-APP-UPDATER.md`; `GLOSSARY.md` ganha **Update channel**, **Update manifest** e **Update artifact**.
+
 ## 2026-11-07 — A superfície de verificação de UI segue o que mudou; o E2E usa portas por sessão (issue #210)
 
 - **Decisão do Helder (2026-11-07).** Mudança de interface pura se verifica com **Playwright em modo web** — só os specs da área, escrevendo/atualizando o spec do cenário. O **app Tauri real com `agent-desktop`** fica para o que é nativo do shell: menu nativo, atalhos do sistema, updater, seletor nativo, árvore de acessibilidade do WebKit, single-instance e DMG. O **host isolado** (`web.sh`) continua para o que não tem spec ou precisa de captura. Motivo: a regra antiga mandava abrir o app real para provar uma mudança de CSS e empurrava toda verificação de UI para a superfície mais cara e menos determinística.
 - **O que a #67 decidiu continua valendo.** O smoke noturno é o único E2E automatizado, nunca roda em PR, e a quarentena segue com motivo por spec (`docs/evidence/e2e-quarantine.md`). A decisão nova muda quem roda Playwright na sessão, não o que o CI roda.
 - **Convenção de portas, sem helper.** Default 1420 (UI) / 4317 (host); sessão que roda em paralelo, ou junto com `bun run dev`, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`. Porta ocupada falha na hora pelo `strictPort` do Vite de teste. Nada de script que "acha porta livre": escolher duas portas é a única decisão da sessão. A faixa é do par inteiro: cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`, então o par escolhido precisa de 10 portas de host livres acima dele.
 - **Consequência.** `docs/SPEC-E2E-PORTS.md`; issues #211 (app home derivado da porta da UI), #212 (esta documentação) e #213 (os quatro sítios de `workspace.spec.ts` que a #177 deixou vermelhos); evidência em `docs/evidence/e2e-ports.md`; `AGENTS.md`, `.agents/skills/verify-openridr/SKILL.md`, `scripts/e2e-smoke.txt` e `docs/evidence/e2e-quarantine.md` deixam de repetir a regra antiga. Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança de código.
+
+## 2026-11-07 — Três buracos medidos do CI fechados sem dependência nova e sem tocar no ruleset (issue #142)
+
+- **A decisão.** A #142 pedia quatro frentes; três tinham buraco medido e entram, a quarta já estava
+  resolvida. Nada de linter de TS, nada de `knip`, nada de filtro de job por caminho, nenhuma mudança
+  em `.github/rulesets/**` ou em required check. O que entra é o menor artefato que fecha cada buraco,
+  com o número que o justifica.
+- **Type check estrito em vez de linter (decisão do Helder).** `noUnusedLocals` e
+  `noUnusedParameters` entram no `tsconfig.json`: 17 achados reais hoje (14 variáveis e 3 parâmetros),
+  zero dependência nova e **zero deriva possível entre local e CI**, porque as flags moram no arquivo
+  que o `tsc --noEmit` do CI já lê — nenhum passo novo no workflow, nenhum script novo no
+  `package.json`. Recusado agora: Biome, com o baseline medido para a issue filha — 175 achados com
+  recorte de regras de bug real (138 deles `useExhaustiveDependencies`; 37 sem ela), 5
+  `useHookAtTopLevel` que são **todos falso positivo em spec Playwright** (Biome confunde o callback do
+  `test()` com componente React), 1,1 MB de JS + 81 MB de binário de plataforma, e a config default
+  inútil (596 erros + 407 warnings, mais 1127 `noReactNativeRawText`). `noUncheckedIndexedAccess`
+  fica registrado como próximo degrau com o número: 120. Cinco dos 17 achados estão em specs de E2E.
+- **`src-tauri` em job novo e paralelo, não em passo do job Rust.** O job Rust é o caminho crítico
+  (3:38–4:21 de uma parede de ~4:20); somar 2–4 min a ele levaria todo PR a ~7 min, enquanto um job
+  paralelo não muda a parede. Custo aceito: ~35 linhas de YAML, uma entrada no `needs` do agregador e
+  um `rust-cache` próprio. **O `cargo check` de `src-tauri` falha em checkout limpo** — o `tauri-build`
+  valida os resources do bundle e `resources/csharp-ls/` e `resources/dotnet/` são vendor dirs
+  gitignored —, então o job cria as duas pastas vazias e comenta por quê. Recusado: mexer no
+  `tauri.conf.json` para tornar os resources condicionais (mudança de empacotamento por causa de CI) e
+  rodar os vendor scripts no CI (centenas de MB e rede para satisfazer uma checagem de existência).
+- **Fase informativa com critério escrito, não com memória.** `continue-on-error: true` no job faz o
+  `result` dele virar `success`, então o agregador `ci` continua verde e **o ruleset não muda**. A
+  promoção é remover o `continue-on-error` num PR próprio, depois de 5 execuções verdes consecutivas
+  (uma delas com cache frio), duração estável abaixo de 5 min e nenhum flake — e continua sem exigir
+  mudança de setting, porque o check obrigatório já é o agregador.
+- **Auditoria de dependências semanal, fora do caminho do PR.** Um advisory publicado hoje não pode
+  parar o PR de amanhã, e gitleaks (segredo) e Dependabot (bump) não são auditoria. O workflow não
+  entra no `needs` do agregador, então não bloqueia merge nenhum. `bun audit` já vem no bun 1.3.9 que
+  o CI fixa (0,4 s, zero dependência); `cargo audit` 0.22.2 com versão fixa roda duas vezes, porque a
+  raiz e `src-tauri` são workspaces com lockfiles separados. Baseline medido: **0 vulnerabilidades**
+  nos dois; 1 aviso unmaintained na raiz (`rustls-pemfile`) e 6 em `src-tauri` (glib/zvariant, deps de
+  Linux), que são impressos e não falham — transformar aviso em gate faria o job nascer vermelho.
+- **Falha de scanner é vermelho, nunca "limpo".** Sem `continue-on-error`, sem `|| true`, sem cache do
+  advisory-db. Medido: `bun audit` com a rede fora sai 1 com "audit request failed"; `cargo audit` com
+  banco inacessível e `--no-fetch` sai 1 com "error loading advisory database". Exceção é `--ignore`
+  com motivo e data de revisão na mesma linha, e **nada executa essa data** — limitação declarada, não
+  promessa.
+- **Gatilho de PR filtrado por caminho no workflow da auditoria.** `schedule` e `workflow_dispatch` só
+  rodam a partir da branch default, então sem um terceiro gatilho o PR que introduz o workflow não
+  teria como prová-lo (e a #142 exige run registrado). O filtro é `bun.lock`, os dois `Cargo.lock` e o
+  próprio arquivo, então o custo em PR normal é zero e a dependência nova é auditada no PR que a
+  introduz.
+- **Item 4 da #142 é verificar, não construir.** Caminho desconhecido, falha de classificação, arquivos
+  sensíveis, alteração do próprio gate e mudança do head depois da aprovação já estão cobertos pelos
+  quatro testes de shell, que passam. O residual é a #139 (o YAML do PR roda), que exige ruleset.
+  **Sem filtro de job por caminho**: medido, o job Rust é 3:38–4:21 de 4:20 de parede, então filtrar
+  não economiza nada num PR que toca Rust e cria risco de pular validação em silêncio.
+- **Consequência.** `docs/SPEC-CI-PRACTICES.md`, tickets filhos de #142, evidência em
+  `docs/evidence/ci-practices.md`; `GLOSSARY.md` ganha **Job informativo** e **Auditoria de
+  dependências**. Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança de produto.
 
 ## 2026-11-07 — Cancelar push, update e fetch: o Git de rede entra no padrão assíncrono do Build (issue #150)
 

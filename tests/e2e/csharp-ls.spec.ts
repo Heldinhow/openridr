@@ -7,7 +7,7 @@ import path from "node:path";
 import { openTrustPopover } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
-import { e2eHome, host } from "./environment";
+import { host } from "./environment";
 const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 const logs = path.resolve(process.env.OPENRIDR_EVIDENCE_LOG_DIR ?? "docs/evidence/logs");
 
@@ -258,9 +258,6 @@ test("problems navigate real diagnostics by revision and keep stale items", asyn
       "data-cursor",
       `${brokenItem.position.line}:${brokenItem.position.character}`,
     );
-    const cursorAtDiagnostic = await page
-      .getByTestId("editor-shell")
-      .getAttribute("data-cursor");
     fs.mkdirSync(screenshots, { recursive: true });
     await page.screenshot({
       path: path.join(screenshots, "06-problems.png"),

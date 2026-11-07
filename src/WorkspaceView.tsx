@@ -540,7 +540,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   const [editedAt, setEditedAt] = useState<Record<string, number>>({});
-  const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const navigationSeq = useRef(0);
   const navHistory = useRef<{ entries: NavEntry[]; index: number }>({ entries: [], index: -1 });
   const [navEnabled, setNavEnabled] = useState({ back: false, forward: false });
@@ -878,14 +877,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     !evaluation.availableTfms.includes(evaluation.context.targetFramework)
       ? [evaluation.context.targetFramework, ...evaluation.availableTfms]
       : evaluation.availableTfms;
-  const projectGroups = (() => {
-    const grouped = new Map<string, EvaluationProject[]>();
-    for (const project of evaluatedProjects) {
-      const key = project.folder ?? "";
-      grouped.set(key, [...(grouped.get(key) ?? []), project]);
-    }
-    return Array.from(grouped.entries());
-  })();
   const build = snapshot.build;
   const consoleCandidates = evaluatedProjects.filter(
     (project) => project.kind === "console" && project.state === "ok" && project.targetPath,
@@ -899,7 +890,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     runConfigStore && runConfigStore.activeId !== DEFAULT_RUN_CONFIG_ID
       ? runConfigStore.configs.find((config) => config.id === runConfigStore.activeId) ?? null
       : null;
-  const { evaluating, evaluateContext, runEvaluation, startRestore, cancelRestore, selectRunConfig, commitRunConfigDialog } = useEvaluationFlow({
+  const { evaluating, runEvaluation, startRestore, cancelRestore, selectRunConfig, commitRunConfigDialog } = useEvaluationFlow({
     snapshot, trusted, restoreAvailable, evaluationAvailable, runConfigsLoaded, activeNamedConfig, runConfigStore,
     hasUnsavedBuffers: dirtyCount > 0,
     commitRunConfigs, onSnapshot, setMessage,
@@ -937,11 +928,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     ? { ...baseDefaultRunConfig, name: `${defaultStartupProject?.name} · ${profileState.selected}`, launchProfile: profileState.selected }
     : baseDefaultRunConfig;
   const activeRunConfig: RunConfigView | null = activeNamedConfig ?? defaultRunConfig;
-  const activeRunConfigIssues = activeRunConfig
-    ? (runConfigStore?.issues ?? []).filter(
-        (issue) => issue.configId === activeRunConfig.id,
-      )
-    : [];
   const activeConfigEvaluated =
     !activeNamedConfig ||
     (activeNamedConfig.configuration === evaluation.context.configuration &&
@@ -1670,7 +1656,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             : item,
         ),
       );
-      setSavedAt((current) => ({ ...current, [tab.path]: Date.now() }));
       setMessage({ tone: "info", text: `Saved ${tab.path}` });
       return { ok: true };
     } catch (error) {
@@ -1921,8 +1906,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     const sourcePath = active.path;
     const sourceRevision = active.revision;
     const session = lsp.session;
-    const contextId = snapshot.contextId;
-    const workspaceId = workspace.id;
     const sequence = ++findUsagesSeq.current;
     setFindUsages(null);
     setMessage(null);
@@ -2460,7 +2443,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             : item,
         ),
       );
-      setSavedAt((current) => ({ ...current, [tab.path]: Date.now() }));
       setMessage({ tone: "info", text: `Overwrote ${tab.path} with the buffer.` });
     } catch (error) {
       if (error instanceof HostCallError && error.code === "conflict") {
@@ -2588,9 +2570,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
 
   const {
     buildDecision, setBuildDecision, runDecision, setRunDecision,
-    startBuild, requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
+    requestBuild, saveAllAndBuild, buildSavedContent, cancelBuild,
     requestBuildSolution,
-    startRun, requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
+    requestRun, saveAllAndRebuild, runSavedBuild, cancelRun,
     prepareAndDebug, requestDebugStart, stopDebug,
   } = useExecutionFlow({
     snapshot, evaluation, build, buildRunning, runRunning, dirtyCount, consoleCandidates, startupProject,
@@ -4008,7 +3990,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         </div>
       )}
 
-      <DebugAdapterPanel snapshot={snapshot} onChange={onSnapshot} compact />
+      <DebugAdapterPanel snapshot={snapshot} compact />
       <ToolInstaller snapshot={snapshot} onChange={onSnapshot} />
       <LspPanel snapshot={snapshot} onChange={onSnapshot} />
 
@@ -4032,7 +4014,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           <BuildPanel
             build={build}
             run={run}
-            platform={snapshot.app.platform}
             shortcuts={{ run: shortcutOf("run.start"), build: shortcutOf("build.start"), solution: shortcutOf("build.solution") }}
             dirtyCount={dirtyCount}
             runDisabledReason={runDisabledReason}
@@ -4940,7 +4921,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   key={active.path}
                   value={active.content}
                   path={active.path}
-                  platform={snapshot.app.platform}
                   profile={settings.keymap.profile}
                   shortcutHint={`Ctrl+Space: completion · ${shortcutOf("code.goToDeclaration") ?? ""}: go to definition · ${shortcutOf("code.rename") ?? ""}: rename · ${shortcutOf("code.findUsages") ?? ""}: find usages · ${shortcutOf("code.contextActions") ?? ""}: code actions`}
                   revision={active.revision}

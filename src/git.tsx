@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { call, messageOf, type GitNet } from "./host/client";
 import { Icon } from "./Icon";
 import { MidText } from "./shell/MidText";
