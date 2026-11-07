@@ -14,17 +14,24 @@ use super::*;
 struct TestProxy {
     port: u16,
     hits: Arc<Mutex<Vec<String>>>,
+    heads: Arc<Mutex<Vec<String>>>,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl TestProxy {
     fn start() -> Self {
+        Self::with_response("HTTP/1.1 502 Bad Gateway")
+    }
+
+    fn with_response(status_line: &'static str) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let hits = Arc::new(Mutex::new(Vec::new()));
+        let heads = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let thread_hits = Arc::clone(&hits);
+        let thread_heads = Arc::clone(&heads);
         let thread_stop = Arc::clone(&stop);
         let handle = std::thread::spawn(move || {
             for stream in listener.incoming() {
@@ -42,13 +49,16 @@ impl TestProxy {
                     .trim_end()
                     .to_string();
                 thread_hits.lock().unwrap().push(first);
-                let _ = stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
+                thread_heads.lock().unwrap().push(request.clone());
+                let response = format!("{status_line}\r\nContent-Length: 0\r\n\r\n");
+                let _ = stream.write_all(response.as_bytes());
                 let _ = stream.flush();
             }
         });
         Self {
             port,
             hits,
+            heads,
             stop,
             handle: Some(handle),
         }
@@ -60,6 +70,10 @@ impl TestProxy {
 
     fn hits(&self) -> Vec<String> {
         self.hits.lock().unwrap().clone()
+    }
+
+    fn heads(&self) -> Vec<String> {
+        self.heads.lock().unwrap().clone()
     }
 }
 
@@ -288,4 +302,100 @@ fn a_public_destination_without_a_proxy_builds_direct() {
     let agent = agent_for_with("https://api.nuget.org/v3/index.json", &env_of(Vec::new()))
         .expect("a direct route builds");
     drop(agent);
+}
+
+#[test]
+fn proxy_credentials_reach_the_client_but_never_the_label() {
+    let proxy = TestProxy::start();
+    let value = format!(
+        "http://openridr:s3cret@{}/",
+        proxy.url().trim_start_matches("http://")
+    );
+    let (destination, route) = plan(
+        "https://1.1.1.1/v3/index.json",
+        &env_of(vec![("HTTPS_PROXY", value)]),
+    )
+    .expect("an authenticated http proxy is usable");
+    assert_eq!(destination.port, 443);
+    let label = route.label().expect("a proxied route").to_string();
+    assert_eq!(label, format!("127.0.0.1:{}", proxy.port));
+    assert!(
+        !label.contains("s3cret") && !label.contains("openridr"),
+        "{label}"
+    );
+
+    let agent = agent_for_with(
+        "https://1.1.1.1/v3/index.json",
+        &env_of(vec![(
+            "HTTPS_PROXY",
+            format!("http://openridr:s3cret@127.0.0.1:{}", proxy.port),
+        )]),
+    )
+    .expect("the client builds")
+    .timeout(std::time::Duration::from_secs(10))
+    .build();
+    let _ = agent.get("https://1.1.1.1/v3/index.json").call();
+    let heads = proxy.heads();
+    assert_eq!(heads.len(), 1, "{heads:?}");
+    // `openridr:s3cret` in base64: the proxy has to receive it, otherwise an authenticated proxy
+    // could never work.
+    let head = &heads[0];
+    let authorization = head
+        .lines()
+        .find(|line| line.to_lowercase().starts_with("proxy-authorization:"))
+        .expect("the CONNECT must carry the proxy credentials");
+    assert!(
+        authorization.ends_with("basic b3BlbnJpZHI6czNjcmV0"),
+        "unexpected authorization header: {authorization}"
+    );
+}
+
+#[test]
+fn a_proxy_answer_of_407_is_explained_as_credentials() {
+    let proxy = TestProxy::with_response("HTTP/1.1 407 Proxy Authentication Required");
+    let url = "https://1.1.1.1/v3/index.json";
+    let agent = agent_for_with(url, &env_of(vec![("HTTPS_PROXY", proxy.url())]))
+        .expect("the client builds")
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+    let error = agent.get(url).call().unwrap_err();
+    let message = describe_via(
+        url,
+        &format!("{error:?}"),
+        Some(&format!("127.0.0.1:{}", proxy.port)),
+    );
+    assert!(message.contains("407"), "{message}");
+    assert!(message.contains("HTTPS_PROXY"), "{message}");
+    assert!(
+        message.contains(&format!("127.0.0.1:{}", proxy.port)),
+        "{message}"
+    );
+}
+
+#[test]
+fn an_empty_no_proxy_does_not_shadow_the_uppercase_value() {
+    let route = route(
+        "https://feed.corp.example/v3/index.json",
+        pairs_of(&[
+            ("HTTPS_PROXY", "http://proxy.corp:3128"),
+            ("no_proxy", ""),
+            ("NO_PROXY", "corp.example"),
+        ]),
+    );
+    assert!(
+        matches!(route, Route::Direct),
+        "an empty lowercase value means unset, so NO_PROXY must still be read"
+    );
+}
+
+#[test]
+fn a_redirect_to_plain_http_is_refused() {
+    assert_eq!(
+        resolve_location("https://api.nuget.org/v3/a", "/v3/b"),
+        "https://api.nuget.org/v3/b"
+    );
+    let error = redirected("https://api.nuget.org/v3/a", "http://127.0.0.1/v3/b").unwrap_err();
+    assert!(error.contains("only HTTPS destinations"), "{error}");
+    assert!(error.contains("Nothing was downloaded"), "{error}");
+    assert!(redirected("https://api.nuget.org/v3/a", "/v3/b").is_ok());
 }

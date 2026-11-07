@@ -211,8 +211,8 @@ fn route_for(
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Route, String> {
     let no_proxy = env("no_proxy")
-        .or_else(|| env("NO_PROXY"))
-        .filter(|value| !value.trim().is_empty());
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| env("NO_PROXY").filter(|value| !value.trim().is_empty()));
     if let Some(list) = no_proxy {
         if no_proxy_matches(&list, &destination.host, destination.port) {
             return Ok(Route::Direct);
@@ -259,8 +259,9 @@ fn proxy_target(variable: &str, value: &str) -> Result<ProxyTarget, String> {
         ));
     }
     let netloc = format!("{host}:{port}");
+    // The client needs the credentials; the label never leaves this function with them.
     let url = if value.contains("://") {
-        format!("{scheme}://{host_port}")
+        format!("{scheme}://{rest}")
     } else {
         host_port.to_string()
     };
@@ -270,6 +271,70 @@ fn proxy_target(variable: &str, value: &str) -> Result<ProxyTarget, String> {
         ));
     }
     Ok(ProxyTarget { url, netloc })
+}
+
+/// How many redirects one download may follow before it is refused.
+const MAX_DOWNLOAD_REDIRECTS: usize = 5;
+
+/// Resolves a `Location` header against the URL that produced it.
+pub(crate) fn resolve_location(base: &str, location: &str) -> String {
+    if location.contains("://") {
+        return location.to_string();
+    }
+    let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
+    let authority = rest.split('/').next().unwrap_or_default();
+    format!("{scheme}://{authority}{location}")
+}
+
+/// A redirect target must stay on HTTPS: a proxy or a compromised host cannot downgrade the
+/// download to plain HTTP.
+fn redirected(url: &str, location: &str) -> Result<String, String> {
+    let next = resolve_location(url, location);
+    if !next.starts_with("https://") {
+        return Err(format!(
+            "Refused to follow a redirect from {url} to {next}: only HTTPS destinations are followed. Nothing was downloaded."
+        ));
+    }
+    Ok(next)
+}
+
+/// Downloads with up to [`MAX_DOWNLOAD_REDIRECTS`] hops, rebuilding the client for every one: a
+/// redirect is a new destination, so the route and the destination guard have to run again. With a
+/// proxy the resolver never sees the destination, so reusing one client would skip the guard.
+pub(crate) fn fetch(url: &str, timeout: std::time::Duration) -> Result<ureq::Response, String> {
+    let mut url = url.to_string();
+    for _ in 0..=MAX_DOWNLOAD_REDIRECTS {
+        let agent = agent_for(&url)?.redirects(0).timeout(timeout).build();
+        let location = match agent.get(&url).call() {
+            Ok(response) if (300..400).contains(&response.status()) => {
+                let status = response.status();
+                match response.header("location") {
+                    Some(location) => location.to_string(),
+                    None => {
+                        return Err(format!(
+                            "The server answered {status} for {url} without a Location; nothing was downloaded."
+                        ))
+                    }
+                }
+            }
+            Ok(response) => return Ok(response),
+            Err(ureq::Error::Status(code, response)) if (300..400).contains(&code) => {
+                match response.header("location") {
+                    Some(location) => location.to_string(),
+                    None => {
+                        return Err(format!(
+                            "The server answered {code} for {url} without a Location; nothing was downloaded."
+                        ))
+                    }
+                }
+            }
+            Err(error) => return Err(describe_error(&url, &error)),
+        };
+        url = redirected(&url, &location)?;
+    }
+    Err(format!(
+        "More than {MAX_DOWNLOAD_REDIRECTS} redirects from the download URL; the download was refused."
+    ))
 }
 
 /// True when `NO_PROXY` says this destination goes direct.
@@ -314,10 +379,20 @@ pub(crate) fn describe_error(url: &str, error: &ureq::Error) -> String {
     describe_via(url, &detail, proxy_label(url).as_deref())
 }
 
-fn describe_via(url: &str, detail: &str, proxy: Option<&str>) -> String {
+fn describe_via(url: &str, detail: &str, configured: Option<&str>) -> String {
     let diagnostic = detail.to_ascii_lowercase();
-    let proxy = proxy.unwrap_or("the configured proxy");
-    if diagnostic.contains("proxy unauthorized") || detail.contains("407") {
+    let proxy = configured.unwrap_or("the configured proxy");
+    // `ureq` renders a 407 on the CONNECT as `ProxyUnauthorized` / "Provided proxy credentials are
+    // incorrect"; a plain `Status(407, ..)` only appears for a proxy answering in absolute form.
+    let unauthorized = [
+        "proxy unauthorized",
+        "proxyunauthorized",
+        "proxy credentials",
+        "status(407",
+    ]
+    .iter()
+    .any(|needle| diagnostic.contains(needle));
+    if unauthorized {
         return format!(
             "The proxy at {proxy} rejected the request for {url} (HTTP 407: authentication required). Set the credentials in HTTPS_PROXY and retry, or ask your network administrator. Details: {detail}"
         );
@@ -341,7 +416,10 @@ fn describe_via(url: &str, detail: &str, proxy: Option<&str>) -> String {
             "The network certificate for {url} is not trusted, possibly because a corporate proxy or TLS inspection is in use. Ask your network administrator to trust its CA in the system Keychain, then retry. Details: {detail}"
         );
     }
-    format!("{url}: {detail}")
+    match configured {
+        Some(proxy) => format!("{url}: {detail} (via proxy {proxy})"),
+        None => format!("{url}: {detail}"),
+    }
 }
 
 #[cfg(test)]

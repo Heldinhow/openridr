@@ -1,0 +1,4 @@
+CONNECT api.nuget.org:443 HTTP/1.1
+CONNECT azuresearch-usnc.nuget.org:443 HTTP/1.1
+CONNECT api.nuget.org:443 HTTP/1.1
+CONNECT azuresearch-usnc.nuget.org:443 HTTP/1.1

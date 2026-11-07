@@ -250,15 +250,6 @@ fn loggable_url(url: &str) -> String {
     url[..cut].to_string()
 }
 
-fn resolve_location(base: &str, location: &str) -> String {
-    if location.contains("://") {
-        return location.to_string();
-    }
-    let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
-    let authority = rest.split('/').next().unwrap_or_default();
-    format!("{scheme}://{authority}{location}")
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Source {
@@ -1408,7 +1399,7 @@ impl Debugger {
                             response.status()
                         )));
                     };
-                    url = resolve_location(&url, location);
+                    url = crate::http::resolve_location(&url, location);
                 }
                 Ok(response) => {
                     let total = response
@@ -1430,7 +1421,7 @@ impl Debugger {
                             "The server answered {code} without a Location; nothing was downloaded."
                         )));
                     };
-                    url = resolve_location(&url, location);
+                    url = crate::http::resolve_location(&url, location);
                 }
                 Err(ureq::Error::Status(code, _)) => {
                     return Err(Stop::Failed(format!(
@@ -1921,11 +1912,11 @@ mod tests {
         assert!(!allowed_url("https://github.com.evil.invalid/x.zip"));
         assert!(!allowed_url("file:///etc/passwd"));
         assert_eq!(
-            resolve_location("https://github.com/a/b", "/c/d"),
+            crate::http::resolve_location("https://github.com/a/b", "/c/d"),
             "https://github.com/c/d"
         );
         assert_eq!(
-            resolve_location(
+            crate::http::resolve_location(
                 "https://github.com/a/b",
                 "https://objects.githubusercontent.com/x"
             ),
