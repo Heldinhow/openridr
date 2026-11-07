@@ -14,6 +14,10 @@
 #
 #   GATE_SCRIPT=<path> sh tests/shell/ci-risk-gate.test.sh   # run the cases against another copy of the
 #                                                            # script (the falha-antes proof)
+#   GATE_SHELL=dash sh tests/shell/ci-risk-gate.test.sh      # run the gate itself under dash, the
+#                                                            # runner's /bin/sh (the harness may run under
+#                                                            # any shell; this picks the one that executes
+#                                                            # the code under test)
 set -eu
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -89,7 +93,7 @@ run() {
   env GH="$scratch/gh" REPO="$owner/$repo_name" PR_NUMBER="$pr" TIER="$tier" HEAD_SHA="$head" \
     EXPECT_REPO="$owner/$repo_name" EXPECT_PR="$pr" FAKE_REVIEWS="$scratch/reviews.json" \
     FAKE_PR="$scratch/pr.json" \
-    "$@" sh "$script" >"$scratch/stdout" 2>"$scratch/stderr"
+    "$@" "${GATE_SHELL:-sh}" "$script" >"$scratch/stdout" 2>"$scratch/stderr"
   code=$?
   set -e
   out=$(cat "$scratch/stdout")
@@ -135,6 +139,8 @@ reviews <<'JSON'
 []
 JSON
 expect 0 owner-author-no-review high 'the pull request author is the owner' ''
+# ... and it does not read the review list at all: the call fails and the gate still passes.
+expect 0 owner-author-does-not-read-reviews high 'the pull request author is the owner' '' FAKE_FAIL=1
 
 # The owner's own pull request passes whatever the review history says: the point of the rule is that no
 # review can exist, not that the reviews happen to agree.

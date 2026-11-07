@@ -5,6 +5,8 @@
 # JSON, so a broken bootstrap rule fails here instead of in a pull request that nobody can merge.
 #
 #   sh tests/shell/ci-workflow-bootstrap.test.sh
+#   GATE_SHELL=dash sh tests/shell/ci-workflow-bootstrap.test.sh   # the extracted blocks run under dash,
+#                                                                 # the runner's /bin/sh
 #
 # Covers: the trusted-blob check (regular file, non-empty, symlink, tree, missing), the bootstrap gate rule
 # (tier handling, a pull request authored by the owner, the same pull request from another author, an
@@ -147,7 +149,7 @@ run_gate() { # <tier> [env assignments...]
   env PATH="$scratch:$PATH" GH_TOKEN=x REPO=owner/repo PR_NUMBER=7 TIER="$tier" HEAD_SHA="$head" \
     RUNNER_TEMP="$scratch" FAKE_REVIEWS="$scratch/fixture-reviews.json" \
     FAKE_PR="$scratch/fixture-pr.json" \
-    "$@" sh -c "$gate_rule" >"$scratch/gate.out" 2>&1
+    "$@" "${GATE_SHELL:-sh}" -c "$gate_rule" >"$scratch/gate.out" 2>&1
   code=$?
   set -e
   out=$(cat "$scratch/gate.out")
@@ -187,6 +189,8 @@ cat >"$scratch/fixture-reviews.json" <<'JSON'
 []
 JSON
 expect_gate 0 owner-author-no-review high 'the pull request author is the owner'
+# The review list is not read at all: the call fails and the gate still passes.
+expect_gate 0 owner-author-does-not-read-reviews high 'the pull request author is the owner' FAKE_FAIL=1
 
 # Anyone else still needs the approval.
 pr_author MEMBER
