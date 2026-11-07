@@ -582,9 +582,9 @@ fn run_with_deadline(
     Ok((
         Output {
             code: status.and_then(|status| status.code()),
-            stdout: String::from_utf8_lossy(&stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&stderr).into_owned(),
-            truncated: false,
+            stdout: String::from_utf8_lossy(&stdout.0).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr.0).into_owned(),
+            truncated: stdout.1 || stderr.1,
         },
         timed_out,
     ))
@@ -605,8 +605,9 @@ fn kill_tree(child: &mut std::process::Child, pid: u32) {
 /// Reads a pipe to its end and keeps the **last** `STDERR_BYTES`: what a failure says is at the end
 /// of its output, so a truncated buffer must lose the beginning, not the message. A child that
 /// never closes its pipe cannot grow the host either.
-fn drain_bounded<R: Read>(reader: &mut R) -> Vec<u8> {
+fn drain_bounded<R: Read>(reader: &mut R) -> (Vec<u8>, bool) {
     let mut kept: Vec<u8> = Vec::new();
+    let mut dropped = false;
     let mut buffer = [0u8; 4096];
     loop {
         match reader.read(&mut buffer) {
@@ -616,6 +617,7 @@ fn drain_bounded<R: Read>(reader: &mut R) -> Vec<u8> {
                 if kept.len() > STDERR_BYTES * 2 {
                     let cut = kept.len() - STDERR_BYTES;
                     kept.drain(..cut);
+                    dropped = true;
                 }
             }
         }
@@ -623,8 +625,9 @@ fn drain_bounded<R: Read>(reader: &mut R) -> Vec<u8> {
     if kept.len() > STDERR_BYTES {
         let cut = kept.len() - STDERR_BYTES;
         kept.drain(..cut);
+        dropped = true;
     }
-    kept
+    (kept, dropped)
 }
 
 fn spawn_message(error: SpawnError) -> String {
@@ -2145,7 +2148,18 @@ fn fetch_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
     let refspec = format!("+refs/heads/*:refs/remotes/{remote}/*");
     let fetched = run_with_deadline(
         &repo.top,
-        &["fetch", "--quiet", "--prune", &remote, &refspec],
+        // `--refmap=` (empty) drops `remote.<name>.fetch` from the ref mapping entirely. Without
+        // it Git still applies the configured refspec as an extra refmap, so a repository that
+        // mirrors the remote into `refs/mirror/*` — or into `refs/heads/*` — would have those refs
+        // created or updated by a button that promises to touch only remote-tracking refs.
+        &[
+            "fetch",
+            "--quiet",
+            "--prune",
+            "--refmap=",
+            &remote,
+            &refspec,
+        ],
         deadline,
     )
     .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
@@ -3990,6 +4004,29 @@ mod tests {
         let message = result.message.unwrap_or_default();
         assert!(!message.contains("secret-token"), "{message}");
         assert!(!result.output.contains("secret-token"), "{}", result.output);
+        // Measured here: for a connection failure git itself already prints the URL without the
+        // userinfo, so the assertion above would pass even without masking. The masking the app
+        // owns is proved where the operation output is built, with a stderr that does carry it.
+        let masked = operation(
+            "failed",
+            None,
+            "fatal: unable to access 'https://user:secret-token@example.com/x.git/': denied",
+            &repo_of(&user),
+            None,
+        );
+        assert!(!masked.output.contains("secret-token"), "{}", masked.output);
+        assert!(
+            masked.output.contains("***@example.com"),
+            "{}",
+            masked.output
+        );
+        assert!(!fetch_failure(
+            "origin",
+            &mask_urls(
+                "fatal: could not read Username for 'https://user:secret-token@example.com'"
+            )
+        )
+        .contains("secret-token"));
     }
 
     /// `--prune` deletes whatever the configured refspecs point at. A repository that maps the
@@ -4002,7 +4039,9 @@ mod tests {
         fs::write(peer.join("doomed.txt"), "x\n").unwrap();
         commit_all(&peer, "doomed");
         git(&peer, &["push", "-q", "origin", "doomed"]);
-        // A hostile (or just unusual) refspec: the remote mirrors into refs/mirror/*.
+        // A hostile (or just unusual) refspec: the remote mirrors into refs/mirror/*. The app's
+        // fetch must neither create those refs nor update them — Git applies the configured
+        // refspec as an extra refmap unless the command drops it.
         git(
             &user,
             &[
@@ -4011,9 +4050,20 @@ mod tests {
                 "+refs/heads/*:refs/mirror/*",
             ],
         );
+        assert_eq!(git(&user, &["for-each-ref", "refs/mirror"]).trim(), "");
+        let first = fetch(&user).unwrap();
+        assert_eq!(first.state, "ok", "{:?}", first.message);
+        assert_eq!(
+            git(&user, &["for-each-ref", "refs/mirror"]).trim(),
+            "",
+            "the app's fetch must not create refs outside refs/remotes/*"
+        );
+
+        // The same for a ref that already exists there: it must keep its old value.
         git(&user, &["fetch", "-q", "origin"]);
         let mirrored = git(&user, &["for-each-ref", "refs/mirror"]);
         assert!(mirrored.contains("refs/mirror/doomed"), "{mirrored}");
+        publish(&peer, "b.txt", "one\npeer\n", "peer change");
 
         git(&peer, &["push", "-q", "origin", "--delete", "doomed"]);
         let result = fetch(&user).unwrap();
@@ -4022,7 +4072,7 @@ mod tests {
         assert_eq!(
             git(&user, &["for-each-ref", "refs/mirror"]),
             mirrored,
-            "the app's fetch must not prune refs outside refs/remotes/*"
+            "the app's fetch must not prune or update refs outside refs/remotes/*"
         );
         assert!(branches(&user)
             .remote
