@@ -113,15 +113,15 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
     expect(source).not.toContain("/obj/");
   }
   await expect(page.getByTestId("eval-restore-banner")).toHaveCount(0);
-  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  await page.getByRole("button", { name: "Workspace actions" }).click();
   const beforeDebug = await revisionOf(page);
   await page.getByTestId("eval-configuration").selectOption("Debug");
   await expect(page.getByTestId("eval-state")).toContainText(`revision ${beforeDebug + 1}`, {
     timeout: 20_000,
   });
   await expect(page.getByTestId("eval-state")).not.toContainText("stale");
-  await page.getByTestId("workspace-actions-menu").locator("summary").click();
   await expect(page.getByTestId("eval-configuration")).toHaveValue("Debug");
+  await page.getByRole("button", { name: "Workspace actions" }).click();
 
   await page.getByTestId("tree-project-OrderDesk.Cli").click();
   await openProjectDetails(page);
@@ -135,7 +135,7 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
   await expect(page.getByTestId("eval-packages")).toContainText("0 packages");
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored");
   const configuration = page.getByTestId("eval-configuration");
-  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  await page.getByRole("button", { name: "Workspace actions" }).click();
   await expect(configuration).toBeEnabled({ timeout: 60_000 });
   await configuration.focus();
   await expect(configuration).toBeFocused();

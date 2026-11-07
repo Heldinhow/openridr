@@ -27,14 +27,14 @@ async function hostCall(request: APIRequestContext, method: string, params = {})
 }
 
 async function selectEvaluationTfm(page: Page, value: string) {
-  const summary = page.getByTestId("workspace-actions-menu").locator("summary");
-  await summary.click();
+  const trigger = page.getByRole("button", { name: "Workspace actions" });
+  await trigger.click();
   const tfm = page.getByTestId("eval-tfm");
   await expect(tfm).toBeVisible();
   await tfm.selectOption(value);
-  await summary.click();
-  await expect(tfm).toBeHidden();
   await expect(tfm).toHaveValue(value);
+  await trigger.click();
+  await expect(tfm).toBeHidden();
 }
 
 test("achado 1: the editor scrolls to the current execution line when it is off screen", async ({
@@ -294,7 +294,7 @@ test("achado 4: two consoles keep Build/Run/Debug enabled and Build Solution run
     await expect(startup).toHaveValue(alpha);
 
     // Build Solution compiles the .sln and reports one successful build for the whole solution.
-    await page.getByTestId("workspace-actions-menu").locator("summary").click();
+    await page.getByRole("button", { name: "Workspace actions" }).click();
     await page.getByTestId("build-solution-menu").click();
     await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
       timeout: 60_000,
@@ -330,7 +330,7 @@ test("achado 4: two consoles keep Build/Run/Debug enabled and Build Solution run
     await expect(page.getByTestId("run-exit")).toHaveText("exit 0", { timeout: 60_000 });
 
     // The choice comes back after reopening the solution.
-    await page.getByTestId("workspace-actions-menu").locator("summary").click();
+    await page.getByRole("button", { name: "Workspace actions" }).click();
     await page.getByTestId("close-workspace").click();
     await page.getByTestId("workspace-path-input").fill(solution);
     await page.getByTestId("workspace-open").click();

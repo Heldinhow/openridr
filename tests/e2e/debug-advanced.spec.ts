@@ -76,14 +76,14 @@ async function hostCall(method: string, params: object = {}) {
 }
 
 async function selectEvaluationTfm(page: Page, value: string) {
-  const summary = page.getByTestId("workspace-actions-menu").locator("summary");
-  await summary.click();
+  const trigger = page.getByRole("button", { name: "Workspace actions" });
+  await trigger.click();
   const tfm = page.getByTestId("eval-tfm");
   await expect(tfm).toBeVisible();
   await tfm.selectOption(value);
-  await summary.click();
-  await expect(tfm).toBeHidden();
   await expect(tfm).toHaveValue(value);
+  await trigger.click();
+  await expect(tfm).toBeHidden();
 }
 
 const loopSource = [

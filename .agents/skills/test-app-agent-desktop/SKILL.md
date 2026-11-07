@@ -75,7 +75,7 @@ Valores de campo: `grep` no snapshot completo, por exemplo `textfield: Editor = 
 | `set-value`/`type` no campo de caminho do Welcome: `delivered_unverified` e valor vazio; "Open" com o campo vazio abre o seletor nativo e o app fica em "Opening…" | O campo do WKWebView não recebe digitação semântica, e o seletor nativo é modal e nunca é respondido | Abra o workspace por argv (`sh scripts/dev-app.sh <sln>`, ou o binário com o `.sln` depois dele); não clique em "Open" com o campo vazio |
 | `press cmd+f`: `APP_UNRESPONSIVE menu_modifier_value_invalid` | Erro da tool ao mandar Cmd+F | Não resolvido. Não testado: buscar o item no menubar (`snapshot --surface menubar`) |
 | Foco de teclado (Tab) não aparece | Conteúdo web: a árvore vê só `webarea` | Não verificável por esta superfície; registre "não verificado" |
-| Disclosure ("Project: OrderDesk.sln") sem `ref_id` | Não exposto como ação | Use outro caminho (ex.: Search Everywhere) ou registre como não alcançado |
+| Disclosure sem `ref_id` (ex.: "Build details", "Run details") | Não exposto como ação | Use outro caminho (ex.: Search Everywhere) ou registre como não alcançado. Os menus da toolbar (projeto, workspace actions, run configuration, branches) deixaram de ser `<details>` nas #168/#177 e agora aparecem como `button` com `ref_id`. |
 | `resize-window`: `TIMEOUT … resolution_deadline_exhausted` (passo `window_resize` diz succeeded) | Tool | Confira o tamanho por captura; não confie só no código de saída |
 | `right-click` com menu já aberto: `ACTION_FAILED` | Menu anterior ainda ativo | `press escape` antes |
 | `click` retorna `delivered_unverified` | Normal para `AXPress` | Verifique pelo efeito (snapshot, disco, `trusted.json`) |

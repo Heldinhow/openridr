@@ -47,7 +47,7 @@ async function restoreAndReload(page: Page) {
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
   const text = (await page.getByTestId("eval-state").textContent()) ?? "";
   const before = Number(/revision (\d+)/.exec(text)?.[1] ?? 0);
-  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  await page.getByRole("button", { name: "Workspace actions" }).click();
   await page.getByTestId("eval-tfm").selectOption("net8.0");
   await expect(page.getByTestId("eval-state")).toContainText(`revision ${before + 1}`, {
     timeout: 30_000,

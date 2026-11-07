@@ -305,7 +305,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     // The fixture may already be restored by earlier specs, so the journey only waits for the settled state.
     await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 120_000 });
     const beforeTfm = await revisionOf(page);
-    await page.getByTestId("workspace-actions-menu").locator("summary").click();
+    await page.getByRole("button", { name: "Workspace actions" }).click();
     await page.getByTestId("eval-tfm").selectOption("net8.0");
     await expect.poll(() => revisionOf(page)).toBeGreaterThan(beforeTfm);
     const restored = await hostState(request);
