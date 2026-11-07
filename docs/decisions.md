@@ -1628,3 +1628,29 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `tests/shell/pre-commit.test.sh` (rodado à mão, como os outros; ligar `tests/shell/` no CI é a #269);
   uma linha do `AGENTS.md` corrigida, o que faz o PR ser `risk:high`. Nenhuma dependência nova, nenhum
   `data-testid`, nenhuma mudança em `bun run check`.
+
+## 2026-11-07 — O risk tier lê o caminho cru que o git cita (issue #276)
+
+- **Decisão.** O classificador de risco pede o diff com `git -c core.quotePath=false diff --name-only
+  --no-renames "$base...$head"`, e o caminho que o git **ainda** cita (tab, aspas ou quebra de linha no
+  nome) é `high`, com o motivo `git quoted the path`. Nada mais muda: a tabela de caminhos, o gate, o
+  agregador e o workflow ficam como estão.
+- **Por que.** `core.quotePath` é `true` por default, então `docs/evidência.md` chegava como
+  `"docs/evid\303\252ncia.md"`, não casava com `docs/*` e caía no default (`medium`): um PR só de
+  documentação não recebia `risk:low`, o job `risk` não armava o auto-merge e o mantenedor era chamado à
+  toa. Onde o tier certo já era `medium` o defeito era invisível, porque o default coincidia.
+- **Por que falhar fechado no que continua citado.** `core.quotePath=false` resolve o não-ASCII, mas o git
+  cita de qualquer jeito um nome com tab, aspas ou quebra de linha (medido: `"docs/tab\there.md"`).
+  Despir as aspas seria adivinhar; `high` é a mesma política do hook de pre-commit (#265), que nesse caso
+  roda os dois checks. Custo aceito: um PR que toque um desses nomes passa a exigir o mantenedor.
+- **Por que não `-z`.** `git diff -z` é imune a citação por construção, mas a leitura NUL-delimitada exige
+  `read -d ''`, que o `dash` — o `/bin/sh` do runner — não tem. A flag resolve o caso que existe sem
+  trocar a forma de ler.
+- **Por que o loop de leitura ficou como está.** `IFS` com quebra de linha, `for path in $paths` e
+  `set -f` já leem um caminho por linha, sem divisão por espaço e sem glob; medido, os dois estilos se
+  comportam igual. O caso de nome com espaço entrou no autoteste como prova de regressão, não como
+  mudança.
+- **Consequência.** `docs/SPEC-RISK-TIER-QUOTED-PATHS.md`; critérios em `docs/SPEC-RISK-TIERS.md`; ticket
+  #276; autoteste de 45 para 50 casos (`unicode-docs`, `unicode-product`, `space-in-name`, `quoted-tab`,
+  `quoted-tab-reason`); `AGENTS.md` intocado (ele não afirmava nada falso sobre citação). Nenhuma
+  dependência nova, nenhum script novo, nenhum `data-testid`.
