@@ -4447,7 +4447,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             </button>
             <button
               data-testid="sdk-open-global-json"
-              onClick={openGlobalJsonAction.execute}
+              onClick={() => {
+                close();
+                openGlobalJsonAction.execute();
+              }}
               disabled={openGlobalJsonAction.disabledReason !== null}
               title={openGlobalJsonAction.disabledReason ?? openGlobalJsonAction.title}
             >

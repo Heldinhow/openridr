@@ -81,9 +81,9 @@ async function selectEvaluationTfm(page: Page, value: string) {
   const tfm = page.getByTestId("eval-tfm");
   await expect(tfm).toBeVisible();
   await tfm.selectOption(value);
+  await expect(tfm).toHaveValue(value);
   await trigger.click();
   await expect(tfm).toBeHidden();
-  await expect(tfm).toHaveValue(value);
 }
 
 const loopSource = [

@@ -120,8 +120,8 @@ test("trust evaluates every project and the evaluated TargetPath follows the sel
     timeout: 20_000,
   });
   await expect(page.getByTestId("eval-state")).not.toContainText("stale");
-  await page.getByRole("button", { name: "Workspace actions" }).click();
   await expect(page.getByTestId("eval-configuration")).toHaveValue("Debug");
+  await page.getByRole("button", { name: "Workspace actions" }).click();
 
   await page.getByTestId("tree-project-OrderDesk.Cli").click();
   await openProjectDetails(page);

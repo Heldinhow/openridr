@@ -162,9 +162,9 @@ async function selectEvaluationOption(page: Page, value: string) {
   const configuration = page.getByTestId("eval-configuration");
   await expect(configuration).toBeVisible();
   await configuration.selectOption(value);
+  await expect(configuration).toHaveValue(value);
   await trigger.click();
   await expect(configuration).toBeHidden();
-  await expect(configuration).toHaveValue(value);
 }
 
 test("dialog Run refuses a failed saved build", async ({ page, request }) => {

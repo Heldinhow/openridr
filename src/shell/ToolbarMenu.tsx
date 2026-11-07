@@ -78,7 +78,11 @@ export function ToolbarMenu({
       </button>
       {open && (
         <div className="menu-content" data-testid={contentTestId}>
-          {children(() => setOpen(false))}
+          {/* An item that acts dismisses the menu and hands the focus back, like RowMenu's pick(). */}
+          {children(() => {
+            setOpen(false);
+            triggerRef.current?.focus();
+          })}
         </div>
       )}
     </div>
