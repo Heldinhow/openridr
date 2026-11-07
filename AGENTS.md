@@ -50,6 +50,7 @@ A UI fala com o host por `dispatch`; não duplique lógica de host no React.
 bun install
 bun run dev            # Vite (UI em 1420)
 bun run tauri dev      # app desktop completo
+sh scripts/dev-app.sh  # app de dev com o par embutido (worktree nova); aceita .sln em argv
 bun run build          # tsc --noEmit + vite build
 bun run check          # tsc --noEmit + cargo check --workspace --all-targets
 bun run hooks          # uma vez por clone: aponta core.hooksPath para .githooks
