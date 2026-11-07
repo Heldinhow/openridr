@@ -4,6 +4,12 @@
 # carries the commit it was submitted against, and that commit must be the pull request head. An approval
 # of an older revision does not carry over, which mirrors `dismiss_stale_reviews_on_push` in the ruleset.
 #
+# A pull request **authored by the repository owner** passes without a review. GitHub refuses an approval
+# on your own pull request (HTTP 422), so in a repository with a single maintainer the approval rule is a
+# deadlock: the owner is the only identity with write access. The cost is accepted and recorded in
+# docs/decisions.md (2026-11-07, issue #149): on such a repository the high tier no longer means that
+# someone else looked. Any other author still needs the approval below.
+#
 # The reviewer's **latest decision** is the one that counts: a later CHANGES_REQUESTED or a dismissed
 # review withdraws an earlier approval, even though the old APPROVED is still in the history. A plain
 # COMMENTED review is not a decision — GitHub does not withdraw an approval because the reviewer wrote a
@@ -48,6 +54,17 @@ command -v "$gh" >/dev/null 2>&1 || {
   echo "risk gate: $gh is not executable" >&2
   exit 2
 }
+
+# Who wrote the pull request, straight from the API: the workflow cannot be the source (its YAML is the
+# pull request's own on a `pull_request` event), and the review list does not carry it.
+if ! author_association=$("$gh" api "repos/$REPO/pulls/$PR_NUMBER" --jq '.author_association'); then
+  echo "risk gate: could not read pull request #$PR_NUMBER" >&2
+  exit 2
+fi
+if [ "$author_association" = OWNER ]; then
+  echo "risk gate: high risk, the pull request author is the owner of $REPO; no review required"
+  exit 0
+fi
 
 # One line per review: state, author association, submitted_at, the commit it was submitted against,
 # login. `--paginate` keeps long review histories; the per-reviewer reduction is awk over that stream.

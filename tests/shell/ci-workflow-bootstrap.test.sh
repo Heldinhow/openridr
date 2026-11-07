@@ -7,8 +7,9 @@
 #   sh tests/shell/ci-workflow-bootstrap.test.sh
 #
 # Covers: the trusted-blob check (regular file, non-empty, symlink, tree, missing), the bootstrap gate rule
-# (tier handling, an approval on the head, an approval on an older commit, a withdrawn approval, a
-# multi-page review history, an unreadable review list) and the bootstrap aggregate rule (green, a failed
+# (tier handling, a pull request authored by the owner, the same pull request from another author, an
+# approval on the head, an approval on an older commit, a withdrawn approval, a multi-page review history,
+# an unreadable pull request, an unreadable review list) and the bootstrap aggregate rule (green, a failed
 # job, a skipped PR-only job inside a pull request, a missing PR-only job, an empty `needs`).
 set -eu
 
@@ -99,14 +100,45 @@ older=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 cat >"$scratch/gh" <<'STUB'
 #!/bin/sh
-# Answers the one call the bootstrap gate makes: `gh api --paginate <url>` printing the pages.
-if [ -n "${FAKE_FAIL:-}" ]; then
-  echo 'stub gh: HTTP 502' >&2
-  exit 1
-fi
-cat "$FAKE_REVIEWS"
+# Answers the two calls the bootstrap gate makes: `gh api <pull url> --jq <expr>` and
+# `gh api --paginate <reviews url>` printing the pages. Any other URL is a bug in the rule.
+url=
+expr=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --paginate) shift ;;
+    --jq) expr=$2; shift 2 ;;
+    *) url=$1; shift ;;
+  esac
+done
+case "$url" in
+  */reviews)
+    if [ -n "${FAKE_FAIL:-}" ]; then
+      echo 'stub gh: HTTP 502' >&2
+      exit 1
+    fi
+    file=$FAKE_REVIEWS
+    ;;
+  */pulls/7)
+    if [ -n "${FAKE_PR_FAIL:-}" ]; then
+      echo 'stub gh: HTTP 502' >&2
+      exit 1
+    fi
+    file=$FAKE_PR
+    ;;
+  *)
+    echo "stub gh: unexpected url '$url'" >&2
+    exit 1
+    ;;
+esac
+if [ -n "$expr" ]; then jq -r "$expr" "$file"; else cat "$file"; fi
 STUB
 chmod +x "$scratch/gh"
+
+pr_author() { # <author_association>
+  printf '{"author_association":"%s"}\n' "$1" >"$scratch/fixture-pr.json"
+}
+pr_author CONTRIBUTOR
 
 run_gate() { # <tier> [env assignments...]
   tier=$1
@@ -114,6 +146,7 @@ run_gate() { # <tier> [env assignments...]
   set +e
   env PATH="$scratch:$PATH" GH_TOKEN=x REPO=owner/repo PR_NUMBER=7 TIER="$tier" HEAD_SHA="$head" \
     RUNNER_TEMP="$scratch" FAKE_REVIEWS="$scratch/fixture-reviews.json" \
+    FAKE_PR="$scratch/fixture-pr.json" \
     "$@" sh -c "$gate_rule" >"$scratch/gate.out" 2>&1
   code=$?
   set -e
@@ -147,6 +180,20 @@ expect_gate 0 approval-on-head high 'an approval of'
 expect_gate 0 low-no-approval-needed low 'needs no maintainer approval'
 expect_gate 0 medium-no-approval-needed medium 'needs no maintainer approval'
 expect_gate 2 unknown-tier dodgy 'is not a risk tier'
+
+# The owner writes the pull request: no review can exist (GitHub refuses a self-approval), so it passes.
+pr_author OWNER
+cat >"$scratch/fixture-reviews.json" <<'JSON'
+[]
+JSON
+expect_gate 0 owner-author-no-review high 'the pull request author is the owner'
+
+# Anyone else still needs the approval.
+pr_author MEMBER
+expect_gate 1 member-author-no-review high 'needs an approval from the maintainer'
+
+pr_author CONTRIBUTOR
+expect_gate 2 unreadable-pull-request high 'could not read pull request' FAKE_PR_FAIL=1
 
 cat >"$scratch/fixture-reviews.json" <<JSON
 [

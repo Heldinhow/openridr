@@ -328,9 +328,11 @@ jobs:
           # --- bootstrap gate rule (tested by tests/shell/ci-workflow-bootstrap.test.sh) ---
           # The base revision has no usable gate script yet. The rule below is fixed in this file and is the
           # same one scripts/ci-risk-gate.sh implements — the latest decision per reviewer, a review
-          # APPROVED on this exact commit, from someone with write access — including its tier handling: a
-          # low or medium pull request needs no approval. The pull request's copy of the script is never
-          # executed; in this situation the tier is forced to high.
+          # APPROVED on this exact commit, from someone with write access, or a pull request authored by
+          # the repository owner (GitHub refuses a self-approval, so a single-maintainer repository would
+          # deadlock; docs/decisions.md, 2026-11-07) — including its tier handling: a low or medium pull
+          # request needs no approval. The pull request's copy of the script is never executed; in this
+          # situation the tier is forced to high.
           case "$TIER" in
             low | medium)
               echo "risk gate (bootstrap): $TIER risk needs no maintainer approval"
@@ -342,6 +344,16 @@ jobs:
               exit 2
               ;;
           esac
+          # The author association comes from the API, never from this file: the YAML of a `pull_request`
+          # run is the pull request's own, so an input it could set would be a self-approval.
+          if ! author_association=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.author_association'); then
+            echo "::error::risk gate: could not read pull request #$PR_NUMBER"
+            exit 2
+          fi
+          if [ "$author_association" = OWNER ]; then
+            echo "risk gate (bootstrap): the pull request author is the owner of $REPO; no review required"
+            exit 0
+          fi
           # `gh api --paginate --jq` applies the filter to each page and prints one result per page, so the
           # pages are fetched whole and reduced once. A multi-page review history must not read as "no
           # approval" (or break the numeric test with "1\n0").
