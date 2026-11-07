@@ -12,7 +12,7 @@ on:
     - cron: "30 4 * * *"
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feat/issue-54-intel-windows-releases]
     paths:
       - "crates/**"
       - "src-tauri/**"
