@@ -14,8 +14,9 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const LOG_LIMIT: usize = 200;
@@ -572,42 +573,74 @@ fn spawn_bounded(cwd: &Path, args: &[&str], limit: usize) -> Result<Captured, Sp
     })
 }
 
-/// The network Git child in flight, so `git.cancel` can reach it without the host's state lock.
+/// The network Git operation in flight, so `git.cancel` can reach it without the host's state lock.
 /// One slot per host instance, never a process-wide one: a `static` would let a test's cancel (the
 /// host tests run in parallel) or another app instance kill an operation it never started.
+///
+/// The two flags live behind one mutex so `cancel` and the operation's own transitions cannot
+/// interleave: read-then-write on two atomics let a cancel aimed at a finished operation land on
+/// the next one.
 #[derive(Default)]
 pub struct Net {
-    in_flight: AtomicBool,
-    cancelled: AtomicBool,
+    slot: Mutex<Slot>,
+}
+
+#[derive(Default, Clone, Copy)]
+struct Slot {
+    /// The operation holds the slot: a cancel now reaches it.
+    running: bool,
+    /// A cancel landed. Cleared when the slot is taken and when it is freed.
+    cancelled: bool,
 }
 
 impl Net {
-    /// Takes the slot and clears any cancel left over from the previous operation, so a late cancel
-    /// cannot kill the next one.
-    fn begin(&self) {
-        self.cancelled.store(false, Ordering::SeqCst);
-        self.in_flight.store(true, Ordering::SeqCst);
+    /// Takes the slot for one operation, before any pre-flight work runs. The guard frees it on
+    /// drop, so an early return (a dirty tree, no remote, a spawn failure) cannot leave it taken.
+    /// Taking it this early is what makes a cancel clicked right after the button press reach the
+    /// operation instead of reporting that nothing was running.
+    fn start(&self) -> SlotGuard<'_> {
+        let mut slot = self.lock();
+        slot.running = true;
+        slot.cancelled = false;
+        SlotGuard { net: self }
     }
 
-    /// Frees the slot before the child is reaped: from here on a cancel finds nothing to stop.
-    fn end(&self) {
-        self.in_flight.store(false, Ordering::SeqCst);
+    /// A panic elsewhere must not turn every later operation into a panic: the slot is two booleans,
+    /// so a poisoned lock is still readable.
+    fn lock(&self) -> std::sync::MutexGuard<'_, Slot> {
+        self.slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Whether a cancel landed on the operation in flight. Read by the wait loop, which owns the
     /// child: nothing here signals a pid it does not own.
     fn cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
+        self.lock().cancelled
     }
 
     /// Stops the operation in flight. `false` means there was nothing to stop (it already finished,
     /// or it is past the network step) — a cancel that lands in that window changes nothing.
     pub fn cancel(&self) -> bool {
-        if !self.in_flight.load(Ordering::SeqCst) {
+        let mut slot = self.lock();
+        if !slot.running {
             return false;
         }
-        self.cancelled.store(true, Ordering::SeqCst);
+        slot.cancelled = true;
         true
+    }
+}
+
+/// Frees the slot when the operation ends, on every return path.
+struct SlotGuard<'a> {
+    net: &'a Net,
+}
+
+impl Drop for SlotGuard<'_> {
+    fn drop(&mut self) {
+        let mut slot = self.net.lock();
+        slot.running = false;
+        slot.cancelled = false;
     }
 }
 
@@ -651,9 +684,6 @@ fn run_with_deadline(
         _ => SpawnError::Failed(error.to_string()),
     })?;
     let pid = child.id();
-    // The slot is taken only once the child exists: a cancel that arrives before this finds nothing,
-    // and the operation still has its deadline.
-    net.begin();
     let mut stdout = child.stdout.take().expect("piped stdout");
     let mut stderr = child.stderr.take().expect("piped stderr");
     // The readers report through channels instead of being joined: a pipe held by something the
@@ -692,8 +722,6 @@ fn run_with_deadline(
             }
         }
     };
-    // Before the drain: the child is gone, so a cancel from here on must find an empty slot.
-    net.end();
     let stdout = out_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     let stderr = err_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     Ok((
@@ -2568,6 +2596,7 @@ pub fn fetch(root: &Path, net: &Net) -> HostResult<Operation> {
 }
 
 fn fetch_with(root: &Path, deadline: Duration, net: &Net) -> HostResult<Operation> {
+    let _slot = net.start();
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
     let Some(remote) = fetch_remote(&repo, &status) else {
@@ -2714,6 +2743,7 @@ pub fn pull(root: &Path, net: &Net) -> HostResult<Operation> {
 /// killing it mid-way would leave a half-applied merge — a worse state than the freeze the bound
 /// prevents. Because the fetch comes first, an update that runs out of time never starts a merge.
 fn pull_with(root: &Path, deadline: Duration, net: &Net) -> HostResult<Operation> {
+    let slot = net.start();
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
     require_clean(&status, "Update")?;
@@ -2751,6 +2781,10 @@ fn pull_with(root: &Path, deadline: Duration, net: &Net) -> HostResult<Operation
         ));
     }
 
+    // The merge is local and not cancellable: the slot is released before it starts, so a cancel
+    // from here on reports that there is nothing to stop instead of promising a kill that will never
+    // come. Killing a merge mid-way would leave a half-applied merge (the #136 decision).
+    drop(slot);
     let resolved = run(&repo.top, &["rev-parse", "@{upstream}"])
         .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     if !resolved.ok() || resolved.stdout.trim().is_empty() {
@@ -3138,6 +3172,7 @@ pub fn push(root: &Path, params: &Value, net: &Net) -> HostResult<Operation> {
 }
 
 fn push_with(root: &Path, params: &Value, deadline: Duration, net: &Net) -> HostResult<Operation> {
+    let _slot = net.start();
     if params.get("confirm").and_then(Value::as_bool) != Some(true) {
         return Err(HostError::new(
             "confirmation_required",
@@ -5238,10 +5273,15 @@ mod tests {
         }
     }
 
-    /// Runs `operation` on its own thread and cancels it once the slot says the child is in flight.
+    /// Runs `operation` on its own thread and cancels it once the git helper that talks to `port`
+    /// is alive — waiting for the slot alone would cancel before the connection exists, and the
+    /// "no descendant survived" assertion would pass without the kill ever having a target. Where
+    /// `pgrep` does not exist the connection gets a fixed grace instead (the assertion is skipped
+    /// there anyway).
+    ///
     /// The deadline is far longer than the bound the test asserts, so returning early can only be
     /// the cancel — the same trick the deadline tests use with a spent deadline.
-    fn cancel_in_flight<F>(net: &Net, operation: F) -> (HostResult<Operation>, Duration)
+    fn cancel_in_flight<F>(net: &Net, port: u16, operation: F) -> (HostResult<Operation>, Duration)
     where
         F: FnOnce() -> HostResult<Operation> + Send,
         F::Output: Send,
@@ -5249,12 +5289,20 @@ mod tests {
         let began = Instant::now();
         std::thread::scope(|scope| {
             let running = scope.spawn(operation);
-            while !net.in_flight.load(Ordering::SeqCst) {
+            let needle = port.to_string();
+            loop {
                 assert!(
                     began.elapsed() < Duration::from_secs(10),
-                    "the operation never reached the network"
+                    "the operation never reached the remote"
                 );
-                std::thread::sleep(Duration::from_millis(10));
+                match descendants_of(&needle) {
+                    Some(found) if !found.is_empty() => break,
+                    None => {
+                        std::thread::sleep(Duration::from_millis(300));
+                        break;
+                    }
+                    _ => std::thread::sleep(Duration::from_millis(10)),
+                }
             }
             assert!(net.cancel(), "the cancel must find the operation in flight");
             let result = running.join().expect("the operation thread returns");
@@ -5280,10 +5328,11 @@ mod tests {
         fs::write(user.join("a.txt"), "one\ntwo\n").unwrap();
         commit_all(&user, "local change");
         let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let tree = git(&user, &["status", "--porcelain"]);
         let published = git(&bare, &["rev-parse", "main"]).trim().to_string();
         let net = Net::default();
 
-        let (result, elapsed) = cancel_in_flight(&net, || {
+        let (result, elapsed) = cancel_in_flight(&net, port, || {
             push_with(
                 &user,
                 &serde_json::json!({ "confirm": true }),
@@ -5311,6 +5360,7 @@ mod tests {
             "the remote must not have the local commit"
         );
         assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head);
+        assert_eq!(git(&user, &["status", "--porcelain"]), tree);
         if let Some(survivors) = descendants_of(&port.to_string()) {
             assert!(
                 survivors.is_empty(),
@@ -5336,11 +5386,13 @@ mod tests {
             ],
         );
         let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let tree = git(&user, &["status", "--porcelain"]);
         let before = git(&user, &["for-each-ref", "refs/remotes"]);
         let net = Net::default();
 
-        let (result, elapsed) =
-            cancel_in_flight(&net, || pull_with(&user, Duration::from_secs(60), &net));
+        let (result, elapsed) = cancel_in_flight(&net, port, || {
+            pull_with(&user, Duration::from_secs(60), &net)
+        });
 
         let result = result.unwrap();
         assert_eq!(result.state, "failed");
@@ -5353,6 +5405,7 @@ mod tests {
             "the cancel must return well before the 60 s deadline: {elapsed:?}"
         );
         assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head);
+        assert_eq!(git(&user, &["status", "--porcelain"]), tree);
         assert!(!user.join(".git/MERGE_HEAD").exists());
         assert!(result.status.operation.is_none());
         assert_eq!(git(&user, &["for-each-ref", "refs/remotes"]), before);
@@ -5379,11 +5432,17 @@ mod tests {
                 &format!("http://127.0.0.1:{port}/repo.git"),
             ],
         );
+        let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let branch = git(&user, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string();
+        let tree = git(&user, &["status", "--porcelain"]);
         let before = git(&user, &["for-each-ref", "refs/remotes"]);
         let net = Net::default();
 
-        let (result, elapsed) =
-            cancel_in_flight(&net, || fetch_with(&user, Duration::from_secs(60), &net));
+        let (result, elapsed) = cancel_in_flight(&net, port, || {
+            fetch_with(&user, Duration::from_secs(60), &net)
+        });
 
         let result = result.unwrap();
         assert_eq!(result.state, "failed");
@@ -5395,6 +5454,12 @@ mod tests {
             "the cancel must return well before the 60 s deadline: {elapsed:?}"
         );
         assert_eq!(git(&user, &["for-each-ref", "refs/remotes"]), before);
+        assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head);
+        assert_eq!(
+            git(&user, &["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+            branch
+        );
+        assert_eq!(git(&user, &["status", "--porcelain"]), tree);
         if let Some(survivors) = descendants_of(&port.to_string()) {
             assert!(
                 survivors.is_empty(),

@@ -1,10 +1,15 @@
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc;
+use std::sync::Arc;
 
 use openridr_host::{Host, HostError};
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
 
 const ALLOWED_ORIGINS: [&str; 2] = ["http://localhost:1420", "http://127.0.0.1:1420"];
+
+/// A request waiting for its turn, with the body already read: the accept loop needs the method to
+/// decide whether the request may overtake the queue.
+type Job = (Request, Option<String>);
 
 fn main() {
     let port = parse_port();
@@ -14,26 +19,72 @@ fn main() {
         std::process::exit(1);
     });
     let host = Arc::new(Host::new());
-    // Mirrors the shell's host-call lock: one dispatch at a time, so the order the UI sends is the
-    // order the host sees. A request per thread is what lets `git.cancel` be answered while a push
-    // is still running — with the old one-at-a-time loop it queued behind the very call it stops.
-    let gate = Arc::new(Mutex::new(()));
+    // One worker keeps the send order the app shell guarantees: the queue is FIFO, so the order the
+    // UI sent is the order the host sees. A cancel never enters it — it is answered on the accept
+    // loop, because it has to overtake the operation it stops. Which methods may overtake is the
+    // host's list, the same one the Tauri shell uses.
+    let (queue, work) = mpsc::channel::<Job>();
+    let worker = Arc::clone(&host);
+    std::thread::spawn(move || {
+        for (request, body) in work {
+            handle(request, &worker, body);
+        }
+    });
     println!("openridr-host-http listening on http://{address}");
     println!("dev bridge only: no authentication, never ship this binary");
 
-    while let Ok(request) = server.recv() {
-        let host = Arc::clone(&host);
-        let gate = Arc::clone(&gate);
-        std::thread::spawn(move || handle(request, &host, &gate));
+    while let Ok(mut request) = server.recv() {
+        let is_call = *request.method() == Method::Post && request.url() == "/call";
+        if !is_call {
+            let _ = queue.send((request, None));
+            continue;
+        }
+        let mut body = String::new();
+        if let Err(error) = request.as_reader().read_to_string(&mut body) {
+            let origin = origin_of(&request);
+            respond(
+                request.respond(with_cors(
+                    Response::from_string(error_envelope(HostError::new(
+                        "invalid_state",
+                        format!("Could not read request body: {error}"),
+                    )))
+                    .with_header(json_header()),
+                    origin.as_deref(),
+                )),
+            );
+            continue;
+        }
+        if overtakes_the_queue(&body) {
+            handle(request, &host, Some(body));
+        } else {
+            let _ = queue.send((request, Some(body)));
+        }
     }
 }
 
-fn handle(mut request: Request, host: &Host, gate: &Mutex<()>) {
-    let origin = request
+/// Whether this call may skip the queue, from the host's own list.
+fn overtakes_the_queue(body: &str) -> bool {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|payload| {
+            payload
+                .get("method")
+                .and_then(Value::as_str)
+                .map(openridr_host::bypasses_host_lock)
+        })
+        .unwrap_or(false)
+}
+
+fn origin_of(request: &Request) -> Option<String> {
+    request
         .headers()
         .iter()
         .find(|header| header.field.equiv("Origin"))
-        .map(|header| header.value.as_str().to_string());
+        .map(|header| header.value.as_str().to_string())
+}
+
+fn handle(request: Request, host: &Host, body: Option<String>) {
+    let origin = origin_of(&request);
     let method = request.method().clone();
     let url = request.url().to_string();
     eprintln!("{method} {url}");
@@ -65,22 +116,8 @@ fn handle(mut request: Request, host: &Host, gate: &Mutex<()>) {
     }
 
     if method == Method::Post && url == "/call" {
-        let mut body = String::new();
-        if let Err(error) = request.as_reader().read_to_string(&mut body) {
-            respond(
-                request.respond(with_cors(
-                    Response::from_string(error_envelope(HostError::new(
-                        "invalid_state",
-                        format!("Could not read request body: {error}"),
-                    )))
-                    .with_header(json_header()),
-                    origin.as_deref(),
-                )),
-            );
-            return;
-        }
-        let envelope = match serde_json::from_str::<Value>(&body) {
-            Ok(payload) => dispatch(host, &payload, gate),
+        let envelope = match serde_json::from_str::<Value>(&body.unwrap_or_default()) {
+            Ok(payload) => dispatch(host, &payload),
             Err(error) => error_envelope(HostError::new(
                 "invalid_state",
                 format!("Request body is not JSON: {error}"),
@@ -119,7 +156,7 @@ fn parse_port() -> u16 {
     port
 }
 
-fn dispatch(host: &Host, payload: &Value, gate: &Mutex<()>) -> String {
+fn dispatch(host: &Host, payload: &Value) -> String {
     let Some(method) = payload.get("method").and_then(Value::as_str) else {
         return error_envelope(HostError::new(
             "invalid_state",
@@ -127,16 +164,6 @@ fn dispatch(host: &Host, payload: &Value, gate: &Mutex<()>) -> String {
         ));
     };
     let params = payload.get("params").cloned().unwrap_or(Value::Null);
-    // The same exception the shell applies, from the same list: a cancel must not queue behind the
-    // operation it stops. A poisoned gate keeps serving instead of taking the bridge down.
-    let _guard = if openridr_host::bypasses_host_lock(method) {
-        None
-    } else {
-        Some(
-            gate.lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        )
-    };
     match host.dispatch(method, params) {
         Ok(data) => json!({ "ok": true, "data": data }).to_string(),
         Err(error) => error_envelope(error),
