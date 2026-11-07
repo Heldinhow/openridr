@@ -254,6 +254,22 @@ fn download_stalled(url: &str, stall: Duration) -> String {
     )
 }
 
+/// [`crate::http::describe_error`]'s advice with the signed query of the asset URL removed: `ureq`
+/// repeats the URL it failed on inside the error, so sanitizing only the argument is not enough.
+fn describe_failure(url: &str, error: &ureq::Error) -> String {
+    redact_url(crate::http::describe_error(&loggable_url(url), error), url)
+}
+
+/// `ureq` repeats the URL it failed on twice: as text and inside the parsed `Url` debug form. The
+/// signed query is removed from both, so the token never reaches the panel or the log.
+fn redact_url(message: String, url: &str) -> String {
+    let message = message.replace(url, &loggable_url(url));
+    match url.split_once('?') {
+        Some((_, query)) => message.replace(query, "<redacted>"),
+        None => message,
+    }
+}
+
 /// A body read that timed out is the same stall as a server that stopped answering: the person gets
 /// the download sentence, not the transport's. Any other read error keeps the transport's text.
 fn read_failure(url: &str, stall: Duration, error: &std::io::Error) -> String {
@@ -1464,10 +1480,7 @@ impl Debugger {
                     if code == 407 {
                         return Err(Stop::Failed(format!(
                             "The download failed: {}; nothing was extracted.",
-                            crate::http::describe_error(
-                                &loggable_url(&url),
-                                &ureq::Error::Status(code, response)
-                            )
+                            describe_failure(&url, &ureq::Error::Status(code, response))
                         )));
                     }
                     return Err(Stop::Failed(format!(
@@ -1476,13 +1489,12 @@ impl Debugger {
                 }
                 Err(ureq::Error::Transport(error)) => {
                     let error = ureq::Error::Transport(error);
-                    let url = loggable_url(&url);
                     return Err(Stop::Failed(if crate::http::timed_out(&error) {
-                        download_stalled(&url, stall)
+                        download_stalled(&loggable_url(&url), stall)
                     } else {
                         format!(
                             "The download failed: {}; nothing was extracted.",
-                            crate::http::describe_error(&url, &error)
+                            describe_failure(&url, &error)
                         )
                     }));
                 }
@@ -1892,6 +1904,21 @@ mod tests {
         format!("http://{address}/asset.zip")
     }
 
+    /// A server that accepts the connection and closes it without answering, like a proxy that
+    /// died between the request and the response.
+    fn closing_server() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+        });
+        format!("http://{address}/asset.zip")
+    }
+
     /// A server that accepts the connection and never answers.
     fn silent_server() -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1987,29 +2014,59 @@ mod tests {
         );
     }
 
+    /// The asset URL is signed: neither the stall sentence nor the transport advice may carry the
+    /// query, and `ureq` repeats the URL inside the error it reports.
     #[test]
     #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
-    fn a_server_that_never_answers_is_reported_as_a_stall_isolated() {
+    fn a_failure_never_reports_the_signed_asset_url_isolated() {
         let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
         let home = tempfile::tempdir().unwrap();
         let _home = EnvVar::set("OPENRIDR_HOME", home.path());
-        let url = silent_server();
         let dir = tempfile::tempdir().unwrap();
-        let Stop::Failed(message) = Debugger::new()
-            .download_with(
-                &controlled_asset(&url, 1000),
-                &dir.path().join("asset.zip.download"),
-                Duration::from_secs(1),
-            )
-            .expect_err("nothing arrives")
-        else {
-            panic!("a stall is a failure")
+        let download = |url: &str| {
+            let Stop::Failed(message) = Debugger::new()
+                .download_with(
+                    &controlled_asset(url, 1000),
+                    &dir.path().join("asset.zip.download"),
+                    Duration::from_secs(1),
+                )
+                .expect_err("the server never completes the download")
+            else {
+                panic!("a failure is a failure")
+            };
+            message
         };
 
+        let silent = format!("{}?X-Amz-Signature=secret", silent_server());
+        let message = download(&silent);
         assert!(message.contains("the connection stalled"), "{message}");
         assert!(
             !message.contains("Network Error"),
             "the raw transport text must not reach the user: {message}"
+        );
+        assert!(!message.contains("secret"), "{message}");
+
+        let closing = format!("{}?X-Amz-Signature=secret", closing_server());
+        let message = download(&closing);
+        assert!(!message.contains("secret"), "{message}");
+        assert!(
+            message.contains("http://127.0.0.1:"),
+            "the advice still names the destination: {message}"
+        );
+    }
+
+    #[test]
+    fn a_signed_query_is_redacted_wherever_the_error_repeats_the_url() {
+        let url = "https://objects.githubusercontent.com/asset.zip?X-Amz-Signature=secret";
+        // The display text carries the URL as written; the `Url` debug form carries only the query.
+        let message = format!(
+            "the request for {url} failed: {url} Transport {{ query: Some(\"X-Amz-Signature=secret\") }}"
+        );
+        let redacted = redact_url(message, url);
+        assert!(!redacted.contains("secret"), "{redacted}");
+        assert_eq!(
+            redacted,
+            "the request for https://objects.githubusercontent.com/asset.zip failed: https://objects.githubusercontent.com/asset.zip Transport { query: Some(\"<redacted>\") }"
         );
     }
 
@@ -2280,8 +2337,8 @@ fn a_download_that_stops_receiving_bytes_is_reported_as_a_stall() {
 
 #[cfg(debug_assertions)]
 #[test]
-fn a_server_that_never_answers_is_reported_as_a_stall() {
+fn a_failure_never_reports_the_signed_asset_url() {
     crate::test_harness::run_isolated_leaf(
-        "debugger::tests::a_server_that_never_answers_is_reported_as_a_stall_isolated",
+        "debugger::tests::a_failure_never_reports_the_signed_asset_url_isolated",
     );
 }
