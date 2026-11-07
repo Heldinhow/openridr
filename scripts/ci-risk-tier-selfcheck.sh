@@ -149,8 +149,17 @@ touch_case unknown-html medium index.html
 # as `"docs/evid\303\252ncia.md"`, matches no rule and falls to the default. Documentation must stay low.
 touch_case unicode-docs low 'docs/evidência.md'
 
-# The same fix must not lower product code: the raw path still has to match the `crates/*` rule.
+# The same fix must not lower product code: the raw path still has to match the `crates/*` rule. `medium`
+# is also the default for an unmatched path, so the reason is what proves the rule matched.
 touch_case unicode-product medium 'crates/host/src/ação.rs'
+cases=$((cases + 1))
+if grep -qF '(product code)' "$scratch/unicode-product.err"; then
+  printf 'ok   %-26s %s\n' unicode-product-reason 'named'
+else
+  echo 'FAIL unicode-product-reason: the path fell to the default instead of the crates/* rule'
+  sed 's/^/    /' "$scratch/unicode-product.err"
+  failures=$((failures + 1))
+fi
 
 # One path per line: a name with a space is the whole path, not `docs/guia` plus `de` plus `estilo.md`.
 touch_case space-in-name low 'docs/guia de estilo.md'

@@ -1651,6 +1651,6 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   comportam igual. O caso de nome com espaço entrou no autoteste como prova de regressão, não como
   mudança.
 - **Consequência.** `docs/SPEC-RISK-TIER-QUOTED-PATHS.md`; critérios em `docs/SPEC-RISK-TIERS.md`; ticket
-  #276; autoteste de 45 para 50 casos (`unicode-docs`, `unicode-product`, `space-in-name`, `quoted-tab`,
-  `quoted-tab-reason`); `AGENTS.md` intocado (ele não afirmava nada falso sobre citação). Nenhuma
+  #276; autoteste de 45 para 51 casos (`unicode-docs`, `unicode-product`, `unicode-product-reason`,
+  `space-in-name`, `quoted-tab`, `quoted-tab-reason`); `AGENTS.md` intocado (ele não afirmava nada falso sobre citação). Nenhuma
   dependência nova, nenhum script novo, nenhum `data-testid`.

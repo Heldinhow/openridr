@@ -10,16 +10,16 @@ caminho que o git cita de qualquer jeito (tab, aspas ou quebra de linha no nome)
 `git quoted the path`. O loop de leitura, o `--no-renames`, a tabela de caminhos, o gate, o agregador e o
 workflow ficaram intocados.
 
-`scripts/ci-risk-tier-selfcheck.sh` ganhou cinco casos (45 → 50): `unicode-docs` (`low`),
-`unicode-product` (`medium`), `space-in-name` (`low`), `quoted-tab` (`high`) e `quoted-tab-reason` (o
-motivo no stderr).
+`scripts/ci-risk-tier-selfcheck.sh` ganhou seis casos (45 → 51): `unicode-docs` (`low`),
+`unicode-product` (`medium`), `unicode-product-reason` (casou com `crates/*`, não com o default),
+`space-in-name` (`low`), `quoted-tab` (`high`) e `quoted-tab-reason` (o motivo no stderr).
 
 ## Comandos e resultados
 
 | Comando | Resultado |
 |---|---|
-| `sh scripts/ci-risk-tier-selfcheck.sh` | `50 cases passed`, exit 0 |
-| `dash scripts/ci-risk-tier-selfcheck.sh` | `50 cases passed`, exit 0 |
+| `sh scripts/ci-risk-tier-selfcheck.sh` | `51 cases passed`, exit 0 |
+| `dash scripts/ci-risk-tier-selfcheck.sh` | `51 cases passed`, exit 0 |
 | `sh tests/shell/ci-risk-gate.test.sh` | `all cases passed`, exit 0 |
 | `GATE_SHELL=dash sh tests/shell/ci-risk-gate.test.sh` | `all cases passed`, exit 0 |
 | `shellcheck --shell=sh scripts/ci-risk-tier.sh scripts/ci-risk-tier-selfcheck.sh` | limpo, exit 0 |
@@ -27,20 +27,22 @@ motivo no stderr).
 
 ### Falha-antes (o selfcheck novo contra o script de antes)
 
-`git show 7c50647:scripts/ci-risk-tier.sh` num diretório temporário, ao lado do selfcheck novo:
+`git show f38236f:scripts/ci-risk-tier.sh` (a `main` de antes) num diretório temporário, ao lado do
+selfcheck novo:
 
 ```text
 FAIL unicode-docs: expected low, got medium (exit 0)
     medium: "docs/evid\303\252ncia.md" (unmatched path)
+FAIL unicode-product-reason: the path fell to the default instead of the crates/* rule
 FAIL quoted-tab: expected high, got medium (exit 0)
     medium: "docs/tab\there.md" (unmatched path)
 FAIL quoted-tab-reason: the reason does not say the path was quoted
-ci-risk-tier self-check: 3 of 50 cases failed
+ci-risk-tier self-check: 4 of 51 cases failed
 ```
 
-Idêntico sob `dash`. `unicode-product` e `space-in-name` passam também no script antigo, como a spec
-previu: no caminho de produto o default (`medium`) coincide com o certo, e o caso do espaço é guarda de
-regressão da leitura por linha, não prova do defeito.
+Idêntico sob `dash`. `unicode-product` (o tier) e `space-in-name` passam também no script antigo, como a
+spec previu: no caminho de produto o default (`medium`) coincide com o certo — por isso o caso do motivo
+—, e o caso do espaço é guarda de regressão da leitura por linha, não prova do defeito.
 
 ### O defeito, medido antes da correção
 
@@ -57,6 +59,13 @@ medium
 
 Com `core.quotePath=false` a mesma linha sai `docs/evidência.md` e o tier é `low`. Um nome com tab
 continua citado mesmo com a flag (`"docs/tab\there.md"`), e é o que o ramo novo pega.
+
+## Code review
+
+`/code-review` com outro modelo sobre `git diff f38236f..HEAD`: veredito **aprovar**, um achado baixo — o
+caso `unicode-product` não provava que o caminho casou com `crates/*`, porque `medium` também é o default
+de caminho sem regra. Corrigido com o caso `unicode-product-reason` (o motivo no stderr), que falha no
+script antigo.
 
 ## Não verificado
 

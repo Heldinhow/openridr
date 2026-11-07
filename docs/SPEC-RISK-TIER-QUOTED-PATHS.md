@@ -110,6 +110,8 @@ conjunto de caminhos reais num repositório git de verdade. Nada de chamar funç
   - `crates/host/src/<nome não-ASCII>.rs` → `medium` (caminho de produto continua no tier da tabela);
   - `docs/<nome com espaço>.md` → `low` (leitura por linha: o nome inteiro, não pedaços);
   - `docs/<nome com tab>.md` → `high` com motivo `git quoted the path` (comportamento declarado).
+  - O motivo é conferido em dois casos (`unicode-product`, `quoted-tab`): `medium` também é o default de
+    caminho sem regra, então o tier sozinho não prova que a regra casou.
 - **Falha-antes / passa-depois**: o autoteste rodado contra o script de antes da correção tem que ficar
   vermelho no caso não-ASCII (e no do tab, que hoje cai em `medium`); depois da correção, verde. A prova
   vai para a evidência com o comando e a saída.
