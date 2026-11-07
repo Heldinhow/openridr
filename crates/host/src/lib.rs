@@ -19,6 +19,7 @@ mod recent;
 mod restore;
 mod run;
 mod run_configs;
+mod scope;
 pub mod sdk;
 mod search;
 mod settings;
@@ -196,6 +197,9 @@ struct Workspace {
     name: String,
     kind: WorkspaceKind,
     outline: Outline,
+    /// Root plus the directories of the projects the workspace file names; the only directories
+    /// the host may touch. Recomputed on every evaluation.
+    scope: scope::Scope,
 }
 
 struct TrustDecision {
@@ -340,6 +344,8 @@ struct WorkspaceView {
     kind: &'static str,
     mode: &'static str,
     candidates: Vec<Candidate>,
+    /// Absolute canonical directories this workspace may touch, root first.
+    scope: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -1120,6 +1126,7 @@ impl Host {
                     "restricted"
                 },
                 candidates: Vec::new(),
+                scope: workspace.scope.paths(),
             }),
             outline: inner
                 .workspace
@@ -1661,8 +1668,13 @@ impl Host {
             .iter()
             .flat_map(|project| project.sources.iter().cloned())
             .collect();
-        let earlier_watch =
-            evaluation::watch_paths(&workspace_file, &root, &plan.projects, &previous_sources);
+        let earlier_watch = evaluation::watch_paths(
+            &workspace_file,
+            &root,
+            &plan.scope,
+            &plan.projects,
+            &previous_sources,
+        );
 
         let context = EvaluationContext {
             configuration: optional_str(&params, "configuration")
@@ -1783,6 +1795,7 @@ impl Host {
                 &muxer,
                 &sdk_root,
                 &root,
+                &plan.scope,
                 plan_project,
                 &context.configuration,
                 context.target_framework.as_deref(),
@@ -1824,7 +1837,13 @@ impl Host {
             .collect();
         let watched = evaluation::merge_watched(
             earlier_watch,
-            evaluation::watch_paths(&workspace_file, &root, &plan.projects, &sources),
+            evaluation::watch_paths(
+                &workspace_file,
+                &root,
+                &plan.scope,
+                &plan.projects,
+                &sources,
+            ),
         );
 
         let mut inner = self.inner.lock().unwrap();
@@ -1838,6 +1857,11 @@ impl Host {
         inner
             .evaluation
             .complete(projects, lines.join("\n"), watched, available_tfms);
+        // The solution file is the source of truth for the scope: a project added to it is picked
+        // up by the next evaluation without reopening the workspace.
+        if let Some(workspace) = inner.workspace.as_mut() {
+            workspace.scope = plan.scope.clone();
+        }
         if let Some(lsp) = &inner.lsp {
             lsp.mark_partial(
                 "The project model was re-evaluated; restart analysis to match the current context.",
@@ -8148,6 +8172,10 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default();
     let outline = build_outline(&root, path, matches!(kind, WorkspaceKind::Solution));
+    let resolved = scope::resolve(
+        &root,
+        outline.projects.iter().map(|project| project.path.clone()),
+    );
     Ok(Workspace {
         id: 0,
         path: path.to_path_buf(),
@@ -8155,6 +8183,7 @@ fn load_workspace(path: &Path) -> HostResult<Workspace> {
         name,
         kind,
         outline,
+        scope: resolved.scope,
     })
 }
 

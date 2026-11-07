@@ -1902,6 +1902,163 @@ fn evaluation_returns_the_real_msbuild_model_for_every_project() {
         .contains("/bin/Release/net8.0/OrderDesk.Cli.dll"));
 }
 
+fn outside_fixture() -> PathBuf {
+    fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OutsideSolution"))
+        .expect("fixture OutsideSolution exists")
+}
+
+/// A solution whose `.sln` names `..\lib\Lib.csproj`: the project is outside the workspace root,
+/// which is the shape of the bug this fixture exists for.
+#[test]
+fn evaluation_includes_a_project_outside_the_solution_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    let lib = fs::canonicalize(fixture.join("lib")).unwrap();
+
+    let host = support::host();
+    open(&host, &app.join("App.sln"));
+    grant(&host);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    let evaluation = &evaluated["evaluation"];
+    assert_eq!(evaluation["state"], "ok", "{}", evaluation["log"]);
+
+    let projects = evaluation["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 2, "{projects:?}");
+    let project = |name: &str| {
+        projects
+            .iter()
+            .find(|project| project["name"] == name)
+            .unwrap()
+    };
+
+    let inside = project("App");
+    assert_eq!(inside["state"], "ok", "{}", inside["log"]);
+    assert_eq!(inside["kind"], "console");
+    assert_eq!(inside["path"], "App.csproj");
+    assert_eq!(inside["sources"], json!(["Program.cs"]));
+    assert!(inside["targetPath"]
+        .as_str()
+        .unwrap()
+        .ends_with("app/bin/Debug/net8.0/App.dll"));
+
+    let outside = project("Lib");
+    assert_eq!(outside["state"], "ok", "{}", outside["log"]);
+    assert_eq!(outside["kind"], "library");
+    // Outside the root the path is absolute and canonical: no `..` crosses the host API.
+    assert_eq!(
+        outside["path"],
+        lib.join("Lib.csproj").to_string_lossy().as_ref()
+    );
+    assert_eq!(outside["tfms"], json!(["net8.0"]));
+    assert!(outside["targetPath"]
+        .as_str()
+        .unwrap()
+        .ends_with("lib/bin/Debug/net8.0/Lib.dll"));
+    assert_eq!(
+        outside["sources"],
+        json!([lib.join("Greeting.cs").to_string_lossy()])
+    );
+
+    // The scope is the root plus the outside project's directory, canonical and root first.
+    assert_eq!(
+        evaluated["workspace"]["scope"],
+        json!([app.to_string_lossy(), lib.to_string_lossy()])
+    );
+}
+
+#[test]
+fn an_edit_in_a_project_outside_the_solution_marks_the_model_stale() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    let project_file = fs::canonicalize(fixture.join("lib"))
+        .unwrap()
+        .join("Lib.csproj");
+
+    let host = support::host();
+    open(&host, &app.join("App.sln"));
+    grant(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+
+    // A real edit after the model was stored: the next poll must see it instead of masking it.
+    // A project file is watched directly; editing an existing `.cs` is deliberately not a change
+    // (the Compile list is a snapshot), which is why the project file is the one edited here.
+    let mut text = fs::read_to_string(&project_file).unwrap();
+    text.push_str("<!-- edited after the evaluation -->\n");
+    fs::write(&project_file, text).unwrap();
+
+    let state = host.dispatch("app.state", json!({})).unwrap();
+    assert_eq!(state["evaluation"]["stale"], true);
+    assert!(
+        state["evaluation"]["staleReason"]
+            .as_str()
+            .unwrap()
+            .contains("Lib.csproj"),
+        "{}",
+        state["evaluation"]["staleReason"]
+    );
+}
+
+#[test]
+fn the_scope_is_recomputed_when_the_solution_gains_a_project() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    let lib = fs::canonicalize(fixture.join("lib")).unwrap();
+
+    let host = support::host();
+    open(&host, &app.join("App.sln"));
+    grant(&host);
+    let first = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(
+        first["workspace"]["scope"],
+        json!([app.to_string_lossy(), lib.to_string_lossy()])
+    );
+
+    let extra = fixture.join("lib2");
+    fs::create_dir_all(&extra).unwrap();
+    fs::write(
+        extra.join("Lib2.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
+    )
+    .unwrap();
+    fs::write(
+        extra.join("Extra.cs"),
+        "namespace Lib2;\n\npublic static class Extra { }\n",
+    )
+    .unwrap();
+    let solution = app.join("App.sln");
+    let text = fs::read_to_string(&solution).unwrap();
+    let entry = "Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Lib2\", \"..\\lib2\\Lib2.csproj\", \"{11111111-1111-1111-1111-111111111111}\"\r\nEndProject\r\n";
+    fs::write(
+        &solution,
+        text.replacen("Global", &format!("{entry}Global"), 1),
+    )
+    .unwrap();
+
+    let second = host.dispatch("evaluation.run", json!({})).unwrap();
+    let extra = fs::canonicalize(&extra).unwrap();
+    assert_eq!(
+        second["workspace"]["scope"],
+        json!([
+            app.to_string_lossy(),
+            lib.to_string_lossy(),
+            extra.to_string_lossy()
+        ])
+    );
+    let added = second["evaluation"]["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|project| project["name"] == "Lib2")
+        .unwrap();
+    assert_eq!(added["state"], "ok", "{}", added["log"]);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts() {
