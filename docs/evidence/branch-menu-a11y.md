@@ -1,6 +1,6 @@
 # Evidência — gatilho do menu de branches como botão acessível (issue #168, ticket #176)
 
-Rodada de 2026-11-07, macOS arm64. Spec: [SPEC-BRANCH-MENU-A11Y](../SPEC-BRANCH-MENU-A11Y.md). Bundle debug `0.3.0-alpha.11` construído desta branch (`bun run tauri build --debug --bundles app`), copiado para `~/Applications-test/OpenRidr-issue168/OpenRidr.app`, `OPENRIDR_HOME` isolado e workspace próprio (cópia do `fixtures/OrderDesk` com um merge conflitante criado por CLI: `main` e `side` mudando a mesma linha de `Order.cs`, `git merge side` → `UU`, `MERGE_HEAD` presente).
+Rodada de 2026-11-07, macOS arm64, medida no commit `a22ceb5` (o merge de `origin/main` em `4fa7e42`, depois da rodada, só tocou `GitLogPanel` em `src/git.tsx`, não o `BranchWidget`). Spec: [SPEC-BRANCH-MENU-A11Y](../SPEC-BRANCH-MENU-A11Y.md). Bundle debug `0.3.0-alpha.11` construído desta branch (`bun run tauri build --debug --bundles app`), copiado para `~/Applications-test/OpenRidr-issue168/OpenRidr.app`, `OPENRIDR_HOME` isolado e workspace próprio (cópia do `fixtures/OrderDesk` com um merge conflitante criado por CLI: `main` e `side` mudando a mesma linha de `Order.cs`, `git merge side` → `UU`, `MERGE_HEAD` presente).
 
 ## O que foi provado, e como
 
