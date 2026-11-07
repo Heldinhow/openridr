@@ -16,8 +16,9 @@ continua somente leitura.
 |---|---|
 | `sh .agents/skills/verify-openridr/scripts/doctor.sh` | exit 0; linha nova abaixo |
 | `sh tests/shell/doctor.test.sh` | `all cases passed`, exit 0 (4000 MiB → `ok`/0; 1500 → `note`/0; 900 → `FAIL`/1; `df` sem número → `note`/0; sentinela não apagada) |
-| `dash tests/shell/doctor.test.sh` | `all cases passed`, exit 0 |
+| `DOCTOR_SHELL=dash dash tests/shell/doctor.test.sh` | `all cases passed`, exit 0 — o teste e o doctor sob `dash` |
 | `DOCTOR_SCRIPT=<doctor.sh de 5779634> sh tests/shell/doctor.test.sh` | **4 failure(s)**, exit 1 — falha-antes: nenhuma linha `disk` e 900 MiB saindo 0 |
+| `DOCTOR_SCRIPT=<doctor.sh com `df -k` em vez de `df -Pk`> sh tests/shell/doctor.test.sh` | **3 failure(s)** — o `df` falso recusa a chamada que o doctor não deve fazer, então trocar o volume ou as flags quebra os casos |
 | `sh -n .agents/skills/verify-openridr/scripts/doctor.sh` | ok |
 | `shellcheck -s sh` no script e no teste | só `SC2015` (info) pré-existentes nas linhas não tocadas; linhas novas e o teste sem achado |
 

@@ -36,8 +36,14 @@ printf '{"name":"fake","version":"0.0.0"}\n' >"$root/package.json"
 
 # The stubs. `df` prints the layout of `df -Pk` and answers column 4 (`Available`, 1024-blocks) with
 # $FAKE_DF_MIB; the others only satisfy the environment checks so they cannot move the exit code.
+# It refuses any invocation the doctor is not supposed to make (`df -Pk <the measured dir>`), so a
+# change of volume or flags fails the cases instead of passing on a stub that answers anything.
 cat >"$scratch/stubs/df" <<'STUB'
 #!/bin/sh
+if [ "$1" != -Pk ] || [ "$2" != "$FAKE_DF_EXPECT" ]; then
+  printf 'unexpected df call: %s\n' "$*" >&2
+  exit 1
+fi
 case "$FAKE_DF_MIB" in
   '' | *[!0-9]*) avail=- ;;
   *) avail=$((FAKE_DF_MIB * 1024)) ;;
@@ -60,6 +66,7 @@ chmod +x "$scratch/stubs"/*
 run() {
   set +e
   out=$(env HOME="$scratch/home" TMPDIR="$scratch/tmp" PATH="$scratch/stubs:$PATH" FAKE_DF_MIB="$1" \
+    FAKE_DF_EXPECT="$scratch/tmp" \
     "${DOCTOR_SHELL:-sh}" "$root/.agents/skills/verify-openridr/scripts/doctor.sh" \
     "$scratch/none.app" 2>"$scratch/stderr")
   code=$?
