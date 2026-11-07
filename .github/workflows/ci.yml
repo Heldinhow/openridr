@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   typescript:
-    name: TypeScript (tsc + unit)
+    name: TypeScript (tsc + build + unit)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -44,6 +44,11 @@ jobs:
 
       - name: Type check
         run: bunx tsc --noEmit
+
+      # The same bundling `tauri build` packages (tauri.conf.json: frontendDist "../dist"). `tsc`
+      # does not cover it: an import of a missing asset passes the type check and fails here.
+      - name: Build
+        run: bunx vite build
 
       - name: Unit tests
         run: bun run test:unit
