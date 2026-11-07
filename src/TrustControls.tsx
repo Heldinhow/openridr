@@ -9,7 +9,8 @@ type Props = {
 
 // Shared with the Trust prompt so the explanation of what trust allows lives in one place.
 export const RESTRICTED_EXPLAIN = "Files can be read as text. Project code will not run.";
-export const TRUST_EXPLAIN = "Trust authorizes executable inspection of this workspace.";
+export const TRUST_EXPLAIN =
+  "Trust authorizes executable inspection of this solution and of the project directories it references.";
 
 export function TrustControls({ snapshot, onChange, compact = false }: Props) {
   const [checked, setChecked] = useState(false);
@@ -57,10 +58,14 @@ export function TrustControls({ snapshot, onChange, compact = false }: Props) {
         {compact ? (
           <span className="muted">
             {" "}
-            Executable inspection is authorized for this workspace only.{" "}
+            Executable inspection is authorized for this solution and the project directories it
+            references.{" "}
           </span>
         ) : (
-          <p>Executable inspection is authorized for this workspace only.</p>
+          <p>
+            Executable inspection is authorized for this solution and the project directories it
+            references.
+          </p>
         )}
         <p className="hint" data-testid="trust-note">
           Trust is remembered for this project path, also after restarting the app. Revoking forgets it and clears the executable

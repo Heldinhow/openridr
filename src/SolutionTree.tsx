@@ -8,8 +8,8 @@ import { SYMBOL_LABEL } from "./icons/SymbolMark";
 import { createListingCache, type ListingEntry } from "./solutionListing";
 import { treeGitStatusMap, mergeIgnored, treeQueryId, type TreeGitStatus } from "./solutionGitStatus";
 import {
-  ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, nestSources,
-  visibleSourceFiles, type DependencyGroup, type SourceNode,
+  ROOT_KEY, baseOf, countLabel, depGroupKey, depsKey, dirKey, dirOf, folderKey, isAbsolutePath,
+  nestSources, visibleSourceFiles, type DependencyGroup, type SourceNode,
 } from "./solutionNodes";
 import {
   dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, symbolKindOf,
@@ -578,6 +578,15 @@ export function SolutionTree(p: Props) {
           }}
           suffix={
             <>
+              {isAbsolutePath(view.path) && (
+                <span
+                  className="tag"
+                  data-testid={`tree-project-outside-${view.name}`}
+                  title={`${view.path} is outside the solution directory`}
+                >
+                  outside
+                </span>
+              )}
               {view.failed && <span className="tag error">error</span>}
               {view.evaluated && view.restore !== "restored" && (
                 <span className="tag warning">{view.restore === "unknown" ? "restore unknown" : "partial context"}</span>

@@ -38,10 +38,13 @@ const STDERR_BYTES: usize = 32_000;
 const IGNORED_PATHS: usize = 256;
 const IGNORED_PATH_BYTES: usize = 64 * 1024;
 const IGNORED_BYTES: usize = 256 * 1024;
-/// The only Git operation with a deadline. Every host dispatch runs behind one lock in the shell,
-/// so a fetch waiting on an unreachable remote would freeze the whole app, not just the panel that
-/// started it. Push and pull keep that exposure for now; it is tracked in #136.
+/// Every network Git command is bounded in time. Every host dispatch runs behind one lock in the
+/// shell, so a command waiting on an unreachable remote freezes the whole app, not just the panel
+/// that started it. The bound is the freeze ceiling, not a transfer budget: a push uploads objects
+/// and waits for the server's hooks, so it gets twice the download budget. A command that needs
+/// longer is killed and retried, never left holding the lock.
 const FETCH_DEADLINE: Duration = Duration::from_secs(60);
+const PUSH_DEADLINE: Duration = Duration::from_secs(120);
 /// How often the bounded fetch checks whether its child finished. Short enough to answer soon
 /// after a kill, long enough to keep a healthy fetch off the CPU.
 const FETCH_POLL: Duration = Duration::from_millis(20);
@@ -2124,8 +2127,8 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
 ///
 /// Fetch moves only refs, so a dirty tree, a merge in progress or a detached HEAD are not reasons
 /// to refuse: the worktree, the index, the local branches and `MERGE_HEAD` are all left alone. The
-/// deadline is the other half of the contract — it is the only bounded network command in the app,
-/// because a hung one would hold the lock every host call waits behind (#136 for push and pull).
+/// deadline is the other half of the contract: a hung network command would hold the lock every
+/// host call waits behind, so fetch, push and the fetch of an update are all bounded.
 pub fn fetch(root: &Path) -> HostResult<Operation> {
     fetch_with(root, FETCH_DEADLINE)
 }
@@ -2267,6 +2270,13 @@ const MERGE_FLAGS: [&str; 2] = ["--ff", "--no-edit"];
 const CONFLICT_PATH_LIMIT: usize = 20;
 
 pub fn pull(root: &Path) -> HostResult<Operation> {
+    pull_with(root, FETCH_DEADLINE)
+}
+
+/// The deadline covers the fetch only. The merge is local, so it cannot wait on a remote, and
+/// killing it mid-way would leave a half-applied merge — a worse state than the freeze the bound
+/// prevents. Because the fetch comes first, an update that runs out of time never starts a merge.
+fn pull_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
     require_clean(&status, "Update")?;
@@ -2277,9 +2287,24 @@ pub fn pull(root: &Path) -> HostResult<Operation> {
         ));
     }
 
-    let fetched = run(&repo.top, &["fetch", "--quiet"])
+    let (fetched, timed_out) = run_with_deadline(&repo.top, &["fetch", "--quiet"], deadline)
         .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let mut text = format!("{}{}", fetched.stdout, fetched.stderr);
+    if timed_out {
+        let remote = fetch_remote(&repo, &status).unwrap_or_else(|| "the remote".to_string());
+        // Nothing was merged: the merge only runs after a fetch that succeeded. Refs already
+        // received stay, because a kill can land after Git updated some of them.
+        return Ok(operation(
+            "failed",
+            Some(format!(
+                "Update stopped: {remote} did not answer within {} seconds. Nothing was merged; your branch, index and working tree were not touched, and refs already received stay.",
+                deadline.as_secs()
+            )),
+            &text,
+            &repo,
+            None,
+        ));
+    }
     if !fetched.ok() {
         let stderr = mask_urls(fetched.stderr.trim());
         return Ok(operation(
@@ -2445,7 +2470,13 @@ fn first_remote(repo: &Repo) -> Option<String> {
     remotes(repo).into_iter().next()
 }
 
+/// Pushes the current branch. Bounded like every network command: a killed push may still have
+/// reached the remote, so the message says what to check instead of claiming the commit is there.
 pub fn push(root: &Path, params: &Value) -> HostResult<Operation> {
+    push_with(root, params, PUSH_DEADLINE)
+}
+
+fn push_with(root: &Path, params: &Value, deadline: Duration) -> HostResult<Operation> {
     if params.get("confirm").and_then(Value::as_bool) != Some(true) {
         return Err(HostError::new(
             "confirmation_required",
@@ -2482,17 +2513,30 @@ pub fn push(root: &Path, params: &Value) -> HostResult<Operation> {
         args.extend(["--set-upstream".to_string(), remote.clone(), branch.clone()]);
     }
     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = run(&repo.top, &borrowed)
+    let (output, timed_out) = run_with_deadline(&repo.top, &borrowed, deadline)
         .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
     let text = format!("{}{}", output.stdout, output.stderr);
     let mut next = operation(
-        if output.ok() { "ok" } else { "failed" },
+        if !timed_out && output.ok() {
+            "ok"
+        } else {
+            "failed"
+        },
         None,
         &text,
         &repo,
         None,
     );
-    if output.ok() {
+    if timed_out {
+        // The message promises neither the outcome nor the local state: the kill can land after the
+        // remote accepted the refs, and a `pre-push` hook may already have run. It also does not
+        // name a remote: `git push` with no repository argument resolves the destination from
+        // `branch.<name>.pushRemote`/`remote.pushDefault`, which the app does not read.
+        next.message = Some(format!(
+            "Push stopped: the remote did not answer within {} seconds. The push may already have reached it: check the branch there before pushing again.",
+            deadline.as_secs()
+        ));
+    } else if output.ok() {
         next.message = Some(format!("Pushed {branch} to {remote}."));
     } else {
         let stderr = mask_urls(output.stderr.trim());
@@ -3923,16 +3967,7 @@ mod tests {
     #[test]
     fn a_fetch_against_a_remote_that_never_answers_returns_at_the_deadline() {
         let (_temp, user, _bare) = remote_repo("user");
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        // The connection is accepted and held open, never answered. The thread is left detached:
-        // joining it would put its sleep on the test's clock.
-        std::thread::spawn(move || {
-            if let Ok((stream, _)) = listener.accept() {
-                std::thread::sleep(Duration::from_secs(10));
-                drop(stream);
-            }
-        });
+        let port = silent_remote();
         git(
             &user,
             &[
@@ -3962,6 +3997,128 @@ mod tests {
         // git reaches an http remote through `git remote-http` → `git-remote-http`, and those
         // inherit the pipes. They must die with the deadline: a survivor would hold the pipe the
         // reader is waiting on, which is the freeze the bound exists to prevent.
+        if let Some(survivors) = descendants_of(&port.to_string()) {
+            assert!(
+                survivors.is_empty(),
+                "the helper survived the deadline: {survivors:?}"
+            );
+        }
+    }
+
+    /// A remote that accepts the connection and holds it open without ever answering, on a port the
+    /// caller can point a clone at. The accepting thread is left detached: joining it would put its
+    /// sleep on the test's clock.
+    fn silent_remote() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                std::thread::sleep(Duration::from_secs(10));
+                drop(stream);
+            }
+        });
+        port
+    }
+
+    /// A push is the one network command whose kill can land after the remote accepted the refs, so
+    /// the message may not claim success — and may not claim the upstream was configured either,
+    /// because `--set-upstream` writes nothing when the push never completes.
+    #[test]
+    fn a_push_against_a_remote_that_never_answers_returns_at_the_deadline() {
+        let (_temp, user, bare) = remote_repo("user");
+        let port = silent_remote();
+        git(
+            &user,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                &format!("http://127.0.0.1:{port}/repo.git"),
+            ],
+        );
+        fs::write(user.join("a.txt"), "one\ntwo\n").unwrap();
+        commit_all(&user, "local change");
+        let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let published = git(&bare, &["rev-parse", "main"]).trim().to_string();
+        let began = Instant::now();
+
+        let result = push_with(
+            &user,
+            &serde_json::json!({ "confirm": true }),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+
+        assert_eq!(result.state, "failed");
+        let message = result.message.unwrap_or_default();
+        assert!(
+            message.contains("did not answer within 1 seconds"),
+            "{message}"
+        );
+        assert!(!message.contains("Pushed"), "{message}");
+        assert!(message.contains("may already have reached it"), "{message}");
+        // Neither the local state nor the destination remote is promised: a `pre-push` hook can
+        // change the tree, and `git push` may resolve a remote the app never read.
+        assert!(!message.contains("not touched"), "{message}");
+        assert!(!message.contains("origin"), "{message}");
+        assert!(
+            began.elapsed() < Duration::from_secs(15),
+            "the deadline must return even with a hung helper: {:?}",
+            began.elapsed()
+        );
+        assert_eq!(
+            git(&bare, &["rev-parse", "main"]).trim(),
+            published,
+            "the remote must not have the local commit"
+        );
+        assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head);
+        if let Some(survivors) = descendants_of(&port.to_string()) {
+            assert!(
+                survivors.is_empty(),
+                "the helper survived the deadline: {survivors:?}"
+            );
+        }
+    }
+
+    /// The update's deadline covers the fetch, which runs before the merge: a killed update cannot
+    /// leave a merge behind, so the message says nothing was merged instead of pointing at
+    /// `git merge --abort`.
+    #[test]
+    fn an_update_against_a_remote_that_never_answers_returns_at_the_deadline() {
+        let (_temp, user, _bare) = remote_repo("user");
+        let port = silent_remote();
+        git(
+            &user,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                &format!("http://127.0.0.1:{port}/repo.git"),
+            ],
+        );
+        let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let before = git(&user, &["for-each-ref", "refs/remotes"]);
+        let began = Instant::now();
+
+        let result = pull_with(&user, Duration::from_secs(1)).unwrap();
+
+        assert_eq!(result.state, "failed");
+        let message = result.message.unwrap_or_default();
+        assert!(
+            message.contains("did not answer within 1 seconds"),
+            "{message}"
+        );
+        assert!(message.contains("Nothing was merged"), "{message}");
+        assert!(!message.contains("merge --abort"), "{message}");
+        assert!(
+            began.elapsed() < Duration::from_secs(15),
+            "the deadline must return even with a hung helper: {:?}",
+            began.elapsed()
+        );
+        assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head);
+        assert!(!user.join(".git/MERGE_HEAD").exists());
+        assert!(result.status.operation.is_none());
+        assert_eq!(git(&user, &["for-each-ref", "refs/remotes"]), before);
         if let Some(survivors) = descendants_of(&port.to_string()) {
             assert!(
                 survivors.is_empty(),
