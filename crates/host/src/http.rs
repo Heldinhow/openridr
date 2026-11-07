@@ -340,13 +340,34 @@ fn redirected(url: &str, location: &str) -> Result<String, String> {
     Ok(next)
 }
 
+/// A download is bounded by inactivity, not by a total deadline: a slow link that keeps receiving
+/// bytes finishes, and a connection that stops sending fails after this long without data. A total
+/// deadline is what made the csharp-ls download fail on a slow network (#161), and `ureq` gives a
+/// total timeout precedence over this one, so the two cannot be combined.
+pub(crate) const DOWNLOAD_STALL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// A connection attempt must not hang setup either. The same bound the netcoredbg download uses.
+const DOWNLOAD_CONNECT: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// Downloads with up to [`MAX_DOWNLOAD_REDIRECTS`] hops, rebuilding the client for every one: a
 /// redirect is a new destination, so the route and the destination guard have to run again. With a
 /// proxy the resolver never sees the destination, so reusing one client would skip the guard.
-pub(crate) fn fetch(url: &str, timeout: std::time::Duration) -> Result<ureq::Response, String> {
+pub(crate) fn fetch(url: &str, stall: std::time::Duration) -> Result<ureq::Response, String> {
+    fetch_with(url, stall, &process_env)
+}
+
+fn fetch_with(
+    url: &str,
+    stall: std::time::Duration,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<ureq::Response, String> {
     let mut url = url.to_string();
     for _ in 0..=MAX_DOWNLOAD_REDIRECTS {
-        let agent = agent_for(&url)?.redirects(0).timeout(timeout).build();
+        let agent = agent_for_with(&url, env)?
+            .redirects(0)
+            .timeout_connect(DOWNLOAD_CONNECT)
+            .timeout_read(stall)
+            .build();
         let location = match agent.get(&url).call() {
             Ok(response) if (300..400).contains(&response.status()) => {
                 let status = response.status();
@@ -515,5 +536,57 @@ mod tests {
         for message in [unauthorized, refused] {
             assert!(!message.contains("s3cret"), "{message}");
         }
+    }
+
+    /// A local server answering one download in `chunks` pieces, `delay` apart, used as the proxy
+    /// for a public literal destination: the address guard allows the configured proxy, so the test
+    /// needs no DNS and no external network.
+    fn slow_download(chunks: usize, size: usize, delay: std::time::Duration) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                chunks * size
+            );
+            if std::io::Write::write_all(&mut stream, head.as_bytes()).is_err() {
+                return;
+            }
+            for _ in 0..chunks {
+                if std::io::Write::write_all(&mut stream, &vec![7u8; size]).is_err() {
+                    return;
+                }
+                let _ = std::io::Write::flush(&mut stream);
+                std::thread::sleep(delay);
+            }
+        });
+        format!("http://{address}")
+    }
+
+    fn proxy_env(proxy: &str) -> impl Fn(&str) -> Option<String> {
+        let proxy = proxy.to_string();
+        move |name: &str| (name == "http_proxy").then(|| proxy.clone())
+    }
+
+    /// The bug in #161: a total deadline killed a download that was still receiving bytes. Fifteen
+    /// chunks 100 ms apart take ~1.5 s, far past the 400 ms window below, and every byte must arrive.
+    #[test]
+    fn a_download_that_keeps_receiving_bytes_finishes_however_long_it_takes() {
+        let proxy = slow_download(15, 4096, std::time::Duration::from_millis(100));
+        let response = fetch_with(
+            "http://1.1.1.1/csharp-ls.0.28.0.nupkg",
+            std::time::Duration::from_millis(400),
+            &proxy_env(&proxy),
+        )
+        .expect("the proxy answers");
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut response.into_reader(), &mut bytes)
+            .expect("the whole body arrives");
+        assert_eq!(bytes.len(), 15 * 4096);
     }
 }

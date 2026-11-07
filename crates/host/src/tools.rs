@@ -98,8 +98,10 @@ fn prepare_local_package(
     progress: impl Fn(u64, Option<u64>) -> bool,
 ) -> Result<(PathBuf, PathBuf), String> {
     let (url, sha512) = package_source();
-    // `fetch` follows the redirects itself so every hop is routed and guarded again.
-    let response = crate::http::fetch(&url, std::time::Duration::from_secs(120))
+    // `fetch` follows the redirects itself so every hop is routed and guarded again. The download is
+    // bounded by inactivity, never by a total deadline: a slow transfer that keeps receiving bytes
+    // must finish (#161).
+    let response = crate::http::fetch(&url, crate::http::DOWNLOAD_STALL)
         .map_err(|error| format!("Could not download csharp-ls: {error}"))?;
     let total = response
         .header("Content-Length")
