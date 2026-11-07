@@ -2590,6 +2590,8 @@ mark.search-hit {
 .git-file-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-meta); }
 .git-file-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .git-file-list code, .git-file-list .menu-note { overflow-wrap: anywhere; }
+.git-file { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; padding: 2px 4px; text-align: left; background: transparent; border: 0; border-radius: 3px; color: inherit; font: inherit; cursor: pointer; }
+.git-file:hover { background: var(--accent-surface); }
 
 /* NuGet (F9): installed/outdated per project, plan confirmation and explicit restore. */
 .nuget-panel { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-meta); min-height: 0; }
