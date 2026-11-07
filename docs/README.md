@@ -50,6 +50,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 | Debug avançado: hit count, watches persistentes (issues #94–#96) | [SPEC-DEBUG-ADVANCED](SPEC-DEBUG-ADVANCED.md) | #94, #95, #96 | [RETRO-DEBUG-ADVANCED](RETRO-DEBUG-ADVANCED.md) | [evidence/debug-advanced.md](evidence/debug-advanced.md) |
 | Setup de ferramentas + Tests/NuGet (paridade Rider) | [SPEC-TESTS-NUGET-TOOLS-SETUP](SPEC-TESTS-NUGET-TOOLS-SETUP.md) | [tickets-tests-nuget-tools-setup/](tickets-tests-nuget-tools-setup/README.md) (01–05) | [RETRO-TESTS-NUGET-TOOLS-SETUP](RETRO-TESTS-NUGET-TOOLS-SETUP.md) | [evidence/tests-nuget-tools-setup/desktop.md](evidence/tests-nuget-tools-setup/desktop.md) |
 | Suite de testes confiável (issue #43) | [SPEC-TEST-STABILITY](SPEC-TEST-STABILITY.md) | issues GitHub #57, #59, #62, #64, #67 | [RETRO-TEST-STABILITY](RETRO-TEST-STABILITY.md) | [evidence/test-stability.md](evidence/test-stability.md) |
+| Risco de PR por caminho: label, aprovação do mantenedor no alto, auto-merge no baixo (issue #74) | [SPEC-RISK-TIERS](SPEC-RISK-TIERS.md) | #123, #122, #124, #125, #126 | [RETRO-RISK-TIERS](RETRO-RISK-TIERS.md) | [evidence/risk-tiers.md](evidence/risk-tiers.md), [evidence/revert-rate.md](evidence/revert-rate.md) |
 | E2E: smoke noturno + quarentena (issue #67) | [SPEC-TEST-STABILITY](SPEC-TEST-STABILITY.md) | issue #67 (#56 é o workflow) | — | [evidence/e2e-quarantine.md](evidence/e2e-quarantine.md) |
 | Debug: sessão que termina sem parar (#46) | [SPEC-DEBUG-NO-STOP](SPEC-DEBUG-NO-STOP.md) | #76, #78 (GitHub) | [RETRO-DEBUG-NO-STOP](RETRO-DEBUG-NO-STOP.md) | [evidence/debug-no-stop.md](evidence/debug-no-stop.md) |
 | Git diff: arquivo inteiro, modo unificado e hash do commit (#48) | [SPEC-GIT-DIFF](SPEC-GIT-DIFF.md) | #98, #99, #100 (GitHub); follow-up #101 | [RETRO-GIT-DIFF](RETRO-GIT-DIFF.md) | [evidence/git-diff.md](evidence/git-diff.md) |
@@ -61,8 +62,13 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 | Fetch explícito no painel Git (#113): contador e branches remotas em dia | [SPEC-GIT-FETCH](SPEC-GIT-FETCH.md) | #137, #138 (GitHub); relacionada #136 | [RETRO-GIT-FETCH](RETRO-GIT-FETCH.md) | [evidence/git-fetch.md](evidence/git-fetch.md) |
 | Prazo em push e pull (#136): rede não congela o host | [SPEC-GIT-NETWORK-DEADLINE](SPEC-GIT-NETWORK-DEADLINE.md) | #147, #148 (GitHub); relacionada #113 | [RETRO-GIT-NETWORK-DEADLINE](RETRO-GIT-NETWORK-DEADLINE.md) | [evidence/git-network-deadline.md](evidence/git-network-deadline.md) |
 | Projetos fora do diretório da solution (#52): escopo do workspace, confinamento, análise e execução | [SPEC-PROJECTS-OUTSIDE-SOLUTION](SPEC-PROJECTS-OUTSIDE-SOLUTION.md) | #143, #144, #145, #146 (GitHub) | [RETRO-PROJECTS-OUTSIDE-SOLUTION](RETRO-PROJECTS-OUTSIDE-SOLUTION.md) | [evidence/projects-outside-solution.md](evidence/projects-outside-solution.md), `evidence/projects-outside-solution/*.png` |
+| Diretório neutro da ferramenta em um lugar só (#93): verificação não falha em máquina fria | [SPEC-STAGED-TOOLS-NEUTRAL-DIR](SPEC-STAGED-TOOLS-NEUTRAL-DIR.md) | #153 (GitHub) | [RETRO-STAGED-TOOLS-NEUTRAL-DIR](RETRO-STAGED-TOOLS-NEUTRAL-DIR.md) | [evidence/staged-tools-neutral-dir.md](evidence/staged-tools-neutral-dir.md) |
 | Merge em andamento: concluir ou abortar pela UI (#114) | [SPEC-GIT-MERGE-IN-PROGRESS](SPEC-GIT-MERGE-IN-PROGRESS.md) | #154, #155, #156 (GitHub) | [RETRO-GIT-MERGE-IN-PROGRESS](RETRO-GIT-MERGE-IN-PROGRESS.md) | [evidence/git-merge-in-progress.md](evidence/git-merge-in-progress.md), `evidence/git-merge-in-progress/*.png` |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
+
+`decisions.md`, `GLOSSARY.md` e a tabela acima são **append-only**: cada frente acrescenta a sua linha e
+um merge de `main` conflita por construção. Resolução: ficam **as duas entradas**, a desta branch primeiro
+e as antigas na ordem em que entraram — nunca reordenar nem reescrever entrada velha.
 
 Numeração de tickets nas pastas históricas **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta. Ticket novo é GitHub issue: cite pelo número (`#58`).
 
