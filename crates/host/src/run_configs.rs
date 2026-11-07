@@ -102,6 +102,8 @@ pub struct LaunchOptions {
     pub working_directory: Option<PathBuf>,
     /// `.env` files in order, then the explicit environment; later assignments win.
     pub env: Vec<(String, String)>,
+    /// What the launch profile asks the browser to do; manual configurations never open one.
+    pub browser: crate::browser::Launch,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -113,6 +115,10 @@ struct LaunchProfile {
     command_name: String,
     #[serde(default)]
     application_url: Option<String>,
+    #[serde(default)]
+    launch_browser: bool,
+    #[serde(default)]
+    launch_url: Option<String>,
     #[serde(default)]
     environment_variables: BTreeMap<String, String>,
     #[serde(default, deserialize_with = "null_string")]
@@ -724,6 +730,13 @@ pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> 
             env.entry("ASPNETCORE_URLS".to_string())
                 .or_insert_with(|| expand_value(&url));
         }
+        // The profile's own `environmentVariables` win over `applicationUrl`, so the effective
+        // list is what the app will actually listen on.
+        let browser = crate::browser::plan(
+            profile.launch_browser,
+            profile.launch_url.as_deref(),
+            env.get("ASPNETCORE_URLS").map(String::as_str),
+        );
         let project_dir = project.parent().unwrap_or(root);
         let cwd = profile
             .working_directory
@@ -734,10 +747,12 @@ pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> 
                 return Err(option_error("workingDirectory", "working_directory_missing", format!("The working directory {} does not exist or is not a directory; fix workingDirectory in launchSettings.json before running.", path.display())));
             }
         }
-        return launch_options(
+        let mut options = launch_options(
             &json!({"args": split_launch_args(&profile.command_line_args), "env": env, "workingDirectory": cwd}),
             root,
-        );
+        )?;
+        options.browser = browser;
+        return Ok(options);
     }
     let args = string_list(params.get("args"), "args", MAX_ARGS)?;
     for argument in &args {
@@ -849,6 +864,7 @@ pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> 
         args,
         working_directory,
         env,
+        browser: crate::browser::Launch::None,
     })
 }
 
@@ -1571,9 +1587,11 @@ mod tests {
             r#"{"profiles":{"expand":{"commandName":"Project","applicationUrl":"http://localhost:5084/?home=%HOME%","environmentVariables":{"PROFILE_ENV":"%HOME%","DOLLAR":"$(HOME)","LITERAL":"%NOPE%","PERCENT":"100%"},"commandLineArgs":"%HOME% $(HOME)"}}}"#,
         );
         let root = project.parent().unwrap();
-        let options =
-            launch_options(&json!({"project": project, "launchProfile": "expand"}), root)
-                .unwrap();
+        let options = launch_options(
+            &json!({"project": project, "launchProfile": "expand"}),
+            root,
+        )
+        .unwrap();
         assert!(options.env.contains(&("PROFILE_ENV".into(), home.clone())));
         assert!(options.env.contains(&("DOLLAR".into(), home.clone())));
         assert!(options.env.contains(&("LITERAL".into(), "%NOPE%".into())));
@@ -1583,7 +1601,10 @@ mod tests {
             format!("http://localhost:5084/?home={home}")
         )));
         // The argv stays literal: `dotnet run` does not expand commandLineArgs either.
-        assert_eq!(options.args, vec!["%HOME%".to_string(), "$(HOME)".to_string()]);
+        assert_eq!(
+            options.args,
+            vec!["%HOME%".to_string(), "$(HOME)".to_string()]
+        );
     }
 
     #[test]
@@ -1592,9 +1613,43 @@ mod tests {
             r#"{"profiles":{"cwd":{"commandName":"Project","workingDirectory":"%HOME%"}}}"#,
         );
         let root = project.parent().unwrap();
-        let error = launch_options(&json!({"project": project, "launchProfile": "cwd"}), root)
-            .unwrap_err();
+        let error =
+            launch_options(&json!({"project": project, "launchProfile": "cwd"}), root).unwrap_err();
         assert!(error.message.contains("%HOME%"), "{}", error.message);
+    }
+
+    #[test]
+    fn launch_profile_decides_the_browser_from_its_own_values() {
+        let (_temp, project) = profile_fixture(
+            r#"{"profiles":{
+                "off":{"commandName":"Project","applicationUrl":"http://localhost:5083"},
+                "on":{"commandName":"Project","launchBrowser":true,"applicationUrl":"http://localhost:5083","launchUrl":"/swagger"},
+                "envwins":{"commandName":"Project","launchBrowser":true,"applicationUrl":"http://localhost:5083","environmentVariables":{"ASPNETCORE_URLS":"https://localhost:7259"}},
+                "bad":{"commandName":"Project","launchBrowser":true,"launchUrl":"file:///etc/passwd"}
+            }}"#,
+        );
+        let root = project.parent().unwrap();
+        let browser = |name: &str| {
+            launch_options(
+                &json!({"project": project.clone(), "launchProfile": name}),
+                root,
+            )
+            .unwrap()
+            .browser
+        };
+        assert_eq!(browser("off"), crate::browser::Launch::None);
+        assert_eq!(
+            browser("on"),
+            crate::browser::Launch::Open("http://localhost:5083/swagger".to_string())
+        );
+        // The profile's own environment wins over applicationUrl, so that is where the app listens.
+        assert_eq!(
+            browser("envwins"),
+            crate::browser::Launch::Open("https://localhost:7259".to_string())
+        );
+        assert!(
+            matches!(browser("bad"), crate::browser::Launch::Skip(reason) if reason.contains("http(s)"))
+        );
     }
 
     #[test]
@@ -1607,9 +1662,17 @@ mod tests {
                 .iter()
                 .map(|profile| profile.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["http", "https", "expand", "IIS Express"]
+            vec![
+                "http",
+                "https",
+                "expand",
+                "browser",
+                "browser-off",
+                "browser-bad",
+                "IIS Express"
+            ]
         );
-        assert_eq!(profiles[3].command_name, "IISExpress");
+        assert_eq!(profiles[6].command_name, "IISExpress");
         let options =
             launch_options(&json!({"project": project, "launchProfile": "http"}), &root).unwrap();
         assert_eq!(options.args, vec!["--message", "hello world"]);
@@ -1718,7 +1781,9 @@ mod tests {
         assert!(stdout.contains(&format!("PROFILE_ENV={home}")), "{stdout}");
         assert!(stdout.contains(&format!("EXPANDED={home}")), "{stdout}");
         assert!(
-            stdout.contains(&format!("ASPNETCORE_URLS=http://localhost:5084/?home={home}")),
+            stdout.contains(&format!(
+                "ASPNETCORE_URLS=http://localhost:5084/?home={home}"
+            )),
             "{stdout}"
         );
         assert!(stdout.contains("ARGS=%HOME%|$(HOME)"), "{stdout}");

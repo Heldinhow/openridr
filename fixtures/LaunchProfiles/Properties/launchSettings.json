@@ -18,6 +18,25 @@
       "environmentVariables": { "PROFILE_ENV": "%HOME%", "EXPANDED": "$(HOME)" },
       "commandLineArgs": "%HOME% $(HOME)"
     },
+    "browser": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "/page",
+      "applicationUrl": "http://localhost:5090",
+      "environmentVariables": { "PROFILE_ENV": "browser" },
+      "commandLineArgs": "--listen"
+    },
+    "browser-off": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5091",
+      "commandLineArgs": "--listen"
+    },
+    "browser-bad": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "file:///etc/passwd"
+    },
     "IIS Express": { "commandName": "IISExpress" }
   }
 }

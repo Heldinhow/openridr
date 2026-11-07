@@ -1,3 +1,4 @@
+mod browser;
 mod build;
 pub mod bundled;
 mod dap;
@@ -3303,6 +3304,23 @@ impl Host {
         };
         inner.run.note_process(piped.id);
         let shared = inner.run.clone();
+        match &options.browser {
+            browser::Launch::Open(url) => {
+                let url = url.clone();
+                let run = shared.clone();
+                let alive = shared.clone();
+                std::thread::spawn(move || {
+                    let line = browser::open_when_ready(&url, move || {
+                        alive.running_process_id().is_some()
+                    });
+                    run.append_line(&line, false);
+                });
+            }
+            browser::Launch::Skip(reason) => {
+                shared.append_line(&format!("Launch browser skipped: {reason}"), false);
+            }
+            browser::Launch::None => {}
+        }
         if let Some(stdout) = piped.stdout {
             let sink = shared.clone();
             std::thread::spawn(move || run::pump(stdout, sink, false));
@@ -4009,6 +4027,7 @@ impl Host {
             watches: watches.clone(),
             breakpoints_muted,
             exception_filters: exception_filters.clone(),
+            browser: options.browser.clone(),
         };
 
         // Every reason a saved build cannot launch this session starts the same
