@@ -759,9 +759,9 @@ export function BranchWidget({
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-abort-title" data-testid="merge-abort-dialog" onKeyDown={dialogKeyDown}>
             <h2 id="merge-abort-title">Abort merge</h2>
             <p className="hint">
-              Undoes the merge: the branch, index and working tree go back to the state before the
-              merge. Conflict resolutions and anything staged during the merge are discarded; your
-              commits stay. Uncommitted changes that existed before the merge may not come back.
+              This undoes the merge: conflict resolutions and anything staged during the merge are
+              discarded, and your commits stay. Uncommitted changes that existed before the merge
+              may not come back.
             </p>
             {dialogError && (
               <p className="error" role="alert" data-testid="merge-abort-error">{dialogError}</p>
