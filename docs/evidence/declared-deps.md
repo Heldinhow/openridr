@@ -38,7 +38,10 @@ exit=1
 
 O critério continua valendo como contrato (manifesto e lock concordam no fim), mas ele não é o que
 detecta a lacuna: quem a detectou foi o diff do lock. A prova substituta, abaixo, é o estado exato da
-tabela do workspace antes e depois.
+tabela do workspace antes e depois. Reconferido pela sessão, num diretório descartável com o
+`package.json` e o `bun.lock` desta branch: com as três linhas removidas do manifesto,
+`bun install --frozen-lockfile` sai **0** e **não reescreve o lock** — a tabela desatualizada fica
+desatualizada em silêncio, nem falha nem conserta.
 
 ## Antes
 
@@ -141,11 +144,19 @@ $ tsc --noEmit && cargo check --workspace --all-targets
 EXIT=0
 ```
 
+## Runtime (sessão, modo web)
+
+```
+$ OPENRIDR_E2E_UI_PORT=1520 OPENRIDR_E2E_HOST_PORT=4417 bunx playwright test tests/e2e/editor-find-count.spec.ts
+  4 passed (40.1s)
+```
+
+Portas alternativas (1520/4417, faixa 4418–4424 conferida livre) com o app home derivado da porta da UI,
+então sem o par fixo 1420/4317. Prova o `@codemirror/search` em runtime: painel `.cm-search`, contagem de
+ocorrências, replace all e Enter no campo Find movendo para o próximo match.
+
 ## Não verificado
 
-- **`tests/e2e/editor-find-count.spec.ts` em modo web** (critério de aceite do ticket, prova de runtime do
-  `@codemirror/search`): não rodado nesta sessão por instrução explícita de escopo. É a prova que falta
-  para fechar o comportamento de busca/contagem/goto-line com o pacote declarado; o `vite build` prova só
-  que ele empacota.
 - **`@codemirror/autocomplete` em runtime**: nenhum spec cobre o autocomplete do editor, e esta issue não
   criou um. A cobertura de runtime dele segue sendo nenhuma, antes e depois da mudança.
+- **Windows e macOS Intel**: não executados, como em todo o resto do repositório.
