@@ -81,12 +81,17 @@ e registrar a exceção do `knip` em `docs/decisions.md`, com o motivo, em vez d
   2. `bun run build` (`tsc --noEmit && vite build`) — o `vite build` resolve os três no bundle. É a única
      prova que existe para `tags`/`@lezer/highlight`, porque nenhum spec asserta classe de token.
   3. `bun run check` — typecheck + `cargo check`, o que o job `typescript` do CI roda.
-  4. Playwright `tests/e2e/editor-find-count.spec.ts` em modo web — host real + fixture `OrderDesk`,
-     exercita `@codemirror/search` em runtime (painel `.cm-search`, contagem, goto line). Spec não
-     quarentenado, fora da lista do smoke.
+  4. Playwright em modo web, host real + fixture `OrderDesk`: `tests/e2e/editor-find-count.spec.ts`
+     exercita `@codemirror/search` em runtime (painel `.cm-search`, contagem, replace all, Enter no próximo
+     match) e `tests/e2e/medium-nav-navigation.spec.ts` cobre o `gotoLine` do mesmo pacote. Nenhum dos dois
+     está quarentenado ou na lista do smoke.
 - **Nenhum arquivo de teste novo**, nenhum `data-testid` novo.
 - **Prior art**: os specs de editor em `tests/e2e/` já abrem a fixture e assertam o painel de busca; o job
   `typescript` do CI já roda `tsc --noEmit` e `bun test tests/unit`.
+- **O `--frozen-lockfile` não é guarda.** Medido: no bun 1.3.9 (a versão pinada nos workflows) ele sai 0 com
+  a tabela de dependências do workspace desatualizada, porque os pacotes já estão em `packages` por
+  transitividade. O critério de aceite continua valendo (manifesto e lock concordam no fim), mas quem
+  detecta a lacuna é o diff do lock, não o comando.
 
 ## Out of Scope
 

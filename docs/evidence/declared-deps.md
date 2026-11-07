@@ -149,11 +149,15 @@ EXIT=0
 ```
 $ OPENRIDR_E2E_UI_PORT=1520 OPENRIDR_E2E_HOST_PORT=4417 bunx playwright test tests/e2e/editor-find-count.spec.ts
   4 passed (40.1s)
+$ OPENRIDR_E2E_UI_PORT=1520 OPENRIDR_E2E_HOST_PORT=4417 bunx playwright test tests/e2e/medium-nav-navigation.spec.ts
+  3 passed (30.9s)
 ```
 
 Portas alternativas (1520/4417, faixa 4418–4424 conferida livre) com o app home derivado da porta da UI,
 então sem o par fixo 1420/4317. Prova o `@codemirror/search` em runtime: painel `.cm-search`, contagem de
-ocorrências, replace all e Enter no campo Find movendo para o próximo match.
+ocorrências, replace all e Enter no campo Find movendo para o próximo match (`editor-find-count`), e o
+`gotoLine` pelo diálogo `.cm-goto-line` (`medium-nav-navigation`, caso "Go to Line opens from the editor
+and from outside it").
 
 ## Não verificado
 
