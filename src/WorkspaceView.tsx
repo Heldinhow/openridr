@@ -55,6 +55,7 @@ import { Splitter } from "./Splitter";
 import { BottomToolWindow } from "./shell/BottomToolWindow";
 import { MidText } from "./shell/MidText";
 import { StatusBar } from "./shell/StatusBar";
+import { ToolbarMenu } from "./shell/ToolbarMenu";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
 import { FindAction, type SearchTab } from "./actions/FindAction";
 import { FindInFiles } from "./FindInFiles";
@@ -461,16 +462,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const sidebarWidth = layout.left.size;
   const outputHeight = layout.bottom.size;
   const panelBodyRef = useRef<HTMLDivElement>(null);
-  // Toolbar dropdowns are <details>: close them on an outside click.
-  useEffect(() => {
-    const close = (event: PointerEvent) => {
-      document.querySelectorAll<HTMLDetailsElement>("details.toolbar-menu[open]").forEach((menu) => {
-        if (!menu.contains(event.target as Node)) menu.open = false;
-      });
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, []);
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
@@ -4279,29 +4270,38 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       <div className="toolbar">
         <button type="button" className="toolbar-icon-button nav-button" data-testid="nav-back" disabled={backAction.disabledReason !== null} aria-label="Back" title={backAction.disabledReason ?? `Back (${backAction.shortcutTexts.join(" or ")})`} onClick={backAction.execute}><Icon name="back" /></button>
         <button type="button" className="toolbar-icon-button nav-button" data-testid="nav-forward" disabled={forwardAction.disabledReason !== null} aria-label="Forward" title={forwardAction.disabledReason ?? `Forward (${forwardAction.shortcutTexts.join(" or ")})`} onClick={forwardAction.execute}><Icon name="forward" /></button>
-        <details className="toolbar-menu project-menu" onKeyDown={(event) => {
-          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
-        }}>
-          <summary className="workspace-brand" title={workspace.path} data-testid="toolbar-project" aria-label={`Project: ${workspace.name}. Open recent solutions.`}>
-            <span className="project-badge" aria-hidden="true">{workspace.name.slice(0, 2).toUpperCase()}</span><strong><MidText text={workspace.name} /></strong><Icon name="chevron" />
-          </summary>
-          <div className="menu-content" data-testid="toolbar-project-menu">
-            <span className="menu-heading">Recent solutions</span>
-                        {recentSolutions.map((solution, index) => (
-              <button
-                key={solution}
-                type="button"
-                data-testid={`recent-solution-${index}`}
-                aria-current={solution === workspace.path ? "true" : undefined}
-                title={solution}
-                onClick={() => void openSolution(solution)}
-              >
-                {baseName(solution)}{solution === workspace.path ? " (current)" : ""}
-              </button>
-            ))}
-            {recentSolutions.length === 0 && <span className="menu-note">No recent solutions.</span>}
-          </div>
-        </details>
+        <ToolbarMenu
+          className="toolbar-menu project-menu"
+          triggerClassName="workspace-brand"
+          triggerTestId="toolbar-project"
+          contentTestId="toolbar-project-menu"
+          label={`Project: ${workspace.name}. Open recent solutions.`}
+          title={workspace.path}
+          trigger={
+            <>
+              <span className="project-badge" aria-hidden="true">{workspace.name.slice(0, 2).toUpperCase()}</span><strong><MidText text={workspace.name} /></strong><Icon name="chevron" />
+            </>
+          }
+        >
+          {() => (
+            <>
+              <span className="menu-heading">Recent solutions</span>
+              {recentSolutions.map((solution, index) => (
+                <button
+                  key={solution}
+                  type="button"
+                  data-testid={`recent-solution-${index}`}
+                  aria-current={solution === workspace.path ? "true" : undefined}
+                  title={solution}
+                  onClick={() => void openSolution(solution)}
+                >
+                  {baseName(solution)}{solution === workspace.path ? " (current)" : ""}
+                </button>
+              ))}
+              {recentSolutions.length === 0 && <span className="menu-note">No recent solutions.</span>}
+            </>
+          )}
+        </ToolbarMenu>
         <BranchWidget
           status={gitStatus}
           statusError={gitStatusError}
@@ -4404,32 +4404,36 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         >
           <Icon name="debug" />
         </button>
-        <details className="toolbar-menu" data-testid="workspace-actions-menu" onKeyDown={(event) => {
-          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
-        }}>
-          <summary aria-label="Workspace actions" title="More actions">⋮</summary>
-          <div className="menu-content">
+        <ToolbarMenu
+          className="toolbar-menu"
+          testId="workspace-actions-menu"
+          label="Workspace actions"
+          title="More actions"
+          trigger="⋮"
+        >
+          {(close) => (
+            <>
             <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a configuration." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a configuration." : evaluationBusy ? "Wait for evaluation to finish before changing configuration." : "MSBuild configuration for evaluation."}>{configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}</select></label>
             <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value || null })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a TFM." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a TFM." : evaluationBusy ? "Wait for evaluation to finish before changing TFM." : "Target framework for evaluation."}><option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}</select></label>
             <button
               data-testid="build-solution-menu"
               disabled={buildSolutionAction.disabledReason !== null}
               title={buildSolutionAction.disabledReason ?? "Builds the open solution with the current configuration and reports problems from every project."}
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
+              onClick={() => {
+                close();
                 buildSolutionAction.execute();
               }}
             >
               Build Solution <kbd>{buildSolutionAction.shortcutLabels[0] ?? ""}</kbd>
             </button>
-            <button data-testid="open-find-action" onClick={(event) => {
-              event.currentTarget.closest("details")?.removeAttribute("open");
+            <button data-testid="open-find-action" onClick={() => {
+              close();
               findActionAction.execute();
             }} title={findActionAction.shortcutTexts.join(" or ")}>
               Find Action <kbd>{findActionAction.shortcutLabels[0] ?? ""}</kbd>
             </button>
-            <button data-testid="open-keymap" onClick={(event) => {
-              event.currentTarget.closest("details")?.removeAttribute("open");
+            <button data-testid="open-keymap" onClick={() => {
+              close();
               keymapAction.execute();
             }}>
               {keymapAction.title}
@@ -4443,7 +4447,10 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             </button>
             <button
               data-testid="sdk-open-global-json"
-              onClick={openGlobalJsonAction.execute}
+              onClick={() => {
+                close();
+                openGlobalJsonAction.execute();
+              }}
               disabled={openGlobalJsonAction.disabledReason !== null}
               title={openGlobalJsonAction.disabledReason ?? openGlobalJsonAction.title}
             >
@@ -4459,8 +4466,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             <button data-testid="close-workspace" onClick={closeWorkspaceAction.execute}>
               {closeWorkspaceAction.title}
             </button>
-          </div>
-        </details>
+            </>
+          )}
+        </ToolbarMenu>
         <button
           type="button"
           className="toolbar-icon-button"

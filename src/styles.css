@@ -384,10 +384,9 @@ p {
 kbd { font: 11px var(--sans); color: var(--muted); }
 .toolbar-menu { position: relative; flex: 0 0 auto; }
 .toolbar-menu > :is(summary, button) { cursor: pointer; list-style: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; font-weight: inherit; }
-.toolbar-menu > summary::-webkit-details-marker { display: none; }
 .menu-content { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: 240px; padding: 6px; display: grid; gap: 4px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 24px #0006; }
 .menu-content button { text-align: left; }
-.project-menu > summary { gap: 6px; padding: 3px 6px; }
+.project-menu > :is(summary, button) { gap: 6px; padding: 3px 6px; }
 .project-menu .menu-content { left: 0; right: auto; width: 320px; }
 .menu-heading { font-weight: 600; }
 .menu-note { color: var(--muted); font-size: var(--fs-badge); }
@@ -1151,7 +1150,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   .toolbar > button { padding-left: 7px; padding-right: 7px; }
   .toolbar-disabled > button { padding: 4px 6px; }
   .toolbar > button kbd { display: none; }
-  .project-menu > summary { min-width: 0; max-width: 110px; }
+  .project-menu > :is(summary, button) { min-width: 0; max-width: 110px; }
   .toolbar .toolbar-startup select { max-width: 112px; }
   .workspace-brand { max-width: 110px; }
 }
@@ -2258,7 +2257,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   width: 300px;
 }
 
-.run-config-menu > summary {
+.run-config-menu > :is(summary, button) {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2769,7 +2768,7 @@ mark.search-hit {
   .toolbar .toolbar-startup select { max-width: 120px; }
   .toolbar-configuration { gap: 3px; }
   .toolbar .eval-field select { max-width: 100px; }
-  .run-config-menu > summary { max-width: 150px; min-width: 0; }
+  .run-config-menu > :is(summary, button) { max-width: 150px; min-width: 0; }
   .run-config-menu [data-testid="run-config-active"] { min-width: 0; }
 }
 
@@ -2785,9 +2784,9 @@ mark.search-hit {
 .toolbar .stop-button .icon { color: var(--error); fill: currentColor; }
 .workspace-brand .icon { color: var(--muted); }
 .workspace-brand strong { font-weight: 500; }
-.toolbar-menu[open] > summary, .toolbar-menu > button[aria-expanded="true"] { background: var(--accent-surface-strong); }
+.toolbar-menu > button[aria-expanded="true"] { background: var(--accent-surface-strong); }
 .run-config-tag { display: none; }
-.run-config-menu > summary { max-width: 240px; }
+.run-config-menu > :is(summary, button) { max-width: 240px; }
 .toolrail { background: var(--chrome); border-right: 0; }
 .toolband-button { border-radius: var(--r-md); width: 32px; height: 32px; box-shadow: none; }
 .toolband-button.active, .toolband-button[aria-pressed="true"] { background: var(--accent-surface-strong); border-color: transparent; box-shadow: none; }
@@ -3015,7 +3014,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tag.success { background: rgba(16, 185, 129, 0.08); color: var(--success); }
 .tag.info { background: rgba(59, 130, 246, 0.08); color: var(--info); }
 .toolbar .project-menu { flex: 0 0 auto; max-width: 200px; }
-.toolbar .project-menu > summary { max-width: 200px; }
+.toolbar .project-menu > :is(summary, button) { max-width: 200px; }
 .toolbar .run-config-menu, .toolbar .toolbar-menu:has([data-testid="toolbar-branch"]) { flex: 0 1 auto; min-width: 0; }
 
 /* ui-shape 03: Solution Explorer — 32px rows, fill + weight selection (never both rows solid), icon chevrons. */

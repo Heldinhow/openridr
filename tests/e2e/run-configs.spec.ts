@@ -157,15 +157,14 @@ test("dialog Run does not launch its requested configuration when rebuild fails"
 });
 
 async function selectEvaluationOption(page: Page, value: string) {
-  const menu = page.getByTestId("workspace-actions-menu");
-  const summary = menu.locator("summary");
-  await summary.click();
+  const trigger = page.getByRole("button", { name: "Workspace actions" });
+  await trigger.click();
   const configuration = page.getByTestId("eval-configuration");
   await expect(configuration).toBeVisible();
   await configuration.selectOption(value);
-  await summary.click();
-  await expect(configuration).toBeHidden();
   await expect(configuration).toHaveValue(value);
+  await trigger.click();
+  await expect(configuration).toBeHidden();
 }
 
 test("dialog Run refuses a failed saved build", async ({ page, request }) => {

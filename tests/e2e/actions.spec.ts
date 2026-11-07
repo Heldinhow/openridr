@@ -20,7 +20,7 @@ function resetSettings() {
 }
 
 async function openKeymap(page: Page) {
-  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  await page.getByRole("button", { name: "Workspace actions" }).click();
   await page.getByTestId("open-keymap").click();
   await expect(page.getByTestId("keymap-dialog")).toBeVisible();
 }
@@ -81,7 +81,7 @@ test("Find Action filters by title, id and group, shows shortcuts and disabled r
   await page.getByTestId("find-action-input").press("Escape");
 
   // The same registry drives the ••• menu, and an unavailable entry keeps its reason.
-  await page.getByTestId("workspace-actions-menu").locator("summary").click();
+  await page.getByRole("button", { name: "Workspace actions" }).click();
   await expect(page.getByTestId("git-commit-action")).toBeDisabled();
   await expect(page.getByTestId("git-commit-action")).toHaveAttribute(
     "title",
