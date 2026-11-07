@@ -76,6 +76,7 @@ import {
   gitFetchBlockedReason,
   gitPushBlockedReason,
   gitUpdateBlockedReason,
+  type GitCommit,
   type GitDiff as GitDiffView,
   type GitIntent,
   type GitStatus,
@@ -602,7 +603,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [gitDiffView, setGitDiffView] = useState<GitDiffView | null>(null);
   const [commitDiffPath, setCommitDiffPath] = useState<string | null>(null);
-  const [commitDiffActive, setCommitDiffActive] = useState(false);
+  const [commitFileDiff, setCommitFileDiff] = useState<{ commit: GitCommit; path: string } | null>(null);
+  const [specialTab, setSpecialTab] = useState<"worktree" | "commit" | null>(null);
   const [renameRequest, setRenameRequest] = useState(0);
   const [definitionRequest, setDefinitionRequest] = useState(0);
   const renameSeq = useRef(0);
@@ -1480,7 +1482,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   async function openFile(path: string) {
-    setCommitDiffActive(false);
+    setSpecialTab(null);
     const relative = workspaceRelative(path, workspaceDir);
     if (tabs.some((tab) => tab.path === relative)) {
       setActivePath(relative);
@@ -4138,6 +4140,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           <GitLogPanel
             trusted={trusted}
             onError={(text) => setMessage({ tone: "error", text })}
+            onOpenCommitFile={(commit, file) => { setCommitFileDiff({ commit, path: file.path }); setSpecialTab("commit"); }}
           />
         );
       case "nuget":
@@ -4598,7 +4601,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             trusted={trusted}
             initialPath={commitFocusPath}
             onRefresh={refreshGit}
-            onOpenDiff={(path) => { setCommitDiffPath(path); setCommitDiffActive(true); }}
+            onOpenDiff={(path) => { setCommitDiffPath(path); setSpecialTab("worktree"); }}
           />
         ) : (
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
@@ -4730,18 +4733,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         <section className="editor-pane" aria-label="Editor">
           <div className="tabbar">
             <div className="tabs" role="tablist" aria-label="Open files" onKeyDown={(event) => {
-              const count = tabs.length + (commitDiffPath ? 1 : 0);
+              const worktreeIndex = tabs.length;
+              const commitIndex = tabs.length + (commitDiffPath ? 1 : 0);
+              const count = tabs.length + (commitDiffPath ? 1 : 0) + (commitFileDiff ? 1 : 0);
               if (!count || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
               event.preventDefault();
-              const index = commitDiffActive ? tabs.length : Math.max(0, tabs.findIndex((tab) => tab.path === activePath));
+              const index = specialTab === "commit" ? commitIndex : specialTab === "worktree" ? worktreeIndex : Math.max(0, tabs.findIndex((tab) => tab.path === activePath));
               const next = event.key === "Home" ? 0 : event.key === "End" ? count - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + count) % count;
-              setCommitDiffActive(next === tabs.length);
+              setSpecialTab(commitFileDiff && next === commitIndex ? "commit" : commitDiffPath && next === worktreeIndex ? "worktree" : null);
               if (next < tabs.length) { setActivePath(tabs[next].path); void checkDisk(tabs[next].path); }
               event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
             }}>
               {tabs.map((tab) => {
                 const dirty = isDirty(tab);
-                const selected = !commitDiffActive && tab.path === activePath;
+                const selected = !specialTab && tab.path === activePath;
                 return (
                   <div className={`tab ${selected ? "active" : ""}`} key={tab.path} data-testid={`tab-${tab.path}`}>
                     <button
@@ -4751,7 +4756,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                       aria-controls="editor-content"
                       className="tab-label"
                       onClick={() => {
-                        setCommitDiffActive(false);
+                        setSpecialTab(null);
                         setActivePath(tab.path);
                         void checkDisk(tab.path);
                       }}
@@ -4783,9 +4788,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                   </div>
                 );
               })}
-              {commitDiffPath && <div className={`tab ${commitDiffActive ? "active" : ""}`} data-testid="commit-diff-tab">
-                <button role="tab" className="tab-label" tabIndex={commitDiffActive ? 0 : -1} aria-selected={commitDiffActive} aria-controls="commit-diff-content" onClick={() => setCommitDiffActive(true)} title={commitDiffPath}>Commit: {baseName(commitDiffPath)}</button>
-                <button className="tab-close" aria-label="Close diff" title="Close diff" onClick={() => { setCommitDiffPath(null); setCommitDiffActive(false); }}>×</button>
+              {commitDiffPath && <div className={`tab ${specialTab === "worktree" ? "active" : ""}`} data-testid="commit-diff-tab">
+                <button role="tab" className="tab-label" tabIndex={specialTab === "worktree" ? 0 : -1} aria-selected={specialTab === "worktree"} aria-controls="commit-diff-content" onClick={() => setSpecialTab("worktree")} title={commitDiffPath}>Commit: {baseName(commitDiffPath)}</button>
+                <button className="tab-close" aria-label="Close diff" title="Close diff" onClick={() => { setCommitDiffPath(null); setSpecialTab(null); }}>×</button>
+              </div>}
+              {commitFileDiff && <div className={`tab ${specialTab === "commit" ? "active" : ""}`} data-testid="commit-file-diff-tab">
+                <button role="tab" className="tab-label" tabIndex={specialTab === "commit" ? 0 : -1} aria-selected={specialTab === "commit"} aria-controls="commit-file-diff-content" onClick={() => setSpecialTab("commit")} title={`${commitFileDiff.commit.hash} · ${commitFileDiff.commit.subject} — ${commitFileDiff.path}`}>{commitFileDiff.commit.shortHash} · {baseName(commitFileDiff.path)}</button>
+                <button className="tab-close" aria-label="Close commit diff" title="Close commit diff" onClick={() => { setCommitFileDiff(null); setSpecialTab(null); }}>×</button>
               </div>}
             </div>
             {activeInspections && (activeInspections.error > 0 || activeInspections.warning > 0) && (
@@ -4833,8 +4842,20 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             </button>
           </div>
 
-          {commitDiffActive && commitDiffPath ? (
+          {specialTab === "worktree" && commitDiffPath ? (
             <CommitDiff path={commitDiffPath} files={gitStatus?.files ?? []} onNavigate={setCommitDiffPath} />
+          ) : specialTab === "commit" && commitFileDiff ? (
+            <CommitDiff
+              path={commitFileDiff.path}
+              files={commitFileDiff.commit.files}
+              target={{
+                hash: commitFileDiff.commit.hash,
+                shortHash: commitFileDiff.commit.shortHash,
+                subject: commitFileDiff.commit.subject,
+                originalPath: commitFileDiff.commit.files.find((file) => file.path === commitFileDiff.path)?.originalPath ?? null,
+              }}
+              onNavigate={(path) => setCommitFileDiff((current) => (current ? { ...current, path } : current))}
+            />
           ) : active ? (
             <>
               <div className="breadcrumb-row">
