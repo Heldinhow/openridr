@@ -11,7 +11,7 @@ O hook é o seam: cada caso faz um `git commit` de verdade num repositório temp
 
 | Comando | Resultado |
 |---|---|
-| `sh tests/shell/pre-commit.test.sh` | `all cases passed` (10 casos), exit 0 |
+| `sh tests/shell/pre-commit.test.sh` | `all cases passed` (12 casos), exit 0 |
 | `dash tests/shell/pre-commit.test.sh` | `all cases passed`, exit 0 |
 | `PRE_COMMIT_HOOK=<hook antigo> sh tests/shell/pre-commit.test.sh` | **falha-antes**: 18 `FAIL`, exit 1 |
 | `shellcheck .githooks/pre-commit tests/shell/pre-commit.test.sh` | limpo, exit 0 |
@@ -22,8 +22,27 @@ Casos cobertos: só documentação (nada roda); TypeScript só (`tsc`, sem `carg
 sem `node_modules` (falha antes do bun, diz `bun install`, nunca `command not found`, commit não é
 criado); só documentação sem `node_modules` (passa); `scripts/commit-only.sh` com Rust sujo na árvore
 (o commit leva só o `.md` e nada roda — prova que a árvore de trabalho não entra na classificação);
-check que falha (o exit code do check vira exit do hook e o commit não é criado); o hook rodado sob
-`dash`.
+check que falha (o exit code do check vira exit do hook e o commit não é criado); um caminho Rust com
+nome não-ASCII; uma renomeação entre baldes; o hook rodado sob `dash`.
+
+## Achados do code review (corrigidos)
+
+O review (subagente, `gpt-6.1-terra`) achou dois caminhos em que o hook ficava **mais fraco** que o
+antigo, e os dois foram corrigidos no hook e pinados por teste:
+
+1. **Alto — nome não-ASCII em `crates/` pulava o `cargo check`.** `git diff --name-only` cita o caminho
+   (`"crates/a\303\247..."`), a citação não casa com `crates/*` e o commit caía no balde do TypeScript:
+   o Rust não era checado. Correção: `core.quotePath=false` no diff, mais um ramo que, para um caminho
+   que ainda sai entre aspas (tab, aspas ou quebra de linha no nome), roda os dois checks em vez de
+   classificar. Caso 11 do teste.
+2. **Médio — renomeação entre baldes escondia o lado Rust.** Com detecção de renomeação, mover
+   `crates/host/src/lib.rs` para `docs/lib.rs` listava só o destino e o commit passava como documentação,
+   sem `cargo check`. Correção: `--no-renames`, que lista os dois lados. Caso 12 do teste.
+
+Prova falha-antes do conserto: `PRE_COMMIT_HOOK=<hook de 410d0a7> sh tests/shell/pre-commit.test.sh`
+→ 6 `FAIL`, incluindo `non-ASCII rust: expected exit 0, got 1` (a mensagem de `bun install` no lugar do
+`cargo check`) e `rename: expected 'cargo check --workspace --all-targets', got ''`. Depois do conserto:
+`all cases passed` sob `sh` e sob `dash`; contra o hook original (`exec bun run check`), 21 `FAIL`.
 
 ## Medições reais (commit de verdade, repositório descartável com `CARGO_TARGET_DIR` do worktree)
 

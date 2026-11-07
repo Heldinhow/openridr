@@ -73,6 +73,12 @@ substitui.
   HEAD` (a alternativa óbvia) over-reporta: num commit `--only` de documentação com Rust sujo na árvore
   ele lista o Rust — é o custo de hoje. Verificado à mão num repositório descartável antes de escrever
   esta spec.
+- **Nomes que o git cita e renomeações** (achados do code review). O diff é pedido com
+  `core.quotePath=false` — um nome não-ASCII como `crates/host/src/ação.rs` sai cru, não como
+  `"crates/a\303\247..."`, que não casaria com os padrões de Rust e pularia o `cargo check` — e com
+  `--no-renames`, para uma movimentação listar os dois lados: tirar um `.rs` de `crates/` continua
+  rodando `cargo check`. Caminho que ainda sai entre aspas (tab, aspas ou quebra de linha no nome) não é
+  classificado: roda os dois checks.
 - **Classificação por caminho, três baldes.** Documentação = `*.md` em qualquer diretório mais
   `docs/**`. Rust = `crates/**`, `src-tauri/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*`. Qualquer
   outro caminho cai no balde do TypeScript. Não existe lista explícita de TS: "não é documentação nem
@@ -118,8 +124,8 @@ substitui.
   `tsc`); misto (os dois); amend só de mensagem (nada); sem `node_modules` com TS (mensagem com `bun
   install`, exit 1, nenhum `command not found`); documentação só sem `node_modules` (passa); um commit
   feito por `scripts/commit-only.sh` com Rust sujo na árvore (cobre o `git commit --only` e prova que a
-  árvore não entra na classificação); e o hook rodado sob `dash`, já que o `/bin/sh` do runner não é o
-  do Mac.
+  árvore não entra na classificação); um caminho Rust com nome não-ASCII; uma renomeação entre baldes; e
+  o hook rodado sob `dash`, já que o `/bin/sh` do runner não é o do Mac.
 - **O que um bom teste prova aqui:** o efeito observável do commit (quais comandos o hook invocou, o que
   saiu na tela, se o commit foi criado), nunca a forma do script. Um stub de `cargo` que falha também
   prova que o hook propaga o exit code do check.

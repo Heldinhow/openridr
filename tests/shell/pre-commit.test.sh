@@ -14,8 +14,9 @@
 # an amend that only changes the message (nothing runs), TypeScript without node_modules (fails before
 # bun, says `bun install`, never `command not found`), docs only without node_modules (passes), a
 # `git commit --only` from scripts/commit-only.sh with Rust dirty in the work tree (the work tree is not
-# classified), a failing check (the hook propagates the exit code and the commit is not created), and
-# the hook run under dash, the runner's /bin/sh.
+# classified), a failing check (the hook propagates the exit code and the commit is not created), a Rust
+# path with a non-ASCII name (git must not quote it out of the Rust patterns), a rename across buckets
+# (the deleted Rust path still runs cargo), and the hook run under dash, the runner's /bin/sh.
 set -eu
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -274,6 +275,22 @@ else
   expect_log 'dash' 'bun run tsc --noEmit
 cargo check --workspace --all-targets'
 fi
+
+# --- 11. a Rust path with a non-ASCII name: git must not quote it out of the Rust patterns -----------
+new_repo
+stage 'crates/host/src/ação.rs'
+commit -m 'feat(host): ação'
+expect_code 'non-ASCII rust' 0
+expect_log 'non-ASCII rust' 'cargo check --workspace --all-targets'
+expect_commits 'non-ASCII rust' 2
+
+# --- 12. a rename across buckets: the deleted Rust path still runs cargo -----------------------------
+new_repo crates/host/src/lib.rs
+git_env mv crates/host/src/lib.rs docs/lib.rs
+commit -m 'docs: move'
+expect_code 'rename' 0
+expect_log 'rename' 'cargo check --workspace --all-targets'
+expect_commits 'rename' 2
 
 echo
 if [ "$failures" -eq 0 ]; then

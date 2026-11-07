@@ -10,8 +10,10 @@ set -eu
 
 # The paths of this commit, not of the work tree: with `git commit --only` (scripts/commit-only.sh) git
 # points GIT_INDEX_FILE at a temporary index, so this lists only the paths given to the commit. An amend
-# that only changes the message lists nothing.
-if ! staged=$(git diff --cached --name-only); then
+# that only changes the message lists nothing. `core.quotePath=false` keeps a non-ASCII name raw instead
+# of `"crates/a\303\247..."` (which would not match the Rust patterns); `--no-renames` lists both sides of
+# a move, so moving a `.rs` out of `crates/` still runs `cargo check`.
+if ! staged=$(git -c core.quotePath=false diff --cached --name-only --no-renames); then
   echo 'pre-commit: git diff --cached falhou, rodando o check completo' >&2
   exec bun run check
 fi
@@ -20,6 +22,7 @@ ts=0
 rust=0
 for path in $staged; do
   case "$path" in
+    '"'*) ts=1; rust=1 ;; # git quoted it (tab, quote, newline in the name): classify nothing, check both
     *.md | docs/*) ;;
     crates/* | src-tauri/* | Cargo.toml | Cargo.lock | rust-toolchain*) rust=1 ;;
     *) ts=1 ;;

@@ -1616,6 +1616,10 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Por que não há limiar de diff grande.** O check é por linguagem, não por tamanho: diff grande só de
   TS não tem Rust para checar e o misto já roda os dois. Um limiar seria um número inventado pagando
   `cargo check` sem mudança de Rust.
+- **Dois guardas do code review.** O diff sai com `core.quotePath=false` e `--no-renames`: sem o
+  primeiro, um nome não-ASCII em `crates/` vira `"crates/a\303\247..."` e não casa com o padrão de Rust
+  (o `cargo check` seria pulado); sem o segundo, mover um `.rs` para `docs/` lista só o destino e o
+  commit passa como documentação. Caminho que ainda sai entre aspas roda os dois checks.
 - **`node_modules` só no ramo do TS.** O gate é `node_modules/.bin/tsc` e a mensagem diz `bun install`.
   Commit só de documentação numa worktree nova passa — antes ele morria com `tsc: command not found`.
 - **Consequência.** `docs/SPEC-PRECOMMIT-PROPORTIONAL.md`; ticket #271, filho de #265; teste em
