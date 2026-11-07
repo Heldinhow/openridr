@@ -347,26 +347,36 @@ fn redirected(url: &str, location: &str) -> Result<String, String> {
 pub(crate) const DOWNLOAD_STALL: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// A connection attempt must not hang setup either. The same bound the netcoredbg download uses.
+///
+/// The one wait this does not bound is name resolution: `ureq` cannot interrupt it, and the total
+/// deadline it replaced could not either (it is checked between operations, after the resolver
+/// returns). The system resolver keeps its own timeouts, so a hung lookup is a pre-existing limit of
+/// every host request, not something this download introduced.
 const DOWNLOAD_CONNECT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Downloads with up to [`MAX_DOWNLOAD_REDIRECTS`] hops, rebuilding the client for every one: a
 /// redirect is a new destination, so the route and the destination guard have to run again. With a
 /// proxy the resolver never sees the destination, so reusing one client would skip the guard.
 pub(crate) fn fetch(url: &str, stall: std::time::Duration) -> Result<ureq::Response, String> {
-    fetch_with(url, stall, &process_env)
+    fetch_with(url, stall, DOWNLOAD_CONNECT, &process_env)
 }
 
+/// `connect` is a parameter only so a test can prove that a connection that never opens is not
+/// reported as a stall; the product always passes [`DOWNLOAD_CONNECT`].
 fn fetch_with(
     url: &str,
     stall: std::time::Duration,
+    connect: std::time::Duration,
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<ureq::Response, String> {
     let mut url = url.to_string();
     for _ in 0..=MAX_DOWNLOAD_REDIRECTS {
         let agent = agent_for_with(&url, env)?
             .redirects(0)
-            .timeout_connect(DOWNLOAD_CONNECT)
+            .timeout_connect(connect)
             .timeout_read(stall)
+            // A write that blocks because the peer stopped reading must not hang setup either.
+            .timeout_write(stall)
             .build();
         let location = match agent.get(&url).call() {
             Ok(response) if (300..400).contains(&response.status()) => {
@@ -422,8 +432,13 @@ pub(crate) fn is_stall(error: &std::io::Error) -> bool {
 }
 
 /// True when the transport failed on a read timeout. The `ureq` error carries the `io::Error` in
-/// its source chain; the message text is never inspected.
+/// its source chain; the message text is never inspected. A connect failure is not a stall — the
+/// socket never opened, so no data was ever expected — and `ureq` reports it as
+/// `ConnectionFailed`, which is why the kind is checked before the chain.
 fn timed_out(error: &ureq::Error) -> bool {
+    if error.kind() != ureq::ErrorKind::Io {
+        return false;
+    }
     let mut source = std::error::Error::source(error);
     while let Some(cause) = source {
         if cause.downcast_ref::<std::io::Error>().is_some_and(is_stall) {
@@ -630,21 +645,23 @@ mod tests {
 
     const PACKAGE_URL: &str = "http://1.1.1.1/csharp-ls.0.28.0.nupkg";
 
-    /// The bug in #161: a total deadline killed a download that was still receiving bytes. Fifteen
-    /// chunks 100 ms apart take ~1.5 s, far past the 400 ms window below, and every byte must arrive.
+    /// The bug in #161: a total deadline killed a download that was still receiving bytes. Twelve
+    /// chunks 200 ms apart take ~2.4 s, well past the 1 s window below, and every byte must arrive.
+    /// The 5x gap between the send interval and the window keeps the test off the scheduler's back.
     #[test]
     fn a_download_that_keeps_receiving_bytes_finishes_however_long_it_takes() {
-        let proxy = serve_download(15 * 4096, 15, 4096, std::time::Duration::from_millis(100));
+        let proxy = serve_download(12 * 4096, 12, 4096, std::time::Duration::from_millis(200));
         let response = fetch_with(
             PACKAGE_URL,
-            std::time::Duration::from_millis(400),
+            std::time::Duration::from_secs(1),
+            DOWNLOAD_CONNECT,
             &proxy_env(&proxy),
         )
         .expect("the proxy answers");
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut response.into_reader(), &mut bytes)
             .expect("the whole body arrives");
-        assert_eq!(bytes.len(), 15 * 4096);
+        assert_eq!(bytes.len(), 12 * 4096);
     }
 
     /// The other half of #161: a connection that really stops has to fail, and the person has to
@@ -656,6 +673,7 @@ mod tests {
         let response = fetch_with(
             PACKAGE_URL,
             std::time::Duration::from_secs(1),
+            DOWNLOAD_CONNECT,
             &proxy_env(&proxy),
         )
         .expect("the head arrives");
@@ -680,6 +698,7 @@ mod tests {
         let error = fetch_with(
             PACKAGE_URL,
             std::time::Duration::from_secs(1),
+            DOWNLOAD_CONNECT,
             &proxy_env(&proxy),
         )
         .expect_err("nothing arrives");
@@ -689,5 +708,25 @@ mod tests {
             !error.contains("Network Error"),
             "the raw transport text must not reach the user: {error}"
         );
+    }
+
+    /// A connection that never opens is a different failure from a transfer that stopped: the
+    /// sentence must not claim that data stopped arriving when no data was ever expected. TEST-NET-1
+    /// answers nothing, so the 300 ms connect bound is what ends the attempt; an environment that
+    /// refuses it outright produces the same `ConnectionFailed` kind.
+    #[test]
+    fn a_connection_that_never_opens_is_not_reported_as_a_stall() {
+        let error = fetch_with(
+            "http://192.0.2.1/csharp-ls.0.28.0.nupkg",
+            DOWNLOAD_STALL,
+            std::time::Duration::from_millis(300),
+            &|_: &str| None,
+        )
+        .expect_err("the connection never opens");
+        assert!(
+            !error.contains("stalled"),
+            "a connect failure is not a stall: {error}"
+        );
+        assert!(!error.contains("no data arrived"), "{error}");
     }
 }

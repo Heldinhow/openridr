@@ -110,16 +110,9 @@ fn prepare_local_package(
     let mut bytes = Vec::new();
     let mut chunk = [0; 65536];
     loop {
-        let count = reader.read(&mut chunk).map_err(|error| {
-            if crate::http::is_stall(&error) {
-                format!(
-                    "Could not download csharp-ls: {}",
-                    crate::http::stalled(&url, crate::http::DOWNLOAD_STALL)
-                )
-            } else {
-                format!("Could not read csharp-ls package: {error}")
-            }
-        })?;
+        let count = reader
+            .read(&mut chunk)
+            .map_err(|error| download_read_error(&url, &error))?;
         if count == 0 {
             break;
         }
@@ -133,6 +126,19 @@ fn prepare_local_package(
     }
     store_verified_package(temp, &bytes, &sha512)
 }
+/// A body read that timed out is the same stall as a server that stopped answering: the person gets
+/// the download sentence, not the transport's.
+fn download_read_error(url: &str, error: &std::io::Error) -> String {
+    if crate::http::is_stall(error) {
+        format!(
+            "Could not download csharp-ls: {}",
+            crate::http::stalled(url, crate::http::DOWNLOAD_STALL)
+        )
+    } else {
+        format!("Could not read csharp-ls package: {error}")
+    }
+}
+
 const SIGNATURE_LIMITATION: &str = "The NuGet package is checked against the pinned SHA-512 before local installation. dotnet reports skipping package signature verification. The installed launcher SHA-256 and version are recorded separately.";
 
 /// App-scoped root. Tests and isolated E2E runs override it with `OPENRIDR_HOME`.
@@ -2153,6 +2159,30 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_read_timeout_is_the_download_stall_and_other_read_errors_are_not() {
+        let timeout =
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out reading response");
+        let message =
+            download_read_error("https://api.nuget.org/v3-flatcontainer/x.nupkg", &timeout);
+        assert!(
+            message.starts_with("Could not download csharp-ls: "),
+            "{message}"
+        );
+        assert!(message.contains("the connection stalled"), "{message}");
+        assert!(
+            message.contains("Nothing was installed or replaced"),
+            "{message}"
+        );
+        let other = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short body");
+        let message = download_read_error("https://api.nuget.org/v3-flatcontainer/x.nupkg", &other);
+        assert!(
+            message.starts_with("Could not read csharp-ls package: "),
+            "{message}"
+        );
+        assert!(!message.contains("stalled"), "{message}");
+    }
     use crate::sdk::RuntimeInstall;
 
     #[test]
