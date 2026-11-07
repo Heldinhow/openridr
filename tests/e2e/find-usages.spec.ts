@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { host } from "./environment";
+import { host, screenshotsDir } from "./environment";
 
 // Find Usages against the real csharp-ls session (lsp.references). Needs csharp-ls already installed in the E2E home; it never installs.
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
@@ -52,7 +52,8 @@ test("Find Usages lists the real references of Order and opens one", async ({ pa
     await expect(files.filter({ hasText: "tests/OrderDesk.Tests/OrderTests.cs (3)" })).toBeVisible();
     await expect(files.filter({ hasText: "src/OrderDesk.Cli/Program.cs (1)" })).toBeVisible();
     await expect(panel.getByTestId("find-usages-summary")).toContainText("4 references");
-    await page.screenshot({ path: "docs/evidence/screenshots/d05-find-usages.png" });
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+    await page.screenshot({ path: path.join(screenshotsDir, "d05-find-usages.png") });
     // find-usage-N restarts at 0 in each file group, so pick by the unique title (file:line:column).
     await panel.getByTitle("tests/OrderDesk.Tests/OrderTests.cs:11:25").click();
     await expect(page.getByTestId("tab-tests/OrderDesk.Tests/OrderTests.cs")).toBeVisible();

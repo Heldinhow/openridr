@@ -11,8 +11,7 @@ import { openToolchain, reveal } from "./disclosures";
  * session-scoped experimental flag and the host gates; nothing is downloaded or installed.
  */
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
-import { e2eHome, host } from "./environment";
-const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+import { e2eHome, host, screenshotsDir as screenshots } from "./environment";
 const logs = path.resolve(process.env.OPENRIDR_EVIDENCE_LOG_DIR ?? "docs/evidence/logs");
 const debugToolDir = path.join(e2eHome, "tools/netcoredbg");
 const realAdapter = path.join(

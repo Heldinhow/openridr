@@ -11,8 +11,7 @@ const core = path.join(fixture, "src/OrderDesk.Core/Order.cs");
 const coreTab = "src/OrderDesk.Core/Order.cs";
 const originalProgram = fs.readFileSync(program, "utf8");
 const originalCore = fs.readFileSync(core, "utf8");
-import { host } from "./environment";
-const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+import { host, screenshotsDir as screenshots } from "./environment";
 
 const executableMethods = [
   "evaluation.run",

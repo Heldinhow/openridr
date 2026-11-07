@@ -8,10 +8,9 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { host } from "./environment";
+import { host, screenshotsDir as screenshots } from "./environment";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
-const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 const program = "src/OrderDesk.Cli/Program.cs";
 const order = "src/OrderDesk.Core/Order.cs";
 const brandNew = "src/OrderDesk.Core/E2eNewFile.cs";

@@ -21,6 +21,16 @@ export function e2eHomeFor(uiPort: number, override: string | undefined): string
 }
 
 export const e2eHome = e2eHomeFor(uiPort, process.env.OPENRIDR_E2E_HOME);
+/**
+ * Keep evidence captures out of the repository by default: a spec that fails must not rewrite the
+ * versioned PNGs. The default is keyed by the UI port like the E2E app home; OPENRIDR_SCREENSHOT_DIR
+ * still wins, and a relative override stays resolved against the current directory.
+ */
+export function screenshotsDirFor(uiPort: number, override: string | undefined): string {
+  return path.resolve(override ?? path.join(os.tmpdir(), `openridr-e2e-screenshots-${uiPort}`));
+}
+
+export const screenshotsDir = screenshotsDirFor(uiPort, process.env.OPENRIDR_SCREENSHOT_DIR);
 
 /** Same pinned csharp-ls package SHA-512 the host verifies before installing. */
 const PACKAGE_SHA512 =
