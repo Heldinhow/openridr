@@ -9,7 +9,9 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use openridr_host::{Host, EXECUTABLE_METHODS};
+use openridr_host::Host;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use openridr_host::EXECUTABLE_METHODS;
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
