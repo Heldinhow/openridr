@@ -4790,11 +4790,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               })}
               {commitDiffPath && <div className={`tab ${specialTab === "worktree" ? "active" : ""}`} data-testid="commit-diff-tab">
                 <button role="tab" className="tab-label" tabIndex={specialTab === "worktree" ? 0 : -1} aria-selected={specialTab === "worktree"} aria-controls="commit-diff-content" onClick={() => setSpecialTab("worktree")} title={commitDiffPath}>Commit: {baseName(commitDiffPath)}</button>
-                <button className="tab-close" aria-label="Close diff" title="Close diff" onClick={() => { setCommitDiffPath(null); if (specialTab === "worktree") setSpecialTab(null); }}>×</button>
+                <button className="tab-close" aria-label="Close diff" title="Close diff" onClick={() => { setCommitDiffPath(null); if (specialTab === "worktree") setSpecialTab(commitFileDiff ? "commit" : null); }}>×</button>
               </div>}
               {commitFileDiff && <div className={`tab ${specialTab === "commit" ? "active" : ""}`} data-testid="commit-file-diff-tab">
                 <button role="tab" className="tab-label" tabIndex={specialTab === "commit" ? 0 : -1} aria-selected={specialTab === "commit"} aria-controls="commit-file-diff-content" onClick={() => setSpecialTab("commit")} title={`${commitFileDiff.commit.hash} · ${commitFileDiff.commit.subject} — ${commitFileDiff.path}`}>{commitFileDiff.commit.shortHash} · {baseName(commitFileDiff.path)}</button>
-                <button className="tab-close" aria-label="Close commit diff" title="Close commit diff" onClick={() => { setCommitFileDiff(null); if (specialTab === "commit") setSpecialTab(null); }}>×</button>
+                <button className="tab-close" aria-label="Close commit diff" title="Close commit diff" onClick={() => { setCommitFileDiff(null); if (specialTab === "commit") setSpecialTab(commitDiffPath ? "worktree" : null); }}>×</button>
               </div>}
             </div>
             {activeInspections && (activeInspections.error > 0 || activeInspections.warning > 0) && (

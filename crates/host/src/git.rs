@@ -3526,6 +3526,31 @@ mod tests {
         let worktree = file_diff(&root, "a[1].txt", false).unwrap();
         assert_eq!(worktree.hunks.len(), 1, "{}", worktree.patch);
         assert!(!worktree.patch.contains("a1.txt"), "{}", worktree.patch);
+
+        // A literal name whose pattern matches nothing must still be tracked, not "untracked".
+        fs::write(root.join("x[1].txt"), "only\n").unwrap();
+        git(&root, &["add", "x[1].txt"]);
+        git(&root, &["commit", "-qm", "literal only"]);
+        fs::write(root.join("x[1].txt"), "only2\n").unwrap();
+        let literal = file_diff(&root, "x[1].txt", false).unwrap();
+        assert!(literal.base.exists, "a literal name is not untracked");
+        assert_eq!(literal.base.text.as_deref(), Some("only\n"));
+        assert_eq!(literal.current.text.as_deref(), Some("only2\n"));
+    }
+
+    #[test]
+    fn log_keeps_a_tab_in_the_subject_and_git_folds_the_rest_into_it() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-qm", "subject with\ttab\nsecond line"]);
+        let log = log(&root);
+        // Git folds the message's line breaks into the subject; the tab must survive the split.
+        assert_eq!(log.commits[0].subject, "subject with\ttab second line");
+        assert_eq!(
+            log.commits[0].short_hash,
+            git(&root, &["rev-parse", "--short", "HEAD"]).trim()
+        );
     }
 
     #[test]

@@ -72,10 +72,20 @@ Revisor: `delegate_task` com `pi` / `openai-codex/gpt-6.1-terra` / `thinking=med
 
 | Achado | Correção | Prova |
 |---|---|---|
-| **Médio:** o caminho era um pathspec, não um nome — `a[1].txt` é classe de caractere e o diff também trazia `a1.txt` | `--literal-pathspecs` em `commit_diff_output`, `diff_output` e `is_tracked` (o mesmo defeito existia em `git.diff`/`git.fileDiff`) | `paths_are_literal_names_not_patterns`: sem a flag o commit devolve **2** hunks e o patch cita `a1.txt`; com ela, 1 hunk e nenhuma menção. Falha-antes medida revertendo só a flag |
+| **Médio:** o caminho era um pathspec, não um nome — `a[1].txt` é classe de caractere e o diff também trazia `a1.txt` | `--literal-pathspecs` em `commit_diff_output`, nas três pernas de `diff_output` e em `is_tracked` (o defeito também existia em `git.diff`/`git.fileDiff`) | `paths_are_literal_names_not_patterns`: sem a flag o commit devolve **2** hunks e o patch cita `a1.txt`; com ela, 1 hunk e nenhuma menção. Falha-antes medida revertendo só a flag do commit. O caso do `file_diff` e o de `is_tracked` passam com e sem a flag neste fixture (o Git tenta o nome literal antes do padrão), então ali a flag é intenção declarada, não a prova |
 | **Médio:** metadados do commit lidos sem limite (`run` coleta o stdout inteiro) | `commit_ref` passou a usar `spawn_bounded` com 32 KB; truncado ou falho → sem linha do commit, nunca uma alocação sem teto | `commit_diff_returns_both_blobs_hunks_and_the_two_commits` e o teste do log continuam verdes |
 | **Médio:** fechar a aba **inativa** zerava a aba especial visível | os dois botões de fechar só limpam `specialTab` quando a aba fechada é a ativa | caminho de UI; provado por leitura (`tsc` verde) — o app não foi reaberto para esta correção |
 | **Baixo:** a aba usava o hash curto cortado em 7 caracteres pelo log, o painel usava o `%h` do Git | `git.log` passou a pedir `%h` no formato; o teste compara com `rev-parse --short` | `log_parses_messages_parents_and_changed_files` |
 | **Baixo:** esta evidência atribuía o `too_large` ao teste do #48 | teste próprio de blob acima de 1 MiB no diff de commit | `commit_diff_falls_back_for_binary_and_rejects_unknown_commits` |
 
 Depois das correções: `cargo test -p openridr-host --lib -- git::` → **60 passed**; `bun test tests/unit` → 90 passed; `bun run check`, `cargo fmt --all --check` e `cargo clippy --workspace --all-targets -- -D warnings` limpos.
+
+## Rodada 2 da revisão independente (re-check)
+
+Revisor: mesmo modelo e ponto fixo da rodada 1, com o diff das correções (`edbc696..HEAD`). Os quatro achados da rodada 1 foram confirmados fechados; sobrou **um médio**, corrigido:
+
+| Achado | Correção | Prova |
+|---|---|---|
+| **Médio:** fechar a aba especial **ativa** zerava a seleção mesmo com a outra aba especial aberta — sem arquivo ativo, a área do editor caía no estado vazio com uma aba visível e não selecionada | fechar a aba ativa seleciona a outra aba especial quando ela existe, e só cai no editor quando não sobra nenhuma | caminho de UI, provado por leitura e por `tsc`; o app não foi reaberto para esta correção |
+
+Dois reforços de teste saíram das observações do re-check (não eram achados): `log_keeps_a_tab_in_the_subject_and_git_folds_the_rest_into_it` (o `\t` do assunto sobrevive ao `splitn(3, '\t')` do parser) e a asserção de que um nome literal como `x[1].txt` não é reportado como não rastreado. Depois: `cargo test -p openridr-host --lib -- git::` → **61 passed**; `bun run check` limpo.
