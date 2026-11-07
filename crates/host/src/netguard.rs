@@ -84,14 +84,14 @@ pub(crate) fn private_host(host: &str) -> bool {
 }
 
 /// The controlled-installer seam: a debug build with the probe flag may download from a loopback
-/// server. Release builds compile the escape out.
+/// server. Release builds compile the escape out, so the variable does not exist there.
 #[cfg(debug_assertions)]
-fn private_targets_allowed() -> bool {
+pub(crate) fn probe_enabled() -> bool {
     std::env::var("OPENRIDR_ENABLE_PROBE").as_deref() == Ok("1")
 }
 
 #[cfg(not(debug_assertions))]
-fn private_targets_allowed() -> bool {
+pub(crate) fn probe_enabled() -> bool {
     false
 }
 
@@ -99,7 +99,7 @@ fn private_targets_allowed() -> bool {
 /// A name that cannot be resolved locally is refused too: the proxy could reach what the host
 /// cannot verify.
 pub(crate) fn require_public_target(host: &str, port: u16) -> Result<(), String> {
-    if private_targets_allowed() {
+    if probe_enabled() {
         return Ok(());
     }
     if private_host(host) {
@@ -152,9 +152,7 @@ impl ureq::Resolver for GuardedResolver {
             ));
         }
         let is_proxy = self.proxy.as_deref() == Some(netloc);
-        if !is_proxy
-            && !private_targets_allowed()
-            && addresses.iter().any(|address| private_ip(address.ip()))
+        if !is_proxy && !probe_enabled() && addresses.iter().any(|address| private_ip(address.ip()))
         {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,

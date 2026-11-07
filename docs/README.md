@@ -70,6 +70,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 | Gatilho do menu de branches como botão com nome acessível (#168) | [SPEC-BRANCH-MENU-A11Y](SPEC-BRANCH-MENU-A11Y.md) | #176 (GitHub); follow-up #177 | [RETRO-BRANCH-MENU-A11Y](RETRO-BRANCH-MENU-A11Y.md) | [evidence/branch-menu-a11y.md](evidence/branch-menu-a11y.md) |
 | App de dev em um comando + abrir workspace por argv (#91) | [SPEC-DEV-APP](SPEC-DEV-APP.md) | #172, #173 (GitHub) | [RETRO-DEV-APP](RETRO-DEV-APP.md) | [evidence/dev-app.md](evidence/dev-app.md) |
 | Os outros três menus da toolbar como botões acessíveis (#177) | [SPEC-TOOLBAR-MENUS-A11Y](SPEC-TOOLBAR-MENUS-A11Y.md) | tickets de #177 (GitHub); follow-up de #168 | [RETRO-TOOLBAR-MENUS-A11Y](RETRO-TOOLBAR-MENUS-A11Y.md) | [evidence/toolbar-menus-a11y.md](evidence/toolbar-menus-a11y.md) |
+| Proxy do macOS System Settings para o cliente HTTP do host (#132) | [SPEC-SYSTEM-PROXY](SPEC-SYSTEM-PROXY.md) | #181, #182 (GitHub) | [RETRO-SYSTEM-PROXY](RETRO-SYSTEM-PROXY.md) | [evidence/system-proxy.md](evidence/system-proxy.md) |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
 
 `decisions.md`, `GLOSSARY.md` e a tabela acima são **append-only**: cada frente acrescenta a sua linha e
