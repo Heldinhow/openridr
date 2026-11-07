@@ -1821,3 +1821,24 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Spec endurecido.** Além de `.icon-link` = 1 na linha do link de pasta, ela afirma `.symlink-mark` = 0; a linha do arquivo symlink avaliado continua com um `.symlink-mark`.
 - **Bateria.** `bun run check` limpo; `bun test tests/unit` 112 passed; `bunx playwright test tests/e2e/solution-git-status.spec.ts` 3 passed nas portas 1820/4717 (falha-antes medida antes do conserto, mesmo assert).
 - **Não verificado:** o app Tauri real (mudança de UI pura, sem nada de shell nativo); Windows e macOS Intel.
+
+## Espaço livre no `doctor.sh` (2026-11-07, #259; ticket #267)
+
+- **O que é.** Uma linha nova no `doctor.sh` do skill `verify-openridr` com o espaço livre em MiB no
+  volume de `${TMPDIR:-/tmp}`, medido com `df -Pk` (coluna `Available`, 1024-blocos ÷ 1024): `ok` a
+  partir de 3072 MiB, `note` entre 1024 e 3071, `FAIL` (exit 1) abaixo de 1024. Medição sem número vira
+  `note`, nunca `ok`. O script continua somente leitura.
+- **Por que ali.** O E2E escreve no `$TMPDIR` (app home por porta da UI e diretório de capturas) e o
+  `ENOSPC` aparece numa cópia de arquivo, minutos depois do começo do run. O piso cobre quatro sessões em
+  paralelo (~200 MiB de app home cada) mais caches; o número e o motivo ficam ao lado do check e no
+  parágrafo do Doctor do `SKILL.md`.
+- **Teste.** `tests/shell/doctor.test.sh` (rodado à mão, como os outros de `tests/shell/`): um `df` falso
+  primeiro no `PATH`, árvore de repositório mínima e stubs de `bun`/`cargo`/`dotnet`/`pgrep`/`lsof`/
+  `agent-desktop`, então o exit code depende só do caso de disco. O `df` falso recusa qualquer chamada que
+  não seja `df -Pk <diretório medido>`, então trocar o volume ou as flags quebra os casos.
+- **Falha-antes medida.** Com o `doctor.sh` de `5779634`: **4 failure(s)** (nenhuma linha `disk`, e 900 MiB
+  saindo 0). Com `df -k` em vez de `df -Pk`: **3 failure(s)**.
+- **`data-testid`:** nenhum (não há UI). Zero dependência nova.
+- **Não verificado:** superfícies A/B/C do `verify-openridr` (nenhuma interface, host ou app mudou);
+  disco realmente cheio (`note`/`FAIL` provados com `df` falso, não enchendo o volume); Windows e macOS
+  Intel. Evidência: `docs/evidence/doctor-disk-space.md`.

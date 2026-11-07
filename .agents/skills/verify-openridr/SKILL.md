@@ -25,7 +25,7 @@ Comece por A (barata). Use B quando faltar spec. Use C só para o que A/B não a
 sh .agents/skills/verify-openridr/scripts/doctor.sh [caminho/OpenRidr.app]
 ```
 
-Valida o bundle passado como argumento, ou `$OPENRIDR_APP`, ou `/Applications/OpenRidr.app`; imprime sempre **qual** caminho validou. Checa bun, cargo, `node_modules` (worktree nova não tem: `bun install`), SDK `8.0.408` (as fixtures fixam, `rollForward: disable`), Chrome, portas ocupadas, versão do bundle vs `package.json`, Acessibilidade e Gravação de Tela do agent-desktop. `FAIL` = resolva antes. `note` = leia.
+Valida o bundle passado como argumento, ou `$OPENRIDR_APP`, ou `/Applications/OpenRidr.app`; imprime sempre **qual** caminho validou. Checa bun, cargo, `node_modules` (worktree nova não tem: `bun install`), SDK `8.0.408` (as fixtures fixam, `rollForward: disable`), o espaço livre em MiB no volume de `${TMPDIR:-/tmp}` — `ok` a partir de 3072 MiB, `note` entre 1024 e 3071, `FAIL` abaixo de 1024, porque até 4 sessões em paralelo gastam ~200 MiB de app home de E2E cada mais caches —, Chrome, portas ocupadas, versão do bundle vs `package.json`, Acessibilidade e Gravação de Tela do agent-desktop. `FAIL` = resolva antes. `note` = leia.
 
 Superfície C exige: **tela do Mac desbloqueada e acordada**, **Acessibilidade concedida** ao app que roda o agent-desktop (senão `accessibility: denied` no `agent-desktop status`; `agent-desktop permissions --guide` abre os Ajustes, ação do usuário) e Gravação de Tela para `screenshot`.
 
@@ -38,7 +38,7 @@ export PATH="$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH" DOTNET_ROOT
 bunx playwright test tests/e2e/trust-prompt.spec.ts          # um spec; sem Chrome: PLAYWRIGHT_CHANNEL=chromium
 ```
 
-Portas: default 1420 (UI) / 4317 (host). Sessão em paralelo, ou com `bun run dev`/`host:http` no mesmo worktree, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`; porta ocupada falha na hora pelo `strictPort` do Vite de teste. Cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`, então confira a faixa e deixe 10 portas de host livres acima do seu par. Rode só os specs da área, não a suíte inteira.
+Portas: default 1420 (UI) / 4317 (host). Sessão em paralelo, ou com `bun run dev`/`host:http` no mesmo worktree, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`; porta ocupada falha na hora pelo `strictPort` do Vite de teste. Cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`, então confira a faixa e deixe 10 portas de host livres acima do seu par. Porta que o Chrome bloqueia (`net::ERR_UNSAFE_PORT`, ex.: 1719, 1720, 1723) é recusada no load do módulo de ambiente, antes de qualquer servidor subir — inclusive quando a faixa derivada toca uma delas, e a mensagem nomeia a porta culpada e o par; escolha outro par. Rode só os specs da área, não a suíte inteira.
 
 Pronto = `N passed` e exit 0. `skip` não é passe: leia o motivo e registre "não verificado".
 
