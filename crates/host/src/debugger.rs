@@ -1420,7 +1420,8 @@ impl Debugger {
         for _ in 0..=MAX_REDIRECTS {
             if !allowed_url(&url) {
                 return Err(Stop::Failed(format!(
-                    "Refused to download from {url}: only HTTPS on the official release hosts ({}) is allowed. Nothing was downloaded.",
+                    "Refused to download from {}: only HTTPS on the official release hosts ({}) is allowed. Nothing was downloaded.",
+                    loggable_url(&url),
                     ALLOWED_HOSTS.join(", ")
                 )));
             }
@@ -1429,7 +1430,13 @@ impl Debugger {
             // the host, shared with the csharp-ls download: inactivity, never a total deadline.
             let agent = match crate::http::download_agent(&url, stall) {
                 Ok(builder) => builder.build(),
-                Err(error) => return Err(Stop::Failed(format!("{error} Nothing was downloaded."))),
+                // The route/guard errors quote the URL they refused; it may carry a signed query.
+                Err(error) => {
+                    return Err(Stop::Failed(format!(
+                        "{} Nothing was downloaded.",
+                        redact_url(error, &url)
+                    )))
+                }
             };
             self.log(&crate::http::log_line(
                 &loggable_url(&url),
@@ -2053,6 +2060,15 @@ mod tests {
             message.contains("http://127.0.0.1:"),
             "the advice still names the destination: {message}"
         );
+
+        // The two paths that never reach the network: the host allowlist and the route/guard.
+        let message = download("https://example.invalid/asset.zip?X-Amz-Signature=secret");
+        assert!(message.contains("Refused to download from"), "{message}");
+        assert!(!message.contains("secret"), "{message}");
+
+        let message = download("https://github.com:99999/asset.zip?X-Amz-Signature=secret");
+        assert!(message.contains("Nothing was downloaded"), "{message}");
+        assert!(!message.contains("secret"), "{message}");
     }
 
     #[test]

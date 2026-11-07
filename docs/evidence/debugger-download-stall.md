@@ -29,7 +29,7 @@ A falha-antes de cada metade foi medida com o patch oposto, não deduzida:
 
 - **Prazo total**: `download_with` montando o cliente com `.timeout(stall)` (a forma antiga, com a janela do teste como prazo total) reprova o caso lento com 5.120 bytes; com `http::download_agent` passa com 15.360.
 - **Mensagem**: `read_failure` devolvendo sempre a frase antiga reprova o caso de stall com `The download was interrupted: timed out reading response; nothing was extracted.`
-- **URL assinada** (achado da revisão): com `loggable_url` só no argumento de `describe_error`, o caso de servidor que fecha a conexão reprova com `query: Some("X-Amz-Signature=secret")` no `Debug` do `ureq`; com `redact_url` passa sem o token.
+- **URL assinada** (achado da revisão): com `loggable_url` só no argumento de `describe_error`, o caso de servidor que fecha a conexão reprova com `query: Some("X-Amz-Signature=secret")` no `Debug` do `ureq`; com `redact_url` passa sem o token. O mesmo teste de folha cobre os quatro caminhos de erro do download — stall, transporte, recusa do allowlist de host e erro de rota/guarda — e os dois últimos também vazavam a URL crua (`Refused to download from https://example.invalid/asset.zip?X-Amz-Signature=secret: …` medido antes de trocar por `loggable_url`).
 
 ## 2. Host real: 306 s de transferência até `ready`
 
