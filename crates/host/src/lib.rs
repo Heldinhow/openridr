@@ -6136,14 +6136,23 @@ impl Host {
         Ok(serde_json::to_value(answer).expect("git pull serializes"))
     }
 
-    /// Brings the remote's refs into the local copy. The only Git action with a deadline: a fetch
-    /// that hung on an unreachable remote would hold the lock every other host call waits on.
+    /// Starts a fetch: trust and an open workspace are the only checks here, and they fail without
+    /// touching the network. The host registers the operation, returns its id at once and runs the
+    /// repository work (open, status, remote, `git fetch`) on a thread; the state and the final
+    /// message arrive through the snapshot.
     fn git_fetch(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.fetch")?;
         let root = self.workspace_root()?;
         let net = self.net();
-        let answer = git::fetch(&root, &net)?;
-        Ok(serde_json::to_value(answer).expect("git fetch serializes"))
+        let id = net
+            .begin(git::Kind::Fetch)
+            .map_err(|message| HostError::new("invalid_state", message))?;
+        let task_id = id.clone();
+        std::thread::spawn(move || {
+            let result = git::fetch(&root, &net, &task_id);
+            net.end(&task_id, result);
+        });
+        Ok(json!({ "id": id }))
     }
 
     /// The network Git operation in flight, cloned out of the state lock: the start returns before

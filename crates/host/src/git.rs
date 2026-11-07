@@ -605,16 +605,18 @@ struct Running {
     finished: bool,
 }
 
-/// Which network operation a record belongs to. `Update` and `Fetch` arrive with #207/#208.
+/// Which network operation a record belongs to. `Update` arrives with #207.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Push,
+    Fetch,
 }
 
 impl Kind {
     fn as_str(self) -> &'static str {
         match self {
             Kind::Push => "push",
+            Kind::Fetch => "fetch",
         }
     }
 }
@@ -2718,10 +2720,8 @@ pub fn checkout(root: &Path, name: &str) -> HostResult<Operation> {
 /// to refuse: the worktree, the index, the local branches and `MERGE_HEAD` are all left alone. The
 /// deadline is the other half of the contract: a hung network command would hold the lock every
 /// host call waits behind, so fetch, push and the fetch of an update are all bounded.
-pub fn fetch(root: &Path, net: &Net) -> HostResult<Operation> {
-    // Update and Fetch stay synchronous until #207/#208: this id is never registered, so no cancel
-    // can name them and nothing is published for them.
-    fetch_with(root, FETCH_DEADLINE, net, "")
+pub fn fetch(root: &Path, net: &Net, id: &str) -> HostResult<Operation> {
+    fetch_with(root, FETCH_DEADLINE, net, id)
 }
 
 fn fetch_with(root: &Path, deadline: Duration, net: &Net, id: &str) -> HostResult<Operation> {
@@ -5094,7 +5094,7 @@ mod tests {
         let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
         let worktree_before = fs::read_to_string(user.join("b.txt")).unwrap();
 
-        let result = fetch(&user, &Net::default()).unwrap();
+        let result = fetch(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_eq!(result.remote.as_deref(), Some("origin"));
@@ -5129,7 +5129,7 @@ mod tests {
         fs::write(peer.join("doomed.txt"), "x\n").unwrap();
         commit_all(&peer, "doomed");
         git(&peer, &["push", "-q", "origin", "doomed"]);
-        fetch(&user, &Net::default()).unwrap();
+        fetch(&user, &Net::default(), "").unwrap();
         assert!(branches(&user)
             .remote
             .iter()
@@ -5139,7 +5139,7 @@ mod tests {
         let local_before = git(&user, &["rev-parse", "doomed"]).trim().to_string();
 
         git(&peer, &["push", "-q", "origin", "--delete", "doomed"]);
-        let result = fetch(&user, &Net::default()).unwrap();
+        let result = fetch(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert!(branches(&user)
@@ -5161,7 +5161,7 @@ mod tests {
         fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
         commit_all(&user, "local change");
         // The app's own action first, so the merge below has something to conflict with.
-        fetch(&user, &Net::default()).unwrap();
+        fetch(&user, &Net::default(), "").unwrap();
         // A real conflict, started outside the app: MERGE_HEAD exists and the tree is dirty.
         let _ = Command::new("git")
             .args(["merge", "origin/main"])
@@ -5171,7 +5171,7 @@ mod tests {
         assert!(user.join(".git/MERGE_HEAD").exists());
         let dirty = fs::read_to_string(user.join("a.txt")).unwrap();
 
-        let result = fetch(&user, &Net::default()).unwrap();
+        let result = fetch(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert!(user.join(".git/MERGE_HEAD").exists());
@@ -5185,7 +5185,7 @@ mod tests {
         fs::write(root.join("a.txt"), "one\n").unwrap();
         commit_all(&root, "initial");
 
-        let refused = fetch(&root, &Net::default()).unwrap_err();
+        let refused = fetch(&root, &Net::default(), "").unwrap_err();
 
         assert_eq!(refused.code, "git_no_remote");
         assert!(
@@ -5524,6 +5524,70 @@ mod tests {
         );
     }
 
+    /// The fetch keeps its own promise: it can never change the branch, the index or the working
+    /// tree, and refs already received stay. The id is the host's, so the cancel names exactly the
+    /// operation it was issued for.
+    #[test]
+    fn a_fetch_stopped_by_the_cancel_returns_before_the_deadline() {
+        let (_temp, user, _bare) = remote_repo("user");
+        let (port, accepted) = silent_remote();
+        git(
+            &user,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                &format!("http://127.0.0.1:{port}/repo.git"),
+            ],
+        );
+        let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let branch = git(&user, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string();
+        let tree = git(&user, &["status", "--porcelain"]);
+        let before = git(&user, &["for-each-ref", "refs/remotes"]);
+        let net = Net::default();
+        let id = net.begin(Kind::Fetch).expect("the host starts one fetch");
+
+        let (result, elapsed) = cancel_in_flight(&net, &id, &accepted, || {
+            fetch_with(&user, Duration::from_secs(60), &net, &id)
+        });
+
+        let result = result.unwrap();
+        assert_eq!(result.state, "failed");
+        assert_eq!(result.stop, Stop::Cancelled);
+        let message = result.message.clone().unwrap_or_default();
+        assert!(message.contains("Fetch cancelled"), "{message}");
+        assert!(!message.contains("did not answer within"), "{message}");
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the cancel must return well before the 60 s deadline: {elapsed:?}"
+        );
+        assert_eq!(git(&user, &["for-each-ref", "refs/remotes"]), before);
+        assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head);
+        assert_eq!(
+            git(&user, &["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+            branch
+        );
+        assert_eq!(git(&user, &["status", "--porcelain"]), tree);
+        if let Some(survivors) = descendants_of(&port.to_string()) {
+            assert!(
+                survivors.is_empty(),
+                "the helper survived the cancel: {survivors:?}"
+            );
+        }
+        // The published view is the host's: the cancel wins over the operation's own state.
+        net.end(&id, Ok(result));
+        let view = net.view();
+        assert_eq!(view.state, "cancelled");
+        assert_eq!(view.id, id);
+        assert_eq!(view.kind, "fetch");
+        assert!(
+            view.message.unwrap_or_default().contains("Fetch cancelled"),
+            "the view carries the app's message"
+        );
+    }
+
     /// One network operation per host, and the id is the host's: a second start is refused, naming
     /// the one in flight, and a cancel can only name an operation that exists.
     #[test]
@@ -5733,7 +5797,7 @@ mod tests {
             ],
         );
         assert_eq!(git(&user, &["for-each-ref", "refs/mirror"]).trim(), "");
-        let first = fetch(&user, &Net::default()).unwrap();
+        let first = fetch(&user, &Net::default(), "").unwrap();
         assert_eq!(first.state, "ok", "{:?}", first.message);
         assert_eq!(
             git(&user, &["for-each-ref", "refs/mirror"]).trim(),
@@ -5748,7 +5812,7 @@ mod tests {
         publish(&peer, "b.txt", "one\npeer\n", "peer change");
 
         git(&peer, &["push", "-q", "origin", "--delete", "doomed"]);
-        let result = fetch(&user, &Net::default()).unwrap();
+        let result = fetch(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_eq!(

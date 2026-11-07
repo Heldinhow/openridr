@@ -7745,3 +7745,115 @@ fn a_push_start_answers_at_once_and_its_cancel_publishes_the_cancelled_state() {
         );
     }
 }
+
+/// The fetch is a start on the same mechanism: the host issues the id, the snapshot publishes the
+/// state, and the cancel names that id. Fetch moves only refs, so the cancelled message promises the
+/// branch, the index and the working tree were not touched.
+#[test]
+fn a_fetch_start_answers_at_once_and_its_cancel_publishes_the_cancelled_state() {
+    use std::sync::atomic::Ordering;
+    let host = support::host();
+    let (workspace, port, accepted) = silent_remote_repo();
+    open(&host, &workspace.path().join("App.csproj"));
+    grant(&host);
+    let head = git(workspace.path(), &["rev-parse", "HEAD"]);
+    let branch = git(workspace.path(), &["rev-parse", "--abbrev-ref", "HEAD"]);
+    let remotes = git(workspace.path(), &["for-each-ref", "refs/remotes"]);
+
+    let began = Instant::now();
+    let started = host
+        .dispatch("git.fetch", json!({}))
+        .expect("the fetch starts");
+    let started_in = began.elapsed();
+    let id = started["id"]
+        .as_str()
+        .expect("the start returns the host id")
+        .to_string();
+    assert!(id.starts_with("git:"), "{id}");
+    assert!(
+        started_in < Duration::from_secs(1),
+        "the start must return at once: {started_in:?}"
+    );
+    assert_eq!(snapshot(&host)["git"]["state"], "running");
+    assert_eq!(snapshot(&host)["git"]["id"], id.as_str());
+    assert_eq!(snapshot(&host)["git"]["kind"], "fetch");
+
+    // Nothing holds the host: another call answers while the fetch waits on the remote.
+    let status = host
+        .dispatch("git.status", json!({}))
+        .expect("git.status answers during the fetch");
+    assert_eq!(status["state"], "ok");
+
+    // One network operation per host.
+    assert_eq!(
+        error_code(host.dispatch("git.fetch", json!({}))),
+        "invalid_state"
+    );
+
+    // The kill needs a live connection to reach.
+    let connected = Instant::now();
+    while !accepted.load(Ordering::SeqCst) {
+        assert!(
+            connected.elapsed() < Duration::from_secs(10),
+            "the fetch never reached the remote"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let cancel = host
+        .dispatch("git.cancel", json!({ "id": id }))
+        .expect("the cancel answers");
+    assert_eq!(cancel["cancelled"], true);
+
+    let cancelled = Instant::now();
+    let git_view = loop {
+        let view = snapshot(&host)["git"].clone();
+        if view["state"] != "running" {
+            break view;
+        }
+        assert!(
+            cancelled.elapsed() < Duration::from_secs(5),
+            "the cancel must return well before the 60 s deadline: {:?}",
+            cancelled.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(git_view["state"], "cancelled");
+    assert_eq!(git_view["id"], id.as_str());
+    assert_eq!(git_view["kind"], "fetch");
+    let message = git_view["message"].as_str().unwrap_or_default();
+    assert!(message.contains("Fetch cancelled"), "{message}");
+    assert!(
+        message.contains("were not touched"),
+        "the message keeps the fetch's own promise: {message}"
+    );
+
+    // A cancel that names nothing is answered, never applied to whatever runs next.
+    assert_eq!(
+        host.dispatch("git.cancel", json!({ "id": "git:999" }))
+            .unwrap()["cancelled"],
+        false
+    );
+    assert_eq!(
+        host.dispatch("git.cancel", json!({ "id": id })).unwrap()["cancelled"],
+        false
+    );
+
+    // The local state is intact — fetch moves only remote-tracking refs — and no helper survived.
+    assert_eq!(git(workspace.path(), &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        git(workspace.path(), &["rev-parse", "--abbrev-ref", "HEAD"]),
+        branch
+    );
+    assert_eq!(git(workspace.path(), &["status", "--porcelain"]), "");
+    assert_eq!(
+        git(workspace.path(), &["for-each-ref", "refs/remotes"]),
+        remotes
+    );
+    if let Some(survivors) = descendants_of(&port.to_string()) {
+        assert!(
+            survivors.is_empty(),
+            "the helper survived the cancel: {survivors:?}"
+        );
+    }
+}

@@ -306,9 +306,9 @@ export function BranchWidget({
   // Set before the start returns, so a second click cannot ask for a second push in the gap.
   const [starting, setStarting] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [fetching, setFetching] = useState(false);
-  // A fetch takes seconds; the command palette can ask for another one while the first is still
-  // running. The ref is the guard the state cannot be: it is read at call time, not at render time.
+  // The host's id only reaches the state after the start returns, so a second click in that gap
+  // would ask for a second fetch. The ref is the guard the state cannot be: it is read at call
+  // time, not at render time.
   const fetchingRef = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -424,8 +424,9 @@ export function BranchWidget({
       ? "No upstream is configured; nothing to pull."
       : cleanReason(status);
   const checkoutBlocked = cleanReason(status);
-  // The push is asynchronous: its button and the dialog follow the host's record, not an await.
+  // The push and the fetch are asynchronous: their buttons follow the host's record, not an await.
   const pushBusy = starting || pending?.kind === "push";
+  const fetchBusy = pending?.kind === "fetch";
   const query = filter.trim().toLowerCase();
   const matches = (branch: GitBranch) =>
     query === "" || branch.name.toLowerCase().includes(query);
@@ -470,26 +471,18 @@ export function BranchWidget({
     }
   }
 
+  // The fetch is a start too: the host returns its id at once and the snapshot carries the state.
   async function runFetch() {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
-    setFetching(true);
-    setBusy(true);
     setFetchError(null);
     try {
-      const result = await call<GitOperation>("git.fetch");
-      if (result.state === "ok") {
-        onMessage(result.message ?? "Fetched the remote.");
-      } else {
-        setFetchError(result.message ?? "git fetch failed.");
-      }
-      await Promise.all([onRefresh(), loadBranches()]);
+      const started = await call<{ id: string }>("git.fetch");
+      setPending({ kind: "fetch", id: started.id });
     } catch (caught) {
       setFetchError(messageOf(caught));
     } finally {
       fetchingRef.current = false;
-      setFetching(false);
-      setBusy(false);
     }
   }
 
@@ -669,7 +662,7 @@ export function BranchWidget({
               <button
                 type="button"
                 data-testid="branch-merge-complete"
-                disabled={busy}
+                disabled={busy || fetchBusy}
                 onClick={() => void completeMerge()}
               >
                 Complete merge
@@ -677,7 +670,7 @@ export function BranchWidget({
               <button
                 type="button"
                 data-testid="branch-merge-abort"
-                disabled={busy}
+                disabled={busy || fetchBusy}
                 onClick={() => { setDialogError(null); setDialog("mergeAbort"); }}
               >
                 Abort merge…
@@ -705,7 +698,7 @@ export function BranchWidget({
                 data-testid={`branch-item-${branch.name}`}
                 aria-current={branch.current ? "true" : undefined}
                 title={checkoutBlocked ?? `Check out ${branch.name}`}
-                disabled={busy || checkoutBlocked !== null}
+                disabled={busy || fetchBusy || checkoutBlocked !== null}
                 onClick={() => void checkout(branch.name)}
               >
                 {branch.name}
@@ -720,7 +713,7 @@ export function BranchWidget({
                 type="button"
                 data-testid={`branch-item-${branch.name}`}
                 title={checkoutBlocked ?? `Check out ${branch.name} as a local tracking branch`}
-                disabled={busy || checkoutBlocked !== null}
+                disabled={busy || fetchBusy || checkoutBlocked !== null}
                 onClick={() => void checkout(branch.name)}
               >
                 {branch.name}
@@ -748,7 +741,7 @@ export function BranchWidget({
                   onChange={(event) => setName(event.target.value)}
                   autoFocus
                 />
-                <button type="submit" data-testid="branch-create-submit" disabled={busy || name.trim() === ""}>
+                <button type="submit" data-testid="branch-create-submit" disabled={busy || fetchBusy || name.trim() === ""}>
                   Create
                 </button>
                 <button type="button" data-testid="branch-create-cancel" onClick={() => setCreating(false)}>
@@ -756,14 +749,14 @@ export function BranchWidget({
                 </button>
               </form>
             ) : (
-              <button type="button" data-testid="branch-create-open" disabled={busy} onClick={() => setCreating(true)}>
+              <button type="button" data-testid="branch-create-open" disabled={busy || fetchBusy} onClick={() => setCreating(true)}>
                 New branch…
               </button>
             )}
             <button
               type="button"
               data-testid="branch-refresh"
-              disabled={busy}
+              disabled={busy || fetchBusy}
               onClick={() => void Promise.all([onRefresh(), loadBranches()])}
             >
               Refresh
@@ -775,25 +768,25 @@ export function BranchWidget({
                 fetchReason ??
                 `Fetch ${remote ?? "the remote"} and prune branches deleted there (git fetch --prune). OpenRidr never touches your tree, index or local branches.`
               }
-              disabled={busy || fetchReason !== null}
-              aria-busy={fetching || undefined}
+              disabled={busy || fetchBusy || fetchReason !== null}
+              aria-busy={fetchBusy || undefined}
               onClick={() => void runFetch()}
             >
-              {fetching ? "Fetching…" : "Fetch"}
+              {fetchBusy ? "Fetching…" : "Fetch"}
             </button>
-            {fetching && (
+            {fetchBusy && (
               <button type="button" data-testid="branch-fetch-stop" disabled={cancelling} onClick={() => void cancelNetwork("fetch")}>
                 {cancelling ? "Cancelling…" : "Cancel fetch"}
               </button>
             )}
-            <button type="button" data-testid="branch-commit" disabled={busy} onClick={() => { closeMenu(); onOpenCommit(); }}>
+            <button type="button" data-testid="branch-commit" disabled={busy || fetchBusy} onClick={() => { closeMenu(); onOpenCommit(); }}>
               Commit…
             </button>
             <button
               type="button"
               data-testid="branch-update"
               title={updateReason ?? "Pull the upstream branch. OpenRidr never auto-stashes."}
-              disabled={busy || updateReason !== null}
+              disabled={busy || fetchBusy || updateReason !== null}
               onClick={() => { setDialogError(null); setDialog("update"); }}
             >
               Update…
@@ -802,7 +795,7 @@ export function BranchWidget({
               type="button"
               data-testid="branch-push"
               title={remoteReason ?? "Push after an explicit confirmation. OpenRidr never forces."}
-              disabled={busy || remoteReason !== null}
+              disabled={busy || fetchBusy || remoteReason !== null}
               onClick={() => { setDialogError(null); setDialog("push"); }}
             >
               Push…
