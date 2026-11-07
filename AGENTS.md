@@ -121,6 +121,8 @@ O que o CI (`.github/workflows/ci.yml`) roda em todo PR para `main`:
 
 O smoke E2E é noturno e não bloqueia PR: a lista de specs está em `scripts/e2e-smoke.txt` (caminho relativo à raiz, um por linha) e quem manda nela é a quarentena da #67.
 
+Antes de empurrar um PR que mexe em `scripts/` ou em `tests/shell/`, rode o que o CI vai rodar, com as duas ferramentas que o Mac não traz de fábrica: `brew install shellcheck dash` (o `actionlint` do job `governance` liga o shellcheck por padrão; sem ele, o local passa e o run reprova) e **`dash <arquivo>`** em vez de `sh <arquivo>` — o `/bin/sh` do runner é dash, o do Mac é bash, e `10#`, `local` e `[[ ]]` passam num e falham no outro.
+
 ### Risco do PR: tier pelos caminhos, auto-merge no baixo, aprovação no alto
 
 O job `risk` calcula o tier pelos caminhos que o PR toca (`scripts/ci-risk-tier.sh`, tabela em

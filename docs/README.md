@@ -60,6 +60,10 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 | Update reconcilia branch divergente (#112): merge declarado, conflito aborta | [SPEC-GIT-UPDATE-RECONCILE](SPEC-GIT-UPDATE-RECONCILE.md) | #127, #128 (GitHub) | [RETRO-GIT-UPDATE-RECONCILE](RETRO-GIT-UPDATE-RECONCILE.md) | [evidence/git-update-reconcile.md](evidence/git-update-reconcile.md) |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
 
+`decisions.md`, `GLOSSARY.md` e a tabela acima são **append-only**: cada frente acrescenta a sua linha e
+um merge de `main` conflita por construção. Resolução: ficam **as duas entradas**, a desta branch primeiro
+e as antigas na ordem em que entraram — nunca reordenar nem reescrever entrada velha.
+
 Numeração de tickets nas pastas históricas **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta. Ticket novo é GitHub issue: cite pelo número (`#58`).
 
 ## Histórico (não use como estado atual)

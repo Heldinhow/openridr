@@ -6,7 +6,9 @@ O repositório é inferido de `git remote -v`; o `gh` já resolve isso dentro do
 
 ## Convenções
 
-- **Criar issue**: `gh issue create --title "..." --body "..."`. Corpo multi-linha por heredoc.
+- **Criar issue**: `gh issue create --title "..." --body-file <arquivo>`. Corpo multi-linha vai num
+  arquivo (heredoc **em arquivo**, depois `--body-file`), nunca em `--body "$(cat <<'EOF' … EOF)"`: uma
+  crase no texto dentro dessa forma vira substituição de comando e o shell aborta com `bad substitution`.
 - **Ler issue**: `gh issue view <n> --json number,title,body,labels,comments`.
 - **Listar**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`, com `--label`/`--state` conforme o caso.
 - **Comentar**: `gh issue comment <n> --body "..."`.
