@@ -155,7 +155,6 @@ type HoverEvaluation = {
 type Props = {
   value: string;
   path: string;
-  platform: string;
   profile: ProfileId;
   shortcutHint: string;
   revision: number;
@@ -621,7 +620,6 @@ type InlineRename = {
 export function CodeEditor({
   value,
   path,
-  platform,
   profile,
   shortcutHint,
   revision,

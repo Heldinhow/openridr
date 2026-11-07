@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,11 +9,6 @@ const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.setTimeout(180_000);
-
-async function state(page: Page) {
-  const response = await page.request.post(`${host}/call`, { data: { method: "workspace.state", params: {} } });
-  return (await response.json()).data;
-}
 
 test("Find Usages lists the real references of Order and opens one", async ({ page }) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-usages-"));

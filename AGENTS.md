@@ -56,6 +56,8 @@ bun run check          # tsc --noEmit + cargo check --workspace --all-targets
 bun run hooks          # uma vez por clone: aponta core.hooksPath para .githooks
 bun run test:e2e       # Playwright; default 1420/4317, outro par se essas portas estiverem em uso
 bun run host:http      # ponte HTTP de dev na 4317, com OPENRIDR_HOME em .scratch/host-home
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings  # job rust-tauri
+cargo test --manifest-path src-tauri/Cargo.toml                                  # os 6 testes do pacote Tauri
 ```
 
 Rust: os pacotes se chamam `openridr-host` e `openridr-host-http` (não `host`). `cargo test` aceita **um** filtro antes do `--`; para vários: `cargo test -p openridr-host -- filtro_a filtro_b`.
@@ -63,6 +65,8 @@ Rust: os pacotes se chamam `openridr-host` e `openridr-host-http` (não `host`).
 **Worktree nova não tem `node_modules`** (nem `target/` quente): rode `bun install` antes de `check`, `build` ou E2E. Sem isso, `tsc`/`playwright` falham e greps em `node_modules/` voltam vazios.
 
 `check` continua sem `cargo fmt --check` nem `clippy -D warnings` para ser rápido; o CI roda os dois. Antes de empurrar a branch, rode `cargo fmt --all` (e `cargo fmt --manifest-path src-tauri/Cargo.toml` se tocou `src-tauri`) e `cargo clippy --workspace --all-targets -- -D warnings`: vermelho aí é vermelho no PR.
+
+`src-tauri` é workspace separado: `--workspace` não o alcança. O CI **não roda os vendor scripts** (`vendor-analysis.sh`, `vendor-netcoredbg.sh`): `src-tauri/resources/csharp-ls/` e `src-tauri/resources/dotnet/` são gitignored e o `tauri-build` só exige que o caminho exista, então o job `rust-tauri` cria as duas pastas vazias com `mkdir -p`. Numa worktree nova, faça o mesmo antes do clippy/testes de `src-tauri`; sem elas o build falha com `resource path 'resources/dotnet' doesn't exist`.
 
 ### Falhas conhecidas (não são suas)
 
@@ -117,10 +121,13 @@ O que o CI (`.github/workflows/ci.yml`) roda em todo PR para `main`:
 |---|---|
 | `typescript` (ubuntu) | `bun install --frozen-lockfile`, `tsc --noEmit`, `bun test tests/unit` |
 | `rust` (macos-15) | `cargo fmt --check` (workspace e `src-tauri`), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p openridr-host` com o SDK 8.0.408 das fixtures |
+| `rust-tauri` (macos-15) | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` e `cargo test --manifest-path src-tauri/Cargo.toml`, com as duas pastas de resource vazias; **informativo** |
 | `governance` | `actionlint`, `zizmor`, título do PR no padrão conventional, corpo com issue + Evidência |
 | `risk` | tier calculado pelos caminhos, label `risk:*`, no alto o PR do dono passa sem review e os demais precisam de aprovação, auto-merge no baixo (`scripts/ci-risk-tier.sh`, `scripts/ci-risk-gate.sh`) |
 | `security` | `gitleaks` no histórico do PR |
 | `ci` | agregador (`scripts/ci-aggregate.sh`); é o check obrigatório do ruleset |
+
+O `rust-tauri` é **informativo**: `continue-on-error: true` faz o `result` do job virar `success`, então o agregador `ci` fica verde e o ruleset não muda. Promoção a bloqueante = remover a flag num PR próprio, depois de **5 execuções verdes consecutivas** (pelo menos uma com cache frio), duração estável abaixo de 5 min e nenhum flake; o check obrigatório continua sendo o agregador `ci`, então promover não toca em setting do GitHub.
 
 O smoke E2E é noturno e não bloqueia PR: a lista de specs está em `scripts/e2e-smoke.txt` (caminho relativo à raiz, um por linha) e quem manda nela é a quarentena da #67.
 
@@ -150,7 +157,7 @@ O job `risk` calcula o tier pelos caminhos que o PR toca (`scripts/ci-risk-tier.
 
 - **Nada de UI**: nenhum Playwright em PR, nenhum app Tauri real, nenhum visual. Check verde não é prova de que a tela funciona: a prova de UI é da sessão, pela superfície que a mudança pede (ver `## E2E`).
 - E2E completo e tudo o que depende de rede (NuGet, csharp-ls).
-- `src-tauri` fica fora do clippy (compila o Tauri inteiro em todo PR).
+- `src-tauri` fica fora do clippy **do job `rust`** (workspace separado, compila o Tauri inteiro): quem o cobre é o `rust-tauri`, informativo por enquanto.
 - Windows e macOS Intel continuam não verificados.
 
 Por isso a Evidência do PR é obrigatória e é da sessão: comando e resultado do que rodou, e "não verificado: <motivo>" no que não rodou.

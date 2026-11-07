@@ -1,5 +1,4 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { revisionOf } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,13 +38,6 @@ async function enterWorkspace(page: Page) {
   if (await prompt.isVisible()) await page.getByTestId("trust-prompt-restricted").click();
   await page.getByTestId("workspace-tools-toggle").click();
   await expect(page.getByTestId("tree")).toBeVisible();
-}
-
-async function waitForEvaluation(page: Page, revision = 1) {
-  await expect(page.getByTestId("eval-state")).toContainText("Evaluated", {
-    timeout: 20_000,
-  });
-  await expect.poll(() => revisionOf(page)).toBeGreaterThanOrEqual(revision);
 }
 
 function assets(copy: string, project: string) {
