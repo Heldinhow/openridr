@@ -9,36 +9,46 @@ SDK .NET 8.0.408. Base: `40b7a1f` (`ci/issue-142-ci-practices`, head do PR #225)
 
 ## Runs de CI no SHA entregue
 
+O SHA entregue é o head da branch no último push de código, `05b44af`. O commit que só acrescenta
+este arquivo vem depois dele e tem o seu próprio run, linkado no corpo do PR #225 — a regra do
+repositório é a mesma do `ci.yml`: o que prova o código é o run do commit de código, não o do commit
+de documentação que o descreve.
+
 | Run | Gatilho | SHA | Resultado | Parede |
 |---|---|---|---|---|
+| [`42398331889`](https://github.com/Heldinhow/openridr/actions/runs/42398331889) | `pull_request` (PR #225) | **`05b44af`** | **7 jobs verdes** | 5:32 |
+| [`42398331892`](https://github.com/Heldinhow/openridr/actions/runs/42398331892) | `pull_request` (filtro de caminho) | **`05b44af`** | `Dependency audit` verde em 31 s | 31 s |
 | [`42395785621`](https://github.com/Heldinhow/openridr/actions/runs/42395785621) | `pull_request` (PR #225) | `40b7a1f` | 7 jobs verdes | 4:22 |
 | [`42395791925`](https://github.com/Heldinhow/openridr/actions/runs/42395791925) | `workflow_dispatch` | `40b7a1f` | `Dependency audit` verde em 29 s | 29 s |
 | [`42395786265`](https://github.com/Heldinhow/openridr/actions/runs/42395786265) | `pull_request` (filtro de caminho) | `40b7a1f` | `Dependency audit` verde em 29 s | 29 s |
 
-Jobs do run `42395785621`, com os horários que a API devolve (`startedAt` → `completedAt`):
+Jobs do run do SHA entregue (`42398331889`), com os horários que a API devolve (`startedAt` →
+`completedAt`):
 
 | Job | Início → fim | Duração |
 |---|---|---|
-| TypeScript (tsc + unit) | 17:20:06 → 17:20:27 | 21 s |
-| Governance (workflows, PR title, PR body) | 17:20:06 → 17:20:25 | 19 s |
-| Risk tier and maintainer approval | 17:20:06 → 17:20:21 | 15 s |
-| security (gitleaks) | 17:20:07 → 17:20:29 | 22 s |
-| **Tauri (clippy + tests)** — job novo, informativo | 17:20:06 → **17:22:47** | **2:41** |
-| Rust (fmt, clippy, host tests) | 17:20:06 → **17:24:14** | **4:08** |
-| `ci` (agregador) | 17:24:15 → 17:24:28 | 13 s |
+| TypeScript (tsc + unit) | 17:51:41 → 17:51:58 | 17 s |
+| Governance (workflows, PR title, PR body) | 17:51:41 → 17:52:01 | 20 s |
+| Risk tier and maintainer approval | 17:51:41 → 17:51:54 | 13 s |
+| security (gitleaks) | 17:51:41 → 17:51:56 | 15 s |
+| **Tauri (clippy + tests)** — job novo, informativo | 17:51:42 → **17:53:02** | **1:20** |
+| Rust (fmt, clippy, host tests) | 17:51:41 → **17:56:24** | **4:43** |
+| `ci` (agregador) | 17:56:26 → 17:56:37 | 11 s |
 
-**Parede: 4:22** — primeiro job às 17:20:06 e o agregador fechando às 17:24:28 (o `created_at` →
-`updated_at` da API dá 4:24: os 2 s de diferença são o setup do run antes do primeiro job).
+**Parede: 5:32** — run iniciado às 17:51:06, primeiro job às 17:51:41 (35 s de fila/setup do runner)
+e o agregador fechando às 17:56:38.
 
-O `completedAt` do `rust-tauri` é **17:22:47** e o do Rust é **17:24:14**: o job novo terminou 1:27
-antes do job que fecha a parede, medido nos horários de conclusão e não por subtração de duração. Como
-o agregador só começa depois de todos os jobs, a parede continua sendo o Rust — o `rust-tauri` cabe
-inteiro na folga dele, e o job novo não acrescentou tempo de parede. A variação do próprio runner é
-maior que o job novo: nos oito runs verdes de `ci.yml` de 2026-11-07, a parede foi de 4:19 a 5:07 e o
-job Rust de 4:01 a 4:49. Dois deles rodaram **depois** deste, em outras branches e sem o job novo —
-`42396382712` parede 4:43 (Rust 4:26) e `42396447606` parede 4:51 (Rust 4:27) —, contra 4:22
-(Rust 4:08) do run entregue. A medição anterior da spec, mais cedo no dia, tinha dado parede ≈ 4:20
-com Rust 3:38–4:21.
+O `completedAt` do `rust-tauri` é **17:53:02** e o do Rust é **17:56:24**: o job novo terminou 3:22
+antes do job que fecha a parede, medido nos horários de conclusão, não por subtração de duração. Como
+o agregador só começa depois de todos os jobs, a parede é o Rust — o `rust-tauri` cabe inteiro na
+folga dele. No run anterior (`40b7a1f`) foram 2:41 contra 4:08 de Rust, com o mesmo desfecho.
+
+A variação do próprio runner é maior que o job novo: nos nove runs verdes de `ci.yml` de 2026-11-07,
+a parede foi de 4:19 a 5:32 e o job Rust de 4:01 a 4:49. Dois deles rodaram em outras branches e sem
+o job novo — `42396382712` parede 4:43 (Rust 4:26) e `42396447606` parede 4:51 (Rust 4:27) —, e a
+medição anterior da spec, mais cedo no dia, tinha dado parede ≈ 4:20 com Rust 3:38–4:21. Ou seja: o
+run entregue é o mais lento da série por causa do Rust (4:43) e dos 35 s de fila, não do job novo,
+que rodou em 1:20 e terminou 3:22 antes do Rust.
 
 O PR #225 é `risk:high` (mexe em `.github/workflows/**`), calculado pelo job `risk` no run acima.
 
@@ -172,14 +182,16 @@ promoção e a correção do bullet "`src-tauri` fica fora do clippy", que deixo
 - **Configuração existente, não exercitada por esta frente**: os gates de risco e o ruleset
   (`.github/rulesets/main.json` não é aplicado pela sessão); o `schedule` semanal do
   `dependency-audit` e o smoke noturno.
-- **Execução comprovada**: os três runs no SHA `40b7a1f` (tabela do topo) — os 7 jobs do `ci`, o
-  `dependency-audit` por `workflow_dispatch` e por `pull_request`; `bunx tsc --noEmit` (0),
+- **Execução comprovada**: os cinco runs da tabela do topo — no SHA entregue `05b44af`, os 7 jobs do
+  `ci` e o `dependency-audit`; em `40b7a1f`, os mesmos 7 jobs e o `dependency-audit` por
+  `workflow_dispatch` e por `pull_request`; `bunx tsc --noEmit` (0),
   `bun test tests/unit` (95/0), `bun run check`, clippy e os 6 testes de `src-tauri`, `bun audit`,
   `cargo-audit` nos dois lockfiles, o probe com advisory real, as duas falhas de rede dos scanners e
   os quatro scripts de CI (45 + 13 + 23 + 27 casos). `knip` foi remedido para conferir o inventário.
 - **Não verificado**: o `schedule` semanal (só se prova depois do merge na default); o critério de
-  promoção do `rust-tauri` (1 de 5 runs verdes); o caminho de aprovação por review de um PR
-  `risk:high` de autor que não é o dono (coberto por teste, não por run); `vite build`, que nenhum
-  workflow roda — residual declarado, fora do escopo desta frente.
+  promoção do `rust-tauri` (**2 de 5** runs verdes); o caminho de aprovação por review de um PR
+  `risk:high` de autor que não é o dono (coberto por teste, não por run); o caminho "um scanner falha
+  e os outros dois ainda rodam" — o `if: always()` está no YAML e foi lintado, mas não foi exercitado
+  com uma falha real; `vite build`, que nenhum workflow roda — residual declarado, fora do escopo.
 - **Nada de UI**: nenhuma tela foi tocada, nenhum Playwright, nenhum app Tauri aberto. A superfície
   verificável aqui é YAML e shell, e ela foi exercitada de verdade.

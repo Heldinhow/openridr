@@ -238,28 +238,32 @@ automatizado.
 
 ## Further Notes
 
-### Duração medida no run entregue (2026-11-07, `42395785621`, PR #225, `40b7a1f`)
+### Duração medida nos runs entregues (2026-11-07, PR #225)
 
-| Job | Duração |
-|---|---|
-| TypeScript (tsc + unit) | 21 s |
-| Rust (fmt, clippy, host tests) | **4:08** |
-| Tauri (clippy + tests) — job novo, informativo | 2:41 |
-| Governance | 19 s |
-| security | 22 s |
-| Risk tier | 15 s |
-| `ci` (agregador) | 13 s |
-| Parede do run | **4:22** |
+| Job | `05b44af` (SHA entregue) | `40b7a1f` (run anterior) |
+|---|---|---|
+| TypeScript (tsc + unit) | 17 s | 21 s |
+| Rust (fmt, clippy, host tests) | **4:43** | **4:08** |
+| Tauri (clippy + tests) — job novo, informativo | 1:20 | 2:41 |
+| Governance | 20 s | 19 s |
+| security | 15 s | 22 s |
+| Risk tier | 13 s | 15 s |
+| `ci` (agregador) | 11 s | 13 s |
+| Parede do run | **5:32** | **4:22** |
 
-O `rust-tauri` terminou 1:27 antes do Rust, então a parede continua sendo o job Rust e o job novo não
-custou parede: nos oito runs verdes de `ci.yml` de 2026-11-07 a parede variou de 4:19 a 5:07 e o job
-Rust de 4:01 a 4:49, e dois runs de outras branches **sem** o job novo, depois deste, tiveram parede
-4:43 (Rust 4:26) e 4:51 (Rust 4:27). A medição anterior, mais cedo no mesmo dia, dava TypeScript
-17–19 s, Rust 3:38–4:21, governança 21–22 s, security 11–16 s, risk 12–18 s, agregador 12–14 s e
-parede ≈ 4:20 — a variação do runner é maior que o job novo.
+O `completedAt` do `rust-tauri` é 17:53:02 e o do Rust é 17:56:24 no SHA entregue: o job novo
+terminou **3:22 antes** do job que fecha a parede, medido nos horários de conclusão. Como o agregador
+só começa depois de todos os jobs, a parede é o Rust e o `rust-tauri` cabe inteiro na folga dele.
 
-O `dependency-audit` custa ~30 s de ferramenta mais o fetch do advisory-db: **29 s** medidos nos dois
-gatilhos (`42395791925` por `workflow_dispatch`, `42395786265` por `pull_request`).
+A variação do próprio runner é maior que o job novo: nos nove runs verdes de `ci.yml` de 2026-11-07 a
+parede variou de 4:19 a 5:32 e o job Rust de 4:01 a 4:49, e dois runs de outras branches **sem** o job
+novo deram parede 4:43 (Rust 4:26) e 4:51 (Rust 4:27). O run entregue é o mais lento da série por
+causa do Rust (4:43) e de 35 s de fila antes do primeiro job — não do job novo, que rodou em 1:20.
+
+O `dependency-audit` custa ~30 s de ferramenta mais o fetch do advisory-db: **31 s** no SHA entregue e
+**29 s** nos dois gatilhos medidos em `40b7a1f` (`42395791925` por `workflow_dispatch`, `42395786265`
+por `pull_request`). Os três scanners rodam sempre, mesmo quando um deles falha (`if: always()` nos
+passos do cargo-audit): um achado não esconde o que os outros dois diriam.
 
 ### O que é configuração existente, o que foi executado e o que não foi
 
@@ -267,8 +271,9 @@ gatilhos (`42395791925` por `workflow_dispatch`, `42395786265` por `pull_request
   `package.json`), `cargo clippy`/`test` de `src-tauri` com as pastas vazias, `bun audit` (limpo, com
   falha de rede e com advisory real), `cargo audit` nos dois lockfiles, os 4 scripts de CI
   (45 + 13 + 23 + 27 casos).
-- **Execução comprovada no runner**: os três runs do SHA `40b7a1f` — os 7 jobs do `ci`, o job novo em
-  2:41 e o `dependency-audit` em 29 s nos dois gatilhos.
+- **Execução comprovada no runner**: no SHA entregue `05b44af`, os 7 jobs do `ci` verdes (o job novo
+  em 1:20) e o `dependency-audit` em 31 s; em `40b7a1f`, os mesmos 7 jobs (job novo em 2:41) e o
+  `dependency-audit` em 29 s nos dois gatilhos, incluindo o `workflow_dispatch`.
 - **Só configuração existente, não exercitada por esta frente**: os gates de risco e o ruleset.
 - **Não verificado**: o `schedule` semanal (só se prova depois do merge na default); o critério de
   promoção do `rust-tauri` (1 de 5 runs verdes); `vite build`, que nenhum workflow roda — residual
