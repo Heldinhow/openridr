@@ -8,11 +8,14 @@ import { port } from "../e2e/environment";
 // (`net::ERR_UNSAFE_PORT`). The refusal has to happen at load, before any server starts.
 const environment = resolve(dirname(fileURLToPath(import.meta.url)), "../e2e/environment.ts");
 
-/** Loads the environment module in a fresh process, the way config and globalSetup do. */
+/**
+ * Loads the environment module in a fresh process, the way config and globalSetup do. The pair is
+ * pinned so a shell that exports E2E ports (the harness workflow) cannot change what the test sees.
+ */
 function loadEnvironment(env: Record<string, string>): string {
   try {
     execFileSync(process.execPath, [environment], {
-      env: { ...process.env, ...env },
+      env: { ...process.env, OPENRIDR_E2E_UI_PORT: "1420", OPENRIDR_E2E_HOST_PORT: "4317", ...env },
       encoding: "utf8",
       stdio: "pipe",
     });
