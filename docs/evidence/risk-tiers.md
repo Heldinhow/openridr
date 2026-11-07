@@ -12,9 +12,10 @@ Ambiente: macOS Apple Silicon, `bun 1.3.9`, `rustc 1.99.0`, SDK .NET 8.0.408, `g
 
 | Prova | Resultado |
 |---|---|
-| `sh scripts/ci-risk-tier-selfcheck.sh` | **39 casos, 39 ok** |
-| Mesmo autoteste com `dash` (o `/bin/sh` do runner) | **39 casos, 39 ok** |
-| Falha-antes: stub `echo low` no lugar do script | **33 de 39 falham**, inclusive os três `err-*` |
+| `sh scripts/ci-risk-tier-selfcheck.sh` | **43 casos, 43 ok** |
+| Mesmo autoteste com `dash` (o `/bin/sh` do runner) | **43 casos, 43 ok** |
+| Falha-antes: stub `echo low` no lugar do script | **33 de 43 falham**, inclusive os três `err-*` |
+| Falha-antes da rodada de review: o script anterior aos três consertos | **3 de 43 falham** (`cargo-target-dep`, `cargo-same-dependency-both-sides`, `cargo-unparseable-value`) |
 | `sh scripts/ci-risk-tier.sh origin/main HEAD` no branch | `high`, com os motivos: `.github/workflows/ci.yml` (CI), `AGENTS.md` (processo), `scripts/ci-*` (CI), e os docs como `low` |
 
 Casos cobertos: uma família de caminho por caso (`docs/**`, `*.md` na raiz, `AGENTS.md`, `*.css`,
@@ -55,16 +56,18 @@ garantia nova: remover o gate da lista deixa de ser silencioso); `NEEDS` vazio e
 
 | Prova | Resultado |
 |---|---|
-| `sh tests/shell/ci-risk-gate.test.sh` | **14 casos, todos ok** |
-| Mesmo teste com `dash` | **14 casos, todos ok** |
-| Mutação 1: remover `$3 >= latest` (aprovação de qualquer revisão) | reprova `approval-before-head` e `mixed-histories` |
-| Mutação 2: aceitar qualquer `author_association` | reprova `approval-without-write-access` |
+| `sh tests/shell/ci-risk-gate.test.sh` | **16 casos, todos ok** |
+| Mesmo teste com `dash` | **16 casos, todos ok** |
+| Falha-antes: o gate anterior (comparação por timestamp) contra o teste novo | **12 de 16 falham** |
+| Mutação: aceitar qualquer `author_association` | reprova `approval-without-write-access` |
 
-Casos: `low`/`medium` não chamam o GitHub (sem gate); aprovação depois do head; aprovação antes do head
-(reprova); aprovação de `CONTRIBUTOR` (reprova); review `DISMISSED` (reprova); `COMMENTED` (reprova);
-nenhuma review (reprova); aprovação **no mesmo segundo** do head (passa); histórico misto com uma
-aprovação válida depois de uma velha (passa, e o log nomeia quem aprovou); PR errado (o stub `gh` falha
-na URL → exit 2); lista de commits vazia (exit 2); tier desconhecido (exit 2); `REPO` ausente (exit 2).
+Casos: `low`/`medium` não chamam o GitHub (sem gate); aprovação no head (passa); aprovação num commit
+anterior (reprova); aprovação retirada por `CHANGES_REQUESTED` posterior (reprova); retirada por
+`DISMISSED` (reprova); reaprovação depois da mudança de ideia (passa); aprovação de `CONTRIBUTOR`
+(reprova); `COMMENTED` (reprova); nenhuma review (reprova); histórico misto, um revisor pediu mudanças e
+outro aprovou o head (passa, e o log nomeia quem aprovou); PR errado (o stub `gh` falha na URL → exit 2);
+erro de API na lista de reviews (exit 2, nunca passe); tier desconhecido (exit 2); `REPO` ausente
+(exit 2); `HEAD_SHA` ausente (exit 2).
 
 O stub `gh` aplica o `--jq` de verdade no fixture com o `jq` real, então o teste exercita a expressão
 que roda no CI, não uma reimplementação dela.
@@ -113,13 +116,15 @@ ruleset.
 
 | Prova | Resultado |
 |---|---|
-| `sh tests/shell/revert-rate.test.sh` | **8 casos, todos ok** |
-| Mesmo teste com `dash` | **8 casos, todos ok** |
-| Falha-antes: stub de saída fixa | **8 de 8 falham** |
+| `sh tests/shell/revert-rate.test.sh` | **11 casos, todos ok** |
+| Mesmo teste com `dash` | **11 casos, todos ok** |
+| Falha-antes: stub de saída fixa | **8 de 11 falham** |
+| Falha-antes: o script anterior à rodada de review | **3 de 11 falham** (`positional-month`, `paginated-reverts`, `not-json`) |
 | Dados reais, `--month 2026-10` | `\| 2026-10 \| 1 \| 0 \| 0.0% \|` |
-| Dados reais, `--month 2026-11` | `\| 2026-11 \| 56 \| 0 \| 0.0% \|` (mês em curso) |
+| Dados reais, `--month 2026-11` | `\| 2026-11 \| 57 \| 0 \| 0.0% \|` (mês em curso) |
 
-Casos: janela nos dois lados (PR mergeado no mês seguinte, revert commitado no mês seguinte),
+Casos: mês posicional; duas páginas de `--paginate` (dois arrays concatenados) contando as duas; janela
+nos dois lados (PR mergeado no mês seguinte, revert commitado no mês seguinte),
 `Revert "…"` do botão do GitHub, tipo convencional `revert(ci)!:`, revert de revert contando contra o PR
 da reversão, duas reversões do mesmo PR contando uma, revert que nomeia PR fora da janela
 (`unattributed`), revert sem referência (`unattributed`), mês sem PR mergeado (exit 1), mês mal
@@ -129,9 +134,12 @@ O número real é 0% porque **não existe commit de revert na `main`** (493 comm
 `git log --grep='Revert'` vazio) — não é falso negativo do classificador. A tabela e o comando estão em
 [revert-rate.md](revert-rate.md).
 
-Um bug foi encontrado e corrigido com os dados reais: o `--search` usava `merged:$month-01..$month-31`,
-que numa janela de 30 dias perde o dia 31 — e de fato devolvia 1 PR para outubro em vez de 55 para
-novembro. Agora só o limite inferior vai para o `--search` e a janela exata é a do `jq`.
+Bugs encontrados e corrigidos com os dados reais e com a revisão: o `--search` usava
+`merged:$month-01..$month-31`, que numa janela de 30 dias perde o dia 31 — e de fato devolvia 1 PR para
+outubro em vez de 55 para novembro; agora o intervalo fecha no último dia real do mês (com bissexto) e
+bater o teto de 500 resultados é erro, não truncamento silencioso. O `gh api --paginate` imprime um array
+por página e o script lia só o primeiro: um mês com mais de 100 commits via só a primeira página; a saída
+passa por `jq -s 'add // []'`.
 
 ## Suíte completa (uma vez, no fim)
 
@@ -147,6 +155,30 @@ novembro. Agora só o limite inferior vai para o `--search` e a janela exata é 
   (75,6 s) e as outras duas rodadas completas ficaram verdes. Registrado como reincidência da classe
   "restore/LSP falham no run completo" em [test-stability.md](test-stability.md); o diff do branch não
   toca `crates/`.
+
+## Revisão independente (rodada 1) e o que mudou
+
+Revisão (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre `7a352d5`. Todo achado foi corrigido;
+nenhum ficou "para depois". A tabela é o registro de que a revisão foi lida, não um resumo do diff.
+
+| Achado | Severidade | O que era | Correção e prova |
+|---|---|---|---|
+| O gate executava código do PR | alta | `actions/checkout` num `pull_request` traz o merge commit: `ci-risk-tier.sh`/`ci-risk-gate.sh` vinham do PR, então um PR que os editasse se classificava baixo ou se aprovava | classificador, gate e agregador são extraídos de `origin/<base>` e executados de lá; bootstrap explícito (`::warning::` + linha no resumo) quando a base ainda não tem o arquivo |
+| Aprovação ancorada em `committer.date` | alta | data de commit é controlável: commit novo com data antiga herdava aprovação de revisão que ninguém viu | a review tem de ter `commit_id` **igual** ao head do PR; a API de commits saiu do caminho. Falha-antes: 12 de 16 casos do teste novo reprovam o gate antigo |
+| `APPROVED` antigo sobrevivia a `CHANGES_REQUESTED` | alta | a busca pegava qualquer aprovação no histórico, sem olhar o estado mais recente do revisor | redução por revisor pelo `submitted_at` mais recente; casos `withdrawn-by-changes-requested`, `withdrawn-by-dismissal` e `reapproved` |
+| Manifesto comparado na ponta da base | média | base e PR acrescentando a mesma dependência davam "sem mudança" (médio) | `git show` do manifesto usa o merge base do diff de caminhos; caso `cargo-same-dependency-both-sides` (falha-antes) |
+| Extrator TOML ignorava `[target.'cfg(..)'.dependencies.foo]` e descartava valor multilinha | média | dependência acrescentada ali virava médio; valor que começa com `[` era lido como cabeçalho e o resto da tabela sumia | qualquer tabela cujo nome mencione `dependencies` conta (mais `patch`/`replace`); linha que começa como cabeçalho sem ser faz o script falhar fechado. Casos `cargo-target-dep` e `cargo-unparseable-value` (falha-antes) |
+| `--paginate` do `gh api` só lia a primeira página | média | mês com mais de 100 commits via só os primeiros 100 | `jq -s 'add // []'`; caso `paginated-reverts` (falha-antes) |
+| Busca de PRs mergeados sem limite superior e com teto mudo | média | histórico grande empurrava o mês para fora dos 500 resultados | intervalo fecha no último dia real do mês (com bissexto) e bater o teto é erro |
+| `gh api ... \| sort \| tail -1` mascarava erro | média | o status era do `tail`: erro de API virava "lista vazia" | saída capturada e checada antes de ordenar; caso `api-failure` |
+| Falha do auto-merge afirmava a causa | baixa | qualquer erro era anunciado como "falta `allow_auto_merge`" | a saída real do `gh` vai para o `::warning::` e para o resumo; o setting aparece como hipótese |
+| Mês só por `--month` | baixa | o ticket escreveu `revert-rate.sh [mês]` | as duas formas valem; caso `positional-month` (falha-antes) |
+
+O que **não** foi corrigido, e por quê: com `pull_request`, o YAML que roda é o do merge commit, então um
+PR que apague o passo do gate do próprio `ci.yml` ainda pode ficar verde. Esta frente tira a decisão das
+mãos do PR (classificador e gate vêm da base) e deixa a brecha residual num diff de YAML, que é
+`risk:high` e visível; fechar de vez exige `pull_request_target` para o gate e um terceiro check
+obrigatório no ruleset — settings, portanto issue filha e decisão do Helder.
 
 ## verify-openridr
 
@@ -166,6 +198,12 @@ sobre um gate que só roda no GitHub.
 - **PR de fork**: o token é read-only, então rotular falha e o job segue. Repo sem forks: não exercitado.
 - **`risk:low` e `risk:medium` num run real**: só o `high` foi exercitado (este PR). Os outros dois têm
   prova de unidade (self-check do tier) e nenhuma prova de ponta a ponta.
+- **A extração do código confiável da base num run real**: o passo está no YAML e foi exercitado só pelo
+  `actionlint`/`zizmor`; no run deste PR ele cai no caminho de bootstrap (a base ainda não tem os
+  scripts), que é o único caminho que este PR pode provar. O caminho "base tem o script" só tem prova
+  local (`git show origin/main:scripts/...` com os arquivos do `main`).
+- **Uma revisão `APPROVED` de verdade**: nenhuma review foi submetida neste PR até a escrita desta
+  evidência; o caminho "aprovação válida → verde" tem prova de unidade (16 casos), não de ponta a ponta.
 - **`dash` é uma aproximação do `/bin/sh` do runner**: os testes rodaram com `dash 0.5.13.5` do
   Homebrew, não com o `dash` do Ubuntu 24.04.
 - **Revert rate em mês fechado**: a linha de 2026-11 é de um mês em curso; a primeira medição de mês

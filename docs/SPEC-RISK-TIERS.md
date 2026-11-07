@@ -124,13 +124,15 @@ resolvido por escrito e revert rate medido por mês.
 
 - O job `risk` entra em `.github/workflows/ci.yml`, roda somente em `pull_request`, em `ubuntu-latest`,
   com `contents: read` + `pull-requests: write` + `issues: write`, e ganha tempo próprio curto.
-- Passos: checkout com histórico; calcular o tier (erro → `high`, com anotação `::error::`); garantir
-  os três labels `risk:*` (`gh label create --force`, cores fixas; falha = `::warning::`); aplicar o
-  label calculado e remover os outros dois (falha = `::warning::`); no tier alto, exigir uma review
-  `APPROVED` de OWNER/MEMBER/COLLABORATOR com `submitted_at` maior ou igual ao `committer.date` do
-  último commit do PR, senão `::error::` e exit 1; no tier baixo, `gh pr merge --auto --squash` (falha
-  = `::warning::`, porque `allow_auto_merge` é decisão do Helder e ainda está desligado); escrever
-  tier, motivos e resultado no `$GITHUB_STEP_SUMMARY`.
+- Passos: checkout com histórico; extrair classificador e gate da revisão base; calcular o tier (erro →
+  `high`, com anotação `::error::`); garantir os três labels `risk:*` (`gh label create --force`, cores
+  fixas; falha = `::warning::`); aplicar o label calculado e remover os outros dois (falha =
+  `::warning::`); no tier alto, exigir uma review `APPROVED` de OWNER/MEMBER/COLLABORATOR cujo
+  `commit_id` **é** o head do PR e cujo estado **mais recente** daquele revisor é `APPROVED` (um
+  `CHANGES_REQUESTED` posterior retira a aprovação), senão `::error::` e exit 1; no tier baixo,
+  `gh pr merge --auto --squash` (falha = `::warning::` com a saída real do `gh` e uma linha no resumo,
+  porque `allow_auto_merge` é decisão do Helder e ainda está desligado); escrever tier, motivos e
+  resultado no `$GITHUB_STEP_SUMMARY`.
 - O job é PR-only e o agregador `ci` passa a receber a lista de jobs PR-only como **dado**
   (`governance,risk`): `skipped` nesses dois só é aceitável fora de `pull_request`, e nunca dentro de
   um PR. A lógica do agregador sai do YAML para `scripts/ci-aggregate.sh`, com teste, para que a lista
@@ -183,6 +185,12 @@ interna foi chamada.
 ## Out of Scope
 
 - Mudança no ruleset da `main` (o gate viaja no agregador `ci`): nenhum check obrigatório novo.
+- **Fechar o resto da brecha "workflow do PR decide"**: com `pull_request`, o YAML que roda é o do merge
+  commit, então um PR que apaga o passo do gate do próprio `ci.yml` ainda pode ficar verde. O que esta
+  frente faz é tirar a decisão das mãos do PR (classificador e gate vêm da base) e deixar a brecha
+  residual num PR que mexe no YAML — visível e de risco alto. Fechar de vez exige `pull_request_target`
+  para o gate e um terceiro check obrigatório no ruleset, ou seja, settings: é decisão do Helder e vira
+  issue filha, não trabalho desta frente.
 - Aplicar `allow_auto_merge` e criar labels por fora do job: settings são do Helder; o comando fica
   documentado.
 - CODEOWNERS e "require review from code owners".
