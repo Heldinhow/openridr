@@ -89,5 +89,14 @@
       "resources/dotnet/": "dotnet/",
       "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzMERFNUJBRkFFOTVDNUUKUldSZVhPbjZ1dVVOMC9hNTJxT3lEelFxWW5hdDFvT0VvdS9YOEowTHpoYkkwK1AralVYUXp4UTUK",
+      "endpoints": [
+        "https://github.com/Heldinhow/openridr/releases/download/updater-alpha/latest.json"
+      ],
+      "requireSignedVersion": true
+    }
   }
 }
