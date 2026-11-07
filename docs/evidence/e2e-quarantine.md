@@ -34,8 +34,9 @@ bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)
 ```
 
 Pré-requisitos: rede (o `global-setup` baixa csharp-ls do nuget.org com `curl` e roda `dotnet tool
-install`), Chrome (`PLAYWRIGHT_CHANNEL=chromium` onde não houver), portas 1420/4317 livres e
-`OPENRIDR_SCREENSHOT_DIR` fora do repo se você não quiser reescrever evidência versionada.
+install`), Chrome (`PLAYWRIGHT_CHANNEL=chromium` onde não houver) e portas 1420/4317 livres. As
+capturas caem em `<tmpdir>/openridr-e2e-screenshots-<porta da UI>`, nunca no repositório;
+`OPENRIDR_SCREENSHOT_DIR` só é preciso para escrever em `docs/evidence/screenshots` de propósito.
 
 ## Quarentena
 
