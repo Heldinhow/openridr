@@ -47,13 +47,9 @@ async fn host_call(
     // dispatch on the main thread.
     let lock = HOST_CALL.get_or_init(|| tauri::async_runtime::Mutex::new(()));
     // The lock keeps the calls the UI fires without awaiting (`lsp.didChange`, `session.write`) in
-    // send order. A cancel has to overtake the operation it stops, so it is the one method
-    // dispatched without the lock — the list lives in the host, next to its test.
-    let _guard = if openridr_host::bypasses_host_lock(&method) {
-        None
-    } else {
-        Some(lock.lock().await)
-    };
+    // send order. No method is exempt: the network Git operations return at once (their state is in
+    // the snapshot), so nothing holds this lock while waiting on a remote.
+    let _guard = lock.lock().await;
     tauri::async_runtime::spawn_blocking(move || host.dispatch(&method, params))
         .await
         .map_err(|error| HostError::new("internal_error", format!("Host task failed: {error}")))?

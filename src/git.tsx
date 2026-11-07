@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { call, messageOf } from "./host/client";
+import { call, messageOf, type GitNet } from "./host/client";
 import { Icon } from "./Icon";
 import { MidText } from "./shell/MidText";
 import { FileIcon } from "./FileIcon";
@@ -15,16 +15,6 @@ export type GitFile = {
   conflicted: boolean;
   label: string;
 };
-
-// One id per network operation, so a cancel can only stop the operation it names: the host holds a
-// cancel that arrives before its operation and answers `false` for one that already ended. The
-// prefix keeps ids apart across reloads of the webview.
-const opPrefix = Math.random().toString(36).slice(2, 8);
-let opSeq = 0;
-function nextOpId(): string {
-  opSeq += 1;
-  return `${opPrefix}-${opSeq}`;
-}
 
 export type GitStatus = {
   state: "ok" | "not_a_repository" | "git_missing" | "failed";
@@ -283,6 +273,7 @@ export function BranchWidget({
   statusError,
   trusted,
   intent,
+  net,
   onRefresh,
   onOpenCommit,
   onMessage,
@@ -291,6 +282,7 @@ export function BranchWidget({
   statusError: string | null;
   trusted: boolean;
   intent: GitIntent | null;
+  net: GitNet;
   onRefresh: () => Promise<void>;
   onOpenCommit: () => void;
   onMessage: (text: string) => void;
@@ -306,8 +298,13 @@ export function BranchWidget({
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  // The id of the network operation this component started and has not seen end yet.
-  const opRef = useRef<string | null>(null);
+  // The network operation this component started and has not seen end yet. The id is the host's:
+  // the snapshot carries its state, so no await spans the network wait.
+  const [pending, setPending] = useState<{ kind: "push" | "update" | "fetch"; id: string } | null>(
+    null,
+  );
+  // Set before the start returns, so a second click cannot ask for a second push in the gap.
+  const [starting, setStarting] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   // A fetch takes seconds; the command palette can ask for another one while the first is still
@@ -371,6 +368,26 @@ export function BranchWidget({
     // A new command runs once per shortcut press.
   }, [intent?.nonce]);
 
+  // The operation this component started reached its end: the host published the state and the
+  // message, so the UI only renders them. The id is what tells our operation from a later one.
+  useEffect(() => {
+    if (!pending || net.id !== pending.id) return;
+    if (net.state !== "ok" && net.state !== "failed" && net.state !== "cancelled") return;
+    const text = net.message ?? "git failed without a message.";
+    if (pending.kind === "fetch") {
+      if (net.state === "ok") onMessage(text);
+      else setFetchError(text);
+    } else if (net.state === "ok") {
+      onMessage(text);
+      setDialog(null);
+    } else {
+      setDialogError(text);
+    }
+    setPending(null);
+    void Promise.all([onRefresh(), loadBranches()]);
+    // Only the operation this component started; refresh() is stable per trust state.
+  }, [net, pending]);
+
   if (!trusted) {
     return (
       <span className="toolbar-disabled" title={TRUST_MESSAGE}>
@@ -407,6 +424,8 @@ export function BranchWidget({
       ? "No upstream is configured; nothing to pull."
       : cleanReason(status);
   const checkoutBlocked = cleanReason(status);
+  // The push is asynchronous: its button and the dialog follow the host's record, not an await.
+  const pushBusy = starting || pending?.kind === "push";
   const query = filter.trim().toLowerCase();
   const matches = (branch: GitBranch) =>
     query === "" || branch.name.toLowerCase().includes(query);
@@ -457,10 +476,8 @@ export function BranchWidget({
     setFetching(true);
     setBusy(true);
     setFetchError(null);
-    const opId = nextOpId();
-    opRef.current = opId;
     try {
-      const result = await call<GitOperation>("git.fetch", { opId });
+      const result = await call<GitOperation>("git.fetch");
       if (result.state === "ok") {
         onMessage(result.message ?? "Fetched the remote.");
       } else {
@@ -470,7 +487,6 @@ export function BranchWidget({
     } catch (caught) {
       setFetchError(messageOf(caught));
     } finally {
-      opRef.current = null;
       fetchingRef.current = false;
       setFetching(false);
       setBusy(false);
@@ -480,10 +496,8 @@ export function BranchWidget({
   async function confirmUpdate() {
     setDialogBusy(true);
     setDialogError(null);
-    const opId = nextOpId();
-    opRef.current = opId;
     try {
-      const result = await call<GitOperation>("git.pull", { opId });
+      const result = await call<GitOperation>("git.pull");
       if (result.state === "ok") {
         onMessage(result.message ?? "Update completed.");
         setDialog(null);
@@ -494,7 +508,6 @@ export function BranchWidget({
     } catch (caught) {
       setDialogError(messageOf(caught));
     } finally {
-      opRef.current = null;
       setDialogBusy(false);
     }
   }
@@ -538,44 +551,35 @@ export function BranchWidget({
     }
   }
 
+  // The push is a start: the host returns its id at once and the snapshot carries the state. The
+  // dialog stays open until the operation reaches a terminal state, so the final message is shown
+  // where the click happened.
   async function confirmPush() {
-    setDialogBusy(true);
+    if (pushBusy) return;
+    setStarting(true);
     setDialogError(null);
-    const opId = nextOpId();
-    opRef.current = opId;
     try {
-      const result = await call<GitOperation>("git.push", {
+      const started = await call<{ id: string }>("git.push", {
         confirm: true,
         remote: remote ?? undefined,
-        opId,
       });
-      if (result.state === "ok") {
-        onMessage(result.message ?? "Push completed.");
-        setDialog(null);
-      } else {
-        setDialogError(result.message ?? "git push failed.");
-      }
-      await Promise.all([onRefresh(), loadBranches()]);
+      setPending({ kind: "push", id: started.id });
     } catch (caught) {
       setDialogError(messageOf(caught));
     } finally {
-      opRef.current = null;
-      setDialogBusy(false);
+      setStarting(false);
     }
   }
 
-  // Stops the network operation in flight. The host answers `cancelled: false` when it already
-  // finished — the local merge of an Update is not cancellable — and the dialog says so instead of
-  // pretending the click landed.
+  // Stops the network operation in flight. The host answers `cancelled: false` when its network step
+  // already ended — the local merge of an Update is not cancellable — and the dialog says so
+  // instead of pretending the click landed.
   async function cancelNetwork(kind: "push" | "update" | "fetch") {
-    const opId = opRef.current;
-    if (cancelling || opId === null) return;
+    const target = pending?.kind === kind ? pending.id : null;
+    if (cancelling || target === null) return;
     setCancelling(true);
     try {
-      // The id is what makes this safe: a cancel that arrives before the host dispatched the call is
-      // held for it, and one that names an operation that already ended is answered `false` instead
-      // of stopping whatever runs next.
-      const answer = await call<{ cancelled: boolean }>("git.cancel", { opId });
+      const answer = await call<{ cancelled: boolean }>("git.cancel", { id: target });
       if (!answer.cancelled) {
         const note =
           kind === "push"
@@ -606,9 +610,12 @@ export function BranchWidget({
     if (event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
+    if (pushBusy) {
+      void cancelNetwork("push");
+      return;
+    }
     if (dialogBusy) {
-      if (dialog === "push") void cancelNetwork("push");
-      else if (dialog === "update") void cancelNetwork("update");
+      if (dialog === "update") void cancelNetwork("update");
       return;
     }
     setDialog(null);
@@ -912,15 +919,15 @@ export function BranchWidget({
               <p className="error" role="alert" data-testid="push-error">{dialogError}</p>
             )}
             <div className="actions">
-              <button type="button" data-testid="push-confirm" autoFocus={remote !== null} disabled={dialogBusy || remote === null} onClick={() => void confirmPush()}>
-                {dialogBusy ? "Pushing…" : "Push"}
+              <button type="button" data-testid="push-confirm" autoFocus={remote !== null} disabled={pushBusy || remote === null} onClick={() => void confirmPush()}>
+                {pushBusy ? "Pushing…" : "Push"}
               </button>
-              {dialogBusy && (
+              {pushBusy && (
                 <button type="button" data-testid="push-stop" disabled={cancelling} onClick={() => void cancelNetwork("push")}>
                   {cancelling ? "Cancelling…" : "Cancel push"}
                 </button>
               )}
-              <button type="button" data-testid="push-cancel" autoFocus={remote === null} disabled={dialogBusy} onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" data-testid="push-cancel" autoFocus={remote === null} disabled={pushBusy} onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>

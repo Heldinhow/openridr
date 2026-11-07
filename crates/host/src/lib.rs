@@ -121,22 +121,8 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "nuget.applyUpdate",
 ];
 
-/// The one method the shells dispatch **without** their global host-call lock. That lock keeps the
-/// order of the calls the UI fires without awaiting (`lsp.didChange`, `session.write`); a cancel has
-/// to overtake the operation it stops, so it is exempt — and only it. The list lives here, not in
-/// each shell, so both use the same exception and a test can pin it.
-pub const UNSERIALIZED_METHODS: &[&str] = &["git.cancel"];
-
-/// Whether a dispatch must skip the shell's serializing lock. See [`UNSERIALIZED_METHODS`].
-pub fn bypasses_host_lock(method: &str) -> bool {
-    UNSERIALIZED_METHODS.contains(&method)
-}
-
 pub struct Host {
     inner: Mutex<Inner>,
-    /// The network Git operation in flight. Outside `inner` on purpose: `git.cancel` must reach it
-    /// without waiting on any lock the operation itself might hold.
-    net: git::Net,
 }
 
 impl Drop for Host {
@@ -178,6 +164,8 @@ struct Inner {
     restore_seq: u64,
     build: Arc<build::Build>,
     build_seq: u64,
+    /// The network Git operation in flight, published in the snapshot like a build.
+    net: Arc<git::Net>,
     run: Arc<run::Run>,
     run_seq: u64,
     /// A run waiting for the build it started; `None` when nothing is pending.
@@ -403,6 +391,7 @@ struct Snapshot {
     processes: Vec<Value>,
     restore: RestoreView,
     build: build::BuildView,
+    git: git::NetView,
     run: run::RunView,
     terminal: terminal::TerminalView,
     tests: test_discovery::TestsView,
@@ -453,6 +442,7 @@ impl Host {
                 restore_seq: 0,
                 build: Arc::new(build::Build::idle()),
                 build_seq: 0,
+                net: Arc::new(git::Net::default()),
                 run: Arc::new(run::Run::idle()),
                 run_seq: 0,
                 pending_run: None,
@@ -482,7 +472,6 @@ impl Host {
                 nuget_batch_id: None,
                 diagnostics: diagnostics::Store::new(),
             }),
-            net: git::Net::default(),
         }
     }
 
@@ -727,10 +716,10 @@ impl Host {
             return self.git_commit(params);
         }
         if method == "git.pull" {
-            return self.git_pull(params);
+            return self.git_pull();
         }
         if method == "git.fetch" {
-            return self.git_fetch(params);
+            return self.git_fetch();
         }
         if method == "git.push" {
             return self.git_push(params);
@@ -1202,6 +1191,7 @@ impl Host {
             processes: inner.processes.lock().unwrap().views(),
             restore: inner.restore.view(),
             build: inner.build.view(),
+            git: inner.net.view(),
             run: inner.run.view(),
             terminal: inner.terminal.view(),
             tests: tests_view,
@@ -6138,39 +6128,61 @@ impl Host {
         Ok(serde_json::to_value(answer).expect("git commit serializes"))
     }
 
-    fn git_pull(&self, params: Value) -> HostResult<Value> {
+    fn git_pull(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.pull")?;
         let root = self.workspace_root()?;
-        let op_id = optional_str(&params, "opId");
-        let answer = git::pull(&root, &self.net, op_id.as_deref())?;
+        let net = self.net();
+        let answer = git::pull(&root, &net)?;
         Ok(serde_json::to_value(answer).expect("git pull serializes"))
     }
 
     /// Brings the remote's refs into the local copy. The only Git action with a deadline: a fetch
     /// that hung on an unreachable remote would hold the lock every other host call waits on.
-    fn git_fetch(&self, params: Value) -> HostResult<Value> {
+    fn git_fetch(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.fetch")?;
         let root = self.workspace_root()?;
-        let op_id = optional_str(&params, "opId");
-        let answer = git::fetch(&root, &self.net, op_id.as_deref())?;
+        let net = self.net();
+        let answer = git::fetch(&root, &net)?;
         Ok(serde_json::to_value(answer).expect("git fetch serializes"))
     }
 
+    /// The network Git operation in flight, cloned out of the state lock: the start returns before
+    /// the work runs, so the thread must not hold the lock every other call waits on.
+    fn net(&self) -> Arc<git::Net> {
+        self.inner.lock().unwrap().net.clone()
+    }
+
+    /// Starts a push: trust, an open workspace and `confirm: true` are the only checks here, and
+    /// they fail without touching the network. The host registers the operation, returns its id at
+    /// once and runs the repository work (open, status, remote, `git push`) on a thread; the state
+    /// and the final message arrive through the snapshot.
     fn git_push(&self, params: Value) -> HostResult<Value> {
         let _token = self.require_trust("git.push")?;
         let root = self.workspace_root()?;
-        let answer = git::push(&root, &params, &self.net)?;
-        Ok(serde_json::to_value(answer).expect("git push serializes"))
+        if params.get("confirm").and_then(Value::as_bool) != Some(true) {
+            return Err(HostError::new(
+                "confirmation_required",
+                "git.push requires confirm:true; no push was run.",
+            ));
+        }
+        let net = self.net();
+        let id = net
+            .begin(git::Kind::Push)
+            .map_err(|message| HostError::new("invalid_state", message))?;
+        let task_id = id.clone();
+        std::thread::spawn(move || {
+            let result = git::push(&root, &params, &net, &task_id);
+            net.end(&task_id, result);
+        });
+        Ok(json!({ "id": id }))
     }
 
-    /// Stops the network Git operation in flight. It changes nothing on disk and opens no
-    /// repository, so it needs no trust decision and takes no host state lock: the whole point is to
-    /// answer while the operation it stops is still running. `opId` names the operation: one that
-    /// has not started yet is held for it, one that already ended is answered `false`, and without
-    /// an id it stops whatever is running.
+    /// Stops the network operation the host issued with this id, and only while its network step is
+    /// in flight. It changes nothing on disk and opens no repository, so it needs no trust decision.
     fn git_cancel(&self, params: Value) -> HostResult<Value> {
-        let op_id = optional_str(&params, "opId");
-        Ok(json!({ "cancelled": self.net.cancel(op_id.as_deref()) }))
+        let id = required_str(&params, "id")?;
+        let inner = self.inner.lock().unwrap();
+        Ok(json!({ "cancelled": inner.net.cancel(&id) }))
     }
 
     /// Aborts the merge in progress. Only a merge: rebase, cherry-pick and revert stay out of the
@@ -8948,27 +8960,6 @@ fn workspace_symbol_items(scope: &Scope, list: &lsp::WorkspaceSymbolList) -> (Ve
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The shell lock is what keeps `lsp.didChange`/`session.write` in send order. A method that
-    /// skips it is a contract change, not a detail: widening this list has to be a deliberate edit
-    /// with a test that says so.
-    #[test]
-    fn only_git_cancel_skips_the_shell_lock() {
-        assert_eq!(UNSERIALIZED_METHODS, &["git.cancel"]);
-        assert!(bypasses_host_lock("git.cancel"));
-        for method in [
-            "git.push",
-            "git.pull",
-            "git.fetch",
-            "git.status",
-            "git.commit",
-            "lsp.didChange",
-            "session.write",
-            "build.cancel",
-        ] {
-            assert!(!bypasses_host_lock(method), "{method} must stay serialized");
-        }
-    }
 
     #[test]
     fn the_dotnet_command_neither_sets_nor_strips_proxy_variables() {

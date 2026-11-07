@@ -1,15 +1,8 @@
-use std::sync::mpsc;
-use std::sync::Arc;
-
 use openridr_host::{Host, HostError};
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
 
 const ALLOWED_ORIGINS: [&str; 2] = ["http://localhost:1420", "http://127.0.0.1:1420"];
-
-/// A request waiting for its turn, with the body already read: the accept loop needs the method to
-/// decide whether the request may overtake the queue.
-type Job = (Request, Option<String>);
 
 fn main() {
     let port = parse_port();
@@ -18,61 +11,38 @@ fn main() {
         eprintln!("openridr-host-http: cannot bind {address}: {error}");
         std::process::exit(1);
     });
-    let host = Arc::new(Host::new());
-    // One worker keeps the send order the app shell guarantees: the queue is FIFO, so the order the
-    // UI sent is the order the host sees. A cancel never enters it — it is answered on the accept
-    // loop, because it has to overtake the operation it stops. Which methods may overtake is the
-    // host's list, the same one the Tauri shell uses.
-    let (queue, work) = mpsc::channel::<Job>();
-    let worker = Arc::clone(&host);
-    std::thread::spawn(move || {
-        for (request, body) in work {
-            handle(request, &worker, body);
-        }
-    });
+    let host = Host::new();
     println!("openridr-host-http listening on http://{address}");
     println!("dev bridge only: no authentication, never ship this binary");
 
+    // One request at a time, like the app shell: no method needs to overtake another, because the
+    // network Git operations return at once and publish their state in the snapshot.
     while let Ok(mut request) = server.recv() {
         let is_call = *request.method() == Method::Post && request.url() == "/call";
-        if !is_call {
-            let _ = queue.send((request, None));
-            continue;
-        }
-        let mut body = String::new();
-        if let Err(error) = request.as_reader().read_to_string(&mut body) {
-            let origin = origin_of(&request);
-            respond(
-                request.respond(with_cors(
-                    Response::from_string(error_envelope(HostError::new(
-                        "invalid_state",
-                        format!("Could not read request body: {error}"),
-                    )))
-                    .with_header(json_header()),
-                    origin.as_deref(),
-                )),
-            );
-            continue;
-        }
-        if overtakes_the_queue(&body) {
-            handle(request, &host, Some(body));
+        let body = if is_call {
+            let mut body = String::new();
+            match request.as_reader().read_to_string(&mut body) {
+                Ok(_) => Some(body),
+                Err(error) => {
+                    let origin = origin_of(&request);
+                    respond(
+                        request.respond(with_cors(
+                            Response::from_string(error_envelope(HostError::new(
+                                "invalid_state",
+                                format!("Could not read request body: {error}"),
+                            )))
+                            .with_header(json_header()),
+                            origin.as_deref(),
+                        )),
+                    );
+                    continue;
+                }
+            }
         } else {
-            let _ = queue.send((request, Some(body)));
-        }
+            None
+        };
+        handle(request, &host, body);
     }
-}
-
-/// Whether this call may skip the queue, from the host's own list.
-fn overtakes_the_queue(body: &str) -> bool {
-    serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|payload| {
-            payload
-                .get("method")
-                .and_then(Value::as_str)
-                .map(openridr_host::bypasses_host_lock)
-        })
-        .unwrap_or(false)
 }
 
 fn origin_of(request: &Request) -> Option<String> {

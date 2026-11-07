@@ -393,8 +393,17 @@ test("log lists commits and files; checkout and pull explain refusals; push need
   await expect(page.getByTestId("branch-push-reason")).toContainText("No remote is configured");
   const unconfirmed = await (await hostCall(page, "git.push")).json();
   expect(unconfirmed.error.code).toBe("confirmation_required");
+  // The push is a start: it returns the host's id at once and the missing remote is the
+  // operation's failure, published in the snapshot.
   const noRemote = await (await hostCall(page, "git.push", { confirm: true })).json();
-  expect(noRemote.error.code).toBe("git_no_remote");
+  expect(noRemote.ok).toBe(true);
+  expect(noRemote.data.id).toMatch(/^git:\d+$/);
+  await expect
+    .poll(
+      async () => (await (await hostCall(page, "workspace.state")).json()).data.git,
+      { timeout: 15_000 },
+    )
+    .toMatchObject({ state: "failed", message: expect.stringContaining("No remote is configured") });
 
   // A remote with credentials still never exposes them, and Push shows the confirmation
   // dialog with remote, branch, upstream and commits ahead.
