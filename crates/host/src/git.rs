@@ -2468,10 +2468,7 @@ pub fn merge_abort(root: &Path) -> HostResult<Operation> {
     }
     Ok(operation(
         "ok",
-        Some(
-            "Merge aborted; the branch, index and working tree are back to where they were before the merge."
-                .to_string(),
-        ),
+        Some("Merge aborted; the merge is undone and your commits stay.".to_string()),
         &text,
         &repo,
         None,
@@ -2479,13 +2476,19 @@ pub fn merge_abort(root: &Path) -> HostResult<Operation> {
 }
 
 /// How much of `git diff --check` output is kept: one line per problem, and the marker lines are
-/// what the guard reads. A truncated capture still reports every marker it saw.
-const CHECK_BYTES: usize = 64 * 1024;
+/// what the guard reads. A cut-off capture refuses the call instead of guessing: the marker could
+/// be past the ceiling. One MiB is far more than a real resolution produces, so the refusal is a
+/// safety net, not a routine path.
+const CHECK_BYTES: usize = 1024 * 1024;
 
 /// Finishes the merge in progress: stages the paths that were conflicted (the user resolved them in
 /// the editor) and commits with the message Git already prepared (`--no-edit`). A path that still
 /// holds a conflict marker refuses the whole call, so a click cannot commit `<<<<<<<`.
 pub fn merge_continue(root: &Path) -> HostResult<Operation> {
+    merge_continue_with(root, CHECK_BYTES)
+}
+
+fn merge_continue_with(root: &Path, check_limit: usize) -> HostResult<Operation> {
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
     match status.operation {
@@ -2505,27 +2508,7 @@ pub fn merge_continue(root: &Path) -> HostResult<Operation> {
             ))
         }
     }
-    // The marker check is Git's own: `--check` reports `leftover conflict marker` for the worktree
-    // content that would be committed, including what is already staged.
-    let checked = spawn_bounded(
-        &repo.top,
-        &["diff", "--check", "--no-ext-diff", "HEAD"],
-        CHECK_BYTES,
-    )
-    .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
-    let checked = checked.text();
-    if checked.code != Some(0) && checked.code != Some(2) {
-        let stderr = mask_urls(checked.stderr.trim());
-        return Err(HostError::new(
-            "git_failed",
-            if stderr.is_empty() {
-                "git diff --check failed without output.".to_string()
-            } else {
-                tail(&stderr)
-            },
-        ));
-    }
-    let markers = conflict_marker_paths(&checked.stdout);
+    let markers = marker_paths(&repo, check_limit)?;
     if !markers.is_empty() {
         return Err(HostError::new("invalid_state", marker_message(&markers)));
     }
@@ -2539,8 +2522,9 @@ pub fn merge_continue(root: &Path) -> HostResult<Operation> {
     if !conflicted.is_empty() {
         // `-u` also stages a resolution that deleted the file, and the pathspec keeps unrelated
         // edits out of the merge commit. Nothing is staged when the list is empty: a bare
-        // `git add -u` would sweep the whole tree into the merge.
-        let mut args = vec!["add", "-u", "--"];
+        // `git add -u` would sweep the whole tree into the merge. `--literal-pathspecs` keeps a
+        // name like `a*.txt` from matching `a-other.txt`.
+        let mut args = vec!["--literal-pathspecs", "add", "-u", "--"];
         args.extend(conflicted.iter().map(String::as_str));
         let added = run(&repo.top, &args)
             .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
@@ -2602,6 +2586,45 @@ pub fn merge_continue(root: &Path) -> HostResult<Operation> {
         &repo,
         None,
     ))
+}
+
+/// Paths with a leftover conflict marker in the content the merge commit would carry. Both the
+/// worktree (`git diff --check HEAD`) and the index (`--cached HEAD`) are checked: the commit uses
+/// the index, so markers staged and then removed from the worktree are invisible to the first
+/// check, and unmerged paths are invisible to the second. A cut-off capture refuses the call
+/// instead of proving nothing.
+fn marker_paths(repo: &Repo, limit: usize) -> HostResult<Vec<String>> {
+    let mut paths: Vec<String> = Vec::new();
+    for args in [
+        &["diff", "--check", "--no-ext-diff", "HEAD"][..],
+        &["diff", "--check", "--no-ext-diff", "--cached", "HEAD"][..],
+    ] {
+        let checked = spawn_bounded(&repo.top, args, limit)
+            .map_err(|error| HostError::new("git_failed", spawn_message(error)))?
+            .text();
+        // A cut-off capture is checked first: the kill that bounds it also changes the exit code.
+        if checked.truncated {
+            return Err(HostError::new(
+                "invalid_state",
+                "Complete merge refused: the conflict-marker check was cut off before the end of the diff, so OpenRidr cannot prove there are no markers left. Commit the merge from a terminal.",
+            ));
+        }
+        if checked.code != Some(0) && checked.code != Some(2) {
+            let stderr = mask_urls(checked.stderr.trim());
+            return Err(HostError::new(
+                "git_failed",
+                if stderr.is_empty() {
+                    "git diff --check failed without output.".to_string()
+                } else {
+                    tail(&stderr)
+                },
+            ));
+        }
+        paths.extend(conflict_marker_paths(&checked.stdout));
+    }
+    paths.sort_unstable();
+    paths.dedup();
+    Ok(paths)
 }
 
 /// Paths with a leftover conflict marker in a `git diff --check` report (`<path>:<line>: leftover
@@ -3870,6 +3893,73 @@ mod tests {
             !git(&root, &["ls-files", "-u"]).trim().is_empty(),
             "nothing was staged"
         );
+    }
+
+    #[test]
+    fn merge_continue_refuses_markers_staged_and_removed_from_the_worktree() {
+        let (_temp, root) = conflicted_merge("repo");
+        // Stage the file with its markers, then resolve only in the worktree: the commit would
+        // carry the staged markers, so the index check has to refuse too.
+        git(&root, &["add", "-u", "--", "a.txt"]);
+        fs::write(root.join("a.txt"), "one\nresolved\n").unwrap();
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let error = merge_continue(&root).unwrap_err();
+
+        assert_eq!(error.code, "invalid_state");
+        assert!(error.message.contains("a.txt"), "{}", error.message);
+        assert!(root.join(".git/MERGE_HEAD").exists(), "the merge stays");
+        assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
+    }
+
+    #[test]
+    fn merge_continue_stages_the_conflicted_name_literally() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a*.txt"), "base\n").unwrap();
+        fs::write(root.join("a-other.txt"), "base\n").unwrap();
+        commit_all(&root, "initial");
+        git(&root, &["checkout", "-qb", "other"]);
+        fs::write(root.join("a*.txt"), "other\n").unwrap();
+        commit_all(&root, "other");
+        git(&root, &["checkout", "-q", "main"]);
+        fs::write(root.join("a*.txt"), "main\n").unwrap();
+        commit_all(&root, "main");
+        let _ = Command::new("git")
+            .args(["merge", "other"])
+            .current_dir(&root)
+            .output()
+            .expect("git runs");
+        assert!(root.join(".git/MERGE_HEAD").exists());
+        fs::write(root.join("a*.txt"), "resolved\n").unwrap();
+        // A tracked file the glob would match if the name were a pathspec.
+        fs::write(root.join("a-other.txt"), "stray\n").unwrap();
+
+        let result = merge_continue(&root).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert_eq!(
+            git(&root, &["show", "HEAD:a-other.txt"]),
+            "base\n",
+            "the glob match stays out of the merge commit"
+        );
+        assert_eq!(
+            git(&root, &["status", "--porcelain"]).trim(),
+            "M a-other.txt"
+        );
+    }
+
+    #[test]
+    fn merge_continue_refuses_when_the_marker_check_is_cut_off() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        // A ceiling this small always truncates: the call must refuse instead of proving nothing.
+        let error = merge_continue_with(&root, 8).unwrap_err();
+
+        assert_eq!(error.code, "invalid_state");
+        assert!(error.message.contains("cut off"), "{}", error.message);
+        assert!(root.join(".git/MERGE_HEAD").exists(), "the merge stays");
+        assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
     }
 
     #[test]
