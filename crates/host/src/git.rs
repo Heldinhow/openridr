@@ -605,10 +605,11 @@ struct Running {
     finished: bool,
 }
 
-/// Which network operation a record belongs to. `Update` arrives with #207.
+/// Which network operation a record belongs to.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Push,
+    Update,
     Fetch,
 }
 
@@ -616,6 +617,7 @@ impl Kind {
     fn as_str(self) -> &'static str {
         match self {
             Kind::Push => "push",
+            Kind::Update => "update",
             Kind::Fetch => "fetch",
         }
     }
@@ -2865,9 +2867,8 @@ fn fetch_failure(remote: &str, stderr: &str) -> String {
 const MERGE_FLAGS: [&str; 2] = ["--ff", "--no-edit"];
 const CONFLICT_PATH_LIMIT: usize = 20;
 
-pub fn pull(root: &Path, net: &Net) -> HostResult<Operation> {
-    // Synchronous until #207: the unregistered id keeps the fetch of an update uncancellable.
-    pull_with(root, FETCH_DEADLINE, net, "")
+pub fn pull(root: &Path, net: &Net, id: &str) -> HostResult<Operation> {
+    pull_with(root, FETCH_DEADLINE, net, id)
 }
 
 /// The deadline covers the fetch only. The merge is local, so it cannot wait on a remote, and
@@ -2898,7 +2899,9 @@ fn pull_with(root: &Path, deadline: Duration, net: &Net, id: &str) -> HostResult
                 deadline.as_secs()
             ),
         };
-        return Ok(operation("failed", Some(message), &text, &repo, None));
+        let mut next = operation("failed", Some(message), &text, &repo, None);
+        next.stop = stop;
+        return Ok(next);
     }
     if !fetched.ok() {
         let stderr = mask_urls(fetched.stderr.trim());
@@ -4521,7 +4524,7 @@ mod tests {
         assert!(dirty.message.contains("does not auto-stash"));
         assert_eq!(status(&root).branch.as_deref(), Some("main"));
 
-        let dirty_pull = pull(&root, &Net::default()).unwrap_err();
+        let dirty_pull = pull(&root, &Net::default(), "").unwrap_err();
         assert_eq!(dirty_pull.code, "git_dirty_tree");
 
         git(&root, &["checkout", "--", "a.txt"]);
@@ -4529,7 +4532,7 @@ mod tests {
         let merging = checkout(&root, "other").unwrap_err();
         assert_eq!(merging.code, "git_operation_in_progress");
         assert!(merging.message.contains("merge"));
-        let merging_pull = pull(&root, &Net::default()).unwrap_err();
+        let merging_pull = pull(&root, &Net::default(), "").unwrap_err();
         assert_eq!(merging_pull.code, "git_operation_in_progress");
         fs::remove_file(root.join(".git/MERGE_HEAD")).unwrap();
 
@@ -4837,7 +4840,7 @@ mod tests {
         publish(&peer, "b.txt", "one\npeer\n", "peer change");
         let before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_ne!(git(&user, &["rev-parse", "HEAD"]).trim(), before);
@@ -4864,7 +4867,7 @@ mod tests {
         commit_all(&user, "local change");
         let local = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         let parents = git(&user, &["rev-list", "--parents", "-n", "1", "HEAD"]);
@@ -4898,7 +4901,7 @@ mod tests {
         fs::write(user.join("a.txt"), "one\nlocal\n").unwrap();
         commit_all(&user, "local change");
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "ok", "{:?}", result.message);
         assert_eq!(parent_count(&user), 2, "a merge commit, not a rebase");
@@ -4917,7 +4920,7 @@ mod tests {
             .trim()
             .to_string();
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "failed");
         let message = result.message.clone().unwrap_or_default();
@@ -4970,7 +4973,7 @@ mod tests {
         commit_all(&user, "local change");
         let head_before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
 
-        let failed = pull(&user, &Net::default()).unwrap();
+        let failed = pull(&user, &Net::default(), "").unwrap();
         assert_eq!(failed.state, "failed");
         let aborted = merge_abort(&user).unwrap();
 
@@ -4999,7 +5002,7 @@ mod tests {
         git(&user, &["config", "user.email", ""]);
         let head_before = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
 
-        let result = pull(&user, &Net::default()).unwrap();
+        let result = pull(&user, &Net::default(), "").unwrap();
 
         assert_eq!(result.state, "failed");
         let message = result.message.clone().unwrap_or_default();
@@ -5585,6 +5588,70 @@ mod tests {
         assert!(
             view.message.unwrap_or_default().contains("Fetch cancelled"),
             "the view carries the app's message"
+        );
+    }
+
+    /// The update's cancel covers the fetch, which runs before the merge: a cancelled update cannot
+    /// leave a merge behind, so the message says nothing was merged instead of pointing at
+    /// `git merge --abort`.
+    #[test]
+    fn an_update_stopped_by_the_cancel_returns_before_the_deadline() {
+        let (_temp, user, _bare) = remote_repo("user");
+        let (port, accepted) = silent_remote();
+        git(
+            &user,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                &format!("http://127.0.0.1:{port}/repo.git"),
+            ],
+        );
+        let head = git(&user, &["rev-parse", "HEAD"]).trim().to_string();
+        let tree = git(&user, &["status", "--porcelain"]);
+        let before = git(&user, &["for-each-ref", "refs/remotes"]);
+        let net = Net::default();
+        let id = net.begin(Kind::Update).expect("the host starts one update");
+
+        let (result, elapsed) = cancel_in_flight(&net, &id, &accepted, || {
+            pull_with(&user, Duration::from_secs(60), &net, &id)
+        });
+
+        let result = result.unwrap();
+        assert_eq!(result.state, "failed");
+        assert_eq!(result.stop, Stop::Cancelled);
+        let message = result.message.unwrap_or_default();
+        assert!(message.contains("Update cancelled"), "{message}");
+        assert!(message.contains("nothing was merged"), "{message}");
+        assert!(!message.contains("merge --abort"), "{message}");
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the cancel must return well before the 60 s deadline: {elapsed:?}"
+        );
+        assert_eq!(git(&user, &["rev-parse", "HEAD"]).trim(), head);
+        assert_eq!(git(&user, &["status", "--porcelain"]), tree);
+        assert!(!user.join(".git/MERGE_HEAD").exists());
+        assert!(result.status.operation.is_none());
+        assert_eq!(git(&user, &["for-each-ref", "refs/remotes"]), before);
+        if let Some(survivors) = descendants_of(&port.to_string()) {
+            assert!(
+                survivors.is_empty(),
+                "the helper survived the cancel: {survivors:?}"
+            );
+        }
+    }
+
+    /// The local merge of an update is not cancellable: once the fetch child ended, a cancel finds
+    /// nothing to stop and the update carries on to the merge (#207).
+    #[test]
+    fn a_cancel_after_the_network_step_reports_nothing_to_stop() {
+        let net = Net::default();
+        let id = net.begin(Kind::Update).unwrap();
+        // The fetch child ended: no cancel landed, and the window is closed either way.
+        assert!(!net.finish_network(&id));
+        assert!(
+            !net.cancel(&id),
+            "the local merge of an update is not cancellable"
         );
     }
 

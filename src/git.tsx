@@ -303,8 +303,8 @@ export function BranchWidget({
   const [pending, setPending] = useState<{ kind: "push" | "update" | "fetch"; id: string } | null>(
     null,
   );
-  // Set before the start returns, so a second click cannot ask for a second push in the gap.
-  const [starting, setStarting] = useState(false);
+  // Set before the start returns, so a second click cannot ask for a second operation in the gap.
+  const [starting, setStarting] = useState<"push" | "update" | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   // The host's id only reaches the state after the start returns, so a second click in that gap
   // would ask for a second fetch. The ref is the guard the state cannot be: it is read at call
@@ -425,7 +425,8 @@ export function BranchWidget({
       : cleanReason(status);
   const checkoutBlocked = cleanReason(status);
   // The push and the fetch are asynchronous: their buttons follow the host's record, not an await.
-  const pushBusy = starting || pending?.kind === "push";
+  const pushBusy = starting === "push" || pending?.kind === "push";
+  const updateBusy = starting === "update" || pending?.kind === "update";
   const fetchBusy = pending?.kind === "fetch";
   const query = filter.trim().toLowerCase();
   const matches = (branch: GitBranch) =>
@@ -486,22 +487,19 @@ export function BranchWidget({
     }
   }
 
+  // The update is a start like the push: the host returns its id at once and the snapshot carries
+  // the state, so the dialog stays open until the operation reaches a terminal state.
   async function confirmUpdate() {
-    setDialogBusy(true);
+    if (updateBusy) return;
+    setStarting("update");
     setDialogError(null);
     try {
-      const result = await call<GitOperation>("git.pull");
-      if (result.state === "ok") {
-        onMessage(result.message ?? "Update completed.");
-        setDialog(null);
-      } else {
-        setDialogError(result.message ?? "git pull failed.");
-      }
-      await Promise.all([onRefresh(), loadBranches()]);
+      const started = await call<{ id: string }>("git.pull");
+      setPending({ kind: "update", id: started.id });
     } catch (caught) {
       setDialogError(messageOf(caught));
     } finally {
-      setDialogBusy(false);
+      setStarting(null);
     }
   }
 
@@ -549,7 +547,7 @@ export function BranchWidget({
   // where the click happened.
   async function confirmPush() {
     if (pushBusy) return;
-    setStarting(true);
+    setStarting("push");
     setDialogError(null);
     try {
       const started = await call<{ id: string }>("git.push", {
@@ -560,7 +558,7 @@ export function BranchWidget({
     } catch (caught) {
       setDialogError(messageOf(caught));
     } finally {
-      setStarting(false);
+      setStarting(null);
     }
   }
 
@@ -607,10 +605,12 @@ export function BranchWidget({
       void cancelNetwork("push");
       return;
     }
-    if (dialogBusy) {
-      if (dialog === "update") void cancelNetwork("update");
+    if (updateBusy) {
+      void cancelNetwork("update");
       return;
     }
+    // Aborting a merge is local and not cancellable: Escape only keeps the dialog open.
+    if (dialogBusy) return;
     setDialog(null);
   }
 
@@ -851,15 +851,15 @@ export function BranchWidget({
               <p className="error" role="alert" data-testid="update-error">{dialogError}</p>
             )}
             <div className="actions">
-              <button type="button" data-testid="update-confirm" autoFocus disabled={dialogBusy} onClick={() => void confirmUpdate()}>
-                {dialogBusy ? "Updating…" : "Update"}
+              <button type="button" data-testid="update-confirm" autoFocus disabled={updateBusy} onClick={() => void confirmUpdate()}>
+                {updateBusy ? "Updating…" : "Update"}
               </button>
-              {dialogBusy && (
+              {updateBusy && (
                 <button type="button" data-testid="update-stop" disabled={cancelling} onClick={() => void cancelNetwork("update")}>
                   {cancelling ? "Cancelling…" : "Cancel update"}
                 </button>
               )}
-              <button type="button" data-testid="update-cancel" disabled={dialogBusy} onClick={() => setDialog(null)}>Cancel</button>
+              <button type="button" data-testid="update-cancel" disabled={updateBusy} onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>

@@ -6128,12 +6128,23 @@ impl Host {
         Ok(serde_json::to_value(answer).expect("git commit serializes"))
     }
 
+    /// Starts an update: trust and an open workspace are the only checks here. The host registers
+    /// the operation, returns its id at once and runs the fetch and the merge on a thread; the
+    /// state and the final message arrive through the snapshot. Only the fetch is cancellable — the
+    /// merge is local (#136).
     fn git_pull(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.pull")?;
         let root = self.workspace_root()?;
         let net = self.net();
-        let answer = git::pull(&root, &net)?;
-        Ok(serde_json::to_value(answer).expect("git pull serializes"))
+        let id = net
+            .begin(git::Kind::Update)
+            .map_err(|message| HostError::new("invalid_state", message))?;
+        let task_id = id.clone();
+        std::thread::spawn(move || {
+            let result = git::pull(&root, &net, &task_id);
+            net.end(&task_id, result);
+        });
+        Ok(json!({ "id": id }))
     }
 
     /// Starts a fetch: trust and an open workspace are the only checks here, and they fail without
