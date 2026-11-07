@@ -15,6 +15,7 @@ use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const LOG_LIMIT: usize = 200;
@@ -44,6 +45,9 @@ const FETCH_DEADLINE: Duration = Duration::from_secs(60);
 /// How often the bounded fetch checks whether its child finished. Short enough to answer soon
 /// after a kill, long enough to keep a healthy fetch off the CPU.
 const FETCH_POLL: Duration = Duration::from_millis(20);
+/// How long the bounded fetch waits for its pipe readers after the child is gone. A reader that is
+/// still blocked after this is holding a pipe nothing here can close; the call returns anyway.
+const DRAIN_GRACE: Duration = Duration::from_secs(2);
 /// Unique suffix for the private decoded-diff files (`pid` plus this counter).
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -520,22 +524,40 @@ fn run_with_deadline(
     args: &[&str],
     deadline: Duration,
 ) -> Result<(Output, bool), SpawnError> {
-    let mut child = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .args(args)
         .current_dir(cwd)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| match error.kind() {
-            std::io::ErrorKind::NotFound => SpawnError::Missing,
-            _ => SpawnError::Failed(error.to_string()),
-        })?;
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so the deadline can reach what git spawned: `git-remote-http`,
+        // ssh and a credential helper all inherit the pipes, and killing only the leader would
+        // leave a reader waiting on a pipe a grandchild still holds — the deadline would not
+        // return at all, which is the freeze this bound exists to prevent.
+        command.process_group(0);
+    }
+    let mut child = command.spawn().map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => SpawnError::Missing,
+        _ => SpawnError::Failed(error.to_string()),
+    })?;
+    let pid = child.id();
     let mut stdout = child.stdout.take().expect("piped stdout");
     let mut stderr = child.stderr.take().expect("piped stderr");
-    let captured = std::thread::spawn(move || drain_bounded(&mut stdout));
-    let echoed = std::thread::spawn(move || drain_bounded(&mut stderr));
+    // The readers report through channels instead of being joined: a pipe held by something the
+    // kill could not reach must cost one bounded wait, never the whole host call.
+    let (out_tx, out_rx) = mpsc::channel();
+    let (err_tx, err_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = out_tx.send(drain_bounded(&mut stdout));
+    });
+    std::thread::spawn(move || {
+        let _ = err_tx.send(drain_bounded(&mut stderr));
+    });
     let began = Instant::now();
     let mut timed_out = false;
     let status = loop {
@@ -543,17 +565,20 @@ fn run_with_deadline(
             Ok(Some(status)) => break Some(status),
             Ok(None) => {
                 if began.elapsed() >= deadline {
-                    let _ = child.kill();
                     timed_out = true;
+                    kill_tree(&mut child, pid);
                     break child.wait().ok();
                 }
                 std::thread::sleep(FETCH_POLL);
             }
-            Err(_) => break child.wait().ok(),
+            Err(_) => {
+                kill_tree(&mut child, pid);
+                break child.wait().ok();
+            }
         }
     };
-    let stdout = captured.join().unwrap_or_default();
-    let stderr = echoed.join().unwrap_or_default();
+    let stdout = out_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
+    let stderr = err_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
     Ok((
         Output {
             code: status.and_then(|status| status.code()),
@@ -565,21 +590,39 @@ fn run_with_deadline(
     ))
 }
 
-/// Reads a pipe to its end but keeps at most `STDERR_BYTES`: a fetch output is tiny, and a child
-/// that never closes its pipe must not grow the host.
+/// Kills the git child and everything it spawned. The leader is not reaped yet, so its pid (and
+/// therefore the group id) cannot be reused while the signal is in flight.
+fn kill_tree(child: &mut std::process::Child, pid: u32) {
+    #[cfg(unix)]
+    {
+        let _ = crate::process::kill_group(pid, true);
+    }
+    #[cfg(not(unix))]
+    let _ = pid;
+    let _ = child.kill();
+}
+
+/// Reads a pipe to its end and keeps the **last** `STDERR_BYTES`: what a failure says is at the end
+/// of its output, so a truncated buffer must lose the beginning, not the message. A child that
+/// never closes its pipe cannot grow the host either.
 fn drain_bounded<R: Read>(reader: &mut R) -> Vec<u8> {
-    let mut kept = Vec::new();
+    let mut kept: Vec<u8> = Vec::new();
     let mut buffer = [0u8; 4096];
     loop {
         match reader.read(&mut buffer) {
             Ok(0) | Err(_) => break,
             Ok(count) => {
-                if kept.len() < STDERR_BYTES {
-                    let room = STDERR_BYTES - kept.len();
-                    kept.extend_from_slice(&buffer[..count.min(room)]);
+                kept.extend_from_slice(&buffer[..count]);
+                if kept.len() > STDERR_BYTES * 2 {
+                    let cut = kept.len() - STDERR_BYTES;
+                    kept.drain(..cut);
                 }
             }
         }
+    }
+    if kept.len() > STDERR_BYTES {
+        let cut = kept.len() - STDERR_BYTES;
+        kept.drain(..cut);
     }
     kept
 }
@@ -2087,21 +2130,22 @@ pub fn fetch(root: &Path) -> HostResult<Operation> {
 fn fetch_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
     let repo = require_repo(root)?;
     let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
-    let upstream_remote = status
-        .upstream
-        .as_ref()
-        .and_then(|upstream| upstream.split_once('/'))
-        .map(|(remote, _)| remote.to_string());
-    let Some(remote) = upstream_remote.or_else(|| first_remote(&repo)) else {
+    let Some(remote) = fetch_remote(&repo, &status) else {
         return Err(HostError::new(
             "git_no_remote",
             "No remote is configured. Add one with git remote add; nothing was fetched.",
         ));
     };
 
+    // The refspec is explicit on purpose. Without it the fetch uses `remote.<name>.fetch`, and
+    // `--prune` deletes whatever those refspecs point at — a repository that maps the remote into
+    // `refs/heads/*` or `refs/mirror/*` would lose local refs to a button that claims to touch only
+    // remote-tracking refs. Naming the destination makes the blast radius exactly
+    // `refs/remotes/<remote>/*`. Tags still follow the fetched commits, as with a plain fetch.
+    let refspec = format!("+refs/heads/*:refs/remotes/{remote}/*");
     let fetched = run_with_deadline(
         &repo.top,
-        &["fetch", "--quiet", "--prune", &remote],
+        &["fetch", "--quiet", "--prune", &remote, &refspec],
         deadline,
     )
     .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
@@ -2111,8 +2155,11 @@ fn fetch_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
     next.remote = Some(remote.clone());
     if timed_out {
         next.state = "failed";
+        // A kill can land after some refs were already updated, so this cannot promise that
+        // nothing changed. It promises what a fetch can never change: the branch, the index and
+        // the working tree.
         next.message = Some(format!(
-            "Fetch stopped: {remote} did not answer within {} seconds. Nothing was changed.",
+            "Fetch stopped: {remote} did not answer within {} seconds. Your branch, index and working tree were not touched; refs already received stay.",
             deadline.as_secs()
         ));
         return Ok(next);
@@ -2128,6 +2175,29 @@ fn fetch_with(root: &Path, deadline: Duration) -> HostResult<Operation> {
         tracking_line(&next.status)
     ));
     Ok(next)
+}
+
+/// Which remote the fetch talks to: the one the current branch is configured to track
+/// (`branch.<name>.remote`), else the first configured remote. The config is the source, not the
+/// upstream short name: a remote name may contain `/`, and a branch can track a local branch
+/// (`.`), which is not a remote at all.
+fn fetch_remote(repo: &Repo, status: &GitStatus) -> Option<String> {
+    let configured = remotes(repo);
+    let tracked = status.branch.as_ref().and_then(|branch| {
+        let key = format!("branch.{branch}.remote");
+        let output = run(&repo.top, &["config", "--get", &key]).ok()?;
+        if !output.ok() {
+            return None;
+        }
+        let value = output.stdout.trim().to_string();
+        if value.is_empty() || value == "." {
+            return None;
+        }
+        Some(value)
+    });
+    tracked
+        .filter(|remote| configured.iter().any(|name| name == remote))
+        .or_else(|| configured.first().cloned())
 }
 
 /// The refreshed tracking state in one clause: what the fetch just changed and what the counters
@@ -2343,14 +2413,22 @@ fn abort_conflicting_merge(repo: &Repo, status: &GitStatus) -> String {
     }
 }
 
+fn remotes(repo: &Repo) -> Vec<String> {
+    run(&repo.top, &["remote"])
+        .map(|output| {
+            output
+                .stdout
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn first_remote(repo: &Repo) -> Option<String> {
-    let output = run(&repo.top, &["remote"]).ok()?;
-    output
-        .stdout
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_string)
+    remotes(repo).into_iter().next()
 }
 
 pub fn push(root: &Path, params: &Value) -> HostResult<Operation> {
@@ -3807,7 +3885,12 @@ mod tests {
         assert_eq!(result.state, "failed");
         let message = result.message.unwrap_or_default();
         assert!(message.contains("did not answer within"), "{message}");
-        assert!(message.contains("Nothing was changed"), "{message}");
+        // The promise is about what a fetch can never touch, not about refs a kill may have caught
+        // mid-update.
+        assert!(
+            message.contains("branch, index and working tree were not touched"),
+            "{message}"
+        );
         assert!(
             began.elapsed() < Duration::from_secs(10),
             "the kill must not wait for the remote"
@@ -3818,6 +3901,162 @@ mod tests {
             "no tracking ref moved"
         );
         assert_eq!(status(&user).behind, 0);
+    }
+
+    /// A remote that accepts the connection and never answers: the deadline has to reach the
+    /// helper git spawned (`git-remote-http`), which is what holds the pipes. Killing only the
+    /// leader would leave the reader blocked and the host call would never return.
+    #[test]
+    fn a_fetch_against_a_remote_that_never_answers_returns_at_the_deadline() {
+        let (_temp, user, _bare) = remote_repo("user");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // The connection is accepted and held open, never answered. The thread is left detached:
+        // joining it would put its sleep on the test's clock.
+        std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                std::thread::sleep(Duration::from_secs(10));
+                drop(stream);
+            }
+        });
+        git(
+            &user,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                &format!("http://127.0.0.1:{port}/repo.git"),
+            ],
+        );
+        let before = git(&user, &["for-each-ref", "refs/remotes"]);
+        let began = Instant::now();
+
+        let result = fetch_with(&user, Duration::from_secs(1)).unwrap();
+
+        assert_eq!(result.state, "failed");
+        let message = result.message.unwrap_or_default();
+        assert!(
+            message.contains("did not answer within 1 seconds"),
+            "{message}"
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(15),
+            "the deadline must return even with a hung helper: {:?}",
+            began.elapsed()
+        );
+        assert_eq!(git(&user, &["for-each-ref", "refs/remotes"]), before);
+        // git reaches an http remote through `git remote-http` → `git-remote-http`, and those
+        // inherit the pipes. They must die with the deadline: a survivor would hold the pipe the
+        // reader is waiting on, which is the freeze the bound exists to prevent.
+        if let Some(survivors) = descendants_of(&port.to_string()) {
+            assert!(
+                survivors.is_empty(),
+                "the helper survived the deadline: {survivors:?}"
+            );
+        }
+    }
+
+    /// Processes whose command line mentions `needle`, or `None` when the platform has no `pgrep`
+    /// (the assertion is then skipped rather than guessed).
+    fn descendants_of(needle: &str) -> Option<Vec<String>> {
+        let output = Command::new("pgrep").args(["-fl", needle]).output().ok()?;
+        Some(
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::to_string)
+                .collect(),
+        )
+    }
+
+    /// A remote URL that carries credentials must not leak them into the message or the operation
+    /// output, which is what a view or a log would show.
+    #[test]
+    fn a_failing_fetch_never_echoes_credentials_from_the_remote_url() {
+        let (_temp, user, _bare) = remote_repo("user");
+        // Port 1 refuses immediately: the failure is real, the network is not.
+        git(
+            &user,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "https://user:secret-token@127.0.0.1:1/repo.git",
+            ],
+        );
+
+        let result = fetch_with(&user, Duration::from_secs(20)).unwrap();
+
+        assert_eq!(result.state, "failed");
+        let message = result.message.unwrap_or_default();
+        assert!(!message.contains("secret-token"), "{message}");
+        assert!(!result.output.contains("secret-token"), "{}", result.output);
+    }
+
+    /// `--prune` deletes whatever the configured refspecs point at. A repository that maps the
+    /// remote somewhere else must not lose those refs to the Fetch button.
+    #[test]
+    fn fetch_prune_cannot_reach_refs_outside_the_remote_tracking_namespace() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        git(&peer, &["checkout", "-qb", "doomed"]);
+        fs::write(peer.join("doomed.txt"), "x\n").unwrap();
+        commit_all(&peer, "doomed");
+        git(&peer, &["push", "-q", "origin", "doomed"]);
+        // A hostile (or just unusual) refspec: the remote mirrors into refs/mirror/*.
+        git(
+            &user,
+            &[
+                "config",
+                "remote.origin.fetch",
+                "+refs/heads/*:refs/mirror/*",
+            ],
+        );
+        git(&user, &["fetch", "-q", "origin"]);
+        let mirrored = git(&user, &["for-each-ref", "refs/mirror"]);
+        assert!(mirrored.contains("refs/mirror/doomed"), "{mirrored}");
+
+        git(&peer, &["push", "-q", "origin", "--delete", "doomed"]);
+        let result = fetch(&user).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert_eq!(
+            git(&user, &["for-each-ref", "refs/mirror"]),
+            mirrored,
+            "the app's fetch must not prune refs outside refs/remotes/*"
+        );
+        assert!(branches(&user)
+            .remote
+            .iter()
+            .all(|branch| branch.name != "origin/doomed"));
+    }
+
+    /// A remote name may contain `/`, and a branch may track a local branch instead of a remote.
+    /// The remote comes from `branch.<name>.remote`, not from splitting the upstream short name.
+    #[test]
+    fn fetch_resolves_the_remote_from_the_branch_configuration() {
+        let (temp, user, bare) = remote_repo("user");
+        let peer = peer_clone(temp.path(), &bare);
+        publish(&peer, "b.txt", "one\npeer\n", "peer change");
+        let slashed = temp.path().join("team-origin.git");
+        git(
+            temp.path(),
+            &["init", "-q", "--bare", "-b", "main", "team-origin.git"],
+        );
+        git(
+            &user,
+            &["remote", "add", "team/origin", slashed.to_str().unwrap()],
+        );
+        git(&user, &["config", "branch.main.remote", "team/origin"]);
+
+        let resolved = fetch_remote(&repo_of(&user), &status(&user));
+
+        assert_eq!(resolved.as_deref(), Some("team/origin"));
+        // A local upstream (`.`) is not a remote: the first configured one is used instead.
+        git(&user, &["config", "branch.main.remote", "."]);
+        assert_eq!(
+            fetch_remote(&repo_of(&user), &status(&user)).as_deref(),
+            Some("origin")
+        );
     }
 
     #[test]

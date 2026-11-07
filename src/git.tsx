@@ -262,6 +262,10 @@ export function BranchWidget({
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  // A fetch takes seconds; the command palette can ask for another one while the first is still
+  // running. The ref is the guard the state cannot be: it is read at call time, not at render time.
+  const fetchingRef = useRef(false);
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
   async function loadBranches() {
@@ -293,7 +297,7 @@ export function BranchWidget({
       // because it writes no branch, no index and no file.
       if (status && status.state === "ok" && status.remotes.length === 0) {
         setFetchError(gitFetchBlockedReason(status, null, true));
-      } else {
+      } else if (!fetchingRef.current) {
         void runFetch();
       }
     } else if (intent.kind === "update") {
@@ -395,6 +399,9 @@ export function BranchWidget({
   }
 
   async function runFetch() {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    setFetching(true);
     setBusy(true);
     setFetchError(null);
     try {
@@ -408,6 +415,8 @@ export function BranchWidget({
     } catch (caught) {
       setFetchError(messageOf(caught));
     } finally {
+      fetchingRef.current = false;
+      setFetching(false);
       setBusy(false);
     }
   }
@@ -595,9 +604,10 @@ export function BranchWidget({
                 `Fetch ${remote ?? "the remote"} and prune branches deleted there (git fetch --prune). OpenRidr never touches your tree, index or local branches.`
               }
               disabled={busy || fetchReason !== null}
+              aria-busy={fetching || undefined}
               onClick={() => void runFetch()}
             >
-              Fetch
+              {fetching ? "Fetching…" : "Fetch"}
             </button>
             <button type="button" data-testid="branch-commit" disabled={busy} onClick={() => { closeMenu(); onOpenCommit(); }}>
               Commit…
