@@ -110,9 +110,16 @@ fn prepare_local_package(
     let mut bytes = Vec::new();
     let mut chunk = [0; 65536];
     loop {
-        let count = reader
-            .read(&mut chunk)
-            .map_err(|error| format!("Could not read csharp-ls package: {error}"))?;
+        let count = reader.read(&mut chunk).map_err(|error| {
+            if crate::http::is_stall(&error) {
+                format!(
+                    "Could not download csharp-ls: {}",
+                    crate::http::stalled(&url, crate::http::DOWNLOAD_STALL)
+                )
+            } else {
+                format!("Could not read csharp-ls package: {error}")
+            }
+        })?;
         if count == 0 {
             break;
         }

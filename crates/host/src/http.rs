@@ -391,13 +391,47 @@ fn fetch_with(
                     }
                 }
             }
-            Err(error) => return Err(describe_error(&url, &error)),
+            Err(error) => {
+                return Err(if timed_out(&error) {
+                    stalled(&url, stall)
+                } else {
+                    describe_error(&url, &error)
+                })
+            }
         };
         url = redirected(&url, &location)?;
     }
     Err(format!(
         "More than {MAX_DOWNLOAD_REDIRECTS} redirects from the download URL; the download was refused."
     ))
+}
+
+/// The app's words for a download that stopped receiving data. The response head and the body use
+/// the same sentence: for the person reading it, they are the same failure.
+pub(crate) fn stalled(url: &str, stall: std::time::Duration) -> String {
+    format!(
+        "{url}: the connection stalled — no data arrived for {} seconds. Nothing was installed or replaced; check the network and retry the setup.",
+        stall.as_secs()
+    )
+}
+
+/// True when a body read gave up because the socket stopped answering. `ureq` normalises the
+/// platform's `WouldBlock` to `TimedOut`, so this is the one kind to look for.
+pub(crate) fn is_stall(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::TimedOut
+}
+
+/// True when the transport failed on a read timeout. The `ureq` error carries the `io::Error` in
+/// its source chain; the message text is never inspected.
+fn timed_out(error: &ureq::Error) -> bool {
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        if cause.downcast_ref::<std::io::Error>().is_some_and(is_stall) {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
 }
 
 /// True when `NO_PROXY` says this destination goes direct.
@@ -540,8 +574,14 @@ mod tests {
 
     /// A local server answering one download in `chunks` pieces, `delay` apart, used as the proxy
     /// for a public literal destination: the address guard allows the configured proxy, so the test
-    /// needs no DNS and no external network.
-    fn slow_download(chunks: usize, size: usize, delay: std::time::Duration) -> String {
+    /// needs no DNS and no external network. `declared` is the `Content-Length` it promises, which a
+    /// stalling server promises and does not keep.
+    fn serve_download(
+        declared: usize,
+        chunks: usize,
+        size: usize,
+        delay: std::time::Duration,
+    ) -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         std::thread::spawn(move || {
@@ -551,8 +591,7 @@ mod tests {
             let mut request = [0u8; 4096];
             let _ = std::io::Read::read(&mut stream, &mut request);
             let head = format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                chunks * size
+                "HTTP/1.1 200 OK\r\nContent-Length: {declared}\r\nConnection: close\r\n\r\n"
             );
             if std::io::Write::write_all(&mut stream, head.as_bytes()).is_err() {
                 return;
@@ -573,13 +612,31 @@ mod tests {
         move |name: &str| (name == "http_proxy").then(|| proxy.clone())
     }
 
+    /// A server that accepts the connection and never answers, like a proxy that took the request
+    /// and died.
+    fn silent_server() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        });
+        format!("http://{address}")
+    }
+
+    const PACKAGE_URL: &str = "http://1.1.1.1/csharp-ls.0.28.0.nupkg";
+
     /// The bug in #161: a total deadline killed a download that was still receiving bytes. Fifteen
     /// chunks 100 ms apart take ~1.5 s, far past the 400 ms window below, and every byte must arrive.
     #[test]
     fn a_download_that_keeps_receiving_bytes_finishes_however_long_it_takes() {
-        let proxy = slow_download(15, 4096, std::time::Duration::from_millis(100));
+        let proxy = serve_download(15 * 4096, 15, 4096, std::time::Duration::from_millis(100));
         let response = fetch_with(
-            "http://1.1.1.1/csharp-ls.0.28.0.nupkg",
+            PACKAGE_URL,
             std::time::Duration::from_millis(400),
             &proxy_env(&proxy),
         )
@@ -588,5 +645,49 @@ mod tests {
         std::io::Read::read_to_end(&mut response.into_reader(), &mut bytes)
             .expect("the whole body arrives");
         assert_eq!(bytes.len(), 15 * 4096);
+    }
+
+    /// The other half of #161: a connection that really stops has to fail, and the person has to
+    /// read the app's sentence instead of the transport's.
+    #[test]
+    fn a_download_that_stops_receiving_bytes_is_reported_as_a_stall() {
+        // Three bytes of a promised thousand, then silence: the head arrives, the body stops.
+        let proxy = serve_download(1000, 1, 3, std::time::Duration::from_secs(3));
+        let response = fetch_with(
+            PACKAGE_URL,
+            std::time::Duration::from_secs(1),
+            &proxy_env(&proxy),
+        )
+        .expect("the head arrives");
+        let mut bytes = Vec::new();
+        let error = std::io::Read::read_to_end(&mut response.into_reader(), &mut bytes)
+            .expect_err("the body stops");
+        assert!(is_stall(&error), "a read timeout is a stall: {error:?}");
+        let message = stalled(PACKAGE_URL, DOWNLOAD_STALL);
+        assert!(message.contains(PACKAGE_URL), "{message}");
+        assert!(message.contains("stalled"), "{message}");
+        assert!(message.contains("60 seconds"), "{message}");
+        assert!(
+            message.contains("Nothing was installed or replaced"),
+            "{message}"
+        );
+        assert!(message.contains("retry the setup"), "{message}");
+    }
+
+    #[test]
+    fn a_server_that_never_answers_is_reported_as_a_stall() {
+        let proxy = silent_server();
+        let error = fetch_with(
+            PACKAGE_URL,
+            std::time::Duration::from_secs(1),
+            &proxy_env(&proxy),
+        )
+        .expect_err("nothing arrives");
+        assert!(error.contains("stalled"), "{error}");
+        assert!(error.contains("retry the setup"), "{error}");
+        assert!(
+            !error.contains("Network Error"),
+            "the raw transport text must not reach the user: {error}"
+        );
     }
 }
