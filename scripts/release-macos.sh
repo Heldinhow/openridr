@@ -613,7 +613,11 @@ updater_artifact() {
     fail "missing $cli: run 'bun install' so the updater artifact is signed by the locked CLI"
   rm -f "$archive" "$archive.sig"
   note "packing the updater artifact from the stapled bundle"
-  tar -czf "$archive" -C "$(dirname "$app")" "$PRODUCT.app" || fail "cannot pack $archive"
+  # `--no-mac-metadata` keeps bsdtar from writing the `._OpenRidr.app` AppleDouble entry that the
+  # bundle's xattrs would otherwise produce: the plugin's tar reader does not merge it back and
+  # fails to unpack it, so the update would download and then refuse to install.
+  tar --no-mac-metadata -czf "$archive" -C "$(dirname "$app")" "$PRODUCT.app" ||
+    fail "cannot pack $archive"
   (cd "$ROOT" && "$cli" signer sign --app-version "$version" "$archive" >/dev/null) ||
     fail "cannot sign $archive (TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD)"
   [ -s "$archive.sig" ] || fail "the signing step produced no $archive.sig"
@@ -626,8 +630,21 @@ verify_updater_artifact() {
   archive=$1
   version=$2
   stage=$(mktemp -d "$WORK/release-update.XXXXXX")
-  tar -xzf "$archive" -C "$stage" || fail "cannot extract $archive"
   (
+    # `pax` reads the archive the way the plugin's tar reader does — it does not merge AppleDouble
+    # entries back into xattrs — so a `._` entry shows up here as an extra file instead of hiding.
+    # The plugin drops the first path component of every entry, so a top-level entry that is not the
+    # bundle — bsdtar's `._OpenRidr.app` AppleDouble, for instance — makes it unpack into the
+    # temporary directory itself and the install fails. bsdtar hides those entries when it lists or
+    # extracts, so the first header is read from the raw stream.
+    first=$(gzip -dc "$archive" | dd bs=512 count=1 2>/dev/null | dd bs=100 count=1 2>/dev/null | tr -d '\000')
+    case $first in
+      ._*)
+        fail "$archive starts with the AppleDouble entry '$first', which the plugin cannot unpack"
+        ;;
+    esac
+    cd "$stage" || exit 1
+    pax -rzf "$archive" >/dev/null || fail "cannot extract $archive"
     app="$stage/$PRODUCT.app"
     [ -x "$app/Contents/MacOS/openridr" ] ||
       fail "$archive has no $PRODUCT.app/Contents/MacOS/openridr"

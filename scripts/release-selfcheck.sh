@@ -451,6 +451,9 @@ FAKESPCTL
 chmod +x "$binF/xcrun" "$binF/spctl" "$binF/openssl"
 cp "$(command -v sh)" "$stub/Contents/MacOS/openridr"
 stub_plist "$VERSION"
+# A real bundle carries extended attributes; bsdtar would turn them into a `._OpenRidr.app` entry
+# that the plugin's tar reader cannot unpack, so the packing must drop them.
+xattr -w com.apple.provenance selftest "$stub" 2>/dev/null || true
 release_key=$(printf 'selftest-notary-key' | openssl base64 -A)
 # Anything the notarization leaves in RUNNER_TEMP: the key and the transport zip.
 leftovers_in() {
