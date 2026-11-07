@@ -69,7 +69,7 @@ fn proxy_label_with(
     system: Option<&crate::system_proxy::SystemProxy>,
 ) -> Option<String> {
     match plan(url, env, system) {
-        Ok((_, route)) => route.label().map(str::to_string),
+        Ok((_, route)) => route.described(),
         Err(_) => None,
     }
 }
@@ -92,6 +92,8 @@ struct ProxyTarget {
     url: String,
     /// `host:port`, which is both the safe label and the netloc `ureq` resolves.
     netloc: String,
+    /// Where the value came from: a message says it, because the fix differs.
+    source: ProxySource,
 }
 
 /// Where a proxy value came from.
@@ -129,10 +131,15 @@ enum Route {
 }
 
 impl Route {
-    fn label(&self) -> Option<&str> {
+    /// What a log line or a message shows: the same `host:port`, plus where it came from when the
+    /// environment did not name it.
+    fn described(&self) -> Option<String> {
         match self {
             Route::Direct => None,
-            Route::Proxied(target) => Some(&target.netloc),
+            Route::Proxied(target) => Some(match target.source {
+                ProxySource::Env(_) => target.netloc.clone(),
+                ProxySource::System => format!("{} (macOS system proxy)", target.netloc),
+            }),
         }
     }
 }
@@ -329,7 +336,11 @@ fn proxy_target(source: ProxySource, value: &str) -> Result<ProxyTarget, String>
             source.name()
         ));
     }
-    Ok(ProxyTarget { url, netloc })
+    Ok(ProxyTarget {
+        url,
+        netloc,
+        source,
+    })
 }
 
 /// How many redirects one download may follow before it is refused.
@@ -569,10 +580,32 @@ fn describe_error_with(
     system: Option<&crate::system_proxy::SystemProxy>,
 ) -> String {
     let detail = format!("{} {error:?}", error);
-    describe_via(url, &detail, proxy_label_with(url, env, system).as_deref())
+    describe_via(
+        url,
+        &detail,
+        proxy_label_with(url, env, system).as_deref(),
+        system.and_then(|system| system.unsupported),
+    )
 }
 
-fn describe_via(url: &str, detail: &str, configured: Option<&str>) -> String {
+/// The app's words for a failed request. `unsupported` names a system setting this client cannot
+/// use, which explains a failure that has no proxy of its own.
+fn describe_via(
+    url: &str,
+    detail: &str,
+    configured: Option<&str>,
+    unsupported: Option<&str>,
+) -> String {
+    let message = describe_failure(url, detail, configured);
+    match unsupported {
+        Some(setting) => format!(
+            "{message} The macOS system proxy is set to {setting}, which OpenRidr does not support; set HTTPS_PROXY to the HTTP proxy and retry."
+        ),
+        None => message,
+    }
+}
+
+fn describe_failure(url: &str, detail: &str, configured: Option<&str>) -> String {
     let diagnostic = detail.to_ascii_lowercase();
     let proxy = configured.unwrap_or("the configured proxy");
     // `ureq` renders a 407 on the CONNECT as `ProxyUnauthorized` / "Provided proxy credentials are
@@ -625,6 +658,7 @@ mod tests {
             "https://api.nuget.org/v3/index.json",
             "invalid peer certificate: UnknownIssuer",
             None,
+            None,
         );
         assert!(message.contains("https://api.nuget.org/v3/index.json"));
         assert!(message.contains("network certificate"));
@@ -649,6 +683,7 @@ mod tests {
             "https://api.nuget.org/v3/index.json",
             "Transport(Status(407, Response))",
             Some("proxy.corp:3128"),
+            None,
         );
         assert!(unauthorized.contains("proxy.corp:3128"));
         assert!(unauthorized.contains("407"));
@@ -656,6 +691,7 @@ mod tests {
             "https://api.nuget.org/v3/index.json",
             "Transport(ProxyConnect)",
             Some("proxy.corp:3128"),
+            None,
         );
         assert!(refused.contains("proxy.corp:3128"));
         for message in [unauthorized, refused] {

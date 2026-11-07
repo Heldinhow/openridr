@@ -118,19 +118,19 @@ fn proxy_variables_are_read_in_order_with_lowercase_first() {
             ("HTTPS_PROXY", "http://other.corp:8080"),
         ]),
     );
-    assert_eq!(lowercase.label(), Some("proxy.corp:3128"));
+    assert_eq!(lowercase.described().as_deref(), Some("proxy.corp:3128"));
 
     let fallback = route(
         "https://api.nuget.org/v3/index.json",
         pairs_of(&[("HTTP_PROXY", "http://proxy.corp:8080")]),
     );
-    assert_eq!(fallback.label(), Some("proxy.corp:8080"));
+    assert_eq!(fallback.described().as_deref(), Some("proxy.corp:8080"));
 
     let all_proxy = route(
         "https://api.nuget.org/v3/index.json",
         pairs_of(&[("ALL_PROXY", "http://all.corp:9090")]),
     );
-    assert_eq!(all_proxy.label(), Some("all.corp:9090"));
+    assert_eq!(all_proxy.described().as_deref(), Some("all.corp:9090"));
 
     let direct = route("https://api.nuget.org/v3/index.json", pairs_of(&[]));
     assert!(matches!(direct, Route::Direct));
@@ -195,7 +195,7 @@ fn a_bare_host_and_port_is_read_as_an_http_proxy() {
         "https://api.nuget.org/v3/index.json",
         pairs_of(&[("HTTPS_PROXY", "proxy.corp:3128")]),
     );
-    assert_eq!(route.label(), Some("proxy.corp:3128"));
+    assert_eq!(route.described().as_deref(), Some("proxy.corp:3128"));
 }
 
 #[test]
@@ -331,7 +331,7 @@ fn proxy_credentials_reach_the_client_but_never_the_label() {
     )
     .expect("an authenticated http proxy is usable");
     assert_eq!(destination.port, 443);
-    let label = route.label().expect("a proxied route").to_string();
+    let label = route.described().expect("a proxied route");
     assert_eq!(label, format!("127.0.0.1:{}", proxy.port));
     assert!(
         !label.contains("s3cret") && !label.contains("openridr"),
@@ -376,7 +376,7 @@ fn proxy_credentials_reach_the_client_but_never_the_label() {
     )
     .expect("a scheme-less proxy with credentials is usable");
     assert_eq!(
-        route.label(),
+        route.described().as_deref(),
         Some(format!("127.0.0.1:{}", proxy.port).as_str())
     );
     let agent = agent_for_with(
@@ -476,6 +476,7 @@ fn a_proxy_answer_of_407_is_explained_as_credentials() {
         url,
         &format!("{error:?}"),
         Some(&format!("127.0.0.1:{}", proxy.port)),
+        None,
     );
     assert!(message.contains("407"), "{message}");
     assert!(message.contains("HTTPS_PROXY"), "{message}");
@@ -541,12 +542,16 @@ fn route_with_setting(url: &str, setting: &crate::system_proxy::SystemProxy) -> 
 fn a_proxy_from_the_system_settings_is_used_when_the_environment_is_empty() {
     let setting = setting(Some("proxy.corp:3128"), Some("plain.corp:8080"), &[]);
     assert_eq!(
-        route_with_setting("https://api.nuget.org/v3/index.json", &setting).label(),
-        Some("proxy.corp:3128")
+        route_with_setting("https://api.nuget.org/v3/index.json", &setting)
+            .described()
+            .as_deref(),
+        Some("proxy.corp:3128 (macOS system proxy)")
     );
     assert_eq!(
-        route_with_setting("http://api.nuget.org/v3/index.json", &setting).label(),
-        Some("plain.corp:8080"),
+        route_with_setting("http://api.nuget.org/v3/index.json", &setting)
+            .described()
+            .as_deref(),
+        Some("plain.corp:8080 (macOS system proxy)"),
         "an http destination uses the http setting"
     );
 }
@@ -560,7 +565,7 @@ fn an_environment_proxy_wins_over_the_system_setting() {
         Some(&setting),
     )
     .expect("the plan must be valid");
-    assert_eq!(route.label(), Some("env.corp:8080"));
+    assert_eq!(route.described().as_deref(), Some("env.corp:8080"));
 }
 
 /// The system source is the last item of #51's ordered list, so even `HTTP_PROXY` — the last resort
@@ -575,7 +580,7 @@ fn an_environment_http_proxy_also_wins_over_the_system_setting() {
         Some(&setting),
     )
     .expect("the plan must be valid");
-    assert_eq!(route.label(), Some("env.corp:8080"));
+    assert_eq!(route.described().as_deref(), Some("env.corp:8080"));
 }
 
 #[test]
@@ -589,8 +594,10 @@ fn the_system_exceptions_send_the_destination_direct() {
         "an exception is a direct route"
     );
     assert_eq!(
-        route_with_setting("https://api.nuget.org/v3/index.json", &setting).label(),
-        Some("proxy.corp:3128")
+        route_with_setting("https://api.nuget.org/v3/index.json", &setting)
+            .described()
+            .as_deref(),
+        Some("proxy.corp:3128 (macOS system proxy)")
     );
 }
 
@@ -604,8 +611,8 @@ fn an_environment_no_proxy_wins_over_the_system_exceptions() {
     )
     .expect("the plan must be valid");
     assert_eq!(
-        route.label(),
-        Some("proxy.corp:3128"),
+        route.described().as_deref(),
+        Some("proxy.corp:3128 (macOS system proxy)"),
         "the environment list is the only one read"
     );
 }
@@ -653,4 +660,85 @@ fn a_system_proxy_receives_the_connect_instead_of_the_destination() {
         hits[0].starts_with("CONNECT 1.1.1.1:443"),
         "the proxy must be asked to reach the destination: {hits:?}"
     );
+}
+
+/// A message that names the system settings tells the person which knob to turn; a proxy from the
+/// environment needs no origin, because the variable is the knob.
+#[test]
+fn the_system_proxy_label_names_its_origin() {
+    let setting = setting(Some("proxy.corp:3128"), None, &[]);
+    let (_, from_system) = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(Vec::new()),
+        Some(&setting),
+    )
+    .expect("the plan must be valid");
+    assert_eq!(
+        from_system.described().as_deref(),
+        Some("proxy.corp:3128 (macOS system proxy)")
+    );
+    let (_, from_env) = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(pairs_of(&[("HTTPS_PROXY", "http://env.corp:8080")])),
+        Some(&setting),
+    )
+    .expect("the plan must be valid");
+    assert_eq!(from_env.described().as_deref(), Some("env.corp:8080"));
+}
+
+#[test]
+fn the_download_log_names_the_system_proxy_and_its_origin() {
+    let setting = setting(Some("proxy.corp:3128"), None, &[]);
+    let url = "https://github.com/o/r/asset.zip";
+    let label = proxy_label_with(url, &env_of(Vec::new()), Some(&setting));
+    assert_eq!(
+        log_line(url, label.as_deref()),
+        "GET https://github.com/o/r/asset.zip via proxy proxy.corp:3128 (macOS system proxy)"
+    );
+}
+
+/// A Mac set to SOCKS has no proxy this client can use, so the failure has to say why instead of
+/// leaving the person to guess that the NuGet feed is down.
+#[test]
+fn a_failure_with_socks_names_the_setting_and_the_way_out() {
+    let message = describe_via(
+        "https://api.nuget.org/v3/index.json",
+        "Transport(ConnectionFailed)",
+        None,
+        Some("a SOCKS proxy"),
+    );
+    assert!(message.contains("a SOCKS proxy"), "{message}");
+    assert!(message.contains("does not support"), "{message}");
+    assert!(message.contains("HTTPS_PROXY"), "{message}");
+}
+
+#[test]
+fn a_failure_with_a_pac_file_names_the_setting() {
+    let message = describe_via(
+        "https://api.nuget.org/v3/index.json",
+        "Transport(ConnectionFailed)",
+        None,
+        Some("automatic proxy configuration (PAC/WPAD)"),
+    );
+    assert!(
+        message.contains("automatic proxy configuration (PAC/WPAD)"),
+        "{message}"
+    );
+    assert!(message.contains("HTTPS_PROXY"), "{message}");
+}
+
+/// A value from the system settings that the client cannot use names the settings, not a variable
+/// the person never set.
+#[test]
+fn an_unusable_system_proxy_names_the_system_settings() {
+    let setting = setting(Some("[::1]:8080"), None, &[]);
+    let error = plan(
+        "https://api.nuget.org/v3/index.json",
+        &env_of(Vec::new()),
+        Some(&setting),
+    )
+    .unwrap_err();
+    assert!(error.contains("macOS system proxy"), "{error}");
+    assert!(error.contains("IPv6"), "{error}");
+    assert!(!error.contains("HTTPS_PROXY"), "{error}");
 }
