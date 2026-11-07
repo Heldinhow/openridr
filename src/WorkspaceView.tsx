@@ -55,6 +55,7 @@ import { Splitter } from "./Splitter";
 import { BottomToolWindow } from "./shell/BottomToolWindow";
 import { MidText } from "./shell/MidText";
 import { StatusBar } from "./shell/StatusBar";
+import { ToolbarMenu } from "./shell/ToolbarMenu";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
 import { FindAction, type SearchTab } from "./actions/FindAction";
 import { FindInFiles } from "./FindInFiles";
@@ -4279,29 +4280,38 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       <div className="toolbar">
         <button type="button" className="toolbar-icon-button nav-button" data-testid="nav-back" disabled={backAction.disabledReason !== null} aria-label="Back" title={backAction.disabledReason ?? `Back (${backAction.shortcutTexts.join(" or ")})`} onClick={backAction.execute}><Icon name="back" /></button>
         <button type="button" className="toolbar-icon-button nav-button" data-testid="nav-forward" disabled={forwardAction.disabledReason !== null} aria-label="Forward" title={forwardAction.disabledReason ?? `Forward (${forwardAction.shortcutTexts.join(" or ")})`} onClick={forwardAction.execute}><Icon name="forward" /></button>
-        <details className="toolbar-menu project-menu" onKeyDown={(event) => {
-          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
-        }}>
-          <summary className="workspace-brand" title={workspace.path} data-testid="toolbar-project" aria-label={`Project: ${workspace.name}. Open recent solutions.`}>
-            <span className="project-badge" aria-hidden="true">{workspace.name.slice(0, 2).toUpperCase()}</span><strong><MidText text={workspace.name} /></strong><Icon name="chevron" />
-          </summary>
-          <div className="menu-content" data-testid="toolbar-project-menu">
-            <span className="menu-heading">Recent solutions</span>
-                        {recentSolutions.map((solution, index) => (
-              <button
-                key={solution}
-                type="button"
-                data-testid={`recent-solution-${index}`}
-                aria-current={solution === workspace.path ? "true" : undefined}
-                title={solution}
-                onClick={() => void openSolution(solution)}
-              >
-                {baseName(solution)}{solution === workspace.path ? " (current)" : ""}
-              </button>
-            ))}
-            {recentSolutions.length === 0 && <span className="menu-note">No recent solutions.</span>}
-          </div>
-        </details>
+        <ToolbarMenu
+          className="toolbar-menu project-menu"
+          triggerClassName="workspace-brand"
+          triggerTestId="toolbar-project"
+          contentTestId="toolbar-project-menu"
+          label={`Project: ${workspace.name}. Open recent solutions.`}
+          title={workspace.path}
+          trigger={
+            <>
+              <span className="project-badge" aria-hidden="true">{workspace.name.slice(0, 2).toUpperCase()}</span><strong><MidText text={workspace.name} /></strong><Icon name="chevron" />
+            </>
+          }
+        >
+          {() => (
+            <>
+              <span className="menu-heading">Recent solutions</span>
+              {recentSolutions.map((solution, index) => (
+                <button
+                  key={solution}
+                  type="button"
+                  data-testid={`recent-solution-${index}`}
+                  aria-current={solution === workspace.path ? "true" : undefined}
+                  title={solution}
+                  onClick={() => void openSolution(solution)}
+                >
+                  {baseName(solution)}{solution === workspace.path ? " (current)" : ""}
+                </button>
+              ))}
+              {recentSolutions.length === 0 && <span className="menu-note">No recent solutions.</span>}
+            </>
+          )}
+        </ToolbarMenu>
         <BranchWidget
           status={gitStatus}
           statusError={gitStatusError}
