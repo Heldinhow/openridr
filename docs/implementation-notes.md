@@ -1806,6 +1806,22 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Prova de UI:** `docs/evidence/git-network-cancel.md` (Playwright no modo web, só o spec do Git, com o slot do E2E — decisão “A superfície de verificação de UI segue o que mudou”, 2026-11-07).
 - **Não verificado:** Windows e macOS Intel; o app Tauri real com `agent-desktop` (opcional pela regra nova, não rodado); cancelar o merge local do Update (fora de escopo por decisão da #136).
 
+## Git do host sem o lock opcional do índice (2026-11-07, #254)
+
+- **O conserto.** Os quatro spawns de `git` do host (`crates/host/src/git.rs`: `info`, `spawn_bytes`, `spawn_bounded`, `run_with_deadline`) passam `GIT_OPTIONAL_LOCKS=0`, no mesmo estilo do `GIT_TERMINAL_PROMPT=0` que já estava lá. O que fica desligado é só o lock **opcional** — a atualização do stat cache do índice pelo `git status`; `add`, `commit`, `checkout` e `push` continuam pegando o lock de verdade.
+- **Por que o teste usa um shim.** `git status` degrada em silêncio quando não consegue o lock (medido com `.git/index.lock` presente, índice read-only e `.git` read-only: exit 0 nos três), então o env do filho é a única observação determinística. O leaf `git::tests::git_runs_do_not_take_the_optional_index_lock_isolated` põe um `git` de mentira primeiro no `PATH` que grava `GIT_OPTIONAL_LOCKS` num arquivo e executa o git real; o wrapper roda por `run_isolated_leaf` porque o leaf reescreve `PATH`.
+- **Falha-antes medida.** Sem o `.env("GIT_OPTIONAL_LOCKS", "0")` do `spawn_bytes` (e antes do conserto, nos quatro), o arquivo do shim fica com linhas vazias e o teste reprova com `GIT_OPTIONAL_LOCKS reached git as ["", "", "", "", "0"]` — as cinco execuções são `rev-parse` ×2, `status`, `remote` e `--version`.
+- **Bateria.** `cargo test -p openridr-host` 470 passed / 0 failed na lib (e os demais alvos verdes); `cargo clippy --workspace --all-targets -- -D warnings` limpo; `cargo fmt --all` aplicado; `bun run check` limpo; `bunx playwright test tests/e2e/solution-git-status.spec.ts` 3 passed (42,3 s) nas portas 1820/4717.
+- **Não verificado:** a taxa de `index.lock` antes/depois no spec (medida pela sessão-mãe, não por esta); Windows e macOS Intel.
+
+## Glifo único na linha de symlink (2026-11-07, #250)
+
+- **O conserto.** `TreeRow` desenha o glifo de corrente como ícone da linha quando ela é `symlink` e **não** recebe ícone próprio, e o badge de canto só quando é `symlink` **e** recebe ícone próprio (o arquivo de fonte avaliada, que mantém o glifo de arquivo). Os dois call sites do `SolutionTree` — pasta symlink no modo normal e entrada da listagem "Show all files" — deixaram de passar `icon={<Icon name="link" …/>}` à mão. Sem prop nova, sem `data-testid` novo, sem mudança no host.
+- **Causa raiz.** A linha desenhava os dois glifos desde o #49: o ícone passado à mão e o badge do `TreeRow`. O spec E2E do #49, escrito mas nunca executado naquela sessão, contava `.icon-link` = 1 — por isso o smoke noturno ficou vermelho de forma determinística, reproduzida local nas portas 1820/4717 com `Expected: 1, Received: 2`.
+- **Spec endurecido.** Além de `.icon-link` = 1 na linha do link de pasta, ela afirma `.symlink-mark` = 0; a linha do arquivo symlink avaliado continua com um `.symlink-mark`.
+- **Bateria.** `bun run check` limpo; `bun test tests/unit` 112 passed; `bunx playwright test tests/e2e/solution-git-status.spec.ts` 3 passed nas portas 1820/4717 (falha-antes medida antes do conserto, mesmo assert).
+- **Não verificado:** o app Tauri real (mudança de UI pura, sem nada de shell nativo); Windows e macOS Intel.
+
 ## Espaço livre no `doctor.sh` (2026-11-07, #259; ticket #267)
 
 - **O que é.** Uma linha nova no `doctor.sh` do skill `verify-openridr` com o espaço livre em MiB no
