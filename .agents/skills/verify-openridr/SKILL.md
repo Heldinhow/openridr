@@ -25,7 +25,7 @@ Comece por A (barata). Use B quando faltar spec. Use C só para o que A/B não a
 sh .agents/skills/verify-openridr/scripts/doctor.sh [caminho/OpenRidr.app]
 ```
 
-Valida o bundle passado como argumento, ou `$OPENRIDR_APP`, ou `/Applications/OpenRidr.app`; imprime sempre **qual** caminho validou. Checa bun, cargo, `node_modules` (worktree nova não tem: `bun install`), SDK `8.0.408` (as fixtures fixam, `rollForward: disable`), Chrome, portas ocupadas, versão do bundle vs `package.json`, Acessibilidade e Gravação de Tela do agent-desktop. `FAIL` = resolva antes. `note` = leia.
+Valida o bundle passado como argumento, ou `$OPENRIDR_APP`, ou `/Applications/OpenRidr.app`; imprime sempre **qual** caminho validou. Checa bun, cargo, `node_modules` (worktree nova não tem: `bun install`), SDK `8.0.408` (as fixtures fixam, `rollForward: disable`), o espaço livre em MiB no volume de `${TMPDIR:-/tmp}` — `ok` a partir de 3072 MiB, `note` entre 1024 e 3071, `FAIL` abaixo de 1024, porque até 4 sessões em paralelo gastam ~200 MiB de app home de E2E cada mais caches —, Chrome, portas ocupadas, versão do bundle vs `package.json`, Acessibilidade e Gravação de Tela do agent-desktop. `FAIL` = resolva antes. `note` = leia.
 
 Superfície C exige: **tela do Mac desbloqueada e acordada**, **Acessibilidade concedida** ao app que roda o agent-desktop (senão `accessibility: denied` no `agent-desktop status`; `agent-desktop permissions --guide` abre os Ajustes, ação do usuário) e Gravação de Tela para `screenshot`.
 
