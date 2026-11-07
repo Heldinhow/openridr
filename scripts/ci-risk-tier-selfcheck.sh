@@ -427,6 +427,33 @@ TOML
 commit pull-request-changes-unparseable-value
 diverged_manifest cargo-unparseable-value high unparseable-base HEAD
 
+# A valid indented header with a trailing comment must NOT make the manifest unparseable: with the
+# dependencies unchanged, bumping `version` stays medium. (Before the fix the guard saw
+# `  [dependencies]` as a broken header and reported high for every change to the file.)
+write Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+  [dependencies] # runtime dependencies
+serde = "1"
+TOML
+commit seed-indented-comment-table
+git -C "$repo" checkout -q -b indented-comment-base
+git -C "$repo" checkout -q -
+write Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.3.0"
+edition = "2021"
+
+  [dependencies] # runtime dependencies
+serde = "1"
+TOML
+commit pull-request-bumps-only-the-version
+diverged_manifest cargo-indented-header-comment medium indented-comment-base HEAD
+
 # --- errors: a caller bug is never "low" ------------------------------------------------------------
 
 expect_exit() { # <name> <expected exit> <args>...

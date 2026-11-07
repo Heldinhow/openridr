@@ -63,6 +63,8 @@ toml_is_parseable() {
   awk '
     /^[ \t]*\[/ {
       header = $0
+      # Whitespace before a table header is legal TOML: strip it before judging the shape.
+      sub(/^[ \t]+/, "", header)
       sub(/[ \t]+#.*$/, "", header)
       sub(/[ \t]+$/, "", header)
       if (header !~ /^\[\[?[^][]*\]\]?$/) bad = 1
@@ -81,6 +83,7 @@ toml_deps() {
       sub(/\r$/, "", line)
       if (line ~ /^[ \t]*\[/) {
         name = line
+        sub(/^[ \t]+/, "", name)
         sub(/[ \t]+#.*$/, "", name)
         sub(/[ \t]+$/, "", name)
         sub(/^\[+/, "", name)

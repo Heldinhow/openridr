@@ -12,11 +12,12 @@ Ambiente: macOS Apple Silicon, `bun 1.3.9`, `rustc 1.99.0`, SDK .NET 8.0.408, `g
 
 | Prova | Resultado |
 |---|---|
-| `sh scripts/ci-risk-tier-selfcheck.sh` | **44 casos, 44 ok** |
-| Mesmo autoteste com `dash` (o `/bin/sh` do runner) | **44 casos, 44 ok** |
-| Falha-antes: stub `echo low` no lugar do script | **33 de 44 falham**, inclusive os três `err-*` |
+| `sh scripts/ci-risk-tier-selfcheck.sh` | **45 casos, 45 ok** |
+| Mesmo autoteste com `dash` (o `/bin/sh` do runner) | **45 casos, 45 ok** |
+| Falha-antes: stub `echo low` no lugar do script | **33 de 45 falham**, inclusive os três `err-*` |
 | Falha-antes da rodada 1: o script anterior aos três consertos | **3 de 44 falham** (`cargo-target-dep`, `cargo-same-dependency-both-sides`, `cargo-unparseable-value`) |
 | Falha-antes da rodada 2: o script anterior ao conserto do header indentado | **1 de 44 falha** (`cargo-indented-header`: esperado `high`, veio `medium`) |
+| Falha-antes da rodada 3: o script anterior ao conserto do header indentado **com comentário** | **1 de 45 falha** (`cargo-indented-header-comment`: esperado `medium`, veio `high`) |
 | `sh scripts/ci-risk-tier.sh origin/main HEAD` no branch | `high`, com os motivos: `.github/workflows/ci.yml` (CI), `AGENTS.md` (processo), `scripts/ci-*` (CI), e os docs como `low` |
 
 Casos cobertos: uma família de caminho por caso (`docs/**`, `*.md` na raiz, `AGENTS.md`, `*.css`,
@@ -197,6 +198,24 @@ Re-check (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre o commit de
 | Dois fixtures de mesmo nome se sobrescreviam | média | a normalização derivava o caminho do `basename` | dois caminhos fixos e distintos; caso `same-basename-different-dirs` (falha-antes) |
 
 O que o re-check confirmou correto, sem ressalva: `commit_id == head` rejeita aprovação de revisão anterior e `commit_id` nulo; redução por revisor com aprovações repetidas e paginação fora de ordem; manifesto no merge base (adicionado/deletado falha fechado); `jq -s 'add // []'` para um array, vários, vazio e escalar; rolagem de dezembro e fevereiro bissexto; aviso de auto-merge e mês posicional.
+
+## Revisão independente (rodada 3) — o bootstrap vira código testado
+
+Re-check (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre `92c5498`. Veredito: **findings, zero alto** — os dois altos da rodada 2 confirmados corrigidos — e três médios.
+
+| Achado | Severidade | O que era | Correção e prova |
+|---|---|---|---|
+| A regra inline de aprovação rodava por página | média | `gh api --paginate --jq` aplica o filtro por página: com >30 reviews o teste numérico recebia `"1\n0"`; e a regra não olhava o tier, então PR low/medium exigiria aprovação se só o gate faltasse | páginas baixadas inteiras + `jq -s 'add // []'` + filtro uma vez; `case "$TIER"` igual ao script. Testes `gate-approval-on-second-page`, `gate-withdrawn-across-pages`, `gate-low/medium-no-approval-needed` |
+| O guard do TOML validava o cabeçalho com a indentação | média | `  [dependencies] # comment` é válido, mas virava ilegível → todo PR de dependência alto | espaço à esquerda removido antes de validar e de extrair o nome; caso `cargo-indented-header-comment` = `medium` (falha-antes: `high`) |
+| `git show` de blob vazio "dava certo" | média (fail-open) | `sh` num arquivo vazio sai 0: o agregador ficaria verde sem olhar `needs`; symlink não era validado | extração exige modo `100644`/`100755` e tamanho > 0; senão, regra inline. Testes `blob-empty`, `blob-symlink`, `blob-tree`, `blob-missing` |
+
+**A política de bootstrap agora é código testado.** Ela vive no YAML porque não pode vir do PR; `tests/shell/ci-workflow-bootstrap.test.sh` extrai os três blocos marcados (checagem de blob, regra do gate, regra do agregador) e os executa com `gh` de mentira — **25 casos**. Três mutações provam que o teste morde:
+
+| Mutação | Casos que caem |
+|---|---|
+| filtro por página (o bug da rodada 3) | `gate-approval-on-second-page` |
+| sem o `case "$TIER"` | `gate-low-no-approval-needed`, `gate-medium-no-approval-needed`, `gate-unknown-tier` |
+| sem a checagem de modo/tamanho do blob | `blob-symlink` |
 
 ## verify-openridr
 

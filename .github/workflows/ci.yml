@@ -219,15 +219,34 @@ jobs:
           # When the base revision has no copy (the pull request that introduces them) the job does **not**
           # fall back to the pull request's script: it uses the fixed policy written in this file instead
           # (tier forced to high, inline approval check). A warning is not a gate.
+          # --- trusted blob check (tested by tests/shell/ci-workflow-bootstrap.test.sh) ---
+          # A blob is usable only when it is a regular file (not a symlink, not a tree) and is not empty:
+          # `git show` of an empty blob succeeds, and `sh` on an empty file exits 0, which would turn a
+          # missing policy into a passing one.
+          trusted_blob() { # <rev> <path> <destination>
+            entry=$(git ls-tree "$1" -- "$2" 2>/dev/null) || return 1
+            mode=$(printf '%s' "$entry" | awk '{print $1}')
+            case "$mode" in
+              100644 | 100755) ;;
+              *) return 1 ;;
+            esac
+            size=$(git cat-file -s "$1:$2" 2>/dev/null) || return 1
+            [ "${size:-0}" -gt 0 ] || return 1
+            git show "$1:$2" >"$3" 2>/dev/null || return 1
+            [ -s "$3" ] || return 1
+            return 0
+          }
+          # --- end trusted blob check ---
+
           mkdir -p "$RUNNER_TEMP/trusted/scripts"
           bootstrap=0
           for name in ci-risk-tier.sh ci-risk-gate.sh; do
-            if git show "origin/$BASE_REF:scripts/$name" >"$RUNNER_TEMP/trusted/scripts/$name" 2>/dev/null; then
+            if trusted_blob "origin/$BASE_REF" "scripts/$name" "$RUNNER_TEMP/trusted/scripts/$name"; then
               echo "scripts/$name: from origin/$BASE_REF"
             else
               rm -f "$RUNNER_TEMP/trusted/scripts/$name"
               bootstrap=1
-              echo "::warning::origin/$BASE_REF has no scripts/$name: this run uses the fixed bootstrap policy in the workflow file, never the copy from this pull request"
+              echo "::warning::origin/$BASE_REF has no usable scripts/$name: this run uses the fixed bootstrap policy in the workflow file, never the copy from this pull request"
             fi
           done
           echo "bootstrap=$bootstrap" >>"$GITHUB_OUTPUT"
@@ -246,7 +265,7 @@ jobs:
         run: |
           # Fail closed: a tier that cannot be computed is the highest one, never the lowest.
           classifier="$RUNNER_TEMP/trusted/scripts/ci-risk-tier.sh"
-          if [ ! -f "$classifier" ]; then
+          if [ ! -s "$classifier" ]; then
             # Bootstrap: the base revision has no classifier, and the pull request's copy is not trusted.
             tier=high
             echo 'the base revision has no risk classifier; failing closed to high' >"$RUNNER_TEMP/risk-reasons.txt"
@@ -302,23 +321,44 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           gate="$RUNNER_TEMP/trusted/scripts/ci-risk-gate.sh"
-          if [ -f "$gate" ]; then
+          if [ -s "$gate" ]; then
             sh "$gate"
             exit $?
           fi
-          # Bootstrap: the base revision has no gate script yet. The rule below is fixed in this file and
-          # is the same one scripts/ci-risk-gate.sh implements — the latest decision per reviewer, a review
-          # APPROVED on this exact commit, from someone with write access. The pull request's copy of the
-          # script is never executed; in this situation the tier is forced to high.
-          filter='[.[] | select(.state | IN("APPROVED","CHANGES_REQUESTED","DISMISSED"))]
-                  | group_by(.user.login)
-                  | map(max_by(.submitted_at))
-                  | map(select(.state == "APPROVED"
-                      and .commit_id == "'"$HEAD_SHA"'"
-                      and (.author_association | IN("OWNER","MEMBER","COLLABORATOR"))))
-                  | length'
-          if ! approved=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" --jq "$filter"); then
+          # --- bootstrap gate rule (tested by tests/shell/ci-workflow-bootstrap.test.sh) ---
+          # The base revision has no usable gate script yet. The rule below is fixed in this file and is the
+          # same one scripts/ci-risk-gate.sh implements — the latest decision per reviewer, a review
+          # APPROVED on this exact commit, from someone with write access — including its tier handling: a
+          # low or medium pull request needs no approval. The pull request's copy of the script is never
+          # executed; in this situation the tier is forced to high.
+          case "$TIER" in
+            low | medium)
+              echo "risk gate (bootstrap): $TIER risk needs no maintainer approval"
+              exit 0
+              ;;
+            high) ;;
+            *)
+              echo "risk gate: '$TIER' is not a risk tier" >&2
+              exit 2
+              ;;
+          esac
+          # `gh api --paginate --jq` applies the filter to each page and prints one result per page, so the
+          # pages are fetched whole and reduced once. A multi-page review history must not read as "no
+          # approval" (or break the numeric test with "1\n0").
+          pages="$RUNNER_TEMP/reviews.json"
+          if ! gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" >"$pages"; then
             echo '::error::risk gate: could not read the reviews of this pull request'
+            exit 2
+          fi
+          if ! approved=$(jq -s 'add // []' "$pages" | jq --arg head "$HEAD_SHA" '
+                [.[] | select(.state | IN("APPROVED","CHANGES_REQUESTED","DISMISSED"))]
+                | group_by(.user.login)
+                | map(max_by(.submitted_at))
+                | map(select(.state == "APPROVED"
+                    and .commit_id == $head
+                    and (.author_association | IN("OWNER","MEMBER","COLLABORATOR"))))
+                | length'); then
+            echo '::error::risk gate: the review list is not JSON'
             exit 2
           fi
           if [ "${approved:-0}" -gt 0 ]; then
@@ -327,6 +367,7 @@ jobs:
           fi
           echo "::error::high-risk pull request: it needs an approval from the maintainer of the current revision ($HEAD_SHA). Approve the pull request, then re-run the failed jobs with: gh run rerun --failed <run-id>"
           exit 1
+          # --- end bootstrap gate rule ---
 
       - name: Arm auto-merge for a low-risk pull request
         if: steps.tier.outputs.tier == 'low'
@@ -398,18 +439,33 @@ jobs:
           # base revision; when the base has no copy (the pull request that introduces it) the rule below
           # runs instead — fixed in this file, never the pull request's script.
           script=scripts/ci-aggregate.sh
-          if [ "$EVENT" = pull_request ] && git show "origin/$BASE_REF:$script" >"$RUNNER_TEMP/aggregate.sh" 2>/dev/null; then
-            script=$RUNNER_TEMP/aggregate.sh
-          elif [ "$EVENT" = pull_request ]; then
-            # The name is spelled out: `$script` is cleared below, and a message that reads "has no ;" is
-            # worse than no message.
-            echo "::warning::origin/$BASE_REF has no scripts/ci-aggregate.sh; using the fixed bootstrap rule in the workflow file"
-            script=
+          if [ "$EVENT" = pull_request ]; then
+            # Same check as the risk job: a regular, non-empty blob from the base revision, never the pull
+            # request's copy. `git show` of an empty blob succeeds and `sh` on an empty file exits 0, which
+            # would make the required check green without looking at `needs`.
+            entry=$(git ls-tree "origin/$BASE_REF" -- "$script" 2>/dev/null) || entry=
+            mode=$(printf '%s' "$entry" | awk '{print $1}')
+            size=$(git cat-file -s "origin/$BASE_REF:$script" 2>/dev/null) || size=0
+            case "$mode" in
+              100644 | 100755) usable=1 ;;
+              *) usable=0 ;;
+            esac
+            if [ "$usable" = 1 ] && [ "${size:-0}" -gt 0 ] &&
+              git show "origin/$BASE_REF:$script" >"$RUNNER_TEMP/aggregate.sh" 2>/dev/null &&
+              [ -s "$RUNNER_TEMP/aggregate.sh" ]; then
+              script=$RUNNER_TEMP/aggregate.sh
+            else
+              # The name is spelled out: `$script` is cleared below, and a message that reads "has no ;" is
+              # worse than no message.
+              echo "::warning::origin/$BASE_REF has no usable scripts/ci-aggregate.sh; using the fixed bootstrap rule in the workflow file"
+              script=
+            fi
           fi
           if [ -n "$script" ]; then
             sh "$script"
             exit $?
           fi
+          # --- bootstrap aggregate rule (tested by tests/shell/ci-workflow-bootstrap.test.sh) ---
           # Bootstrap rule: the same contract as scripts/ci-aggregate.sh (which is the source of truth once
           # it is on main) — no empty `needs`, every PR-only job present on a pull request, and no job that
           # is not `success` unless it is PR-only and skipped outside a pull request.
@@ -442,3 +498,4 @@ jobs:
             exit 1
           fi
           echo "aggregate: every required job passed ($EVENT)"
+          # --- end bootstrap aggregate rule ---
