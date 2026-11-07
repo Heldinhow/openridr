@@ -153,7 +153,11 @@ function unavailable(status: GitStatus | null, error: string | null): string | n
 function cleanReason(status: GitStatus | null): string | null {
   if (!status || status.state !== "ok") return null;
   if (status.operation) {
-    return `A ${status.operation} is in progress; finish or abort it before checking out or updating.`;
+    // Only a merge can be finished or aborted from the app (#114); the others are named as a
+    // terminal job instead of promising a button that does not exist.
+    return status.operation === "merge"
+      ? "A merge is in progress; finish or abort it from the branch menu before checking out or updating."
+      : `A ${status.operation} is in progress; finish or abort it in a terminal before checking out or updating.`;
   }
   if (!status.clean) {
     return "The working tree has uncommitted changes; commit them first. OpenRidr does not auto-stash.";
@@ -258,7 +262,7 @@ export function BranchWidget({
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [dialog, setDialog] = useState<"update" | "push" | null>(null);
+  const [dialog, setDialog] = useState<"update" | "push" | "mergeAbort" | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -442,6 +446,25 @@ export function BranchWidget({
 
   const remote = status.upstream?.split("/")[0] ?? status.remotes[0] ?? null;
 
+  async function confirmMergeAbort() {
+    setDialogBusy(true);
+    setDialogError(null);
+    try {
+      const result = await call<GitOperation>("git.mergeAbort");
+      if (result.state === "ok") {
+        onMessage(result.message ?? "Merge aborted.");
+        setDialog(null);
+      } else {
+        setDialogError(result.message ?? "git merge --abort failed.");
+      }
+      await Promise.all([onRefresh(), loadBranches()]);
+    } catch (caught) {
+      setDialogError(messageOf(caught));
+    } finally {
+      setDialogBusy(false);
+    }
+  }
+
   async function confirmPush() {
     setDialogBusy(true);
     setDialogError(null);
@@ -512,6 +535,21 @@ export function BranchWidget({
               : "No upstream"}
             {status.operation ? ` · ${status.operation} in progress` : ""}
           </span>
+          {status.operation === "merge" && (
+            <div className="branch-actions" data-testid="branch-merge">
+              <span className="menu-note" data-testid="branch-merge-note">
+                A merge is in progress: resolve the conflicts in the editor, then abort it here.
+              </span>
+              <button
+                type="button"
+                data-testid="branch-merge-abort"
+                disabled={busy}
+                onClick={() => { setDialogError(null); setDialog("mergeAbort"); }}
+              >
+                Abort merge…
+              </button>
+            </div>
+          )}
           <input
             className="branch-search"
             data-testid="branch-search"
@@ -685,6 +723,28 @@ export function BranchWidget({
                 {dialogBusy ? "Updating…" : "Update"}
               </button>
               <button type="button" data-testid="update-cancel" onClick={() => setDialog(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dialog === "mergeAbort" && (
+        <div className="modal-backdrop">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-abort-title" data-testid="merge-abort-dialog" onKeyDown={dialogKeyDown}>
+            <h2 id="merge-abort-title">Abort merge</h2>
+            <p className="hint">
+              Undoes the merge: the branch, index and working tree go back to where they were
+              before it. Conflict resolutions and anything staged during the merge are discarded;
+              your commits stay.
+            </p>
+            {dialogError && (
+              <p className="error" role="alert" data-testid="merge-abort-error">{dialogError}</p>
+            )}
+            <div className="actions">
+              <button type="button" data-testid="merge-abort-confirm" autoFocus disabled={dialogBusy} onClick={() => void confirmMergeAbort()}>
+                {dialogBusy ? "Aborting…" : "Abort merge"}
+              </button>
+              <button type="button" data-testid="merge-abort-cancel" onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>

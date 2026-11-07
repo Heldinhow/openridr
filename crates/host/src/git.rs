@@ -2452,6 +2452,58 @@ fn abort_conflicting_merge(repo: &Repo, status: &GitStatus) -> String {
     }
 }
 
+/// Aborts the merge in progress: `git merge --abort` puts the branch, index and working tree back
+/// where they were before the merge. Only a merge is offered here; a rebase, cherry-pick or revert
+/// in progress is refused and left to a terminal (#114 scope).
+pub fn merge_abort(root: &Path) -> HostResult<Operation> {
+    let repo = require_repo(root)?;
+    let status = read_status(&repo).map_err(|message| HostError::new("git_failed", message))?;
+    match status.operation {
+        Some("merge") => {}
+        Some(operation) => {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "Abort refused: a {operation} is in progress, and OpenRidr only aborts a merge. Finish or abort it in a terminal."
+                ),
+            ))
+        }
+        None => {
+            return Err(HostError::new(
+                "invalid_state",
+                "Abort refused: no merge is in progress; nothing was aborted.",
+            ))
+        }
+    }
+    let output = run(&repo.top, &["merge", "--abort"])
+        .map_err(|error| HostError::new("git_failed", spawn_message(error)))?;
+    let text = format!("{}{}", output.stdout, output.stderr);
+    if !output.ok() {
+        let stderr = mask_urls(output.stderr.trim());
+        return Ok(operation(
+            "failed",
+            Some(if stderr.is_empty() {
+                "git merge --abort failed without output; the merge is still in progress.".to_string()
+            } else {
+                format!("Abort failed; the merge is still in progress. {}", tail(&stderr))
+            }),
+            &text,
+            &repo,
+            None,
+        ));
+    }
+    Ok(operation(
+        "ok",
+        Some(
+            "Merge aborted; the branch, index and working tree are back to where they were before the merge."
+                .to_string(),
+        ),
+        &text,
+        &repo,
+        None,
+    ))
+}
+
 fn remotes(repo: &Repo) -> Vec<String> {
     run(&repo.top, &["remote"])
         .map(|output| {
@@ -3545,6 +3597,74 @@ mod tests {
             .split_whitespace()
             .count()
             - 1
+    }
+
+    /// A repository mid-merge: both sides changed `a.txt`, so the merge conflicts on purpose and
+    /// its exit status is expected to be non-zero.
+    fn conflicted_merge(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let (temp, root) = init(name);
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+        git(&root, &["checkout", "-qb", "other"]);
+        fs::write(root.join("a.txt"), "other\n").unwrap();
+        commit_all(&root, "other");
+        git(&root, &["checkout", "-q", "main"]);
+        fs::write(root.join("a.txt"), "main\n").unwrap();
+        commit_all(&root, "main");
+        let _ = Command::new("git")
+            .args(["merge", "other"])
+            .current_dir(&root)
+            .output()
+            .expect("git runs");
+        assert!(
+            root.join(".git/MERGE_HEAD").exists(),
+            "the merge is in progress"
+        );
+        (temp, root)
+    }
+
+    #[test]
+    fn merge_abort_restores_the_state_before_the_merge() {
+        let (_temp, root) = conflicted_merge("repo");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        let count = git(&root, &["rev-list", "--count", "HEAD"])
+            .trim()
+            .to_string();
+        // A half-finished resolution must not survive the abort.
+        fs::write(root.join("a.txt"), "resolved by hand\n").unwrap();
+
+        let result = merge_abort(&root).unwrap();
+
+        assert_eq!(result.state, "ok", "{:?}", result.message);
+        assert!(!root.join(".git/MERGE_HEAD").exists());
+        assert_eq!(git(&root, &["rev-parse", "HEAD"]).trim(), head);
+        assert_eq!(git(&root, &["rev-list", "--count", "HEAD"]).trim(), count);
+        assert_eq!(git(&root, &["status", "--porcelain"]).trim(), "");
+        assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "main\n");
+        assert!(git(&root, &["ls-files", "-u"]).trim().is_empty());
+        assert_eq!(result.status.operation, None);
+        assert!(
+            result.message.unwrap_or_default().contains("Merge aborted"),
+            "the message says what happened"
+        );
+    }
+
+    #[test]
+    fn merge_abort_refuses_without_a_merge_and_for_another_operation() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        commit_all(&root, "initial");
+
+        let nothing = merge_abort(&root).unwrap_err();
+        assert_eq!(nothing.code, "invalid_state");
+        assert!(nothing.message.contains("no merge is in progress"));
+
+        // The app only aborts a merge; another operation is named and left alone.
+        fs::create_dir_all(root.join(".git/rebase-merge")).unwrap();
+        let rebase = merge_abort(&root).unwrap_err();
+        assert_eq!(rebase.code, "invalid_state");
+        assert!(rebase.message.contains("only aborts a merge"), "{}", rebase.message);
+        assert!(root.join(".git/rebase-merge").exists());
     }
 
     #[test]

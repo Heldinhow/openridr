@@ -110,6 +110,7 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "git.pull",
     "git.fetch",
     "git.push",
+    "git.mergeAbort",
     "git.info",
     "nuget.list",
     "nuget.planUpdate",
@@ -711,6 +712,9 @@ impl Host {
         }
         if method == "git.push" {
             return self.git_push(params);
+        }
+        if method == "git.mergeAbort" {
+            return self.git_merge_abort();
         }
         if method == "git.info" {
             return self.git_info();
@@ -6099,6 +6103,15 @@ impl Host {
         let root = self.workspace_root()?;
         let answer = git::push(&root, &params)?;
         Ok(serde_json::to_value(answer).expect("git push serializes"))
+    }
+
+    /// Aborts the merge in progress. Only a merge: rebase, cherry-pick and revert stay out of the
+    /// app's reach (#114), and the refusal names that.
+    fn git_merge_abort(&self) -> HostResult<Value> {
+        let _token = self.require_trust("git.mergeAbort")?;
+        let root = self.workspace_root()?;
+        let answer = git::merge_abort(&root)?;
+        Ok(serde_json::to_value(answer).expect("git mergeAbort serializes"))
     }
 
     /// Reports the `git` PATH would run; no repository is opened and nothing is changed.
