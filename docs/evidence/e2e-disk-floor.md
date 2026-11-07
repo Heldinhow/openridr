@@ -1,7 +1,8 @@
 # Evidência — o config do Playwright recusa a rodada abaixo do piso duro de disco (issue #270, ticket #287)
 
-Data: 2026-11-07. Ambiente: macOS Apple Silicon, par de portas 2525 (UI) / 5417 (host), `~/.dotnet` no
-`PATH`, volume do `$TMPDIR` com ~24.000 MiB livres.
+Data: 2026-11-07. Ambiente: macOS Apple Silicon, `~/.dotnet` no `PATH`, volume do `$TMPDIR` com ~24.000
+MiB livres. Par de portas: 2525 (UI) / 5417 (host) na implementação; 2525 (UI) / 5427 (host) na
+verificação da sessão, porque a 5417 estava ocupada por outra sessão.
 
 Spec: [SPEC-E2E-DISK-FLOOR](../SPEC-E2E-DISK-FLOOR.md). Ticket: #287 (filho de #270).
 
@@ -83,6 +84,64 @@ módulo mas sem a chamada no config, `7 pass / 2 fail` (os dois casos de subproc
 O stub também foi exercitado contra uma mudança de flags: trocar `df -Pk` por `df -k` no harness faz o
 stub recusar a invocação, a medição vira "unknown" e os dois casos de subprocesso reprovam — o teste não
 passa num stub que responde a qualquer coisa.
+
+## 6. Verificação da sessão, depois do merge (par 2525/5427)
+
+Rodei de novo, na integration branch, com o par conferido livre (`lsof` nas 2525 e 5427, mais a faixa
+derivada 5428–5434) e o `doctor.sh` verde (disco 21587 MiB livres).
+
+```sh
+# a) recusa, rodada real (não --list), com `cargo` e `bun` armadilha no PATH que criariam um sentinela
+env PATH="$scratch:$PATH" FAKE_DF_MIB=900 FAKE_DF_EXPECT="$TMPDIR" \
+  OPENRIDR_E2E_UI_PORT=2525 OPENRIDR_E2E_HOST_PORT=5427 \
+  bunx playwright test tests/e2e/environment.spec.ts
+# exit=1
+# Error: E2E refused: disk 900 MiB free on /var/folders/n4/.../T
+#   (under the 1024 MiB hard floor: up to 4 parallel sessions, ~200 MiB E2E home each + caches)
+#   at guardDiskFloor (tests/e2e/disk-floor.ts:61:41)
+#   at playwright.config.ts:7:1
+# nenhum sentinela CARGO-SPAWNED/BUN-SPAWNED: nenhum servidor foi spawnado
+
+# b) entre os pisos
+env PATH="$scratch:$PATH" FAKE_DF_MIB=1500 ... bunx playwright test --list
+# exit=0; stderr: note  disk 1500 MiB free on /var/folders/n4/.../T (under the 3072 MiB floor: ...)
+# Total: 312 tests in 64 files
+
+# c) acima do piso, df real
+OPENRIDR_E2E_UI_PORT=2525 OPENRIDR_E2E_HOST_PORT=5427 bunx playwright test --list
+# exit=0; nenhuma linha de disco
+
+# d) o harness sobe normal acima do piso
+OPENRIDR_E2E_UI_PORT=2525 OPENRIDR_E2E_HOST_PORT=5427 bunx playwright test tests/e2e/environment.spec.ts
+# 3 passed (1.4m) — host (cargo run) e Vite subiram, app home isolado conferido
+
+bun test tests/unit
+# 132 pass, 0 fail, 410 expect() calls, 18 files
+```
+
+O caso (a) é mais forte que o `--list` do item 1: é uma rodada de verdade, e os dois stubs de servidor
+provam que a recusa acontece **antes** de qualquer `cargo run` ou `bun run dev` — com o guarda no
+`globalSetup` os dois sentinelas existiriam.
+
+## 7. Achados do code review (corrigidos)
+
+- **Médio — o parser aceitava linha que não é `df`.** Qualquer segunda linha com uma quarta palavra
+  numérica virava MiB: `garbage\nfoo bar baz 0` dava `0` e **recusava** a rodada (contrariando o
+  fail-open), e um número de 400 dígitos virava `Infinity` e dava `ok` silencioso. Medido no código
+  anterior:
+
+  ```sh
+  bun -e 'const m = await import("/tmp/old-disk-floor.ts"); …'
+  # velho, linha lixo: 0
+  # velho, número gigante: Infinity
+  # velho, veredito do lixo: refuse
+  ```
+
+  O parser agora exige a forma de uma linha de dados de `df -Pk` (seis campos, `Available` só dígitos,
+  `Capacity` terminando em `%`) e um inteiro seguro; fora disso é desconhecido, nunca `0` nem `ok`. Dois
+  testes novos cobrem os dois casos (11 testes no arquivo).
+- **Baixo — o stub do `df` aceitava argumento extra.** Agora exige `$#` igual a 2: `df -Pk <dir> <outro>`
+  reprova, como o ticket pede.
 
 ## Não verificado
 

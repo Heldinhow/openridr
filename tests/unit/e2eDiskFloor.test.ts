@@ -44,6 +44,23 @@ describe("parseAvailableMib", () => {
       ),
     ).toBeUndefined();
   });
+
+  test("a line that is not a df row is unknown, even with a number in it", () => {
+    // A refusal on this line would break the fail-open promise: garbage must not read as 0 MiB.
+    expect(parseAvailableMib("garbage\nfoo bar baz 0")).toBeUndefined();
+    expect(
+      parseAvailableMib("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk9s1 1 0 4096 nope /"),
+    ).toBeUndefined();
+  });
+
+  test("a number too large to be a disk is unknown, not a silent ok", () => {
+    const huge = "9".repeat(400);
+    expect(
+      parseAvailableMib(
+        `Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk9s1 1 0 ${huge} 0% /`,
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("diskVerdict", () => {
@@ -90,7 +107,7 @@ function loadConfig(freeMib: number): { code: number; stderr: string } {
       [
         "#!/bin/sh",
         'dir=${2%/}',
-        'if [ "$1" != -Pk ] || [ "$dir" != "${FAKE_DF_EXPECT%/}" ]; then',
+        'if [ "$#" -ne 2 ] || [ "$1" != -Pk ] || [ "$dir" != "${FAKE_DF_EXPECT%/}" ]; then',
         '  printf \'unexpected df call: %s\\n\' "$*" >&2',
         "  exit 1",
         "fi",

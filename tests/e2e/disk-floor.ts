@@ -13,11 +13,18 @@ export const HARD_FLOOR_MIB = 1024;
 
 const FLOOR_CONTEXT = "up to 4 parallel sessions, ~200 MiB E2E home each + caches";
 
-/** Available column of `df -Pk` (1024-blocks) as whole MiB. No number is unknown, never 0. */
+/**
+ * Available column of `df -Pk` (1024-blocks) as whole MiB. Anything that is not a `df -Pk` data row
+ * is unknown, never 0: a garbage line with a numeric fourth word must not refuse the run, and a
+ * number too large to be a real disk must not read as `ok`.
+ */
 export function parseAvailableMib(output: string): number | undefined {
-  const available = output.split("\n")[1]?.trim().split(/\s+/)[3];
-  if (available === undefined || !/^\d+$/.test(available)) return undefined;
-  return Math.floor(Number(available) / 1024);
+  // filesystem, 1024-blocks, used, available, capacity (NN%), mount point
+  const fields = output.split("\n")[1]?.trim().split(/\s+/);
+  if (fields === undefined || fields.length < 6) return undefined;
+  if (!/^\d+$/.test(fields[3]) || !/^\d+%$/.test(fields[4])) return undefined;
+  const mib = Math.floor(Number(fields[3]) / 1024);
+  return Number.isSafeInteger(mib) ? mib : undefined;
 }
 
 export type DiskVerdict =
