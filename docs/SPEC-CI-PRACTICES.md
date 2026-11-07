@@ -16,7 +16,7 @@ infraestrutura:
 
 - **O type check aceita código morto.** `tsc --noEmit` passa com 0 erros hoje, mas com
   `noUnusedLocals` e `noUnusedParameters` ligados ele acusa **17** símbolos declarados e nunca lidos
-  (13 variáveis e 4 parâmetros, 4 deles em specs de E2E). Um deles é um prop `onChange` recebido e
+  (14 variáveis e 3 parâmetros, 5 deles em specs de E2E). Um deles é um prop `onChange` recebido e
   ignorado — o tipo de defeito que um agente produz em série e que nenhum check atual vê.
 - **`src-tauri` está fora do clippy e dos testes.** O job Rust roda `cargo fmt --manifest-path
   src-tauri/Cargo.toml` e mais nada: `src-tauri` é workspace separado, então `--workspace` não o
@@ -90,18 +90,18 @@ filtro de job por caminho, mudança de ruleset, e qualquer coisa em `release.yml
 
 | Prática da referência | Já existe no OpenRidr? | Decisão |
 |---|---|---|
-| Separação de lint/build/typecheck/testes (T3 Code) | Sim: jobs `typescript` e `rust` separados | **Nada a fazer** |
-| Verificação de dependência não usada (T3 Code) | Não | **Adiado**: `knip` medido uma vez (2 famílias de dependência não usadas, 3 importadas sem declarar, 8 exports e 7 tipos sem uso); adotar é dependência nova. As 3 sem declarar viram issue filha. |
+| Separação de lint/build/typecheck/testes (T3 Code) | Parcial: jobs `typescript` (tsc + unit) e `rust` (fmt, clippy, testes) separados; **nenhum job roda `vite build`** | **Nada a fazer nesta frente**: o tipo é coberto pelo `tsc --noEmit` que já roda; o build da UI nunca rodou no CI — residual declarado, não fechado aqui |
+| Verificação de dependência não usada (T3 Code) | Não | **Adiado**: `knip` medido (2 famílias de dependência não usadas, 3 importadas sem declarar, 8 exports e 7 tipos sem uso; remedido em 2026-11-07 com os mesmos números); adotar é dependência nova. As 3 sem declarar viram issue filha (#223). |
 | Verificação de arquivo gerado (T3 Code) | Parcial: `dist/` e `target/` são gitignored; `src-tauri/resources/{dotnet,csharp-ls}` também | **Nada a fazer**: não há arquivo gerado versionado para conferir |
 | Jobs independentes e paralelos (OpenChamber) | Sim | **Nada a fazer** |
 | Actions fixadas por SHA (OpenChamber) | Sim, todas | **Nada a fazer** |
 | Controles de segurança na automação de review (OpenChamber) | Parcial: `permissions` mínimas, `persist-credentials: false`, zizmor offline | **Nada a fazer** |
 | Review automatizado por LLM (OpenChamber) | Não | **Recusado**: exige serviço pago ou chave de API e aprovação automática por IA. Decisão do Helder, não de sessão. |
-| Integridade e smoke de release | Sim: `release-selfcheck.sh`, `release-macos.sh`, `updater-pubkey-selfcheck.sh`, `release-notes-selfcheck.sh` | **Nada a fazer**: a lacuna que a pesquisa supôs não existe |
+| Integridade e smoke de release | Sim: `release-selfcheck.sh`, `release-macos.sh`, `updater-pubkey-selfcheck.sh`, `release-notes-selfcheck.sh` | **Nada a fazer**: a lacuna que a pesquisa supôs não existe — o `release.yml` roda o preflight `release-macos.sh --check` antes de assinar. Os quatro self-checks são de sessão: nenhum workflow os chama |
 | Lint de TS determinístico (as duas) | Não | **Adotado na forma mínima** (type check estrito); linter de verdade fica na issue filha |
 | Cobertura de `src-tauri` | Não | **Adotado** |
 | Auditoria de dependências | Não | **Adotado** |
-| Robustez dos gates por caminho | Sim, com testes | **Verificado e documentado**, sem código novo |
+| Robustez dos gates por caminho | Sim, com testes: 45 casos no `ci-risk-tier-selfcheck.sh` e 13 + 23 + 27 nos três `tests/shell/ci-*.test.sh` | **Verificado e documentado**, sem código novo |
 
 ### Type check estrito, sem dependência nova
 
@@ -176,12 +176,13 @@ filtro de job por caminho, mudança de ruleset, e qualquer coisa em `release.yml
 
 ### Item 4 da #142 — robustez dos gates: verificar e documentar
 
-Nenhum código novo. A cobertura que a issue pede já existe e passa hoje (4 de 4 testes de shell):
+Nenhum código novo. A cobertura que a issue pede já existe e passa hoje (os quatro scripts de CI:
+45 + 13 + 23 + 27 casos):
 
 | Critério da #142 | Onde está provado |
 |---|---|
 | Caminho desconhecido | `scripts/ci-risk-tier-selfcheck.sh`: caminho sem regra vira `medium` |
-| Falha de classificação | idem: TOML não parseável, ref inexistente e diff vazio saem 2, e o job cai para `high` |
+| Falha de classificação | idem: ref inexistente e diff vazio saem 2, e o job cai para `high`; valor de `Cargo.toml` não parseável classifica `high` direto (`cargo-unparseable-value`) |
 | Arquivos sensíveis | idem: workflow, ruleset, `AGENTS.md`, `scripts/release*`/`vendor-*`/`ci-*`, entitlements, `tauri.conf.json`, `trusted.rs`, lockfiles |
 | Alteração do próprio gate | `tests/shell/ci-workflow-bootstrap.test.sh`: classificador, gate e agregador são lidos de `origin/<base>` como blob regular e não vazio |
 | Mudança do head depois da aprovação | `tests/shell/ci-risk-gate.test.sh`: aprovação em commit antigo, dismissal, changes-requested, sem write access, falha de API |
@@ -237,26 +238,37 @@ automatizado.
 
 ## Further Notes
 
-### Duração medida hoje (3 últimos runs verdes)
+### Duração medida no run entregue (2026-11-07, `42395785621`, PR #225, `40b7a1f`)
 
 | Job | Duração |
 |---|---|
-| TypeScript (tsc + unit) | 17–19 s |
-| Rust (fmt, clippy, host tests) | **3:38–4:21** |
-| Governance | 21–22 s |
-| security | 11–16 s |
-| Risk tier | 12–18 s |
-| `ci` (agregador) | 12–14 s |
-| Parede do run | ≈ 4:20 |
+| TypeScript (tsc + unit) | 21 s |
+| Rust (fmt, clippy, host tests) | **4:08** |
+| Tauri (clippy + tests) — job novo, informativo | 2:41 |
+| Governance | 19 s |
+| security | 22 s |
+| Risk tier | 15 s |
+| `ci` (agregador) | 13 s |
+| Parede do run | **4:22** |
 
-Estimativa do `rust-tauri` em runner de 3 vCPU: 2–4 min, a medir no primeiro run. O `dependency-audit`
-custa ~30 s de ferramenta mais o fetch do advisory-db, uma vez por semana.
+O `rust-tauri` terminou 1:27 antes do Rust, então a parede continua sendo o job Rust e o job novo não
+custou parede: os três runs verdes mais recentes **sem** ele, no mesmo dia, tiveram parede 4:43, 5:07
+e 4:49 (Rust 4:26, 4:49 e 4:30). A medição anterior, mais cedo no mesmo dia, dava TypeScript 17–19 s,
+Rust 3:38–4:21, governança 21–22 s, security 11–16 s, risk 12–18 s, agregador 12–14 s e parede
+≈ 4:20 — a variação do runner é maior que o job novo.
+
+O `dependency-audit` custa ~30 s de ferramenta mais o fetch do advisory-db: **29 s** medidos nos dois
+gatilhos (`42395791925` por `workflow_dispatch`, `42395786265` por `pull_request`).
 
 ### O que é configuração existente, o que foi executado e o que não foi
 
 - **Executado nesta máquina**: `tsc` com as flags (17), Biome e knip via `bunx` (sem tocar o
   `package.json`), `cargo clippy`/`test` de `src-tauri` com as pastas vazias, `bun audit` (limpo, com
-  falha de rede e com advisory real), `cargo audit` nos dois lockfiles, os 4 testes de shell.
+  falha de rede e com advisory real), `cargo audit` nos dois lockfiles, os 4 scripts de CI
+  (45 + 13 + 23 + 27 casos).
+- **Execução comprovada no runner**: os três runs do SHA `40b7a1f` — os 7 jobs do `ci`, o job novo em
+  2:41 e o `dependency-audit` em 29 s nos dois gatilhos.
 - **Só configuração existente, não exercitada por esta frente**: os gates de risco e o ruleset.
-- **Não verificado**: o job novo rodando num runner de 3 vCPU; `bun audit` e `cargo audit` dentro do
-  GitHub Actions; o comportamento do `schedule` semanal (só se prova depois do merge).
+- **Não verificado**: o `schedule` semanal (só se prova depois do merge na default); o critério de
+  promoção do `rust-tauri` (1 de 5 runs verdes); `vite build`, que nenhum workflow roda — residual
+  declarado.
