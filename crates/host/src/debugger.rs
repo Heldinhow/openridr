@@ -212,8 +212,15 @@ fn controlled_asset() -> Option<ControlledAsset> {
     None
 }
 
+/// The file name of a controlled asset URL, without its query or fragment: the probe seam can point
+/// at a signed URL, and this name goes to the plan and the log.
 fn base_name(url: &str) -> String {
-    url.rsplit('/').next().unwrap_or("asset.zip").to_string()
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    path.rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("asset.zip")
+        .to_string()
 }
 
 fn origin(url: &str) -> Option<(String, String, Option<String>)> {
@@ -242,6 +249,42 @@ fn allowed_url(url: &str) -> bool {
         return true;
     }
     probe() && scheme == "http" && loopback(&host)
+}
+
+/// The app's sentence for a download that stopped receiving bytes, with the wait that was applied.
+/// The transport's text never reaches the person: it says nothing about what happened to the
+/// installation, and the sentence is the same one the csharp-ls download uses.
+fn download_stalled(url: &str, stall: Duration) -> String {
+    format!(
+        "Could not download {TOOL}: {}",
+        crate::http::stalled(url, stall)
+    )
+}
+
+/// [`crate::http::describe_error`]'s advice with the signed query of the asset URL removed: `ureq`
+/// repeats the URL it failed on inside the error, so sanitizing only the argument is not enough.
+fn describe_failure(url: &str, error: &ureq::Error) -> String {
+    redact_url(crate::http::describe_error(&loggable_url(url), error), url)
+}
+
+/// `ureq` repeats the URL it failed on twice: as text and inside the parsed `Url` debug form. The
+/// signed query is removed from both, so the token never reaches the panel or the log.
+fn redact_url(message: String, url: &str) -> String {
+    let message = message.replace(url, &loggable_url(url));
+    match url.split_once('?') {
+        Some((_, query)) if !query.is_empty() => message.replace(query, "<redacted>"),
+        _ => message,
+    }
+}
+
+/// A body read that timed out is the same stall as a server that stopped answering: the person gets
+/// the download sentence, not the transport's. Any other read error keeps the transport's text.
+fn read_failure(url: &str, stall: Duration, error: &std::io::Error) -> String {
+    if crate::http::is_stall(error) {
+        download_stalled(url, stall)
+    } else {
+        format!("The download was interrupted: {error}; nothing was extracted.")
+    }
 }
 
 /// URL without query/fragment, safe to keep in the local log (asset redirects are signed).
@@ -1369,23 +1412,38 @@ impl Debugger {
 
     /// Downloads the asset to `path`, validating every origin and redirect, while hashing.
     fn download(&self, asset: &AssetView, path: &Path) -> Result<String, Stop> {
+        self.download_with(asset, path, crate::http::DOWNLOAD_STALL)
+    }
+
+    /// `stall` is a parameter only so a test can use a window shorter than the product's; the
+    /// product always passes [`crate::http::DOWNLOAD_STALL`].
+    fn download_with(
+        &self,
+        asset: &AssetView,
+        path: &Path,
+        stall: Duration,
+    ) -> Result<String, Stop> {
         let mut url = asset.url.clone();
         for _ in 0..=MAX_REDIRECTS {
             if !allowed_url(&url) {
                 return Err(Stop::Failed(format!(
-                    "Refused to download from {url}: only HTTPS on the official release hosts ({}) is allowed. Nothing was downloaded.",
+                    "Refused to download from {}: only HTTPS on the official release hosts ({}) is allowed. Nothing was downloaded.",
+                    loggable_url(&url),
                     ALLOWED_HOSTS.join(", ")
                 )));
             }
             // Every hop is its own destination: route and guard it again instead of reusing the
-            // client that was built for the previous host.
-            let agent = match crate::http::agent_for(&url) {
-                Ok(builder) => builder
-                    .redirects(0)
-                    .timeout_connect(Duration::from_secs(15))
-                    .timeout(Duration::from_secs(300))
-                    .build(),
-                Err(error) => return Err(Stop::Failed(format!("{error} Nothing was downloaded."))),
+            // client that was built for the previous host. The timeouts are the download policy of
+            // the host, shared with the csharp-ls download: inactivity, never a total deadline.
+            let agent = match crate::http::download_agent(&url, stall) {
+                Ok(builder) => builder.build(),
+                // The route/guard errors quote the URL they refused; it may carry a signed query.
+                Err(error) => {
+                    return Err(Stop::Failed(format!(
+                        "{} Nothing was downloaded.",
+                        redact_url(error, &url)
+                    )))
+                }
             };
             self.log(&crate::http::log_line(
                 &loggable_url(&url),
@@ -1413,7 +1471,14 @@ impl Debugger {
                             )));
                         }
                     }
-                    return self.copy_bounded(response.into_reader(), path, total, asset);
+                    return self.copy_bounded(
+                        response.into_reader(),
+                        path,
+                        total,
+                        asset,
+                        &loggable_url(&url),
+                        stall,
+                    );
                 }
                 Err(ureq::Error::Status(code, response)) if (300..400).contains(&code) => {
                     let Some(location) = response.header("location") else {
@@ -1429,7 +1494,7 @@ impl Debugger {
                     if code == 407 {
                         return Err(Stop::Failed(format!(
                             "The download failed: {}; nothing was extracted.",
-                            crate::http::describe_error(&url, &ureq::Error::Status(code, response))
+                            describe_failure(&url, &ureq::Error::Status(code, response))
                         )));
                     }
                     return Err(Stop::Failed(format!(
@@ -1437,10 +1502,15 @@ impl Debugger {
                     )));
                 }
                 Err(ureq::Error::Transport(error)) => {
-                    return Err(Stop::Failed(format!(
-                        "The download failed: {}; nothing was extracted.",
-                        crate::http::describe_error(&url, &ureq::Error::Transport(error))
-                    )))
+                    let error = ureq::Error::Transport(error);
+                    return Err(Stop::Failed(if crate::http::timed_out(&error) {
+                        download_stalled(&loggable_url(&url), stall)
+                    } else {
+                        format!(
+                            "The download failed: {}; nothing was extracted.",
+                            describe_failure(&url, &error)
+                        )
+                    }));
                 }
             }
         }
@@ -1455,6 +1525,8 @@ impl Debugger {
         path: &Path,
         total: Option<u64>,
         asset: &AssetView,
+        url: &str,
+        stall: Duration,
     ) -> Result<String, Stop> {
         let mut file = fs::File::create(path).map_err(|error| {
             Stop::Failed(format!("Could not create the download file: {error}"))
@@ -1469,11 +1541,7 @@ impl Debugger {
             let read = match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(read) => read,
-                Err(error) => {
-                    return Err(Stop::Failed(format!(
-                        "The download was interrupted: {error}; nothing was extracted."
-                    )))
-                }
+                Err(error) => return Err(Stop::Failed(read_failure(url, stall, &error))),
             };
             downloaded += read as u64;
             if downloaded > MAX_DOWNLOAD_BYTES {
@@ -1827,6 +1895,276 @@ mod tests {
         path
     }
 
+    /// A local server answering one download in `chunks` pieces, `delay` apart, on loopback: the
+    /// probe seam allows it, so the test needs no DNS and no external network. `declared` is the
+    /// `Content-Length` it promises, which a stalling server promises and does not keep.
+    fn serve_download(declared: usize, chunks: usize, size: usize, delay: Duration) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {declared}\r\nConnection: close\r\n\r\n"
+            );
+            if std::io::Write::write_all(&mut stream, head.as_bytes()).is_err() {
+                return;
+            }
+            for _ in 0..chunks {
+                if std::io::Write::write_all(&mut stream, &vec![7u8; size]).is_err() {
+                    return;
+                }
+                let _ = std::io::Write::flush(&mut stream);
+                std::thread::sleep(delay);
+            }
+        });
+        format!("http://{address}/asset.zip")
+    }
+
+    /// A server that answers one redirect to `location`, like the release asset hop.
+    fn redirect_server(location: &str) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let location = location.to_string();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            let head = format!(
+                "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            let _ = std::io::Write::write_all(&mut stream, head.as_bytes());
+        });
+        format!("http://{address}/asset.zip")
+    }
+
+    /// A server that accepts the connection and closes it without answering, like a proxy that
+    /// died between the request and the response.
+    fn closing_server() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+        });
+        format!("http://{address}/asset.zip")
+    }
+
+    /// A server that accepts the connection and never answers.
+    fn silent_server() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            std::thread::sleep(Duration::from_secs(3));
+        });
+        format!("http://{address}/asset.zip")
+    }
+
+    fn controlled_asset(url: &str, size: u64) -> AssetView {
+        AssetView {
+            platform: "osx-arm64".to_string(),
+            name: "netcoredbg-osx-arm64.zip".to_string(),
+            size,
+            sha256: "0".repeat(64),
+            archive: "zip",
+            support: "community",
+            availability: "available",
+            reason: None,
+            url: url.to_string(),
+            test_override: true,
+        }
+    }
+
+    /// The bug in #162: a total deadline killed a download that was still receiving bytes. Fifteen
+    /// chunks 200 ms apart take ~3 s, well past the 1 s window below, and every byte must arrive.
+    /// The 5x gap between the send interval and the window keeps the test off the scheduler's back.
+    #[test]
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn a_download_that_keeps_receiving_bytes_finishes_isolated() {
+        let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+        let home = tempfile::tempdir().unwrap();
+        let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+        let payload = vec![7u8; 15 * 1024];
+        let url = serve_download(payload.len(), 15, 1024, Duration::from_millis(200));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("asset.zip.download");
+
+        let sha = match Debugger::new().download_with(
+            &controlled_asset(&url, payload.len() as u64),
+            &path,
+            Duration::from_secs(1),
+        ) {
+            Ok(sha) => sha,
+            Err(Stop::Failed(message)) => panic!("the whole transfer must arrive: {message}"),
+            Err(Stop::Cancelled) => panic!("nothing cancelled the download"),
+        };
+
+        assert_eq!(fs::read(&path).unwrap(), payload);
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        assert_eq!(sha, format!("{:x}", hasher.finalize()));
+    }
+
+    /// The other half of #162: a connection that really stops has to fail with the app's sentence,
+    /// naming the wait, instead of the transport's text.
+    #[test]
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn a_download_that_stops_receiving_bytes_is_reported_as_a_stall_isolated() {
+        let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+        let home = tempfile::tempdir().unwrap();
+        let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+        // Three bytes of a promised thousand, then silence: the head arrives, the body stops.
+        let url = serve_download(1000, 1, 3, Duration::from_secs(3));
+        let dir = tempfile::tempdir().unwrap();
+        let Stop::Failed(message) = Debugger::new()
+            .download_with(
+                &controlled_asset(&url, 1000),
+                &dir.path().join("asset.zip.download"),
+                Duration::from_secs(1),
+            )
+            .expect_err("the body stops")
+        else {
+            panic!("a stall is a failure")
+        };
+
+        assert!(message.contains("the connection stalled"), "{message}");
+        assert!(message.contains("1 seconds"), "{message}");
+        assert!(
+            message.contains("Nothing was installed or replaced"),
+            "{message}"
+        );
+        // The product names the window it applies: 60 s, not the test's 1 s.
+        assert!(
+            download_stalled(&url, crate::http::DOWNLOAD_STALL).contains("60 seconds"),
+            "the product sentence names the product wait"
+        );
+    }
+
+    /// The asset URL is signed: neither the stall sentence nor the transport advice may carry the
+    /// query, and `ureq` repeats the URL inside the error it reports.
+    #[test]
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn a_failure_never_reports_the_signed_asset_url_isolated() {
+        let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "1");
+        let home = tempfile::tempdir().unwrap();
+        let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+        let dir = tempfile::tempdir().unwrap();
+        let download = |url: &str| {
+            let Stop::Failed(message) = Debugger::new()
+                .download_with(
+                    &controlled_asset(url, 1000),
+                    &dir.path().join("asset.zip.download"),
+                    Duration::from_secs(1),
+                )
+                .expect_err("the server never completes the download")
+            else {
+                panic!("a failure is a failure")
+            };
+            message
+        };
+
+        let silent = format!("{}?X-Amz-Signature=secret", silent_server());
+        let message = download(&silent);
+        assert!(message.contains("the connection stalled"), "{message}");
+        assert!(
+            !message.contains("Network Error"),
+            "the raw transport text must not reach the user: {message}"
+        );
+        assert!(!message.contains("secret"), "{message}");
+
+        let closing = format!("{}?X-Amz-Signature=secret", closing_server());
+        let message = download(&closing);
+        assert!(!message.contains("secret"), "{message}");
+        assert!(
+            message.contains("http://127.0.0.1:"),
+            "the advice still names the destination: {message}"
+        );
+
+        // The signed URL arrives as a redirect target, which is how the release asset is served.
+        let target = format!("{}?X-Amz-Signature=secret", closing_server());
+        let message = download(&redirect_server(&target));
+        assert!(!message.contains("secret"), "{message}");
+
+        // The two paths that never reach the network: the host allowlist and the route/guard.
+        let message = download("https://example.invalid/asset.zip?X-Amz-Signature=secret");
+        assert!(message.contains("Refused to download from"), "{message}");
+        assert!(!message.contains("secret"), "{message}");
+
+        let message = download("https://github.com:99999/asset.zip?X-Amz-Signature=secret");
+        assert!(message.contains("Nothing was downloaded"), "{message}");
+        assert!(!message.contains("secret"), "{message}");
+    }
+
+    #[test]
+    fn a_url_without_a_query_is_left_alone_and_the_asset_name_drops_it() {
+        let url = "http://127.0.0.1:1/asset.zip?";
+        let message = "the request for http://127.0.0.1:1/asset.zip? failed".to_string();
+        let redacted = redact_url(message, url);
+        assert_eq!(
+            redacted,
+            "the request for http://127.0.0.1:1/asset.zip failed"
+        );
+        assert!(!redacted.contains("<redacted>"), "{redacted}");
+        assert_eq!(
+            base_name("http://127.0.0.1:1/asset.zip?X-Amz-Signature=secret#frag"),
+            "asset.zip"
+        );
+        assert_eq!(base_name("http://127.0.0.1:1/"), "asset.zip");
+    }
+
+    #[test]
+    fn a_signed_query_is_redacted_wherever_the_error_repeats_the_url() {
+        let url = "https://objects.githubusercontent.com/asset.zip?X-Amz-Signature=secret";
+        // The display text carries the URL as written; the `Url` debug form carries only the query.
+        let message = format!(
+            "the request for {url} failed: {url} Transport {{ query: Some(\"X-Amz-Signature=secret\") }}"
+        );
+        let redacted = redact_url(message, url);
+        assert!(!redacted.contains("secret"), "{redacted}");
+        assert_eq!(
+            redacted,
+            "the request for https://objects.githubusercontent.com/asset.zip failed: https://objects.githubusercontent.com/asset.zip Transport { query: Some(\"<redacted>\") }"
+        );
+    }
+
+    #[test]
+    fn a_body_read_timeout_is_the_download_stall_and_other_read_errors_are_not() {
+        let url = "http://127.0.0.1/asset.zip";
+        let timeout =
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out reading response");
+        let message = read_failure(url, crate::http::DOWNLOAD_STALL, &timeout);
+        assert!(
+            message.starts_with("Could not download netcoredbg: "),
+            "{message}"
+        );
+        assert!(message.contains("60 seconds"), "{message}");
+        assert!(
+            message.contains("Nothing was installed or replaced"),
+            "{message}"
+        );
+
+        let other = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short body");
+        let message = read_failure(url, crate::http::DOWNLOAD_STALL, &other);
+        assert!(
+            message.starts_with("The download was interrupted: "),
+            "{message}"
+        );
+        assert!(!message.contains("stalled"), "{message}");
+    }
+
     #[test]
     fn plan_lists_only_the_assets_published_by_the_official_release() {
         assert_eq!(PUBLISHED.len(), 4);
@@ -2048,5 +2386,29 @@ fn bundled_resolution_prefers_the_override_and_falls_back_to_tools() {
 fn ready_adapter_verifies_the_bundled_binary_before_launch() {
     crate::test_harness::run_isolated_leaf(
         "debugger::tests::ready_adapter_verifies_the_bundled_binary_before_launch_isolated",
+    );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn a_download_that_keeps_receiving_bytes_finishes() {
+    crate::test_harness::run_isolated_leaf(
+        "debugger::tests::a_download_that_keeps_receiving_bytes_finishes_isolated",
+    );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn a_download_that_stops_receiving_bytes_is_reported_as_a_stall() {
+    crate::test_harness::run_isolated_leaf(
+        "debugger::tests::a_download_that_stops_receiving_bytes_is_reported_as_a_stall_isolated",
+    );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn a_failure_never_reports_the_signed_asset_url() {
+    crate::test_harness::run_isolated_leaf(
+        "debugger::tests::a_failure_never_reports_the_signed_asset_url_isolated",
     );
 }
