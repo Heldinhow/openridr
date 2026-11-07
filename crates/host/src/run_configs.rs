@@ -1605,6 +1605,12 @@ mod tests {
         }
     }
 
+    /// The variable a launch profile expands for the user's home directory: `HOME` is Unix-only.
+    #[cfg(windows)]
+    const HOME_VAR: &str = "USERPROFILE";
+    #[cfg(not(windows))]
+    const HOME_VAR: &str = "HOME";
+
     fn test_home() -> String {
         std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
@@ -1615,9 +1621,10 @@ mod tests {
     fn launch_profile_expands_environment_and_application_url_but_not_arguments() {
         // The host resolves the home directory from `HOME` on Unix and `USERPROFILE` on Windows.
         let home = test_home();
-        let (_temp, project) = profile_fixture(
-            r#"{"profiles":{"expand":{"commandName":"Project","applicationUrl":"http://localhost:5084/?home=%HOME%","environmentVariables":{"PROFILE_ENV":"%HOME%","DOLLAR":"$(HOME)","LITERAL":"%NOPE%","PERCENT":"100%"},"commandLineArgs":"%HOME% $(HOME)"}}}"#,
-        );
+        let (_temp, project) = profile_fixture(&format!(
+            r#"{{"profiles":{{"expand":{{"commandName":"Project","applicationUrl":"http://localhost:5084/?home=%{v}%","environmentVariables":{{"PROFILE_ENV":"%{v}%","DOLLAR":"$({v})","LITERAL":"%NOPE%","PERCENT":"100%"}},"commandLineArgs":"%{v}% $({v})"}}}}}}"#,
+            v = HOME_VAR
+        ));
         let root = project.parent().unwrap();
         let options = launch_options(
             &json!({"project": project, "launchProfile": "expand"}),
@@ -1635,7 +1642,7 @@ mod tests {
         // The argv stays literal: `dotnet run` does not expand commandLineArgs either.
         assert_eq!(
             options.args,
-            vec!["%HOME%".to_string(), "$(HOME)".to_string()]
+            vec![format!("%{HOME_VAR}%"), format!("$({HOME_VAR})")]
         );
     }
 
@@ -1735,6 +1742,18 @@ mod tests {
         ] {
             fs::copy(source.join(file), temp.join(file)).unwrap();
         }
+        // The fixture expands `HOME`, which Windows does not set; the same profile uses
+        // `USERPROFILE` there, so the copy is adapted instead of the product inventing a variable.
+        if cfg!(windows) {
+            let path = temp.join("Properties/launchSettings.json");
+            let text = fs::read_to_string(&path).unwrap();
+            fs::write(
+                &path,
+                text.replace("%HOME%", "%USERPROFILE%")
+                    .replace("$(HOME)", "$(USERPROFILE)"),
+            )
+            .unwrap();
+        }
     }
 
     /// Runs the fixture with a real profile through the same muxer Run uses. `None` means no
@@ -1816,7 +1835,10 @@ mod tests {
             )),
             "{stdout}"
         );
-        assert!(stdout.contains("ARGS=%HOME%|$(HOME)"), "{stdout}");
+        assert!(
+            stdout.contains(&format!("ARGS=%{HOME_VAR}%|$({HOME_VAR})")),
+            "{stdout}"
+        );
     }
 
     #[test]

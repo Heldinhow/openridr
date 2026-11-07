@@ -2368,7 +2368,9 @@ mod tests {
         assert_eq!(plan.tool, TOOL);
         assert_eq!(plan.version, VERSION);
         assert_eq!(plan.source.url, NUGET_SOURCE);
-        assert!(plan.argv[0].ends_with(&format!("sdk-root/{}", crate::sdk::dotnet_exe())));
+        let argv0 = std::path::Path::new(&plan.argv[0]);
+        assert_eq!(argv0.file_name().unwrap(), crate::sdk::dotnet_exe());
+        assert_eq!(argv0.parent().unwrap().file_name().unwrap(), "sdk-root");
         assert_eq!(
             plan.dotnet_root,
             inventory.runtimes[0].root.to_string_lossy()

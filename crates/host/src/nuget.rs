@@ -248,11 +248,8 @@ pub fn detect_cpm(root: &Path, project: &Path) -> Cpm {
                     message: None,
                 };
             }
-            let rel = candidate
-                .strip_prefix(root)
-                .unwrap_or(&candidate)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel =
+                crate::fsutil::portable_path(candidate.strip_prefix(root).unwrap_or(&candidate));
             return Cpm {
                 enabled: true,
                 path: Some(rel.clone()),

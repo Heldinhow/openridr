@@ -716,14 +716,17 @@ fn open(root: &Path) -> Result<Repo, OpenError> {
     if top.is_empty() {
         return Err(OpenError::NotRepository);
     }
-    let git_dir = match run(Path::new(top), &["rev-parse", "--absolute-git-dir"]) {
+    // `git rev-parse --show-toplevel` answers with `/` separators on Windows and without the
+    // verbatim prefix, while every path this module compares against is `fs::canonicalize`d.
+    let top = fs::canonicalize(top).unwrap_or_else(|_| PathBuf::from(top));
+    let git_dir = match run(&top, &["rev-parse", "--absolute-git-dir"]) {
         Ok(output) if output.ok() => output.stdout.trim().to_string(),
         Ok(_) => return Err(OpenError::NotRepository),
         Err(SpawnError::Missing) => return Err(OpenError::Missing),
         Err(SpawnError::Failed(message)) => return Err(OpenError::Failed(mask_urls(&message))),
     };
     Ok(Repo {
-        top: PathBuf::from(top),
+        top,
         git_dir: PathBuf::from(git_dir),
     })
 }
@@ -4324,6 +4327,8 @@ mod tests {
         git(
             temp.path(),
             &[
+                "-c",
+                "core.autocrlf=false",
                 "clone",
                 "-q",
                 bare.to_str().unwrap(),
@@ -4350,6 +4355,8 @@ mod tests {
         git(
             temp,
             &[
+                "-c",
+                "core.autocrlf=false",
                 "clone",
                 "-q",
                 bare.to_str().unwrap(),

@@ -1283,7 +1283,10 @@ EndGlobal\n";
             outside.abs_path.as_deref(),
             Some(lib.join("Lib.csproj").as_path())
         );
-        assert_eq!(outside.path, lib.join("Lib.csproj").to_string_lossy());
+        assert_eq!(
+            outside.path,
+            crate::fsutil::portable_path(&lib.join("Lib.csproj"))
+        );
         let missing = &plan.projects[1];
         assert!(missing.abs_path.is_none());
         assert!(

@@ -403,10 +403,10 @@ fn a_dev_binary_without_the_bundle_keeps_the_download_plan_isolated() {
         .expect("a dev binary still plans the download")["tools"]["csharp-ls"]
         .clone();
     assert_eq!(tool["state"], "planned", "{tool}");
-    assert!(tool["plan"]["destination"]
-        .as_str()
-        .unwrap_or_default()
-        .ends_with("tools/csharp-ls/0.28"));
+    assert!(
+        std::path::Path::new(tool["plan"]["destination"].as_str().unwrap_or_default())
+            .ends_with("tools/csharp-ls/0.28")
+    );
     assert_eq!(tool["bundled"], false);
 }
 
