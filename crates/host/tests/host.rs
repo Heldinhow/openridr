@@ -1925,7 +1925,7 @@ fn evaluation_includes_a_project_outside_the_solution_directory() {
     assert_eq!(evaluation["state"], "ok", "{}", evaluation["log"]);
 
     let projects = evaluation["projects"].as_array().unwrap();
-    assert_eq!(projects.len(), 2, "{projects:?}");
+    assert_eq!(projects.len(), 4, "{projects:?}");
     let project = |name: &str| {
         projects
             .iter()
@@ -1961,10 +1961,30 @@ fn evaluation_includes_a_project_outside_the_solution_directory() {
         json!([lib.join("Greeting.cs").to_string_lossy()])
     );
 
-    // The scope is the root plus the outside project's directory, canonical and root first.
+    let outside_app = fs::canonicalize(fixture.join("outside-app")).unwrap();
+    let tests = fs::canonicalize(fixture.join("tests")).unwrap();
+    let console = project("OutsideApp");
+    assert_eq!(console["state"], "ok", "{}", console["log"]);
+    assert_eq!(console["kind"], "console");
+    assert!(console["targetPath"]
+        .as_str()
+        .unwrap()
+        .ends_with("outside-app/bin/Debug/net8.0/OutsideApp.dll"));
+    assert_eq!(
+        console["sources"],
+        json!([outside_app.join("Program.cs").to_string_lossy()])
+    );
+    assert_eq!(project("Lib.Tests")["kind"], "test");
+
+    // The scope is the root plus every outside project directory, canonical and in file order.
     assert_eq!(
         evaluated["workspace"]["scope"],
-        json!([app.to_string_lossy(), lib.to_string_lossy()])
+        json!([
+            app.to_string_lossy(),
+            lib.to_string_lossy(),
+            outside_app.to_string_lossy(),
+            tests.to_string_lossy()
+        ])
     );
 }
 
@@ -2077,6 +2097,87 @@ fn the_scope_admits_the_outside_project_and_refuses_everything_else() {
     assert_eq!(
         fs::read_to_string(outside.join("Secret.cs")).unwrap(),
         secret
+    );
+}
+
+#[test]
+fn restore_build_and_run_work_for_a_project_outside_the_solution() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    let outside_app = fs::canonicalize(fixture.join("outside-app"))
+        .unwrap()
+        .join("OutsideApp.csproj");
+
+    let host = support::host();
+    open(&host, &app.join("App.sln"));
+    grant(&host);
+
+    // A real restore of the solution covers the projects outside its directory, so the gate that
+    // used to block every executable surface stops blocking.
+    host.dispatch("restore.start", json!({})).unwrap();
+    let restored = wait_for_restore(&host, Duration::from_secs(240));
+    assert_eq!(restored["state"], "ok", "{}", restored["log"]);
+    assert!(
+        restored["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |project| project["path"] == json!(outside_app.to_string_lossy())
+                    && project["state"] == "restored"
+            ),
+        "{}",
+        restored["projects"]
+    );
+
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(
+        evaluated["evaluation"]["state"], "ok",
+        "{}",
+        evaluated["evaluation"]["log"]
+    );
+
+    host.dispatch(
+        "build.start",
+        json!({ "project": outside_app.to_string_lossy() }),
+    )
+    .unwrap();
+    let build = wait_for_build(&host, Duration::from_secs(240));
+    assert_eq!(build["state"], "ok", "{}", build["log"]);
+    assert_eq!(build["exit"], 0);
+    assert!(
+        build["command"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|argument| argument == &json!(outside_app.to_string_lossy())),
+        "the build names the outside project file: {}",
+        build["command"]
+    );
+    assert!(build["project"]["targetPath"]
+        .as_str()
+        .unwrap()
+        .ends_with("outside-app/bin/Debug/net8.0/OutsideApp.dll"));
+
+    let started = host
+        .dispatch(
+            "run.start",
+            json!({ "project": outside_app.to_string_lossy() }),
+        )
+        .unwrap();
+    assert_eq!(started["run"]["state"], "running");
+    let finished = wait_for_run(&host, Duration::from_secs(120));
+    assert_eq!(finished["state"], "exited", "{}", finished["log"]);
+    assert_eq!(finished["exit"], 0);
+    assert!(
+        finished["log"]
+            .as_str()
+            .unwrap()
+            .contains("outside app: Hello, outside!"),
+        "{}",
+        finished["log"]
     );
 }
 
@@ -2293,9 +2394,16 @@ fn the_scope_is_recomputed_when_the_solution_gains_a_project() {
     open(&host, &app.join("App.sln"));
     grant(&host);
     let first = host.dispatch("evaluation.run", json!({})).unwrap();
+    let outside_app = fs::canonicalize(fixture.join("outside-app")).unwrap();
+    let tests = fs::canonicalize(fixture.join("tests")).unwrap();
     assert_eq!(
         first["workspace"]["scope"],
-        json!([app.to_string_lossy(), lib.to_string_lossy()])
+        json!([
+            app.to_string_lossy(),
+            lib.to_string_lossy(),
+            outside_app.to_string_lossy(),
+            tests.to_string_lossy()
+        ])
     );
 
     let extra = fixture.join("lib2");
@@ -2326,6 +2434,8 @@ fn the_scope_is_recomputed_when_the_solution_gains_a_project() {
         json!([
             app.to_string_lossy(),
             lib.to_string_lossy(),
+            outside_app.to_string_lossy(),
+            tests.to_string_lossy(),
             extra.to_string_lossy()
         ])
     );
