@@ -59,6 +59,8 @@ pub struct Launch {
     pub breakpoints_muted: bool,
     /// Exception filters chosen before the launch; they survive it too.
     pub exception_filters: Vec<String>,
+    /// What the launch profile asks the browser to do once the debuggee is running.
+    pub browser: crate::browser::Launch,
 }
 
 /// The exact `launch` request sent to the adapter: the evaluated assembly, the configured
@@ -1215,6 +1217,26 @@ impl Dap {
         if !data.sealed && data.state == "preparing" {
             data.state = "running";
             data.phase = "Running; breakpoints are active.".to_string();
+        }
+        drop(data);
+        match &launch.browser {
+            crate::browser::Launch::Open(url) => {
+                let url = url.clone();
+                let dap = Arc::clone(&self);
+                let alive = Arc::clone(&self);
+                std::thread::spawn(move || {
+                    // A startup breakpoint pauses the debuggee before it listens; the session is
+                    // still alive, so the wait must not give up on a pause.
+                    let line = crate::browser::open_when_ready(&url, move || {
+                        matches!(alive.state(), "running" | "paused")
+                    });
+                    dap.log_line(line);
+                });
+            }
+            crate::browser::Launch::Skip(reason) => {
+                self.log_line(format!("Launch browser skipped: {reason}"));
+            }
+            crate::browser::Launch::None => {}
         }
     }
 
@@ -3174,6 +3196,7 @@ while True:
             watches: Vec::new(),
             breakpoints_muted: false,
             exception_filters: vec!["user-unhandled".to_string()],
+            browser: crate::browser::Launch::None,
         };
         launch.breakpoints.insert(
             "Program.cs".to_string(),
@@ -3262,6 +3285,7 @@ while True:
             watches: Vec::new(),
             breakpoints_muted: false,
             exception_filters: vec!["user-unhandled".to_string()],
+            browser: crate::browser::Launch::None,
         };
         let params = launch_parameters(&launch);
         assert_eq!(params["program"], "/work/bin/App.dll");

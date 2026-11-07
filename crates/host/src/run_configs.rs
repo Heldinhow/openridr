@@ -102,6 +102,8 @@ pub struct LaunchOptions {
     pub working_directory: Option<PathBuf>,
     /// `.env` files in order, then the explicit environment; later assignments win.
     pub env: Vec<(String, String)>,
+    /// What the launch profile asks the browser to do; manual configurations never open one.
+    pub browser: crate::browser::Launch,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -113,6 +115,10 @@ struct LaunchProfile {
     command_name: String,
     #[serde(default)]
     application_url: Option<String>,
+    #[serde(default, deserialize_with = "null_bool")]
+    launch_browser: bool,
+    #[serde(default)]
+    launch_url: Option<String>,
     #[serde(default)]
     environment_variables: BTreeMap<String, String>,
     #[serde(default, deserialize_with = "null_string")]
@@ -123,6 +129,11 @@ struct LaunchProfile {
 
 fn null_string<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
     Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// A generator may write `"launchBrowser": null`; that is "off", not a reason to refuse the file.
+fn null_bool<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(deserializer)?.unwrap_or(false))
 }
 
 #[derive(Deserialize)]
@@ -381,41 +392,119 @@ pub fn set_launch_profile(params: &Value) -> HostResult<Value> {
     Ok(view(&store, &path, &solution))
 }
 
-fn split_launch_args(text: &str) -> HostResult<Vec<String>> {
+/// Expands `%NAME%` and `$(NAME)` against the host environment in one pass. An empty or
+/// undefined name keeps the original text (`%%`, `%NOPE%`, `$(NOPE)`), a substituted value is not
+/// expanded again, and a lone `%` (a percentage) survives.
+fn expand_value(value: &str) -> String {
+    expand_value_with(value, |name| std::env::var(name).ok())
+}
+
+fn expand_value_with(value: &str, lookup: impl Fn(&str) -> Option<String>) -> String {
+    let mut expanded = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(index) = rest.find(['%', '$']) {
+        expanded.push_str(&rest[..index]);
+        let tail = &rest[index..];
+        let marker = if let Some(after) = tail.strip_prefix('%') {
+            after.find('%').map(|end| ("%", after, end, '%'))
+        } else if let Some(after) = tail.strip_prefix("$(") {
+            after.find(')').map(|end| ("$(", after, end, ')'))
+        } else {
+            None
+        };
+        match marker {
+            Some((opening, after, end, closing)) => {
+                let name = &after[..end];
+                match lookup(name) {
+                    Some(found) if !name.is_empty() => expanded.push_str(&found),
+                    _ => {
+                        expanded.push_str(opening);
+                        expanded.push_str(name);
+                        expanded.push(closing);
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            None => {
+                expanded.push(tail.chars().next().unwrap());
+                rest = &tail[1..];
+            }
+        }
+    }
+    expanded.push_str(rest);
+    expanded
+}
+
+/// Splits `commandLineArgs` with the rules the .NET CLI uses: `dotnet run` hands the string to
+/// `ProcessStartInfo.Arguments`, which the child process splits with `CommandLineToArgvW`
+/// semantics on every platform. Only space and tab separate outside quotes (a newline or a
+/// non-breaking space stays in the argument), a run of backslashes only escapes the quote that
+/// follows it (2n → n backslashes and the quote is a delimiter, 2n+1 → n backslashes and a literal
+/// quote), `""` inside quotes is a literal quote — including right after an even run of
+/// backslashes — and an unclosed quote is tolerated instead of refused. `#` and `'` are literal.
+/// The matrix in the tests was measured against the real `dotnet run` (SDK 8.0.408).
+fn split_launch_args(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
     let mut args = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
     let mut started = false;
-    let mut chars = text.chars().peekable();
-    while let Some(character) = chars.next() {
-        match character {
+    let mut index = 0;
+    while index < chars.len() {
+        match chars[index] {
+            '\\' => {
+                let mut count = 0;
+                while chars.get(index + count) == Some(&'\\') {
+                    count += 1;
+                }
+                if chars.get(index + count) == Some(&'"') {
+                    current.extend(std::iter::repeat_n('\\', count / 2));
+                    if count % 2 == 1 {
+                        current.push('"');
+                        index += count + 1;
+                    } else if quoted && chars.get(index + count + 1) == Some(&'"') {
+                        // The even-run quote is a delimiter, so the pair rule applies to it: two
+                        // quotes inside a quoted string are one literal quote (measured).
+                        current.push('"');
+                        index += count + 2;
+                    } else {
+                        quoted = !quoted;
+                        index += count + 1;
+                    }
+                } else {
+                    current.extend(std::iter::repeat_n('\\', count));
+                    index += count;
+                }
+                started = true;
+            }
             '"' => {
-                quoted = !quoted;
+                if quoted && chars.get(index + 1) == Some(&'"') {
+                    current.push('"');
+                    index += 2;
+                } else {
+                    quoted = !quoted;
+                    index += 1;
+                }
                 started = true;
             }
-            '\\' if chars.peek() == Some(&'"') => {
-                current.push(chars.next().unwrap());
-                started = true;
-            }
-            value if value.is_whitespace() && !quoted => {
+            value if matches!(value, ' ' | '\t') && !quoted => {
                 if started {
                     args.push(std::mem::take(&mut current));
                     started = false;
                 }
+                index += 1;
             }
             value => {
                 current.push(value);
                 started = true;
+                index += 1;
             }
         }
-    }
-    if quoted {
-        return Err(invalid("Unclosed quote in launch profile commandLineArgs."));
     }
     if started {
         args.push(current);
     }
-    Ok(args)
+    args
 }
 
 pub fn read(params: &Value) -> HostResult<Value> {
@@ -641,10 +730,25 @@ pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> 
                 profile.command_name
             )));
         }
-        let mut env = profile.environment_variables;
+        // `%VAR%` is what `dotnet run` expands (in environment values only); `$(VAR)` is the
+        // Visual Studio/Rider form the same issue asks for. Both read the host's environment,
+        // like `Environment.ExpandEnvironmentVariables`: a profile value cannot see another.
+        let mut env: BTreeMap<String, String> = profile
+            .environment_variables
+            .into_iter()
+            .map(|(key, value)| (key, expand_value(&value)))
+            .collect();
         if let Some(url) = profile.application_url {
-            env.entry("ASPNETCORE_URLS".to_string()).or_insert(url);
+            env.entry("ASPNETCORE_URLS".to_string())
+                .or_insert_with(|| expand_value(&url));
         }
+        // The profile's own `environmentVariables` win over `applicationUrl`, so the effective
+        // list is what the app will actually listen on.
+        let browser = crate::browser::plan(
+            profile.launch_browser,
+            profile.launch_url.as_deref(),
+            env.get("ASPNETCORE_URLS").map(String::as_str),
+        );
         let project_dir = project.parent().unwrap_or(root);
         let cwd = profile
             .working_directory
@@ -655,10 +759,12 @@ pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> 
                 return Err(option_error("workingDirectory", "working_directory_missing", format!("The working directory {} does not exist or is not a directory; fix workingDirectory in launchSettings.json before running.", path.display())));
             }
         }
-        return launch_options(
-            &json!({"args": split_launch_args(&profile.command_line_args)?, "env": env, "workingDirectory": cwd}),
+        let mut options = launch_options(
+            &json!({"args": split_launch_args(&profile.command_line_args), "env": env, "workingDirectory": cwd}),
             root,
-        );
+        )?;
+        options.browser = browser;
+        return Ok(options);
     }
     let args = string_list(params.get("args"), "args", MAX_ARGS)?;
     for argument in &args {
@@ -770,6 +876,7 @@ pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> 
         args,
         working_directory,
         env,
+        browser: crate::browser::Launch::None,
     })
 }
 
@@ -1281,13 +1388,77 @@ mod tests {
     }
 
     #[test]
-    fn launch_args_keep_empty_and_escaped_quotes() {
+    fn launch_args_follow_the_dotnet_command_line_rules() {
+        // Measured against the real `dotnet run` (SDK 8.0.408, macOS ARM64): each row is the
+        // profile's commandLineArgs and the argv the program received. Before the fix the
+        // splitter refused an unclosed quote and turned `""`, `""""` and backslash runs into
+        // different arguments, so most of these rows failed.
+        let matrix: &[(&str, Vec<&str>)] = &[
+            ("a \"b c\" d", vec!["a", "b c", "d"]),
+            ("a \"b\\\"c\" d", vec!["a", "b\"c", "d"]),
+            ("a \"b\\\\\" c", vec!["a", "b\\", "c"]),
+            ("a \"\" b", vec!["a", "", "b"]),
+            ("a \"\"\"\" b", vec!["a", "\"", "b"]),
+            ("a b\"c d\"e", vec!["a", "bc de"]),
+            ("a b\\\\c", vec!["a", "b\\\\c"]),
+            ("a \"b c", vec!["a", "b c"]),
+            ("a #b c", vec!["a", "#b", "c"]),
+            ("", vec![]),
+            ("   ", vec![]),
+            ("a\tb", vec!["a", "b"]),
+            ("'a b' c", vec!["'a", "b'", "c"]),
+            ("a b\\\\", vec!["a", "b\\\\"]),
+            ("\"\"", vec![""]),
+            ("a \"\"\" b", vec!["a", "\" b"]),
+            ("a \\\"b\\\"", vec!["a", "\"b\""]),
+            ("a \"b\"c", vec!["a", "bc"]),
+            ("a b\"c\"", vec!["a", "bc"]),
+            ("a \"b\"\"c\"", vec!["a", "b\"c"]),
+            ("a \"b\\\\\\\"c\"", vec!["a", "b\\\"c"]),
+            ("a b\\\\\\\\\"c\"", vec!["a", "b\\\\c"]),
+            ("\"a b\"c d", vec!["a bc", "d"]),
+            ("a  b", vec!["a", "b"]),
+            ("a \"b\\\\\"c", vec!["a", "b\\c"]),
+            ("a\\\\\"b c\"", vec!["a\\b c"]),
+            ("a \"\"\"\"\"\" b", vec!["a", "\"\"", "b"]),
+            ("a \\", vec!["a", "\\"]),
+            ("a \"b\" \"c\"", vec!["a", "b", "c"]),
+            ("a \"b\"c\"d\"", vec!["a", "bcd"]),
+            ("a \"b\"\"", vec!["a", "b\""]),
+            ("a \"\"\"", vec!["a", "\""]),
+            ("a \"\"\"\" \"", vec!["a", "\"", ""]),
+            ("a \"b\" \"\"", vec!["a", "b", ""]),
+            ("a \"\"\"\"\"\"", vec!["a", "\"\""]),
+            ("a \"b c\"\"d e\"", vec!["a", "b c\"d e"]),
+            ("a\\ b", vec!["a\\", "b"]),
+            ("a \\\\ b", vec!["a", "\\\\", "b"]),
+            ("\"a\"b\"c\"d", vec!["abcd"]),
+            // Space and tab are the only separators; other whitespace stays in the argument.
+            ("a\nb", vec!["a\nb"]),
+            ("a\rb", vec!["a\rb"]),
+            ("a\u{a0}b", vec!["a\u{a0}b"]),
+            ("a\u{b}b", vec!["a\u{b}b"]),
+            // An even run of backslashes followed by a quote pair: one backslash and a literal
+            // quote, still inside the quoted string.
+            ("a \"b\\\\\"\" c\"", vec!["a", "b\\\" c"]),
+            ("a \"b\\\\\\\\\"\" c\"", vec!["a", "b\\\\\" c"]),
+            ("a \"b\\\\\"\"\" c", vec!["a", "b\\\"", "c"]),
+            ("a \"b\\\\\"\" c\"\" d\"", vec!["a", "b\\\" c\" d"]),
+            ("\"a\\\\\"\"b\"", vec!["a\\\"b"]),
+            ("a \"b\\\\\\\"\" c\"", vec!["a", "b\\\"", "c"]),
+            ("a \"b\\\\\\\"\"\" c\"", vec!["a", "b\\\"\" c"]),
+            ("a \"b\\\\\"\"\"\" c\"", vec!["a", "b\\\"\" c"]),
+        ];
+        for (input, expected) in matrix {
+            assert_eq!(
+                split_launch_args(input),
+                expected.clone(),
+                "commandLineArgs {input:?}"
+            );
+        }
+        // The profile's command line is never expanded: `%VAR%` and `$(VAR)` reach the program.
         assert_eq!(
-            split_launch_args(r#""" "say \"hello\"""#).unwrap(),
-            vec!["", "say \"hello\""]
-        );
-        assert_eq!(
-            split_launch_args("%HOME% $(HOME)").unwrap(),
+            split_launch_args("%HOME% $(HOME)"),
             vec!["%HOME%", "$(HOME)"]
         );
     }
@@ -1403,6 +1574,111 @@ mod tests {
     }
 
     #[test]
+    fn launch_profile_values_expand_percent_and_dollar_variables_once() {
+        let lookup = |name: &str| match name {
+            "A" => Some("1".to_string()),
+            "B" => Some("2".to_string()),
+            "LOOP" => Some("%B%".to_string()),
+            "EMPTY" => Some(String::new()),
+            _ => None,
+        };
+        let cases = [
+            ("%A%", "1"),
+            ("$(A)", "1"),
+            ("pre%A%post", "pre1post"),
+            ("%A%%B%", "12"),
+            ("$(A)$(B)", "12"),
+            // A substituted value is never expanded again, like the CLI's one-pass expansion.
+            ("%LOOP%", "%B%"),
+            ("%EMPTY%", ""),
+            ("%NOPE%", "%NOPE%"),
+            ("$(NOPE)", "$(NOPE)"),
+            ("%%", "%%"),
+            ("100%", "100%"),
+            ("$()", "$()"),
+            ("$(A", "$(A"),
+            ("a$b", "a$b"),
+            ("", ""),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(expand_value_with(input, lookup), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn launch_profile_expands_environment_and_application_url_but_not_arguments() {
+        // HOME is set on every platform this app supports; the test fails loudly if it is not.
+        let home = std::env::var("HOME").expect("HOME is set on the supported platform");
+        let (_temp, project) = profile_fixture(
+            r#"{"profiles":{"expand":{"commandName":"Project","applicationUrl":"http://localhost:5084/?home=%HOME%","environmentVariables":{"PROFILE_ENV":"%HOME%","DOLLAR":"$(HOME)","LITERAL":"%NOPE%","PERCENT":"100%"},"commandLineArgs":"%HOME% $(HOME)"}}}"#,
+        );
+        let root = project.parent().unwrap();
+        let options = launch_options(
+            &json!({"project": project, "launchProfile": "expand"}),
+            root,
+        )
+        .unwrap();
+        assert!(options.env.contains(&("PROFILE_ENV".into(), home.clone())));
+        assert!(options.env.contains(&("DOLLAR".into(), home.clone())));
+        assert!(options.env.contains(&("LITERAL".into(), "%NOPE%".into())));
+        assert!(options.env.contains(&("PERCENT".into(), "100%".into())));
+        assert!(options.env.contains(&(
+            "ASPNETCORE_URLS".into(),
+            format!("http://localhost:5084/?home={home}")
+        )));
+        // The argv stays literal: `dotnet run` does not expand commandLineArgs either.
+        assert_eq!(
+            options.args,
+            vec!["%HOME%".to_string(), "$(HOME)".to_string()]
+        );
+    }
+
+    #[test]
+    fn launch_profile_working_directory_is_not_expanded() {
+        let (_temp, project) = profile_fixture(
+            r#"{"profiles":{"cwd":{"commandName":"Project","workingDirectory":"%HOME%"}}}"#,
+        );
+        let root = project.parent().unwrap();
+        let error =
+            launch_options(&json!({"project": project, "launchProfile": "cwd"}), root).unwrap_err();
+        assert!(error.message.contains("%HOME%"), "{}", error.message);
+    }
+
+    #[test]
+    fn launch_profile_decides_the_browser_from_its_own_values() {
+        let (_temp, project) = profile_fixture(
+            r#"{"profiles":{
+                "off":{"commandName":"Project","applicationUrl":"http://localhost:5083"},
+                "on":{"commandName":"Project","launchBrowser":true,"applicationUrl":"http://localhost:5083","launchUrl":"/swagger"},
+                "envwins":{"commandName":"Project","launchBrowser":true,"applicationUrl":"http://localhost:5083","environmentVariables":{"ASPNETCORE_URLS":"https://localhost:7259"}},
+                "bad":{"commandName":"Project","launchBrowser":true,"launchUrl":"file:///etc/passwd"}
+            }}"#,
+        );
+        let root = project.parent().unwrap();
+        let browser = |name: &str| {
+            launch_options(
+                &json!({"project": project.clone(), "launchProfile": name}),
+                root,
+            )
+            .unwrap()
+            .browser
+        };
+        assert_eq!(browser("off"), crate::browser::Launch::None);
+        assert_eq!(
+            browser("on"),
+            crate::browser::Launch::Open("http://localhost:5083/swagger".to_string())
+        );
+        // The profile's own environment wins over applicationUrl, so that is where the app listens.
+        assert_eq!(
+            browser("envwins"),
+            crate::browser::Launch::Open("https://localhost:7259".to_string())
+        );
+        assert!(
+            matches!(browser("bad"), crate::browser::Launch::Skip(reason) if reason.contains("http(s)"))
+        );
+    }
+
+    #[test]
     fn launch_profiles_preserve_order_and_apply_project_values() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/LaunchProfiles");
         let project = root.join("LaunchProfiles.csproj");
@@ -1412,9 +1688,17 @@ mod tests {
                 .iter()
                 .map(|profile| profile.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["http", "https", "IIS Express"]
+            vec![
+                "http",
+                "https",
+                "expand",
+                "browser",
+                "browser-off",
+                "browser-bad",
+                "IIS Express"
+            ]
         );
-        assert_eq!(profiles[2].command_name, "IISExpress");
+        assert_eq!(profiles[6].command_name, "IISExpress");
         let options =
             launch_options(&json!({"project": project, "launchProfile": "http"}), &root).unwrap();
         assert_eq!(options.args, vec!["--message", "hello world"]);
@@ -1433,29 +1717,28 @@ mod tests {
         .is_err());
     }
 
-    #[test]
-    fn launch_profile_runs_fixture_with_effective_environment_and_arguments() {
+    /// Copies the LaunchProfiles fixture into a temp directory, as the app would see it.
+    fn launch_profile_fixture_copy(temp: &Path) {
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/LaunchProfiles");
-        let temp = tempfile::tempdir().unwrap();
-        fs::create_dir(temp.path().join("Properties")).unwrap();
+        fs::create_dir(temp.join("Properties")).unwrap();
         for file in [
             "global.json",
             "LaunchProfiles.csproj",
             "Program.cs",
             "Properties/launchSettings.json",
         ] {
-            fs::copy(source.join(file), temp.path().join(file)).unwrap();
+            fs::copy(source.join(file), temp.join(file)).unwrap();
         }
-        let project = temp.path().join("LaunchProfiles.csproj");
-        let options = launch_options(
-            &json!({"project": project, "launchProfile": "http"}),
-            temp.path(),
-        )
-        .unwrap();
+    }
+
+    /// Runs the fixture with a real profile through the same muxer Run uses. `None` means no
+    /// detected .NET root satisfies the fixture pin: skip, never a pass.
+    fn run_launch_profile_fixture(temp: &Path, profile: &str) -> Option<String> {
+        let project = temp.join("LaunchProfiles.csproj");
+        let options =
+            launch_options(&json!({"project": project, "launchProfile": profile}), temp).unwrap();
         // Same resolution as the product: the project's global.json decides the SDK, not PATH.
-        let Some((muxer, sdk_root, sdk_version)) = project_test_muxer(temp.path()) else {
-            return;
-        };
+        let (muxer, sdk_root, sdk_version) = project_test_muxer(temp)?;
         assert!(
             muxer.is_file(),
             "a detected .NET root has no muxer at {}; a broken install is a failure, not a skip",
@@ -1475,7 +1758,7 @@ mod tests {
             .env("DOTNET_CLI_UI_LANGUAGE", "en")
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
-            .current_dir(options.working_directory.unwrap());
+            .current_dir(options.working_directory.as_deref().unwrap_or(temp));
         let output = command.output().expect(
             "the resolved project muxer must start; a detected-but-broken SDK is a failure, not a skip",
         );
@@ -1488,7 +1771,16 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        Some(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    #[test]
+    fn launch_profile_runs_fixture_with_effective_environment_and_arguments() {
+        let temp = tempfile::tempdir().unwrap();
+        launch_profile_fixture_copy(temp.path());
+        let Some(stdout) = run_launch_profile_fixture(temp.path(), "http") else {
+            return;
+        };
         assert!(stdout.contains("PROFILE_ENV=http"), "{stdout}");
         assert!(
             stdout.contains("ASPNETCORE_URLS=http://localhost:5083"),
@@ -1502,6 +1794,25 @@ mod tests {
             )),
             "{stdout}"
         );
+    }
+
+    #[test]
+    fn launch_profile_runs_fixture_with_expanded_values() {
+        let home = std::env::var("HOME").expect("HOME is set on the supported platform");
+        let temp = tempfile::tempdir().unwrap();
+        launch_profile_fixture_copy(temp.path());
+        let Some(stdout) = run_launch_profile_fixture(temp.path(), "expand") else {
+            return;
+        };
+        assert!(stdout.contains(&format!("PROFILE_ENV={home}")), "{stdout}");
+        assert!(stdout.contains(&format!("EXPANDED={home}")), "{stdout}");
+        assert!(
+            stdout.contains(&format!(
+                "ASPNETCORE_URLS=http://localhost:5084/?home={home}"
+            )),
+            "{stdout}"
+        );
+        assert!(stdout.contains("ARGS=%HOME%|$(HOME)"), "{stdout}");
     }
 
     #[test]
