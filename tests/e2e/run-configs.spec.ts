@@ -3,10 +3,9 @@ import { revisionOf, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { host } from "./environment";
+import { host, screenshotsDir as screenshots } from "./environment";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
-const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 } });
 test.setTimeout(240_000);

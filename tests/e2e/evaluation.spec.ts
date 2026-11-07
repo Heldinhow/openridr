@@ -7,8 +7,7 @@ import path from "node:path";
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
 const brokenFixture = path.resolve(process.cwd(), "fixtures/BrokenImport");
-import { host } from "./environment";
-const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
+import { host, screenshotsDir as screenshots } from "./environment";
 
 test.use({ viewport: { width: 1440, height: 900 } });
 

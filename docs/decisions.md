@@ -1482,3 +1482,70 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Consequência.** `docs/SPEC-DECLARED-DEPS.md`, evidência em `docs/evidence/declared-deps.md`. O PR toca
   `package.json` e `bun.lock`, então cai em `risk:high` pela tabela de risco — inevitável para a issue.
   Nenhum `data-testid`, nenhuma mudança de produto.
+
+## 2026-11-07 — O smoke noturno reporta numa issue de rastreio: vermelho abre/atualiza, verde fecha (issue #215)
+
+- **O problema era leitor, não cobertura.** `workspace.spec.ts` ficou vermelho na `main` da #177 à #210
+  com o spec na lista do smoke, e no dia desta decisão o smoke estava vermelho de novo
+  (`solution-git-status.spec.ts:111`, run 42364384217) sem ninguém ver. A página de Actions não é onde o
+  mantenedor olha; a lista de issues abertas é.
+- **Uma issue, achada pelo título exato `[nightly] e2e-smoke is red`.** Sem label nova: label é setting
+  do repositório, e a sessão não cria setting. A busca é `gh issue list --search 'e2e-smoke in:title'`
+  (o marcador com colchetes é sintaxe de busca do GitHub) e o casamento exato do título acontece no
+  `jq`. Se mais de uma casar, a de menor número vale.
+- **Vermelho reescreve o corpo; não comenta por noite.** O corpo é o último resultado (run, `ref`, SHA,
+  data, specs, testes); o histórico de runs já está na página do workflow, e a data de criação da issue
+  vira o "vermelho desde".
+- **Verde comenta o link e fecha.** Uma run verde com a issue aberta é o mesmo silêncio que a frente
+  existe para matar, então falha em fechar deixa o job vermelho.
+- **Um job, dois passos (`if: failure()` / `if: success()`), com guarda `main || workflow_dispatch`.**
+  Cobre falha de teste, de instalação e de bootstrap, porque um passo com `if: failure()` roda mesmo
+  assim. O `workflow_dispatch` reporta de propósito: é o que permite provar os dois caminhos sem esperar
+  a noite. Limite aceito e escrito como `shortcut:` no script: timeout de 60 min e cancelamento do job
+  não reportam (o plano B é um job `needs: smoke` com `if: always()` e um output).
+- **A decisão mora num script, não no YAML.** `scripts/e2e-smoke-issue.sh` decide criar/reescrever/fechar
+  e recebe tudo por env (`RESULT`, `RUN_URL`, `REF`, `SHA`, `REPO`, `REPORT`, `GH`), com `GH` apontável
+  para um stub — o mesmo seam de `ci-risk-gate.sh`. O YAML fica com a montagem do relatório e a chamada.
+- **O relatório é `--reporter=list,json` na linha do CI, não no config.** O log continua legível e o
+  script ganha arquivo; o `playwright.config.ts` não muda. Duas armadilhas medidas num relatório real
+  (Playwright 1.64.1): suites **aninhadas** também trazem `file`, com valor errado, então o filtro herda
+  o `file` da suite de topo; e o `file` é relativo ao `testDir` (`workspace.spec.ts`, não
+  `tests/e2e/workspace.spec.ts`), então o corpo diz "relativo a `tests/e2e/`" em vez de o script
+  inventar prefixo.
+- **`issues: write` no job, `contents: read` repetido nele.** Um bloco de permissões no job substitui o
+  de topo em vez de somar. Nenhuma expressão `${{ }}` dentro de `run:` (zizmor), nenhuma action nova,
+  nenhuma dependência nova.
+- **Prova com runs reais, em branch descartável.** Duas runs vermelhas (uma criou a #244, a outra
+  reescreveu o corpo dela sem criar segunda) e uma verde (comentou e fechou), em `workflow_dispatch` na
+  `ci/issue-215-proof`, apagada no fim. A primeira noturna agendada depois do merge é a primeira
+  execução real do `schedule`.
+- **Consequência.** `docs/SPEC-NIGHTLY-SMOKE.md`; tickets #240 (script + teste), #241 (workflow +
+  contrato do YAML + `AGENTS.md`) e #242 (prova), sub-issues de #215; evidência em
+  `docs/evidence/nightly-smoke.md`. O smoke real continua vermelho por `solution-git-status.spec.ts:111`
+  (issue #245), que é spec de UI e não desta frente. Nenhum `data-testid`, nenhuma mudança de produto.
+
+## 2026-11-07 — A captura do E2E sai do repositório por default; o caminho versionado vira opt-in (issue #217)
+
+- **Decisão.** O default do diretório das capturas deixa de ser `docs/evidence/screenshots` e passa a ser
+  `<tempdir>/openridr-e2e-screenshots-<porta da UI>`, derivado da porta como o E2E app home da #210;
+  `OPENRIDR_SCREENSHOT_DIR` continua vencendo, com valor relativo resolvido contra o diretório atual. O
+  caminho versionado só recebe captura quando a variável aponta para ele de propósito.
+- **Por que o default era um defeito, e não um incômodo.** O diretório está no `.gitignore`, mas **86 PNGs
+  dele estão versionados** — o `.gitignore` não vale para arquivo já rastreado. Uma execução que falhava
+  reescrevia evidência versionada (aparecia em `git status`) ou deixava arquivo não rastreado dentro do
+  repositório, que é o que faz `git worktree remove` recusar a worktree (o sintoma registrado na #210).
+  A saída era lembrar de exportar a variável antes de rodar, e a documentação precisava repetir o aviso.
+- **A chave é a porta, não o worktree.** Mesmo critério do E2E app home: duas sessões em portas diferentes
+  não se sobrescrevem, e duas na mesma porta não coexistem de qualquer forma (`strictPort` do Vite de
+  teste). `mkdtemp` por execução foi recusado porque ninguém acha a captura depois sem o log.
+- **Um seam só.** O caminho é calculado no módulo de ambiente do E2E, que já é por onde config,
+  `globalSetup` e specs leem portas, home e URLs; os specs importam de lá, inclusive os dois que gravavam
+  caminho literal e ignoravam a variável. Specs que só capturam quando pedido usam o mesmo módulo, sem
+  ganhar default.
+- **`outputDir` e `OPENRIDR_EVIDENCE_LOG_DIR` ficam onde estão.** `test-results/` e `playwright-report/`
+  já são ignorados e não sujam `git status`; `docs/evidence/logs` é ignorado e não tem arquivo versionado.
+  Mover não resolveria problema nenhum — decisão registrada para não ser reaberta.
+- **Consequência.** `docs/SPEC-E2E-EVIDENCE-OUTPUT.md`; tickets #248 (código + guarda) e #249 (docs
+  vivos), sub-issues de #217; evidência em `docs/evidence/e2e-evidence-output.md`. A guarda em
+  `tests/unit` roda no CI e reprova qualquer spec que volte a nomear o caminho versionado. Nenhuma
+  dependência nova, nenhum `data-testid`, nenhuma mudança de produto.
