@@ -41,7 +41,7 @@ Os 9 cenários que já existiam no spec continuam verdes (o contrato novo do `gi
 
 ## O que ficou sem prova
 
-- **App Tauri real (`agent-desktop`)**: pela decisão de 2026-11-07 (`docs/decisions.md`), fluxo do host se prova no Playwright no modo web; a checagem no binário ficou opcional e **não foi feita**. O que ela cobriria — a janela e o menu nativo — não muda nesta frente.
+- **App Tauri real (`agent-desktop`)**: pela decisão de 2026-11-07 (“A superfície de verificação de UI segue o que mudou”, `docs/decisions.md`), interface pura se prova no Playwright em modo web; a checagem no binário ficou opcional e **não foi feita**. O que ela cobriria — a janela e o menu nativo — não muda nesta frente.
 - **Windows e macOS Intel.**
 - **Cancelar o merge local do Update**: fora de escopo por decisão da #136; o que se prova é que o cancel ali devolve `false` e a UI diz isso.
 - **A ponte de dev (`host-http`) medida à mão**: a fila/overtake saiu e o laço atende uma requisição por vez; o comportamento é o mesmo do E2E, que roda a mesma ponte, mas não houve medição isolada de latência nesta rodada.
