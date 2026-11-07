@@ -34,4 +34,5 @@
 - **Maintainer approval**: review aprovado por quem mantém o repositório numa revisão do PR posterior ao último commit dele. É o que libera o merge de um PR de risco alto; aprovação de uma revisão antiga não conta.
 - **Auto-merge**: fusão em squash que o GitHub executa sozinho quando os checks obrigatórios ficam verdes, armada apenas para PR de risco baixo.
 - **Revert rate**: proporção de PRs mergeados que precisaram ser revertidos, contada por mês, usada para saber se o gate de risco está calibrado.
+- **System proxy**: o proxy configurado em Ajustes do Sistema → Rede → Proxies do macOS, lido por `scutil --proxy` sem elevação; é a fonte que vale quando o ambiente não nomeia proxy nenhum. _Avoid_: proxy do app (não existe campo de configuração no OpenRidr), PAC (é outra forma de configuração, não suportada).
 - **Download stall**: a janela de silêncio que o download de ferramenta tolera antes de falhar — 60 s sem um único byte. É o que substitui o prazo total: enquanto bytes chegam, a transferência continua, por mais lenta que seja. _Avoid_: timeout (é o nome da API; o conceito é a inatividade), deadline.

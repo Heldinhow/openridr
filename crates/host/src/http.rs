@@ -4,7 +4,8 @@
 //! downloads) goes through [`agent_for`], which
 //!
 //! 1. decides the route for that destination from the environment (`HTTPS_PROXY`/`HTTP_PROXY`/
-//!    `ALL_PROXY`, lowercase first, honouring `NO_PROXY`),
+//!    `ALL_PROXY`, lowercase first, honouring `NO_PROXY`) and, when the environment names no proxy,
+//!    from the macOS system proxy settings ([`crate::system_proxy`]),
 //! 2. verifies the destination host before a proxy could hide it from the resolver, and
 //! 3. installs a resolver that refuses a loopback/private/link-local destination while still
 //!    allowing the proxy the operator configured.
@@ -45,7 +46,7 @@ fn agent_builder_with_certs(
 /// The client for one destination in this process's environment. The caller sets timeouts,
 /// redirect policy and limits; the proxy and the address guard are not the caller's business.
 pub(crate) fn agent_for(url: &str) -> Result<ureq::AgentBuilder, String> {
-    agent_for_with(url, &process_env)
+    agent_for_with(url, &process_env, crate::system_proxy::read().as_ref())
 }
 
 /// The log line for one download request: the URL, plus the proxy when one is in use. Credentials
@@ -59,7 +60,15 @@ pub(crate) fn log_line(url: &str, proxy: Option<&str>) -> String {
 
 /// The proxy label (`host:port`, never credentials) used for one URL, for logs and diagnostics.
 pub(crate) fn proxy_label(url: &str) -> Option<String> {
-    match plan(url, &process_env) {
+    proxy_label_with(url, &process_env, crate::system_proxy::read().as_ref())
+}
+
+fn proxy_label_with(
+    url: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    system: Option<&crate::system_proxy::SystemProxy>,
+) -> Option<String> {
+    match plan(url, env, system) {
         Ok((_, route)) => route.label().map(str::to_string),
         Err(_) => None,
     }
@@ -83,6 +92,23 @@ struct ProxyTarget {
     url: String,
     /// `host:port`, which is both the safe label and the netloc `ureq` resolves.
     netloc: String,
+}
+
+/// Where a proxy value came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxySource {
+    Env(&'static str),
+    System,
+}
+
+impl ProxySource {
+    /// How a message names the source at the start of a sentence.
+    fn name(self) -> String {
+        match self {
+            ProxySource::Env(variable) => variable.to_string(),
+            ProxySource::System => "The macOS system proxy".to_string(),
+        }
+    }
 }
 
 impl ProxyTarget {
@@ -111,17 +137,22 @@ impl Route {
     }
 }
 
-fn plan(url: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<(Destination, Route), String> {
+fn plan(
+    url: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    system: Option<&crate::system_proxy::SystemProxy>,
+) -> Result<(Destination, Route), String> {
     let destination = destination(url)?;
-    let route = route_for(&destination, env)?;
+    let route = route_for(&destination, env, system)?;
     Ok((destination, route))
 }
 
 fn agent_for_with(
     url: &str,
     env: &dyn Fn(&str) -> Option<String>,
+    system: Option<&crate::system_proxy::SystemProxy>,
 ) -> Result<ureq::AgentBuilder, String> {
-    let (destination, route) = plan(url, env)?;
+    let (destination, route) = plan(url, env, system)?;
     match route {
         Route::Direct => {
             Ok(agent_builder().resolver(crate::netguard::GuardedResolver { proxy: None }))
@@ -209,14 +240,24 @@ const HTTP_PROXY_VARS: &[&str] = &["http_proxy", "HTTP_PROXY", "all_proxy", "ALL
 fn route_for(
     destination: &Destination,
     env: &dyn Fn(&str) -> Option<String>,
+    system: Option<&crate::system_proxy::SystemProxy>,
 ) -> Result<Route, String> {
     let no_proxy = env("no_proxy")
         .filter(|value| !value.trim().is_empty())
         .or_else(|| env("NO_PROXY").filter(|value| !value.trim().is_empty()));
-    if let Some(list) = no_proxy {
-        if no_proxy_matches(&list, &destination.host, destination.port) {
-            return Ok(Route::Direct);
-        }
+    // An explicit `NO_PROXY` is the operator's list; without one, the Mac's exceptions apply, even
+    // to a proxy that came from the environment.
+    let bypass = match no_proxy {
+        Some(list) => no_proxy_matches(&list, &destination.host, destination.port),
+        None => system.is_some_and(|system| {
+            system
+                .exceptions
+                .iter()
+                .any(|entry| no_proxy_matches(entry, &destination.host, destination.port))
+        }),
+    };
+    if bypass {
+        return Ok(Route::Direct);
     }
     let variables = if destination.scheme == "https" {
         HTTPS_PROXY_VARS
@@ -226,15 +267,26 @@ fn route_for(
     for variable in variables {
         let value = env(variable).filter(|value| !value.trim().is_empty());
         if let Some(value) = value {
-            return Ok(Route::Proxied(proxy_target(variable, &value)?));
+            return Ok(Route::Proxied(proxy_target(
+                ProxySource::Env(variable),
+                &value,
+            )?));
         }
+    }
+    let from_system = if destination.scheme == "https" {
+        system.and_then(|system| system.https.as_deref())
+    } else {
+        system.and_then(|system| system.http.as_deref())
+    };
+    if let Some(value) = from_system {
+        return Ok(Route::Proxied(proxy_target(ProxySource::System, value)?));
     }
     Ok(Route::Direct)
 }
 
 /// Parses one proxy value. A value this client cannot use is an error, never a silent direct
 /// connection: falling back would break the network policy the proxy exists to enforce.
-fn proxy_target(variable: &str, value: &str) -> Result<ProxyTarget, String> {
+fn proxy_target(source: ProxySource, value: &str) -> Result<ProxyTarget, String> {
     let value = value.trim();
     let (scheme, rest) = match value.split_once("://") {
         Some((scheme, rest)) => (scheme.to_ascii_lowercase(), rest),
@@ -242,7 +294,8 @@ fn proxy_target(variable: &str, value: &str) -> Result<ProxyTarget, String> {
     };
     if scheme != "http" {
         return Err(format!(
-            "{variable} points at a {scheme} proxy; this client only supports http:// proxies. The request is refused instead of going direct."
+            "{} points at a {scheme} proxy; this client only supports http:// proxies. The request is refused instead of going direct.",
+            source.name()
         ));
     }
     let host_port = match rest.rsplit_once('@') {
@@ -251,11 +304,15 @@ fn proxy_target(variable: &str, value: &str) -> Result<ProxyTarget, String> {
     };
     let host_port = host_port.trim_end_matches('/');
     let (host, port) = split_host_port(host_port, 80).ok_or_else(|| {
-        format!("{variable} is not a valid proxy URL; expected http://host:port.")
+        format!(
+            "{} is not a valid proxy URL; expected http://host:port.",
+            source.name()
+        )
     })?;
     if host.contains(':') {
         return Err(format!(
-            "{variable} points at an IPv6 proxy, which this client cannot reach; use the proxy host name or its IPv4 address."
+            "{} points at an IPv6 proxy, which this client cannot reach; use the proxy host name or its IPv4 address.",
+            source.name()
         ));
     }
     let netloc = format!("{host}:{port}");
@@ -268,7 +325,8 @@ fn proxy_target(variable: &str, value: &str) -> Result<ProxyTarget, String> {
     };
     if ureq::Proxy::new(&url).is_err() {
         return Err(format!(
-            "{variable}: the proxy {netloc} could not be parsed; expected http://host:port."
+            "{}: the proxy {netloc} could not be parsed; expected http://host:port.",
+            source.name()
         ));
     }
     Ok(ProxyTarget { url, netloc })
@@ -358,20 +416,28 @@ const DOWNLOAD_CONNECT: std::time::Duration = std::time::Duration::from_secs(15)
 /// redirect is a new destination, so the route and the destination guard have to run again. With a
 /// proxy the resolver never sees the destination, so reusing one client would skip the guard.
 pub(crate) fn fetch(url: &str, stall: std::time::Duration) -> Result<ureq::Response, String> {
-    fetch_with(url, stall, DOWNLOAD_CONNECT, &process_env)
+    fetch_with(
+        url,
+        stall,
+        DOWNLOAD_CONNECT,
+        &process_env,
+        crate::system_proxy::read().as_ref(),
+    )
 }
 
 /// `connect` is a parameter only so a test can prove that a connection that never opens is not
-/// reported as a stall; the product always passes [`DOWNLOAD_CONNECT`].
+/// reported as a stall; the product always passes [`DOWNLOAD_CONNECT`]. Both sources are injected
+/// so a test never reads the machine's environment or network settings.
 fn fetch_with(
     url: &str,
     stall: std::time::Duration,
     connect: std::time::Duration,
     env: &dyn Fn(&str) -> Option<String>,
+    system: Option<&crate::system_proxy::SystemProxy>,
 ) -> Result<ureq::Response, String> {
     let mut url = url.to_string();
     for _ in 0..=MAX_DOWNLOAD_REDIRECTS {
-        let agent = agent_for_with(&url, env)?
+        let agent = agent_for_with(&url, env, system)?
             .redirects(0)
             .timeout_connect(connect)
             .timeout_read(stall)
@@ -405,7 +471,7 @@ fn fetch_with(
                 return Err(if timed_out(&error) {
                     stalled(&url, stall)
                 } else {
-                    describe_error(&url, &error)
+                    describe_error_with(&url, &error, env, system)
                 })
             }
         };
@@ -492,8 +558,18 @@ fn no_proxy_matches(list: &str, host: &str, port: u16) -> bool {
 }
 
 pub(crate) fn describe_error(url: &str, error: &ureq::Error) -> String {
+    let system = crate::system_proxy::read();
+    describe_error_with(url, error, &process_env, system.as_ref())
+}
+
+fn describe_error_with(
+    url: &str,
+    error: &ureq::Error,
+    env: &dyn Fn(&str) -> Option<String>,
+    system: Option<&crate::system_proxy::SystemProxy>,
+) -> String {
     let detail = format!("{} {error:?}", error);
-    describe_via(url, &detail, proxy_label(url).as_deref())
+    describe_via(url, &detail, proxy_label_with(url, env, system).as_deref())
 }
 
 fn describe_via(url: &str, detail: &str, configured: Option<&str>) -> String {
@@ -656,6 +732,7 @@ mod tests {
             std::time::Duration::from_secs(1),
             DOWNLOAD_CONNECT,
             &proxy_env(&proxy),
+            None,
         )
         .expect("the proxy answers");
         let mut bytes = Vec::new();
@@ -675,6 +752,7 @@ mod tests {
             std::time::Duration::from_secs(1),
             DOWNLOAD_CONNECT,
             &proxy_env(&proxy),
+            None,
         )
         .expect("the head arrives");
         let mut bytes = Vec::new();
@@ -700,6 +778,7 @@ mod tests {
             std::time::Duration::from_secs(1),
             DOWNLOAD_CONNECT,
             &proxy_env(&proxy),
+            None,
         )
         .expect_err("nothing arrives");
         assert!(error.contains("stalled"), "{error}");
@@ -721,6 +800,7 @@ mod tests {
             DOWNLOAD_STALL,
             std::time::Duration::from_millis(300),
             &|_: &str| None,
+            None,
         )
         .expect_err("the connection never opens");
         assert!(
