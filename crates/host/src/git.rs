@@ -728,27 +728,35 @@ impl Net {
     /// an error becomes a `failed` view with its message. Keeps the id and kind the host issued.
     pub fn end(&self, id: &str, result: HostResult<Operation>) {
         let mut state = self.lock();
-        let kind = match state.running.as_ref() {
-            Some(running) if running.id == id => Some(running.kind),
+        let running = match state.running.as_ref() {
+            Some(running) if running.id == id => Some((running.kind, running.cancelled)),
             _ => None,
         };
-        if kind.is_some() {
+        if running.is_some() {
             state.running = None;
         }
+        // A cancel that was accepted is what the operation reports, even when it then failed on its
+        // own (a dirty tree, no remote): `git.cancel` answering `true` must never end as `ok` or as
+        // a failure the user reads as "it ran anyway". The message stays the operation's own, so the
+        // reason it did not run is still the one shown.
+        let cancelled = running.is_some_and(|(_, cancelled)| cancelled);
         let (state_name, message) = match result {
             Ok(operation) => (
-                if operation.stop == Stop::Cancelled {
+                if cancelled || operation.stop == Stop::Cancelled {
                     "cancelled"
                 } else {
                     operation.state
                 },
                 operation.message,
             ),
-            Err(error) => ("failed", Some(error.message)),
+            Err(error) => (
+                if cancelled { "cancelled" } else { "failed" },
+                Some(error.message),
+            ),
         };
         state.last = Some(NetView {
             id: id.to_string(),
-            kind: kind.map(Kind::as_str).unwrap_or(""),
+            kind: running.map(|(kind, _)| kind.as_str()).unwrap_or(""),
             state: state_name,
             message,
         });
@@ -849,7 +857,10 @@ fn run_with_deadline(
     // Before the drain: the child is gone, so the network step is over even if reading its pipes
     // still takes a moment. `finish_network` is atomic with `cancel`, so a cancel that lands here
     // makes the operation report itself cancelled instead of being accepted and then ignored.
-    if stop == Stop::No && net.finish_network(id) {
+    // Always: the window closes when the child ends, whatever stopped it. Without this a cancel
+    // that arrives while the pipes drain would be accepted for a child that is already dead.
+    let cancelled = net.finish_network(id);
+    if stop == Stop::No && cancelled {
         stop = Stop::Cancelled;
     }
     let stdout = out_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
@@ -5708,9 +5719,13 @@ mod tests {
             !net.finish_network(&id),
             "the window closes once, so a second end cannot report a cancel"
         );
+        // The cancel was accepted, so it is what the operation reports — even when the operation
+        // then failed on its own. The message stays the operation's own, so the reason it did not
+        // run is still visible; `git.cancel` answering `true` never ends as `ok` or as a plain
+        // failure the user reads as "it ran anyway".
         net.end(&id, Err(HostError::new("git_failed", "boom")));
         let view = net.view();
-        assert_eq!(view.state, "failed");
+        assert_eq!(view.state, "cancelled");
         assert_eq!(view.message.as_deref(), Some("boom"));
         assert_eq!(view.id, id);
         assert_eq!(view.kind, "push");

@@ -307,9 +307,12 @@ export function BranchWidget({
   const [starting, setStarting] = useState<"push" | "update" | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   // The host's id only reaches the state after the start returns, so a second click in that gap
-  // would ask for a second fetch. The ref is the guard the state cannot be: it is read at call
+  // would ask for a second operation. The ref is the guard the state cannot be: it is read at call
   // time, not at render time.
-  const fetchingRef = useRef(false);
+  const startingRef = useRef(false);
+  // The user asked to cancel while the start was still in flight: there is no id to name yet, so the
+  // intent waits for the id instead of being dropped.
+  const cancelOnStart = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -349,7 +352,7 @@ export function BranchWidget({
       // because it writes no branch, no index and no file.
       if (status && status.state === "ok" && status.remotes.length === 0) {
         setFetchError(gitFetchBlockedReason(status, null, true));
-      } else if (!fetchingRef.current) {
+      } else if (!startingRef.current && pending === null) {
         void runFetch();
       }
     } else if (intent.kind === "update") {
@@ -404,6 +407,10 @@ export function BranchWidget({
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
+      if (starting !== null) {
+        cancelOnStart.current = true;
+        return;
+      }
       if (pushBusy) {
         void cancelNetwork("push");
         return;
@@ -420,7 +427,7 @@ export function BranchWidget({
     return () => window.removeEventListener("keydown", onKeyDown);
     // `pending` and `cancelling` are read by the handler: without them the listener keeps a closure
     // from before the start returned and the cancel has no id to name.
-  }, [dialog, pending, pushBusy, updateBusy, dialogBusy, cancelling]);
+  }, [dialog, pending, starting, pushBusy, updateBusy, dialogBusy, cancelling]);
 
   if (!trusted) {
     return (
@@ -504,34 +511,43 @@ export function BranchWidget({
   }
 
   // The fetch is a start too: the host returns its id at once and the snapshot carries the state.
-  async function runFetch() {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-    setFetchError(null);
+  // The three starts share one lifecycle: one operation at a time, the id the host issued kept in
+  // `pending`, and the error where that surface shows it. A second start while one is in flight would
+  // replace the id the dialog is waiting for, and the first operation's message would never appear.
+  async function startNetwork(
+    kind: "push" | "update" | "fetch",
+    start: () => Promise<{ id: string }>,
+    setError: (value: string | null) => void,
+  ) {
+    if (startingRef.current || pending !== null) return;
+    startingRef.current = true;
+    setStarting(kind === "fetch" ? null : kind);
+    setError(null);
     try {
-      const started = await call<{ id: string }>("git.fetch");
-      setPending({ kind: "fetch", id: started.id });
+      const started = await start();
+      setPending({ kind, id: started.id });
+      if (cancelOnStart.current) {
+        cancelOnStart.current = false;
+        void cancelNetwork(kind, started.id);
+      }
     } catch (caught) {
-      setFetchError(messageOf(caught));
+      cancelOnStart.current = false;
+      setError(messageOf(caught));
     } finally {
-      fetchingRef.current = false;
+      startingRef.current = false;
+      setStarting(null);
     }
+  }
+
+  // The fetch is a start too: the host returns its id at once and the snapshot carries the state.
+  function runFetch() {
+    return startNetwork("fetch", () => call<{ id: string }>("git.fetch"), setFetchError);
   }
 
   // The update is a start like the push: the host returns its id at once and the snapshot carries
   // the state, so the dialog stays open until the operation reaches a terminal state.
-  async function confirmUpdate() {
-    if (updateBusy) return;
-    setStarting("update");
-    setDialogError(null);
-    try {
-      const started = await call<{ id: string }>("git.pull");
-      setPending({ kind: "update", id: started.id });
-    } catch (caught) {
-      setDialogError(messageOf(caught));
-    } finally {
-      setStarting(null);
-    }
+  function confirmUpdate() {
+    return startNetwork("update", () => call<{ id: string }>("git.pull"), setDialogError);
   }
 
   const remote = status.upstream?.split("/")[0] ?? status.remotes[0] ?? null;
@@ -576,28 +592,19 @@ export function BranchWidget({
   // The push is a start: the host returns its id at once and the snapshot carries the state. The
   // dialog stays open until the operation reaches a terminal state, so the final message is shown
   // where the click happened.
-  async function confirmPush() {
-    if (pushBusy) return;
-    setStarting("push");
-    setDialogError(null);
-    try {
-      const started = await call<{ id: string }>("git.push", {
-        confirm: true,
-        remote: remote ?? undefined,
-      });
-      setPending({ kind: "push", id: started.id });
-    } catch (caught) {
-      setDialogError(messageOf(caught));
-    } finally {
-      setStarting(null);
-    }
+  function confirmPush() {
+    return startNetwork(
+      "push",
+      () => call<{ id: string }>("git.push", { confirm: true, remote: remote ?? undefined }),
+      setDialogError,
+    );
   }
 
   // Stops the network operation in flight. The host answers `cancelled: false` when its network step
   // already ended — the local merge of an Update is not cancellable — and the dialog says so
   // instead of pretending the click landed.
-  async function cancelNetwork(kind: "push" | "update" | "fetch") {
-    const target = pending?.kind === kind ? pending.id : null;
+  async function cancelNetwork(kind: "push" | "update" | "fetch", id?: string) {
+    const target = id ?? (pending?.kind === kind ? pending.id : null);
     if (cancelling || target === null) return;
     setCancelling(true);
     try {

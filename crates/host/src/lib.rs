@@ -6135,16 +6135,7 @@ impl Host {
     fn git_pull(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.pull")?;
         let root = self.workspace_root()?;
-        let net = self.net();
-        let id = net
-            .begin(git::Kind::Update)
-            .map_err(|message| HostError::new("invalid_state", message))?;
-        let task_id = id.clone();
-        std::thread::spawn(move || {
-            let result = git::pull(&root, &net, &task_id);
-            net.end(&task_id, result);
-        });
-        Ok(json!({ "id": id }))
+        self.spawn_net(root, git::Kind::Update, git::pull)
     }
 
     /// Starts a fetch: trust and an open workspace are the only checks here, and they fail without
@@ -6154,16 +6145,7 @@ impl Host {
     fn git_fetch(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.fetch")?;
         let root = self.workspace_root()?;
-        let net = self.net();
-        let id = net
-            .begin(git::Kind::Fetch)
-            .map_err(|message| HostError::new("invalid_state", message))?;
-        let task_id = id.clone();
-        std::thread::spawn(move || {
-            let result = git::fetch(&root, &net, &task_id);
-            net.end(&task_id, result);
-        });
-        Ok(json!({ "id": id }))
+        self.spawn_net(root, git::Kind::Fetch, git::fetch)
     }
 
     /// The network Git operation in flight, cloned out of the state lock: the start returns before
@@ -6185,13 +6167,25 @@ impl Host {
                 "git.push requires confirm:true; no push was run.",
             ));
         }
+        self.spawn_net(root, git::Kind::Push, move |root, net, id| {
+            git::push(root, &params, net, id)
+        })
+    }
+
+    /// The lifecycle every network start shares: register the operation (refusing a second one),
+    /// return the id the host issued, and publish the result where the snapshot reads it. One place,
+    /// so the three starts cannot drift apart.
+    fn spawn_net<F>(&self, root: PathBuf, kind: git::Kind, work: F) -> HostResult<Value>
+    where
+        F: FnOnce(&Path, &git::Net, &str) -> HostResult<git::Operation> + Send + 'static,
+    {
         let net = self.net();
         let id = net
-            .begin(git::Kind::Push)
+            .begin(kind)
             .map_err(|message| HostError::new("invalid_state", message))?;
         let task_id = id.clone();
         std::thread::spawn(move || {
-            let result = git::push(&root, &params, &net, &task_id);
+            let result = work(&root, &net, &task_id);
             net.end(&task_id, result);
         });
         Ok(json!({ "id": id }))
