@@ -4290,6 +4290,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           statusError={gitStatusError}
           trusted={trusted}
           intent={gitIntent}
+          net={snapshot.git}
           onRefresh={refreshGit}
           onOpenCommit={() => openCommitPanel()}
           onMessage={(text) => setMessage({ tone: "info", text })}

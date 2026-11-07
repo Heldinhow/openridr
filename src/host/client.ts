@@ -1091,6 +1091,14 @@ export type RunConfigStore = {
   issues: RunConfigIssue[];
 };
 
+/** The network Git operation the host published: the id is the host's, never the client's. */
+export type GitNet = {
+  id: string;
+  kind: "push" | "update" | "fetch" | "";
+  state: "idle" | "running" | "ok" | "failed" | "cancelled";
+  message: string | null;
+};
+
 export type Snapshot = {
   contextId: number;
   app: { home: string; appHome: string; platform: string; arch: string; version: string };
@@ -1126,6 +1134,7 @@ export type Snapshot = {
   processes: ProcessInfo[];
   restore: Restore;
   build: Build;
+  git: GitNet;
   run: Run;
   terminal: Terminal;
   tests: Tests;
