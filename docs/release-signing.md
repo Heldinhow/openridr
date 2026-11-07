@@ -192,6 +192,11 @@ mesmo run de release, não um segundo pipeline.
   (`~/.tauri/openridr-updater.key` + `.password`, ambos 0600); só a **pública** está no
   `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). Perder a privada ou a senha significa que
   nenhum update futuro funciona: não há como trocar a pública em apps já instalados.
+- **A pública é conferida, não digitada.** `sh scripts/updater-pubkey-selfcheck.sh` compara o valor
+  do `tauri.conf.json` com `~/.tauri/openridr-updater.key.pub` (e com a cópia commitada no próprio
+  script, que é o que roda numa máquina sem a chave). Um pubkey errado não reprova build nem
+  release: ele faz **todo** app recusar **todo** update em silêncio — por isso a conferência existe
+  e o valor no conf é copiado do arquivo, nunca redigitado.
 - **Artefato depois do grampo.** `release-macos.sh` empacota `OpenRidr.app.tar.gz` a partir do `.app`
   **já notarizado e grampeado** (o ticket viaja dentro do arquivo), assina com
   `tauri signer sign --app-version <versão>` e verifica extraindo e rodando `codesign --verify
