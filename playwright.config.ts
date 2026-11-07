@@ -1,5 +1,10 @@
 import { defineConfig } from "@playwright/test";
+import { guardDiskFloor } from "./tests/e2e/disk-floor";
 import { e2eHome, frontend, host, hostPort } from "./tests/e2e/environment";
+
+// At load, before the webServer plugins start the host and Vite: a run under the disk floor dies with
+// ENOSPC minutes later, after the cargo build. The globalSetup is too late (plugin setups run first).
+guardDiskFloor();
 
 export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
