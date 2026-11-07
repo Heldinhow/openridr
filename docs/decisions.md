@@ -1574,3 +1574,26 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Consequência.** `docs/SPEC-E2E-RESTRICTED-PORTS.md`; ticket #261, filho de #258; evidência em
   `docs/evidence/e2e-restricted-ports.md`. Uma cláusula no skill `verify-openridr`; `AGENTS.md` intocado.
   Nenhuma dependência nova, nenhum script novo, nenhum `data-testid`.
+
+## 2026-11-07 — O doctor mede o espaço livre do `$TMPDIR` com piso de 3072 MiB (issue #259)
+
+- **Decisão.** O `doctor.sh` do skill `verify-openridr` passa a imprimir uma linha com o espaço livre em
+  MiB no volume de `${TMPDIR:-/tmp}`, medido com `df -Pk` (coluna `Available`, 1024-blocos ÷ 1024):
+  `ok` a partir de 3072 MiB, `note` entre 1024 e 3071, `FAIL` (exit 1) abaixo de 1024. Medição sem
+  número vira `note`, nunca `ok`. O script continua somente leitura.
+- **Por que o volume do `$TMPDIR`.** É onde o E2E escreve: um app home por porta da UI e o diretório de
+  capturas. O volume do repositório (`target/`, `node_modules`) é outra pergunta e ficou fora.
+- **Por que 3072/1024 MiB.** Até quatro sessões em paralelo, cada uma com ~200 MiB de app home mais
+  caches e builds; o orquestrador já manda sessões pararem abaixo de 3 GB. Os dois números e o motivo
+  ficam escritos ao lado do check no script e no parágrafo do Doctor do `SKILL.md`, para a próxima
+  sessão não redescobrir de onde vieram.
+- **Por que o doctor e não o harness.** O `ENOSPC` aparece numa cópia de arquivo, minutos depois do
+  começo do run (medido na #217: 127 MiB livres, `globalSetup` morto no download do csharp-ls). O doctor
+  é o passo que existe para descobrir isso antes, e agora ele mostra o número em vez de deixar a sessão
+  adivinhar.
+- **Teste sem encher disco.** O `df` resolvido pelo `PATH` é o seam: um `df` falso primeiro no `PATH` e
+  stubs das outras ferramentas deixam o exit code depender só do caso. Nenhuma variável só-de-teste no
+  script.
+- **Consequência.** `docs/SPEC-DOCTOR-DISK-SPACE.md`; ticket #267, filho de #259; evidência em
+  `docs/evidence/doctor-disk-space.md`; teste em `tests/shell/doctor.test.sh` (rodado à mão, como os
+  outros de `tests/shell/`). Nenhuma dependência nova, nenhum `data-testid`, nenhuma UI.
