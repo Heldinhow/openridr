@@ -58,10 +58,11 @@ garantia nova: remover o gate da lista deixa de ser silencioso); `NEEDS` vazio e
 
 | Prova | Resultado |
 |---|---|
-| `sh tests/shell/ci-risk-gate.test.sh` | **17 casos, todos ok** |
-| Mesmo teste com `dash` | **17 casos, todos ok** |
+| `sh tests/shell/ci-risk-gate.test.sh` | **22 casos, todos ok** |
+| Mesmo teste com `dash` | **22 casos, todos ok** |
 | Falha-antes: o gate anterior (comparação por timestamp) contra o teste novo | **12 de 17 falham** |
 | Falha-antes da rodada 2: o gate anterior ao conserto do `COMMENTED` | **1 de 17 falha** (`comment-after-approval`) |
+| Falha-antes da #149: `GATE_SCRIPT=<gate anterior ao dono autor>` no teste novo | **4 de 22 falham** (`owner-author-no-review`, `owner-author-ignores-a-change-request`, `wrong-pull-request`, `unreadable-pull-request`) |
 | Mutação: aceitar qualquer `author_association` | reprova `approval-without-write-access` |
 
 Casos: `low`/`medium` não chamam o GitHub (sem gate); aprovação no head (passa); aprovação num commit
@@ -71,6 +72,13 @@ anterior (reprova); aprovação retirada por `CHANGES_REQUESTED` posterior (repr
 outro aprovou o head (passa, e o log nomeia quem aprovou); PR errado (o stub `gh` falha na URL → exit 2);
 erro de API na lista de reviews (exit 2, nunca passe); tier desconhecido (exit 2); `REPO` ausente
 (exit 2); `HEAD_SHA` ausente (exit 2).
+
+Da #149 (2026-11-07): PR cujo autor é `OWNER` passa sem review e **sem ler a lista** (`owner-author-no-review`),
+inclusive quando o histórico tem um `CHANGES_REQUESTED` (`owner-author-ignores-a-change-request`); o mesmo
+PR escrito por `MEMBER` reprova sem aprovação (`member-author-no-review`) e passa com ela
+(`member-author-with-approval`); a leitura do PR que falha é exit 2, nunca passe
+(`unreadable-pull-request`), e continua sendo o PR certo que é lido (`wrong-pull-request`, o stub falha
+na URL).
 
 O stub `gh` aplica o `--jq` de verdade no fixture com o `jq` real, então o teste exercita a expressão
 que roda no CI, não uma reimplementação dela.
@@ -209,7 +217,8 @@ Re-check (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre `92c5498`. 
 | O guard do TOML validava o cabeçalho com a indentação | média | `  [dependencies] # comment` é válido, mas virava ilegível → todo PR de dependência alto | espaço à esquerda removido antes de validar e de extrair o nome; caso `cargo-indented-header-comment` = `medium` (falha-antes: `high`) |
 | `git show` de blob vazio "dava certo" | média (fail-open) | `sh` num arquivo vazio sai 0: o agregador ficaria verde sem olhar `needs`; symlink não era validado | extração exige modo `100644`/`100755` e tamanho > 0; senão, regra inline. Testes `blob-empty`, `blob-symlink`, `blob-tree`, `blob-missing` |
 
-**A política de bootstrap agora é código testado.** Ela vive no YAML porque não pode vir do PR; `tests/shell/ci-workflow-bootstrap.test.sh` extrai os três blocos marcados (checagem de blob, regra do gate, regra do agregador) e os executa com `gh` de mentira — **25 casos**. Três mutações provam que o teste morde:
+**A política de bootstrap agora é código testado.** Ela vive no YAML porque não pode vir do PR; `tests/shell/ci-workflow-bootstrap.test.sh` extrai os três blocos marcados (checagem de blob, regra do gate, regra do agregador) e os executa com `gh` de mentira — **26 casos** (os três do dono autor e do PR ilegível entraram com a #149).
+Três mutações provam que o teste morde:
 
 | Mutação | Casos que caem |
 |---|---|
@@ -226,9 +235,11 @@ sobre um gate que só roda no GitHub.
 
 ## O que não foi verificado
 
-- **Aprovação do mantenedor e o rerun**: o run fica vermelho até o Helder aprovar o PR #131 e alguém
-  rodar `gh run rerun --failed`. Até lá, o caminho "aprovação válida → verde" não tem prova real (tem
-  prova de unidade: 14 casos).
+- **Aprovação do mantenedor e o rerun**: com a decisão de 2026-11-07 (#149) o PR do dono passa sem
+  review, então este PR não exercita mais esse caminho. "Aprovação válida → verde" segue com prova de
+  unidade (22 casos) e nenhuma de ponta a ponta — e, num repo de um mantenedor só, não tem como ter.
+- **O curto-circuito do dono autor no primeiro run real**: é o que o run deste PR prova (o `risk` deve
+  ficar verde sem review). Até o run acontecer, a prova é a de unidade.
 - **Auto-merge no tier baixo**: `allow_auto_merge` está **ligado** no repo desde 2026-11-06
   (`gh api repos/Heldinhow/openridr --jq .allow_auto_merge` → `true`, autorizado pelo Helder), mas nenhum
   PR `risk:low` passou pelo job ainda: o caminho "arma auto-merge → checks verdes → squash automático"

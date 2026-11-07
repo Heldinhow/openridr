@@ -29,7 +29,10 @@ Um **risk tier** calculado pelos caminhos que o PR toca, não por quem escreveu:
   pelo orquestrador depois de conferir a evidência.
 - **Alto** (`.github/workflows/**`, `.github/rulesets/**`, `AGENTS.md`, `scripts/release*`,
   `scripts/vendor-*`, `scripts/ci-*`, entitlements, `src-tauri/tauri.conf.json`, trust, e mudança de
-  dependência): **o mantenedor precisa aprovar a revisão atual do PR**, senão o `ci` não fica verde.
+  dependência): **o mantenedor precisa aprovar a revisão atual do PR**, senão o `ci` não fica verde —
+  exceto quando o autor do PR é o dono do repositório, que passa sem review (decisão de 2026-11-07,
+  opção (b) da #149: o GitHub recusa autoaprovação, e um repo de um mantenedor só não tem outra
+  identidade com write access). O tier alto continua **sem** auto-merge: o merge é manual.
 
 Um PR misto recebe o tier mais alto entre os caminhos que toca. O tier aparece como label no PR
 (`risk:low|medium|high`) e é aplicado por um job do próprio `ci.yml`, então o ruleset da `main` não
@@ -127,7 +130,9 @@ resolvido por escrito e revert rate medido por mês.
 - Passos: checkout com histórico; extrair classificador e gate da revisão base; calcular o tier (erro →
   `high`, com anotação `::error::`); garantir os três labels `risk:*` (`gh label create --force`, cores
   fixas; falha = `::warning::`); aplicar o label calculado e remover os outros dois (falha =
-  `::warning::`); no tier alto, exigir uma review `APPROVED` de OWNER/MEMBER/COLLABORATOR cujo
+  `::warning::`); no tier alto, **passar quando o autor do PR é `OWNER`** (a associação vem de
+  `gh api repos/<repo>/pulls/<n> --jq .author_association`, nunca de um input do workflow) e, para
+  qualquer outro autor, exigir uma review `APPROVED` de OWNER/MEMBER/COLLABORATOR cujo
   `commit_id` **é** o head do PR e cujo estado **mais recente** daquele revisor é `APPROVED` (um
   `CHANGES_REQUESTED` posterior retira a aprovação), senão `::error::` e exit 1; no tier baixo,
   `gh pr merge --auto --squash` (falha = `::warning::` com a saída real do `gh` e uma linha no resumo —
@@ -208,6 +213,11 @@ interna foi chamada.
   auto-merge, e o `## Merge danger` do template continua sendo texto que o autor escreve.
 - Consequência esperada e aceita: PR do Dependabot cai em risco alto (muda lockfile), logo passa pelo
   mantenedor.
+- **A decisão de 2026-11-07 troca revisão por desbloqueio no alto.** Num repo de um mantenedor só, o
+  tier alto passa a significar "o dono escreveu", não "alguém revisou": o gate não distingue um PR de
+  CI do próprio dono de um PR de CI revisado por outra pessoa, porque não existe outra pessoa. A
+  segunda opinião real é o `/code-review` com outro modelo, fora do GitHub. Reverter isso é abrir a
+  opção (a) da #149 (segunda conta com write access) e apagar o curto-circuito do dono.
 - Arquivos de risco que **não** entram nesta rodada e ficam para quando aparecerem: paths de
   notarização fora de `scripts/release*`, e qualquer coisa sob `vendor/` (que hoje é dependência
   vendorizada e cairia em médio por default).
