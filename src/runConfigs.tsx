@@ -1,4 +1,4 @@
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   HostCallError,
   messageOf,
@@ -10,6 +10,7 @@ import {
 } from "./host/client";
 import { Icon } from "./Icon";
 import { MidText } from "./shell/MidText";
+import { ToolbarMenu } from "./shell/ToolbarMenu";
 
 export const DEFAULT_RUN_CONFIG_ID = "default";
 
@@ -96,19 +97,28 @@ export function RunConfigWidget({
       </span>
     );
   }
-  const choose = (id: string, event: MouseEvent<HTMLButtonElement>) => {
-    event.currentTarget.closest("details")?.removeAttribute("open");
+  const choose = (id: string, close: () => void) => {
+    close();
     onSelect(id);
   };
   return (
-    <details className="toolbar-menu run-config-menu" data-testid="run-config-menu" onToggle={(event) => { if (event.currentTarget.open) onOpen(); }}>
-      <summary data-testid="toolbar-run-config" title={title} aria-label={title}>
-        <Icon name="runconfig" />
-        <span data-testid="run-config-active"><MidText text={active?.name ?? "Run config"} /></span>
-        {active?.readOnly && <span className="run-config-tag">{active.launchProfile ? "imported" : "default"}</span>}
-        <Icon name="chevron" />
-      </summary>
-      <div className="menu-content">
+    <ToolbarMenu
+      className="toolbar-menu run-config-menu"
+      testId="run-config-menu"
+      triggerTestId="toolbar-run-config"
+      label={title}
+      onOpen={onOpen}
+      trigger={
+        <>
+          <Icon name="runconfig" />
+          <span data-testid="run-config-active"><MidText text={active?.name ?? "Run config"} /></span>
+          {active?.readOnly && <span className="run-config-tag">{active.launchProfile ? "imported" : "default"}</span>}
+          <Icon name="chevron" />
+        </>
+      }
+    >
+      {(close) => (
+        <>
         <span className="menu-heading">Run configuration</span>
         {defaultConfig && !profiles.some((profile) => profile.commandName === "Project") && (
           <button
@@ -116,7 +126,7 @@ export function RunConfigWidget({
             data-testid="run-config-option-default"
             aria-current={activeId === DEFAULT_RUN_CONFIG_ID ? "true" : undefined}
             title="Derived from the current evaluation; read only."
-            onClick={(event) => choose(DEFAULT_RUN_CONFIG_ID, event)}
+            onClick={() => choose(DEFAULT_RUN_CONFIG_ID, close)}
           >
             {defaultConfig.name}
             <span className="menu-note">Derived from the evaluation; read only.</span>
@@ -130,7 +140,7 @@ export function RunConfigWidget({
             disabled={profile.commandName !== "Project"}
             aria-current={activeId === DEFAULT_RUN_CONFIG_ID && defaultConfig?.launchProfile === profile.name ? "true" : undefined}
             title={profile.commandName === "Project" ? "Imported from launchSettings.json; read only." : `Unsupported commandName: ${profile.commandName || "missing"}`}
-            onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); onSelectProfile(profile.name); }}
+            onClick={() => { close(); onSelectProfile(profile.name); }}
           >
             {defaultConfig?.project.split("/").pop()?.replace(/\.csproj$/i, "")} · {profile.name}
             <span className="menu-note">{profile.commandName === "Project" ? "Imported profile" : `Unsupported: ${profile.commandName || "missing commandName"}`}</span>
@@ -143,7 +153,7 @@ export function RunConfigWidget({
             data-testid={`run-config-option-${config.id}`}
             aria-current={activeId === config.id ? "true" : undefined}
             title={`${config.project} · ${config.configuration}${config.targetFramework ? ` · ${config.targetFramework}` : ""}`}
-            onClick={(event) => choose(config.id, event)}
+            onClick={() => choose(config.id, close)}
           >
             {config.name} <span className="menu-note">Manual configuration</span>
           </button>
@@ -151,15 +161,16 @@ export function RunConfigWidget({
         <button
           type="button"
           data-testid="run-config-edit"
-          onClick={(event) => {
-            event.currentTarget.closest("details")?.removeAttribute("open");
+          onClick={() => {
+            close();
             onEdit();
           }}
         >
           Edit run configurations…
         </button>
-      </div>
-    </details>
+        </>
+      )}
+    </ToolbarMenu>
   );
 }
 

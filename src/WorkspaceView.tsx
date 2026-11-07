@@ -462,16 +462,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   const sidebarWidth = layout.left.size;
   const outputHeight = layout.bottom.size;
   const panelBodyRef = useRef<HTMLDivElement>(null);
-  // Toolbar dropdowns are <details>: close them on an outside click.
-  useEffect(() => {
-    const close = (event: PointerEvent) => {
-      document.querySelectorAll<HTMLDetailsElement>("details.toolbar-menu[open]").forEach((menu) => {
-        if (!menu.contains(event.target as Node)) menu.open = false;
-      });
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, []);
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
