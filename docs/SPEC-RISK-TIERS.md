@@ -130,9 +130,9 @@ resolvido por escrito e revert rate medido por mês.
   `::warning::`); no tier alto, exigir uma review `APPROVED` de OWNER/MEMBER/COLLABORATOR cujo
   `commit_id` **é** o head do PR e cujo estado **mais recente** daquele revisor é `APPROVED` (um
   `CHANGES_REQUESTED` posterior retira a aprovação), senão `::error::` e exit 1; no tier baixo,
-  `gh pr merge --auto --squash` (falha = `::warning::` com a saída real do `gh` e uma linha no resumo,
-  porque `allow_auto_merge` é decisão do Helder e ainda está desligado); escrever tier, motivos e
-  resultado no `$GITHUB_STEP_SUMMARY`.
+  `gh pr merge --auto --squash` (falha = `::warning::` com a saída real do `gh` e uma linha no resumo —
+  o setting `allow_auto_merge` é decisão do Helder e foi ligado em 2026-11-06, mas o job nunca depende
+  dele para passar); escrever tier, motivos e resultado no `$GITHUB_STEP_SUMMARY`.
 - O job é PR-only e o agregador `ci` passa a receber a lista de jobs PR-only como **dado**
   (`governance,risk`): `skipped` nesses dois só é aceitável fora de `pull_request`, e nunca dentro de
   um PR. A lógica do agregador sai do YAML para `scripts/ci-aggregate.sh`, com teste, para que a lista

@@ -45,15 +45,20 @@ ruleset passa a exigir um check que não existe).
 
 Para remover: `gh api --method DELETE "repos/Heldinhow/openridr/rulesets/<id>"`.
 
-## Pendências de setting (Helder)
+## Settings do repo
 
-O que o repo precisa e **ainda não tem**, com o comando pronto. Nada aqui foi aplicado pela sessão.
+O que o repo precisa para o gate funcionar, e o estado de cada um. Mudar setting é decisão do Helder; a
+sessão documenta e não aplica.
 
-| Setting | Por quê | Comando |
+| Setting | Estado | Por quê |
 |---|---|---|
-| `allow_auto_merge` | o job `risk` arma auto-merge nos PR `risk:low`; desligado, ele só emite `::warning::` e o PR de docs espera alguém | `gh api --method PATCH repos/Heldinhow/openridr -F allow_auto_merge=true` |
+| `allow_auto_merge` | **ligado** (2026-11-06, autorizado pelo Helder) | o job `risk` arma auto-merge nos PR `risk:low`; com o setting desligado ele só emitiria `::warning::` e o PR de docs esperaria alguém |
+| `allow_squash_merge` | ligado | é o único método que o ruleset aceita (`allowed_merge_methods: ["squash"]`) |
 
 Conferir: `gh api repos/Heldinhow/openridr --jq '{allow_auto_merge, allow_squash_merge}'`.
+Se algum dia o auto-merge for desligado, religar é
+`gh api --method PATCH repos/Heldinhow/openridr -F allow_auto_merge=true`, e o job `risk` passa a avisar
+(`::warning::` + resumo) em vez de armar o merge — ele nunca reprova por causa do setting.
 Os labels `risk:low|medium|high` **não** estão nesta lista: o job os cria de forma idempotente
 (`gh label create --force`) na primeira vez que roda.
 

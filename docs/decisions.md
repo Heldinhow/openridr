@@ -1141,3 +1141,10 @@ Revisão (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre `7a352d5`: 
 - **Falha do auto-merge não afirma mais a causa.** O aviso dizia "o repositório precisa de `allow_auto_merge`" para qualquer erro, inclusive token read-only. Agora a saída real do `gh` vai para o `::warning::` e para o resumo, com a sugestão do setting como hipótese, não como diagnóstico.
 - **Mês posicional.** O ticket escreveu `revert-rate.sh [mês]`; o script só aceitava `--month`. As duas formas valem.
 - **O que continua aberto, e é decisão do Helder.** Com `pull_request`, o YAML que roda é o do merge commit: um PR que apague o passo do gate do próprio `ci.yml` ainda pode ficar verde. Tirar a decisão das mãos do PR (feito aqui) e deixar a brecha residual num diff de YAML é o limite desta frente; fechar de vez pede `pull_request_target` para o gate e um terceiro check obrigatório no ruleset — settings, portanto issue filha.
+
+## 2026-11-06 — `allow_auto_merge` ligado: o tier baixo passa a entrar sozinho
+
+- **Fato novo, decisão do Helder.** O setting `allow_auto_merge` do repo foi ligado (`gh api repos/Heldinhow/openridr --jq .allow_auto_merge` → `true`). A decisão de 2026-11-06 sobre o gate de risco dizia que o job avisaria enquanto o setting estivesse desligado; agora ele arma o merge de verdade no tier baixo.
+- **O job não muda de contrato.** `gh pr merge --auto --squash` continua sendo `::warning::` quando falha, nunca reprovação: o setting é configuração do repo, e um PR de documentação não deve ficar vermelho por causa dela.
+- **O que passa a depender do setting é o resultado, não o check.** Com ele ligado, `risk:low` entra em squash quando `ci` e `security` ficam verdes; desligado, o mesmo PR espera alguém. O check `ci` é verde nos dois casos.
+- **Estado documentado em um lugar só:** `docs/ci-main-ruleset.md` (tabela de settings) e `AGENTS.md` (o que a sessão espera). Nenhum PR `risk:low` passou por esse caminho ainda — está registrado como não verificado em `docs/evidence/risk-tiers.md`.

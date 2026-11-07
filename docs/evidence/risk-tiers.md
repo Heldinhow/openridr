@@ -193,9 +193,11 @@ sobre um gate que só roda no GitHub.
 - **Aprovação do mantenedor e o rerun**: o run fica vermelho até o Helder aprovar o PR #131 e alguém
   rodar `gh run rerun --failed`. Até lá, o caminho "aprovação válida → verde" não tem prova real (tem
   prova de unidade: 14 casos).
-- **Auto-merge no tier baixo**: `allow_auto_merge` está **desligado** no repo (decisão do Helder, comando
-  em [ci-main-ruleset.md](../ci-main-ruleset.md)). O passo roda, falha e emite `::warning::`; nenhum PR
-  de risco baixo foi mergeado por auto-merge ainda.
+- **Auto-merge no tier baixo**: `allow_auto_merge` está **ligado** no repo desde 2026-11-06
+  (`gh api repos/Heldinhow/openridr --jq .allow_auto_merge` → `true`, autorizado pelo Helder), mas nenhum
+  PR `risk:low` passou pelo job ainda: o caminho "arma auto-merge → checks verdes → squash automático"
+  não tem prova de ponta a ponta. O caminho de falha (setting desligado → `::warning::`) também não foi
+  observado depois de ligado.
 - **PR de fork**: o token é read-only, então rotular falha e o job segue. Repo sem forks: não exercitado.
 - **`risk:low` e `risk:medium` num run real**: só o `high` foi exercitado (este PR). Os outros dois têm
   prova de unidade (self-check do tier) e nenhuma prova de ponta a ponta.
