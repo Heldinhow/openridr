@@ -98,5 +98,5 @@ _(preenchido na verificação com `agent-desktop`; ver abaixo)_
 
 - Windows e macOS Intel.
 - `ProjectReference` para projeto fora que não está no `.sln`: não é modelado (limite declarado na spec).
-- Busca Files/Text, git status/gutter/diff, "Show all files" e cwd do terminal continuam ancorados na raiz (limite declarado).
+- Busca Files/Text, git status/gutter/diff e cwd do terminal continuam ancorados na raiz (limite declarado). "Show all files" de um projeto de fora lista o diretório do projeto, que está no escopo.
 - Playwright: não é prova desta feature (decisão da #67).

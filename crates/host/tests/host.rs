@@ -2261,6 +2261,12 @@ fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
         .find(|project| project["name"] == "Lib")
         .unwrap();
     assert_eq!(lib_outline["kind"], "library");
+    // Before an evaluation the outline already names the outside project by its canonical absolute
+    // path, the same form the evaluated model uses.
+    assert_eq!(
+        lib_outline["path"],
+        json!(lib.join("Lib.csproj").to_string_lossy())
+    );
     assert_eq!(
         lib_outline["files"],
         json!([lib.join("Greeting.cs").to_string_lossy()])
@@ -2345,6 +2351,45 @@ fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
             })
         )),
         "outside_workspace"
+    );
+}
+
+#[test]
+fn a_slnx_solution_evaluates_projects_outside_its_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("OutsideSolution");
+    copy_tree(&outside_fixture(), &fixture);
+    let app = fs::canonicalize(fixture.join("app")).unwrap();
+    fs::write(
+        app.join("App.slnx"),
+        "<Solution>\n  <Project Path=\"App.csproj\" />\n  <Project Path=\"../lib/Lib.csproj\" />\n  <Project Path=\"../outside-app/OutsideApp.csproj\" />\n  <Project Path=\"../tests/Lib.Tests.csproj\" />\n</Solution>\n",
+    )
+    .unwrap();
+
+    let host = support::host();
+    open(&host, &app.join("App.slnx"));
+    grant(&host);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    let evaluation = &evaluated["evaluation"];
+    assert_eq!(evaluation["state"], "ok", "{}", evaluation["log"]);
+    let projects = evaluation["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 4, "{projects:?}");
+    let lib = projects
+        .iter()
+        .find(|project| project["name"] == "Lib")
+        .unwrap();
+    assert_eq!(lib["state"], "ok", "{}", lib["log"]);
+    assert_eq!(
+        lib["path"],
+        json!(fs::canonicalize(fixture.join("lib"))
+            .unwrap()
+            .join("Lib.csproj")
+            .to_string_lossy())
+    );
+    assert_eq!(
+        evaluated["workspace"]["scope"].as_array().unwrap().len(),
+        4,
+        "the .slnx scope names the root and the three outside project directories"
     );
 }
 

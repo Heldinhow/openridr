@@ -321,14 +321,25 @@ pub fn plan_workspace(workspace_file: &Path, root: &Path, is_solution: bool) -> 
         // part of the workspace, and nothing else is. The same helper builds the outline's scope,
         // so the two can never disagree.
         resolved = crate::outline::resolve_workspace_scope(root, workspace_file, true);
-        for project in model.projects {
-            projects.push(plan_project(
-                root,
-                &resolved,
-                project.name,
-                project.path,
-                project.folder,
-            ));
+        if workspace_file
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("slnx"))
+        {
+            // `.slnx` lists projects as XML, which the text parser above does not read: the project
+            // list comes from the same parser the outline and the scope use.
+            for (name, path) in crate::outline::solution_projects(workspace_file) {
+                projects.push(plan_project(root, &resolved, name, path, None));
+            }
+        } else {
+            for project in model.projects {
+                projects.push(plan_project(
+                    root,
+                    &resolved,
+                    project.name,
+                    project.path,
+                    project.folder,
+                ));
+            }
         }
     } else {
         configurations = vec!["Debug".to_string(), "Release".to_string()];

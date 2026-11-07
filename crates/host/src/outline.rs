@@ -57,8 +57,9 @@ pub fn build_outline(
     }
 }
 
-/// The projects the workspace file names, in file order: `.sln` text or `.slnx` XML.
-fn solution_projects(workspace_file: &Path) -> Vec<(String, String)> {
+/// The projects the workspace file names, in file order: `.sln` text or `.slnx` XML. Shared with
+/// the evaluation planner so both formats name the same projects, in the same order.
+pub(crate) fn solution_projects(workspace_file: &Path) -> Vec<(String, String)> {
     let text = fs::read_to_string(workspace_file).unwrap_or_default();
     if workspace_file
         .extension()
@@ -113,9 +114,17 @@ fn outline_project(root: &Path, scope: &Scope, rel: &str, name: &str) -> Outline
         return unknown();
     };
 
+    // Outside the root the project is named by its canonical absolute path, the same form the
+    // evaluated model uses; inside it stays workspace-relative. Before an evaluation the tree and
+    // the run configurations read this path, so the two models must agree.
+    let path = if canonical.starts_with(root) {
+        rel
+    } else {
+        canonical.to_string_lossy().replace('\\', "/")
+    };
     OutlineProject {
         name: name.to_string(),
-        path: rel,
+        path,
         kind: project_kind(&text).to_string(),
         tfms: project_tfms(&text),
         references: project_references(&text),

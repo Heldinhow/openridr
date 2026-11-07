@@ -74,7 +74,7 @@ Projetos dentro do escopo são avaliados, aparecem na árvore com seus arquivos,
 
 ## Out of Scope
 
-- Busca Files/Text, git status/gutter/diff e "Show all files" fora da raiz: continuam ancorados na raiz da solution, declarados como limite.
+- Busca Files/Text e git status/gutter/diff continuam ancorados na raiz da solution (limite). "Show all files" de um projeto de fora lista o diretório **do projeto**, que está no escopo; a listagem nunca navega fora do escopo.
 - `ProjectReference` para projeto fora que **não** está no `.sln`: o MSBuild continua construindo o referenciado, mas ele não é modelado nem aparece na árvore nesta rodada.
 - cwd do terminal continua na raiz da solution.
 - Redesenho do fluxo de trust: só o texto muda.

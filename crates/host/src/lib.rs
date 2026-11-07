@@ -1044,10 +1044,18 @@ impl Host {
                     ),
                 ),
                 _ => {
+                    // The server may publish for any file it loaded; only the workspace scope is
+                    // shown, so a path outside it never becomes a problem the UI cannot open.
+                    let scope = inner
+                        .workspace
+                        .as_ref()
+                        .map(|workspace| workspace.scope.clone());
                     for publication in lsp.publications() {
-                        inner
-                            .diagnostics
-                            .ingest(&diagnostics::Origin::lsp(), &publication);
+                        if publication_in_scope(scope.as_ref(), &publication) {
+                            inner
+                                .diagnostics
+                                .ingest(&diagnostics::Origin::lsp(), &publication);
+                        }
                     }
                 }
             }
@@ -6688,14 +6696,14 @@ impl Host {
     /// are data (`state`), so the palette can say what is missing instead of showing zero.
     fn lsp_workspace_symbol(&self, params: Value) -> HostResult<Value> {
         let query = required_str(&params, "query")?;
-        let (root, workspace_id, context_id, trusted, lsp) = {
+        let (scope, workspace_id, context_id, trusted, lsp) = {
             let inner = self.inner.lock().unwrap();
             let workspace = inner
                 .workspace
                 .as_ref()
                 .ok_or_else(|| HostError::new("invalid_state", "No workspace is open."))?;
             (
-                workspace.root.clone(),
+                workspace.scope.clone(),
                 workspace.id,
                 inner.context_seq,
                 inner.trusted,
@@ -6839,7 +6847,7 @@ impl Host {
                         false,
                     ));
                 };
-                let (items, truncated) = workspace_symbol_items(&list, &root);
+                let (items, truncated) = workspace_symbol_items(&scope, &list);
                 let message = truncated.then(|| {
                     format!(
                         "csharp-ls returned {} symbols; only the first {} inside the workspace are shown.",
@@ -8660,6 +8668,18 @@ pub(crate) fn confine_raw(scope: &Scope, raw: &str, missing: &str) -> HostResult
     confine(scope, &candidate, shape_of(raw)).map_err(|error| confine_error(error, raw, missing))
 }
 
+/// Whether an LSP publication belongs to the workspace scope. A publication without a path (the
+/// server named no file) is kept: the store already handles it as unattributed.
+fn publication_in_scope(scope: Option<&Scope>, publication: &lsp::Publication) -> bool {
+    let (Some(scope), Some(raw)) = (scope, publication.path.as_deref()) else {
+        return true;
+    };
+    // The path may be the workspace-relative one the client sent with `didOpen` or the absolute one
+    // from the URI; `confine_raw` reads a relative path against the root and an absolute one by
+    // containment, the same contract as every other frontier.
+    confine_raw(scope, raw, "Publication").is_ok()
+}
+
 /// The workspace-relative display path (`/`-separated) every snapshot and UI answer uses.
 fn workspace_relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
@@ -8809,20 +8829,19 @@ fn pick_workspace() -> HostResult<Value> {
     Ok(json!({ "path": if path.is_empty() { None } else { Some(path) } }))
 }
 
-/// Keeps only symbols whose file is inside the workspace. Dropping an outside symbol is
+/// Keeps only symbols whose file is inside the workspace scope. Dropping a symbol outside it is
 /// filtering, not truncation: `truncated` mirrors the cap applied while parsing the LSP answer.
-fn workspace_symbol_items(list: &lsp::WorkspaceSymbolList, root: &Path) -> (Vec<Value>, bool) {
+fn workspace_symbol_items(scope: &Scope, list: &lsp::WorkspaceSymbolList) -> (Vec<Value>, bool) {
     let items = list
         .items
         .iter()
         .filter_map(|item| {
-            let path = lsp::uri_to_path(&item.uri)?;
-            let canonical = fs::canonicalize(&path).ok()?;
-            let rel = canonical
-                .strip_prefix(root)
-                .ok()?
-                .to_string_lossy()
-                .replace('\\', "/");
+            let raw = lsp::uri_to_path(&item.uri)?;
+            let canonical = confine(scope, Path::new(&raw), shape_of(&raw)).ok()?;
+            let rel = match scope.root() {
+                Some(root) => workspace_relative(root, &canonical),
+                None => canonical.to_string_lossy().replace('\\', "/"),
+            };
             Some(json!({
                 "name": item.name,
                 "kind": item.kind,
@@ -8962,6 +8981,66 @@ mod tests {
     }
 
     #[test]
+    fn a_publication_outside_the_scope_is_not_ingested() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        let lib = temp.path().join("lib");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("Lib.csproj"), "<Project />\n").unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+        let lib = fs::canonicalize(&lib).unwrap();
+        let scope = crate::scope::resolve(&root, ["../lib/Lib.csproj".to_string()]).scope;
+        let outside = temp.path().join("Outside.cs");
+        fs::write(&outside, "").unwrap();
+        fs::write(lib.join("Greeting.cs"), "").unwrap();
+        fs::write(root.join("Program.cs"), "").unwrap();
+
+        let publication = |path: Option<String>| lsp::Publication {
+            uri: path
+                .as_deref()
+                .map(|path| format!("file://{path}"))
+                .unwrap_or_default(),
+            path,
+            received_at: 0,
+            client_revision: None,
+            server_version: Value::Null,
+            session: 1,
+            workspace_id: 1,
+            context_id: 1,
+            items: Vec::new(),
+        };
+        let in_scope = lib.join("Greeting.cs").to_string_lossy().to_string();
+        assert!(publication_in_scope(
+            Some(&scope),
+            &publication(Some(in_scope))
+        ));
+        assert!(
+            publication_in_scope(Some(&scope), &publication(Some("Program.cs".to_string()))),
+            "a path inside the root is read against the root"
+        );
+        assert!(!publication_in_scope(
+            Some(&scope),
+            &publication(Some(outside.to_string_lossy().to_string()))
+        ));
+        assert!(
+            !publication_in_scope(
+                Some(&scope),
+                &publication(Some("../Outside.cs".to_string()))
+            ),
+            "a relative path that escapes the root is refused by shape"
+        );
+        assert!(
+            publication_in_scope(
+                None,
+                &publication(Some(outside.to_string_lossy().to_string()))
+            ),
+            "no workspace open: the store decides, as before"
+        );
+        assert!(publication_in_scope(Some(&scope), &publication(None)));
+    }
+
+    #[test]
     fn symbols_outside_the_workspace_are_filtered_not_truncated() {
         let temp = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(temp.path()).unwrap();
@@ -8982,18 +9061,42 @@ mod tests {
             total: 2,
             truncated: false,
         };
-        let (items, truncated) = workspace_symbol_items(&list, &root);
+        let (items, truncated) = workspace_symbol_items(&Scope::new(&root), &list);
         assert_eq!(items.len(), 1);
         assert!(
             !truncated,
             "a filtered outside symbol is not a host truncation"
+        );
+
+        // A project the solution names outside the root is in the scope: its symbols are kept and
+        // named by the canonical absolute path, the same form the evaluated model uses.
+        let lib = tempfile::tempdir().unwrap();
+        let lib = fs::canonicalize(lib.path()).unwrap();
+        fs::write(lib.join("Lib.csproj"), "<Project />\n").unwrap();
+        let lib_file = lib.join("Greeting.cs");
+        fs::write(&lib_file, "").unwrap();
+        let scope = crate::scope::resolve(
+            &root,
+            [lib.join("Lib.csproj").to_string_lossy().to_string()],
+        )
+        .scope;
+        let in_scope = lsp::WorkspaceSymbolList {
+            items: vec![item(&lib_file)],
+            total: 1,
+            truncated: false,
+        };
+        let (items, _) = workspace_symbol_items(&scope, &in_scope);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0]["path"],
+            json!(fs::canonicalize(&lib_file).unwrap().to_string_lossy())
         );
         let capped = lsp::WorkspaceSymbolList {
             truncated: true,
             ..list
         };
         assert!(
-            workspace_symbol_items(&capped, &root).1,
+            workspace_symbol_items(&Scope::new(&root), &capped).1,
             "real truncation is kept"
         );
     }
