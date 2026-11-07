@@ -143,6 +143,33 @@ touch_case toolchain medium rust-toolchain.toml
 touch_case unknown-tsconfig medium tsconfig.json
 touch_case unknown-html medium index.html
 
+# --- paths git would quote or that carry a space -----------------------------------------------------
+
+# The defect this covers: `core.quotePath` is on by default, so `docs/evidência.md` reaches the classifier
+# as `"docs/evid\303\252ncia.md"`, matches no rule and falls to the default. Documentation must stay low.
+touch_case unicode-docs low 'docs/evidência.md'
+
+# The same fix must not lower product code: the raw path still has to match the `crates/*` rule.
+touch_case unicode-product medium 'crates/host/src/ação.rs'
+
+# One path per line: a name with a space is the whole path, not `docs/guia` plus `de` plus `estilo.md`.
+touch_case space-in-name low 'docs/guia de estilo.md'
+
+# A name with a tab is quoted even with `core.quotePath=false`. The classifier cannot read it, so it must
+# fail closed instead of guessing a tier.
+tab=$(printf '\t')
+touch_case quoted-tab high "docs/tab${tab}here.md"
+
+# The reason is what tells a maintainer the path was unreadable, not a real CI change.
+cases=$((cases + 1))
+if grep -qF 'git quoted the path' "$scratch/quoted-tab.err"; then
+  printf 'ok   %-26s %s\n' quoted-tab-reason 'named'
+else
+  echo 'FAIL quoted-tab-reason: the reason does not say the path was quoted'
+  sed 's/^/    /' "$scratch/quoted-tab.err"
+  failures=$((failures + 1))
+fi
+
 # --- mixed pull requests take the highest tier ------------------------------------------------------
 
 touch_case mixed-docs-src medium docs/SPEC.md src/App.tsx
