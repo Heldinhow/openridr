@@ -452,7 +452,7 @@ fn split_launch_args(text: &str) -> Vec<String> {
                     count += 1;
                 }
                 if chars.get(index + count) == Some(&'"') {
-                    current.extend(std::iter::repeat('\\').take(count / 2));
+                    current.extend(std::iter::repeat_n('\\', count / 2));
                     if count % 2 == 1 {
                         current.push('"');
                     } else {
@@ -460,7 +460,7 @@ fn split_launch_args(text: &str) -> Vec<String> {
                     }
                     index += count + 1;
                 } else {
-                    current.extend(std::iter::repeat('\\').take(count));
+                    current.extend(std::iter::repeat_n('\\', count));
                     index += count;
                 }
                 started = true;
