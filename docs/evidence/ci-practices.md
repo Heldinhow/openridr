@@ -192,8 +192,18 @@ Medido nesta worktree (macOS arm64, `bun 1.3.9`, base `baa9821`), com `bun insta
 | `bunx tsc --noEmit` | `import "./does-not-exist.png"` na primeira linha | **0** | 1,26 s |
 | `bunx vite build` | idem | **1** (`[UNRESOLVED_IMPORT] Could not resolve './does-not-exist.png' in src/main.tsx`) | 0,39 s |
 
-A terceira linha é a falha-antes: o `tsc` aceita o import porque `vite/client` declara `*.png`, e só
-o bundler recusa. O import quebrado foi revertido antes do commit e `src/main.tsx` ficou sem diff.
+A terceira linha é a falha-antes local: o `tsc` aceita o import porque `vite/client` declara `*.png`,
+e só o bundler recusa.
+
+**Falha-antes e passa-depois no runner** (os dois runs do PR #239, `ubuntu-latest`):
+
+| Run | Head | Job TypeScript | O que aconteceu |
+|---|---|---|---|
+| [42404555286](https://github.com/Heldinhow/openridr/actions/runs/42404555286) | `d7d2463` | **vermelho** | "Type check" verde; "Build" vermelho com `[UNRESOLVED_IMPORT] Could not resolve './does-not-exist.png' in src/main.tsx`; "Unit tests" pulado; agregador `ci` vermelho |
+| [42405012826](https://github.com/Heldinhow/openridr/actions/runs/42405012826) | `758d56e` | verde | "Build" verde, Vite reporta `built in 460ms`; job TypeScript em **22 s** (era 17 s no run de 2026-11-07) |
+
+O commit `d7d2463` é descartável: `758d56e` o reverte e o diff final do PR não tem o import. O
+`dist/` gerado no runner é descartável e continua gitignored.
 
 ## O que é configuração existente, o que foi executado e o que não foi
 
