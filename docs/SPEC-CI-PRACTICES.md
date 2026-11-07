@@ -252,10 +252,11 @@ automatizado.
 | Parede do run | **4:22** |
 
 O `rust-tauri` terminou 1:27 antes do Rust, então a parede continua sendo o job Rust e o job novo não
-custou parede: os três runs verdes mais recentes **sem** ele, no mesmo dia, tiveram parede 4:43, 5:07
-e 4:49 (Rust 4:26, 4:49 e 4:30). A medição anterior, mais cedo no mesmo dia, dava TypeScript 17–19 s,
-Rust 3:38–4:21, governança 21–22 s, security 11–16 s, risk 12–18 s, agregador 12–14 s e parede
-≈ 4:20 — a variação do runner é maior que o job novo.
+custou parede: nos oito runs verdes de `ci.yml` de 2026-11-07 a parede variou de 4:19 a 5:07 e o job
+Rust de 4:01 a 4:49, e dois runs de outras branches **sem** o job novo, depois deste, tiveram parede
+4:43 (Rust 4:26) e 4:51 (Rust 4:27). A medição anterior, mais cedo no mesmo dia, dava TypeScript
+17–19 s, Rust 3:38–4:21, governança 21–22 s, security 11–16 s, risk 12–18 s, agregador 12–14 s e
+parede ≈ 4:20 — a variação do runner é maior que o job novo.
 
 O `dependency-audit` custa ~30 s de ferramenta mais o fetch do advisory-db: **29 s** medidos nos dois
 gatilhos (`42395791925` por `workflow_dispatch`, `42395786265` por `pull_request`).

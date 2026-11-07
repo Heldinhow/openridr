@@ -30,11 +30,11 @@ Jobs do run `42395785621`, cada um no seu tempo (`startedAt` → `completedAt`):
 **Parede: 4:22** — primeiro job às 17:20:06 e o agregador fechando às 17:24:28 (o `created_at` →
 `updated_at` da API dá 4:24: os 2 s de diferença são o setup do run antes do primeiro job). O
 `rust-tauri` terminou **1:27 antes** do Rust, então a parede continua sendo o job Rust e o job novo
-não custou parede. Comparação com os três runs verdes mais recentes **sem** o job novo, todos do
-mesmo dia, no mesmo repositório: `42396382712` parede 4:43 (Rust 4:26), `42393410712` parede 5:07
-(Rust 4:49), `42389859903` parede 4:49 (Rust 4:30). O job novo cabe inteiro na folga do Rust (1:27);
-o que domina a diferença de parede entre esses runs é a variação do próprio runner (≈40 s no job
-Rust). A medição anterior da spec, mais cedo no dia, tinha dado parede ≈ 4:20 com Rust 3:38–4:21.
+não custou parede. A variação do próprio runner é maior que o job novo: nos oito runs verdes de
+`ci.yml` de 2026-11-07, a parede foi de 4:19 a 5:07 e o job Rust de 4:01 a 4:49. Dois deles rodaram
+**depois** deste, em outras branches e sem o job novo — `42396382712` parede 4:43 (Rust 4:26) e
+`42396447606` parede 4:51 (Rust 4:27) —, contra 4:22 (Rust 4:08) do run entregue. A medição anterior
+da spec, mais cedo no dia, tinha dado parede ≈ 4:20 com Rust 3:38–4:21.
 
 O PR #225 é `risk:high` (mexe em `.github/workflows/**`), calculado pelo job `risk` no run acima.
 
