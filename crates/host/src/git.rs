@@ -2528,10 +2528,12 @@ fn push_with(root: &Path, params: &Value, deadline: Duration) -> HostResult<Oper
         None,
     );
     if timed_out {
-        // The kill can land after the remote accepted the refs, and `--set-upstream` may not have
-        // been written, so the message promises only what is local and names what to check.
+        // The message promises neither the outcome nor the local state: the kill can land after the
+        // remote accepted the refs, and a `pre-push` hook may already have run. It also does not
+        // name a remote: `git push` with no repository argument resolves the destination from
+        // `branch.<name>.pushRemote`/`remote.pushDefault`, which the app does not read.
         next.message = Some(format!(
-            "Push stopped: {remote} did not answer within {} seconds. The push may already have reached the remote: use Fetch to check the branch before pushing again. Your branch, index and working tree were not touched.",
+            "Push stopped: the remote did not answer within {} seconds. The push may already have reached it: check the branch there before pushing again.",
             deadline.as_secs()
         ));
     } else if output.ok() {
@@ -4054,14 +4056,11 @@ mod tests {
             "{message}"
         );
         assert!(!message.contains("Pushed"), "{message}");
-        assert!(
-            message.contains("may already have reached the remote"),
-            "{message}"
-        );
-        assert!(
-            message.contains("not touched"),
-            "the local promise must be stated: {message}"
-        );
+        assert!(message.contains("may already have reached it"), "{message}");
+        // Neither the local state nor the destination remote is promised: a `pre-push` hook can
+        // change the tree, and `git push` may resolve a remote the app never read.
+        assert!(!message.contains("not touched"), "{message}");
+        assert!(!message.contains("origin"), "{message}");
         assert!(
             began.elapsed() < Duration::from_secs(15),
             "the deadline must return even with a hung helper: {:?}",

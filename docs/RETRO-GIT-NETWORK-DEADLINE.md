@@ -18,6 +18,14 @@ Rodada de 2026-11-07, `44b81f2` (+ `ac168a7` da spec), macOS arm64. Spec: [SPEC-
 - **O recorte das capturas tem custo e limite.** O painel NuGet da sessão mostrava o caminho do SDK com o diretório home, então as imagens foram recortadas para o diálogo/painel Git; o `screenshot --app` do `agent-desktop` sai deslocado ~135 px lógicos à esquerda, então recortes a partir de `x=0` perdem a borda esquerda da janela.
 - **`bun install` antes do primeiro commit.** Worktree nova não tem `node_modules`, e o hook de pre-commit roda `bun run check` (`tsc`); sem instalar, o commit morre em `tsc: command not found`.
 
+## Revisão independente (rodada 1) — dois achados médios, corrigidos
+
+Ambos eram da mensagem do push morto, não do prazo:
+
+- **Nomear o remoto podia mandar a pessoa conferir o servidor errado.** `git push` sem argumento de repositório resolve o destino por `branch.<nome>.pushRemote`, depois `remote.pushDefault`, depois o remoto do upstream — e o app só lê o último. A mensagem passou a dizer "the remote" e a não sugerir o Fetch (que busca o remoto do upstream) como forma de conferir; o diálogo continua mostrando o remoto que o app pretende usar.
+- **"Sua branch, index e árvore não foram tocados" não é garantido no push.** O hook `pre-push` roda antes da transferência e pode escrever no repositório; a frase saiu. O fetch mantém a promessa porque não roda hook que toque a árvore.
+- **Consequência:** a captura `s1-push-stopped.png` é da redação anterior à revisão. O texto atual é o dos testes de host, e a tela não foi refeita por falta do slot da GUI (a #52 estava com a janela). O comportamento provado (prazo dispara, app mostra a mensagem do app, estado local intacto fora de hook) não mudou.
+
 ## Lições
 
 - **Prazo contra endereço "que não responde" pode provar o timeout do cliente, não o do app.** Antes de usar TEST-NET-1 como cenário de prazo, medir qual dos dois vence: o cliente tem timeout próprio de conexão (75 s no Git) e ele pode ser menor que o teto que se quer provar.
