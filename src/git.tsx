@@ -734,9 +734,9 @@ export function BranchWidget({
               into a merge commit (<code>git fetch</code>, then{" "}
               <code>git merge --ff --no-edit</code>); a fast-forward stays a fast-forward. The
               repository's <code>pull.rebase</code>, <code>pull.ff</code> and{" "}
-              <code>merge.ff</code> settings do not change that. If the merge conflicts, OpenRidr
-              aborts it and leaves your branch, commits and working tree unchanged; if it cannot
-              abort, the dialog says so.
+              <code>merge.ff</code> settings do not change that. If the merge conflicts, it stays in
+              progress: resolve the files in the editor, then finish or abort it from the branch
+              menu. Nothing is pushed.
             </p>
             <p className="hint">
               A dirty tree or an in-progress operation refuses the update; OpenRidr never stashes.
