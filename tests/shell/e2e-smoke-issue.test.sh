@@ -9,6 +9,8 @@
 #                                                               # the script (the falha-antes proof)
 #   SMOKE_SHELL=dash sh tests/shell/e2e-smoke-issue.test.sh      # run the script under dash, the
 #                                                               # runner's /bin/sh
+#   SMOKE_WORKFLOW=<path> sh tests/shell/e2e-smoke-issue.test.sh # read the workflow contract from
+#                                                               # another copy of the YAML (falha-antes)
 #
 # Covers: red with no report, red with the real report, red with the issue already open (rewrite, never a
 # second issue), red with an unrelated open issue, an unreadable report, a report with no failing spec (a
@@ -261,6 +263,72 @@ expect 2 0 missing-result
 
 run RESULT=blue
 expect 2 0 unknown-result
+
+# --- the workflow contract ---------------------------------------------------------------------------
+# `actionlint` and `zizmor` prove the syntax and the permissions, but neither knows that "never on a pull
+# request" is an acceptance criterion, so the YAML is read as text here: no parser, no new dependency.
+workflow=${SMOKE_WORKFLOW:-$repo/.github/workflows/e2e-smoke.yml}
+
+# block <key>: the body of a top-level key (`on:`, `permissions:`), up to the next line at column 0.
+block() {
+  awk -v key="$1" '$0 == key ":" {inside = 1; next} inside && /^[^[:space:]#]/ {inside = 0} inside' "$workflow"
+}
+
+# step <name fragment>: the body of the step whose `- name:` line contains the fragment.
+step() {
+  awk -v want="$1" '/^      - name:/ {inside = index($0, want) > 0; next} inside' "$workflow"
+}
+
+yaml_has() {
+  if printf '%s\n' "$1" | grep -qF -- "$2"; then
+    pass "  workflow has '$2'"
+  else
+    fail "workflow lacks '$2'"
+  fi
+}
+
+yaml_lacks() {
+  if printf '%s\n' "$1" | grep -qF -- "$2"; then
+    fail "workflow has '$2' and should not"
+  else
+    pass "  workflow has no '$2'"
+  fi
+}
+
+triggers=$(block on)
+yaml_lacks "$triggers" 'pull_request'
+yaml_has "$triggers" 'schedule'
+yaml_has "$triggers" 'workflow_dispatch'
+
+# The top-level block stays read-only: the write is the job's, and a job-level block replaces it anyway.
+top_permissions=$(block permissions)
+yaml_has "$top_permissions" 'contents: read'
+yaml_lacks "$top_permissions" 'issues:'
+
+yaml_has "$(block concurrency)" 'cancel-in-progress: false'
+
+# Everything after `jobs:` is the job, permissions included.
+jobs_block=$(awk '/^jobs:/ {inside = 1} inside' "$workflow")
+yaml_has "$jobs_block" 'issues: write'
+
+specs_step=$(step 'Run the specs listed')
+yaml_has "$specs_step" '--reporter=list,json'
+yaml_has "$specs_step" 'PLAYWRIGHT_JSON_OUTPUT_NAME:'
+
+red_step=$(step 'Report the red run')
+yaml_has "$red_step" 'if: failure()'
+yaml_has "$red_step" 'refs/heads/main'
+yaml_has "$red_step" 'workflow_dispatch'
+yaml_has "$red_step" 'RESULT: red'
+yaml_has "$red_step" 'RUN_URL:'
+yaml_has "$red_step" 'scripts/e2e-smoke-issue.sh'
+
+green_step=$(step 'Report the green run')
+yaml_has "$green_step" 'if: success()'
+yaml_has "$green_step" 'refs/heads/main'
+yaml_has "$green_step" 'workflow_dispatch'
+yaml_has "$green_step" 'RESULT: green'
+yaml_has "$green_step" 'scripts/e2e-smoke-issue.sh'
 
 if [ "$failures" -ne 0 ]; then
   echo "e2e-smoke-issue tests: $failures failure(s)"

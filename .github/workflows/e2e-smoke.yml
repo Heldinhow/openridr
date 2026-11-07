@@ -26,6 +26,11 @@ jobs:
     name: Playwright smoke
     runs-on: macos-15
     timeout-minutes: 60
+    # The tracking issue is the only write this workflow needs. A job-level block replaces the workflow
+    # one instead of adding to it, so `contents: read` has to be repeated here.
+    permissions:
+      contents: read
+      issues: write
     env:
       # The runner has no Google Chrome; the specs run on the Playwright Chromium instead.
       PLAYWRIGHT_CHANNEL: chromium
@@ -57,6 +62,10 @@ jobs:
       # `dotnet tool install`, so this job needs the network and costs ~15 min for the full suite;
       # the subset keeps it to a few minutes when it is healthy.
       - name: Run the specs listed in scripts/e2e-smoke.txt
+        env:
+          # `list` keeps the log readable; the JSON file is what the tracking issue lists the failed
+          # specs from. The config's own reporter stays `list`: the CI line asks for the second one.
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/playwright-report.json
         run: |
           specs=()
           while IFS= read -r spec; do
@@ -71,4 +80,31 @@ jobs:
             exit 1
           fi
           printf 'running: %s\n' "${specs[*]}"
-          bunx playwright test "${specs[@]}"
+          bunx playwright test --reporter=list,json "${specs[@]}"
+
+      # The run reports into one tracking issue (scripts/e2e-smoke-issue.sh): red opens or rewrites it,
+      # green comments the run link and closes it. Both steps run on `main` and on a manual dispatch
+      # only, and a failing report step fails the job on purpose: a green run that could not close the
+      # issue is exactly the silence this workflow exists to kill.
+      - name: Report the red run in the tracking issue
+        if: failure() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: red
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          REPORT: ${{ runner.temp }}/playwright-report.json
+        run: sh scripts/e2e-smoke-issue.sh
+
+      - name: Report the green run in the tracking issue
+        if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: green
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: sh scripts/e2e-smoke-issue.sh
