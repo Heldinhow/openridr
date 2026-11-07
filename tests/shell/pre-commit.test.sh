@@ -151,7 +151,7 @@ stage docs/guide.md README.md
 commit -m 'docs: guide'
 expect_code 'docs only' 0
 expect_log 'docs only' ''
-expect_out 'docs only' 'pre-commit: só documentação, nada a checar'
+expect_out 'docs only' 'pre-commit: nada a checar'
 expect_commits 'docs only' 2
 
 # --- 2. TypeScript only: tsc, no cargo ---------------------------------------------------------------
@@ -192,6 +192,7 @@ commit -m 'docs: first'
 commit --amend -m 'docs: amended'
 expect_code 'amend' 0
 expect_log 'amend' ''
+expect_out 'amend' 'pre-commit: nada a checar'
 expect_commits 'amend' 2
 
 # --- 6. TypeScript without node_modules: fails before bun, says bun install ---------------------------

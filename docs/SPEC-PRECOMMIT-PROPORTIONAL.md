@@ -93,8 +93,9 @@ substitui.
   `node_modules` pela metade dá o mesmo `command not found`), e a mensagem diz `rode bun install` e sai
   1. Commit só de documentação não passa por esse gate.
 - **Saída do hook:** uma linha por check que roda (`pre-commit: tsc --noEmit`, `pre-commit: cargo check
-  --workspace --all-targets`) e uma linha quando nada roda (`pre-commit: só documentação, nada a
-  checar`). É o que torna "as duas saídas ausentes" medível.
+  --workspace --all-targets`) e uma linha quando nada roda (`pre-commit: nada a checar`, sem dizer
+  "só documentação": um amend de mensagem tem diff vazio e não mudou documento nenhum). É o que torna
+  "as duas saídas ausentes" medível.
 - **Se `git diff --cached` falhar**, o hook cai no `bun run check` completo — falha para o lado caro, que
   é o comportamento de hoje.
 - **Limite conhecido, declarado no hook:** `cargo check --workspace --all-targets` não alcança

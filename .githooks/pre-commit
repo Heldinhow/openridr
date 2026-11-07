@@ -27,7 +27,7 @@ for path in $staged; do
 done
 
 if [ "$ts" -eq 0 ] && [ "$rust" -eq 0 ]; then
-  echo 'pre-commit: só documentação, nada a checar'
+  echo 'pre-commit: nada a checar'
   exit 0
 fi
 
