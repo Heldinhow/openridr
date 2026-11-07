@@ -186,6 +186,24 @@ export function gitPushBlockedReason(
   return null;
 }
 
+/**
+ * A Fetch action is unavailable only when no remote exists. Unlike Checkout and Update it never
+ * refuses a dirty tree or an in-progress operation: fetch moves refs, not the tree.
+ */
+export function gitFetchBlockedReason(
+  status: GitStatus | null,
+  error: string | null,
+  trusted: boolean,
+): string | null {
+  if (!trusted || error || !status || status.state !== "ok") {
+    return gitBlockedReason(status, error, trusted);
+  }
+  if (status.remotes.length === 0) {
+    return "No remote is configured; add one with git remote add.";
+  }
+  return null;
+}
+
 /** Update (pull) needs a clean tree and an upstream; it never auto-stashes. */
 export function gitUpdateBlockedReason(
   status: GitStatus | null,
@@ -214,7 +232,7 @@ function shortDate(value: string) {
   return value.slice(0, 16).replace("T", " ");
 }
 
-export type GitIntent = { kind: "push" | "update" | "branchCreate"; nonce: number };
+export type GitIntent = { kind: "push" | "update" | "fetch" | "branchCreate"; nonce: number };
 
 export function BranchWidget({
   status,
@@ -243,6 +261,11 @@ export function BranchWidget({
   const [dialog, setDialog] = useState<"update" | "push" | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  // A fetch takes seconds; the command palette can ask for another one while the first is still
+  // running. The ref is the guard the state cannot be: it is read at call time, not at render time.
+  const fetchingRef = useRef(false);
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
   async function loadBranches() {
@@ -267,8 +290,17 @@ export function BranchWidget({
     setMenuOpen(true);
     setError(null);
     setDialogError(null);
+    setFetchError(null);
     const blocked = status ? cleanReason(status) : null;
-    if (intent.kind === "update") {
+    if (intent.kind === "fetch") {
+      // Fetch is the one action that runs straight from the command: it needs no confirmation
+      // because it writes no branch, no index and no file.
+      if (status && status.state === "ok" && status.remotes.length === 0) {
+        setFetchError(gitFetchBlockedReason(status, null, true));
+      } else if (!fetchingRef.current) {
+        void runFetch();
+      }
+    } else if (intent.kind === "update") {
       if (status && status.state === "ok" && status.upstream === null) {
         setError("No upstream is configured; nothing to pull.");
       } else if (blocked) {
@@ -313,6 +345,10 @@ export function BranchWidget({
     status.upstream === null && status.remotes.length === 0
       ? "No remote is configured; add one with git remote add."
       : null;
+  // Fetch needs a remote and nothing else: it moves refs, so a dirty tree or an operation in
+  // progress is not a reason to disable it.
+  const fetchReason =
+    status.remotes.length === 0 ? "No remote is configured; add one with git remote add." : null;
   const updateReason =
     status.upstream === null
       ? "No upstream is configured; nothing to pull."
@@ -358,6 +394,29 @@ export function BranchWidget({
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runFetch() {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    setFetching(true);
+    setBusy(true);
+    setFetchError(null);
+    try {
+      const result = await call<GitOperation>("git.fetch");
+      if (result.state === "ok") {
+        onMessage(result.message ?? "Fetched the remote.");
+      } else {
+        setFetchError(result.message ?? "git fetch failed.");
+      }
+      await Promise.all([onRefresh(), loadBranches()]);
+    } catch (caught) {
+      setFetchError(messageOf(caught));
+    } finally {
+      fetchingRef.current = false;
+      setFetching(false);
       setBusy(false);
     }
   }
@@ -537,6 +596,19 @@ export function BranchWidget({
             >
               Refresh
             </button>
+            <button
+              type="button"
+              data-testid="branch-fetch"
+              title={
+                fetchReason ??
+                `Fetch ${remote ?? "the remote"} and prune branches deleted there (git fetch --prune). OpenRidr never touches your tree, index or local branches.`
+              }
+              disabled={busy || fetchReason !== null}
+              aria-busy={fetching || undefined}
+              onClick={() => void runFetch()}
+            >
+              {fetching ? "Fetching…" : "Fetch"}
+            </button>
             <button type="button" data-testid="branch-commit" disabled={busy} onClick={() => { closeMenu(); onOpenCommit(); }}>
               Commit…
             </button>
@@ -558,6 +630,14 @@ export function BranchWidget({
             >
               Push…
             </button>
+            {fetchReason && (
+              <span className="menu-note" data-testid="branch-fetch-reason">{fetchReason}</span>
+            )}
+            {fetchError && (
+              <p className="error" role="alert" data-testid="branch-fetch-error">
+                {fetchError}
+              </p>
+            )}
             {updateReason && updateReason !== checkoutBlocked && (
               <span className="menu-note" data-testid="branch-update-reason">{updateReason}</span>
             )}

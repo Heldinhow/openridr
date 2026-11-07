@@ -73,6 +73,7 @@ import {
   CommitPanel,
   GitLogPanel,
   gitBlockedReason,
+  gitFetchBlockedReason,
   gitPushBlockedReason,
   gitUpdateBlockedReason,
   type GitDiff as GitDiffView,
@@ -3482,6 +3483,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       group: "Git",
       execute: () => openGitIntent("push"),
       disabledReason: gitPushBlockedReason(gitStatus, gitStatusError, trusted),
+    }),
+    define({
+      id: "git.fetch",
+      title: "Fetch…",
+      group: "Git",
+      execute: () => openGitIntent("fetch"),
+      disabledReason: gitFetchBlockedReason(gitStatus, gitStatusError, trusted),
     }),
     define({
       id: "git.update",
