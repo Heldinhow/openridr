@@ -1970,10 +1970,10 @@ impl Host {
         let (scope, target, projects) =
             match optional_str(&params, "project").filter(|value| !value.trim().is_empty()) {
                 Some(requested) => {
-                    let normalized = requested
-                        .replace('\\', "/")
-                        .trim_start_matches("./")
-                        .to_string();
+                    // The model names every project by its portable path; a caller may send the
+                    // canonical absolute one (`\\?\C:\...` on Windows), so both forms must match.
+                    let normalized =
+                        crate::fsutil::portable_path(Path::new(requested.trim_start_matches("./")));
                     let Some(project) = plan.projects.iter().find(|p| p.path == normalized) else {
                         return Err(HostError::new(
                             "invalid_state",

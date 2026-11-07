@@ -872,10 +872,10 @@ fn select_kinds<'a>(
     allowed: &str,
 ) -> HostResult<&'a EvaluatedProject> {
     if let Some(requested) = requested {
-        let normalized = requested
-            .replace('\\', "/")
-            .trim_start_matches("./")
-            .to_string();
+        // The model names every project by its portable path; a caller may send the canonical
+        // absolute one (`\\?\C:\...` on Windows), so both forms must match.
+        let normalized =
+            crate::fsutil::portable_path(Path::new(requested.trim_start_matches("./")));
         let Some(project) = projects.iter().find(|project| project.path == normalized) else {
             return Err(HostError::new(
                 "invalid_state",

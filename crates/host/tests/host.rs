@@ -1966,7 +1966,7 @@ fn evaluation_includes_a_project_outside_the_solution_directory() {
     );
     assert_eq!(
         outside["sources"],
-        json!([lib.join("Greeting.cs").to_string_lossy()])
+        json!([support::portable(&lib.join("Greeting.cs"))])
     );
 
     let outside_app = fs::canonicalize(fixture.join("outside-app")).unwrap();
@@ -1980,7 +1980,7 @@ fn evaluation_includes_a_project_outside_the_solution_directory() {
         .ends_with("outside-app/bin/Debug/net8.0/OutsideApp.dll"));
     assert_eq!(
         console["sources"],
-        json!([outside_app.join("Program.cs").to_string_lossy()])
+        json!([support::portable(&outside_app.join("Program.cs"))])
     );
     assert_eq!(project("Lib.Tests")["kind"], "test");
 
@@ -2136,7 +2136,7 @@ fn restore_build_and_run_work_for_a_project_outside_the_solution() {
             .unwrap()
             .iter()
             .any(
-                |project| project["path"] == json!(outside_app.to_string_lossy())
+                |project| project["path"] == json!(support::portable(&outside_app))
                     && project["state"] == "restored"
             ),
         "{}",
@@ -2163,7 +2163,7 @@ fn restore_build_and_run_work_for_a_project_outside_the_solution() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|argument| argument == &json!(outside_app.to_string_lossy())),
+            .any(|argument| argument == &json!(support::portable(&outside_app))),
         "the build names the outside project file: {}",
         build["command"]
     );
@@ -2307,25 +2307,29 @@ fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
         );
     }
 
-    // Symlink metadata answers for an in-scope path and omits an out-of-scope one.
-    let links = host
-        .dispatch(
-            "workspace.symlinks",
-            json!({
-                "paths": [
-                    lib.join("LinkOut").to_string_lossy(),
-                    outside.join("Secret.cs").to_string_lossy(),
-                ],
-            }),
-        )
-        .unwrap();
-    let entries = links["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 1, "{links}");
-    assert_eq!(
-        entries[0]["path"],
-        json!(lib.join("LinkOut").to_string_lossy())
-    );
-    assert_eq!(entries[0]["symlink"], true);
+    // Symlink metadata answers for an in-scope path and omits an out-of-scope one. The link only
+    // exists where the fixture could create it, so the assertion is Unix-only like the link.
+    #[cfg(unix)]
+    {
+        let links = host
+            .dispatch(
+                "workspace.symlinks",
+                json!({
+                    "paths": [
+                        lib.join("LinkOut").to_string_lossy(),
+                        outside.join("Secret.cs").to_string_lossy(),
+                    ],
+                }),
+            )
+            .unwrap();
+        let entries = links["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 1, "{links}");
+        assert_eq!(
+            entries[0]["path"],
+            json!(support::portable(&lib.join("LinkOut")))
+        );
+        assert_eq!(entries[0]["symlink"], true);
+    }
 
     let kinds = host
         .dispatch(
@@ -2349,7 +2353,7 @@ fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
         .unwrap();
     assert_eq!(
         plan["project"],
-        json!(lib.join("Lib.csproj").to_string_lossy())
+        json!(support::portable(&lib.join("Lib.csproj")))
     );
     assert_eq!(
         error_code(host.dispatch(
