@@ -55,12 +55,13 @@ if [ -z "$paths" ]; then
   exit 2
 fi
 
-# A TOML table header is unindented and is the whole line, with an optional trailing comment. A line that
-# starts like one and is not (a multiline value, a typo) means this extractor cannot tell a dependency
-# table from anything else: the caller then fails closed instead of reporting "no dependency change".
+# A TOML table header may be indented (the grammar allows whitespace before it) and is the whole line,
+# with an optional trailing comment. A line that starts like one and is not (a multiline value, a typo)
+# means this extractor cannot tell a dependency table from anything else: the caller then fails closed
+# instead of reporting "no dependency change".
 toml_is_parseable() {
   awk '
-    /^\[/ {
+    /^[ \t]*\[/ {
       header = $0
       sub(/[ \t]+#.*$/, "", header)
       sub(/[ \t]+$/, "", header)
@@ -78,7 +79,7 @@ toml_deps() {
     {
       line = $0
       sub(/\r$/, "", line)
-      if (line ~ /^\[/) {
+      if (line ~ /^[ \t]*\[/) {
         name = line
         sub(/[ \t]+#.*$/, "", name)
         sub(/[ \t]+$/, "", name)

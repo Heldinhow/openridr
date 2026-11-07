@@ -132,6 +132,16 @@ reviews <<JSON
 JSON
 expect 1 withdrawn-by-changes-requested high 'high-risk pull request' ''
 
+# A plain comment after the approval is not a decision: GitHub does not withdraw an approval because the
+# reviewer wrote something afterwards, so the approval still stands.
+reviews <<JSON
+[
+  { "state": "APPROVED", "author_association": "OWNER", "submitted_at": "2026-11-06T12:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } },
+  { "state": "COMMENTED", "author_association": "OWNER", "submitted_at": "2026-11-06T13:30:00Z", "commit_id": "$head", "user": { "login": "Heldinhow" } }
+]
+JSON
+expect 0 comment-after-approval high 'Heldinhow approved' ''
+
 # A dismissal (what a push does when stale reviews are dismissed) withdraws it too.
 reviews <<JSON
 [

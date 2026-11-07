@@ -12,10 +12,11 @@ Ambiente: macOS Apple Silicon, `bun 1.3.9`, `rustc 1.99.0`, SDK .NET 8.0.408, `g
 
 | Prova | Resultado |
 |---|---|
-| `sh scripts/ci-risk-tier-selfcheck.sh` | **43 casos, 43 ok** |
-| Mesmo autoteste com `dash` (o `/bin/sh` do runner) | **43 casos, 43 ok** |
-| Falha-antes: stub `echo low` no lugar do script | **33 de 43 falham**, inclusive os três `err-*` |
-| Falha-antes da rodada de review: o script anterior aos três consertos | **3 de 43 falham** (`cargo-target-dep`, `cargo-same-dependency-both-sides`, `cargo-unparseable-value`) |
+| `sh scripts/ci-risk-tier-selfcheck.sh` | **44 casos, 44 ok** |
+| Mesmo autoteste com `dash` (o `/bin/sh` do runner) | **44 casos, 44 ok** |
+| Falha-antes: stub `echo low` no lugar do script | **33 de 44 falham**, inclusive os três `err-*` |
+| Falha-antes da rodada 1: o script anterior aos três consertos | **3 de 44 falham** (`cargo-target-dep`, `cargo-same-dependency-both-sides`, `cargo-unparseable-value`) |
+| Falha-antes da rodada 2: o script anterior ao conserto do header indentado | **1 de 44 falha** (`cargo-indented-header`: esperado `high`, veio `medium`) |
 | `sh scripts/ci-risk-tier.sh origin/main HEAD` no branch | `high`, com os motivos: `.github/workflows/ci.yml` (CI), `AGENTS.md` (processo), `scripts/ci-*` (CI), e os docs como `low` |
 
 Casos cobertos: uma família de caminho por caso (`docs/**`, `*.md` na raiz, `AGENTS.md`, `*.css`,
@@ -56,9 +57,10 @@ garantia nova: remover o gate da lista deixa de ser silencioso); `NEEDS` vazio e
 
 | Prova | Resultado |
 |---|---|
-| `sh tests/shell/ci-risk-gate.test.sh` | **16 casos, todos ok** |
-| Mesmo teste com `dash` | **16 casos, todos ok** |
-| Falha-antes: o gate anterior (comparação por timestamp) contra o teste novo | **12 de 16 falham** |
+| `sh tests/shell/ci-risk-gate.test.sh` | **17 casos, todos ok** |
+| Mesmo teste com `dash` | **17 casos, todos ok** |
+| Falha-antes: o gate anterior (comparação por timestamp) contra o teste novo | **12 de 17 falham** |
+| Falha-antes da rodada 2: o gate anterior ao conserto do `COMMENTED` | **1 de 17 falha** (`comment-after-approval`) |
 | Mutação: aceitar qualquer `author_association` | reprova `approval-without-write-access` |
 
 Casos: `low`/`medium` não chamam o GitHub (sem gate); aprovação no head (passa); aprovação num commit
@@ -116,10 +118,11 @@ ruleset.
 
 | Prova | Resultado |
 |---|---|
-| `sh tests/shell/revert-rate.test.sh` | **11 casos, todos ok** |
-| Mesmo teste com `dash` | **11 casos, todos ok** |
-| Falha-antes: stub de saída fixa | **8 de 11 falham** |
-| Falha-antes: o script anterior à rodada de review | **3 de 11 falham** (`positional-month`, `paginated-reverts`, `not-json`) |
+| `sh tests/shell/revert-rate.test.sh` | **12 casos, todos ok** |
+| Mesmo teste com `dash` | **12 casos, todos ok** |
+| Falha-antes: stub de saída fixa | **8 de 12 falham** |
+| Falha-antes da rodada 1: o script anterior | **3 de 12 falham** (`positional-month`, `paginated-reverts`, `not-json`) |
+| Falha-antes da rodada 2: o script anterior ao conserto do basename | **1 de 12 falha** (`same-basename-different-dirs`) |
 | Dados reais, `--month 2026-10` | `\| 2026-10 \| 1 \| 0 \| 0.0% \|` |
 | Dados reais, `--month 2026-11` | `\| 2026-11 \| 57 \| 0 \| 0.0% \|` (mês em curso) |
 
@@ -180,6 +183,20 @@ mãos do PR (classificador e gate vêm da base) e deixa a brecha residual num di
 `risk:high` e visível; fechar de vez exige `pull_request_target` para o gate e um terceiro check
 obrigatório no ruleset — settings, portanto issue filha ([#139](https://github.com/Heldinhow/openridr/issues/139))
 e decisão do Helder.
+
+## Revisão independente (rodada 2) — o re-check das correções
+
+Re-check (Pi, `openai-codex/gpt-6.1-terra`, `thinking=medium`) sobre o commit de correção `a6080c9`. Veredito: **findings** — 2 altos e 3 médios, todos corrigidos na rodada 2.
+
+| Achado | Severidade | O que era | Correção e prova |
+|---|---|---|---|
+| O bootstrap executava código do PR | alta | quando a base não tinha os scripts, o job rodava a cópia do PR com um `::warning::` — aviso não é gate | sem script na base, o tier é **forçado a `high`** e a aprovação é conferida por um filtro `jq` inline fixo no YAML; o agregador idem (regra inline equivalente). Nenhum caminho executa script do PR |
+| Cabeçalho TOML indentado era invisível | alta | a gramática permite espaço antes de `[tabela]`; indentar `[dependencies]` e mudar uma entrada dava "sem mudança" (médio) | reconhecimento aceita indentação; caso `cargo-indented-header` com o par de branches cuja única diferença mora na tabela indentada (falha-antes: `medium`) |
+| `COMMENTED` retirava aprovação | média | um comentário posterior ao APPROVED tornava o PR impossível de mergear até nova aprovação | a redução por revisor considera só `APPROVED`/`CHANGES_REQUESTED`/`DISMISSED`; caso `comment-after-approval` (falha-antes) |
+| `gh api \| jq` mascarava falha do `gh` | média | mesmo defeito do `\| sort \| tail` da rodada 1, num lugar que passou | páginas capturadas em arquivo, `gh` checado, `jq` depois |
+| Dois fixtures de mesmo nome se sobrescreviam | média | a normalização derivava o caminho do `basename` | dois caminhos fixos e distintos; caso `same-basename-different-dirs` (falha-antes) |
+
+O que o re-check confirmou correto, sem ressalva: `commit_id == head` rejeita aprovação de revisão anterior e `commit_id` nulo; redução por revisor com aprovações repetidas e paginação fora de ordem; manifesto no merge base (adicionado/deletado falha fechado); `jq -s 'add // []'` para um array, vários, vazio e escalar; rolagem de dezembro e fevereiro bissexto; aviso de auto-merge e mês posicional.
 
 ## verify-openridr
 

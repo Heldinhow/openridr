@@ -140,6 +140,13 @@ JSON
 expect 0 paginated-reverts '| 2026-10 | 2 | 1 | 50.0% |' 'reverted=1' 2026-10 \
   "$scratch/merged-revert.json" "$scratch/reverts-two-pages.json"
 
+# Two fixtures with the same basename in different directories must not normalise to the same file.
+mkdir -p "$scratch/a" "$scratch/b"
+cp "$scratch/merged-revert.json" "$scratch/a/same.json"
+cp "$scratch/reverts-conventional.json" "$scratch/b/same.json"
+expect 0 same-basename-different-dirs '| 2026-10 | 2 | 1 | 50.0% |' '' 2026-10 \
+  "$scratch/a/same.json" "$scratch/b/same.json"
+
 # Inputs are validated, not guessed: not JSON at all, and JSON that is not an array, are different errors.
 printf 'not json at all\n' >"$scratch/bad.json"
 printf '{"number": 1}\n' >"$scratch/object.json"

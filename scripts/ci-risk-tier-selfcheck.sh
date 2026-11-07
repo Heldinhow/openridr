@@ -302,6 +302,7 @@ matrix = [
 ]
 TOML
 
+
 # --- the manifest is compared at the merge base, not at the base tip --------------------------------
 
 # Both branches add the same dependency: against the base *tip* the two sides would agree and the change
@@ -353,6 +354,46 @@ rand = "0.8"
 TOML
 commit pull-request-adds-rand
 diverged_manifest cargo-same-dependency-both-sides high diverged-base HEAD
+
+# A table header may be indented (the TOML grammar allows whitespace before it). Matching only column
+# zero let a pull request indent a dependency table, change an entry and read as "no dependency change":
+# the old extractor dropped the whole table. The ancestor already carries the table, so the only change
+# between the two sides lives inside it.
+write Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+
+[profile.release]
+opt-level = 3
+
+  [dependencies.indented]
+version = "1"
+TOML
+commit seed-indented-table
+git -C "$repo" checkout -q -b indented-base
+git -C "$repo" checkout -q -
+write Cargo.toml <<'TOML'
+[package]
+name = "fixture"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+
+[profile.release]
+opt-level = 3
+
+  [dependencies.indented]
+version = "2"
+TOML
+commit pull-request-changes-an-indented-table
+diverged_manifest cargo-indented-header high indented-base HEAD
 
 # A change that lives only inside a value the extractor cannot classify: identical extracted tables, so
 # only the fail-closed guard catches it.

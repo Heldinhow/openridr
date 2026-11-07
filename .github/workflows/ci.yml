@@ -212,28 +212,29 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           # The classifier and the gate decide whether this pull request may merge, so they must not come
-          # from the pull request: a change to scripts/ci-* would otherwise classify itself as low or
+          # from the pull request: a change to the risk scripts would otherwise classify itself as low or
           # approve itself, which is exactly the path this gate exists to protect. They are read from the
           # base revision and executed from there, with the workspace as the git repository.
           #
-          # The base revision has no copy on the pull request that introduces it (bootstrap): then the
-          # workspace copy runs and the job says so, loudly. From the next pull request on, the base wins.
+          # When the base revision has no copy (the pull request that introduces them) the job does **not**
+          # fall back to the pull request's script: it uses the fixed policy written in this file instead
+          # (tier forced to high, inline approval check). A warning is not a gate.
           mkdir -p "$RUNNER_TEMP/trusted/scripts"
           bootstrap=0
           for name in ci-risk-tier.sh ci-risk-gate.sh; do
             if git show "origin/$BASE_REF:scripts/$name" >"$RUNNER_TEMP/trusted/scripts/$name" 2>/dev/null; then
               echo "scripts/$name: from origin/$BASE_REF"
             else
-              cp "scripts/$name" "$RUNNER_TEMP/trusted/scripts/$name"
+              rm -f "$RUNNER_TEMP/trusted/scripts/$name"
               bootstrap=1
-              echo "::warning::origin/$BASE_REF has no scripts/$name; running the copy from this pull request (bootstrap)"
+              echo "::warning::origin/$BASE_REF has no scripts/$name: this run uses the fixed bootstrap policy in the workflow file, never the copy from this pull request"
             fi
           done
           echo "bootstrap=$bootstrap" >>"$GITHUB_OUTPUT"
           if [ "$bootstrap" = 1 ]; then
             {
               echo
-              echo '**Bootstrap**: the base revision has no risk classifier or gate yet, so this run used the copies from this pull request.'
+              echo '**Bootstrap**: the base revision has no risk classifier or gate yet. The tier is forced to high and the approval is checked by the fixed rule in the workflow file; no script from this pull request was executed.'
             } >>"$GITHUB_STEP_SUMMARY"
           fi
 
@@ -244,10 +245,17 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Fail closed: a tier that cannot be computed is the highest one, never the lowest.
-          if tier=$(sh "$RUNNER_TEMP/trusted/scripts/ci-risk-tier.sh" "origin/$BASE_REF" "$HEAD_SHA" 2>"$RUNNER_TEMP/risk-reasons.txt"); then
+          classifier="$RUNNER_TEMP/trusted/scripts/ci-risk-tier.sh"
+          if [ ! -f "$classifier" ]; then
+            # Bootstrap: the base revision has no classifier, and the pull request's copy is not trusted.
+            tier=high
+            echo 'the base revision has no risk classifier; failing closed to high' >"$RUNNER_TEMP/risk-reasons.txt"
+            echo '::warning::the base revision has no risk classifier; this pull request is high risk'
+          elif tier=$(sh "$classifier" "origin/$BASE_REF" "$HEAD_SHA" 2>"$RUNNER_TEMP/risk-reasons.txt"); then
             :
           else
             tier=high
+            echo 'could not compute the risk tier; failing closed to high' >>"$RUNNER_TEMP/risk-reasons.txt"
             echo '::error::could not compute the risk tier; failing closed to high'
           fi
           echo "tier=$tier" >>"$GITHUB_OUTPUT"
@@ -292,7 +300,33 @@ jobs:
           TIER: ${{ steps.tier.outputs.tier }}
           # The approval has to name this commit, so the gate needs the head it is gating.
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: sh "$RUNNER_TEMP/trusted/scripts/ci-risk-gate.sh"
+        run: |
+          gate="$RUNNER_TEMP/trusted/scripts/ci-risk-gate.sh"
+          if [ -f "$gate" ]; then
+            sh "$gate"
+            exit $?
+          fi
+          # Bootstrap: the base revision has no gate script yet. The rule below is fixed in this file and
+          # is the same one scripts/ci-risk-gate.sh implements — the latest decision per reviewer, a review
+          # APPROVED on this exact commit, from someone with write access. The pull request's copy of the
+          # script is never executed; in this situation the tier is forced to high.
+          filter='[.[] | select(.state | IN("APPROVED","CHANGES_REQUESTED","DISMISSED"))]
+                  | group_by(.user.login)
+                  | map(max_by(.submitted_at))
+                  | map(select(.state == "APPROVED"
+                      and .commit_id == "'"$HEAD_SHA"'"
+                      and (.author_association | IN("OWNER","MEMBER","COLLABORATOR"))))
+                  | length'
+          if ! approved=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" --jq "$filter"); then
+            echo '::error::risk gate: could not read the reviews of this pull request'
+            exit 2
+          fi
+          if [ "${approved:-0}" -gt 0 ]; then
+            echo "risk gate (bootstrap): an approval of $HEAD_SHA exists"
+            exit 0
+          fi
+          echo "::error::high-risk pull request: it needs an approval from the maintainer of the current revision ($HEAD_SHA). Approve the pull request, then re-run the failed jobs with: gh run rerun --failed <run-id>"
+          exit 1
 
       - name: Arm auto-merge for a low-risk pull request
         if: steps.tier.outputs.tier == 'low'
@@ -361,13 +395,48 @@ jobs:
         run: |
           # The aggregator decides whether the required check is green, so it must not come from the pull
           # request: a change to scripts/ci-aggregate.sh would otherwise pass itself. It is read from the
-          # base revision; the pull request that introduces it (bootstrap) runs its own copy and says so.
+          # base revision; when the base has no copy (the pull request that introduces it) the rule below
+          # runs instead — fixed in this file, never the pull request's script.
           script=scripts/ci-aggregate.sh
-          if [ "$EVENT" = pull_request ]; then
-            if git show "origin/$BASE_REF:$script" >"$RUNNER_TEMP/aggregate.sh" 2>/dev/null; then
-              script=$RUNNER_TEMP/aggregate.sh
-            else
-              echo "::warning::origin/$BASE_REF has no $script; running the copy from this pull request (bootstrap)"
-            fi
+          if [ "$EVENT" = pull_request ] && git show "origin/$BASE_REF:$script" >"$RUNNER_TEMP/aggregate.sh" 2>/dev/null; then
+            script=$RUNNER_TEMP/aggregate.sh
+          elif [ "$EVENT" = pull_request ]; then
+            script=
+            echo "::warning::origin/$BASE_REF has no $script; using the fixed bootstrap rule in ci.yml"
           fi
-          sh "$script"
+          if [ -n "$script" ]; then
+            sh "$script"
+            exit $?
+          fi
+          # Bootstrap rule: the same contract as scripts/ci-aggregate.sh (which is the source of truth once
+          # it is on main) — no empty `needs`, every PR-only job present on a pull request, and no job that
+          # is not `success` unless it is PR-only and skipped outside a pull request.
+          if [ "$(printf '%s' "$NEEDS" | jq 'length')" -eq 0 ]; then
+            echo 'aggregate: NEEDS is empty; the aggregator waits for nothing' >&2
+            exit 2
+          fi
+          missing=$(printf '%s' "$NEEDS" | jq -r --arg event "$EVENT" --arg pr_only "$PR_ONLY" '
+            if $event == "pull_request" then
+              ($pr_only | split(",") | map(select(. != ""))) as $pr_only
+              | (keys) as $present
+              | $pr_only[] as $name
+              | select(($present | index($name)) | not)
+              | $name
+            else empty end')
+          if [ -n "$missing" ]; then
+            printf 'required jobs missing from needs (they run for every pull request):\n%s\n' "$missing" >&2
+            exit 1
+          fi
+          failed=$(printf '%s' "$NEEDS" | jq -r --arg event "$EVENT" --arg pr_only "$PR_ONLY" '
+            ($pr_only | split(",") | map(select(. != ""))) as $pr_only
+            | to_entries[]
+            | select(.value.result != "success"
+                and ((.key as $key | $pr_only | index($key) | not)
+                  or (.value.result != "skipped")
+                  or ($event == "pull_request")))
+            | "\(.key): \(.value.result)"')
+          if [ -n "$failed" ]; then
+            printf 'required jobs did not pass:\n%s\n' "$failed" >&2
+            exit 1
+          fi
+          echo "aggregate: every required job passed ($EVENT)"

@@ -125,24 +125,36 @@ if [ -z "$merged_file" ] || [ -z "$reverts_file" ]; then
   fi
   if [ -z "$reverts_file" ]; then
     reverts_file=$scratch/reverts.json
-    # `--paginate` prints one JSON array per page; `jq -s add` flattens them into the single array the
-    # classification expects. Without it, only the first 100 commits of the month would be seen.
-    gh api --paginate "repos/$repo/commits?sha=main&since=$start&until=$end&per_page=100" \
-      | jq -s 'add // []' >"$reverts_file" || {
+    # `--paginate` prints one JSON array per page. The pages are captured first and normalised after,
+    # never in a pipeline: in POSIX sh the pipeline status is `jq`'s, so a `gh` failure after a partial
+    # page would produce a successful but incomplete count.
+    pages=$scratch/pages.json
+    if ! gh api --paginate "repos/$repo/commits?sha=main&since=$start&until=$end&per_page=100" \
+      >"$pages"; then
       echo 'revert-rate: could not list the commits on main' >&2
       exit 2
-    }
+    fi
+    if ! jq -s 'add // []' "$pages" >"$reverts_file"; then
+      echo 'revert-rate: the commit list is not JSON' >&2
+      exit 2
+    fi
   fi
 fi
 
 # Both inputs are normalised to a single JSON array: a fixture may be one array, or several concatenated
-# arrays standing in for paginated pages.
+# arrays standing in for paginated pages. The two outputs have fixed, distinct names: deriving them from
+# the input basename would let two fixtures with the same name overwrite each other.
+merged_normalised=$scratch/merged.normalised.json
+reverts_normalised=$scratch/reverts.normalised.json
 for file in "$merged_file" "$reverts_file"; do
   [ -f "$file" ] || {
     echo "revert-rate: $file does not exist" >&2
     exit 2
   }
-  normalised=$scratch/$(basename "$file").normalised.json
+  case "$file" in
+    "$merged_file") normalised=$merged_normalised ;;
+    *) normalised=$reverts_normalised ;;
+  esac
   if ! jq -s 'add // []' "$file" >"$normalised" 2>/dev/null; then
     echo "revert-rate: $file is not JSON" >&2
     exit 2
@@ -152,8 +164,8 @@ for file in "$merged_file" "$reverts_file"; do
     exit 2
   fi
   case "$file" in
-    "$merged_file") merged_file=$normalised ;;
-    *) reverts_file=$normalised ;;
+    "$merged_file") merged_file=$merged_normalised ;;
+    *) reverts_file=$reverts_normalised ;;
   esac
 done
 

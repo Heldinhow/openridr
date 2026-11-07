@@ -4,8 +4,10 @@
 # carries the commit it was submitted against, and that commit must be the pull request head. An approval
 # of an older revision does not carry over, which mirrors `dismiss_stale_reviews_on_push` in the ruleset.
 #
-# The reviewer's **latest** review is the one that counts. A later CHANGES_REQUESTED or a dismissed
-# review withdraws an earlier approval, even though the old APPROVED is still in the history.
+# The reviewer's **latest decision** is the one that counts: a later CHANGES_REQUESTED or a dismissed
+# review withdraws an earlier approval, even though the old APPROVED is still in the history. A plain
+# COMMENTED review is not a decision — GitHub does not withdraw an approval because the reviewer wrote a
+# comment afterwards — so it is skipped when picking the latest state.
 #
 # Neither the label `risk:*` nor a commit timestamp is an input here: editing a label cannot lower the
 # tier, and committer dates are author-controlled.
@@ -58,7 +60,7 @@ fi
 # The latest review per login wins, so a withdrawn approval cannot be resurrected by an older APPROVED
 # earlier in the history. `$3` is an ISO-8601 UTC timestamp, so a string comparison orders it.
 approved=$(printf '%s\n' "$reviews" | awk -F'\t' -v head="$head_sha" '
-  NF >= 5 {
+  NF >= 5 && ($1 == "APPROVED" || $1 == "CHANGES_REQUESTED" || $1 == "DISMISSED") {
     login = $5
     if (!(login in seen) || $3 >= submitted[login]) {
       seen[login] = 1
