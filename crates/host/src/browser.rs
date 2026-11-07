@@ -187,6 +187,15 @@ fn parse(url: &str) -> Result<Target, String> {
             "{url} carries credentials; only a plain host is opened."
         ));
     }
+    // A Kestrel wildcard binds every interface; it is not an address a browser can visit.
+    if matches!(authority.as_str(), "*" | "+")
+        || authority.starts_with("*:")
+        || authority.starts_with("+:")
+    {
+        return Err(format!(
+            "{url} binds a wildcard address, which is not a URL to visit; use localhost."
+        ));
+    }
     let (host, port) = split_authority(&authority, &scheme)
         .ok_or_else(|| format!("{url} has no valid host and port."))?;
     if host.is_empty() {
@@ -295,6 +304,8 @@ mod tests {
             ("http://user:pass@localhost:5083", "credentials"),
             ("http://localhost:0", "port 0"),
             ("http://localhost:notaport", "no valid host"),
+            ("http://*:5090", "wildcard"),
+            ("http://+:5090", "wildcard"),
         ] {
             match plan(true, Some(launch_url), base) {
                 Launch::Skip(reason) => assert!(

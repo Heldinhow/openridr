@@ -115,7 +115,7 @@ struct LaunchProfile {
     command_name: String,
     #[serde(default)]
     application_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_bool")]
     launch_browser: bool,
     #[serde(default)]
     launch_url: Option<String>,
@@ -129,6 +129,11 @@ struct LaunchProfile {
 
 fn null_string<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
     Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// A generator may write `"launchBrowser": null`; that is "off", not a reason to refuse the file.
+fn null_bool<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(deserializer)?.unwrap_or(false))
 }
 
 #[derive(Deserialize)]
