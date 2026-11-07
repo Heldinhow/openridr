@@ -1,0 +1,99 @@
+name: platforms
+
+# The release targets that are not macOS arm64: Windows x64 and macOS Intel. Kept out of ci.yml on
+# purpose — a pull request keeps its macOS arm64 cost, and nothing here is a required check. The
+# nightly run is what keeps the `cfg(windows)` and Intel branches from rotting between releases.
+#
+# `workflow_dispatch` only appears once this file is on the default branch; until then a push to a
+# branch that touches these paths is what exercises it.
+on:
+  schedule:
+    # 04:30 UTC, after the Playwright smoke (03:30) so the two do not queue against each other.
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "src-tauri/**"
+      - "scripts/vendor-*"
+      - "rust-toolchain.toml"
+      - ".github/workflows/platforms.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platforms-${{ github.ref }}
+  # A platform run is long and its result is what the nightly report is based on: never cancel one
+  # in flight because a second push arrived.
+  cancel-in-progress: false
+
+jobs:
+  rust-windows:
+    name: Host tests (Windows x64)
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      # The fixture output is parsed in English; a translated runner would break the assertions.
+      DOTNET_CLI_UI_LANGUAGE: en
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --component rustfmt --component clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # The fixtures pin SDK 8.0.408 in their global.json with rollForward: disable.
+      - name: Set up the fixture .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "8.0.408"
+
+      - name: Warm the NuGet configuration
+        run: dotnet restore fixtures/OrderDesk/OrderDesk.sln
+
+      # The library only: the integration tests still carry Unix-only helpers (fake shell scripts,
+      # `PermissionsExt`), so `--all-targets` here would report dead code that is real on macOS.
+      - name: Clippy
+        run: cargo clippy -p openridr-host --lib -- -D warnings
+
+      - name: Host tests
+        run: cargo test -p openridr-host
+
+  rust-macos-intel:
+    name: Host tests (macOS Intel)
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    env:
+      DOTNET_CLI_UI_LANGUAGE: en
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --component rustfmt --component clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Set up the fixture .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "8.0.408"
+
+      - name: Warm the NuGet configuration
+        run: dotnet restore fixtures/OrderDesk/OrderDesk.sln
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Host tests
+        run: cargo test -p openridr-host

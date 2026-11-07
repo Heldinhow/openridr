@@ -95,16 +95,22 @@ pub fn open_when_ready(url: &str, alive: impl Fn() -> bool + Send + 'static) -> 
 }
 
 /// The platform opener with the URL as its single argument: never a shell, never a command line
-/// string. `None` means this platform has no opener wired (Windows is not supported yet).
+/// string. `None` means this platform has no opener wired. Windows uses `rundll32` instead of
+/// `cmd /C start`: the URL comes from a launch profile, and `cmd` would parse `&`/`|` inside it.
 fn command(url: &str) -> Option<Command> {
     let program = if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(target_os = "linux") {
         "xdg-open"
+    } else if cfg!(windows) {
+        "rundll32"
     } else {
         return None;
     };
     let mut command = Command::new(program);
+    if cfg!(windows) {
+        command.arg("url.dll,FileProtocolHandler");
+    }
     command.arg(url).stdout(Stdio::null()).stderr(Stdio::null());
     Some(command)
 }
@@ -340,15 +346,29 @@ mod tests {
     #[test]
     fn the_opener_takes_the_url_as_its_only_argument() {
         let Some(command) = command("http://localhost:5083/page?q=1&x=2") else {
-            return; // Windows: no opener is wired, declared out of scope.
+            return; // No opener on this platform.
         };
         let program = command.get_program().to_string_lossy().to_string();
-        assert!(program == "open" || program == "xdg-open", "{program}");
         let args: Vec<String> = command
             .get_args()
             .map(|argument| argument.to_string_lossy().to_string())
             .collect();
-        assert_eq!(args, vec!["http://localhost:5083/page?q=1&x=2"]);
+        #[cfg(windows)]
+        {
+            assert_eq!(program, "rundll32");
+            assert_eq!(
+                args,
+                vec![
+                    "url.dll,FileProtocolHandler",
+                    "http://localhost:5083/page?q=1&x=2"
+                ]
+            );
+        }
+        #[cfg(not(windows))]
+        {
+            assert!(program == "open" || program == "xdg-open", "{program}");
+            assert_eq!(args, vec!["http://localhost:5083/page?q=1&x=2"]);
+        }
     }
 
     #[test]

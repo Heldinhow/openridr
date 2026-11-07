@@ -293,6 +293,8 @@ impl Clone for Start {
 pub struct Attachment {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
+    /// The foreground process group is read from the PTY on Unix; Windows has no equivalent here.
+    #[cfg_attr(windows, allow(dead_code))]
     pid: u32,
 }
 

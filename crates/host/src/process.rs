@@ -59,6 +59,7 @@ struct Entry {
     termination: Option<Termination>,
     /// Unix waits without reaping until the whole group has been terminated; this keeps the
     /// pid/pgid reserved so the cleanup cannot hit a recycled group.
+    #[cfg_attr(windows, allow(dead_code))]
     reaped: bool,
 }
 
@@ -163,8 +164,10 @@ impl Entry {
     }
 
     #[cfg(not(unix))]
+    #[cfg_attr(windows, allow(dead_code))]
     fn finish_group(&mut self) {}
 
+    #[cfg_attr(windows, allow(dead_code))]
     fn reap(&mut self) {
         if self.reaped {
             return;
@@ -480,7 +483,7 @@ fn taskkill(pid: u32, hard: bool) -> bool {
 }
 
 /// The signal that killed the child, if any. A normal exit reports `code()` and no signal.
-#[cfg(unix)]
+/// Unix reads the signal from `siginfo`, so only the non-Unix path needs this.
 #[cfg(not(unix))]
 fn exit_signal(_status: &std::process::ExitStatus) -> Option<i32> {
     None

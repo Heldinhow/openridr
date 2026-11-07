@@ -1,7 +1,9 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use openridr_host::{hostroot, sdk, Host, EXECUTABLE_METHODS};
+#[cfg(target_os = "macos")]
+use openridr_host::hostroot;
+use openridr_host::{sdk, Host, EXECUTABLE_METHODS};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -2100,6 +2102,7 @@ fn the_scope_admits_the_outside_project_and_refuses_everything_else() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn restore_build_and_run_work_for_a_project_outside_the_solution() {
     let temp = tempfile::tempdir().unwrap();
@@ -4935,6 +4938,7 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process_isolated() 
     }
 }
 
+#[cfg(unix)]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn cancelling_a_running_install_reports_termination_and_never_ready_isolated() {
@@ -7324,6 +7328,7 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn cancelling_a_running_install_reports_termination_and_never_ready() {
     support::run_isolated_leaf(

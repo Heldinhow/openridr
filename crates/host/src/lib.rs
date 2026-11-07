@@ -9204,6 +9204,7 @@ mod tests {
         assert_eq!(outside.code, "outside_workspace");
     }
 
+    #[cfg(unix)]
     #[test]
     fn workspace_symlinks_reports_links_without_following_them() {
         let temp = tempfile::tempdir().unwrap();
@@ -9267,6 +9268,7 @@ mod tests {
         assert!(found.iter().all(|(path, _)| *path != "OutDir/Secret.cs"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn workspace_tree_marks_symlinks_and_refuses_to_expand_them() {
         let temp = tempfile::tempdir().unwrap();
@@ -9316,6 +9318,7 @@ mod tests {
         assert_eq!(below.code, "not_found");
     }
 
+    #[cfg(unix)]
     #[test]
     fn workspace_tree_lists_links_as_objects_without_reading_the_target() {
         let temp = tempfile::tempdir().unwrap();
@@ -9360,6 +9363,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn workspace_symlinks_sees_a_link_replaced_by_a_file() {
         let temp = tempfile::tempdir().unwrap();

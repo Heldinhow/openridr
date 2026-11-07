@@ -419,6 +419,7 @@ fn discover_roots() -> Vec<(PathBuf, &'static str)> {
         env::var_os("DOTNET_ROOT").map(PathBuf::from),
         env::var_os("PATH"),
         &system,
+        Some(crate::tools::app_home().join("sdks")),
     )
 }
 
@@ -428,16 +429,21 @@ const SYSTEM_ROOTS: &[&str] = &[
     "/opt/homebrew/opt/dotnet",
     "/opt/homebrew/opt/dotnet/libexec",
 ];
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+const SYSTEM_ROOTS: &[&str] = &[r"C:\Program Files\dotnet"];
+#[cfg(not(any(target_os = "macos", windows)))]
 const SYSTEM_ROOTS: &[&str] = &["/usr/local/share/dotnet"];
 
 /// Ordered candidates: DOTNET_ROOT, fixed system roots, ~/.dotnet, managed SDKs and every
 /// PATH entry. Only directories with a muxer are kept, already resolved to their real root.
+/// The managed SDK root is an input, not derived from the home directory: the app home is
+/// `~/Library/Application Support/OpenRidr` on macOS and `%APPDATA%\OpenRidr` on Windows.
 fn candidate_roots(
     home: Option<PathBuf>,
     dotnet_root: Option<PathBuf>,
     path: Option<OsString>,
     system: &[PathBuf],
+    user_sdks: Option<PathBuf>,
 ) -> Vec<(PathBuf, &'static str)> {
     let mut roots: Vec<(PathBuf, &'static str)> = Vec::new();
 
@@ -454,7 +460,9 @@ fn candidate_roots(
         if let Some(root) = muxer_root(&home.join(".dotnet")) {
             roots.push((root, "dotnet-home"));
         }
-        let user_sdks = home.join("Library/Application Support/OpenRidr/sdks");
+    }
+
+    if let Some(user_sdks) = user_sdks {
         if let Ok(entries) = fs::read_dir(&user_sdks) {
             let mut dirs: Vec<PathBuf> = entries
                 .filter_map(|entry| entry.ok())
@@ -858,7 +866,8 @@ mod tests {
     fn candidate_roots_cover_every_source_once_in_order() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
-        let managed = home.join("Library/Application Support/OpenRidr/sdks/8.0.408");
+        let user_sdks = temp.path().join("app-home/sdks");
+        let managed = user_sdks.join("8.0.408");
         let dotnet_home = home.join(".dotnet");
         let dotnet_root = temp.path().join("dotnet-root");
         let system = temp.path().join("system");
@@ -879,7 +888,13 @@ mod tests {
         fs::create_dir_all(&empty).unwrap();
         let path = env::join_paths([&path_a, &empty, &path_a, &path_b]).unwrap();
 
-        let roots = candidate_roots(Some(home), Some(dotnet_root), Some(path), &[system]);
+        let roots = candidate_roots(
+            Some(home),
+            Some(dotnet_root),
+            Some(path),
+            &[system],
+            Some(user_sdks),
+        );
         let got: Vec<(PathBuf, &str)> = roots
             .iter()
             .map(|(root, source)| (root.clone(), *source))
@@ -909,7 +924,7 @@ mod tests {
         std::os::unix::fs::symlink(real.join(dotnet_exe()), bin.join(dotnet_exe())).unwrap();
         let path = env::join_paths([&bin, &real]).unwrap();
 
-        let roots = candidate_roots(None, None, Some(path), &[]);
+        let roots = candidate_roots(None, None, Some(path), &[], None);
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].0, fs::canonicalize(&real).unwrap());
         assert_eq!(roots[0].1, "path");
