@@ -33,7 +33,9 @@ GitHub Secrets e, na máquina do Helder, no keychain (`notary` do `notarytool`).
    `.app`, DMG montado com `hdiutil`, DMG assinado, notarizado e grampeado, verificação completa.
 5. `release-notes.sh` gera o corpo (notas + bloco `## Verificação` com SHA-256, bytes e resultado de
    `codesign`/`spctl`/`stapler`) e `gh release create --prerelease` publica o DMG.
-6. O DMG também fica como artifact do run por 14 dias (`OpenRidr-<versão>`), para republicar sem
+6. O canal de atualização (`updater-alpha`) recebe `OpenRidr.app.tar.gz`, a assinatura e o
+   `latest.json` — ver [Atualização dentro do app](#atualização-dentro-do-app-updater).
+7. O DMG também fica como artifact do run por 14 dias (`OpenRidr-<versão>`), para republicar sem
    rebuild. O certificado e a API key são removidos do runner em `if: always()`.
 
 Faltando qualquer credencial, o run falha no preflight listando os nomes ausentes e **nada é
@@ -54,6 +56,8 @@ Settings → Secrets and variables → Actions, no repositório `Heldinhow/openr
 | `APPLE_API_KEY` | secret | base64 do arquivo `AuthKey_<KEYID>.p8` da API key do App Store Connect |
 | `APPLE_API_KEY_ID` | secret | o Key ID da API key (10+ caracteres alfanuméricos) |
 | `APPLE_API_ISSUER` | secret | Issuer ID (UUID) — obrigatório para **Team** API Key; deixe vazio para Individual |
+| `TAURI_SIGNING_PRIVATE_KEY` | secret | conteúdo da chave privada do updater (`~/.tauri/openridr-updater.key`, a linha inteira) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | secret | senha dessa chave (`~/.tauri/openridr-updater.password`) |
 
 Passo a passo:
 
@@ -67,8 +71,12 @@ Passo a passo:
    cole em `APPLE_CERTIFICATE`; a senha vai em `APPLE_CERTIFICATE_PASSWORD`.
 3. **Variável.** Settings → Variables → nova `APPLE_SIGNING_IDENTITY` com o nome exato acima.
    O script recusa identidade que não comece com `Developer ID Application: `.
-4. **Conferência.** `gh secret list --repo Heldinhow/openridr` e `gh variable list --repo
-   Heldinhow/openridr` mostram os cinco secrets e a variável (nomes; valores não são legíveis).
+4. **Chave do updater.** `TAURI_SIGNING_PRIVATE_KEY` recebe o conteúdo inteiro de
+   `~/.tauri/openridr-updater.key` (uma linha) e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` a senha de
+   `~/.tauri/openridr-updater.password` — `pbcopy <` cada arquivo e cole no secret. A pública já está
+   no `src-tauri/tauri.conf.json`; não há nada a cadastrar para ela.
+5. **Conferência.** `gh secret list --repo Heldinhow/openridr` e `gh variable list --repo
+   Heldinhow/openridr` mostram os sete secrets e a variável (nomes; valores não são legíveis).
 
 Nunca leia, copie ou imprima os valores no chat ou em arquivo do repo.
 
@@ -100,6 +108,8 @@ keychain, não no repo).
 git fetch --tags origin && git checkout v0.3.0-alpha.12      # o build é do commit da tag
 export APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)"
 export NOTARY_KEYCHAIN_PROFILE=notary                        # .p8 e .p12 ficam dispensados
+export TAURI_SIGNING_PRIVATE_KEY_PATH=$HOME/.tauri/openridr-updater.key
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$(cat "$HOME/.tauri/openridr-updater.password")
 sh scripts/release-macos.sh --check --tag v0.3.0-alpha.12
 sh scripts/release-macos.sh --tag v0.3.0-alpha.12
 ```
@@ -172,6 +182,51 @@ igual à tag e `shasum -a 256`. A montagem é desfeita mesmo em erro.
 Se a notarização for rejeitada, o log vem de `xcrun notarytool log <id>` (o script faz isso sozinho)
 e aponta o item exato (`signature`, `hardened runtime`, `entitlements`, binário aninhado sem
 assinatura). Corrija, refaça o build e notarize de novo — nunca publique com `stapler` pendente.
+
+## Atualização dentro do app (updater)
+
+O app instalado não baixa DMG: ele lê um manifesto assinado e troca o próprio `.app`. O caminho é o
+mesmo run de release, não um segundo pipeline.
+
+- **Chave própria, separada da Apple.** O par vive fora do repositório
+  (`~/.tauri/openridr-updater.key` + `.password`, ambos 0600); só a **pública** está no
+  `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). Perder a privada ou a senha significa que
+  nenhum update futuro funciona: não há como trocar a pública em apps já instalados.
+- **A pública é conferida, não digitada.** `sh scripts/updater-pubkey-selfcheck.sh` compara o valor
+  do `tauri.conf.json` com `~/.tauri/openridr-updater.key.pub` (e com a cópia commitada no próprio
+  script, que é o que roda numa máquina sem a chave). Um pubkey errado não reprova build nem
+  release: ele faz **todo** app recusar **todo** update em silêncio — por isso a conferência existe
+  e o valor no conf é copiado do arquivo, nunca redigitado.
+- **Artefato depois do grampo.** `release-macos.sh` empacota `OpenRidr.app.tar.gz` a partir do `.app`
+  **já notarizado e grampeado** (o ticket viaja dentro do arquivo), assina com
+  `tauri signer sign --app-version <versão>` e verifica extraindo e rodando `codesign --verify
+  --deep --strict`, `spctl --assess` e `stapler validate` no app extraído. `createUpdaterArtifacts`
+  do bundler fica **desligado**: ele arquiva no build, antes da notarização.
+- **Manifesto.** `scripts/release-updater-manifest.sh` monta o `latest.json` (version, notes,
+  pub_date, `platforms.darwin-aarch64.{signature,url}`) a partir da versão, da URL do arquivo e do
+  `.sig`; o `notes` é o `docs/RELEASE-ALPHA.md`.
+- **Canal de tag fixa, artefato imutável.** O endpoint é
+  `https://github.com/Heldinhow/openridr/releases/download/updater-alpha/latest.json`. A release
+  `updater-alpha` é pré-release e guarda **só** o manifesto, substituído a cada versão; o
+  `OpenRidr.app.tar.gz` e o `.sig` ficam na release da versão
+  (`releases/download/v<versão>/OpenRidr.app.tar.gz`), cuja URL nunca muda. Assim o manifesto antigo
+  continua apontando para bytes que existem, e trocar o manifesto é o único passo observável.
+  `releases/latest/download/latest.json` não serve porque toda release do projeto é pré-release.
+- **A assinatura é conferida com a chave do app.** Depois de assinar, o script compara o *key id*
+  minisign da assinatura com o da `pubkey` do `tauri.conf.json` e recusa a release quando diferem:
+  um secret registrado com outra chave publicaria um artefato que todo app instalado rejeita, com o
+  DMG válido e nenhum erro visível. É conferência de identidade, não verificação criptográfica — a
+  verificação de verdade acontece no app, na instalação.
+- **Republicar uma versão já publicada tem janela.** O artefato é re-uploadado com `--clobber` (a
+  mesma política do DMG), então entre esse upload e a troca do manifesto o manifesto antigo aponta
+  para bytes novos com a assinatura antiga e um cliente que checar naquele instante recusa. Se o run
+  falhar no meio, o update daquela versão fica recusado até o próximo release. A assinatura continua
+  sendo o que decide o que instala.
+- **`requireSignedVersion`.** O app recusa um manifesto cuja `version` não é a versão gravada no
+  trusted comment da assinatura — é o que impede um manifesto adulterado de parear uma versão nova
+  com um artefato antigo genuíno.
+- **Ensaio sem publicar.** `workflow_dispatch` com `publish=false` roda build, assinatura,
+  notarização e a verificação do artefato de update, e para antes de publicar.
 
 ## Abrir como quem baixou (quarentena)
 

@@ -247,6 +247,8 @@ type Props = {
   externalOpen: { path: string } | null;
   // Cmd+Q or the app menu Quit; increments per request and is answered with the unsaved-changes dialog.
   quitRequest: number;
+  // The request came from "Restart now" in the update dialog: the same guard runs, then the app restarts.
+  restartOnQuit: boolean;
   onOpenRecent: (path: string) => Promise<void>;
   onSnapshot: (snapshot: Snapshot) => void;
   onClosed: (snapshot: Snapshot) => void;
@@ -366,7 +368,7 @@ function restoreStateLabel(restore: Snapshot["restore"]) {
   }
 }
 
-export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, quitRequest, onOpenRecent, onSnapshot, onClosed }: Props) {
+export function WorkspaceView({ snapshot, initialFile, recentSolutions, externalOpen, quitRequest, restartOnQuit, onOpenRecent, onSnapshot, onClosed }: Props) {
   const workspace = snapshot.workspace!;
   const projects = snapshot.outline?.projects ?? [];
   const trusted = snapshot.trust.granted;
@@ -3784,7 +3786,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   async function quitApp() {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("quit_app");
+      await invoke(restartOnQuit ? "restart_app" : "quit_app");
     } catch (error) {
       setMessage({
         tone: "error",

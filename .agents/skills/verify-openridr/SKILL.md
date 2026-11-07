@@ -13,9 +13,9 @@ Alvo: macOS ARM64. Windows e Intel não foram executados: não declare suporte.
 
 | Superfície | Quando | Prova |
 |---|---|---|
-| **A. Playwright** (`tests/e2e`) | regra de UI/host já coberta por spec; regressão | exit code + lista de specs |
+| **A. Playwright** (`tests/e2e`) | mudança de interface pura: só os specs da área, escrevendo/atualizando o spec do cenário; regra de UI/host já coberta por spec | exit code + lista de specs |
 | **B. Navegador dirigido por você** (`scripts/web.sh`) | feature nova ou mudada sem spec; precisa de screenshot | snapshot + captura + estado no host/disco |
-| **C. App Tauri real** (`scripts/desktop.sh` + `agent-desktop`; receitas em `test-app-agent-desktop`) | o que só existe no shell: Finder/Dock/argv, janela, `__TAURI_INTERNALS__` | snapshot de acessibilidade + screenshot |
+| **C. App Tauri real** (`scripts/desktop.sh` + `agent-desktop`; receitas em `test-app-agent-desktop`) | o que só existe no shell: menu nativo, atalhos do sistema, updater, seletor nativo, árvore de acessibilidade do WebKit, single-instance, DMG, Finder/Dock/argv, janela, `__TAURI_INTERNALS__` | snapshot de acessibilidade + screenshot |
 
 Comece por A (barata). Use B quando faltar spec. Use C só para o que A/B não alcançam. Se C estiver bloqueada (ver Doctor), registre **"não verificado no app desktop"**: não finja.
 
@@ -31,12 +31,14 @@ Superfície C exige: **tela do Mac desbloqueada e acordada**, **Acessibilidade c
 
 ## Launch
 
-**A. Playwright** (o harness já sobe host e Vite sozinho em 4317/4318/1420; não rode junto com `bun run dev`/`host:http`):
+**A. Playwright** (o harness já sobe host e Vite sozinho; default 1420 UI / 4317 host, e o app home é derivado da porta da UI):
 
 ```sh
 export PATH="$HOME/.bun/bin:$HOME/.dotnet:$HOME/.dotnet/tools:$PATH" DOTNET_ROOT=$HOME/.dotnet DOTNET_CLI_UI_LANGUAGE=en
 bunx playwright test tests/e2e/trust-prompt.spec.ts          # um spec; sem Chrome: PLAYWRIGHT_CHANNEL=chromium
 ```
+
+Portas: default 1420 (UI) / 4317 (host). Sessão em paralelo, ou com `bun run dev`/`host:http` no mesmo worktree, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`; porta ocupada falha na hora pelo `strictPort` do Vite de teste. Cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`, então confira a faixa e deixe 10 portas de host livres acima do seu par. Rode só os specs da área, não a suíte inteira.
 
 Pronto = `N passed` e exit 0. `skip` não é passe: leia o motivo e registre "não verificado".
 
