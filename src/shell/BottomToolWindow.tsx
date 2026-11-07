@@ -17,7 +17,7 @@ export function BottomToolWindow({ tabs, active, onSelect, onHide, panelRef, chi
   active: BottomToolId;
   onSelect: (id: BottomToolId) => void;
   onHide: () => void;
-  panelRef: RefObject<HTMLDivElement>;
+  panelRef: RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
   return (
