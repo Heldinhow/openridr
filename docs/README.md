@@ -22,6 +22,7 @@ Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitH
 
 | Feature / onda | Spec | Tickets | Retro / review | Evidência |
 |---|---|---|---|---|
+| Comunidade open source (#224) | [SPEC-OPEN-SOURCE-READY](SPEC-OPEN-SOURCE-READY.md) | #226–#229 | [RETRO-OPEN-SOURCE-READY](RETRO-OPEN-SOURCE-READY.md) | [evidence/open-source-ready.md](evidence/open-source-ready.md) |
 | P0 original (Trust, SDK, MSBuild, LSP, build, run, DAP, PTY, VSTest) | [SPEC](SPEC.md) | [tickets/](tickets/README.md) (01–18) | [release-decision](release-decision.md) (histórico) | `evidence/NN-*.md`, [acceptance-matrix](acceptance-matrix.md) |
 | MVP Rider F1–F9, auditorias, Solution Explorer | [SPEC-MVP-RIDER](SPEC-MVP-RIDER.md), [SPEC-SOLUTION-EXPLORER](SPEC-SOLUTION-EXPLORER.md) | [tickets-mvp/](tickets-mvp/README.md) (01–41) | [RETRO-MVP-RIDER](RETRO-MVP-RIDER.md), [REVIEW-MVP-RIDER](REVIEW-MVP-RIDER.md), [RETRO-SOLUTION-EXPLORER](RETRO-SOLUTION-EXPLORER.md) | `evidence/`, [UI-AUDIT](UI-AUDIT.md) |
 | Welcome + Trust uma vez | [SPEC-WELCOME-TRUST](SPEC-WELCOME-TRUST.md) | [tickets-welcome-trust/](tickets-welcome-trust/) | [RETRO-WELCOME-TRUST](RETRO-WELCOME-TRUST.md), [REVIEW-WELCOME-TRUST](REVIEW-WELCOME-TRUST.md) | `evidence/welcome-trust/` |
