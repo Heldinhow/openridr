@@ -1,9 +1,13 @@
 # Launch profiles: navegador, expansão e argv — evidência
 
 Data: 2026-11-07. macOS Apple Silicon, bundle debug `0.3.0-alpha.11` construído neste worktree
-(commit `d1f1c36`, `bun run tauri build --debug --bundles app`), `OPENRIDR_HOME` isolado em `<tmp>`,
-cópia descartável do fixture `LaunchProfiles` em `<tmp>`. Uma instância do app por vez; interação e
-capturas somente com `agent-desktop`.
+(`bun run tauri build --debug --bundles app`), `OPENRIDR_HOME` isolado em `<tmp>`, cópia descartável
+do fixture `LaunchProfiles` em `<tmp>`. Uma instância do app por vez; interação e capturas somente
+com `agent-desktop`.
+
+Capturas: `01`, `02`, `03` e `06` no bundle final (commit `b129681`, depois dos ajustes da revisão);
+`04`, `05` e `07` no bundle de `d1f1c36`, cujos caminhos os ajustes não mudam — o caso "Opened" foi
+reconferido no bundle final.
 
 ## App real
 
