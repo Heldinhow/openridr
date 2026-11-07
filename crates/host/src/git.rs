@@ -2645,15 +2645,16 @@ fn list_paths(paths: &[String]) -> String {
 }
 
 fn marker_message(paths: &[String]) -> String {
-    format!(
-        "Complete merge refused: {} still contain conflict markers ({}). Resolve them in the editor first.",
-        if paths.len() == 1 {
-            "1 file".to_string()
-        } else {
-            format!("{} files", paths.len())
-        },
-        list_paths(paths)
-    )
+    match paths.len() {
+        1 => format!(
+            "Complete merge refused: 1 file still contains conflict markers ({}). Resolve it in the editor first.",
+            paths[0]
+        ),
+        n => format!(
+            "Complete merge refused: {n} files still contain conflict markers ({}). Resolve them in the editor first.",
+            list_paths(paths)
+        ),
+    }
 }
 
 /// Git's own words for "there is no author to write the commit with". The app says where to set it
@@ -3857,7 +3858,9 @@ mod tests {
         assert_eq!(error.code, "invalid_state");
         assert!(error.message.contains("a.txt"), "{}", error.message);
         assert!(
-            error.message.contains("conflict markers"),
+            error
+                .message
+                .contains("1 file still contains conflict markers"),
             "{}",
             error.message
         );
