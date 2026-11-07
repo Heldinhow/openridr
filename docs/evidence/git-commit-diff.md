@@ -62,7 +62,20 @@ A issue #101 pedia "provado por um E2E contra repositório descartável". A deci
 
 - Windows e macOS Intel (não há build nem execução).
 - **Navegação por seta entre as duas abas especiais**: exigiria `agent-desktop press --headed`, que move o foco do usuário; o caminho é o mesmo de antes com um índice a mais, provado só por leitura e por `tsc`.
-- O fallback **`too_large`** no diff de commit foi provado no host (teste de arquivo acima de 1 MiB no #48, mesma função `assemble`), não na tela.
 - O fallback **`unreadable`** (blob/tree corrompidos) continua sem fixture de ponta a ponta: é ramo defensivo, provado só no host.
 - **Merge commits**: o log não lista arquivos de merge, então não existe linha para clicar; o primeiro pai está documentado na spec para quando isso mudar.
 - O `git.commitDiff` não foi exercitado pela ponte HTTP de dev (`host-http`); o caminho é o mesmo `dispatch` dos outros `git.*`, coberto pelo teste de trust.
+
+## Rodada 1 da revisão independente
+
+Revisor: `delegate_task` com `pi` / `openai-codex/gpt-6.1-terra` / `thinking=medium`, ponto fixo `1d8b044` (merge-base com `origin/main`). Quatro achados, todos corrigidos; o quinto era sobre esta evidência e foi corrigido aqui.
+
+| Achado | Correção | Prova |
+|---|---|---|
+| **Médio:** o caminho era um pathspec, não um nome — `a[1].txt` é classe de caractere e o diff também trazia `a1.txt` | `--literal-pathspecs` em `commit_diff_output`, `diff_output` e `is_tracked` (o mesmo defeito existia em `git.diff`/`git.fileDiff`) | `paths_are_literal_names_not_patterns`: sem a flag o commit devolve **2** hunks e o patch cita `a1.txt`; com ela, 1 hunk e nenhuma menção. Falha-antes medida revertendo só a flag |
+| **Médio:** metadados do commit lidos sem limite (`run` coleta o stdout inteiro) | `commit_ref` passou a usar `spawn_bounded` com 32 KB; truncado ou falho → sem linha do commit, nunca uma alocação sem teto | `commit_diff_returns_both_blobs_hunks_and_the_two_commits` e o teste do log continuam verdes |
+| **Médio:** fechar a aba **inativa** zerava a aba especial visível | os dois botões de fechar só limpam `specialTab` quando a aba fechada é a ativa | caminho de UI; provado por leitura (`tsc` verde) — o app não foi reaberto para esta correção |
+| **Baixo:** a aba usava o hash curto cortado em 7 caracteres pelo log, o painel usava o `%h` do Git | `git.log` passou a pedir `%h` no formato; o teste compara com `rev-parse --short` | `log_parses_messages_parents_and_changed_files` |
+| **Baixo:** esta evidência atribuía o `too_large` ao teste do #48 | teste próprio de blob acima de 1 MiB no diff de commit | `commit_diff_falls_back_for_binary_and_rejects_unknown_commits` |
+
+Depois das correções: `cargo test -p openridr-host --lib -- git::` → **60 passed**; `bun test tests/unit` → 90 passed; `bun run check`, `cargo fmt --all --check` e `cargo clippy --workspace --all-targets -- -D warnings` limpos.

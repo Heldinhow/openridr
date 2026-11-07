@@ -1264,19 +1264,20 @@ fn parse_log(text: &str) -> Vec<GitCommit> {
             None => (chunk, ""),
         };
         let fields: Vec<&str> = header.split('\x1f').collect();
-        if fields.len() < 5 || fields[0].trim().is_empty() {
+        if fields.len() < 6 || fields[0].trim().is_empty() {
             continue;
         }
         let hash = fields[0].trim().to_string();
-        let short_hash = hash.chars().take(7).collect();
-        let parents: Vec<String> = fields[3].split_whitespace().map(str::to_string).collect();
+        // Git's own abbreviation, so the log row and the diff panel never disagree on it.
+        let short_hash = fields[1].trim().to_string();
+        let parents: Vec<String> = fields[4].split_whitespace().map(str::to_string).collect();
         let (files, files_truncated) = parse_name_status(body);
         commits.push(GitCommit {
             hash,
             short_hash,
-            author: fields[1].to_string(),
-            date: fields[2].to_string(),
-            subject: fields[4].to_string(),
+            author: fields[2].to_string(),
+            date: fields[3].to_string(),
+            subject: fields[5].to_string(),
             parents,
             files,
             files_truncated,
@@ -1301,7 +1302,7 @@ pub fn log(root: &Path) -> GitLog {
             &max,
             "-z",
             "--name-status",
-            "--format=%x1e%H%x1f%an%x1f%aI%x1f%P%x1f%s",
+            "--format=%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%P%x1f%s",
         ],
     ) {
         Ok(output) => output,
@@ -1370,14 +1371,29 @@ fn diff_output(
     if staged {
         // HEAD -> index, tracked or not: a path absent from the index (an untracked path or a
         // staged deletion) is still compared to HEAD, and the worktree is never read here.
-        let mut args = vec!["diff", "--no-color", "--no-ext-diff", unified, "--cached"];
+        let mut args = vec![
+            "--literal-pathspecs",
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            unified,
+            "--cached",
+        ];
         args.push("--");
         args.push(path);
         spawn_bounded(&repo.top, &args, limit)
     } else if tracked {
         spawn_bounded(
             &repo.top,
-            &["diff", "--no-color", "--no-ext-diff", unified, "--", path],
+            &[
+                "--literal-pathspecs",
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                unified,
+                "--",
+                path,
+            ],
             limit,
         )
     } else {
@@ -1385,6 +1401,7 @@ fn diff_output(
         spawn_bounded(
             &repo.top,
             &[
+                "--literal-pathspecs",
                 "diff",
                 "--no-color",
                 "--no-ext-diff",
@@ -1400,8 +1417,17 @@ fn diff_output(
 }
 
 fn is_tracked(repo: &Repo, path: &str) -> Result<bool, (&'static str, String)> {
-    let output = run(&repo.top, &["ls-files", "--error-unmatch", "--", path])
-        .map_err(|error| (spawn_state(&error), spawn_message(error)))?;
+    let output = run(
+        &repo.top,
+        &[
+            "--literal-pathspecs",
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            path,
+        ],
+    )
+    .map_err(|error| (spawn_state(&error), spawn_message(error)))?;
     match output.code {
         Some(0) => Ok(true),
         // `--error-unmatch` exits 1 when the path simply has no index entry.
@@ -1674,11 +1700,18 @@ fn parse_hunks(patch: &str) -> Vec<DiffHunk> {
 }
 
 fn commit_ref(repo: &Repo, rev: &str) -> Option<DiffCommit> {
-    let output = run(&repo.top, &["log", "-1", "--format=%H\t%h\t%s", rev]).ok()?;
-    if !output.ok() {
+    // A subject is user data: bounded, so a huge message cannot be collected whole.
+    let output = spawn_bounded(
+        &repo.top,
+        &["log", "-1", "--format=%H\t%h\t%s", rev],
+        OUTPUT_LIMIT,
+    )
+    .ok()?;
+    if output.code != Some(0) || output.truncated {
         return None;
     }
-    let text = output.stdout.trim_end_matches('\n');
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let text = stdout.trim_end_matches('\n');
     let mut parts = text.splitn(3, '\t');
     let hash = parts.next()?.to_string();
     let short_hash = parts.next()?.to_string();
@@ -2017,6 +2050,8 @@ fn commit_diff_output(
         PATCH_BYTES
     };
     let mut args = vec![
+        // A path is a name, not a pattern: `a[1].txt` must not also match `a1.txt`.
+        "--literal-pathspecs",
         "diff",
         "--no-color",
         "--no-ext-diff",
@@ -3189,7 +3224,11 @@ mod tests {
             .expect("rename is listed");
         assert_eq!(rename.path, "b.txt");
         assert_eq!(rename.original_path.as_deref(), Some("a.txt"));
-        assert!(!log.commits[0].short_hash.is_empty());
+        // Git's abbreviation, not a seven-character slice: the log row and the diff panel agree.
+        assert_eq!(
+            log.commits[0].short_hash,
+            git(&root, &["rev-parse", "--short", "HEAD"]).trim()
+        );
     }
 
     #[test]
@@ -3467,6 +3506,29 @@ mod tests {
     }
 
     #[test]
+    fn paths_are_literal_names_not_patterns() {
+        let (_temp, root) = init("repo");
+        fs::write(root.join("a[1].txt"), "one\n").unwrap();
+        fs::write(root.join("a1.txt"), "other\n").unwrap();
+        commit_all(&root, "initial");
+        fs::write(root.join("a[1].txt"), "two\n").unwrap();
+        fs::write(root.join("a1.txt"), "other2\n").unwrap();
+        commit_all(&root, "both");
+        let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+        // `a[1].txt` is a character class to Git's pathspec parser: it must not also match `a1.txt`.
+        let commit = commit_diff(&root, &head, "a[1].txt", None).unwrap();
+        assert_eq!(commit.hunks.len(), 1, "{}", commit.patch);
+        assert!(!commit.patch.contains("a1.txt"), "{}", commit.patch);
+
+        fs::write(root.join("a[1].txt"), "three\n").unwrap();
+        fs::write(root.join("a1.txt"), "other3\n").unwrap();
+        let worktree = file_diff(&root, "a[1].txt", false).unwrap();
+        assert_eq!(worktree.hunks.len(), 1, "{}", worktree.patch);
+        assert!(!worktree.patch.contains("a1.txt"), "{}", worktree.patch);
+    }
+
+    #[test]
     fn commit_diff_of_a_root_commit_has_no_parent_and_no_base() {
         let (_temp, root) = init("repo");
         fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
@@ -3495,6 +3557,15 @@ mod tests {
         assert!(!binary.full);
         assert_eq!(binary.full_reason, Some("binary"));
         assert!(!binary.patch.is_empty());
+
+        // The blob is refused by size before any content is read, like the worktree read.
+        fs::write(root.join("big.txt"), "x".repeat(FULL_FILE_BYTES + 1)).unwrap();
+        commit_all(&root, "big");
+        let big_head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+        let oversized = commit_diff(&root, &big_head, "big.txt", None).unwrap();
+        assert_eq!(oversized.state, "ok");
+        assert!(!oversized.full);
+        assert_eq!(oversized.full_reason, Some("too_large"));
 
         let unknown = commit_diff(
             &root,
