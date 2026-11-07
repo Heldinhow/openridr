@@ -100,7 +100,7 @@ filtro de job por caminho, mudança de ruleset, e qualquer coisa em `release.yml
 
 | Prática da referência | Já existe no OpenRidr? | Decisão |
 |---|---|---|
-| Separação de lint/build/typecheck/testes (T3 Code) | Parcial: jobs `typescript` (tsc + unit) e `rust` (fmt, clippy, testes) separados; **nenhum job roda `vite build`** | **Nada a fazer nesta frente**: o tipo é coberto pelo `tsc --noEmit` que já roda; o build da UI nunca rodou no CI — residual declarado, não fechado aqui |
+| Separação de lint/build/typecheck/testes (T3 Code) | Sim: jobs `typescript` (tsc + build + unit) e `rust` (fmt, clippy, testes) separados | **Nada a fazer** |
 | Verificação de dependência não usada (T3 Code) | Não | **Adiado**: `knip` medido (2 famílias de dependência não usadas, 3 importadas sem declarar, 8 exports e 7 tipos sem uso; remedido em 2026-11-07 com os mesmos números); adotar é dependência nova. As 3 sem declarar viram issue filha (#223). |
 | Verificação de arquivo gerado (T3 Code) | Parcial: `dist/` e `target/` são gitignored; `src-tauri/resources/{dotnet,csharp-ls}` também | **Nada a fazer**: não há arquivo gerado versionado para conferir |
 | Jobs independentes e paralelos (OpenChamber) | Sim | **Nada a fazer** |
@@ -311,5 +311,4 @@ passos do cargo-audit): um achado não esconde o que os outros dois diriam.
   `dependency-audit` em 29 s nos dois gatilhos, incluindo o `workflow_dispatch`.
 - **Só configuração existente, não exercitada por esta frente**: os gates de risco e o ruleset.
 - **Não verificado**: o `schedule` semanal (só se prova depois do merge na default); o critério de
-  promoção do `rust-tauri` (1 de 5 runs verdes); `vite build`, que nenhum workflow roda — residual
-  declarado.
+  promoção do `rust-tauri` (1 de 5 runs verdes).
