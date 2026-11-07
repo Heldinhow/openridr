@@ -200,8 +200,17 @@ fn child_home() -> PathBuf {
     app_home().join("toolhome")
 }
 
+/// The launcher runs outside the workspace. Created here, in the one place that names the
+/// directory: `current_dir` of a missing path fails the spawn before the launcher runs, which on a
+/// fresh machine reported a valid tool as invalid (issue #93).
 fn neutral_cwd() -> PathBuf {
-    std::env::temp_dir().join("openridr-neutral")
+    neutral_cwd_in(&std::env::temp_dir())
+}
+
+fn neutral_cwd_in(root: &Path) -> PathBuf {
+    let dir = root.join("openridr-neutral");
+    let _ = fs::create_dir_all(&dir);
+    dir
 }
 
 fn binary_name() -> &'static str {
@@ -497,10 +506,7 @@ pub fn verify_installed(destination: &Path, runtime_root: &Path) -> Existing {
 
     let home = child_home();
     let _ = fs::create_dir_all(&home);
-    // Same step as `verify_bundled`: on a fresh machine the neutral directory does not exist yet, and
-    // `current_dir` of a missing path fails the spawn before the launcher ever runs (issue #93).
     let cwd = neutral_cwd();
-    let _ = fs::create_dir_all(&cwd);
     let output = Command::new(&binary)
         .arg("--version")
         .current_dir(&cwd)
@@ -889,7 +895,6 @@ fn verify_bundled(analysis: &bundled::Analysis) -> Result<BundledTool, String> {
     fs::create_dir_all(&home)
         .map_err(|error| format!("Could not create the isolated tool HOME: {error}"))?;
     let cwd = neutral_cwd();
-    let _ = fs::create_dir_all(&cwd);
     let muxer = bundled::muxer(&analysis.runtime.root);
     let child = Command::new(&muxer)
         .arg(&analysis.entry)
@@ -1483,13 +1488,7 @@ impl Tools {
                 format!("Could not create the isolated tool HOME: {error}"),
             )
         })?;
-        let cwd = PathBuf::from(&plan.cwd);
-        fs::create_dir_all(&cwd).map_err(|error| {
-            HostError::new(
-                "operation_failed",
-                format!("Could not create the neutral install directory: {error}"),
-            )
-        })?;
+        let cwd = neutral_cwd();
         // Keep NuGet's scratch files under the app home so fetched bytes are observable and never
         // land in the user's shared temp directory.
         let temp = install_temp(&plan.staging);
@@ -2543,6 +2542,17 @@ mod tests {
             error.message
         );
         assert!(processes.views().is_empty());
+    }
+
+    #[test]
+    fn the_neutral_cwd_is_created_before_the_launcher_runs() {
+        // A fresh root has no `openridr-neutral`, and `current_dir` of a missing path fails the
+        // spawn before the launcher runs (issue #93). This reproves it on a warm machine too.
+        let root = tempfile::tempdir().unwrap();
+        let neutral = root.path().join("openridr-neutral");
+        assert!(!neutral.exists());
+        assert_eq!(neutral_cwd_in(root.path()), neutral);
+        assert!(neutral.is_dir());
     }
 
     #[cfg(unix)]
