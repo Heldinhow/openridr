@@ -1,5 +1,7 @@
+import os from "node:os";
+import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { e2eHome, frontend, host, port } from "./environment";
+import { e2eHome, e2eHomeFor, frontend, host, port } from "./environment";
 
 test("E2E ports are validated and the loopback proxy rejects foreign origins", async ({ request }) => {
   expect(port(undefined, 1420)).toBe(1420);
@@ -18,6 +20,14 @@ test("E2E ports are validated and the loopback proxy rejects foreign origins", a
   expect(refused.headers()["access-control-allow-origin"]).toBeUndefined();
   const direct = await request.get(`${host}/health`, { headers: { Origin: frontend } });
   if (!frontend.endsWith(":1420")) expect(direct.headers()["access-control-allow-origin"]).toBeUndefined();
+});
+
+test("the E2E app home is derived from the UI port and the override wins", () => {
+  // Two sessions in parallel pick different ports, so their homes must differ too.
+  expect(e2eHomeFor(1420, undefined)).toBe(path.join(os.tmpdir(), "openridr-e2e-home-1420"));
+  expect(e2eHomeFor(1531, undefined)).toBe(path.join(os.tmpdir(), "openridr-e2e-home-1531"));
+  expect(e2eHomeFor(1420, undefined)).not.toBe(e2eHomeFor(1531, undefined));
+  expect(e2eHomeFor(1531, "/tmp/openridr-e2e-home-mine")).toBe("/tmp/openridr-e2e-home-mine");
 });
 
 test("the E2E host uses the isolated app home", async ({ request }) => {
