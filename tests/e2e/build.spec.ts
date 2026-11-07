@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
+import { settleDiscovery } from "./automatic";
 import { host } from "./environment";
 const screenshots = path.resolve(process.env.OPENRIDR_SCREENSHOT_DIR ?? "docs/evidence/screenshots");
 
@@ -38,12 +39,15 @@ async function openTrustedEvaluated(page: Page, copy: string) {
   });
 }
 
-// Trust restores and evaluates by itself (docs/decisions.md); wait for that to settle.
+// Trust restores and evaluates by itself (docs/decisions.md); wait for that to settle. The
+// automatic test discovery also builds the test project, and a build started while it runs can
+// collide on the same output file (#251).
 async function restoreAndReload(page: Page) {
   await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", {
     timeout: 60_000,
   });
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
+  await settleDiscovery(page);
 }
 
 async function replaceProgram(page: Page, text: string) {

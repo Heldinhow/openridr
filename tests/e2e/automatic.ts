@@ -29,6 +29,23 @@ async function discoverySnapshot(page: Page) {
   return body.data.tests.discovery as { revision: number; state: string };
 }
 
+/** Waits for the automatic discovery to finish: it builds the test project, so a build started
+ * while it runs can collide on the same output file (#251). A workspace with no test project
+ * never discovers, and the poll times out instead of passing silently. */
+export async function settleDiscovery(page: Page) {
+  await expect
+    .poll(
+      async () => {
+        const discovery = await discoverySnapshot(page);
+        return discovery.revision >= 1 && discovery.state !== "discovering"
+          ? "settled"
+          : `${discovery.state}:${discovery.revision}`;
+      },
+      { timeout: 180_000 },
+    )
+    .toBe("settled");
+}
+
 /** Clicks Discover and waits for the new host revision to settle: an automatic discovery may
  * already be current, so the old "Discovered" text is not proof that this click finished. */
 export async function clickDiscover(page: Page) {
