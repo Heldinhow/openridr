@@ -1452,3 +1452,24 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **O merge local do Update não é cancelável, e a UI diz isso.** Um cancel nessa janela devolve `cancelled: false` e o diálogo mostra `Nothing to cancel: the update is already merging.` (push: `…the push already finished.`, fetch: `…the fetch already finished.`). Matar o merge deixaria merge pela metade (decisão da #136).
 - **O diálogo em voo não fecha mais.** Dispensar (`push-cancel`/`update-cancel`) fica desabilitado durante a operação e Escape cancela. O diálogo de Abort merge não muda (abortar é local).
 - **Consequência.** `docs/SPEC-GIT-NETWORK-CANCEL.md`; tickets #206 (push + mecanismo), #207 (Update) e #208 (Fetch), sub-issues de #150; evidência em `docs/evidence/git-network-cancel.md`. Nenhuma dependência nova, nenhum `data-testid` renomeado (`push-stop`, `update-stop`, `branch-fetch-stop` são novos).
+
+## 2026-11-07 — Três dependências importadas sem declarar passam a ser declaradas; o fontsource é falso positivo do knip (issue #223)
+
+- **Decisão.** `@lezer/highlight`, `@codemirror/search` e `@codemirror/autocomplete` entram em
+  `dependencies` com a faixa `^` da versão que o `bun.lock` já resolve (1.2.5, 6.7.2, 6.20.4). Nenhuma
+  versão nova, nenhum pacote novo: as três já estão no lock por transitividade de `codemirror`.
+- **Por que declarar, e não trocar o import.** `codemirror` não reexporta o que o editor usa: ele importa
+  `searchKeymap`/`highlightSelectionMatches` e `autocompletion`/`closeBrackets`/`completionKeymap` para
+  montar o `basicSetup` e não exporta nenhum deles; `tags`, `getSearchQuery`, `gotoLine`,
+  `searchPanelOpen`, `insertCompletionText`, `pickedCompletion` e os tipos `Completion*` só existem nos
+  pacotes originais. Trocar o import exigiria reescrever o editor e ainda assim declarar dois dos três.
+- **O `@fontsource-variable/*` fica, e o knip está errado.** Os dois pacotes são usados em
+  `src/styles.css` por `url()` dentro de `@font-face`; o knip não segue `url()` de CSS. Remover quebraria
+  as fontes da UI. A exceção é registrada aqui, não em config: o knip não é dependência do repositório e a
+  adoção (com a config junto) é a frente adiada de `docs/SPEC-CI-PRACTICES.md`.
+- **Sem guarda de regressão nesta issue.** Um teste que varresse os imports de `src/` e comparasse com o
+  `package.json` fecharia a classe do bug sem o knip, mas seria um parser de import por regex e a guarda
+  de verdade é o knip. A lacuna fica registrada no retro.
+- **Consequência.** `docs/SPEC-DECLARED-DEPS.md`, evidência em `docs/evidence/declared-deps.md`. O PR toca
+  `package.json` e `bun.lock`, então cai em `risk:high` pela tabela de risco — inevitável para a issue.
+  Nenhum `data-testid`, nenhuma mudança de produto.
