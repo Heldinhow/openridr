@@ -401,8 +401,10 @@ jobs:
           if [ "$EVENT" = pull_request ] && git show "origin/$BASE_REF:$script" >"$RUNNER_TEMP/aggregate.sh" 2>/dev/null; then
             script=$RUNNER_TEMP/aggregate.sh
           elif [ "$EVENT" = pull_request ]; then
+            # The name is spelled out: `$script` is cleared below, and a message that reads "has no ;" is
+            # worse than no message.
+            echo "::warning::origin/$BASE_REF has no scripts/ci-aggregate.sh; using the fixed bootstrap rule in the workflow file"
             script=
-            echo "::warning::origin/$BASE_REF has no $script; using the fixed bootstrap rule in ci.yml"
           fi
           if [ -n "$script" ]; then
             sh "$script"
