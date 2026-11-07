@@ -92,11 +92,32 @@ Tudo com a fixture real (`fixtures/OutsideSolution`: raiz `app/`, projetos em `l
 
 ## App real
 
-_(preenchido na verificação com `agent-desktop`; ver abaixo)_
+App Tauri instalado a partir desta branch, macOS ARM64, `OPENRIDR_HOME` em diretório temporário, workspace = cópia de `fixtures/OutsideSolution` em `$TMPDIR` (raiz `app/`, projetos em `lib/`, `outside-app/` e `tests/`). Capturas em [`projects-outside-solution/`](projects-outside-solution/); todos os caminhos visíveis nas imagens são de `$TMPDIR`.
+
+| # | Ação | Estado observado | Prova de host correspondente |
+|---|---|---|---|
+| [s1](projects-outside-solution/s1-trust-prompt.png) | Abrir `app/App.sln` | diálogo `Trust “App.sln”?` com o texto "Trust authorizes executable inspection of this solution and of the project directories it references." — o alcance do escopo declarado antes de confiar | `tests/trust_model.rs` |
+| [s2](projects-outside-solution/s2-tree-outside.png) | `Trust project` | árvore `App · 4 projects`: `App` sem selo; `Lib`, `OutsideApp` e `Lib.Tests` com o selo `outside`; status `Trusted mode · Evaluated… · Analysis: Partial coverage` | `the_scope_admits_the_outside_project_and_refuses_everything_else` |
+| [s3](projects-outside-solution/s3-editor-outside-file.png) | Abrir `Greeting.cs` na árvore | aba `Greeting.cs`, breadcrumb `Lib / Greeting.cs / net8.0`, status `Lib > Greeting.cs` | `file.read` do absoluto (matriz acima) |
+| [s4](projects-outside-solution/s4-breakpoint-outside-file.png) | Clicar na gutter da linha 5 de `Greeting.cs` | ponto de breakpoint e linha realçada num arquivo fora da raiz | `breakpoints_accept_a_file_of_the_outside_project_and_nothing_beyond_the_scope` |
+| [s5](projects-outside-solution/s5-build-outside-project.png) | `Build startup 'OutsideApp'` | `Build succeeded · exit 0`; log com `Lib → …/lib/bin/Debug/net8.0/Lib.dll` e `OutsideApp → …/outside-app/bin/Debug/net8.0/OutsideApp.dll`; 0 warnings, 0 errors, 0,93 s | `restore_build_and_run_work_for_a_project_outside_the_solution` |
+| [s6](projects-outside-solution/s6-run-outside-project.png) | `Run` do `OutsideApp` | `Run exited · exit 0`, saída `outside app: Hello, outside!`, `Process finished with exit code 0.` | idem |
+| [s7](projects-outside-solution/s7-edit-outside-file.png) | Editar `Greeting.cs` (fora) | aba com `Modified` e ponto de buffer sujo, `// outside edit` no editor, status `1 modified buffer` | `an_edit_in_a_project_outside_the_solution_marks_the_model_stale` |
+| [s8](projects-outside-solution/s8-diagnostic-outside-file.png) | Escrever `int broken = ;` no arquivo de fora e salvar | `Problems`: "Awaiting diagnostics for …/lib/Greeting.cs (revision 2)"; `Analysis · csharp-ls`: `0 publications · 0 items · awaiting 1 document` — **limite**, ver abaixo | — (o host guarda o que chega; nada chegou) |
+| [s9](projects-outside-solution/s9-definition-outside-file.png) | `F12` sobre `Greeting` em `Program.cs` (dentro da raiz) | navegou para `Greeting.cs` (fora): aba ativa, cursor em `Ln 3, Col 21` na declaração da classe, breadcrumb `Lib / Greeting.cs / net8.0` | `definition_location` com escopo (unidade) |
+
+s1–s8 foram capturadas pela sessão anterior na mesma instância; s9 foi refeita nesta sessão com o cursor sobre `Greeting` (a primeira tentativa estava em `using Lib;`, e um namespace não tem localização — a resposta "no location" era correta e não dizia nada sobre a fronteira).
+
+### Limite medido: csharp-ls não publica diagnóstico de arquivo fora da raiz
+
+Controle medido nesta sessão, no mesmo app e no mesmo workspace: `int broken = ;` em `Program.cs` (projeto `App`, dentro da raiz) rendeu `1 error · 0 warnings` com `error CS1525: Invalid expression term ';'` em ~12 s e `Diagnostics: 1 publication · 1 item`. O mesmo erro em `Greeting.cs` (projeto `Lib`, fora da raiz) ficou em `0 publications · 0 items` depois de 2+ minutos, com o documento aberto e o servidor respondendo `textDocument/documentSymbol` para ele (log do LSP em s9).
+
+**Hipótese, não investigada nesta frente:** o csharp-ls parece filtrar por workspace folder — o documento fora da pasta do workspace não entra na compilação que publica diagnósticos, embora o servidor o conheça (definição e símbolos funcionam). O host não filtra nada: guarda o diagnóstico que chega e recusa o que vem de fora do escopo, e a matriz acima prova o caminho de um diagnóstico **MSBuild** de fora. Consequência para quem usa: em projeto fora da raiz, o sublinhado e a lista de problemas do LSP ficam vazios até o build; `Build · dotnet` continua reportando. Fica como limite declarado, com issue própria se o Helder quiser perseguir.
 
 ## Não verificado
 
 - Windows e macOS Intel.
 - `ProjectReference` para projeto fora que não está no `.sln`: não é modelado (limite declarado na spec).
 - Busca Files/Text, git status/gutter/diff e cwd do terminal continuam ancorados na raiz (limite declarado). "Show all files" de um projeto de fora lista o diretório do projeto, que está no escopo.
+- Testes (aba Tests) do projeto de fora: provados no host (`a_test_project_outside_the_solution_is_discovered_and_runs`), não clicados no app real.
 - Playwright: não é prova desta feature (decisão da #67).
