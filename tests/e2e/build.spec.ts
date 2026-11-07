@@ -56,6 +56,41 @@ async function replaceProgram(page: Page, text: string) {
   await expect(page.getByTestId("app-log")).toContainText("Saved src/OrderDesk.Cli/Program.cs");
 }
 
+const buildLogLimit = 20_000;
+
+/** The raw output plus the command and cwd behind it, read from the DOM after a failed wait. */
+async function buildFailureDetail(page: Page) {
+  const read = async (testId: string) => {
+    try {
+      // Short timeout: on the failure path a missing element must not eat the test budget.
+      return (await page.getByTestId(testId).textContent({ timeout: 2_000 })) ?? "";
+    } catch (error) {
+      return `<unreadable: ${String(error)}>`;
+    }
+  };
+  const log = await read("build-log");
+  const clipped =
+    log.length > buildLogLimit ? `${log.slice(0, buildLogLimit)}\n… clipped` : log;
+  return [
+    `build-command: ${await read("build-command")}`,
+    `build-cwd: ${await read("build-cwd")}`,
+    `build-log:\n${clipped}`,
+  ].join("\n");
+}
+
+/**
+ * Waits for the build state and, on failure, appends the raw dotnet output to the error: the
+ * message alone ("Build failed · exit 1") is not diagnosable once the page is gone.
+ */
+async function expectBuildState(page: Page, text: string, timeout?: number) {
+  try {
+    await expect(page.getByTestId("build-state")).toContainText(text, { timeout });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}\n\n${await buildFailureDetail(page)}`);
+  }
+}
+
 test.afterEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
 });
@@ -82,10 +117,8 @@ test("a real build reports its raw log, fails on a compile error and navigates t
     await expect(buildAction).not.toContainText("Rebuild");
 
     await page.getByTestId("build-action").click();
-    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
-      timeout: 60_000,
-    });
-    await expect(page.getByTestId("build-state")).toContainText("exit 0");
+    await expectBuildState(page, "Build succeeded", 60_000);
+    await expectBuildState(page, "exit 0");
     await expect(page.getByTestId("build-command")).toContainText("dotnet build");
     await expect(page.getByTestId("build-command")).toContainText("--no-restore");
     await expect(page.getByTestId("build-command")).toContainText("-c Debug");
@@ -109,9 +142,7 @@ test("a real build reports its raw log, fails on a compile error and navigates t
     await expect(buildAction).toContainText("Build startup");
     await expect(buildAction).not.toContainText("Rebuild");
     await page.getByTestId("build-solution").click();
-    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
-      timeout: 60_000,
-    });
+    await expectBuildState(page, "Build succeeded", 60_000);
     await expect(buildAction).toContainText("Build startup");
     await expect(buildAction).not.toContainText("Rebuild");
     await expect(buildAction).toHaveAttribute("title", /Build Solution/);
@@ -120,10 +151,8 @@ test("a real build reports its raw log, fails on a compile error and navigates t
     await replaceProgram(page, `${originalProgram}\nnew Missing();\n`);
     await page.getByTestId("bottom-tab-build").click();
     await page.getByTestId("build-action").click();
-    await expect(page.getByTestId("build-state")).toContainText("Build failed", {
-      timeout: 60_000,
-    });
-    await expect(page.getByTestId("build-state")).toContainText("exit 1");
+    await expectBuildState(page, "Build failed", 60_000);
+    await expectBuildState(page, "exit 1");
     await expect(page.getByTestId("build-log")).toContainText("error CS");
     await expect(page.getByTestId("build-problems-count")).toContainText("1 build problem");
     await page.screenshot({ path: path.join(screenshots, "11-build-failed.png") });
@@ -162,10 +191,8 @@ test("a real build reports its raw log, fails on a compile error and navigates t
 
     await page.getByTestId("bottom-tab-build").click();
     await page.getByTestId("build-action").click();
-    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
-      timeout: 60_000,
-    });
-    await expect(page.getByTestId("build-state")).toContainText("exit 0");
+    await expectBuildState(page, "Build succeeded", 60_000);
+    await expectBuildState(page, "exit 0");
     await expect(page.getByTestId("build-problems-count")).toContainText("0 build problems");
     await page.screenshot({ path: path.join(screenshots, "11-build-fixed.png") });
   } finally {
@@ -194,9 +221,7 @@ test("build waits for the automatic restore and asks before using unsaved buffer
     fs.mkdirSync(screenshots, { recursive: true });
     await page.screenshot({ path: path.join(screenshots, "11-build-dirty.png") });
     await page.getByTestId("build-saved-only").click();
-    await expect(page.getByTestId("build-state")).toContainText("Build succeeded", {
-      timeout: 60_000,
-    });
+    await expectBuildState(page, "Build succeeded", 60_000);
     await expect(page.getByTestId("build-saved-note")).toContainText("1 unsaved buffer excluded");
     await expect(page.getByTestId("build-log")).toContainText("Build succeeded");
 
