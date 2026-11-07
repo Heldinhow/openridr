@@ -295,6 +295,7 @@ export function BranchWidget({
   const [dialog, setDialog] = useState<"update" | "push" | "mergeAbort" | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   // A fetch takes seconds; the command palette can ask for another one while the first is still
@@ -541,17 +542,37 @@ export function BranchWidget({
     }
   }
 
+  // Stops the network operation in flight. The host answers `cancelled: false` when it already
+  // finished, and the dialog says so instead of pretending the click landed.
+  async function cancelPush() {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      const answer = await call<{ cancelled: boolean }>("git.cancel");
+      if (!answer.cancelled) setDialogError("Nothing to cancel: the push already finished.");
+    } catch (caught) {
+      setDialogError(messageOf(caught));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   function closeMenu() {
     setMenuOpen(false);
     setError(null);
     setCreating(false);
   }
 
-  // Escape dismisses the dialog unless an operation is in flight.
+  // Escape dismisses the dialog, and while an operation is in flight it cancels it instead: closing
+  // the dialog would hide the only place the result is shown.
   function dialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Escape" || dialogBusy) return;
+    if (event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
+    if (dialogBusy) {
+      if (dialog === "push") void cancelPush();
+      return;
+    }
     setDialog(null);
   }
 
@@ -846,7 +867,12 @@ export function BranchWidget({
               <button type="button" data-testid="push-confirm" autoFocus={remote !== null} disabled={dialogBusy || remote === null} onClick={() => void confirmPush()}>
                 {dialogBusy ? "Pushing…" : "Push"}
               </button>
-              <button type="button" data-testid="push-cancel" autoFocus={remote === null} onClick={() => setDialog(null)}>Cancel</button>
+              {dialogBusy && (
+                <button type="button" data-testid="push-stop" disabled={cancelling} onClick={() => void cancelPush()}>
+                  {cancelling ? "Cancelling…" : "Cancel push"}
+                </button>
+              )}
+              <button type="button" data-testid="push-cancel" autoFocus={remote === null} disabled={dialogBusy} onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>
         </div>

@@ -121,8 +121,22 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "nuget.applyUpdate",
 ];
 
+/// The one method the shells dispatch **without** their global host-call lock. That lock keeps the
+/// order of the calls the UI fires without awaiting (`lsp.didChange`, `session.write`); a cancel has
+/// to overtake the operation it stops, so it is exempt — and only it. The list lives here, not in
+/// each shell, so both use the same exception and a test can pin it.
+pub const UNSERIALIZED_METHODS: &[&str] = &["git.cancel"];
+
+/// Whether a dispatch must skip the shell's serializing lock. See [`UNSERIALIZED_METHODS`].
+pub fn bypasses_host_lock(method: &str) -> bool {
+    UNSERIALIZED_METHODS.contains(&method)
+}
+
 pub struct Host {
     inner: Mutex<Inner>,
+    /// The network Git operation in flight. Outside `inner` on purpose: `git.cancel` must reach it
+    /// without waiting on any lock the operation itself might hold.
+    net: git::Net,
 }
 
 impl Drop for Host {
@@ -468,6 +482,7 @@ impl Host {
                 nuget_batch_id: None,
                 diagnostics: diagnostics::Store::new(),
             }),
+            net: git::Net::default(),
         }
     }
 
@@ -719,6 +734,9 @@ impl Host {
         }
         if method == "git.push" {
             return self.git_push(params);
+        }
+        if method == "git.cancel" {
+            return self.git_cancel();
         }
         if method == "git.mergeAbort" {
             return self.git_merge_abort();
@@ -6123,7 +6141,7 @@ impl Host {
     fn git_pull(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.pull")?;
         let root = self.workspace_root()?;
-        let answer = git::pull(&root)?;
+        let answer = git::pull(&root, &self.net)?;
         Ok(serde_json::to_value(answer).expect("git pull serializes"))
     }
 
@@ -6132,15 +6150,22 @@ impl Host {
     fn git_fetch(&self) -> HostResult<Value> {
         let _token = self.require_trust("git.fetch")?;
         let root = self.workspace_root()?;
-        let answer = git::fetch(&root)?;
+        let answer = git::fetch(&root, &self.net)?;
         Ok(serde_json::to_value(answer).expect("git fetch serializes"))
     }
 
     fn git_push(&self, params: Value) -> HostResult<Value> {
         let _token = self.require_trust("git.push")?;
         let root = self.workspace_root()?;
-        let answer = git::push(&root, &params)?;
+        let answer = git::push(&root, &params, &self.net)?;
         Ok(serde_json::to_value(answer).expect("git push serializes"))
+    }
+
+    /// Stops the network Git operation in flight. It changes nothing on disk and opens no
+    /// repository, so it needs no trust decision and takes no host state lock: the whole point is to
+    /// answer while the operation it stops is still running.
+    fn git_cancel(&self) -> HostResult<Value> {
+        Ok(json!({ "cancelled": self.net.cancel() }))
     }
 
     /// Aborts the merge in progress. Only a merge: rebase, cherry-pick and revert stay out of the
@@ -8918,6 +8943,27 @@ fn workspace_symbol_items(scope: &Scope, list: &lsp::WorkspaceSymbolList) -> (Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shell lock is what keeps `lsp.didChange`/`session.write` in send order. A method that
+    /// skips it is a contract change, not a detail: widening this list has to be a deliberate edit
+    /// with a test that says so.
+    #[test]
+    fn only_git_cancel_skips_the_shell_lock() {
+        assert_eq!(UNSERIALIZED_METHODS, &["git.cancel"]);
+        assert!(bypasses_host_lock("git.cancel"));
+        for method in [
+            "git.push",
+            "git.pull",
+            "git.fetch",
+            "git.status",
+            "git.commit",
+            "lsp.didChange",
+            "session.write",
+            "build.cancel",
+        ] {
+            assert!(!bypasses_host_lock(method), "{method} must stay serialized");
+        }
+    }
 
     #[test]
     fn the_dotnet_command_neither_sets_nor_strips_proxy_variables() {
