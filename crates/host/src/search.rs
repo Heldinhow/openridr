@@ -125,11 +125,7 @@ pub fn list_dir(root: &Path, dir: &Path) -> std::io::Result<Vec<serde_json::Valu
         .into_iter()
         .map(|(is_dir, symlink, name)| {
             let rel = dir.join(&name);
-            let rel = rel
-                .strip_prefix(root)
-                .unwrap_or(&rel)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel = crate::fsutil::portable_path(rel.strip_prefix(root).unwrap_or(&rel));
             let hidden = name.starts_with('.') || (is_dir && IGNORED_DIRS.contains(&name.as_str()));
             serde_json::json!({ "name": name, "path": rel, "dir": is_dir, "symlink": symlink, "hidden": hidden })
         })

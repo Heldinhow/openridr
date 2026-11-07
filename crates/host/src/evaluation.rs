@@ -629,7 +629,7 @@ pub fn evaluate_project(
         .iter()
         .map(|(name, path)| ProjectRef {
             name: name.clone(),
-            path: relative_path(root, Path::new(path)),
+            path: relative_path(root, &canonical_or_self(Path::new(path))),
         })
         .collect();
     let package_refs = result
@@ -643,13 +643,14 @@ pub fn evaluate_project(
     let sources = result
         .compile
         .iter()
+        .map(|path| canonical_or_self(path))
         .filter(|path| scope.contains(path))
         .filter(|path| {
             path.extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("cs"))
         })
         .filter(|path| !has_dir(path, scope, "bin") && !has_dir(path, scope, "obj"))
-        .map(|path| relative_path(root, path))
+        .map(|path| relative_path(root, &path))
         .collect();
 
     EvaluatedProject {
@@ -956,6 +957,12 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+/// MSBuild reports plain absolute paths; the root and the scope are canonical (`\\?\C:\...` on
+/// Windows), so a reported path is canonicalized before any containment or relative comparison.
+fn canonical_or_self(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub fn relative_path(root: &Path, path: &Path) -> String {

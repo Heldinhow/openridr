@@ -2293,7 +2293,7 @@ fn the_tree_and_nuget_see_the_outside_project_inside_the_scope_only() {
             .unwrap()
             .iter()
             .any(|entry| entry["name"] == "Greeting.cs"
-                && entry["path"] == json!(lib.join("Greeting.cs").to_string_lossy())),
+                && entry["path"] == json!(support::portable(&lib.join("Greeting.cs")))),
         "{tree}"
     );
     for raw in [

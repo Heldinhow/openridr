@@ -274,7 +274,11 @@ fn a_test_project_outside_the_solution_is_discovered_and_runs() {
         .unwrap();
     let discovery = wait_for_discovery(&host, Duration::from_secs(240));
     assert_eq!(discovery["state"], "completed", "{}", discovery["log"]);
-    assert_eq!(discovery["project"]["path"], project.as_str());
+    // The model names the project by its portable path; the caller sent the canonical one.
+    assert_eq!(
+        discovery["project"]["path"],
+        support::portable(std::path::Path::new(&project))
+    );
     let items = discovery["items"].as_array().unwrap();
     assert_eq!(items.len(), 1, "{discovery}");
     assert!(

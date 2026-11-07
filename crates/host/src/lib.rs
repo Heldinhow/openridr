@@ -7738,10 +7738,9 @@ fn resolve_test_scope(
                 "Select a test project explicitly; a test operation never guesses which project to use.",
             )
         })?;
-    let normalized = requested
-        .replace('\\', "/")
-        .trim_start_matches("./")
-        .to_string();
+    // The evaluated model names every project by its portable path; a caller may send the
+    // canonical absolute one (`\\?\C:\...` on Windows), so both forms must match.
+    let normalized = crate::fsutil::portable_path(Path::new(requested.trim_start_matches("./")));
     let Some(project) = evaluation
         .projects
         .iter()
