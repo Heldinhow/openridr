@@ -117,7 +117,12 @@ pub(crate) fn parse(text: &str) -> SystemProxy {
             let port = text_of(port_key)
                 .and_then(|port| port.parse::<u16>().ok())
                 .unwrap_or(default_port);
-            format!("{host}:{port}")
+            // Bracketed, so an IPv6 setting reaches the route decision as one address instead of
+            // failing as a malformed `host:port`.
+            match host.contains(':') {
+                true => format!("[{host}]:{port}"),
+                false => format!("{host}:{port}"),
+            }
         })
     };
     // A PAC file decides per URL and this client does not read PAC, so with it on the manual proxy

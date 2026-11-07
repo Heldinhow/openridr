@@ -234,3 +234,18 @@ fn the_real_scutil_output_is_understood() {
         assert!(!proxy.contains(char::is_whitespace), "{proxy}");
     }
 }
+
+/// An IPv6 setting has to reach the route decision as one address: unbracketed it would fail as a
+/// malformed `host:port` and the message would not say "IPv6".
+#[test]
+fn an_ipv6_setting_is_bracketed() {
+    let parsed = parse(
+        "<dictionary> {
+  HTTPSEnable : 1
+  HTTPSPort : 8080
+  HTTPSProxy : ::1
+}
+",
+    );
+    assert_eq!(parsed.https.as_deref(), Some("[::1]:8080"));
+}

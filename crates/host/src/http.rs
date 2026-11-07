@@ -496,10 +496,23 @@ fn fetch_with(
 /// The app's words for a download that stopped receiving data. The response head and the body use
 /// the same sentence: for the person reading it, they are the same failure.
 pub(crate) fn stalled(url: &str, stall: std::time::Duration) -> String {
-    format!(
+    stalled_with(
+        url,
+        stall,
+        crate::system_proxy::read().and_then(|system| system.unsupported),
+    )
+}
+
+/// `unsupported` is a parameter so a test can prove the sentence without reading the machine.
+fn stalled_with(url: &str, stall: std::time::Duration, unsupported: Option<&str>) -> String {
+    let message = format!(
         "{url}: the connection stalled — no data arrived for {} seconds. Nothing was installed or replaced; check the network and retry the setup.",
         stall.as_secs()
-    )
+    );
+    match unsupported {
+        Some(setting) => format!("{message} {}", unsupported_setting(setting)),
+        None => message,
+    }
 }
 
 /// True when a body read gave up because the socket stopped answering. `ureq` normalises the
@@ -580,11 +593,16 @@ fn describe_error_with(
     system: Option<&crate::system_proxy::SystemProxy>,
 ) -> String {
     let detail = format!("{} {error:?}", error);
+    let configured = proxy_label_with(url, env, system);
     describe_via(
         url,
         &detail,
-        proxy_label_with(url, env, system).as_deref(),
-        system.and_then(|system| system.unsupported),
+        configured.as_deref(),
+        // A proxy was used, so the Mac's unusable setting is not what failed this request.
+        configured
+            .is_none()
+            .then(|| system.and_then(|system| system.unsupported))
+            .flatten(),
     )
 }
 
@@ -598,11 +616,16 @@ fn describe_via(
 ) -> String {
     let message = describe_failure(url, detail, configured);
     match unsupported {
-        Some(setting) => format!(
-            "{message} The macOS system proxy is set to {setting}, which OpenRidr does not support; set HTTPS_PROXY to the HTTP proxy and retry."
-        ),
+        Some(setting) => format!("{message} {}", unsupported_setting(setting)),
         None => message,
     }
+}
+
+/// The sentence that names a system setting this client cannot use, and the way out.
+fn unsupported_setting(setting: &str) -> String {
+    format!(
+        "The macOS system proxy is set to {setting}, which OpenRidr does not support; set HTTPS_PROXY to the HTTP proxy and retry."
+    )
 }
 
 fn describe_failure(url: &str, detail: &str, configured: Option<&str>) -> String {

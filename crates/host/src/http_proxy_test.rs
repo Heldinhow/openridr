@@ -742,3 +742,43 @@ fn an_unusable_system_proxy_names_the_system_settings() {
     assert!(error.contains("IPv6"), "{error}");
     assert!(!error.contains("HTTPS_PROXY"), "{error}");
 }
+
+/// A stall behind a Mac set to SOCKS or PAC is not a network problem the person can fix without
+/// knowing that the setting is not used.
+#[test]
+fn a_stall_names_the_system_setting_when_there_is_no_usable_proxy() {
+    let message = stalled_with(
+        "https://github.com/o/r/asset.zip",
+        std::time::Duration::from_secs(60),
+        Some("a SOCKS proxy"),
+    );
+    assert!(message.contains("stalled"), "{message}");
+    assert!(message.contains("a SOCKS proxy"), "{message}");
+    assert!(message.contains("HTTPS_PROXY"), "{message}");
+}
+
+/// The Mac's unusable setting must not be blamed when the request did use a proxy.
+#[test]
+fn the_system_setting_is_not_blamed_when_a_proxy_was_used() {
+    let proxy = TestProxy::start();
+    let setting = crate::system_proxy::SystemProxy {
+        unsupported: Some("automatic proxy configuration (PAC/WPAD)"),
+        ..setting(None, None, &[])
+    };
+    let env = env_of(vec![("HTTPS_PROXY", proxy.url())]);
+    let url = "https://1.1.1.1/v3/index.json";
+    let agent = agent_for_with(url, &env, Some(&setting))
+        .expect("the client builds")
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+    let error = agent.get(url).call().unwrap_err();
+    let message = describe_error_with(url, &error, &env, Some(&setting));
+    assert!(
+        message.contains(&format!("127.0.0.1:{}", proxy.port)),
+        "{message}"
+    );
+    assert!(
+        !message.contains("automatic proxy configuration"),
+        "the setting did not cause this failure: {message}"
+    );
+}
