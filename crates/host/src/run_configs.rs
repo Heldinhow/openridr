@@ -381,20 +381,49 @@ pub fn set_launch_profile(params: &Value) -> HostResult<Value> {
     Ok(view(&store, &path, &solution))
 }
 
-fn split_launch_args(text: &str) -> HostResult<Vec<String>> {
+/// Splits `commandLineArgs` with the rules the .NET CLI uses: `dotnet run` hands the string to
+/// `ProcessStartInfo.Arguments`, which the child process splits with `CommandLineToArgvW`
+/// semantics on every platform. Whitespace separates outside quotes, a run of backslashes only
+/// escapes the quote that follows it (2n → n backslashes and the quote is a delimiter, 2n+1 → n
+/// backslashes and a literal quote), `""` inside quotes is a literal quote, and an unclosed quote
+/// is tolerated instead of refused. `#` and `'` are literal. The matrix in the tests was measured
+/// against the real `dotnet run` (SDK 8.0.408).
+fn split_launch_args(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
     let mut args = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
     let mut started = false;
-    let mut chars = text.chars().peekable();
-    while let Some(character) = chars.next() {
-        match character {
-            '"' => {
-                quoted = !quoted;
+    let mut index = 0;
+    while index < chars.len() {
+        match chars[index] {
+            '\\' => {
+                let mut count = 0;
+                while chars.get(index + count) == Some(&'\\') {
+                    count += 1;
+                }
+                if chars.get(index + count) == Some(&'"') {
+                    current.extend(std::iter::repeat('\\').take(count / 2));
+                    if count % 2 == 1 {
+                        current.push('"');
+                    } else {
+                        quoted = !quoted;
+                    }
+                    index += count + 1;
+                } else {
+                    current.extend(std::iter::repeat('\\').take(count));
+                    index += count;
+                }
                 started = true;
             }
-            '\\' if chars.peek() == Some(&'"') => {
-                current.push(chars.next().unwrap());
+            '"' => {
+                if quoted && chars.get(index + 1) == Some(&'"') {
+                    current.push('"');
+                    index += 2;
+                } else {
+                    quoted = !quoted;
+                    index += 1;
+                }
                 started = true;
             }
             value if value.is_whitespace() && !quoted => {
@@ -402,20 +431,19 @@ fn split_launch_args(text: &str) -> HostResult<Vec<String>> {
                     args.push(std::mem::take(&mut current));
                     started = false;
                 }
+                index += 1;
             }
             value => {
                 current.push(value);
                 started = true;
+                index += 1;
             }
         }
-    }
-    if quoted {
-        return Err(invalid("Unclosed quote in launch profile commandLineArgs."));
     }
     if started {
         args.push(current);
     }
-    Ok(args)
+    args
 }
 
 pub fn read(params: &Value) -> HostResult<Value> {
@@ -656,7 +684,7 @@ pub fn launch_options(params: &Value, root: &Path) -> HostResult<LaunchOptions> 
             }
         }
         return launch_options(
-            &json!({"args": split_launch_args(&profile.command_line_args)?, "env": env, "workingDirectory": cwd}),
+            &json!({"args": split_launch_args(&profile.command_line_args), "env": env, "workingDirectory": cwd}),
             root,
         );
     }
@@ -1281,13 +1309,63 @@ mod tests {
     }
 
     #[test]
-    fn launch_args_keep_empty_and_escaped_quotes() {
+    fn launch_args_follow_the_dotnet_command_line_rules() {
+        // Measured against the real `dotnet run` (SDK 8.0.408, macOS ARM64): each row is the
+        // profile's commandLineArgs and the argv the program received. Before the fix the
+        // splitter refused an unclosed quote and turned `""`, `""""` and backslash runs into
+        // different arguments, so most of these rows failed.
+        let matrix: &[(&str, Vec<&str>)] = &[
+            ("a \"b c\" d", vec!["a", "b c", "d"]),
+            ("a \"b\\\"c\" d", vec!["a", "b\"c", "d"]),
+            ("a \"b\\\\\" c", vec!["a", "b\\", "c"]),
+            ("a \"\" b", vec!["a", "", "b"]),
+            ("a \"\"\"\" b", vec!["a", "\"", "b"]),
+            ("a b\"c d\"e", vec!["a", "bc de"]),
+            ("a b\\\\c", vec!["a", "b\\\\c"]),
+            ("a \"b c", vec!["a", "b c"]),
+            ("a #b c", vec!["a", "#b", "c"]),
+            ("", vec![]),
+            ("   ", vec![]),
+            ("a\tb", vec!["a", "b"]),
+            ("'a b' c", vec!["'a", "b'", "c"]),
+            ("a b\\\\", vec!["a", "b\\\\"]),
+            ("\"\"", vec![""]),
+            ("a \"\"\" b", vec!["a", "\" b"]),
+            ("a \\\"b\\\"", vec!["a", "\"b\""]),
+            ("a \"b\"c", vec!["a", "bc"]),
+            ("a b\"c\"", vec!["a", "bc"]),
+            ("a \"b\"\"c\"", vec!["a", "b\"c"]),
+            ("a \"b\\\\\\\"c\"", vec!["a", "b\\\"c"]),
+            ("a b\\\\\\\\\"c\"", vec!["a", "b\\\\c"]),
+            ("\"a b\"c d", vec!["a bc", "d"]),
+            ("a  b", vec!["a", "b"]),
+            ("a \"b\\\\\"c", vec!["a", "b\\c"]),
+            ("a\\\\\"b c\"", vec!["a\\b c"]),
+            ("a \"\"\"\"\"\" b", vec!["a", "\"\"", "b"]),
+            ("a \\", vec!["a", "\\"]),
+            ("a \"b\" \"c\"", vec!["a", "b", "c"]),
+            ("a \"b\"c\"d\"", vec!["a", "bcd"]),
+            ("a \"b\"\"", vec!["a", "b\""]),
+            ("a \"\"\"", vec!["a", "\""]),
+            ("a \"\"\"\" \"", vec!["a", "\"", ""]),
+            ("a \"b\" \"\"", vec!["a", "b", ""]),
+            ("a \"\"\"\"\"\"", vec!["a", "\"\""]),
+            ("a \"b c\"\"d e\"", vec!["a", "b c\"d e"]),
+            ("a\\ b", vec!["a\\", "b"]),
+            ("a \\\\ b", vec!["a", "\\\\", "b"]),
+            ("\"a\"b\"c\"d", vec!["abcd"]),
+            ("a \"b\\\\\" c\"", vec!["a", "b\\", "c"]),
+        ];
+        for (input, expected) in matrix {
+            assert_eq!(
+                split_launch_args(input),
+                expected.clone(),
+                "commandLineArgs {input:?}"
+            );
+        }
+        // The profile's command line is never expanded: `%VAR%` and `$(VAR)` reach the program.
         assert_eq!(
-            split_launch_args(r#""" "say \"hello\"""#).unwrap(),
-            vec!["", "say \"hello\""]
-        );
-        assert_eq!(
-            split_launch_args("%HOME% $(HOME)").unwrap(),
+            split_launch_args("%HOME% $(HOME)"),
             vec!["%HOME%", "$(HOME)"]
         );
     }
