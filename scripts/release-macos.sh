@@ -13,6 +13,9 @@
 #   APPLE_SIGNING_IDENTITY (repo variable), APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
 #   APPLE_API_KEY (base64 of the .p8), APPLE_API_KEY_ID, APPLE_API_ISSUER (Team API keys only).
 # On a Mac with the `notary` keychain profile, NOTARY_KEYCHAIN_PROFILE replaces the API key trio.
+# The updater artifact is signed with a second key that is not the Apple one:
+#   TAURI_SIGNING_PRIVATE_KEY (the key itself, or TAURI_SIGNING_PRIVATE_KEY_PATH) and
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 # Temporary work stays in $RUNNER_TEMP (default: ${TMPDIR:-/tmp}).
 set -eu
 
@@ -187,6 +190,13 @@ check_credentials() {
     eval "value=\${$name:-}"
     [ -n "$value" ] || missing="$missing $name"
   done
+  # Without the updater key the run would publish a DMG nobody can update from: the archive and its
+  # signature are part of the release, not an extra.
+  if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
+    missing="$missing TAURI_SIGNING_PRIVATE_KEY"
+  fi
+  [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ] ||
+    missing="$missing TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
   [ -z "$missing" ] ||
     fail "missing credentials:$missing (names only; values belong in GitHub secrets/variables)"
   case ${APPLE_SIGNING_IDENTITY} in
@@ -588,6 +598,65 @@ verify_artifact() {
   note "artifact verified: codesign, spctl and stapler on app and DMG"
 }
 
+# --- updater artifact -------------------------------------------------------------------------
+
+# The installed app updates itself with this archive instead of the DMG, so it has to be the app
+# users would get: packed from the stapled bundle (the notarization ticket travels inside it) and
+# signed for exactly this version. The plugin extracts the archive by dropping the first path
+# component, so `OpenRidr.app/` must be its single root.
+updater_artifact() {
+  app=$1
+  version=$(release_version)
+  archive="$WORK/$PRODUCT.app.tar.gz"
+  cli="$ROOT/node_modules/.bin/tauri"
+  [ -x "$cli" ] ||
+    fail "missing $cli: run 'bun install' so the updater artifact is signed by the locked CLI"
+  rm -f "$archive" "$archive.sig"
+  note "packing the updater artifact from the stapled bundle"
+  tar -czf "$archive" -C "$(dirname "$app")" "$PRODUCT.app" || fail "cannot pack $archive"
+  (cd "$ROOT" && "$cli" signer sign --app-version "$version" "$archive" >/dev/null) ||
+    fail "cannot sign $archive (TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD)"
+  [ -s "$archive.sig" ] || fail "the signing step produced no $archive.sig"
+  printf '%s' "$archive"
+}
+
+# Proves the artifact before it is published: the app inside the archive is the signed, notarized
+# and stapled one, at the version the manifest will announce.
+verify_updater_artifact() {
+  archive=$1
+  version=$2
+  stage=$(mktemp -d "$WORK/release-update.XXXXXX")
+  tar -xzf "$archive" -C "$stage" || fail "cannot extract $archive"
+  (
+    app="$stage/$PRODUCT.app"
+    [ -x "$app/Contents/MacOS/openridr" ] ||
+      fail "$archive has no $PRODUCT.app/Contents/MacOS/openridr"
+    got=$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")
+    [ "$got" = "$version" ] || fail "$archive says version '$got', expected '$version'"
+    codesign --verify --deep --strict "$app" ||
+      fail "the app inside $archive does not verify with codesign --deep --strict"
+    if ! spctl --assess --type execute -vv "$app" >"$stage.spctl" 2>&1; then
+      cat "$stage.spctl" >&2
+      fail "the app inside $archive was not accepted by spctl"
+    fi
+    rm -f "$stage.spctl"
+    xcrun stapler validate "$app" >/dev/null ||
+      fail "the app inside $archive has no stapled ticket"
+  ) && status=0 || status=$?
+  rm -rf "$stage"
+  [ "$status" = 0 ] || exit 1
+  note "updater artifact verified: $PRODUCT.app $version, signed, notarized and stapled"
+}
+
+updater_outputs() {
+  archive=$1
+  [ -n "${GITHUB_OUTPUT:-}" ] || return 0
+  {
+    printf 'updater_archive=%s\n' "$archive"
+    printf 'updater_sig=%s\n' "$archive.sig"
+  } >>"$GITHUB_OUTPUT"
+}
+
 verification_outputs() {
   [ -n "${GITHUB_OUTPUT:-}" ] || return 0
   {
@@ -627,6 +696,9 @@ release: dry run plan (nothing is signed, notarized or published)
   xcrun notarytool submit "\$dmg" --key ... --wait
   xcrun stapler staple "\$dmg" && xcrun stapler validate "\$dmg"
   codesign --verify --deep --strict "$app"; spctl e stapler no app e no DMG montado
+  tar -czf \$RUNNER_TEMP/$PRODUCT.app.tar.gz -C "$(dirname "$app")" $PRODUCT.app
+  node_modules/.bin/tauri signer sign --app-version <versão> \$RUNNER_TEMP/$PRODUCT.app.tar.gz
+  extract the archive and check codesign, spctl and stapler on the app inside it
 EOF
 }
 
@@ -672,8 +744,11 @@ case $MODE in
     notarize "$dmg"
     staple_and_validate "$dmg"
     verify_artifact "$app" "$dmg"
+    archive=$(updater_artifact "$app")
+    verify_updater_artifact "$archive" "$(release_version)"
     verification_outputs
+    updater_outputs "$archive"
     artifact_outputs "$dmg"
-    note "release artifact ready: $dmg"
+    note "release artifact ready: $dmg and $archive"
     ;;
 esac

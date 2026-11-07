@@ -1,8 +1,9 @@
 name: release
 
 # Pushing a v* tag builds, signs (Developer ID, hardened runtime, embedded Mach-Os), notarizes,
-# staples and publishes the pre-release. The steps live in scripts/release-macos.sh so this workflow
-# and a manual run produce the same artifact; see docs/release-signing.md.
+# staples and publishes the pre-release, then replaces the in-app update channel with the signed
+# archive and its manifest. The steps live in scripts/release-macos.sh so this workflow and a manual
+# run produce the same artifact; see docs/release-signing.md.
 on:
   push:
     tags:
@@ -36,6 +37,9 @@ env:
   APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+  # The updater artifact is signed with its own key, not the Apple one.
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
 jobs:
   release:
@@ -161,6 +165,30 @@ jobs:
               --title "OpenRidr ${{ steps.release.outputs.version }}" \
               --notes-file "$RUNNER_TEMP/notes.md" $prerelease
           fi
+
+      # The app reads this manifest, not the release page: the channel is a fixed tag so the
+      # endpoint never changes, and its assets are replaced in place on every release. The manifest
+      # goes last, so a client never reads a URL that is not there yet.
+      - name: Publish the update channel
+        if: github.event_name == 'push' || inputs.publish == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_ARCHIVE: ${{ steps.release.outputs.updater_archive }}
+          RELEASE_SIG: ${{ steps.release.outputs.updater_sig }}
+        run: |
+          tag=updater-alpha
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$(basename "$RELEASE_ARCHIVE")"
+          sh scripts/release-updater-manifest.sh "$RELEASE_VERSION" "$url" "$RELEASE_SIG" \
+            >"$RUNNER_TEMP/latest.json"
+          printf '%s\n' "--- update manifest ---"
+          cat "$RUNNER_TEMP/latest.json"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --prerelease --title "Update channel" \
+              --notes "Update channel for the in-app updater; install OpenRidr from the release of the version you want."
+          fi
+          gh release upload "$tag" "$RELEASE_ARCHIVE" "$RELEASE_SIG" --clobber
+          gh release upload "$tag" "$RUNNER_TEMP/latest.json" --clobber
 
       - name: Keep the DMG as a workflow artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

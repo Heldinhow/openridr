@@ -68,8 +68,10 @@ credentials() {
   APPLE_API_KEY=$canary
   APPLE_API_KEY_ID=$canary
   APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)"
+  TAURI_SIGNING_PRIVATE_KEY=$canary
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$canary
   export APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID \
-    APPLE_SIGNING_IDENTITY
+    APPLE_SIGNING_IDENTITY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 }
 credentials
 
@@ -153,7 +155,7 @@ expect_ok --check --tag "v$VERSION"
 
 echo "self-check: credentials are named, never printed"
 for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID \
-  APPLE_SIGNING_IDENTITY; do
+  APPLE_SIGNING_IDENTITY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
   (
     credentials
     eval "unset $name"
@@ -466,8 +468,31 @@ run_signed() {
     APPLE_CERTIFICATE=$canary APPLE_CERTIFICATE_PASSWORD=$canary \
     APPLE_API_KEY=${SELFTEST_KEY:-$release_key} APPLE_API_KEY_ID=SELFTEST123 \
     APPLE_SIGNING_IDENTITY="Developer ID Application: Helder Santos (K6M85697D4)" \
-    PATH="$binF:$PATH" sh "$script" --tag "v$VERSION"
+    GITHUB_OUTPUT=$home/outputs PATH="$binF:$PATH" sh "$script" --tag "v$VERSION"
 }
+# Fake tauri CLI: the real one signs the updater artifact in the release, so the self-check only
+# needs the contract (a `.sig` next to the archive, bound to the version it was given).
+mkdir -p "$root/node_modules/.bin"
+cat >"$root/node_modules/.bin/tauri" <<'FAKETAURI'
+#!/bin/sh
+[ "$1" = signer ] && [ "$2" = sign ] || { echo "fake tauri: unsupported $*" >&2; exit 1; }
+shift 2
+version=
+file=
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --app-version) version=$2; shift ;;
+    *) file=$1 ;;
+  esac
+  shift
+done
+[ -n "$file" ] || { echo "fake tauri: no file to sign" >&2; exit 1; }
+[ -n "$version" ] || { echo "fake tauri: no --app-version" >&2; exit 1; }
+printf 'untrusted comment: signature from tauri secret key\nversion:%s\n' "$version" |
+  openssl base64 -A >"$file.sig"
+FAKETAURI
+chmod +x "$root/node_modules/.bin/tauri"
+
 ok_home="$work/run-signed-ok"
 seen="$work/key-seen"
 : >"$seen"
@@ -476,6 +501,16 @@ if ! SELFTEST_SEEN=$seen SELFTEST_HOME=$ok_home run_signed ok "$ok_home" >"$work
   fail "the signed path failed with a fake notarytool"
 fi
 grep -q '^dmg=' "$work/out" || fail "the signed path produced no DMG"
+grep -q '^updater_archive=.*/OpenRidr.app.tar.gz$' "$ok_home/outputs" ||
+  fail "the updater archive is not an output of the release"
+grep -q '^updater_sig=.*/OpenRidr.app.tar.gz.sig$' "$ok_home/outputs" ||
+  fail "the updater signature is not an output of the release"
+# The plugin drops the first path component when it extracts, so the archive must have exactly one
+# root: the bundle itself.
+first=$(tar -tzf "$ok_home/OpenRidr.app.tar.gz" | head -n 1)
+[ "$first" = "OpenRidr.app/" ] || fail "the archive root is '$first', expected 'OpenRidr.app/'"
+openssl base64 -d -A <"$ok_home/OpenRidr.app.tar.gz.sig" | grep -q "version:$VERSION" ||
+  fail "the signature was not bound to the version being released"
 grep -q "notarization accepted: OpenRidr-notary" "$work/err" ||
   fail "the app was not sent to the (fake) notary: $(cat "$work/err")"
 leftovers=$(leftovers_in "$ok_home")
