@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -86,6 +86,45 @@ async function closeWorkspace(page: Page) {
 
 async function dispatchWindowFocus(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+}
+
+/**
+ * Hold the disk poll's re-read of one path at the host bridge, so the 1.5 s poll cannot replace a
+ * pending conflict between the test's write and its click (#273). Release it in a `finally`; the
+ * held read then answers with whatever is on disk and the app discards it by disk epoch.
+ */
+async function holdDiskRead(page: Page, target: string) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => (finish = resolve));
+  let held = 0;
+  const handler = async (route: Route) => {
+    const body = route.request().postDataJSON() as
+      | { method?: string; params?: { path?: string } }
+      | null;
+    if (body?.method === "file.read" && body.params?.path === target) {
+      held += 1;
+      await gate;
+      try {
+        await route.continue();
+      } finally {
+        finish();
+      }
+      return;
+    }
+    await route.continue();
+  };
+  await page.route("**/__host/call", handler);
+  return {
+    /** Resolves once the poll has fired and its re-read is waiting at the gate. */
+    untilHeld: () => expect.poll(() => held, { timeout: 5_000 }).toBeGreaterThan(0),
+    release: async () => {
+      release();
+      if (held) await finished;
+      await page.unroute("**/__host/call", handler);
+    },
+  };
 }
 
 async function beforeUnloadPrevented(page: Page) {
@@ -357,16 +396,23 @@ test("compares buffer and disk and revalidates a second disk change before overw
   });
 
   // The disk changes again while the conflict is pending: the write must conflict again,
-  // show the newer disk version, and leave both buffer and disk intact.
-  fs.writeFileSync(program, "// second disk version\n");
-  await page.getByTestId("conflict-overwrite").click();
-  await expect(banner).toBeVisible();
-  await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
-    "// second disk version\n",
-  );
-  expect(fs.readFileSync(program, "utf8")).toBe("// second disk version\n");
-  await expect(page.getByTestId("editor")).toContainText("buffer version");
-  await expect(page.getByTestId("editor-revision")).toHaveText("Modified");
+  // show the newer disk version, and leave both buffer and disk intact. The poll is held so it
+  // cannot replace the pending conflict in between (#273).
+  const poll = await holdDiskRead(page, programTab);
+  try {
+    await poll.untilHeld();
+    fs.writeFileSync(program, "// second disk version\n");
+    await page.getByTestId("conflict-overwrite").click();
+    await expect(banner).toBeVisible();
+    await expect(page.getByTestId("conflict-compare-disk")).toHaveText(
+      "// second disk version\n",
+    );
+    expect(fs.readFileSync(program, "utf8")).toBe("// second disk version\n");
+    await expect(page.getByTestId("editor")).toContainText("buffer version");
+    await expect(page.getByTestId("editor-revision")).toHaveText("Modified");
+  } finally {
+    await poll.release();
+  }
 
   await page.getByTestId("conflict-overwrite").click();
   await expect(banner).toHaveCount(0);
