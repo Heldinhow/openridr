@@ -4414,32 +4414,36 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         >
           <Icon name="debug" />
         </button>
-        <details className="toolbar-menu" data-testid="workspace-actions-menu" onKeyDown={(event) => {
-          if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
-        }}>
-          <summary aria-label="Workspace actions" title="More actions">⋮</summary>
-          <div className="menu-content">
+        <ToolbarMenu
+          className="toolbar-menu"
+          testId="workspace-actions-menu"
+          label="Workspace actions"
+          title="More actions"
+          trigger="⋮"
+        >
+          {(close) => (
+            <>
             <label className="eval-field"><span>Configuration</span><select data-testid="eval-configuration" value={evaluation.context.configuration} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ configuration: event.target.value })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a configuration." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a configuration." : evaluationBusy ? "Wait for evaluation to finish before changing configuration." : "MSBuild configuration for evaluation."}>{configurations.map((configuration) => <option key={configuration} value={configuration}>{configuration}</option>)}</select></label>
             <label className="eval-field"><span>TFM</span><select data-testid="eval-tfm" value={evaluation.context.targetFramework ?? ""} disabled={!evaluationAvailable || evaluationBusy} onChange={(event) => void runEvaluation({ targetFramework: event.target.value || null })} title={!trusted ? "Trust the workspace and resolve the project SDK to select a TFM." : projectSdk.state !== "resolved" ? "Resolve the project SDK before selecting a TFM." : evaluationBusy ? "Wait for evaluation to finish before changing TFM." : "Target framework for evaluation."}><option value="">TFM: unset</option>{tfmOptions.map((tfm) => <option key={tfm} value={tfm}>{tfm}</option>)}</select></label>
             <button
               data-testid="build-solution-menu"
               disabled={buildSolutionAction.disabledReason !== null}
               title={buildSolutionAction.disabledReason ?? "Builds the open solution with the current configuration and reports problems from every project."}
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
+              onClick={() => {
+                close();
                 buildSolutionAction.execute();
               }}
             >
               Build Solution <kbd>{buildSolutionAction.shortcutLabels[0] ?? ""}</kbd>
             </button>
-            <button data-testid="open-find-action" onClick={(event) => {
-              event.currentTarget.closest("details")?.removeAttribute("open");
+            <button data-testid="open-find-action" onClick={() => {
+              close();
               findActionAction.execute();
             }} title={findActionAction.shortcutTexts.join(" or ")}>
               Find Action <kbd>{findActionAction.shortcutLabels[0] ?? ""}</kbd>
             </button>
-            <button data-testid="open-keymap" onClick={(event) => {
-              event.currentTarget.closest("details")?.removeAttribute("open");
+            <button data-testid="open-keymap" onClick={() => {
+              close();
               keymapAction.execute();
             }}>
               {keymapAction.title}
@@ -4469,8 +4473,9 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             <button data-testid="close-workspace" onClick={closeWorkspaceAction.execute}>
               {closeWorkspaceAction.title}
             </button>
-          </div>
-        </details>
+            </>
+          )}
+        </ToolbarMenu>
         <button
           type="button"
           className="toolbar-icon-button"
