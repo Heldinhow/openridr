@@ -1,6 +1,11 @@
 # Glossário
 
 - **Solution Explorer**: árvore da solução aberta (projetos, dependências, arquivos). Mostra o modelo avaliado pelo MSBuild quando existe; senão, um outline de texto.
+- **Analysis runtime**: o runtime `Microsoft.NETCore.App` 10.x que executa o csharp-ls. Não é SDK, não compila projeto nenhum e nunca substitui o **Project SDK**. _Avoid_: runtime do host, SDK de análise.
+- **Project SDK**: o SDK .NET instalado que avalia, compila, executa e testa o projeto. Vem do pin do `global.json` quando existe; sem pin, do maior SDK estável instalado que atenda ao **SDK requirement**. _Avoid_: SDK 10 (é o Analysis runtime), SDK do host.
+- **SDK requirement**: o que o projeto exige do SDK — a versão e o roll-forward pedidos pelo `global.json`, ou, sem pin, a linha derivada do TargetFramework declarado. Pode ser indeterminado, e aí nenhuma versão é oferecida. _Avoid_: versão do SDK (é a instalada), pré-requisito.
+- **Detected SDK root**: uma raiz de instalação onde o host encontrou um muxer `dotnet` e onde ele roda o `--list-sdks` daquela raiz. Toda raiz detectada vale igual, inclusive `~/.dotnet`. _Avoid_: `DOTNET_ROOT` (é uma variável de ambiente, apenas uma das fontes).
+- **SDK detection**: a passada que lê os SDKs instalados de cada **Detected SDK root**. `Redetect SDKs` repete a passada sem reiniciar o app. _Avoid_: scan, refresh, varredura.
 - **Tool window**: painel acoplado a uma faixa lateral ou inferior (Build, Problems, Debug, Terminal, Tests…). Cada slot mostra uma por vez.
 - **Run configuration**: configuração nomeada de execução (projeto, argumentos, ambiente) escolhida na barra superior; serve para Run e Debug.
 - **Startup project**: projeto console que Run e Debug executam; implícito quando há um só.
