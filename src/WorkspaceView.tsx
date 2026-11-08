@@ -57,6 +57,7 @@ import { MidText } from "./shell/MidText";
 import { StatusBar } from "./shell/StatusBar";
 import { ToolbarMenu } from "./shell/ToolbarMenu";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
+import { ProjectSdkDownload } from "./welcome/ProjectSdkDownload";
 import { FindAction, type SearchTab } from "./actions/FindAction";
 import { FindInFiles } from "./FindInFiles";
 import { RecentFilesDialog } from "./RecentFilesDialog";
@@ -4131,17 +4132,22 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
+  // The bar is one line and holds no link: it names the requirement and the detected versions,
+  // and the download action lives in the tree note and the Toolchain card.
+  const sdkRequirement =
+    projectSdk.requirement.source === "global_json"
+      ? `global.json requests ${projectSdk.requirement.version ?? "a pinned SDK"}`
+      : projectSdk.requirement.line
+        ? `TargetFramework requires SDK ${projectSdk.requirement.line} or newer`
+        : "no SDK requirement";
+  const sdkDetected = projectSdk.detected.length > 0 ? projectSdk.detected.join(", ") : "none";
   const sdkSummary = `Analysis runtime ${
     snapshot.sdk.host.state === "found" ? snapshot.sdk.host.version : "missing"
   } · ${
     projectSdk.state === "resolved"
       ? `Project SDK ${projectSdk.resolvedVersion}`
       : projectSdk.state === "sdk_missing"
-        ? `Project SDK missing (${
-            projectSdk.requirement.version ??
-            projectSdk.requirement.line ??
-            "no SDK detected"
-          })`
+        ? `Project SDK missing (${sdkRequirement}) · detected: ${sdkDetected}`
         : projectSdk.state === "not_inspected"
           ? "Project SDK not inspected"
           : "Project SDK unresolved"
@@ -4648,34 +4654,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                 </p>
               ) : projectSdk.state === "sdk_missing" ? (
                 <>
-                  <p>
-                    {projectSdk.requirement.source === "global_json"
-                      ? `${projectSdk.globalJsonPath ?? "global.json"} requests ${
-                          projectSdk.requestedVersion ?? "a pinned SDK"
-                        }. `
-                      : projectSdk.requirement.line
-                        ? `The declared TargetFramework requires SDK ${projectSdk.requirement.line} or newer. `
-                        : "The project declares no SDK requirement. "}
-                    OpenRidr detects SDKs but never installs one.
-                  </p>
-                  <p className="muted">{projectSdk.message}</p>
+                  <ProjectSdkDownload
+                    project={projectSdk}
+                    surface="tree"
+                    onOpenGlobalJson={openGlobalJson}
+                  />
                   <div className="actions">
                     <button data-testid="eval-redetect" onClick={() => void redetectSdks()}>
                       Redetect SDKs
                     </button>
-                    <a
-                      data-testid="eval-sdk-download"
-                      href={projectSdk.instructionsUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                    >
-                      Official .NET SDK downloads
-                    </a>
-                    {projectSdk.globalJsonPath && (
-                      <button data-testid="eval-open-global-json" onClick={openGlobalJson}>
-                        Open global.json
-                      </button>
-                    )}
                   </div>
                 </>
               ) : (

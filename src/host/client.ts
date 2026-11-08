@@ -54,9 +54,18 @@ export type SdkRequirement = {
   allowPrerelease: boolean | null;
 };
 
+/** The download action for the requirement; the host builds the URLs, the UI never does. */
+export type SdkDownload = {
+  url: string;
+  /** The line's official page, when the primary link can be a dead patch or a missing line. */
+  fallbackUrl: string | null;
+  label: string;
+};
+
 export type ProjectSdk = {
   state: "no_workspace" | "not_inspected" | "resolved" | "sdk_missing" | "invalid_global_json";
   requirement: SdkRequirement;
+  download: SdkDownload;
   /** Every installed SDK version, highest first. */
   detected: string[];
   globalJsonPath: string | null;

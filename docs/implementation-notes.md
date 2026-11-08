@@ -1972,3 +1972,54 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   Playwright em modo web); a tela de download do SDK e o "Check again" são dos tickets #303/#304 e não
   existem aqui; `sdk_missing` sem SDK nenhum instalado não foi exercitado numa máquina sem SDK (só pelo
   teste unitário de `resolve_unpinned` com `installs` vazio).
+
+## Requisito explícito e ação Baixar SDK quando nenhum SDK instalado atende (2026-11-08, #289; ticket #303)
+
+- **O que mudou.** `crates/host/src/sdk.rs` ganhou `SdkDownload` (`url`, `fallbackUrl`, `label`) e
+  `download_for(requirement, os, arch)`, uma função pura que monta as três formas sem rede: pin com
+  versão → o patch exato em `builds.dotnet.microsoft.com` mais a página da linha como alternativa; só
+  linha (TFM) → o `aka.ms` da linha mais a página da linha; sem requisito → a página geral de SDKs, com
+  `fallbackUrl` nulo e sem versão no rótulo. `installer_target` traduz `std::env::consts::OS`/`ARCH`
+  (a mesma fonte de `app.platform`/`app.arch`) para o nome do instalador — `osx|linux|win`,
+  `arm64|x64|x86|arm`, `pkg|tar.gz|exe` — e devolve `None` para plataforma desconhecida, que cai na
+  página geral em vez de inventar URL. `ProjectSdk` ganhou `download` e todo construtor o deriva do
+  próprio `requirement`, então o campo nunca discorda do requisito. UI: `src/welcome/ProjectSdkDownload.tsx`
+  é o bloco único que a nota da árvore e o card "Project SDK" renderizam — requisito (origem, versão ou
+  linha, `rollForward`), versões detectadas ("No SDK detected" quando a lista está vazia), a mensagem do
+  host, a ação (`download.label` → `download.url`), o `fallbackUrl` como link secundário, o aviso de que
+  nada é instalado e o "Open global.json". A barra de status continua sem link: `sdkSummary` passou a
+  dizer o requisito **e** as versões detectadas (`Project SDK missing (global.json requests 8.0.999) ·
+  detected: 8.0.408, 10.0.403`), porque é uma linha só e o link vive nas duas superfícies que o comportam.
+- **Testids.** Preservados `sdk-project-message`, `sdk-open-global-json`, `eval-redetect`,
+  `eval-sdk-download`, `eval-open-global-json`, `status-sdk`, `welcome-sdk-warning`, `sdk-project`,
+  `sdk-host`, `sdk-host-instructions`. O bloco é um só mas cada superfície mantém o seu contrato: a
+  prop `surface` ("tree" | "toolchain") escolhe `eval-sdk-download`/`eval-open-global-json` ou
+  `sdk-download`/`sdk-open-global-json`, num mapa no topo do arquivo. Novos: `sdk-requirement`,
+  `sdk-detected` e `sdk-download-fallback` (o link da linha, presente nas duas superfícies).
+- **Falha-antes medida.** Com `src/` e `crates/host/src/` do `08ea6db` (só o spec novo no lugar),
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts` → 2 failed, 3 passed: o cenário
+  "incompatível" morre em `TypeError: Cannot read properties of undefined (reading 'label')` (o snapshot
+  não tem `download`) e o "ausente" recebe a nota antiga (`global.json requests 8.0.999. OpenRidr detects
+  SDKs but never installs one.` + `Official .NET SDK downloads`), sem "No SDK detected". Com a mudança:
+  5 passed.
+- **Bateria.** `cargo test -p openridr-host`: 644 passed, 0 failed, 70 ignored (484 unit + 113 de
+  `host.rs` + 47 dos outros binários); `--lib sdk::` 28 passed (5 novos: as três formas de URL, o mapa
+  os/arch/ext com plataforma desconhecida caindo na página geral, e o `download` em camelCase no
+  snapshot `sdk_missing`). `cargo fmt --all --check` e
+  `cargo clippy --workspace --all-targets -- -D warnings` limpos; `bunx tsc --noEmit` limpo;
+  `bun test tests/unit` 139 passed. E2E (Chromium, portas 2920/5917):
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts` → 5 passed, incluindo o "ausente" pelo
+  overlay de `data.sdk.project` (`detected: []`, mensagem com `detected: none`, o mesmo shape que o host
+  produz para o pin do `fixtures/MissingSdk` com `installs` vazio) e o "incompatível" agora afirmando o
+  patch exato, a página da linha e as versões detectadas nas três superfícies.
+  `medium-editor-state.spec.ts -g b13` → 1 passed.
+- **Dois specs alheios ajustados porque a mudança quebrava a asserção deles.** O link de download da nota
+  passou de `instructionsUrl` (página geral) para o patch exato por desenho, então
+  `medium-editor-state.spec.ts` (b13) e `trust-sdk.spec.ts` (cenário do `sdk_missing`) passaram a afirmar
+  `/Sdk/8.0.999/dotnet-sdk-8.0.999-` em vez da página geral e do texto "Official .NET SDK downloads".
+  O b13 roda verde; `trust-sdk.spec.ts` **já falhava 3 de 3 no `08ea6db`** (`eval-configuration` não
+  existe na árvore depois do trust), então a asserção trocada ali não foi exercitada num run verde.
+- **Não verificado:** Windows e macOS Intel (o mapa os/arch/ext é unitário; nenhum instalador dessas
+  plataformas foi aberto); uma máquina real sem SDK nenhum instalado — o cenário "ausente" é o overlay
+  do snapshot, com o shape guardado pelo teste unitário; app Tauri real (host + UI pura, coberto por
+  Playwright em modo web); o "Check again" é do #304 e não existe aqui.

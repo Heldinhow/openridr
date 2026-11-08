@@ -195,8 +195,9 @@ test("b13: a missing project SDK says what to install and offers actions", async
   await expect(reason).toContainText("global.json requests 8.0.999");
   await expect(reason).toContainText("never installs");
   await expect(reason).not.toContainText("SDK 10");
+  // The pin names a version, so the action is the exact patch, not the general page.
   const download = page.getByTestId("eval-sdk-download");
-  await expect(download).toHaveAttribute("href", "https://dotnet.microsoft.com/download/dotnet");
+  await expect(download).toHaveAttribute("href", /\/Sdk\/8\.0\.999\/dotnet-sdk-8\.0\.999-/);
   await expect(page.getByTestId("eval-open-global-json")).toBeVisible();
 
   await page.getByTestId("eval-redetect").click();

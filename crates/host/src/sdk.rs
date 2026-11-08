@@ -126,11 +126,74 @@ fn version_line(version: &str) -> Option<String> {
     Some(format!("{}.{}", version.major, version.minor))
 }
 
+/// The download action for a requirement. The host builds it so the UI never assembles a URL.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdkDownload {
+    pub url: String,
+    /// The line's official page, when the primary link can be a dead patch or a missing line.
+    pub fallback_url: Option<String>,
+    pub label: String,
+}
+
+/// The .NET installer naming for a platform: `(os, arch, extension)`. `None` for a platform this
+/// build cannot name an installer for, so the caller falls back to the general page.
+fn installer_target(os: &str, arch: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    let (os, extension) = match os {
+        "macos" => ("osx", "pkg"),
+        "linux" => ("linux", "tar.gz"),
+        "windows" => ("win", "exe"),
+        _ => return None,
+    };
+    let arch = match arch {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        "x86" => "x86",
+        "arm" => "arm",
+        _ => return None,
+    };
+    Some((os, arch, extension))
+}
+
+/// The three download shapes, built without network access: a pinned version links the exact patch
+/// plus the line page (a pin that does not exist 404s), a line links its `aka.ms` plus the line
+/// page (a line that does not exist redirects to Bing), and no requirement links the general page.
+pub fn download_for(requirement: &SdkRequirement, os: &str, arch: &str) -> SdkDownload {
+    let general = SdkDownload {
+        url: SDK_INSTRUCTIONS_URL.to_string(),
+        fallback_url: None,
+        label: "Download the .NET SDK".to_string(),
+    };
+    let Some((os, arch, extension)) = installer_target(os, arch) else {
+        return general;
+    };
+    let line_page = |line: &str| format!("https://dotnet.microsoft.com/download/dotnet/{line}");
+    // `version` is only set by a pin; a version that does not parse leaves no line to link.
+    if let (Some(version), Some(line)) = (&requirement.version, &requirement.line) {
+        return SdkDownload {
+            url: format!(
+                "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-{os}-{arch}.{extension}"
+            ),
+            fallback_url: Some(line_page(line)),
+            label: format!("Download SDK {version}"),
+        };
+    }
+    let Some(line) = &requirement.line else {
+        return general;
+    };
+    SdkDownload {
+        url: format!("https://aka.ms/dotnet/{line}/dotnet-sdk-{os}-{arch}.{extension}"),
+        fallback_url: Some(line_page(line)),
+        label: format!("Download SDK {line}"),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSdk {
     pub state: &'static str,
     pub requirement: SdkRequirement,
+    pub download: SdkDownload,
     /// Every installed SDK version, highest first; filled by the snapshot from the inventory.
     pub detected: Vec<String>,
     pub global_json_path: Option<String>,
@@ -154,9 +217,11 @@ pub struct GlobalJsonRequest {
 
 impl ProjectSdk {
     fn empty(state: &'static str, message: impl Into<String>) -> Self {
+        let requirement = SdkRequirement::none();
         Self {
             state,
-            requirement: SdkRequirement::none(),
+            download: download_for(&requirement, env::consts::OS, env::consts::ARCH),
+            requirement,
             detected: Vec::new(),
             global_json_path: None,
             requested_version: None,
@@ -178,11 +243,13 @@ impl ProjectSdk {
     }
 
     pub fn not_inspected(global_json: Option<&GlobalJsonRequest>) -> Self {
+        let requirement = global_json
+            .map(SdkRequirement::pinned)
+            .unwrap_or_else(SdkRequirement::none);
         Self {
             state: "not_inspected",
-            requirement: global_json
-                .map(SdkRequirement::pinned)
-                .unwrap_or_else(SdkRequirement::none),
+            download: download_for(&requirement, env::consts::OS, env::consts::ARCH),
+            requirement,
             detected: Vec::new(),
             global_json_path: global_json.map(|request| request.path.clone()),
             requested_version: global_json.and_then(|request| request.version.clone()),
@@ -205,9 +272,11 @@ impl ProjectSdk {
     }
 
     pub fn resolved(request: &GlobalJsonRequest, install: &Install) -> Self {
+        let requirement = SdkRequirement::pinned(request);
         Self {
             state: "resolved",
-            requirement: SdkRequirement::pinned(request),
+            download: download_for(&requirement, env::consts::OS, env::consts::ARCH),
+            requirement,
             detected: Vec::new(),
             global_json_path: Some(request.path.clone()),
             requested_version: request.version.clone(),
@@ -233,9 +302,11 @@ impl ProjectSdk {
     /// Resolved with no pin: the requirement came from the TargetFramework (or from nothing).
     pub fn resolved_unpinned(line: Option<&str>, install: &Install) -> Self {
         let prerelease = Version::parse(&install.version).is_some_and(|v| v.prerelease.is_some());
+        let requirement = SdkRequirement::target_framework(line);
         Self {
             state: "resolved",
-            requirement: SdkRequirement::target_framework(line),
+            download: download_for(&requirement, env::consts::OS, env::consts::ARCH),
+            requirement,
             detected: Vec::new(),
             global_json_path: None,
             requested_version: None,
@@ -255,9 +326,11 @@ impl ProjectSdk {
     }
 
     pub fn missing_unpinned(line: Option<&str>, message: impl Into<String>) -> Self {
+        let requirement = SdkRequirement::target_framework(line);
         Self {
             state: "sdk_missing",
-            requirement: SdkRequirement::target_framework(line),
+            download: download_for(&requirement, env::consts::OS, env::consts::ARCH),
+            requirement,
             detected: Vec::new(),
             global_json_path: None,
             requested_version: None,
@@ -272,9 +345,11 @@ impl ProjectSdk {
     }
 
     pub fn missing(request: &GlobalJsonRequest, message: impl Into<String>) -> Self {
+        let requirement = SdkRequirement::pinned(request);
         Self {
             state: "sdk_missing",
-            requirement: SdkRequirement::pinned(request),
+            download: download_for(&requirement, env::consts::OS, env::consts::ARCH),
+            requirement,
             detected: Vec::new(),
             global_json_path: Some(request.path.clone()),
             requested_version: request.version.clone(),
@@ -1169,6 +1244,114 @@ mod tests {
         assert_eq!(missing.requirement.source, "target_framework");
         assert_eq!(missing.requirement.line.as_deref(), Some("10.0"));
         assert_eq!(missing.resolved_version, None);
+    }
+
+    fn pinned(version: &str, roll_forward: Option<&str>) -> SdkRequirement {
+        SdkRequirement::pinned(&GlobalJsonRequest {
+            path: "global.json".to_string(),
+            version: Some(version.to_string()),
+            roll_forward: roll_forward.map(str::to_string),
+            allow_prerelease: None,
+        })
+    }
+
+    #[test]
+    fn a_pinned_requirement_links_the_exact_patch_and_the_line_page() {
+        let download = download_for(&pinned("8.0.408", Some("disable")), "macos", "aarch64");
+        assert_eq!(
+            download.url,
+            "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.408/dotnet-sdk-8.0.408-osx-arm64.pkg"
+        );
+        assert_eq!(
+            download.fallback_url.as_deref(),
+            Some("https://dotnet.microsoft.com/download/dotnet/8.0")
+        );
+        assert_eq!(download.label, "Download SDK 8.0.408");
+    }
+
+    #[test]
+    fn a_line_only_requirement_links_the_aka_ms_and_the_line_page() {
+        let download = download_for(
+            &SdkRequirement::target_framework(Some("10.0")),
+            "macos",
+            "aarch64",
+        );
+        assert_eq!(
+            download.url,
+            "https://aka.ms/dotnet/10.0/dotnet-sdk-osx-arm64.pkg"
+        );
+        assert_eq!(
+            download.fallback_url.as_deref(),
+            Some("https://dotnet.microsoft.com/download/dotnet/10.0")
+        );
+        assert_eq!(download.label, "Download SDK 10.0");
+    }
+
+    #[test]
+    fn no_requirement_links_the_general_page_without_a_version() {
+        let download = download_for(&SdkRequirement::none(), "macos", "aarch64");
+        assert_eq!(download.url, SDK_INSTRUCTIONS_URL);
+        assert_eq!(download.fallback_url, None);
+        assert_eq!(download.label, "Download the .NET SDK");
+        assert!(!download.label.contains(char::is_numeric), "{download:?}");
+    }
+
+    #[test]
+    fn the_installer_name_follows_the_platform_and_an_unknown_one_falls_back() {
+        let line = SdkRequirement::target_framework(Some("8.0"));
+        let url = |os: &str, arch: &str| download_for(&line, os, arch).url;
+        assert_eq!(
+            url("macos", "aarch64"),
+            "https://aka.ms/dotnet/8.0/dotnet-sdk-osx-arm64.pkg"
+        );
+        assert_eq!(
+            url("macos", "x86_64"),
+            "https://aka.ms/dotnet/8.0/dotnet-sdk-osx-x64.pkg"
+        );
+        assert_eq!(
+            url("linux", "x86_64"),
+            "https://aka.ms/dotnet/8.0/dotnet-sdk-linux-x64.tar.gz"
+        );
+        assert_eq!(
+            url("windows", "x86_64"),
+            "https://aka.ms/dotnet/8.0/dotnet-sdk-win-x64.exe"
+        );
+        assert_eq!(
+            url("windows", "aarch64"),
+            "https://aka.ms/dotnet/8.0/dotnet-sdk-win-arm64.exe"
+        );
+        for (os, arch) in [("freebsd", "x86_64"), ("macos", "riscv64"), ("", "")] {
+            let download = download_for(&line, os, arch);
+            assert_eq!(download.url, SDK_INSTRUCTIONS_URL, "{os}/{arch}");
+            assert_eq!(download.fallback_url, None, "{os}/{arch}");
+        }
+    }
+
+    #[test]
+    fn a_missing_snapshot_carries_the_download_in_camel_case() {
+        let view = ProjectSdk::missing(
+            &GlobalJsonRequest {
+                path: "global.json".to_string(),
+                version: Some("8.0.999".to_string()),
+                roll_forward: None,
+                allow_prerelease: None,
+            },
+            "no SDK satisfies the pin",
+        );
+        let value = serde_json::to_value(&view).unwrap();
+        assert_eq!(value["state"], "sdk_missing");
+        assert_eq!(value["download"]["label"], "Download SDK 8.0.999");
+        assert_eq!(
+            value["download"]["fallbackUrl"],
+            "https://dotnet.microsoft.com/download/dotnet/8.0"
+        );
+        assert!(
+            value["download"]["url"]
+                .as_str()
+                .unwrap()
+                .contains("/Sdk/8.0.999/dotnet-sdk-8.0.999-"),
+            "{value}"
+        );
     }
 
     #[test]

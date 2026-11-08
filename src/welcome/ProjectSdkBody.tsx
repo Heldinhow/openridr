@@ -1,4 +1,5 @@
 import type { ProjectSdk } from "../host/client";
+import { ProjectSdkDownload } from "./ProjectSdkDownload";
 
 export function ProjectSdkBody({
   project,
@@ -59,13 +60,12 @@ export function ProjectSdkBody({
       return (
         <>
           <strong className="error">Project SDK missing</strong>
-          <p data-testid="sdk-project-message">{project.message}</p>
-          <p>
-            {pin ?? requirement}. Install that SDK yourself; this build never installs one and
-            never substitutes the .NET 10 analysis runtime.
-          </p>
-          <p>{installLink}</p>
-          {openGlobalJson}
+          <ProjectSdkDownload
+            project={project}
+            surface="toolchain"
+            tfms={tfms}
+            onOpenGlobalJson={onOpenGlobalJson}
+          />
         </>
       );
     case "invalid_global_json":
