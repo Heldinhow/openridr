@@ -546,7 +546,7 @@ pub fn evaluate_project(
         );
     };
 
-    let mut invoked = match invoke(muxer, sdk_root, abs_path, configuration, None) {
+    let mut invoked = match invoke(muxer, sdk_root, root, abs_path, configuration, None) {
         Ok(invoked) => invoked,
         Err(failure) => {
             return failed_project(
@@ -565,7 +565,14 @@ pub fn evaluate_project(
     if tfms.len() > 1 {
         match target_framework {
             Some(selected) if tfms.iter().any(|tfm| tfm == selected) => {
-                match invoke(muxer, sdk_root, abs_path, configuration, Some(selected)) {
+                match invoke(
+                    muxer,
+                    sdk_root,
+                    root,
+                    abs_path,
+                    configuration,
+                    Some(selected),
+                ) {
                     Ok(second) => {
                         invoked = second;
                         tfms = invoked.result.tfms();
@@ -711,12 +718,12 @@ fn failed_project(
 fn invoke(
     muxer: &Path,
     sdk_root: &Path,
+    root: &Path,
     project: &Path,
     configuration: &str,
     target_framework: Option<&str>,
 ) -> Result<Invoked, InvokeError> {
     let started = Instant::now();
-    let project_dir = project.parent().unwrap_or(sdk_root);
     let mut command = Command::new(muxer);
     command
         .arg("msbuild")
@@ -731,11 +738,15 @@ fn invoke(
         .arg("-getProperty:OutputType")
         .arg("-getProperty:MSBuildProjectName")
         .arg("-getProperty:IsTestProject")
+        // Names the SDK the muxer actually picked, next to the one the snapshot resolved.
+        .arg("-getProperty:NETCoreSdkVersion")
         .arg("-getItem:ProjectReference")
         .arg("-getItem:PackageReference")
         .arg("-getItem:Compile")
         .arg(format!("-p:Configuration={configuration}"))
-        .current_dir(project_dir)
+        // The workspace root is the cwd of restore/build/run/test, so the muxer reads the same
+        // global.json for evaluation as for everything else.
+        .current_dir(root)
         .env("DOTNET_ROOT", sdk_root)
         .env("DOTNET_MULTILEVEL_LOOKUP", "0")
         .env("DOTNET_CLI_UI_LANGUAGE", "en")

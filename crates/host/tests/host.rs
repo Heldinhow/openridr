@@ -1756,6 +1756,80 @@ fn the_snapshot_names_the_sdk_the_muxer_resolves_not_its_own_rule() {
     );
 }
 
+/// A `global.json` between the workspace root and the project: the muxer reads it when it runs in
+/// the project directory, so an evaluation that runs there would use a different SDK than the
+/// snapshot, which asks at the workspace root like restore/build/run/test.
+#[test]
+fn a_global_json_between_the_root_and_the_project_does_not_change_the_evaluation_sdk() {
+    let Some(((high_version, high), (_, low))) = muxer_pin_pair() else {
+        return;
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let app = root.join("src/App");
+    fs::create_dir_all(&app).unwrap();
+    fs::write(
+        app.join("App.csproj"),
+        format!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net{}.0</TargetFramework></PropertyGroup></Project>\n",
+            high_version.major
+        ),
+    )
+    .unwrap();
+    fs::write(app.join("App.cs"), "class C {}\n").unwrap();
+    fs::write(
+        root.join("src/global.json"),
+        format!(
+            "{{ \"sdk\": {{ \"version\": \"{}\", \"rollForward\": \"disable\" }} }}\n",
+            low.version
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("X.sln"),
+        "Microsoft Visual Studio Solution File, Format Version 12.00\n\
+Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"App\", \"src\\App\\App.csproj\", \"{33333333-3333-3333-3333-333333333333}\"\nEndProject\n\
+Global\n\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\t\tDebug|Any CPU = Debug|Any CPU\n\tEndGlobalSection\n\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n\t\t{33333333-3333-3333-3333-333333333333}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\t\t{33333333-3333-3333-3333-333333333333}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\tEndGlobalSection\nEndGlobal\n",
+    )
+    .unwrap();
+
+    let host = support::host();
+    open(&host, &root.join("X.sln"));
+    let trusted = grant(&host);
+    let sdk_project = &trusted["sdk"]["project"];
+    assert_eq!(sdk_project["state"], "resolved");
+    assert_eq!(sdk_project["resolvedVersion"], high.version);
+
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    let evaluation = &evaluated["evaluation"];
+    assert_eq!(evaluation["state"], "ok", "{}", evaluation["log"]);
+    let app = evaluation["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|project| project["name"] == "App")
+        .unwrap();
+    assert_eq!(app["state"], "ok", "{}", app["log"]);
+
+    let log = app["log"].as_str().unwrap();
+    let stdout = log
+        .split_once("--- stdout\n")
+        .and_then(|(_, rest)| rest.split_once("\n--- stderr"))
+        .map(|(stdout, _)| stdout)
+        .expect("the log carries the MSBuild stdout");
+    let value: Value = serde_json::from_str(stdout).expect("MSBuild stdout is JSON");
+    let used = value["Properties"]["NETCoreSdkVersion"]
+        .as_str()
+        .unwrap_or_else(|| panic!("MSBuild did not report NETCoreSdkVersion: {value}"));
+    // The pinned `src/global.json` is what the muxer reads from the project directory, so a cwd
+    // regression names the low version here while the snapshot keeps naming the high one.
+    assert_eq!(
+        used,
+        sdk_project["resolvedVersion"].as_str().unwrap(),
+        "the evaluation must run the muxer with the SDK the snapshot names"
+    );
+}
+
 #[test]
 fn a_muxer_pin_that_misses_the_requirement_is_sdk_missing() {
     let Some(((high_version, _), (_, low))) = muxer_pin_pair() else {
