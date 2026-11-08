@@ -25,7 +25,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | `welcome/` | tela inicial: recentes, toolchain, formulário de caminho |
 | **`WorkspaceView.tsx`** (~5.200 linhas) | **um único componente** que monta o workspace: abas, editor, painéis, diálogos, atalhos globais. Começa em `export function WorkspaceView`. Antes dele só há helpers puros. Fluxos já extraídos: `useExecutionFlow.ts`, `useEvaluationFlow.ts`, `useRunConfigs.ts` |
 | **`CodeEditor.tsx`** (~1.200) | CodeMirror: gutter, breakpoints, marcas de diagnóstico, completion, rename |
-| `SolutionTree.tsx`, `TreeRow.tsx`, `solutionNodes.ts`, `solutionMenu.ts` | Solution Explorer (modelo dos nós, menu de contexto; `TreeRow` é o único dono do `preventDefault` e do teclado `Shift+F10`) |
+| `SolutionTree.tsx`, `TreeRow.tsx`, `solutionNodes.ts`, `solutionMenu.ts`, `solutionListing.ts` | Solution Explorer (modelo dos nós, menu de contexto; `TreeRow` é o único dono do `preventDefault` e do teclado `Shift+F10`; `solutionListing` é o cache de um nível da listagem "Show all files", com epoch e retry) |
 | `solutionVisuals.ts`, `FileIcon.tsx`, `icons/` | tipo visual de projeto/arquivo/símbolo (ícone + token `--icon-*`); glifos vendorizados em `icons/fileGlyphs.tsx` (licenças em `THIRD-PARTY-NOTICES.md`); cores em `styles.css` |
 | `shell/` | tool windows (faixas), barra de status, modo Restricted/Trusted |
 | `actions/` | keymap, registro de ações, Search Everywhere (`FindAction`), diálogo de Keymap |
@@ -62,9 +62,9 @@ Estado do app: `~/Library/Application Support/OpenRidr` (`OPENRIDR_HOME` troca; 
 
 | Pasta | O que é |
 |---|---|
-| `crates/host-http/` | ponte HTTP **só de dev/E2E** (127.0.0.1:4317) |
+| `crates/host-http/` | ponte HTTP **só de dev/E2E** (127.0.0.1:4317; `--port 0` pede porta efêmera e imprime a concedida) |
 | `src-tauri/` | janela Tauri; `src/main.rs` expõe `host_call`, a recepção de "abrir com" e o **menu nativo** (`default_menu`: Quit e Close Window substituídos para não engolir `⌘Q`/`⌘W`/`⌥⌘W` do keymap); `tauri.conf.json` tem versão e bundle. `resources/{netcoredbg,csharp-ls,dotnet}/` são gerados no build (`scripts/vendor-*.sh`) a partir de artefatos pinados em `vendor/` |
-| `tests/e2e/` | Playwright contra host real; arquivos `medium-*`, `qa-*`, `zz-acceptance` etc. por onda de trabalho; helpers `.ts` sem `.spec` |
+| `tests/e2e/` | Playwright contra host real; arquivos `medium-*`, `qa-*`, `zz-acceptance` etc. por onda de trabalho; helpers `.ts` sem `.spec`. `isolated-host.ts` é o único caminho para um spec ter host próprio (porta efêmera + posse pelo `pid`) |
 | `fixtures/` | `OrderDesk` (principal), `MultiConsole`, `BrokenImport`, `MissingSdk`, `CrashApp` |
 | `scripts/` | `install-app.sh` (`bun run app:install`), `openridr` (CLI "abrir com"), `openridr-selfcheck.sh`, `dev-app.sh` (`sh scripts/dev-app.sh [sln]`: app de dev com o par embutido e o workspace em argv) + `dev-app-selfcheck.sh`, `commit-only.sh` (`scripts/commit-only.sh "msg" <paths>`: `add -N` nos novos + `commit --only`), `release-macos.sh` (release: preflight `--check`, ensaio `--dry-run`, auditoria de Mach-O `--audit`, caminho completo), `release-selfcheck.sh`, `release-notes.sh` + `release-notes-selfcheck.sh`; `vendor-*.sh` geram as árvores assinadas |
 | `.github/workflows/release.yml` | release por tag `v*`: preflight, keychain temporário, `scripts/release-macos.sh`, notas e `gh release create`; ver [release-signing.md](release-signing.md) |

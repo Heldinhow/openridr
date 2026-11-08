@@ -1,12 +1,10 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import { hostPort } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // The old install-plan layout spec was removed with the plan UI. The setup gate is the
 // replacement surface and keeps the same layout guarantee at both supported widths.
-const port = hostPort + 7;
 const fixture = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
 let host: IsolatedHost;
 
@@ -14,7 +12,6 @@ test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 test.beforeAll(async () => {
   host = await startIsolatedHost({
-    port,
     homePrefix: "openridr-gate-layout-",
     env: { OPENRIDR_ENABLE_PROBE: "1" },
     prepare: (home) => {

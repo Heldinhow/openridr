@@ -25,18 +25,16 @@ fix or timeline is promised.
 
 ## Reporting a Vulnerability
 
-Report vulnerabilities privately through GitHub's private vulnerability
-reporting form:
+GitHub private vulnerability reporting is active for this repository. Report
+vulnerabilities privately through:
 
 <https://github.com/Heldinhow/openridr/security/advisories/new>
 
 Do not open a public issue for a vulnerability, and do not post exploit details
 in a public discussion.
 
-That channel is **not yet enabled**: the maintainer must activate private
-vulnerability reporting in the repository settings before the form accepts a
-report. This policy does not publish a personal email address, so until the
-channel is active there is no private reporting path.
+This policy does not publish a personal email address. The maintainer can
+disable the channel; while it is disabled there is no private reporting path.
 
 ## What to Include
 

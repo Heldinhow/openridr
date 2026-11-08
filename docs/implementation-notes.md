@@ -1788,7 +1788,9 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 ## Comunidade open source (#224, #226–#229)
 
 - README, políticas de conduta e segurança, CONTRIBUTING e templates de issue/PR; evidência em `docs/evidence/open-source-ready.md`.
-- Não verificado: issue chooser e community profile após merge, Discussions e reporte privado até ativação pelo mantenedor; app e E2E não se aplicam. Meta de 3–5 issues rotuladas permanece pendente por falta de candidatas adequadas.
+- 2026-11-08: Discussions e reporte privado de vulnerabilidade ativos (`has_discussions: true`, `private-vulnerability-reporting.enabled: true`), community profile em 100%; os documentos deixaram de dizer que os canais estavam desativados.
+- Quatro issues abertas e sem responsável receberam rótulo: #260 (`good first issue`) e #246, #269, #280 (`help wanted`); o guia explica os rótulos e manda comentar para reservar a issue. `help wanted` não promete PR de risco baixo: #246 e #269 são `risk:high` pela tabela, e o guia diz isso.
+- Não verificado: envio real de um relatório privado (o formulário é o de advisory de segurança, reusado para conduta); criação de uma discussion; renderização no GitHub e issue chooser no default branch até o merge; app e E2E não se aplicam.
 
 ## Cancelar push, update e fetch em andamento (2026-11-07, #150; tickets #206, #207, #208)
 
@@ -1842,6 +1844,89 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Não verificado:** superfícies A/B/C do `verify-openridr` (nenhuma interface, host ou app mudou);
   disco realmente cheio (`note`/`FAIL` provados com `df` falso, não enchendo o volume); Windows e macOS
   Intel. Evidência: `docs/evidence/doctor-disk-space.md`.
+
+## Nível de listagem que falha é repetido com limite (2026-11-07, #282)
+
+- **O conserto.** `createListingCache.ensure` (`src/solutionListing.ts`) repete a leitura de um nível
+  que falhou até três tentativas (200/400 ms, `LISTING_RETRY_DELAYS_MS` — a mesma política da #264) e,
+  se todas falharem, **não** grava o nível no cache: a próxima expansão pergunta de novo em vez de
+  mostrar a pasta vazia até um `reload()`. A repetição aborta quando a epoch mudou (pedido substituído
+  por reload não gasta tentativa nem pinta a árvore). O `catch` que gravava `dirs[dir] = []` saiu; o
+  resto do contrato (epoch, `pending` por nível, `snapshot`) ficou igual.
+- **Por que ali.** O cache é quem decide o que é acerto de cache, e o teste unitário já é dele; o
+  `SolutionTree.tsx` não mudou — o que também deixa o diff fora do arquivo que a #264/#281 mexe.
+- **Testes.** `tests/unit/solutionListing.test.ts`: 5 casos novos (retry com sucesso na segunda
+  tentativa, três tentativas e nível fora do cache, falha de um nível não impede o outro, reload
+  durante a falha aborta a repetição, e o valor de `LISTING_RETRY_DELAYS_MS`). O caso antigo
+  "a failed level caches empty…" saiu: ele afirmava o comportamento que a issue chama de bug.
+  `tests/e2e/solution-explorer.spec.ts`: spec novo que falha a **primeira** chamada de
+  `workspace.tree` para `docs` com `page.route("**/call")` e afirma `tree-file-docs/notes.md` visível.
+- **Falha-antes medida.** Unitário: com o arquivo de `806a51a`, `expect(calls).toBe(3)` recebe 1 e
+  `snapshot()[""]` recebe `[]`. E2E: com o mesmo arquivo, o spec novo falha (a linha não aparece em
+  10 s); com o conserto, passa em 2,5 s.
+- **Bateria.** `bun test tests/unit` 127 passed; `bunx playwright test tests/e2e/solution-explorer.spec.ts`
+  13 passed; `solution-git-status.spec.ts` 3 passed; `bunx tsc --noEmit` limpo.
+- **Não verificado:** app Tauri real (UI pura, nada de shell nativo); Windows e macOS Intel; a taxa do
+  sintoma em produção (a issue não mediu). Evidência: `docs/evidence/solution-listing-retry.md`.
+
+## Host auxiliar do E2E em porta efêmera (2026-11-08, #246)
+
+- **O conserto.** `crates/host-http/src/main.rs` passou a imprimir `server.server_addr()` em vez do
+  endereço pedido, então `--port 0` publica a porta que o kernel concedeu. `tests/e2e/isolated-host.ts`
+  sobe o host com `--port 0`, lê a linha `openridr-host-http listening on http://127.0.0.1:<porta>` do
+  `stdout` do filho e devolve `port`/`base` a partir dela; a verificação de posse por `pid` da #216
+  ficou igual (o helper só aceita o `/health` cujo `pid` é o do filho que subiu). O `stderr` do filho
+  fica num buffer de 4 KB e entra na mensagem de falha, porque "saiu antes de imprimir a porta" sem o
+  motivo do cargo/do bind não diz nada.
+- **Os sete specs.** `trust-prompt`, `welcome`, `medium-editor-session`, `debug-advanced`,
+  `tools-install-ux`, `analysis-gate` e `setup-gate-layout` perderam `const port = hostPort + N` e a
+  opção `port`; quem chamava o host por `http://127.0.0.1:${port}` passou a usar `host.base` (o
+  `analysis-gate` tinha um `base` de módulo, que só existe depois do `beforeAll` — virou `host.base`
+  dentro dos hooks).
+- **A faixa sai.** `tests/e2e/environment.ts` perdeu o laço que recusava `hostPort + 1` … `+ 7` quando
+  alguma caía em porta bloqueada do Chrome; o teste unitário que a pinava virou o contrário (um par
+  vizinho de porta bloqueada é aceito). `AGENTS.md`, `docs/SPEC-E2E-PORTS.md`, `docs/decisions.md`,
+  `.agents/skills/verify-openridr/SKILL.md` e `docs/MAPA.md` dizem a regra nova: só o par do harness é
+  escolhido, as auxiliares são efêmeras.
+- **O decoy da #216, adaptado.** Não existe mais "porta escolhida ocupada por outro processo" para
+  demonstrar, então o teste do helper ganhou uma costura de teste (`command`) e um filho de mentira que
+  imprime a porta de um decoy alheio: o helper lê a porta, sonda o `/health`, vê `pid: 999999` e recusa
+  nomeando porta e pid. É a recusa por dentro do caminho novo, não uma unidade isolada.
+- **Falha-antes medida.** `cargo test -p openridr-host-http --test ephemeral_port` com o `main.rs`
+  antigo: `the bridge printed the requested port: openridr-host-http listening on http://127.0.0.1:0`.
+  Depois: 2 passed. O E2E antes do conserto não teria como passar — o helper não teria porta para ler.
+- **Bateria.** `cargo test -p openridr-host-http` 2 passed; `cargo fmt --check` e
+  `cargo clippy --workspace --all-targets -D warnings` limpos; `bun test tests/unit` 127 passed;
+  `bunx tsc --noEmit` e `bun run build` limpos; E2E: `isolated-host.spec.ts` 6 passed, os sete specs
+  com 11 passed e 7 skipped, e duas sessões em paralelo no mesmo worktree (1520/4417 e 1521/4418) com
+  6 + 6 passed — inclusive o mesmo spec (`isolated-host.spec.ts`) nas duas, o que exigiu prefixo de
+  home com o `pid` do worker (o `os.tmpdir()` é compartilhado e a contagem de diretórios via o da
+  outra sessão).
+- **Não verificado:** as 7 asserções do `debug-advanced` (skip: netcoredbg real ausente nesta máquina);
+  Chrome real (só Chromium); Windows e macOS Intel. O teste Rust novo não roda no job `rust` do CI
+  (`cargo test -p openridr-host`), só em `cargo test --workspace`. Evidência:
+  `docs/evidence/e2e-ephemeral-port.md`.
+
+## `.tmp` do `write_json_atomic` colide entre escritas concorrentes (issue #294)
+
+- **O que mudou.** `crates/host/src/fsutil.rs`: o nome do temporário perdeu
+  `SystemTime::now().as_nanos()` e ganhou um contador atômico do processo (`TEMP_SEQUENCE`, somado ao
+  `pid`). O relógio deste macOS repete entre threads, então duas escritas concorrentes no mesmo destino
+  escolhiam o mesmo `.tmp` — uma renomeava, a outra falhava em `rename` com ENOENT, e o destino podia
+  ser renomeado truncado (`trusted.json` virava `trusted_unreadable`).
+- **Falha-antes.** Teste novo `fsutil::tests::concurrent_writes_to_one_path_all_succeed_and_leave_valid_json`
+  (8 threads × 200 escritas, cada uma tem de voltar `Ok` e o arquivo relido tem de parsear **e** ser o
+  seed ou uma escrita completa de alguma thread): com o arquivo de `c35f60b` falha em 0,07 s
+  (`Could not replace …: No such file or directory`); com o conserto, 1 passed em ~0,3 s, 5 execuções
+  seguidas.
+- **Bateria.** `cargo test -p openridr-host` completo 629 passed, 0 failed (70 ignored); `--lib --
+  trusted` 20 rodadas verdes (critério da issue); `cargo fmt --all --check` e `cargo clippy
+  --workspace --all-targets -D warnings` limpos. Uma falha de ambiente em
+  `initialize_failure_surfaces_the_sdk_message…` no primeiro run completo (isolado verde) é a mesma
+  hipótese de carga da linha 29 de `docs/evidence/test-stability.md`, que ganhou a segunda observação.
+- **Não verificado:** a corrida no app real (a prova é o teste de threads do host); E2E (nenhum spec
+  escreve estado do host em paralelo, e a mudança não tem superfície de UI); Windows e macOS Intel.
+  Evidência: `docs/evidence/atomic-tmp-name.md`.
 
 ## O host recusa build enquanto a descoberta de testes constrói (2026-11-07, #275; ticket #284)
 

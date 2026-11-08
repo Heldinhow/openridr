@@ -2,6 +2,9 @@
 
 Formato: data, decisão, motivo, consequência. Só entram decisões pequenas tomadas durante a implementação; decisões grandes continuam na [SPEC](SPEC.md).
 
+<!-- Append-only: num conflito de merge ficam as duas entradas, a desta branch primeiro e as antigas na
+     ordem em que entraram — nunca reordenar nem reescrever entrada velha. -->
+
 ## 2026-10-27 — Base própria, sem código do OpenIdea
 
 O shell é escrito do zero (Tauri 2 + Rust + React/TS). Nenhum arquivo do OpenIdea foi clonado ou incorporado; a "auditoria da base" resulta em: nada reutilizado, nenhuma licença de terceiro herdada além das dependências declaradas. Avisos e identidade OpenRidr são preservados. Motivo: não há checkout local e a SPEC exige auditar antes de reutilizar; copiar sem auditoria seria pior.
@@ -1382,7 +1385,7 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 
 - **Decisão do Helder (2026-11-07).** Mudança de interface pura se verifica com **Playwright em modo web** — só os specs da área, escrevendo/atualizando o spec do cenário. O **app Tauri real com `agent-desktop`** fica para o que é nativo do shell: menu nativo, atalhos do sistema, updater, seletor nativo, árvore de acessibilidade do WebKit, single-instance e DMG. O **host isolado** (`web.sh`) continua para o que não tem spec ou precisa de captura. Motivo: a regra antiga mandava abrir o app real para provar uma mudança de CSS e empurrava toda verificação de UI para a superfície mais cara e menos determinística.
 - **O que a #67 decidiu continua valendo.** O smoke noturno é o único E2E automatizado, nunca roda em PR, e a quarentena segue com motivo por spec (`docs/evidence/e2e-quarantine.md`). A decisão nova muda quem roda Playwright na sessão, não o que o CI roda.
-- **Convenção de portas, sem helper.** Default 1420 (UI) / 4317 (host); sessão que roda em paralelo, ou junto com `bun run dev`, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`. Porta ocupada falha na hora pelo `strictPort` do Vite de teste. Nada de script que "acha porta livre": escolher duas portas é a única decisão da sessão. A faixa é do par inteiro: cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`, então o par escolhido precisa de 10 portas de host livres acima dele.
+- **Convenção de portas, sem helper.** Default 1420 (UI) / 4317 (host); sessão que roda em paralelo, ou junto com `bun run dev`, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`. Porta ocupada falha na hora pelo `strictPort` do Vite de teste. Nada de script que "acha porta livre": escolher duas portas é a única decisão da sessão. A faixa é do par inteiro: cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`, então o par escolhido precisa de 10 portas de host livres acima dele. *(Substituído em 2026-11-08 pela #246: as auxiliares são efêmeras; só o par do harness é escolhido.)*
 - **Consequência.** `docs/SPEC-E2E-PORTS.md`; issues #211 (app home derivado da porta da UI), #212 (esta documentação) e #213 (os quatro sítios de `workspace.spec.ts` que a #177 deixou vermelhos); evidência em `docs/evidence/e2e-ports.md`; `AGENTS.md`, `.agents/skills/verify-openridr/SKILL.md`, `scripts/e2e-smoke.txt` e `docs/evidence/e2e-quarantine.md` deixam de repetir a regra antiga. Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança de código.
 
 ## 2026-11-07 — Três buracos medidos do CI fechados sem dependência nova e sem tocar no ruleset (issue #142)
@@ -1443,7 +1446,7 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 ## 2026-11-07 — O host auxiliar do E2E prova a posse pelo `pid`; porta efêmera fica como follow-up (issue #216)
 
 - **A decisão.** Os sete specs que sobem host próprio (`trust-prompt`, `welcome`, `medium-editor-session`, `debug-advanced`, `tools-install-ux`, `analysis-gate`, `setup-gate-layout`) passam a obter o host por `tests/e2e/isolated-host.ts`, e o helper só aceita o `/health` cujo `pid` é o do filho que ele mesmo subiu. Porta ocupada por outro processo deixa de ser sucesso silencioso: vira falha imediata com a porta e o pid estranho na mensagem. O helper também assume o que os sete repetiam — o `page.route` de `/__host/(call|health)` e o ciclo de vida do `OPENRIDR_HOME` temporário (`stop()` mata o filho e apaga o home).
-- **Por que `pid` e não porta efêmera.** O `pid` responde a pergunta que o spec faz ("o processo que respondeu é meu?") sem tocar em produto: nenhuma linha de `crates/`, `src/` ou `src-tauri/`, nenhuma dependência nova, e a convenção de `hostPort + 1` … `hostPort + 7` de `AGENTS.md`/`SPEC-E2E-PORTS` continua verdadeira. Porta efêmera (`--port 0`) mataria a classe do problema, mas exigiria o `host-http` imprimir a porta concedida (`server_addr()`), reescrever a convenção de 10 portas em três docs e tornaria indemonstrável o critério "porta ocupada falha nomeando a porta" — e o PR deixaria de ser `risk:low`. Fica como follow-up da retro, sem issue agora.
+- **Por que `pid` e não porta efêmera.** O `pid` responde a pergunta que o spec faz ("o processo que respondeu é meu?") sem tocar em produto: nenhuma linha de `crates/`, `src/` ou `src-tauri/`, nenhuma dependência nova, e a convenção de `hostPort + 1` … `hostPort + 7` de `AGENTS.md`/`SPEC-E2E-PORTS` continua verdadeira. Porta efêmera (`--port 0`) mataria a classe do problema, mas exigiria o `host-http` imprimir a porta concedida (`server_addr()`), reescrever a convenção de 10 portas em três docs e tornaria indemonstrável o critério "porta ocupada falha nomeando a porta" — e o PR deixaria de ser `risk:low`. Fica como follow-up da retro, sem issue agora. *(Virou a #246, feita em 2026-11-08: o host auxiliar sobe em porta efêmera.)*
 - **O `cargo run` faz `exec`: `kill` no filho mata o host.** A nota de "host órfão" em `implementation-notes.md` (welcome-trust, 2026-11-01) estava errada e foi corrigida nesta frente: medido, o `/health` devolve o mesmo pid do `spawn` e `kill()` no filho derruba o host. Não há `lsof -ti tcp:… | xargs kill` a fazer entre rodadas.
 - **Três falhas explícitas, sem retry.** Filho saiu antes de responder (código de saída, com o pid estranho se um `/health` respondeu), `/health` com pid diferente do filho (os dois pids) e timeout de 300 s (a porta). Em qualquer uma o helper mata o filho e apaga o home antes de lançar; esperar a porta "ficar livre" foi recusado porque mascara a colisão em vez de nomeá-la.
 - **O teste da garantia é um decoy, fora do smoke.** `tests/e2e/isolated-host.spec.ts` sobe um decoy que responde `/health` com pid alheio e assere a recusa com a porta na mensagem, além do caminho feliz e do `stop()`. Não entra em `scripts/e2e-smoke.txt`: a lista é curada pela #67 e acrescentar spec lá é outra decisão.
@@ -1557,7 +1560,8 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Decisão.** A validação de `OPENRIDR_E2E_UI_PORT`/`OPENRIDR_E2E_HOST_PORT` passa a recusar, no load do
   módulo de ambiente, as portas da `kRestrictedPorts` do Chromium (`net/base/port_util.cc`), com a lista
   copiada inteira e a fonte/data no comentário. A recusa cobre também a faixa derivada `hostPort + 1` até
-  `+ 7` que os specs que sobem host próprio usam. A mensagem mantém o prefixo `Invalid E2E port` e
+  `+ 7` que os specs que sobem host próprio usam. *(A faixa derivada saiu em 2026-11-08 com a #246: a
+  recusa vale só para as duas portas escolhidas.)* A mensagem mantém o prefixo `Invalid E2E port` e
   acrescenta que o Chrome bloqueia a porta.
 - **Por que o erro precisa ser de configuração, não de rede.** O `ERR_UNSAFE_PORT` só aparece no
   `page.goto`, com host e Vite já de pé, e não diz qual das duas variáveis errou — a sessão perde a rodada
@@ -1568,7 +1572,8 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   1721/1722/1725 como aceitas — é o que prova que a lista foi copiada em vez de inventada.
 - **As derivadas entram.** Sete specs usam `hostPort + 1` até `+ 7` e o navegador alcança essas portas
   direto: um `hostPort` de 1716 quebra no `+ 3` exatamente como a issue descreve, só que no meio do run.
-  Recusar o par na hora custa poucas linhas e fecha a classe.
+  Recusar o par na hora custa poucas linhas e fecha a classe. *(Em 2026-11-08 a #246 tirou as derivadas
+  do mapa: o host auxiliar é efêmero e o navegador não conecta nele — quem fala com ele é o Node.)*
 - **Teste no CI de PR, não no Playwright.** O teste mora em `tests/unit` (job `typescript`), porque
   Playwright não roda em PR; um subprocesso por variável prova o wiring das duas, e o critério "erro no
   começo do run" fica como evidência executada (`playwright test --list` com porta restrita), não como teste
@@ -1701,6 +1706,99 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   entregar" e a regra "Ticket"), `docs/agents/issue-tracker.md` ("O que continua em `docs/`"),
   `docs/agents/domain.md` (árvore de layout) e `docs/README.md` (convenção de trabalho novo). Nenhuma
   linha de `src/`, `crates/` ou `src-tauri/`, nenhum `data-testid`, nenhuma dependência nova.
+
+## 2026-11-07 — Nível de listagem que falha é repetido com limite e não vira pasta vazia (issue #282)
+
+- **Decisão.** O cache de um nível da árvore "Show all files" (`src/solutionListing.ts`) repete a
+  leitura que falhou com a política das consultas de marcador da árvore (#264): a original mais duas,
+  com 200 ms e 400 ms (`LISTING_RETRY_DELAYS_MS`). Depois do último fracasso o nível **não** é
+  guardado no cache; a repetição para na hora se um `reload()` já substituiu o pedido (epoch).
+- **Por que não cachear o vazio.** Era o desenho antigo: `catch` gravava `dirs[dir] = []` e o guarda
+  de entrada aceitava o array vazio (vazio é *truthy*), então a pasta expandida ficava sem filhos até
+  algo alheio forçar `reload()`. Com o retry, o vazio só sobra quando a falha é definitiva — e ali
+  gravar `[]` reproduziria o sintoma. Não cachear faz a próxima expansão perguntar de novo, sem
+  inventar "pasta sem filhos" no cache.
+- **Por que o retry fica no cache e não no componente.** O cache é quem decide o que é acerto de
+  cache; a política pertence a ele e o teste unitário já é dele (`tests/unit/solutionListing.test.ts`).
+  O `SolutionTree` não mudou, o que também mantém esta correção fora do arquivo que a #264/#281 mexe.
+- **Consequência.** `src/solutionListing.ts`, `tests/unit/solutionListing.test.ts` (8 casos),
+  `tests/e2e/solution-explorer.spec.ts` (spec novo que falha a primeira chamada de `workspace.tree`),
+  evidência em `docs/evidence/solution-listing-retry.md`. Nenhum `data-testid`, nenhuma mudança no
+  host, nenhuma dependência nova.
+
+## 2026-11-08 — O host auxiliar do E2E sobe em porta efêmera e a faixa de 10 portas sai (issue #246)
+
+- **A decisão.** `openridr-host-http --port 0` passa a imprimir o endereço que o kernel concedeu
+  (`server.server_addr()`), e `tests/e2e/isolated-host.ts` sobe o host com `--port 0` e lê a porta dessa
+  linha em vez de receber uma. Os sete specs que sobem host próprio e `isolated-host.spec.ts` deixam de
+  declarar `const port = hostPort + N`. Só o par do harness (UI/host) continua escolhido pela sessão; as
+  auxiliares são do kernel.
+- **Por que a porta e não só o `pid`.** A #216 fez a colisão gritar (o helper recusa um `/health` cujo
+  `pid` não é o do filho que ele subiu), mas a colisão continuava possível: quem roda duas sessões
+  precisava de 10 portas de host livres acima do par, e um par vizinho ainda se cruzava. Porta efêmera
+  mata a classe: não existe número para escolher errado.
+- **O `pid` continua sendo a prova de posse.** A porta não prova que o processo que respondeu é o meu —
+  ela só diz onde ele está. O helper continua comparando o `pid` do `/health` com o do filho que subiu, e
+  o teste do decoy passou a provar isso por dentro do caminho novo: um filho de mentira imprime a porta
+  de um decoy alheio, e o helper recusa nomeando a porta e o `pid` estranho.
+- **O que deixa de ser demonstrável.** O critério da #216 "porta ocupada falha nomeando a porta" deixa de
+  valer **pelo helper**: ele sempre pede 0, e o kernel não concede porta ocupada. Uma porta fixa pedida à
+  mão (`--port 4317`) continua falhando no bind e nomeando o endereço. O que sobra provando no caminho do
+  helper é o `/health` de `pid` estranho — que é o caso real que a posse protege.
+- **A faixa sai dos três docs.** `AGENTS.md`, `docs/SPEC-E2E-PORTS.md` e esta entrada dizem a mesma
+  regra: o par do harness é escolhido, as auxiliares são efêmeras. `.agents/skills/verify-openridr/SKILL.md`
+  repetia a faixa e sai junto. `tests/e2e/environment.ts` perde a validação da faixa derivada
+  (`hostPort + 1` … `+ 7`), e o teste unitário que a pinava vira o contrário: um par vizinho de porta
+  bloqueada do Chrome é aceito.
+- **Por que a porta efêmera não precisa do filtro do Chrome.** O navegador não conecta na auxiliar: o
+  spec fala com ela por `route.fetch`/`fetch` do Node, e a faixa efêmera do macOS (49152–65535) não contém
+  nenhuma porta da `kRestrictedPorts`. A recusa das duas portas escolhidas continua no load do módulo de
+  ambiente.
+- **Consequência.** `crates/host-http/src/main.rs` e `crates/host-http/tests/ephemeral_port.rs` (teste
+  novo: `--port 0` imprime a porta concedida e o `/health` responde o `pid` do filho), o helper e o spec
+  dele, os sete specs, `environment.ts`, `tests/unit/e2eRestrictedPorts.test.ts`, os docs vivos e a
+  evidência em `docs/evidence/e2e-ephemeral-port.md`. Nenhuma dependência nova, nenhum `data-testid`,
+  nenhum contrato do host e nenhuma mudança na UI.
+## 2026-11-07 — O E2E recusa a rodada abaixo do piso duro de disco (issue #270)
+
+- **Decisão.** O `playwright.config.ts` mede o espaço livre no volume de `os.tmpdir()` **no load do
+  config**, antes de montar plugins e servidores. Abaixo de 1024 MiB a rodada é recusada com exit
+  não-zero e uma mensagem com o número medido, o piso e o diretório; entre 1024 e 3071 MiB o harness
+  imprime uma linha `note` e segue; acima de 3072 MiB nada muda. Medição sem número (`df` ausente ou
+  saída estranha) é `note` e a rodada segue. Os dois pisos vêm do `doctor.sh`, e um teste de
+  `tests/unit` compara o script com as constantes do harness.
+- **Por que não no `globalSetup`, como a issue pedia.** Medido em Playwright 1.65: o `webServer` é um
+  plugin e `createGlobalSetupTasks` executa os plugin setups **antes** dos global setups
+  (`node_modules/playwright/lib/runner/index.js:6509-6515` e `:7130`). Num projeto mínimo com
+  `webServer` + `globalSetup`, o `globalSetup` fez `fetch` na URL do `webServer` e recebeu
+  `server already up = true`: no `globalSetup` o host já subiu e o `cargo run` já compilou. O load do
+  config é o único ponto anterior a qualquer servidor — a mesma decisão que a #258 tomou para portas
+  restritas.
+- **Por que fail-open na medição que falha.** O doctor já trata "sem número" como `note` e sai 0. Recusar
+  por falta de `df` trocaria um risco medido por um bloqueio certo, e `df` não é requisito do E2E.
+- **Por que sempre `os.tmpdir()`.** É onde o harness põe o app home por porta da UI e o diretório de
+  capturas por default. Um `OPENRIDR_E2E_HOME`/`OPENRIDR_SCREENSHOT_DIR` noutro volume é escolha da
+  sessão; a mensagem imprime o diretório medido, então o número não mente.
+- **Consequência.** `docs/SPEC-E2E-DISK-FLOOR.md`; ticket #287, filho de #270; seam é o `df` falso no
+  `PATH` (nenhuma variável só-de-teste no harness); `playwright test --list` também recusa abaixo do
+  piso. O PR é `medium` porque `playwright.config.ts` é caminho que a tabela de risco não conhece.
+  Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança no `doctor.sh`.
+
+## 2026-11-07 — O `.tmp` do `write_json_atomic` é nomeado por contador do processo, não pelo relógio (issue #294)
+
+- **A decisão.** `crates/host/src/fsutil.rs` nomeia o temporário com `pid` + um contador atômico do
+  processo (`static TEMP_SEQUENCE: AtomicU64`). O relógio sai do nome; `SystemTime`/`UNIX_EPOCH` saíram
+  do arquivo.
+- **Por que o relógio não servia.** Este macOS repete `SystemTime::now()` entre threads (a issue mediu
+  15.506 de 16.000 timestamps duplicados com 8 threads), então duas escritas concorrentes no mesmo
+  destino escolhiam o mesmo `.tmp`: uma renomeava e a outra falhava em `rename` com `No such file or
+  directory`, e o `fs::write` de uma podia truncar o arquivo que a outra renomeava — `trusted.json`
+  parcial lido como `trusted_unreadable`. O pid separa processos, o contador separa escritas dentro do
+  processo; nenhum dos dois depende da resolução do relógio.
+- **Consequência.** Teste novo em `crates/host/src/fsutil.rs` (8 threads × 200 escritas no mesmo
+  destino; cada escrita tem de voltar `Ok` e o arquivo relido tem de ser JSON válido) — vermelho com o
+  relógio, verde com o contador. Assinatura, formato e local de `trusted.json` não mudam; nenhuma
+  dependência nova. Evidência: `docs/evidence/atomic-tmp-name.md`.
 
 ## 2026-11-07 — Build explícito recusa enquanto a automação do app constrói (issue #275)
 

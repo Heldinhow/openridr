@@ -2,12 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort, seedVerifiedTools } from "./environment";
+import { seedVerifiedTools } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // The shared E2E host runs with OPENRIDR_TRUST_STORE=off (every open asks). This spec needs the real
 // per-project store, so it starts its own host on an isolated OPENRIDR_HOME and points the UI at it.
-const port = hostPort + 1;
 const fixture = path.resolve("fixtures/OrderDesk");
 let home: string;
 let host: IsolatedHost;
@@ -16,7 +15,6 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
   host = await startIsolatedHost({
-    port,
     homePrefix: "openridr-trust-home-",
     env: { OPENRIDR_TRUST_STORE: "on" },
     prepare: (prepared) => ({ OPENRIDR_BUNDLED_NETCOREDBG: seedVerifiedTools(prepared) }),

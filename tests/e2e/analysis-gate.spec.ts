@@ -2,13 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort, seedVerifiedTools } from "./environment";
+import { seedVerifiedTools } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // A fresh app home proves the missing-analysis gate: nothing is installed here, and the plan the
 // notice asks for is inert until the explicit confirmation in the tools panel.
-const port = hostPort + 6;
-const base = `http://127.0.0.1:${port}`;
 const fixture = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
 let host: IsolatedHost;
 
@@ -16,7 +14,6 @@ test.describe.configure({ mode: "serial", timeout: 240_000 });
 
 test.beforeAll(async () => {
   host = await startIsolatedHost({
-    port,
     homePrefix: "openridr-analysis-gate-",
     env: { OPENRIDR_TRUST_STORE: "on" },
     prepare: (home) => ({ OPENRIDR_BUNDLED_NETCOREDBG: seedVerifiedTools(home) }),
@@ -28,12 +25,12 @@ test.afterAll(async () => {
 });
 
 test.beforeEach(async ({ request }) => {
-  await request.post(`${base}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => {});
+  await request.post(`${host.base}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => {});
 });
 
 test.afterEach(async ({ request }) => {
-  await request.post(`${base}/call`, { data: { method: "lsp.stop", params: {} } }).catch(() => {});
-  await request.post(`${base}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => {});
+  await request.post(`${host.base}/call`, { data: { method: "lsp.stop", params: {} } }).catch(() => {});
+  await request.post(`${host.base}/call`, { data: { method: "workspace.close", params: {} } }).catch(() => {});
 });
 
 async function openWorkspace(page: Page, solution: string) {
