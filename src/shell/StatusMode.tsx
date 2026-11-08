@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { Snapshot } from "../host/client";
+import type { ProjectSdk, Snapshot } from "../host/client";
 import { TrustControls } from "../TrustControls";
+import { ProjectSdkDownload } from "../welcome/ProjectSdkDownload";
 
 // Status-bar trust indicator: a button that opens a small popover to Trust/Restrict the open workspace.
-export function StatusMode({ snapshot, onSnapshot, sdkSummary }: { snapshot: Snapshot; onSnapshot: (snapshot: Snapshot) => void; sdkSummary: string }) {
+// When the project SDK is missing the popover carries the same block the tree note and the Toolchain
+// card render: the bar is one line, so the requirement, the detected versions and the actions live here.
+export function StatusMode({ snapshot, onSnapshot, sdkSummary, sdk }: { snapshot: Snapshot; onSnapshot: (snapshot: Snapshot) => void; sdkSummary: string; sdk: { project: ProjectSdk; onOpenGlobalJson: () => void; onCheckAgain: () => void } }) {
   const trusted = snapshot.trust.granted;
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState({ left: 0, bottom: 0 });
@@ -67,7 +70,18 @@ export function StatusMode({ snapshot, onSnapshot, sdkSummary }: { snapshot: Sna
           style={{ left: anchor.left, bottom: anchor.bottom }}
           onKeyDown={onKeyDown}
         >
-          <p>{sdkSummary}</p>
+          {sdk.project.state === "sdk_missing" ? (
+            <div data-testid="status-sdk-block">
+              <ProjectSdkDownload
+                project={sdk.project}
+                surface="status"
+                onOpenGlobalJson={sdk.onOpenGlobalJson}
+                onCheckAgain={sdk.onCheckAgain}
+              />
+            </div>
+          ) : (
+            <p>{sdkSummary}</p>
+          )}
           <TrustControls
             snapshot={snapshot}
             onChange={(next) => {

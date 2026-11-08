@@ -35,7 +35,10 @@ A UI nunca executa processo. Toda operação passa por `dispatch(method, params)
   "outline": { "source": "text", "projects": [...], "globalJson": {...} },
   "trust": { "granted": false, "workspaceId": null, "decidedAt": null, "revokedAt": null },
   "sdk": { "host": {"state":"found|missing","version","root","sdkPath","instructionsUrl","message"},
-           "project": {"state":"no_workspace|not_inspected|resolved|sdk_missing|no_global_json|not_pinned|invalid_global_json",
+           "project": {"state":"no_workspace|not_inspected|resolved|sdk_missing|invalid_global_json",
+                       "requirement": {"source":"global_json|target_framework|none","version","line",
+                                       "rollForward","allowPrerelease"},
+                       "detected": ["10.0.403", "8.0.408"],
                        "globalJsonPath","requestedVersion","rollForward","allowPrerelease",
                        "resolvedVersion","root","sdkPath","instructionsUrl","message"},
            "roots": [{"root","source","versions":[{"version","path"}],"exit","error"}],
@@ -2084,3 +2087,146 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Não verificado:** app Tauri real (UI pura); a causa da resposta que não chegou (transporte ou
   host sob o lock — a spec já a deixava fora de escopo); a taxa do sintoma em produção; Windows e
   macOS Intel. Evidência: `docs/evidence/tree-query-retry.md`.
+
+## Sem pin, o projeto resolve o SDK instalado que atende ao TargetFramework (2026-11-08, #289; ticket #302)
+
+- **O que mudou.** `crates/host/src/sdk.rs` ganhou `SdkRequirement` (`source` = `global_json` |
+  `target_framework` | `none`, `version`, `line`, `rollForward`, `allowPrerelease`), `detected` no
+  `ProjectSdk`, a derivação por TFM (`tfm_sdk_line`/`requirement_line`) e a resolução sem pin
+  (`resolve_unpinned`: maior estável que atende, prerelease só quando é o único, maior estável quando
+  não há requisito). `ProjectSdk::no_global_json`/`not_pinned` saíram; no lugar entraram
+  `resolved_unpinned`/`missing_unpinned`. `crates/host/src/lib.rs`: `inspect_project_sdk` deriva a
+  linha de `outline_tfms(&workspace.outline)` quando não há pin (ou quando o `global.json` não declara
+  `sdk.version`) e delega a `resolve_without_pin`; o `detected` é carimbado no `snapshot()` a partir do
+  inventário, então `sdk.redetect` e as versões reportadas nunca discordam. Os gates de
+  evaluation/restore/build/run/debug/test/analysis não mudaram: continuam exigindo `resolved`, e agora
+  existe `resolved` sem pin. UI: `ProjectSdkBody` perdeu os casos `no_global_json`/`not_pinned` e passa
+  a renderizar `requirement` (o host decide, a UI só escreve a frase); `sdkSummary` e a nota
+  `eval-disabled-reason` nomeiam o requisito em vez de culpar o `global.json`. Nenhum `data-testid`
+  removido, nenhuma dependência nova, nenhuma escrita em `global.json`.
+- **Falha-antes medida.** Com `crates/host/src/` do `9b2beb6` e os testes novos de fronteira:
+  `cargo test -p openridr-host --test host -- a_project_without_global_json an_impossible_pin` →
+  2 failed (`left: "no_global_json"`, `right: "resolved"`; e `requirement` = `null`). Com a mudança:
+  2 passed. O mesmo caminho é o que a barra de status e a nota da árvore liam: um projeto `net8.0` sem
+  `global.json` nesta máquina (SDK 8.0.408 e 10.0.403 em `~/.dotnet`) resolve para 10.0.403 e avalia.
+- **Bateria.** `cargo test -p openridr-host`: 639 passed, 0 failed, 70 ignored (479 unit + 113 de
+  `host.rs` + 47 dos outros binários); `--lib sdk::` 23 passed (8 novos: derivação por TFM, multi-TFM,
+  resolução sem pin, prerelease só quando único, mensagem de `sdk_missing`, os três `source` e o
+  camelCase de `requirement`/`detected`). `cargo fmt --all --check` e
+  `cargo clippy --workspace --all-targets -D warnings` limpos; `bunx tsc --noEmit` limpo;
+  `bun test tests/unit` 139 passed. E2E (Chromium, portas 2920/5917):
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts tests/e2e/evaluation.spec.ts` → 11 passed,
+  incluindo o cenário "presente" novo (`fixtures/Net10NoPin/`, sem `global.json`, resolve 10.0.403) e o
+  teste reescrito de `evaluation.spec.ts` (projeto `net8.0` sem pin: sem nota, `status-sdk` com o SDK
+  escolhido, avaliação automática até `Evaluated`).
+- **O helper `trustViaHost` do `sdk-prerequisites.spec.ts` agora espera o setup.** Medido no `9b2beb6`:
+  o spec falhava 2 de 3 na máquina fria (e 3 de 3 com o cenário novo) porque `workspace.close` zera
+  `debugger_experimental`, então o `trust.grant` direto volta `setup_required` até o host rodar o setup
+  de novo — o caminho pela UI espera o gate, o caminho direto não. O helper dispara `setup.start` e
+  espera `app.state.setup.state == "ready"` antes do grant; não é backdoor de teste, é o mesmo método
+  que a tela de setup usa.
+- **Não verificado:** Windows e macOS Intel; app Tauri real (mudança de host + UI pura, coberta por
+  Playwright em modo web); a tela de download do SDK e o "Check again" são dos tickets #303/#304 e não
+  existem aqui; `sdk_missing` sem SDK nenhum instalado não foi exercitado numa máquina sem SDK (só pelo
+  teste unitário de `resolve_unpinned` com `installs` vazio).
+
+## Requisito explícito e ação Baixar SDK quando nenhum SDK instalado atende (2026-11-08, #289; ticket #303)
+
+- **O que mudou.** `crates/host/src/sdk.rs` ganhou `SdkDownload` (`url`, `fallbackUrl`, `label`) e
+  `download_for(requirement, os, arch)`, uma função pura que monta as três formas sem rede: pin com
+  versão → o patch exato em `builds.dotnet.microsoft.com` mais a página da linha como alternativa; só
+  linha (TFM) → o `aka.ms` da linha mais a página da linha; sem requisito → a página geral de SDKs, com
+  `fallbackUrl` nulo e sem versão no rótulo. `installer_target` traduz `std::env::consts::OS`/`ARCH`
+  (a mesma fonte de `app.platform`/`app.arch`) para o nome do instalador — `osx|linux|win`,
+  `arm64|x64|x86|arm`, `pkg|tar.gz|exe` — e devolve `None` para plataforma desconhecida, que cai na
+  página geral em vez de inventar URL. `ProjectSdk` ganhou `download` e todo construtor o deriva do
+  próprio `requirement`, então o campo nunca discorda do requisito. UI: `src/welcome/ProjectSdkDownload.tsx`
+  é o bloco único que a nota da árvore e o card "Project SDK" renderizam — requisito (origem, versão ou
+  linha, `rollForward`), versões detectadas ("No SDK detected" quando a lista está vazia), a mensagem do
+  host, a ação (`download.label` → `download.url`), o `fallbackUrl` como link secundário, o aviso de que
+  nada é instalado e o "Open global.json". A barra de status continua sem link: `sdkSummary` passou a
+  dizer o requisito **e** as versões detectadas (`Project SDK missing (global.json requests 8.0.999) ·
+  detected: 8.0.408, 10.0.403`), porque é uma linha só e o link vive nas duas superfícies que o comportam.
+- **Testids.** Preservados `sdk-project-message`, `sdk-open-global-json`, `eval-redetect`,
+  `eval-sdk-download`, `eval-open-global-json`, `status-sdk`, `welcome-sdk-warning`, `sdk-project`,
+  `sdk-host`, `sdk-host-instructions`. O bloco é um só mas cada superfície mantém o seu contrato: a
+  prop `surface` ("tree" | "toolchain") escolhe `eval-sdk-download`/`eval-open-global-json` ou
+  `sdk-download`/`sdk-open-global-json`, num mapa no topo do arquivo. Novos: `sdk-requirement`,
+  `sdk-detected` e `sdk-download-fallback` (o link da linha, presente nas duas superfícies).
+- **Falha-antes medida.** Com `src/` e `crates/host/src/` do `08ea6db` (só o spec novo no lugar),
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts` → 2 failed, 3 passed: o cenário
+  "incompatível" morre em `TypeError: Cannot read properties of undefined (reading 'label')` (o snapshot
+  não tem `download`) e o "ausente" recebe a nota antiga (`global.json requests 8.0.999. OpenRidr detects
+  SDKs but never installs one.` + `Official .NET SDK downloads`), sem "No SDK detected". Com a mudança:
+  5 passed.
+- **Bateria.** `cargo test -p openridr-host`: 644 passed, 0 failed, 70 ignored (484 unit + 113 de
+  `host.rs` + 47 dos outros binários); `--lib sdk::` 28 passed (5 novos: as três formas de URL, o mapa
+  os/arch/ext com plataforma desconhecida caindo na página geral, e o `download` em camelCase no
+  snapshot `sdk_missing`). `cargo fmt --all --check` e
+  `cargo clippy --workspace --all-targets -- -D warnings` limpos; `bunx tsc --noEmit` limpo;
+  `bun test tests/unit` 139 passed. E2E (Chromium, portas 2920/5917):
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts` → 5 passed, incluindo o "ausente" pelo
+  overlay de `data.sdk.project` (`detected: []`, mensagem com `detected: none`, o mesmo shape que o host
+  produz para o pin do `fixtures/MissingSdk` com `installs` vazio) e o "incompatível" agora afirmando o
+  patch exato, a página da linha e as versões detectadas nas três superfícies.
+  `medium-editor-state.spec.ts -g b13` → 1 passed.
+- **Dois specs alheios ajustados porque a mudança quebrava a asserção deles.** O link de download da nota
+  passou de `instructionsUrl` (página geral) para o patch exato por desenho, então
+  `medium-editor-state.spec.ts` (b13) e `trust-sdk.spec.ts` (cenário do `sdk_missing`) passaram a afirmar
+  `/Sdk/8.0.999/dotnet-sdk-8.0.999-` em vez da página geral e do texto "Official .NET SDK downloads".
+  O b13 roda verde; `trust-sdk.spec.ts` **já falhava 3 de 3 no `08ea6db`** (`eval-configuration` não
+  existe na árvore depois do trust), então a asserção trocada ali não foi exercitada num run verde.
+- **Não verificado:** Windows e macOS Intel (o mapa os/arch/ext é unitário; nenhum instalador dessas
+  plataformas foi aberto); uma máquina real sem SDK nenhum instalado — o cenário "ausente" é o overlay
+  do snapshot, com o shape guardado pelo teste unitário; app Tauri real (host + UI pura, coberto por
+  Playwright em modo web); o "Check again" é do #304 e não existe aqui.
+
+## Check again: nova detecção e reavaliação sem reiniciar o app (2026-11-08, #289; ticket #304)
+
+- **O que mudou.** `crates/host/src/run.rs` ganhou `Run::mark_stale(reason)`: marca `stale` e
+  `stale_reason` (só se ainda não havia um) e **não** cancela nem sela — `seal` continua sendo a
+  fronteira que para o processo. `crates/host/src/lib.rs`: `redetect_sdks` passou a marcar o `run`
+  stale com a mesma família de mensagens dos outros registros ("SDK inventory refreshed; this program
+  ran on another toolchain."), então build/run/testes feitos com o toolchain anterior ficam
+  desatualizados sem que o redetect mate o processo que o usuário iniciou. UI:
+  `src/welcome/ProjectSdkDownload.tsx` (o bloco único da nota da árvore e do card "Project SDK")
+  ganhou o botão `data-testid="sdk-check-again"` ("Check again"), que chama o `sdk.redetect`
+  existente pela prop `onCheckAgain`; `ProjectSdkBody` e `ToolchainView` repassam a ação, e a nota da
+  árvore usa o `redetectSdks()` que já existia. `eval-redetect` (contrato) continua onde estava: na
+  nota da árvore há dois botões para a mesma detecção, de propósito.
+- **Reavaliação na transição.** `redetectSdks()` compara `projectSdk.state` **antes** com o
+  `next.sdk.project.state` **depois** da chamada e, só quando foi `sdk_missing` → `resolved`, chama
+  `runEvaluation({ contextId: next.contextId })`. Nada observa o snapshot por efeito: um re-render não
+  reavalia, e um segundo clique já vê `resolved` e não dispara nada. O `contextId` novo é o que impede
+  a avaliação automática de `useEvaluationFlow` (efeito de primeira avaliação por contexto) de rodar
+  a mesma avaliação uma segunda vez — `autoEvaluation.current` passa a ser carimbado também pelo
+  caminho explícito. Requisito ainda não atendido: nada é avaliado e o bloco segue com o requisito, as
+  versões detectadas e a mensagem do host.
+- **Falha-antes medida (host).** Com o `run.mark_stale` fora do `redetect_sdks` e o teste novo no
+  lugar, `cargo test -p openridr-host --test host -- redetect_keeps_the_old_toolchain` →
+  1 failed: `run is not stale: {… "stale":false …}`. Com a mudança: 1 passed em 4,91 s (projeto de
+  console real: evaluate → restore → evaluate → build ok → run `exited` `stale:false`; `global.json`
+  trocado para o pin impossível `99.0.1` → redetect → `sdk_missing`; trocado de volta para `8.0.408`
+  → redetect → `resolved` com `build` e `run` `stale` e `staleReason` "SDK inventory refreshed", o
+  `run` ainda `exited` e `sealed:false`).
+- **Falha-antes medida (UI).** Sem o carimbo de `autoEvaluation.current` em `runEvaluation`, o cenário
+  novo do Playwright falha em `expect(evaluations).toHaveLength(1)` com
+  `Expected length: 1 / Received length: 2 / Received array: ["evaluation.run", "evaluation.run"]` — a
+  avaliação explícita e a automática do mesmo contexto. Com o carimbo: 7 passed.
+- **Bateria.** `cargo test -p openridr-host`: 646 passed, 0 failed, 70 ignored (485 unit + 114 de
+  `host.rs` + 47 dos outros binários); `--lib -- run::tests` 18 passed (1 novo: `mark_stale` rotula um
+  programa `running` sem cancelar/selar e não toca registro com `revision == 0`).
+  `cargo fmt --all` aplicado; `cargo clippy --workspace --all-targets -- -D warnings` limpo;
+  `bunx tsc --noEmit` limpo; `bun test tests/unit` 139 passed. E2E (Chromium, portas 2920/5917):
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts` → 7 passed (2 novos: o clique em
+  `fixtures/MissingSdk` mantendo requisito e versões detectadas nas duas superfícies, e a transição
+  real — `global.json` do fixture reescrito para `8.0.408` e restaurado no `finally` — com 1
+  `evaluation.run`, `resolved`, `evaluation.state: "ok"` e a árvore aparecendo);
+  `tests/e2e/evaluation.spec.ts` → 7 passed (regressão do fluxo de avaliação automática).
+- **Não verificado:** `tests`/`test_run` stale com registro real — os dois `mark_stale` do
+  `redetect_sdks` já existiam desde o #302 e o teste de fronteira cobre `build` e `run`; exercitar
+  descoberta/run de teste exigiria um projeto de teste restaurado com pacotes de adaptador (rede) e
+  não foi feito. Windows e macOS Intel; app Tauri real (host + UI pura, coberto por Playwright em modo
+  web); a transição no card do Toolchain roda `evaluation.run` direto (sem o fluxo de run
+  configurations, que só existe no workspace) e foi verificada só pelo clique "ainda não atendido" —
+  o caminho com transição ali não foi exercitado.

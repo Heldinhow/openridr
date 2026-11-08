@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page, type Request } from "@playwright/test";
+import fs from "node:fs";
 import path from "node:path";
 import { host } from "./environment";
 import { openToolchain } from "./disclosures";
@@ -7,6 +8,8 @@ import { openToolchain } from "./disclosures";
 // .NET 10 runtime that runs csharp-ls. The host decides; these tests read the rendered answer.
 const solution = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
 const missingProject = path.resolve("fixtures/MissingSdk/MissingSdk.csproj");
+// A net10.0 project with no global.json: the TargetFramework is the SDK requirement.
+const net10NoPin = path.resolve("fixtures/Net10NoPin/Net10NoPin.csproj");
 
 // Mirrors sdk::AnalysisRuntime::from_runtimes(&[]) (crates/host/src/sdk.rs, guarded by a unit
 // test). A real runtime-10 root cannot be hidden from the shared E2E host, so the snapshot is
@@ -21,9 +24,32 @@ const missingRuntime = {
     "No .NET 10 runtime (Microsoft.NETCore.App) was found in the detected roots. C# analysis needs that runtime; the project SDK is separate and is never used as a substitute.",
 };
 
+// Mirrors ProjectSdk::missing(&request, resolve(..., installs = [])) for the MissingSdk pin
+// (crates/host/src/sdk.rs, guarded by a unit test): no SDK in any root. A machine without an SDK
+// cannot be produced here, so the snapshot is overlaid after the host response.
+const noSdkInstalled = {
+  detected: [],
+  message:
+    "No detected .NET SDK satisfies global.json version 8.0.999 with rollForward disable (detected: none). OpenRidr does not rewrite global.json and does not substitute the .NET 10 analysis runtime.",
+};
+
+// The installer extension the host appends for this platform.
+const extension =
+  process.platform === "darwin" ? "pkg" : process.platform === "win32" ? "exe" : "tar.gz";
+
 async function call(request: APIRequestContext, method: string, params: object = {}) {
   const response = await request.post(`${host}/call`, { data: { method, params } });
   return (await response.json()) as { ok: boolean; data: any };
+}
+
+/** The click has to reach the host: the assertions after it would hold on a button that does nothing. */
+function isRedetect(request: Request) {
+  if (!request.url().endsWith("/__host/call")) return false;
+  try {
+    return (request.postDataJSON() as { method?: string } | null)?.method === "sdk.redetect";
+  } catch {
+    return false;
+  }
 }
 
 async function openViaHost(page: Page, target: string) {
@@ -33,7 +59,20 @@ async function openViaHost(page: Page, target: string) {
   await page.goto("/");
 }
 
+async function setupState(page: Page) {
+  const response = await page.request.post(`${host}/call`, {
+    data: { method: "app.state", params: {} },
+  });
+  return ((await response.json()) as { data: { setup: { state: string } } }).data.setup.state;
+}
+
 async function trustViaHost(page: Page) {
+  // A workspace opened through the host does not run the setup gate, and the direct grant is
+  // refused until the host reports the verified tools ready.
+  if ((await setupState(page)) !== "ready") {
+    await page.request.post(`${host}/call`, { data: { method: "setup.start", params: {} } });
+    await expect.poll(() => setupState(page), { timeout: 120_000 }).toBe("ready");
+  }
   await page.request.post(`${host}/call`, {
     data: { method: "trust.grant", params: { remember: false } },
   });
@@ -49,6 +88,41 @@ async function overlayMissingRuntime(page: Page) {
     const response = await route.fetch();
     const body = await response.json();
     if (body?.data?.sdk?.host) body.data.sdk.host = missingRuntime;
+    await route.fulfill({
+      status: response.status(),
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+}
+
+// The reload lands on the welcome screen; the form's Open is what moves the app into the IDE, and
+// a fresh open asks for the Trust decision again (the host grant is per open).
+async function enterWorkspace(page: Page, target: string) {
+  await page.getByTestId("workspace-path-input").fill(target);
+  await page.getByTestId("workspace-open").click();
+  const prompt = page.getByTestId("trust-prompt-dialog");
+  await prompt.or(page.getByTestId("tree")).first().waitFor();
+  if (await prompt.isVisible()) await page.getByTestId("trust-prompt-trust").click();
+  await expect(page.getByTestId("tree")).toBeVisible();
+}
+
+async function overlayNoSdk(page: Page) {
+  await page.route("**/__host/call", async (route) => {
+    const method = (route.request().postDataJSON() as { method?: string } | null)?.method;
+    if (
+      method !== "app.state" &&
+      method !== "workspace.state" &&
+      method !== "workspace.open" &&
+      method !== "sdk.redetect"
+    ) {
+      return route.continue();
+    }
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body?.data?.sdk?.project) {
+      body.data.sdk.project = { ...body.data.sdk.project, ...noSdkInstalled };
+    }
     await route.fulfill({
       status: response.status(),
       contentType: "application/json",
@@ -82,25 +156,223 @@ test("a project pinned to SDK 8.0.408 with the .NET 10 runtime shows no prerequi
   await expect(page.getByTestId("sdk-project")).toContainText("global.json requests 8.0.408");
 });
 
-test("a missing project SDK names the pinned version and links the SDK page, never the runtime", async ({
+test("a net10 project without global.json resolves the installed SDK 10", async ({
+  page,
+  request,
+}) => {
+  await openViaHost(page, net10NoPin);
+  const opened = await call(request, "workspace.state");
+  const detected: string[] = opened.data.sdk.project.detected;
+  // `net10.0` asks for SDK 10 or newer, so a newer stable satisfies it too.
+  test.skip(
+    !detected.some((version) => Number(version.split(".")[0]) >= 10),
+    "this machine has no SDK 10 or newer; a net10.0 project cannot resolve here",
+  );
+  await trustViaHost(page);
+
+  const state = await call(request, "workspace.state");
+  const project = state.data.sdk.project;
+  expect(project.state).toBe("resolved");
+  expect(project.requirement.source).toBe("target_framework");
+  expect(project.requirement.line).toBe("10.0");
+  expect(project.requirement.version).toBeNull();
+  expect(project.globalJsonPath).toBeNull();
+  expect(project.requestedVersion).toBeNull();
+  expect(Number(project.resolvedVersion.split(".")[0])).toBeGreaterThanOrEqual(10);
+  expect(project.detected).toContain(project.resolvedVersion);
+  expect(project.message).toBeNull();
+
+  await expect(page.getByTestId("welcome-sdk-warning")).toHaveCount(0);
+  await openToolchain(page);
+  const card = page.getByTestId("sdk-project");
+  await expect(card).toContainText(`SDK ${project.resolvedVersion}`);
+  await expect(card).toContainText("requires SDK 10.0 or newer");
+  // Nothing is missing, so nothing complains about global.json.
+  await expect(card).not.toContainText("No global.json");
+  await expect(card).not.toContainText("Project SDK missing");
+});
+
+test("a missing project SDK names the pinned version and links the exact patch, never the runtime", async ({
   page,
   request,
 }) => {
   await openViaHost(page, missingProject);
   await trustViaHost(page);
-  await openToolchain(page);
-
-  const project = page.getByTestId("sdk-project");
-  await expect(project).toContainText("Project SDK missing");
-  await expect(project).toContainText("global.json requests 8.0.999");
-  await expect(project).not.toContainText("SDK 10");
-  await expect(project).not.toContainText(".NET 10 runtime was found");
-  const link = project.getByRole("link", { name: "Official .NET SDK downloads" });
-  await expect(link).toHaveAttribute("href", "https://dotnet.microsoft.com/download/dotnet");
+  await enterWorkspace(page, missingProject);
 
   const state = await call(request, "workspace.state");
-  expect(state.data.sdk.project.state).toBe("sdk_missing");
-  expect(state.data.sdk.project.requestedVersion).toBe("8.0.999");
+  const sdk = state.data.sdk.project;
+  expect(sdk.state).toBe("sdk_missing");
+  expect(sdk.requestedVersion).toBe("8.0.999");
+  // The pin names a version: the exact patch, with the line page as the way out of a dead patch.
+  expect(sdk.download.label).toBe("Download SDK 8.0.999");
+  expect(sdk.download.url).toContain("/Sdk/8.0.999/dotnet-sdk-8.0.999-");
+  expect(sdk.download.url.endsWith(`.${extension}`)).toBe(true);
+  expect(sdk.download.fallbackUrl).toBe("https://dotnet.microsoft.com/download/dotnet/8.0");
+  const detected = sdk.detected.length > 0 ? `Detected SDKs: ${sdk.detected.join(", ")}` : "No SDK detected";
+
+  // The tree note carries the requirement, the detected versions and both links.
+  const reason = page.getByTestId("eval-disabled-reason");
+  await expect(reason).toContainText("global.json requests 8.0.999");
+  await expect(reason).toContainText("rollForward disable");
+  await expect(reason).toContainText(detected);
+  await expect(reason).not.toContainText("SDK 10");
+  await expect(reason).not.toContainText(".NET 10 runtime was found");
+  await expect(page.getByTestId("eval-sdk-download")).toHaveAttribute("href", sdk.download.url);
+  await expect(page.getByTestId("sdk-download-fallback")).toHaveAttribute(
+    "href",
+    "https://dotnet.microsoft.com/download/dotnet/8.0",
+  );
+  // The bar is one line and holds no link: it names the requirement and the detected versions.
+  await expect(page.getByTestId("status-sdk")).toContainText("global.json requests 8.0.999");
+  await expect(page.getByTestId("status-sdk")).toContainText(
+    `detected: ${sdk.detected.join(", ") || "none"}`,
+  );
+  // The third surface: the same block, in the status popover, with both actions.
+  await page.getByTestId("status-mode").click();
+  const popover = page.getByTestId("status-mode-popover");
+  await expect(popover.getByTestId("status-sdk-requirement")).toContainText(
+    "global.json requests 8.0.999",
+  );
+  await expect(popover.getByTestId("status-sdk-detected")).toContainText(detected);
+  await expect(popover.getByTestId("status-sdk-download")).toHaveAttribute(
+    "href",
+    sdk.download.url,
+  );
+  await expect(popover.getByTestId("status-sdk-check-again")).toBeVisible();
+  await expect(popover.getByTestId("status-sdk-open-global-json")).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // The Toolchain card lives in the welcome view; a reload lands there with the workspace still open.
+  await page.reload();
+  await openToolchain(page);
+  const card = page.getByTestId("sdk-project");
+  await expect(card).toContainText("Project SDK missing");
+  await expect(card).toContainText("global.json requests 8.0.999");
+  await expect(card).toContainText(detected);
+  await expect(card).not.toContainText("SDK 10");
+  await expect(card).not.toContainText(".NET 10 runtime was found");
+  await expect(page.getByTestId("sdk-download")).toHaveAttribute("href", sdk.download.url);
+  await expect(page.getByTestId("sdk-download-fallback")).toHaveAttribute(
+    "href",
+    "https://dotnet.microsoft.com/download/dotnet/8.0",
+  );
+});
+
+test("with no SDK installed at all the block says so and still links the download", async ({
+  page,
+}) => {
+  await openViaHost(page, missingProject);
+  await overlayNoSdk(page);
+  await trustViaHost(page);
+  await enterWorkspace(page, missingProject);
+
+  const reason = page.getByTestId("eval-disabled-reason");
+  await expect(reason).toContainText("global.json requests 8.0.999");
+  // "No SDK installed" and "the installed ones do not satisfy" differ by the message, not a state.
+  await expect(reason).toContainText("No SDK detected");
+  await expect(reason).toContainText("detected: none");
+  await expect(page.getByTestId("eval-sdk-download")).toHaveAttribute(
+    "href",
+    /\/Sdk\/8\.0\.999\/dotnet-sdk-8\.0\.999-/,
+  );
+  await expect(page.getByTestId("sdk-download-fallback")).toHaveAttribute(
+    "href",
+    "https://dotnet.microsoft.com/download/dotnet/8.0",
+  );
+  await expect(page.getByTestId("status-sdk")).toContainText("detected: none");
+
+  await page.reload();
+  await openToolchain(page);
+  const card = page.getByTestId("sdk-project");
+  await expect(card).toContainText("Project SDK missing");
+  await expect(card).toContainText("global.json requests 8.0.999");
+  await expect(card).toContainText("No SDK detected");
+  await expect(page.getByTestId("sdk-download")).toHaveAttribute(
+    "href",
+    /\/Sdk\/8\.0\.999\/dotnet-sdk-8\.0\.999-/,
+  );
+});
+
+test("Check again repeats the detection and keeps the requirement when it is still unmet", async ({
+  page,
+  request,
+}) => {
+  await openViaHost(page, missingProject);
+  await trustViaHost(page);
+  await enterWorkspace(page, missingProject);
+
+  const detected = (await call(request, "workspace.state")).data.sdk.project.detected;
+  const detectedLine = detected.length > 0 ? `Detected SDKs: ${detected.join(", ")}` : "No SDK detected";
+  const reason = page.getByTestId("eval-disabled-reason");
+  await expect(reason).toContainText("global.json requests 8.0.999");
+  await expect(reason).toContainText(detectedLine);
+
+  // The click is the only trigger: nothing watches the disk, so the same inventory comes back.
+  const treeRedetect = page.waitForRequest(isRedetect);
+  await page.getByTestId("sdk-check-again").click();
+  await treeRedetect;
+  await expect(reason).toContainText("global.json requests 8.0.999");
+  await expect(reason).toContainText(detectedLine);
+  await expect(page.getByTestId("sdk-project-message")).toContainText("8.0.999");
+  // Still unmet: nothing was evaluated, so the tree stays unavailable.
+  expect((await call(request, "workspace.state")).data.evaluation.revision).toBe(0);
+
+  // The Toolchain card carries the same action; a reload lands on the welcome view.
+  await page.reload();
+  await openToolchain(page);
+  const card = page.getByTestId("sdk-project");
+  const cardRedetect = page.waitForRequest(isRedetect);
+  await page.getByTestId("sdk-check-again").click();
+  await cardRedetect;
+  await expect(card).toContainText("Project SDK missing");
+  await expect(card).toContainText("global.json requests 8.0.999");
+  await expect(card).toContainText(detectedLine);
+  expect((await call(request, "workspace.state")).data.evaluation.revision).toBe(0);
+});
+
+test("Check again evaluates once when the installed SDK now satisfies the requirement", async ({
+  page,
+  request,
+}) => {
+  await openViaHost(page, missingProject);
+  await trustViaHost(page);
+  await enterWorkspace(page, missingProject);
+  const opened = (await call(request, "workspace.state")).data;
+  expect(opened.sdk.project.state).toBe("sdk_missing");
+  test.skip(
+    !opened.sdk.project.detected.includes("8.0.408"),
+    "this machine has no SDK 8.0.408; the pin cannot become satisfiable here",
+  );
+
+  const evaluations: string[] = [];
+  await page.route("**/__host/call", async (route) => {
+    const method = (route.request().postDataJSON() as { method?: string } | null)?.method;
+    if (method === "evaluation.run") evaluations.push(method);
+    await route.continue();
+  });
+
+  // Installing the SDK is what the user does outside the app; the pin now names an installed one.
+  const globalJson = path.resolve("fixtures/MissingSdk/global.json");
+  const original = fs.readFileSync(globalJson, "utf8");
+  try {
+    fs.writeFileSync(
+      globalJson,
+      `${JSON.stringify({ sdk: { version: "8.0.408", rollForward: "disable" } }, null, 2)}\n`,
+    );
+    await page.getByTestId("sdk-check-again").click();
+    // The transition evaluates by itself: the note goes away and the tree appears.
+    await expect(page.getByTestId("eval-disabled-reason")).toHaveCount(0);
+    await expect(page.getByTestId("tree")).toContainText("MissingSdk");
+    expect(evaluations).toHaveLength(1);
+    const resolved = (await call(request, "workspace.state")).data;
+    expect(resolved.sdk.project.state).toBe("resolved");
+    expect(resolved.sdk.project.resolvedVersion).toBe("8.0.408");
+    expect(resolved.evaluation.state).toBe("ok");
+    expect(resolved.evaluation.revision).toBe(1);
+  } finally {
+    fs.writeFileSync(globalJson, original);
+  }
 });
 
 test("a missing .NET 10 runtime asks for the runtime, not SDK 10", async ({ page, request }) => {

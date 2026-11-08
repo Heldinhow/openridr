@@ -205,9 +205,10 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   await expect(page.getByTestId("sdk-project")).toContainText("8.0.999");
   await expect(page.getByTestId("sdk-project")).toContainText("rollForward disable");
   await expect(page.getByTestId("sdk-project")).not.toContainText("resolved after trust");
-  await expect(
-    page.getByTestId("sdk-project").getByRole("link", { name: "Official .NET SDK downloads" }),
-  ).toBeVisible();
+  await expect(page.getByTestId("sdk-download")).toHaveAttribute(
+    "href",
+    /\/Sdk\/8\.0\.999\/dotnet-sdk-8\.0\.999-/,
+  );
   const state = await request.post(`${host}/call`, {
     data: { method: "workspace.state", params: {} },
   });

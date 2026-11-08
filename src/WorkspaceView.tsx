@@ -57,6 +57,7 @@ import { MidText } from "./shell/MidText";
 import { StatusBar } from "./shell/StatusBar";
 import { ToolbarMenu } from "./shell/ToolbarMenu";
 import { ToolWindowBand } from "./shell/ToolWindowBand";
+import { ProjectSdkDownload } from "./welcome/ProjectSdkDownload";
 import { FindAction, type SearchTab } from "./actions/FindAction";
 import { FindInFiles } from "./FindInFiles";
 import { RecentFilesDialog } from "./RecentFilesDialog";
@@ -2497,12 +2498,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   async function redetectSdks() {
+    const wasMissing = projectSdk.state === "sdk_missing";
     try {
-      onSnapshot(await call<Snapshot>("sdk.redetect"));
+      const next = await call<Snapshot>("sdk.redetect");
+      onSnapshot(next);
       setMessage({
         tone: "info",
         text: "SDK inventory refreshed. No project file was read or written by the detection.",
       });
+      // The transition is compared before and after this call, never watched: a re-render (or a
+      // second click that sees `resolved` already) cannot evaluate again.
+      if (wasMissing && next.sdk.project.state === "resolved") {
+        await runEvaluation({ contextId: next.contextId });
+      }
     } catch (error) {
       setMessage({ tone: "error", text: `SDK detection failed: ${messageOf(error)}` });
     }
@@ -3512,7 +3520,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       disabledReason:
         projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json"
           ? null
-          : "global.json is valid or no project SDK is pinned.",
+          : "There is no global.json problem to open.",
     }),
     define({
       id: "workspace.close",
@@ -4131,20 +4139,25 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     }
   }
 
+  // The bar is one line and holds no link: it names the requirement and the detected versions,
+  // and the download action lives in the tree note and the Toolchain card.
+  const sdkRequirement =
+    projectSdk.requirement.source === "global_json"
+      ? `global.json requests ${projectSdk.requirement.version ?? "a pinned SDK"}`
+      : projectSdk.requirement.line
+        ? `TargetFramework requires SDK ${projectSdk.requirement.line} or newer`
+        : "no SDK requirement";
+  const sdkDetected = projectSdk.detected.length > 0 ? projectSdk.detected.join(", ") : "none";
   const sdkSummary = `Analysis runtime ${
     snapshot.sdk.host.state === "found" ? snapshot.sdk.host.version : "missing"
   } · ${
     projectSdk.state === "resolved"
       ? `Project SDK ${projectSdk.resolvedVersion}`
       : projectSdk.state === "sdk_missing"
-        ? `Project SDK missing (${projectSdk.requestedVersion ?? "pinned"})`
+        ? `Project SDK missing (${sdkRequirement}) · detected: ${sdkDetected}`
         : projectSdk.state === "not_inspected"
           ? "Project SDK not inspected"
-          : projectSdk.state === "no_global_json"
-            ? "No pinned project SDK"
-            : projectSdk.state === "not_pinned"
-              ? "Project SDK not pinned"
-              : "Project SDK unresolved"
+          : "Project SDK unresolved"
   }`;
 
   const allDiagnostics = collectDiagnostics(snapshot.diagnostics, build, buildObsolete, editedAt);
@@ -4648,36 +4661,22 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                 </p>
               ) : projectSdk.state === "sdk_missing" ? (
                 <>
-                  <p>
-                    {projectSdk.globalJsonPath ?? "global.json"} requests{" "}
-                    {projectSdk.requestedVersion ?? "a pinned SDK"}. OpenRidr detects SDKs but
-                    never installs one or substitutes the .NET 10 analysis runtime. Install that
-                    SDK (or change global.json) and redetect.
-                  </p>
+                  <ProjectSdkDownload
+                    project={projectSdk}
+                    surface="tree"
+                    onOpenGlobalJson={openGlobalJson}
+                    onCheckAgain={() => void redetectSdks()}
+                  />
                   <div className="actions">
                     <button data-testid="eval-redetect" onClick={() => void redetectSdks()}>
                       Redetect SDKs
                     </button>
-                    <a
-                      data-testid="eval-sdk-download"
-                      href={projectSdk.instructionsUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                    >
-                      Official .NET SDK downloads
-                    </a>
-                    {projectSdk.globalJsonPath && (
-                      <button data-testid="eval-open-global-json" onClick={openGlobalJson}>
-                        Open global.json
-                      </button>
-                    )}
                   </div>
                 </>
               ) : (
                 <p>
                   {projectSdk.message ?? "No project SDK is resolved."} Evaluation, build and run
-                  need a project SDK from global.json or the declared TargetFramework; fix or add
-                  global.json.
+                  need a resolved project SDK.
                 </p>
               )}
             </div>
@@ -5436,6 +5435,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         snapshot={snapshot}
         onSnapshot={onSnapshot}
         sdkSummary={sdkSummary}
+        sdk={{
+          project: projectSdk,
+          onOpenGlobalJson: openGlobalJson,
+          onCheckAgain: () => void redetectSdks(),
+        }}
         evaluation={{ ...evaluationStatus, reevaluate: evaluationRun }}
         partial={partialWorkspace}
         restore={{

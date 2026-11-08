@@ -268,8 +268,9 @@ test("a solution with no projects blames the file, not the SDK", async ({ page }
   }
 });
 
-test("a workspace without global.json shows the host's reason, not a fixed SDK line", async ({
+test("a workspace without global.json resolves the SDK its TargetFramework needs", async ({
   page,
+  request,
 }) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-eval-"));
   const project = path.join(base, "App.csproj");
@@ -281,12 +282,30 @@ test("a workspace without global.json shows the host's reason, not a fixed SDK l
     await openWorkspace(page, project);
     await trustWorkspace(page);
     await enterWorkspace(page);
-    const reason = page.getByTestId("eval-disabled-reason");
-    await expect(reason).toContainText("No global.json at the workspace root");
-    await expect(reason).toContainText("TargetFramework");
-    await expect(reason).toContainText("fix or add global.json");
-    await expect(reason).not.toContainText("host SDK");
-    await expect(reason).not.toContainText("SDK 10");
+    const state = (await (
+      await request.post(`${host}/call`, {
+        data: { method: "workspace.state", params: {} },
+      })
+    ).json()) as { data: any };
+    const sdk = state.data.sdk.project;
+    // Skip on the inventory, never on the outcome: a regression that fails to resolve must fail here.
+    test.skip(
+      !sdk.detected.some((version: string) => Number(version.split(".")[0]) >= 8),
+      "this machine has no SDK 8 or newer; a net8.0 project cannot resolve here",
+    );
+    expect(sdk.state).toBe("resolved");
+
+    // No pin: the host derives the requirement from the TargetFramework and picks the SDK.
+    expect(sdk.requirement.source).toBe("target_framework");
+    expect(sdk.requirement.line).toBe("8.0");
+    expect(sdk.globalJsonPath).toBeNull();
+    expect(sdk.requestedVersion).toBeNull();
+    await expect(page.getByTestId("status-sdk")).toContainText(
+      `Project SDK ${sdk.resolvedVersion}`,
+    );
+    // Nothing is missing, so the tree note is gone and nothing blames global.json.
+    await expect(page.getByTestId("eval-disabled-reason")).toHaveCount(0);
+    await waitForEvaluation(page);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

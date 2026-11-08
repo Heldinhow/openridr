@@ -18,11 +18,19 @@ fn fixture() -> PathBuf {
 }
 
 fn temp_workspace(projects: &[&str]) -> tempfile::TempDir {
+    temp_workspace_with_tfm(projects, "net8.0")
+}
+
+/// `net99.0` asserts an SDK line no machine installs, so the requirement is unsatisfiable
+/// everywhere; `net8.0` (the default above) resolves against whatever SDK is installed.
+fn temp_workspace_with_tfm(projects: &[&str], tfm: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     for name in projects {
         fs::write(
             dir.path().join(name),
-            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n",
+            format!(
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>{tfm}</TargetFramework></PropertyGroup></Project>\n"
+            ),
         )
         .unwrap();
         let stem = name.trim_end_matches(".csproj");
@@ -1006,7 +1014,8 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     );
 
     let host = support::host();
-    let workspace = temp_workspace(&["Gate.csproj"]);
+    // No global.json and a TFM no installed SDK satisfies: the gate must still refuse.
+    let workspace = temp_workspace_with_tfm(&["Gate.csproj"], "net99.0");
     let opened = open(&host, &workspace.path().join("Gate.csproj"));
     assert_eq!(opened["trust"]["granted"], false);
     assert_eq!(opened["trust"]["decidedAt"], Value::Null);
@@ -1026,7 +1035,12 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     assert!(trusted["trust"]["decidedAt"].as_u64().is_some());
     assert_eq!(trusted["trust"]["workspaceId"], trusted["workspace"]["id"]);
     assert_eq!(trusted["workspace"]["mode"], "trusted");
-    assert_eq!(trusted["sdk"]["project"]["state"], "no_global_json");
+    assert_eq!(trusted["sdk"]["project"]["state"], "sdk_missing");
+    assert_eq!(
+        trusted["sdk"]["project"]["requirement"]["source"],
+        "target_framework"
+    );
+    assert_eq!(trusted["sdk"]["project"]["requirement"]["line"], "99.0");
 
     for method in EXECUTABLE_METHODS.iter().filter(|method| {
         **method != "processes.probe"
@@ -1079,7 +1093,7 @@ fn trust_grant_needs_an_open_workspace_and_gates_every_direct_call() {
     }
     assert_eq!(
         error_code(host.dispatch("evaluation.run", json!({}))),
-        "invalid_state",
+        "sdk_missing",
         "evaluation.run needs a resolved project SDK"
     );
     assert_eq!(
@@ -1582,13 +1596,99 @@ fn project_sdk_missing_keeps_a_distinct_state_and_does_not_rewrite_global_json()
 }
 
 #[test]
+fn a_project_without_global_json_resolves_the_installed_sdk_and_evaluates() {
+    let host = support::host();
+    let workspace = temp_workspace(&["NoPin.csproj"]);
+    open(&host, &workspace.path().join("NoPin.csproj"));
+    let trusted = grant(&host);
+    let project = &trusted["sdk"]["project"];
+
+    assert_eq!(project["state"], "resolved");
+    assert_eq!(project["requirement"]["source"], "target_framework");
+    assert_eq!(project["requirement"]["line"], "8.0");
+    assert_eq!(project["requirement"]["version"], Value::Null);
+    assert_eq!(project["globalJsonPath"], Value::Null);
+    assert_eq!(project["requestedVersion"], Value::Null);
+    assert_eq!(project["rollForward"], Value::Null);
+    assert_eq!(project["allowPrerelease"], Value::Null);
+    assert!(project["resolvedVersion"].as_str().is_some());
+    assert!(project["root"].as_str().is_some());
+    assert!(project["sdkPath"].as_str().is_some());
+    assert_eq!(project["message"], Value::Null);
+
+    let detected: Vec<&str> = project["detected"]
+        .as_array()
+        .expect("detected is an array")
+        .iter()
+        .map(|version| version.as_str().expect("a version string"))
+        .collect();
+    assert!(!detected.is_empty(), "a resolved SDK implies an install");
+    let versions: Vec<sdk::Version> = detected
+        .iter()
+        .map(|version| sdk::Version::parse(version).unwrap())
+        .collect();
+    assert!(
+        versions.windows(2).all(|pair| pair[0] >= pair[1]),
+        "detected is highest first: {detected:?}"
+    );
+
+    // The gates only demand `resolved`, so the evaluation now runs with no pin at all.
+    let evaluated = host
+        .dispatch("evaluation.run", json!({}))
+        .expect("a project without global.json evaluates");
+    assert_eq!(
+        evaluated["evaluation"]["state"], "ok",
+        "{}",
+        evaluated["evaluation"]["log"]
+    );
+    assert_eq!(
+        evaluated["evaluation"]["projects"][0]["tfms"],
+        json!(["net8.0"])
+    );
+}
+
+#[test]
+fn an_impossible_pin_stays_sdk_missing_with_requirement_and_detected() {
+    let host = support::host();
+    let workspace = temp_workspace(&["Pinned.csproj"]);
+    fs::write(
+        workspace.path().join("global.json"),
+        "{ \"sdk\": { \"version\": \"99.0.1\", \"rollForward\": \"disable\" } }\n",
+    )
+    .unwrap();
+    open(&host, &workspace.path().join("Pinned.csproj"));
+    let trusted = grant(&host);
+    let project = &trusted["sdk"]["project"];
+
+    assert_eq!(project["state"], "sdk_missing");
+    assert_eq!(project["requirement"]["source"], "global_json");
+    assert_eq!(project["requirement"]["version"], "99.0.1");
+    assert_eq!(project["requirement"]["line"], "99.0");
+    assert_eq!(project["requirement"]["rollForward"], "disable");
+    assert_eq!(project["globalJsonPath"], "global.json");
+    assert_eq!(project["resolvedVersion"], Value::Null);
+    let message = project["message"].as_str().unwrap();
+    assert!(message.contains("99.0.1"), "{message}");
+    assert!(
+        message.contains("does not rewrite global.json"),
+        "{message}"
+    );
+    for version in project["detected"].as_array().unwrap() {
+        assert!(
+            message.contains(version.as_str().unwrap()),
+            "the message names every detected version: {message}"
+        );
+    }
+}
+
+#[test]
 fn redetect_is_allowed_before_and_after_trust_and_touches_no_project_file() {
     let host = support::host();
     let before = snapshot(&host);
     assert_eq!(before["workspace"], Value::Null);
     assert_eq!(before["sdk"]["host"]["state"], "found");
 
-    let workspace = temp_workspace(&["Redetect.csproj"]);
+    let workspace = temp_workspace_with_tfm(&["Redetect.csproj"], "net99.0");
     open(&host, &workspace.path().join("Redetect.csproj"));
     let refreshed = host.dispatch("sdk.redetect", json!({})).unwrap();
     assert_eq!(refreshed["sdk"]["host"]["state"], "found");
@@ -1597,7 +1697,7 @@ fn redetect_is_allowed_before_and_after_trust_and_touches_no_project_file() {
     grant(&host);
     let refreshed = host.dispatch("sdk.redetect", json!({})).unwrap();
     assert_eq!(refreshed["trust"]["granted"], true);
-    assert_eq!(refreshed["sdk"]["project"]["state"], "no_global_json");
+    assert_eq!(refreshed["sdk"]["project"]["state"], "sdk_missing");
     let artifacts: Vec<String> = fs::read_dir(workspace.path())
         .unwrap()
         .filter_map(|entry| entry.ok())
@@ -1605,6 +1705,65 @@ fn redetect_is_allowed_before_and_after_trust_and_touches_no_project_file() {
         .filter(|name| name == "bin" || name == "obj")
         .collect();
     assert!(artifacts.is_empty(), "redetect created {artifacts:?}");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn redetect_keeps_the_old_toolchain_artifacts_stale_across_the_sdk_missing_to_resolved_transition()
+{
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_console_project(&root, "Again", "");
+
+    let host = support::host();
+    ready_project(&host, &root, "Again.csproj");
+    host.dispatch("build.start", json!({})).unwrap();
+    let built = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(built["state"], "ok", "{}", built["log"]);
+    assert_eq!(built["stale"], false);
+    host.dispatch("run.start", json!({})).unwrap();
+    let ran = wait_for_run(&host, Duration::from_secs(60));
+    assert_eq!(ran["state"], "exited", "{}", ran["log"]);
+    assert_eq!(ran["stale"], false);
+
+    // The pin names an SDK no machine installs, so the requirement is unmet everywhere: the
+    // build and the run above were made with the toolchain that was there before.
+    fs::write(
+        root.join("global.json"),
+        "{ \"sdk\": { \"version\": \"99.0.1\", \"rollForward\": \"disable\" } }\n",
+    )
+    .unwrap();
+    let missing = host.dispatch("sdk.redetect", json!({})).unwrap();
+    assert_eq!(missing["sdk"]["project"]["state"], "sdk_missing");
+    let message = missing["sdk"]["project"]["message"].as_str().unwrap();
+    assert!(message.contains("99.0.1"), "{message}");
+
+    // Installing the SDK with the app open and pressing "Check again" is this second redetect:
+    // the requirement is met now and the artifacts of the old toolchain stay marked stale.
+    global_json_8(&root);
+    let resolved = host.dispatch("sdk.redetect", json!({})).unwrap();
+    assert_eq!(resolved["sdk"]["project"]["state"], "resolved");
+    assert_eq!(resolved["sdk"]["project"]["resolvedVersion"], "8.0.408");
+    assert_eq!(resolved["evaluation"]["stale"], true);
+    for record in ["build", "run"] {
+        assert_eq!(
+            resolved[record]["stale"], true,
+            "{record} is not stale: {}",
+            resolved[record]
+        );
+        assert!(
+            resolved[record]["staleReason"]
+                .as_str()
+                .unwrap()
+                .contains("SDK inventory refreshed"),
+            "{}",
+            resolved[record]
+        );
+    }
+    // Redetect relabels; it never cancels or seals the program the user ran.
+    assert_eq!(resolved["run"]["state"], "exited");
+    assert_eq!(resolved["run"]["sealed"], false);
 }
 
 #[cfg(unix)]
@@ -1746,7 +1905,7 @@ fn switching_workspaces_marks_processes_pending_and_drops_trust() {
 #[test]
 fn evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk() {
     let host = support::host();
-    let workspace = temp_workspace(&["NoSdk.csproj"]);
+    let workspace = temp_workspace_with_tfm(&["NoSdk.csproj"], "net99.0");
     open(&host, &workspace.path().join("NoSdk.csproj"));
 
     assert_eq!(
@@ -1754,7 +1913,7 @@ fn evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk() {
         "trust_required"
     );
     let trusted = grant(&host);
-    assert_eq!(trusted["sdk"]["project"]["state"], "no_global_json");
+    assert_eq!(trusted["sdk"]["project"]["state"], "sdk_missing");
     for params in [
         json!({ "configuration": "Debug;TargetPath=/tmp/injected" }),
         json!({ "targetFramework": "net8.0;Configuration=Release" }),
@@ -1766,7 +1925,7 @@ fn evaluation_never_runs_before_trust_or_without_a_resolved_project_sdk() {
     }
     assert_eq!(
         error_code(host.dispatch("evaluation.run", json!({}))),
-        "invalid_state"
+        "sdk_missing"
     );
     let state = snapshot(&host);
     assert_eq!(state["evaluation"]["state"], "failed");

@@ -1888,3 +1888,50 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   E2E em `tests/e2e/solution-git-status.spec.ts` (três da repetição, um da #300 contando chamadas por
   identidade); evidência em `docs/evidence/tree-query-retry.md`. Nenhum `data-testid` renomeado,
   nenhuma dependência nova, nenhuma mudança no host.
+
+## 2026-11-07 — Sem `global.json`, o projeto resolve o maior SDK instalado que atenda ao TargetFramework (issue #289)
+
+- **A decisão.** `sdk.project` deixa de responder "o que o `global.json` pede" e passa a responder "qual
+  **SDK requirement** o projeto tem e se algum **Project SDK** instalado atende". O requisito vem do pin
+  quando existe; sem pin, ou com `global.json` sem `sdk.version`, vem do TargetFramework declarado:
+  `netN.0` com N≥5 pede SDK N.x ou maior, ignorando o sufixo de plataforma (`net10.0-windows` → 10);
+  `netstandard*`, `netcoreapp*`, `net4x` e TFM desconhecido não afirmam requisito nenhum. Multi-TFM usa
+  a maior linha declarada.
+- **Sem pin, a resolução escolhe o maior SDK estável instalado que satisfaça o requisito** — o mesmo que o
+  `dotnet` faz sem `global.json`. Prerelease só quando é o único que satisfaz, e a mensagem diz que é
+  prerelease. Sem requisito, o maior estável instalado. As raízes são as que `discover_roots` já cobre;
+  nenhuma raiz nova e nenhuma pasta gerenciada obrigatória.
+- **Substitui parcialmente** "Pedido de pré-requisito por projeto" (2026-11-04): o bullet "sem
+  `global.json`/versão, a UI diz que o TargetFramework declarado decide e **não resolve um SDK por conta
+  própria**" deixa de valer. Os critérios 3 e 4 da #289 (Helder, 2026-11-07) pedem o contrário e são a
+  origem desta entrada. **Continuam valendo** daquela entrada: runtime ≠ SDK na tela, a UI não recalcula
+  regra (requisito, estado, versão e URL vêm do snapshot) e os gates de
+  evaluation/restore/build/run/test/analysis exigem `resolved`.
+- **Por que.** O estado `no_global_json` bloqueava tudo (`state != "resolved"`): nesta máquina, com SDK
+  10.0.403 instalado, um projeto `net10.0` sem `global.json` não avaliava, e a barra de execução dizia
+  "No console project". A mensagem sobre `global.json` era sintoma; o gate era a causa.
+- **Estados.** `no_global_json` e `not_pinned` deixam de ser estados de bloqueio: viram
+  `requirement.source = "target_framework"` com `globalJsonPath`/`requestedVersion` nulos. `sdk_missing`
+  continua sendo o único estado de falha e ganha `requirement`, `detected` e `download`; "nenhum SDK
+  instalado" e "os instalados não servem" se distinguem pela mensagem, não por um estado novo.
+  Quando nenhum TFM afirma requisito (só `netstandard2.0`, `net472`, TFM desconhecido), `source` é
+  `none` e `line` é nulo: continua sendo o caso sem pin, e a distinção é o que deixa a tela dizer
+  "o projeto não declara requisito" em vez de inventar uma linha.
+- **Link sem rede.** O host monta a URL: patch exato
+  (`https://builds.dotnet.microsoft.com/dotnet/Sdk/<versão>/dotnet-sdk-<versão>-<os>-<arch>.<ext>`) quando
+  o requisito nomeia uma versão; senão o `aka.ms` da linha
+  (`https://aka.ms/dotnet/<linha>/dotnet-sdk-<os>-<arch>.<ext>`) **e** a página oficial da linha
+  (`https://dotnet.microsoft.com/download/dotnet/<linha>`) como alternativa; sem requisito, a página geral
+  de SDKs. Nada de `releases.json`: rede no caminho da tela, e o patch mais novo da linha não satisfaz um
+  pin `disable` de qualquer jeito. **Medido em 2026-11-07:** `aka.ms/dotnet/10.0/dotnet-sdk-osx-arm64.pkg`
+  → 301 para 10.0.403; o patch 8.0.408 → 200; 8.0.999 → 404; linha inexistente (11.0) → Bing, e é por
+  isso que o link de linha vem acompanhado da página da linha.
+- **Redetecção.** O bloco de erro ganha "Check again", que chama o `sdk.redetect` existente. Quando o
+  redetect leva o estado de `sdk_missing` para `resolved`, a UI dispara a avaliação; build/run/testes já
+  ficam `stale` pelo host. Nada observa o disco nem o foco da janela.
+- **Consequência.** `crates/host/src/sdk.rs` (requisito, resolução sem pin, montagem de URL),
+  `crates/host/src/lib.rs` (`inspect_project_sdk`), `src/welcome/ProjectSdkBody.tsx`, a nota da árvore e a
+  barra de status em `src/WorkspaceView.tsx`, `src/host/client.ts`; testes unitários de `sdk.rs`, de
+  fronteira em `crates/host/tests/host.rs` e `tests/e2e/sdk-prerequisites.spec.ts`. Nenhuma dependência
+  nova, nenhum `data-testid` removido, nenhuma instalação automática e nenhuma escrita em `global.json`
+  ou no PATH.

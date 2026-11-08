@@ -22,6 +22,8 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
     setRedetecting(true);
     setToolchainError(null);
     try {
+      // The welcome screen holds no tree: the evaluation of a now-resolved project belongs to the
+      // workspace, whose first evaluation per context already runs it once.
       onSnapshot(await call<Snapshot>("sdk.redetect"));
     } catch (caught) {
       setToolchainError(messageOf(caught));
@@ -82,7 +84,12 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
             <details className="tool-row" open={workspace ? true : undefined}>
               <summary><span>Project SDK</span><span className={sdk.project.state === "resolved" ? "success" : "muted"}>{sdk.project.state === "resolved" ? `✓ ${sdk.project.resolvedVersion}` : workspace ? "Review required" : "Open a workspace first"}</span></summary>
               <div data-testid="sdk-project">
-                <ProjectSdkBody project={sdk.project} tfms={tfms} onOpenGlobalJson={onOpenGlobalJson} />
+                <ProjectSdkBody
+                  project={sdk.project}
+                  tfms={tfms}
+                  onOpenGlobalJson={onOpenGlobalJson}
+                  onCheckAgain={() => void redetect()}
+                />
               </div>
             </details>
 

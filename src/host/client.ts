@@ -43,15 +43,31 @@ export type AnalysisRuntime = {
   bundled: boolean;
 };
 
+/** Where the project's SDK requirement comes from; the host derives it, the UI only renders it. */
+export type SdkRequirement = {
+  source: "global_json" | "target_framework" | "none";
+  /** The exact pinned version; only when `source` is `global_json`. */
+  version: string | null;
+  /** The SDK line the requirement names ("8.0", "10.0"); null when `source` is `none`. */
+  line: string | null;
+  rollForward: string | null;
+  allowPrerelease: boolean | null;
+};
+
+/** The download action for the requirement; the host builds the URLs, the UI never does. */
+export type SdkDownload = {
+  url: string;
+  /** The line's official page, when the primary link can be a dead patch or a missing line. */
+  fallbackUrl: string | null;
+  label: string;
+};
+
 export type ProjectSdk = {
-  state:
-    | "no_workspace"
-    | "not_inspected"
-    | "resolved"
-    | "sdk_missing"
-    | "no_global_json"
-    | "not_pinned"
-    | "invalid_global_json";
+  state: "no_workspace" | "not_inspected" | "resolved" | "sdk_missing" | "invalid_global_json";
+  requirement: SdkRequirement;
+  download: SdkDownload;
+  /** Every installed SDK version, highest first. */
+  detected: string[];
   globalJsonPath: string | null;
   requestedVersion: string | null;
   rollForward: string | null;
