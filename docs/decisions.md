@@ -1974,3 +1974,34 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   de `resolve_unpinned`), `crates/host/src/lib.rs` (`resolve_without_pin`), dois testes de fronteira em
   `crates/host/tests/host.rs` e um unitário de `satisfies_line`. Nenhum `data-testid` tocado, nenhuma
   mudança de UI.
+
+## 2026-11-08 — A avaliação roda o muxer com `cwd` na raiz da workspace (issue #313)
+
+- **A decisão.** `evaluation::invoke` passa a rodar `<raiz>/dotnet msbuild <csproj> …` com `cwd` na
+  **raiz da workspace**, o mesmo `cwd` de restore/build/run/test. O muxer procura `global.json` do `cwd`
+  para cima, então avaliação e snapshot passam a ler o mesmo arquivo por construção: uma resposta só
+  por workspace, sem contrato novo.
+- **Substitui** "avaliação por projeto, sem restore" (2026-10-28, ticket 03) no ponto em que ela fixou
+  `cwd` no diretório do projeto. **Continuam valendo** daquela entrada: um `dotnet msbuild` por
+  `.csproj` com `-getProperty`/`-getItem`, nenhum MSBuild para a solução, `-p:Configuration`/
+  `-p:TargetFramework` explícitos, `TargetPath` sempre avaliado e multi-TFM sem seleção pedindo TFM.
+- **Fecha** o limite que a entrada do #310 registrou como `shortcut:` em `resolve_without_pin`: com um
+  `global.json` **entre** a raiz e o diretório do projeto, a avaliação usava o SDK pinado e o snapshot
+  nomeava outro. Medido antes da mudança nesta máquina (`~/.dotnet` com 8.0.408 e 10.0.403): raiz sem
+  pin, `src/global.json` fixando `8.0.408` (`rollForward: disable`), projeto `net10.0` — o snapshot
+  dizia `10.0.403` e o `-getProperty:NETCoreSdkVersion` da avaliação respondia `8.0.408`, **sem falhar**.
+  A divergência era silenciosa; só o build (que já rodava na raiz) usava o SDK do snapshot.
+- **O que não muda.** `Directory.Build.props`, `obj/`, `bin/` e `TargetPath` são resolvidos pelo caminho
+  do projeto, não pelo `cwd`, então nenhum projeto muda de resultado por causa disso — o único arquivo
+  que o `cwd` decide é o `global.json` que o muxer encontra. Nenhuma leitura fora da workspace, nenhuma
+  escrita, nenhuma rede, nenhuma dependência, nenhum subprocesso a mais.
+- **Projeto fora do diretório da solução muda de SDK.** Antes ele era avaliado no próprio diretório e o
+  muxer resolvia o maior SDK estável; agora é avaliado sob o `global.json` da raiz, como restore/build/
+  run/test já faziam para ele. É a mesma resposta por workspace que a decisão compra, e o escopo do
+  #289 (que admite o diretório do projeto de fora) não muda.
+- **O log passa a nomear o SDK.** O comando da avaliação ganhou `-getProperty:NETCoreSdkVersion`, então
+  o log de cada projeto diz qual SDK o avaliou — a pergunta que #310 e #313 não conseguiam responder
+  olhando o resultado. Nenhuma propriedade nova no modelo e nenhuma mudança de UI.
+- **Consequência.** `crates/host/src/evaluation.rs` (`invoke` recebe a raiz), `crates/host/src/lib.rs`
+  (sai o `shortcut:` de `resolve_without_pin`) e um teste de fronteira em `crates/host/tests/host.rs`.
+  Nenhum `data-testid` tocado.
