@@ -1721,7 +1721,7 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Por que a tabela de motivos é uma função pura.** A ordem (build > restore > descoberta > análise
   carregando) é contrato, não detalhe: quem vem primeiro decide qual motivo o usuário lê. Fora do corpo
   de `start_build_locked`, ela é testável sem csharp-ls real e sem workspace.
-- **Consequência.** `docs/SPEC-CONCURRENT-BUILDS.md`; evidência em
+- **Consequência.** issue #275 (a spec é o corpo da issue-mãe); evidência em
   `docs/evidence/concurrent-builds.md`; o gate de UI em `executionGates.ts` ganha teste de unidade em
   `tests/unit/` (o E2E não roda em PR); os specs que afirmam "enabled" logo depois de restaurar passam a
   esperar a descoberta com o `settleDiscovery` da #251. Nenhum `data-testid` novo, nenhuma dependência

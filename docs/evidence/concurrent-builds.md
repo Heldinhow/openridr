@@ -2,7 +2,7 @@
 
 Issue: [#275](https://github.com/Heldinhow/openridr/issues/275), filha da
 [#251](https://github.com/Heldinhow/openridr/issues/251) (origem medida:
-[e2e-smoke-solo.md](e2e-smoke-solo.md)). Spec: [SPEC-CONCURRENT-BUILDS](../SPEC-CONCURRENT-BUILDS.md).
+[e2e-smoke-solo.md](e2e-smoke-solo.md)). Spec: [#275](https://github.com/Heldinhow/openridr/issues/275).
 Decisão: [decisions.md](../decisions.md) (2026-11-07, issue #275). Tickets: #284 (host), #285 (UI),
 #286 (análise).
 

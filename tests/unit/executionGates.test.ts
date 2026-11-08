@@ -8,7 +8,7 @@ import {
 } from "../../src/executionGates";
 
 // The reason the host and the UI name while the automatic discovery builds the test project
-// (docs/SPEC-CONCURRENT-BUILDS.md, issue #275).
+// (issue #275).
 const discoveryReason =
   "Test discovery is building the test project; wait for it to finish or cancel the discovery.";
 
