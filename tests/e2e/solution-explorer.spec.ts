@@ -106,6 +106,32 @@ test("show all files lists bin/obj/dotfiles as no index and keeps sources indexe
   await expect(page.getByTestId("tree-dir-.idea")).toHaveCount(0);
 });
 
+test("a directory level that fails to list is asked again and shows its children", async ({ page }) => {
+  const root = tempCopy();
+  fs.mkdirSync(path.join(root, "docs"));
+  fs.writeFileSync(path.join(root, "docs/notes.md"), "# notes\n");
+  let failed = 0;
+  await page.route("**/call", async (route) => {
+    const body = route.request().postDataJSON() as { method: string; params?: { dir?: string } };
+    if (body.method === "workspace.tree" && body.params?.dir === "docs" && failed === 0) {
+      failed += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: false, error: { code: "host_error", message: "Listing failed." } }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await open(page, root);
+  await page.getByTestId("tree-show-all").click();
+  await page.getByTestId("tree-dir-docs").click();
+  // The failed read is repeated instead of being cached as an empty folder.
+  await expect(page.getByTestId("tree-file-docs/notes.md")).toBeVisible();
+  expect(failed).toBe(1);
+});
+
 test("Restricted project menu blocks execution, offers Trust and edits the csproj", async ({ page }) => {
   await open(page, tempCopy());
   await page.getByTestId("tree-project-OrderDesk.Cli").click({ button: "right" });
