@@ -9432,6 +9432,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn workspace_symlinks_reports_links_without_following_them() {
         let temp = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(temp.path()).unwrap();
@@ -9495,6 +9496,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn workspace_tree_marks_symlinks_and_refuses_to_expand_them() {
         let temp = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(temp.path()).unwrap();
@@ -9544,6 +9546,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn workspace_tree_lists_links_as_objects_without_reading_the_target() {
         let temp = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(temp.path()).unwrap();
@@ -9588,6 +9591,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn workspace_symlinks_sees_a_link_replaced_by_a_file() {
         let temp = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(temp.path()).unwrap();

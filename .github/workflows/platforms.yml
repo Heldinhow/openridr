@@ -1,0 +1,98 @@
+name: platforms
+
+# Proves the host on the two targets the release does not ship yet: Windows x64 and macOS Intel.
+# Nothing here is a required check and nothing here runs on a pull request: ci.yml is unchanged and the
+# pull request wall time does not grow. A push to main and a nightly run keep both targets honest;
+# `workflow_dispatch` is how a branch proves itself before it lands.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"
+  push:
+    branches: [main]
+  # TEMPORARY: GitHub only dispatches `workflow_dispatch` for a workflow that already exists on the
+  # default branch, so the pull request that introduces this file could not run it any other way.
+  # Remove this trigger, and this comment, once the branch that adds this file has a green run.
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platforms-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rust-windows:
+    name: Rust host (windows-2025)
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      # The fixture output is parsed in English; a translated runner would break the assertions.
+      DOTNET_CLI_UI_LANGUAGE: en
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The channel and clippy come from rust-toolchain.toml: no toolchain action to pin and no second
+      # place where the Rust version lives. The runner image already ships rustup.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --component clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # The fixtures pin SDK 8.0.408 in their global.json with rollForward: disable, and the runner
+      # image does not ship that exact version.
+      - name: Set up the fixture .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "8.0.408"
+
+      # The first `dotnet` run on a clean machine creates the NuGet configuration and fills the package
+      # cache. Several host tests restore at the same time, and on a fresh runner the race left one of
+      # them with an empty source list (NU1100). One restore first, with a loud failure if the network
+      # or the SDK is missing, instead of a flaky test result.
+      - name: Warm the NuGet configuration
+        run: dotnet restore fixtures/OrderDesk/OrderDesk.sln
+
+      - name: Clippy
+        run: cargo clippy -p openridr-host --all-targets -- -D warnings
+
+      - name: Host tests
+        run: cargo test -p openridr-host
+
+  rust-macos-intel:
+    name: Rust host (macos-15-intel)
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    env:
+      DOTNET_CLI_UI_LANGUAGE: en
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --component clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Set up the fixture .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "8.0.408"
+
+      - name: Warm the NuGet configuration
+        run: dotnet restore fixtures/OrderDesk/OrderDesk.sln
+
+      - name: Clippy
+        run: cargo clippy -p openridr-host --all-targets -- -D warnings
+
+      - name: Host tests
+        run: cargo test -p openridr-host
