@@ -18,8 +18,9 @@ identidade do pedido.
   o pedido já foi substituído — antes e depois da espera — e devolve `null` quando desiste.
 - `src/SolutionTree.tsx`: as três consultas chamam o helper; depois de um lote dado por perdido o laço
   **continua** (`continue`) em vez de `break`, então os lotes seguintes ainda rodam e o que os
-  anteriores provaram fica pintado. A resposta malformada de um lote (`entries`/`ignored` que não é
-  array) é tratada como lote dado por perdido, não como exceção não observada.
+  anteriores provaram fica pintado. A resposta malformada de um lote (o array que não é array, ou um
+  elemento que não é objeto/string) é tratada como lote dado por perdido, não como exceção não
+  observada.
 - **O efeito das consultas segue o id do pedido, não o objeto.** Era o achado alto da revisão: o poll
   de `workspace.state` (400 ms) substitui o snapshot, `views` é recalculado, o memo do pedido devolve
   um objeto novo com o **mesmo** `treeQueryId` e o efeito re-rodava — cancelando a repetição que
@@ -50,10 +51,15 @@ dotnet nem navegador; o E2E fica com o contrato visível.
   (`data-git-status="ignored"` num fonte coberto pelo `.gitignore`, `data-symlink="true"` num
   `Linked.cs`, `data-symbol-kind="class"` num fonte novo). A identidade é trocada pelo caminho real:
   recolher/expandir o projeto (`.gitignore`), alternar "Show all files" (symlinks) e tirar/pôr o
-  fonte de volta no projeto (tipo C#, cuja varredura só acontece numa reavaliação).
+  fonte de volta no projeto (tipo C#, cuja varredura só acontece numa reavaliação). Cada teste
+  também conta as chamadas que carregam o caminho e exige **exatamente duas** — a resposta perdida e
+  a repetição —, então uma varredura posterior não passa por repetição.
 - O helper do spec recusa a primeira resposta e, no caso do tipo C#, também as varreduras seguintes
   (só a repetição, que chega em 200/400 ms, passa): sem isso uma segunda varredura pintaria o que a
   resposta perdida não pintou e o teste mediria outra coisa.
+- **Teste da #300** (mesmo spec): com a árvore parada, três polls de `workspace.state` com a mesma
+  identidade não podem pedir `git.ignored`/`workspace.symlinks` de novo; um `focus` (nova revisão do
+  Git) pede os dois outra vez.
 
 ## Falha-antes medida
 
@@ -64,10 +70,13 @@ dotnet nem navegador; o E2E fica com o contrato visível.
 - **E2E, com o efeito preso ao id e só a repetição revertida** (o "antes" da política): os **três**
   testes falham — `data-git-status` e `data-symlink` recebem `""` e `data-symbol-kind` recebe `""`
   depois de 10 s. Com a repetição: os três passam.
-- **E2E, com o conserto inteiro revertido** (`SolutionTree.tsx` de `c35f60b`): os três **passam** — a
-  árvore re-consulta a cada poll e o marcador volta sem repetição. É por isso que o efeito preso ao
-  id faz parte desta frente: sem ele a repetição é cancelada pelo render seguinte e o sintoma é
-  mascarado, que é o critério "os marcadores já provados ficam pintados" do ticket.
+- **E2E, com o conserto inteiro revertido** (`SolutionTree.tsx` de `c35f60b`): dos quatro testes
+  novos, **três falham** — symlink (8 chamadas em vez de 2), tipo C# (badge vazio) e #300 (5 chamadas
+  em vez de 0) — e o de `.gitignore` passa, porque a re-consulta do poll pinta o marcador em ~400 ms
+  e, no nível do marcador, ela é indistinguível de uma repetição; o teste da #300 é quem pega esse
+  caminho. É por isso que o efeito preso ao id faz parte desta frente: sem ele a repetição é
+  cancelada pelo render seguinte e o sintoma é mascarado, que é o critério "os marcadores já provados
+  ficam pintados" do ticket.
 
 ## Bateria
 

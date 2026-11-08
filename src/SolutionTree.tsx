@@ -298,7 +298,9 @@ export function SolutionTree(p: Props) {
         if (!alive) return;
         // A batch that was given up leaves its rows unmarked; the batches after it still get a turn.
         if (!result) continue;
-        ignored.push(...(Array.isArray(result.ignored) ? result.ignored : []));
+        for (const path of Array.isArray(result.ignored) ? result.ignored : []) {
+          if (typeof path === "string") ignored.push(path);
+        }
       }
       if (!alive) return;
       setIgnoredPaths(ignored);
@@ -329,6 +331,7 @@ export function SolutionTree(p: Props) {
         // A batch that was given up keeps the badges already shown; the next batch still runs.
         if (!result) continue;
         for (const entry of Array.isArray(result.entries) ? result.entries : []) {
+          if (!entry || typeof entry.path !== "string") continue;
           updates.push([
             entry.path,
             { kind: symbolKindOf(entry.kind) ?? null, modified: entry.modified },
@@ -408,7 +411,7 @@ export function SolutionTree(p: Props) {
         if (!alive) return;
         if (!result) continue;
         for (const entry of Array.isArray(result.entries) ? result.entries : []) {
-          if (entry.symlink) links.add(entry.path);
+          if (entry && typeof entry.path === "string" && entry.symlink) links.add(entry.path);
         }
       }
       if (!alive) return;

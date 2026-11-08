@@ -1854,6 +1854,10 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   [#300](https://github.com/Heldinhow/openridr/issues/300) (a árvore re-consultava a cada poll), que
   entrou nesta frente porque sem ela a repetição não sobrevive ao render seguinte. A limpeza de
   estado na troca de identidade do pedido continua como estava.
-- **Consequência.** `src/treeQueryRetry.ts` (novo), `src/SolutionTree.tsx`, 6 testes unitários e 3
-  E2E em `tests/e2e/solution-git-status.spec.ts`; evidência em `docs/evidence/tree-query-retry.md`.
-  Nenhum `data-testid` renomeado, nenhuma dependência nova, nenhuma mudança no host.
+- **A resposta malformada de um lote é lote perdido.** Array que não é array, ou elemento que não é
+  objeto/string, é descartado em vez de virar exceção não observada fora do `try` do helper — o
+  processamento da resposta deixou de estar dentro do `catch` que existia antes do retry.
+- **Consequência.** `src/treeQueryRetry.ts` (novo), `src/SolutionTree.tsx`, 6 testes unitários e 4
+  E2E em `tests/e2e/solution-git-status.spec.ts` (três da repetição, um da #300 contando chamadas por
+  identidade); evidência em `docs/evidence/tree-query-retry.md`. Nenhum `data-testid` renomeado,
+  nenhuma dependência nova, nenhuma mudança no host.

@@ -71,10 +71,12 @@ async function refuseFirstAnswerFor(
   { retryWindow = false }: { retryWindow?: boolean } = {},
 ) {
   let refused = false;
+  let calls = 0;
   let lastRefusal = 0;
   await page.route("**/call", async (route) => {
     const body = route.request().postDataJSON() as { method?: string; params?: { paths?: string[] } };
     const carries = body.method === method && (body.params?.paths ?? []).includes(path);
+    if (carries) calls += 1;
     const retry = retryWindow && refused && Date.now() - lastRefusal <= 1000;
     if (!carries || retry || (refused && !retryWindow)) {
       await route.continue();
@@ -88,7 +90,7 @@ async function refuseFirstAnswerFor(
       body: JSON.stringify({ ok: false, error: { code: "host_error", message: "injected failure" } }),
     });
   });
-  return () => refused;
+  return { refused: () => refused, calls: () => calls };
 }
 
 test.beforeEach(async ({ request }) => {
@@ -188,10 +190,12 @@ test("an ignored answer that fails once is asked again instead of dropping the m
   // first answer to that request is lost, so the marker can only come back from a repeated query.
   const project = page.getByTestId("tree-project-OrderDesk.Core");
   await project.click();
-  const refused = await refuseFirstAnswerFor(page, "git.ignored", file);
+  const { refused, calls } = await refuseFirstAnswerFor(page, "git.ignored", file);
   await project.click();
   await expect.poll(refused).toBe(true);
   await expect(ignored).toHaveAttribute("data-git-status", "ignored");
+  // The lost answer and its retry: a third call would mean another scan painted the marker.
+  expect(calls()).toBe(2);
 });
 
 test("a symlink answer that fails once is asked again instead of dropping the marker", async ({ page }) => {
@@ -205,10 +209,11 @@ test("a symlink answer that fails once is asked again instead of dropping the ma
   // "Show all files" turns the evaluated query off and clears its markers; turning it back on asks
   // again, and the first answer to that request is lost.
   await page.getByTestId("tree-show-all").click();
-  const refused = await refuseFirstAnswerFor(page, "workspace.symlinks", file);
+  const { refused, calls } = await refuseFirstAnswerFor(page, "workspace.symlinks", file);
   await page.getByTestId("tree-show-all").click();
   await expect.poll(refused).toBe(true);
   await expect(linked).toHaveAttribute("data-symlink", "true");
+  expect(calls()).toBe(2);
 });
 
 test("a symbol-kind answer that fails once is asked again instead of dropping the badge", async ({ page }) => {
@@ -223,10 +228,40 @@ test("a symbol-kind answer that fails once is asked again instead of dropping th
   // the only scan that asks for it, and that first answer is lost.
   fs.rmSync(path.join(repo, file));
   await expect(row).toHaveCount(0);
-  const refused = await refuseFirstAnswerFor(page, "workspace.symbolKinds", file, {
+  const { refused, calls } = await refuseFirstAnswerFor(page, "workspace.symbolKinds", file, {
     retryWindow: true,
   });
   fs.writeFileSync(path.join(repo, file), "namespace OrderDesk;\n\nclass RetryBadge {}\n");
   await expect.poll(refused).toBe(true);
   await expect(row).toHaveAttribute("data-symbol-kind", "class");
+  expect(calls()).toBe(2);
+});
+
+// #300: the state poll replaces the snapshot, but the request identity did not change — no new call.
+test("the markers are asked once per identity, not on every state poll", async ({ page }) => {
+  const file = "src/OrderDesk.Core/Linked.cs";
+  fs.symlinkSync(path.join(repo, order), path.join(repo, file));
+  await openTrusted(page);
+  await waitForEvaluatedTree(page);
+  await expect(page.getByTestId(`tree-file-${file}`)).toHaveAttribute("data-symlink", "true");
+
+  // Let the Git refresh from opening the workspace land before counting.
+  await page.waitForTimeout(1200);
+  const calls = { ignored: 0, symlinks: 0, polls: 0 };
+  await page.route("**/call", async (route) => {
+    const body = route.request().postDataJSON() as { method?: string; params?: { paths?: string[] } };
+    const carries = (body.params?.paths ?? []).includes(file);
+    if (body.method === "workspace.state") calls.polls += 1;
+    if (body.method === "git.ignored" && carries) calls.ignored += 1;
+    if (body.method === "workspace.symlinks" && carries) calls.symlinks += 1;
+    await route.continue();
+  });
+  // Three polls with the same identity: the markers are not asked again.
+  await expect.poll(() => calls.polls).toBeGreaterThanOrEqual(3);
+  expect(calls.ignored).toBe(0);
+  expect(calls.symlinks).toBe(0);
+
+  // A new Git revision is a new identity: both are asked again.
+  await refocus(page);
+  await expect.poll(() => calls.ignored + calls.symlinks).toBeGreaterThanOrEqual(2);
 });
