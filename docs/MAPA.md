@@ -25,7 +25,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | `welcome/` | tela inicial: recentes, toolchain, formulário de caminho |
 | **`WorkspaceView.tsx`** (~5.200 linhas) | **um único componente** que monta o workspace: abas, editor, painéis, diálogos, atalhos globais. Começa em `export function WorkspaceView`. Antes dele só há helpers puros. Fluxos já extraídos: `useExecutionFlow.ts`, `useEvaluationFlow.ts`, `useRunConfigs.ts` |
 | **`CodeEditor.tsx`** (~1.200) | CodeMirror: gutter, breakpoints, marcas de diagnóstico, completion, rename |
-| `SolutionTree.tsx`, `TreeRow.tsx`, `solutionNodes.ts`, `solutionMenu.ts` | Solution Explorer (modelo dos nós, menu de contexto; `TreeRow` é o único dono do `preventDefault` e do teclado `Shift+F10`) |
+| `SolutionTree.tsx`, `TreeRow.tsx`, `solutionNodes.ts`, `solutionMenu.ts`, `solutionListing.ts` | Solution Explorer (modelo dos nós, menu de contexto; `TreeRow` é o único dono do `preventDefault` e do teclado `Shift+F10`; `solutionListing` é o cache de um nível da listagem "Show all files", com epoch e retry) |
 | `solutionVisuals.ts`, `FileIcon.tsx`, `icons/` | tipo visual de projeto/arquivo/símbolo (ícone + token `--icon-*`); glifos vendorizados em `icons/fileGlyphs.tsx` (licenças em `THIRD-PARTY-NOTICES.md`); cores em `styles.css` |
 | `shell/` | tool windows (faixas), barra de status, modo Restricted/Trusted |
 | `actions/` | keymap, registro de ações, Search Everywhere (`FindAction`), diálogo de Keymap |

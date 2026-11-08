@@ -1701,3 +1701,22 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   entregar" e a regra "Ticket"), `docs/agents/issue-tracker.md` ("O que continua em `docs/`"),
   `docs/agents/domain.md` (árvore de layout) e `docs/README.md` (convenção de trabalho novo). Nenhuma
   linha de `src/`, `crates/` ou `src-tauri/`, nenhum `data-testid`, nenhuma dependência nova.
+
+## 2026-11-07 — Nível de listagem que falha é repetido com limite e não vira pasta vazia (issue #282)
+
+- **Decisão.** O cache de um nível da árvore "Show all files" (`src/solutionListing.ts`) repete a
+  leitura que falhou com a política das consultas de marcador da árvore (#264): a original mais duas,
+  com 200 ms e 400 ms (`LISTING_RETRY_DELAYS_MS`). Depois do último fracasso o nível **não** é
+  guardado no cache; a repetição para na hora se um `reload()` já substituiu o pedido (epoch).
+- **Por que não cachear o vazio.** Era o desenho antigo: `catch` gravava `dirs[dir] = []` e o guarda
+  de entrada aceitava o array vazio (vazio é *truthy*), então a pasta expandida ficava sem filhos até
+  algo alheio forçar `reload()`. Com o retry, o vazio só sobra quando a falha é definitiva — e ali
+  gravar `[]` reproduziria o sintoma. Não cachear faz a próxima expansão perguntar de novo, sem
+  inventar "pasta sem filhos" no cache.
+- **Por que o retry fica no cache e não no componente.** O cache é quem decide o que é acerto de
+  cache; a política pertence a ele e o teste unitário já é dele (`tests/unit/solutionListing.test.ts`).
+  O `SolutionTree` não mudou, o que também mantém esta correção fora do arquivo que a #264/#281 mexe.
+- **Consequência.** `src/solutionListing.ts`, `tests/unit/solutionListing.test.ts` (8 casos),
+  `tests/e2e/solution-explorer.spec.ts` (spec novo que falha a primeira chamada de `workspace.tree`),
+  evidência em `docs/evidence/solution-listing-retry.md`. Nenhum `data-testid`, nenhuma mudança no
+  host, nenhuma dependência nova.
