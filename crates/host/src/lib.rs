@@ -2104,11 +2104,19 @@ impl Host {
         // implicit build of Run/Debug all arrive here, so the discovery that is building the
         // test project and the analysis that is still loading the solution are refused in one
         // place instead of racing them on the same files.
-        let analysis = inner
-            .lsp
+        //
+        // The analysis only gates a solution workspace: csharp-ls never leaves `loading` on a
+        // project workspace (measured: stuck on `loading project` for minutes at 0% CPU), so
+        // gating it there would keep Build disabled forever. See
+        // docs/evidence/concurrent-builds.md.
+        let solution_workspace = inner
+            .workspace
             .as_ref()
-            .map(|lsp| lsp.state())
-            .unwrap_or("unavailable");
+            .is_some_and(|workspace| matches!(workspace.kind, WorkspaceKind::Solution));
+        let analysis = match inner.lsp.as_ref().map(|lsp| lsp.state()) {
+            Some(state) if solution_workspace => state,
+            _ => "unavailable",
+        };
         if let Some(reason) = build::refusal_reason(
             inner.build.running_process_id(),
             inner.restore.running_process_id().is_some(),

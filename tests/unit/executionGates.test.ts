@@ -42,6 +42,7 @@ function gates(
     discovery?: "idle" | "discovering";
     build?: "idle" | "running";
     lsp?: Lsp["state"];
+    workspace?: "solution" | "project";
   } = {},
 ): GateContext {
   return {
@@ -52,6 +53,7 @@ function gates(
       build: { state: overrides.build ?? "idle" },
       tests: { discovery: { state: overrides.discovery ?? "idle" } },
       lsp: { state: overrides.lsp ?? "ready" },
+      workspace: { kind: overrides.workspace ?? "solution" },
     },
     activeConfigEvaluated: true,
     restoreIncomplete: false,
@@ -124,6 +126,13 @@ describe("the execution gates name the analysis that is still loading", () => {
     expect(buildDisabledReason(gates({ discovery: "discovering", build: "running", lsp: "loading" }))).toBe(
       discoveryReason,
     );
+  });
+
+  test("a project workspace never waits for the analysis, which never finishes loading there", () => {
+    const project = gates({ lsp: "loading", workspace: "project" });
+    expect(buildDisabledReason(project)).toBeNull();
+    expect(runAvailabilityReason(project, consoleProject, true)).toBeNull();
+    expect(debugDisabledReason(project)).toBeNull();
   });
 
   test("the loading analysis wins over a program or debug session that is already up", () => {

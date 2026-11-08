@@ -4920,6 +4920,34 @@ fn build_is_refused_while_the_analysis_is_loading_the_solution_isolated() {
     let build = wait_for_build(&host, Duration::from_secs(180));
     assert_eq!(build["state"], "ok", "{}", build["log"]);
     assert_eq!(build["exit"], 0, "{}", build["log"]);
+
+    // A project workspace is the exception the host measured: csharp-ls never leaves `loading`
+    // there, so the analysis gate is solution-only. The build must still start while it loads,
+    // otherwise Build would stay disabled forever.
+    let crash = temp.path().join("Crash App analysis gate");
+    copy_tree(
+        &fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/CrashApp"))
+            .unwrap(),
+        &crash,
+    );
+    open(&host, &crash.join("CrashApp.csproj"));
+    grant(&host);
+    host.dispatch("restore.start", json!({})).unwrap();
+    let restore = wait_for_restore(&host, Duration::from_secs(120));
+    assert_eq!(restore["state"], "ok", "{}", restore["log"]);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(evaluated["evaluation"]["state"], "ok");
+    host.dispatch("lsp.start", json!({})).unwrap();
+    let project_loading = wait_lsp(&host, Duration::from_secs(60), &["loading"]);
+    assert_eq!(project_loading["state"], "loading");
+    let started = match host.dispatch("build.start", json!({})) {
+        Ok(state) => state,
+        Err(error) => panic!("the analysis gate locked a project workspace: {error}"),
+    };
+    assert_eq!(started["build"]["state"], "running", "{}", started["build"]);
+    let build = wait_for_build(&host, Duration::from_secs(180));
+    assert_eq!(build["state"], "ok", "{}", build["log"]);
+    let _ = host.dispatch("lsp.stop", json!({}));
 }
 
 /// Stub launcher: answers `--version` like csharp-ls 0.28.0, then rejects `initialize` with an SDK message on stderr and idles.
