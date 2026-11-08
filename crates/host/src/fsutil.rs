@@ -388,9 +388,15 @@ mod tests {
                             panic!("write {thread}/{iteration} failed: {error}");
                         }
                         let text = fs::read_to_string(path).unwrap();
-                        if let Err(error) = serde_json::from_str::<serde_json::Value>(&text) {
-                            panic!("write {thread}/{iteration} left {text:?}: {error}");
-                        }
+                        let stored: serde_json::Value =
+                            serde_json::from_str(&text).unwrap_or_else(|error| {
+                                panic!("write {thread}/{iteration} left {text:?}: {error}")
+                            });
+                        // Another writer may have won the rename, so the value is the seed or a
+                        // complete write of some thread: never a partial or an empty object.
+                        let complete = stored == serde_json::json!({ "seed": true })
+                            || (stored["thread"].is_u64() && stored["iteration"].is_u64());
+                        assert!(complete, "write {thread}/{iteration} left {stored}");
                     }
                 });
             }

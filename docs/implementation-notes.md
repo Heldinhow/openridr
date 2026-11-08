@@ -1915,12 +1915,15 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   escolhiam o mesmo `.tmp` — uma renomeava, a outra falhava em `rename` com ENOENT, e o destino podia
   ser renomeado truncado (`trusted.json` virava `trusted_unreadable`).
 - **Falha-antes.** Teste novo `fsutil::tests::concurrent_writes_to_one_path_all_succeed_and_leave_valid_json`
-  (8 threads × 200 escritas, cada uma tem de voltar `Ok` e o arquivo relido tem de parsear): com o
-  arquivo de `c35f60b` falha em 0,07 s (`Could not replace …: No such file or directory`); com o
-  conserto, 1 passed em ~0,27 s, 5 execuções seguidas.
-- **Bateria.** `cargo test -p openridr-host --lib` 471 passed; `cargo test -p openridr-host --test host`
-  111 passed (93 s); `--lib -- trusted` 20 rodadas verdes (critério da issue); `cargo fmt --all --check`
-  e `cargo clippy --workspace --all-targets -D warnings` limpos.
+  (8 threads × 200 escritas, cada uma tem de voltar `Ok` e o arquivo relido tem de parsear **e** ser o
+  seed ou uma escrita completa de alguma thread): com o arquivo de `c35f60b` falha em 0,07 s
+  (`Could not replace …: No such file or directory`); com o conserto, 1 passed em ~0,3 s, 5 execuções
+  seguidas.
+- **Bateria.** `cargo test -p openridr-host` completo 629 passed, 0 failed (70 ignored); `--lib --
+  trusted` 20 rodadas verdes (critério da issue); `cargo fmt --all --check` e `cargo clippy
+  --workspace --all-targets -D warnings` limpos. Uma falha de ambiente em
+  `initialize_failure_surfaces_the_sdk_message…` no primeiro run completo (isolado verde) é a mesma
+  hipótese de carga da linha 29 de `docs/evidence/test-stability.md`, que ganhou a segunda observação.
 - **Não verificado:** a corrida no app real (a prova é o teste de threads do host); E2E (nenhum spec
   escreve estado do host em paralelo, e a mudança não tem superfície de UI); Windows e macOS Intel.
   Evidência: `docs/evidence/atomic-tmp-name.md`.
