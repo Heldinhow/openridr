@@ -18,6 +18,10 @@ test.afterAll(async () => {
   await host?.stop();
 });
 
+// Two sessions run this spec at the same time in different worktrees, and os.tmpdir() is shared:
+// every prefix carries this worker's pid, or one run sees the other's homes.
+const run = `${process.pid}-`;
+
 function tempDirs(prefix: string) {
   return fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith(prefix));
 }
@@ -32,7 +36,7 @@ function standIn(port: number) {
 }
 
 test("refuses a /health that belongs to another process", async () => {
-  const prefix = "openridr-isolated-decoy-";
+  const prefix = `openridr-isolated-decoy-${run}`;
   const decoy = http.createServer((_request, response) => {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ ok: true, pid: 999_999 }));
@@ -57,7 +61,7 @@ test("refuses a /health that belongs to another process", async () => {
 });
 
 test("accepts the host it started and reports the port the kernel granted", async () => {
-  const prefix = "openridr-isolated-home-";
+  const prefix = `openridr-isolated-home-${run}`;
   host = await startIsolatedHost({ homePrefix: prefix });
   // No spec chose this port: it comes from the line the bridge printed after binding.
   expect(host.port).toBeGreaterThan(0);
@@ -69,7 +73,7 @@ test("accepts the host it started and reports the port the kernel granted", asyn
 });
 
 test("a second host gets its own port", async () => {
-  const other = await startIsolatedHost({ homePrefix: "openridr-isolated-second-" });
+  const other = await startIsolatedHost({ homePrefix: `openridr-isolated-second-${run}` });
   try {
     expect(other.port).not.toBe(host?.port);
     expect(other.pid).not.toBe(host?.pid);
@@ -91,7 +95,7 @@ test("prepare seeds the home and its env before the host starts", async () => {
   // An existing path, because recent.list hides entries whose file is gone.
   const project = path.resolve("fixtures");
   host = await startIsolatedHost({
-    homePrefix: "openridr-isolated-prepared-",
+    homePrefix: `openridr-isolated-prepared-${run}`,
     prepare: (home) => {
       fs.writeFileSync(path.join(home, "recent.json"), JSON.stringify([{ path: project, openedAt: 1 }]));
       fs.writeFileSync(path.join(home, "trusted.json"), JSON.stringify({ [project]: "trusted" }));
@@ -110,7 +114,7 @@ test("prepare seeds the home and its env before the host starts", async () => {
 });
 
 test("a prepare that throws leaves no home behind", async () => {
-  const prefix = "openridr-isolated-prepare-fails-";
+  const prefix = `openridr-isolated-prepare-fails-${run}`;
   const error = await startIsolatedHost({
     homePrefix: prefix,
     prepare: () => {

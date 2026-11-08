@@ -1897,7 +1897,9 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   `cargo clippy --workspace --all-targets -D warnings` limpos; `bun test tests/unit` 127 passed;
   `bunx tsc --noEmit` e `bun run build` limpos; E2E: `isolated-host.spec.ts` 6 passed, os sete specs
   com 11 passed e 7 skipped, e duas sessões em paralelo no mesmo worktree (1520/4417 e 1521/4418) com
-  6 + 6 passed.
+  6 + 6 passed — inclusive o mesmo spec (`isolated-host.spec.ts`) nas duas, o que exigiu prefixo de
+  home com o `pid` do worker (o `os.tmpdir()` é compartilhado e a contagem de diretórios via o da
+  outra sessão).
 - **Não verificado:** as 7 asserções do `debug-advanced` (skip: netcoredbg real ausente nesta máquina);
   Chrome real (só Chromium); Windows e macOS Intel. O teste Rust novo não roda no job `rust` do CI
   (`cargo test -p openridr-host`), só em `cargo test --workspace`. Evidência:

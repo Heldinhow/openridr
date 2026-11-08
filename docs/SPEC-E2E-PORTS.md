@@ -37,7 +37,8 @@ Em paralelo, a documentação do processo ficou para trás. `AGENTS.md` e o skil
 
 ## Implementation Decisions
 
-- **Portas: nomes e defaults ficam.** `OPENRIDR_E2E_UI_PORT` e `OPENRIDR_E2E_HOST_PORT` mantêm o nome, a validação (inteiro de 1 a 65535, recusa de porta inválida e de par igual) e os defaults 1420/4317. Os specs que sobem host próprio continuam usando `hostPort + N`, então herdam o par escolhido sem mudança.
+- **Portas: nomes e defaults ficam.** `OPENRIDR_E2E_UI_PORT` e `OPENRIDR_E2E_HOST_PORT` mantêm o nome, a validação (inteiro de 1 a 65535, recusa de porta inválida e de par igual) e os defaults 1420/4317. Os specs que sobem host próprio herdavam o par escolhido com `hostPort + N`; **atualizado pela #246
+  (2026-11-08):** hoje eles pedem porta efêmera ao kernel (`--port 0`) e não dependem do par.
 - **E2E app home derivado da porta da UI.** O default passa a ser `<tempdir>/openridr-e2e-home-<uiPort>`; `OPENRIDR_E2E_HOME` continua vencendo. A chave é a porta, não o worktree: duas execuções no mesmo worktree com portas diferentes também precisam de homes diferentes (o fixture é o mesmo, mas o home não pode ser), e duas na mesma porta não coexistem.
 - **O cache de ferramentas verificadas é por home, e isso é aceito.** O download/instalação do csharp-ls (~1 min, com rede) roda de novo quando a porta muda. Em troca, nenhuma execução reescreve o que a outra está usando. O smoke noturno usa as portas default, então mantém o mesmo caminho quente.
 - **Smoke noturno intocado.** O workflow continua sem setar portas nem home: defaults, `concurrency` já existente. Nenhuma variável nova no CI.

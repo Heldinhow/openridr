@@ -79,6 +79,25 @@ B: 6 passed (41.8s)  welcome.spec.ts
 Nenhuma das duas escolheu porta auxiliar: cada host próprio subiu em `--port 0` e as duas rodaram ao
 mesmo tempo no mesmo worktree, com homes diferentes (derivados das portas da UI).
 
+O caso mais duro é o **mesmo spec** nas duas sessões, porque `isolated-host.spec.ts` conta diretórios
+em `os.tmpdir()` — um diretório compartilhado por todas as sessões da máquina:
+
+```sh
+# as duas sessões rodam o mesmo spec, em pares diferentes
+bunx playwright test tests/e2e/isolated-host.spec.ts --output=/tmp/pw-c &   # 1520/4417
+bunx playwright test tests/e2e/isolated-host.spec.ts --output=/tmp/pw-d &   # 1521/4418
+wait
+```
+
+```text
+C: 6 passed (9.0s)
+D: 6 passed (9.0s)
+```
+
+Para isso os prefixos dos homes do spec carregam o `pid` do worker (`openridr-isolated-<caso>-<pid>-`):
+antes, `readdirSync(os.tmpdir())` de uma sessão via o home da outra e a asserção "nenhum diretório
+sobrando" reprovava sem nenhum defeito no produto.
+
 **Achado da primeira tentativa, registrado porque é armadilha de quem repetir:** sem `--output`
 separado, as duas sessões escrevem em `test-results/` do worktree e uma apaga o trace da outra —
 `browserContext.close: ENOENT ... test-results/.playwright-artifacts-0/traces/...`. Não é porta nem

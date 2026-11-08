@@ -1738,9 +1738,10 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   ela só diz onde ele está. O helper continua comparando o `pid` do `/health` com o do filho que subiu, e
   o teste do decoy passou a provar isso por dentro do caminho novo: um filho de mentira imprime a porta
   de um decoy alheio, e o helper recusa nomeando a porta e o `pid` estranho.
-- **O que deixa de ser demonstrável.** O critério da #216 "porta ocupada falha nomeando a porta" perde o
-  decoy na porta escolhida: o kernel nunca concede uma porta ocupada. O que sobra provando é o `/health`
-  de `pid` estranho — que é o caso real que a posse protege.
+- **O que deixa de ser demonstrável.** O critério da #216 "porta ocupada falha nomeando a porta" deixa de
+  valer **pelo helper**: ele sempre pede 0, e o kernel não concede porta ocupada. Uma porta fixa pedida à
+  mão (`--port 4317`) continua falhando no bind e nomeando o endereço. O que sobra provando no caminho do
+  helper é o `/health` de `pid` estranho — que é o caso real que a posse protege.
 - **A faixa sai dos três docs.** `AGENTS.md`, `docs/SPEC-E2E-PORTS.md` e esta entrada dizem a mesma
   regra: o par do harness é escolhido, as auxiliares são efêmeras. `.agents/skills/verify-openridr/SKILL.md`
   repetia a faixa e sai junto. `tests/e2e/environment.ts` perde a validação da faixa derivada
