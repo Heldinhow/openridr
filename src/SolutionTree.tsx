@@ -15,6 +15,7 @@ import {
   dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, symbolKindOf,
   type ProjectKind, type SymbolKind,
 } from "./solutionVisuals";
+import { askTreeQuery } from "./treeQueryRetry";
 import { TreeRow, type MenuPosition } from "./TreeRow";
 
 export type TreeTarget =
@@ -275,24 +276,30 @@ export function SolutionTree(p: Props) {
     };
   }, [p.gitStatus, p.workspaceDir, p.gitRevision, visibleFilePaths]);
 
+  // The effect follows the request id, not the object: the snapshot poll replaces `views` with an
+  // equal model, and a new object for the same id would cancel a retry that is still waiting.
+  const ignoredRequestRef = useRef(ignoredRequest);
+  ignoredRequestRef.current = ignoredRequest;
   useEffect(() => {
     // The previous answer belongs to an older snapshot: drop it before asking again, and let the
     // cleanup flag discard a response that arrives after this request was replaced.
     setIgnoredPaths((current) => (current.length === 0 ? current : []));
-    if (!ignoredRequest || ignoredRequest.paths.length === 0) return;
-    const paths = ignoredRequest.paths;
+    const request = ignoredRequestRef.current;
+    if (!request || request.paths.length === 0) return;
+    const paths = request.paths;
     let alive = true;
     void (async () => {
       const ignored: string[] = [];
       for (let start = 0; start < paths.length; start += 128) {
-        try {
-          const result = await call<{ ignored: string[] }>("git.ignored", {
-            paths: paths.slice(start, start + 128),
-          });
-          if (!alive) return;
-          ignored.push(...(result.ignored ?? []));
-        } catch {
-          break; // keep what the batches already proved; a missing marker is safer than a wrong one
+        const result = await askTreeQuery(
+          () => call<{ ignored: string[] }>("git.ignored", { paths: paths.slice(start, start + 128) }),
+          () => !alive,
+        );
+        if (!alive) return;
+        // A batch that was given up leaves its rows unmarked; the batches after it still get a turn.
+        if (!result) continue;
+        for (const path of Array.isArray(result.ignored) ? result.ignored : []) {
+          if (typeof path === "string") ignored.push(path);
         }
       }
       if (!alive) return;
@@ -301,7 +308,7 @@ export function SolutionTree(p: Props) {
     return () => {
       alive = false;
     };
-  }, [ignoredRequest]);
+  }, [ignoredRequest?.id]);
   // Batches of 128 keep the host's 256-file cap out of reach; `known` makes unchanged files a stat.
   useEffect(() => {
     if (!visibleSignature) return;
@@ -316,20 +323,18 @@ export function SolutionTree(p: Props) {
           const cached = symbolCache.current.get(path);
           if (cached) known[path] = cached.modified;
         }
-        try {
-          const result = await call<{ entries: SymbolEntry[] }>("workspace.symbolKinds", {
-            paths: batch,
-            known,
-          });
-          if (!alive) return;
-          for (const entry of result.entries ?? []) {
-            updates.push([
-              entry.path,
-              { kind: symbolKindOf(entry.kind) ?? null, modified: entry.modified },
-            ]);
-          }
-        } catch {
-          break; // keep the badges already shown and apply the batches that succeeded
+        const result = await askTreeQuery(
+          () => call<{ entries: SymbolEntry[] }>("workspace.symbolKinds", { paths: batch, known }),
+          () => !alive,
+        );
+        if (!alive) return;
+        // A batch that was given up keeps the badges already shown; the next batch still runs.
+        if (!result) continue;
+        for (const entry of Array.isArray(result.entries) ? result.entries : []) {
+          if (!entry || typeof entry.path !== "string") continue;
+          // A malformed `modified` is not a timestamp the cache can trust: 0 asks for a fresh stat.
+          const modified = typeof entry.modified === "number" ? entry.modified : 0;
+          updates.push([entry.path, { kind: symbolKindOf(entry.kind) ?? null, modified }]);
         }
       }
       if (!alive || updates.length === 0) return;
@@ -379,26 +384,33 @@ export function SolutionTree(p: Props) {
     return { id: treeQueryId(`symlinks:${p.workspaceDir}`, p.gitRevision, list), paths: list };
   }, [p.showAll, views, p.workspaceDir, p.gitRevision]);
 
+  // Same as the ignored query: the poll replaces the model with an equal one, and the effect must
+  // follow the request id so a retry in flight is not cancelled by an unrelated render.
+  const symlinkRequestRef = useRef(symlinkRequest);
+  symlinkRequestRef.current = symlinkRequest;
   useEffect(() => {
     // A marker from the previous workspace/revision must not survive while the new answer is in
     // flight, and a late response is dropped by the cleanup flag.
     symlinkRef.current = new Set();
     setSymlinks(symlinkRef.current);
-    if (!symlinkRequest || symlinkRequest.paths.length === 0) return;
-    const candidates = symlinkRequest.paths;
+    const request = symlinkRequestRef.current;
+    if (!request || request.paths.length === 0) return;
+    const candidates = request.paths;
     let alive = true;
     void (async () => {
       const links = new Set<string>();
       for (let start = 0; start < candidates.length; start += 128) {
-        try {
-          const result = await call<{ entries: Array<{ path: string; symlink: boolean }> }>(
+        const result = await askTreeQuery(
+          () => call<{ entries: Array<{ path: string; symlink: boolean }> }>(
             "workspace.symlinks",
             { paths: candidates.slice(start, start + 128) },
-          );
-          if (!alive) return;
-          for (const entry of result.entries ?? []) if (entry.symlink) links.add(entry.path);
-        } catch {
-          break; // keep what the batches already proved; a missing marker is safer than a wrong one
+          ),
+          () => !alive,
+        );
+        if (!alive) return;
+        if (!result) continue;
+        for (const entry of Array.isArray(result.entries) ? result.entries : []) {
+          if (entry && typeof entry.path === "string" && entry.symlink === true) links.add(entry.path);
         }
       }
       if (!alive) return;
@@ -408,7 +420,7 @@ export function SolutionTree(p: Props) {
     return () => {
       alive = false;
     };
-  }, [symlinkRequest]);
+  }, [symlinkRequest?.id]);
 
   const open = (key: string) => (filter ? true : p.expanded.has(key));
 

@@ -1826,3 +1826,38 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `tests/unit/` (o E2E não roda em PR); os specs que afirmam "enabled" logo depois de restaurar passam a
   esperar a descoberta com o `settleDiscovery` da #251. Nenhum `data-testid` novo, nenhuma dependência
   nova, nenhum estado novo na UI.
+
+## 2026-11-08 — Consulta de árvore que falha é repetida com limite, não tratada como resposta vazia (issue #264, ticket #281)
+
+- **Decisão.** As três consultas de marcador da Solution Explorer (`git.ignored`,
+  `workspace.symlinks`, `workspace.symbolKinds`) repetem o lote que falhou até três tentativas no
+  total — a original mais duas, com 200 ms e 400 ms (`TREE_QUERY_RETRY_DELAYS_MS`, em
+  `src/treeQueryRetry.ts`). A repetição não acontece quando o pedido já foi substituído (workspace,
+  revisão do Git ou caminhos visíveis mudaram), nem antes nem depois da espera. Depois do último
+  fracasso o laço **continua** para o lote seguinte em vez de abandonar o resto; o que os lotes
+  anteriores provaram fica pintado e o lote perdido fica sem marcador, como hoje.
+- **Por que repetir e não manter a resposta anterior.** Manter o marcador antigo contrariaria a
+  decisão já registrada no código ("a missing marker is safer than a wrong one") e não ajudaria a
+  primeira consulta de um workspace, que não tem resposta anterior. A repetição cobre os dois casos:
+  a resposta que não chegou e a que chegaria errada.
+- **Por que o helper é um módulo e tem teste unitário.** A spec pedia helper local e prova só no E2E,
+  porque o repo não tem teste de componente React. A política é compartilhada pelas três consultas e
+  o unitário (`tests/unit/treeQueryRetry.test.ts`) é a prova determinística dela — três tentativas,
+  as esperas, o aborto por substituição — sem host, dotnet ou navegador; o E2E fica com o contrato
+  visível.
+- **O efeito segue o id do pedido, não o objeto.** Achado da revisão: o poll de `workspace.state`
+  (400 ms) substitui o snapshot, `views` é recalculado e o memo do pedido devolve um objeto novo com o
+  mesmo `treeQueryId`; o efeito re-rodava, cancelava a repetição que esperava e descartava os lotes
+  que já tinham respondido — o critério "os marcadores já provados ficam pintados" não valia na
+  prática. Com a dependência no `id` (string) e os caminhos lidos de um ref, a consulta roda uma vez
+  por identidade, que é o contrato que os comentários do arquivo já prometiam. Isso fecha também a
+  [#300](https://github.com/Heldinhow/openridr/issues/300) (a árvore re-consultava a cada poll), que
+  entrou nesta frente porque sem ela a repetição não sobrevive ao render seguinte. A limpeza de
+  estado na troca de identidade do pedido continua como estava.
+- **A resposta malformada de um lote é lote perdido.** Array que não é array, ou elemento que não é
+  objeto/string, é descartado em vez de virar exceção não observada fora do `try` do helper — o
+  processamento da resposta deixou de estar dentro do `catch` que existia antes do retry.
+- **Consequência.** `src/treeQueryRetry.ts` (novo), `src/SolutionTree.tsx`, 6 testes unitários e 4
+  E2E em `tests/e2e/solution-git-status.spec.ts` (três da repetição, um da #300 contando chamadas por
+  identidade); evidência em `docs/evidence/tree-query-retry.md`. Nenhum `data-testid` renomeado,
+  nenhuma dependência nova, nenhuma mudança no host.

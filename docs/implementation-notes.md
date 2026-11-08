@@ -2014,3 +2014,46 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   `sleep 30`): `lsp.start` e `lsp.restart` recusam com o motivo e `lsp.state` continua `unavailable`.
   A checagem vem antes do `still_ready()`, então o teste não depende de csharp-ls instalado.
 - **Não verificado:** o app Tauri real; Windows e macOS Intel.
+
+## Consulta de árvore que falha é repetida com limite (2026-11-08, #264; ticket #281)
+
+- **O conserto.** `src/treeQueryRetry.ts` (novo) expõe `askTreeQuery(ask, superseded, delays)`:
+  repete o lote que falhou até três tentativas no total (`TREE_QUERY_RETRY_DELAYS_MS = [200, 400]`),
+  aborta sem repetir quando o pedido já foi substituído (antes e depois da espera) e devolve `null`
+  quando desiste. As três consultas de marcador do `SolutionTree.tsx` (`git.ignored`,
+  `workspace.symlinks`, `workspace.symbolKinds`) chamam o helper e, depois de um lote dado por
+  perdido, seguem com `continue` em vez do `break` que abandonava o resto da lista.
+- **Por que o helper é módulo.** A spec pedia helper local e prova só no E2E. A política é
+  compartilhada pelas três consultas e o unitário é a prova determinística dela (três tentativas, as
+  esperas, o aborto por substituição) sem host, dotnet ou navegador; o E2E fica com o contrato
+  visível.
+- **Testes.** `tests/unit/treeQueryRetry.test.ts` (6 casos: sucesso direto, repetição com sucesso,
+  três tentativas e desiste, pedido substituído antes e durante a espera, e a política `[200, 400]`).
+  `tests/e2e/solution-git-status.spec.ts`: 3 testes novos, um por consulta, cada um perdendo a
+  primeira resposta do método com `page.route("**/call")`; a identidade é trocada pelo caminho real
+  (recolher/expandir o projeto, alternar "Show all files", tirar/pôr o fonte de volta no projeto) e
+  no caso do tipo C# o helper também recusa as varreduras seguintes, para só a repetição passar; nos
+  testes de `.gitignore` e symlink ele também para o poll `workspace.state` e o refresh `git.status`,
+  para um render não pedir de novo. Cada teste exige **exatamente duas** chamadas carregando o
+  caminho (a perdida e a repetição), então uma varredura posterior não passa por repetição. Um quarto
+  teste conta chamadas por identidade: três respostas de `workspace.state` com a mesma identidade não
+  podem pedir de novo, um `focus` (nova revisão do Git) pede `git.ignored` **e** `workspace.symlinks`
+  outra vez — é a regressão da #300.
+- **Achado da revisão (alto): o efeito seguia o objeto do pedido.** O poll de `workspace.state`
+  (400 ms) substitui o snapshot, `views` é recalculado e o memo do pedido devolve um objeto novo com o
+  mesmo `treeQueryId`; o efeito re-rodava, cancelava a repetição que esperava e descartava os lotes
+  que já tinham respondido. Agora o efeito depende do `id` (string) e lê os caminhos de um ref: uma
+  consulta por identidade. Fecha também a #300 (a árvore re-consultava a cada poll). A resposta
+  malformada de um lote (`entries`/`ignored` que não é array) virou lote dado por perdido, não
+  exceção não observada — o outro achado médio da revisão.
+- **Falha-antes medida.** Unitário: com o comportamento antigo (pergunta uma vez), 2 dos 6 falham.
+  E2E, com o efeito preso ao id e só a repetição revertida: os três falham (`data-git-status`,
+  `data-symlink` e `data-symbol-kind` vazios depois de 10 s); com a repetição, os três passam. Com o
+  conserto inteiro revertido, os quatro testes novos falham (`.gitignore` com 6 chamadas em vez de 2,
+  symlink com 5 em vez de 2, tipo C# sem badge e #300 com 5 chamadas em vez de 0).
+- **Bateria.** `bun test tests/unit` 145 passed; `bunx tsc --noEmit` limpo;
+  `bunx playwright test tests/e2e/solution-git-status.spec.ts` 7 passed;
+  `--repeat-each=8` 56 passed.
+- **Não verificado:** app Tauri real (UI pura); a causa da resposta que não chegou (transporte ou
+  host sob o lock — a spec já a deixava fora de escopo); a taxa do sintoma em produção; Windows e
+  macOS Intel. Evidência: `docs/evidence/tree-query-retry.md`.
