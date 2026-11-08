@@ -1826,3 +1826,28 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `tests/unit/` (o E2E não roda em PR); os specs que afirmam "enabled" logo depois de restaurar passam a
   esperar a descoberta com o `settleDiscovery` da #251. Nenhum `data-testid` novo, nenhuma dependência
   nova, nenhum estado novo na UI.
+
+## 2026-11-08 — A análise de workspace de projeto carrega por uma solução gerada (issue #299)
+
+- **Decisão.** Para um workspace de projeto (`.csproj` aberto direto), o host escreve uma solução mínima
+  em `<app home>/analysis/<nome>.sln` nomeando o projeto aberto e lança o csharp-ls com
+  `--solution <essa solução>` — o mesmo caminho do workspace de solução. Com isso o projeto sai de
+  `loading` como a solução, e o gate da #275 volta a valer para os dois tipos: `start_build_locked` não
+  olha mais o tipo do workspace e `analysisLoading` em `executionGates.ts` também não.
+- **Por que não consertar a descoberta do csharp-ls.** A descoberta de projetos do próprio servidor trava
+  dentro de `MSBuildWorkspace.OpenProjectAsync` e nunca retorna (0.28.0: log parado em `loading project`,
+  processo a 0% de CPU, sem filho `dotnet`/BuildHost; o mesmo projeto via `--solution` carrega em ~4 s).
+  O código é do upstream e o mesmo defeito está na `master` de hoje: o host não corrige o servidor, só
+  escolhe o caminho que funciona.
+- **Por que uma solução gerada e não o `.csproj` no `--solution`.** `--solution` passa por
+  `SolutionFile.Parse`; um `.csproj` ali falha no parse, o servidor fica defunto e nunca emite
+  `Finished loading solution` — a análise ficaria em `loading` do mesmo jeito.
+- **Por que no app home.** O arquivo é do app, não do usuário: um `.sln` ao lado do `.csproj` poluiria o
+  repositório dele. A solução nomeia o projeto por caminho absoluto, então a distância entre os dois não
+  importa, e o arquivo é reescrito a cada `lsp.start`.
+- **Consequência.** `lsp.solution` passa a ser preenchido também no workspace de projeto (caminho da
+  solução gerada; a UI não o renderiza). Evidência em
+  `docs/evidence/project-workspace-analysis.md`; `docs/evidence/concurrent-builds.md` deixa de registrar a
+  exceção. O leaf `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` cobre o projeto
+  (recusa durante `loading`, build real depois) e o teste de unidade do gate perde o caso "projeto não
+  espera".

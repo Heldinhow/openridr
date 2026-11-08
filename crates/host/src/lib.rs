@@ -2105,18 +2105,11 @@ impl Host {
         // test project and the analysis that is still loading the solution are refused in one
         // place instead of racing them on the same files.
         //
-        // The analysis only gates a solution workspace: csharp-ls never leaves `loading` on a
-        // project workspace (measured: stuck on `loading project` for minutes at 0% CPU), so
-        // gating it there would keep Build disabled forever. See
-        // docs/evidence/concurrent-builds.md.
-        let solution_workspace = inner
-            .workspace
+        let analysis = inner
+            .lsp
             .as_ref()
-            .is_some_and(|workspace| matches!(workspace.kind, WorkspaceKind::Solution));
-        let analysis = match inner.lsp.as_ref().map(|lsp| lsp.state()) {
-            Some(state) if solution_workspace => state,
-            _ => "unavailable",
-        };
+            .map(|lsp| lsp.state())
+            .unwrap_or("unavailable");
         if let Some(reason) = build::refusal_reason(
             inner.build.running_process_id(),
             inner.restore.running_process_id().is_some(),
@@ -4764,10 +4757,16 @@ impl Host {
                 (binary.to_string_lossy().to_string(), Vec::new())
             }
         };
-        if is_solution {
-            argv.push("--solution".to_string());
-            argv.push(workspace_path.to_string_lossy().to_string());
-        }
+        // csharp-ls only loads a workspace through `--solution`: its own project discovery logs
+        // `loading project` and never completes (#299), so a project workspace gets a generated
+        // solution naming the opened project.
+        let solution_path = if is_solution {
+            workspace_path.clone()
+        } else {
+            project_solution(&workspace_path)?
+        };
+        argv.push("--solution".to_string());
+        argv.push(solution_path.to_string_lossy().to_string());
         argv.push("--loglevel".to_string());
         argv.push(log_level.to_string());
 
@@ -4783,7 +4782,7 @@ impl Host {
             .env_remove("NUGET_PACKAGES")
             .env_remove("NUGET_HTTP_CACHE_PATH")
             .env_remove("DOTNET_CLI_HOME");
-        let solution = is_solution.then(|| workspace_path.to_string_lossy().to_string());
+        let solution = Some(solution_path.to_string_lossy().to_string());
         // The view logs the whole command line, including the muxer that runs the bundled entry.
         let mut displayed_argv = vec![program.clone()];
         displayed_argv.extend(argv.iter().cloned());
@@ -8354,6 +8353,58 @@ fn ambiguous_workspace(dir: &Path, files: &[PathBuf], kind: &'static str) -> Hos
         ),
         json!({ "candidates": candidates }),
     )
+}
+
+/// The minimal solution csharp-ls loads for a project workspace. Its own project discovery never
+/// finishes (#299: `loading project` and nothing else, measured on 0.28.0), while the solution path
+/// loads the same project and reports `Finished loading solution`. The file lives in the app home,
+/// never in the workspace, and names the project by absolute path.
+fn project_solution(project: &Path) -> HostResult<PathBuf> {
+    let name = project
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".to_string());
+    let directory = tools::app_home().join("analysis");
+    fs::create_dir_all(&directory).map_err(|error| {
+        HostError::new(
+            "operation_failed",
+            format!(
+                "Analysis was not started: could not create {} ({error}).",
+                directory.to_string_lossy()
+            ),
+        )
+    })?;
+    // The project GUID is fixed: the file always names exactly one project.
+    let guid = "{0F8FAD5B-D9CB-469F-A165-70867728950E}";
+    let text = format!(
+        "Microsoft Visual Studio Solution File, Format Version 12.00\n\
+         # Visual Studio Version 17\n\
+         VisualStudioVersion = 17.0.31903.59\n\
+         MinimumVisualStudioVersion = 10.0.40219.1\n\
+         Project(\"{{9A19103F-16F7-4668-BE54-9A1E7A4F7556}}\") = \"{name}\", \"{project}\", \"{guid}\"\n\
+         EndProject\n\
+         Global\n\
+         \tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n\
+         \t\tDebug|Any CPU = Debug|Any CPU\n\
+         \tEndGlobalSection\n\
+         \tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n\
+         \t\t{guid}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n\
+         \t\t{guid}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\
+         \tEndGlobalSection\n\
+         EndGlobal\n",
+        project = project.to_string_lossy()
+    );
+    let path = directory.join(format!("{name}.sln"));
+    fs::write(&path, text).map_err(|error| {
+        HostError::new(
+            "operation_failed",
+            format!(
+                "Analysis was not started: could not write {} ({error}).",
+                path.to_string_lossy()
+            ),
+        )
+    })?;
+    Ok(path)
 }
 
 fn load_workspace(path: &Path) -> HostResult<Workspace> {

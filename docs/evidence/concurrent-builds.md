@@ -46,11 +46,16 @@ medido no CrashApp, `loading` por mais de 3 minutos, processo a 0% de CPU, log p
 para qualquer workspace, `run.spec.ts` (LongRunner, CrashApp) ficou com Build desabilitado até o
 timeout de 3 min: **4 testes vermelhos**, medidos duas vezes.
 
-Por isso o gate da análise é **solution-only** nos dois lados (`start_build_locked` no host,
-`analysisLoading` em `executionGates.ts`), e o leaf do #286 cobre a exceção: com o projeto em
-`loading`, `build.start` **precisa** funcionar. O travamento em si é o
-[#299](https://github.com/Heldinhow/openridr/issues/299); quando ele for corrigido, o gate deve
-voltar a valer para projeto.
+Por isso o gate da análise ficou **solution-only** nos dois lados (`start_build_locked` no host,
+`analysisLoading` em `executionGates.ts`) e o leaf do #286 cobriu a exceção: com o projeto em
+`loading`, `build.start` **precisava** funcionar.
+
+> **Resolvido em 2026-11-08 pelo [#299](https://github.com/Heldinhow/openridr/issues/299).** O host passou
+a lançar o csharp-ls com uma solução gerada para o workspace de projeto, o projeto sai de `loading` em
+~4 s e o gate voltou a valer para os dois tipos de workspace: `start_build_locked` e `analysisLoading`
+não olham mais o tipo, e o leaf do #286 inverteu a exceção (com o projeto em `loading`, `build.start`
+**recusa**). Prova em [project-workspace-analysis.md](project-workspace-analysis.md); decisão em
+[decisions.md](../decisions.md) (2026-11-08, issue #299).
 
 ## E2E (Playwright em modo web, `PLAYWRIGHT_CHANNEL=chromium`, par 1620/4517)
 

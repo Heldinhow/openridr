@@ -2014,3 +2014,27 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   `sleep 30`): `lsp.start` e `lsp.restart` recusam com o motivo e `lsp.state` continua `unavailable`.
   A checagem vem antes do `still_ready()`, então o teste não depende de csharp-ls instalado.
 - **Não verificado:** o app Tauri real; Windows e macOS Intel.
+
+## A análise de um workspace de projeto carrega por uma solução gerada (2026-11-08, #299)
+
+- **O que mudou.** `start_analysis` (`crates/host/src/lib.rs`) passou a lançar o csharp-ls sempre com
+  `--solution`: o caminho do workspace quando ele é solução, e um `.sln` gerado em
+  `<app home>/analysis/<nome>.sln` quando é projeto (`project_solution`). O `.sln` nomeia o projeto aberto
+  por caminho absoluto e é reescrito a cada `lsp.start`. `LspView.solution` passa a ser preenchido nos dois
+  casos.
+- **Por quê.** A descoberta de projetos do csharp-ls 0.28.0 trava em `MSBuildWorkspace.OpenProjectAsync`
+  (log parado em `loading project`, 0% de CPU, sem filho `dotnet`/BuildHost) e nunca emite
+  `Finished loading solution`; o mesmo projeto via `--solution` carrega em ~4 s. `--solution` com o
+  `.csproj` não serve: `SolutionFile.Parse` falha e o servidor fica defunto sem sinal de carregamento.
+- **O gate da #275 volta a valer para projeto.** `start_build_locked` não olha mais `WorkspaceKind` e
+  `analysisLoading` (`src/executionGates.ts`) virou `snapshot.lsp.state === "loading"` — `GateSnapshot`
+  perdeu o campo `workspace`.
+- **Falha-antes medida.** O leaf do #286, com o bloco de projeto invertido: `build.start started while the
+  project analysis was loading: "running"` (21,65 s). Com o fix, o mesmo leaf passa em 15,56 s.
+- **Janela medida.** Projeto (CrashApp, host de verdade): `lsp.start` → `loading` ~2 s; `loading` →
+  `ready` ~4 s, com `Finished loading solution ".../analysis/CrashApp.sln"` no log.
+- **Teste.** `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` cobre o projeto
+  (recusa durante `loading`, build real depois) e `tests/unit/executionGates.test.ts` perdeu o caso
+  "projeto não espera".
+- **Não verificado:** o app Tauri real; E2E (nenhum spec cobre o gate da análise); projeto com
+  `ProjectReference`; Windows e macOS Intel. Evidência: `docs/evidence/project-workspace-analysis.md`.
