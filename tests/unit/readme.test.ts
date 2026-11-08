@@ -63,6 +63,24 @@ describe("README.md", () => {
     expect(relativeTargets.filter((target) => !existsSync(resolve(root, target)))).toEqual([]);
   });
 
+  test("the contribution guide covers setup, labelled work, the issue-to-PR flow and CI", () => {
+    const guide = readFileSync(resolve(root, "CONTRIBUTING.md"), "utf8");
+    const required = [
+      "## Set up",
+      "Bun",
+      "Rust",
+      ".NET SDK",
+      "good first issue",
+      "help wanted",
+      "## From issue to pull request",
+      "conventional commit",
+      "## CI and risk",
+      "Risk is calculated from changed paths",
+      "](AGENTS.md)",
+    ];
+    expect(required.filter((phrase) => !guide.includes(phrase))).toEqual([]);
+  });
+
   test("the contribution guide's relative links resolve on disk", () => {
     const guide = readFileSync(resolve(root, "CONTRIBUTING.md"), "utf8");
     const targets = [...guide.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)]

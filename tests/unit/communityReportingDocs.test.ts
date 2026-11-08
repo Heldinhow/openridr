@@ -17,6 +17,17 @@ function relativeLinks(markdown: string): string[] {
     .filter((target) => !/^[a-z]+:/i.test(target) && !target.startsWith("#"));
 }
 
+// Both policies route private reports through the same form, so the claim they make about it is one
+// assertion: the channel exists, it is described as active, and the text does not regress to saying it
+// is unavailable.
+function expectActivePrivateChannel(markdown: string): void {
+  const text = markdown.toLowerCase();
+  expect(markdown).toContain(PRIVATE_REPORTING);
+  expect(text).toContain("private vulnerability reporting");
+  expect(text).toContain("is active");
+  expect(text).not.toContain("not yet enabled");
+}
+
 describe("CODE_OF_CONDUCT.md", () => {
   const conduct = document("CODE_OF_CONDUCT.md");
 
@@ -26,9 +37,8 @@ describe("CODE_OF_CONDUCT.md", () => {
     expect(conduct).toContain("## Enforcement Guidelines");
   });
 
-  test("sends conduct reports to the private channel and says it is not active yet", () => {
-    expect(conduct).toContain(PRIVATE_REPORTING);
-    expect(conduct.toLowerCase()).toContain("not yet enabled");
+  test("sends conduct reports to the active private channel", () => {
+    expectActivePrivateChannel(conduct);
   });
 
   test("does not publish a personal email address", () => {
@@ -50,9 +60,8 @@ describe("SECURITY.md", () => {
     expect(security).toContain("not verified");
   });
 
-  test("sends vulnerability reports to the private channel and says it is not active yet", () => {
-    expect(security).toContain(PRIVATE_REPORTING);
-    expect(security.toLowerCase()).toContain("not yet enabled");
+  test("sends vulnerability reports to the active private channel", () => {
+    expectActivePrivateChannel(security);
   });
 
   test("does not publish a personal email address", () => {

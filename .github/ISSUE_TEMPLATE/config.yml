@@ -2,4 +2,4 @@ blank_issues_enabled: false
 contact_links:
   - name: Questions and community discussion
     url: https://github.com/Heldinhow/openridr/discussions
-    about: Ask questions in Discussions once the maintainer enables it.
+    about: Ask questions in Discussions.
