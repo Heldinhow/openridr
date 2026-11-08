@@ -55,7 +55,7 @@ voltar a valer para projeto.
 
 | Spec | Resultado |
 |---|---|
-| `tests/e2e/build.spec.ts` | 3 passed (48,8 s) — inclui o cenário novo |
+| `tests/e2e/build.spec.ts` | 3 passed (48,8 s; 1,6 min na rodada com a asserção do `build-solution-menu`) — inclui o cenário novo |
 | `tests/e2e/gates.spec.ts` | 10 passed (53,8 s) |
 | `tests/e2e/run.spec.ts` | 5 passed (43,9 s) |
 
