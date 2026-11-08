@@ -8360,10 +8360,24 @@ fn ambiguous_workspace(dir: &Path, files: &[PathBuf], kind: &'static str) -> Hos
 /// loads the same project and reports `Finished loading solution`. The file lives in the app home,
 /// never in the workspace, and names the project by absolute path.
 fn project_solution(project: &Path) -> HostResult<PathBuf> {
-    let name = project
+    let project_text = project.to_string_lossy().to_string();
+    // The `.sln` quotes the path; a quote or a newline in it cannot be represented.
+    if project_text.contains(['"', '\n', '\r']) {
+        return Err(HostError::new(
+            "operation_failed",
+            "Analysis was not started: the project path contains a quote or a line break, which a generated solution cannot name.",
+        ));
+    }
+    let stem = project
         .file_stem()
         .map(|stem| stem.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string());
+    // Two projects can share a file name; the digest of the absolute path keeps their solutions apart.
+    let digest = {
+        use sha2::Digest;
+        sha2::Sha256::digest(project_text.as_bytes())
+    };
+    let name = format!("{stem}-{}", &tools::hex(&digest)[..16]);
     let directory = tools::app_home().join("analysis");
     fs::create_dir_all(&directory).map_err(|error| {
         HostError::new(
@@ -8392,7 +8406,7 @@ fn project_solution(project: &Path) -> HostResult<PathBuf> {
          \t\t{guid}.Debug|Any CPU.Build.0 = Debug|Any CPU\n\
          \tEndGlobalSection\n\
          EndGlobal\n",
-        project = project.to_string_lossy()
+        project = project_text
     );
     let path = directory.join(format!("{name}.sln"));
     fs::write(&path, text).map_err(|error| {
@@ -9066,6 +9080,26 @@ fn workspace_symbol_items(scope: &Scope, list: &lsp::WorkspaceSymbolList) -> (Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_generated_solution_separates_same_named_projects_and_rejects_unquotable_paths() {
+        let first = project_solution(Path::new("/one/App/App.csproj")).unwrap();
+        let second = project_solution(Path::new("/two/App/App.csproj")).unwrap();
+        assert_ne!(
+            first, second,
+            "two projects with the same file name shared one solution"
+        );
+        let text = fs::read_to_string(&first).unwrap();
+        assert!(
+            text.contains("\"/one/App/App.csproj\""),
+            "the solution must name the project by absolute path: {text}"
+        );
+        // A quote cannot be represented inside the quoted field, so the host refuses instead of
+        // writing a solution csharp-ls would fail to parse.
+        let error = project_solution(Path::new("/one/App\"/App.csproj")).unwrap_err();
+        assert_eq!(error.code, "operation_failed");
+        assert!(error.message.contains("quote"), "{}", error.message);
+    }
 
     #[test]
     fn the_dotnet_command_neither_sets_nor_strips_proxy_variables() {

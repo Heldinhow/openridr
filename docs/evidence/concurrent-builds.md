@@ -16,7 +16,7 @@ Decisão: [decisions.md](../decisions.md) (2026-11-07, issue #275). Tickets: #28
 | O build recusa enquanto a análise carrega a solução | `crates/host/tests/host.rs` › `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` | `invalid_state` com o motivo durante `loading`, nenhum processo; com `ready`, o build roda (`ok`, exit 0) |
 | A análise não começa durante um build | `crates/host/tests/host.rs` › `analysis_is_refused_while_a_build_is_running` | `lsp.start` e `lsp.restart` → `invalid_state` com o motivo e `lsp.state` continua `unavailable`; o `lsp.restart` é checado antes de parar a sessão viva |
 | A UI nomeia a descoberta antes do clique | `tests/e2e/build.spec.ts` › `the build gate names the automatic discovery before the click` | `toolbar-run`/`toolbar-debug` com o motivo no `title`, `build-disabled-reason` com o texto, `build-action`/`build-solution`/`build-solution-menu` desabilitados (com o motivo no `title`), `run-action` desabilitado com `run-disabled-reason`; depois de assentar, Build/Build Solution/Run reabilitam sem reload e o Build conclui |
-| O gate da UI e a ordem das recusas | `tests/unit/executionGates.test.ts` | motivo da descoberta e da análise, `null` com nada rodando, ordem (build e descoberta ganham da análise) e projeto sem gate |
+| O gate da UI e a ordem das recusas | `tests/unit/executionGates.test.ts` | motivo da descoberta e da análise, `null` com nada rodando, ordem (build e descoberta ganham da análise); desde o #299 o gate vale para os dois tipos de workspace, sem exceção de projeto |
 
 ## Falha-antes medida
 
@@ -73,7 +73,8 @@ Antes do ajuste solution-only, `run.spec.ts` dava 2–4 vermelhos (LongRunner e 
 - **Recarga da análise depois de carregada.** O csharp-ls recarrega o projeto sozinho quando um
   arquivo muda e o host não observa isso (o estado não volta a `loading`). Fora do escopo, como a
   spec registra.
-- **Workspace de projeto** não tem gate de análise hoje, por causa do #299.
+- **Workspace de projeto** tinha gate só depois do #299: a análise do projeto travava em `loading` e o gate
+  ficou solution-only até o fix (ver [project-workspace-analysis.md](project-workspace-analysis.md)).
 - **Build durante test run** (`tests.run`) é outra colisão, com outro dono; fora do escopo da spec.
 
 ## Não verificado

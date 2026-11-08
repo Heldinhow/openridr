@@ -1830,7 +1830,7 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 ## 2026-11-08 — A análise de workspace de projeto carrega por uma solução gerada (issue #299)
 
 - **Decisão.** Para um workspace de projeto (`.csproj` aberto direto), o host escreve uma solução mínima
-  em `<app home>/analysis/<nome>.sln` nomeando o projeto aberto e lança o csharp-ls com
+  em `<app home>/analysis/<nome>-<16 hex do sha256 do caminho>.sln` nomeando o projeto aberto e lança o csharp-ls com
   `--solution <essa solução>` — o mesmo caminho do workspace de solução. Com isso o projeto sai de
   `loading` como a solução, e o gate da #275 volta a valer para os dois tipos: `start_build_locked` não
   olha mais o tipo do workspace e `analysisLoading` em `executionGates.ts` também não.
@@ -1844,7 +1844,10 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `Finished loading solution` — a análise ficaria em `loading` do mesmo jeito.
 - **Por que no app home.** O arquivo é do app, não do usuário: um `.sln` ao lado do `.csproj` poluiria o
   repositório dele. A solução nomeia o projeto por caminho absoluto, então a distância entre os dois não
-  importa, e o arquivo é reescrito a cada `lsp.start`.
+  importa, e o arquivo é reescrito a cada `lsp.start`. O digest do caminho no nome separa dois projetos de
+  mesmo nome em pastas diferentes, e um caminho com aspa ou quebra de linha é recusado com
+  `operation_failed` — o `.sln` não tem como representá-lo, e recusar é melhor que escrever um arquivo que
+  o csharp-ls não consegue ler.
 - **Consequência.** `lsp.solution` passa a ser preenchido também no workspace de projeto (caminho da
   solução gerada; a UI não o renderiza). Evidência em
   `docs/evidence/project-workspace-analysis.md`; `docs/evidence/concurrent-builds.md` deixa de registrar a

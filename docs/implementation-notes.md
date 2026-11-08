@@ -2019,9 +2019,10 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 
 - **O que mudou.** `start_analysis` (`crates/host/src/lib.rs`) passou a lançar o csharp-ls sempre com
   `--solution`: o caminho do workspace quando ele é solução, e um `.sln` gerado em
-  `<app home>/analysis/<nome>.sln` quando é projeto (`project_solution`). O `.sln` nomeia o projeto aberto
-  por caminho absoluto e é reescrito a cada `lsp.start`. `LspView.solution` passa a ser preenchido nos dois
-  casos.
+  `<app home>/analysis/<nome>-<16 hex do sha256 do caminho>.sln` quando é projeto (`project_solution`). O
+  `.sln` nomeia o projeto aberto por caminho absoluto e é reescrito a cada `lsp.start`; o digest separa
+  dois projetos de mesmo nome e um caminho com aspa/quebra de linha recusa com `operation_failed`.
+  `LspView.solution` passa a ser preenchido nos dois casos.
 - **Por quê.** A descoberta de projetos do csharp-ls 0.28.0 trava em `MSBuildWorkspace.OpenProjectAsync`
   (log parado em `loading project`, 0% de CPU, sem filho `dotnet`/BuildHost) e nunca emite
   `Finished loading solution`; o mesmo projeto via `--solution` carrega em ~4 s. `--solution` com o

@@ -38,15 +38,19 @@ Não é ambiente do host, é o servidor.
 
 ## O fix
 
-O host gera `<app home>/analysis/<nome>.sln` com o projeto aberto e passa `--solution` nos dois tipos de
-workspace (`start_analysis` em `crates/host/src/lib.rs`, função `project_solution`). O `.sln` nomeia o
-projeto por caminho absoluto, então não importa que ele viva fora do workspace.
+O host gera `<app home>/analysis/<nome>-<16 hex do sha256 do caminho>.sln` com o projeto aberto e passa
+`--solution` nos dois tipos de workspace (`start_analysis` em `crates/host/src/lib.rs`, função
+`project_solution`). O `.sln` nomeia o projeto por caminho absoluto, então não importa que ele viva fora
+do workspace; o digest do caminho separa dois projetos de mesmo nome em pastas diferentes, e um caminho
+com aspa ou quebra de linha é recusado com `operation_failed` em vez de gerar uma solução inválida.
 
 | Prova | Onde | Resultado |
 |---|---|---|
 | O projeto sai de `loading` e chega a `ready` | host de verdade, mesma sequência acima | `starting` → `loading` (~2 s) → **`ready` (~4 s)**; log com `Loading solution ".../analysis/CrashApp.sln"` e `Finished loading solution ".../analysis/CrashApp.sln"` |
 | O gate da #275 vale para projeto | `crates/host/tests/host.rs` › `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` | durante `loading` do projeto: `build.start` → `invalid_state` com "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."; depois de carregado, o mesmo build roda (`ok`, exit 0) |
 | O gate da UI não olha mais o tipo do workspace | `tests/unit/executionGates.test.ts` | `lsp.state == "loading"` desabilita Build/Run/Debug com o motivo, sem exceção de projeto |
+| `lsp.restart` recarrega o projeto | host de verdade, `lsp.start` → `lsp.restart` (verbose) | volta a `loading` e chega a `ready`; a solução gerada é reescrita com o mesmo caminho |
+| Fechar e reabrir o workspace recarrega | host de verdade, `lsp.stop` → `workspace.close` → `workspace.open` → `setup.start` → `trust.grant` → `lsp.start` | chega a `partial` (a avaliação fica stale no contexto novo, então a cobertura é parcial) com `Finished loading solution` no log; nunca fica em `loading` |
 
 ## Falha-antes medida
 
@@ -66,6 +70,7 @@ build.start started while the project analysis was loading: "running"
 - **E2E**: nenhum spec roda em PR, e o gate da análise não tem spec de UI (nem antes deste ticket). A
   prova de UI aqui é o teste de unidade da função pura, como na #286.
 - **Windows e macOS Intel**: não executados.
-- **Projeto com `ProjectReference`**: o `.sln` gerado nomeia só o projeto aberto; projetos referenciados
-  entram como metadados (`LoadMetadataForReferencedProjects`), como já acontecia na solução. Não medido
-  numa fixture com referência cruzada.
+- **Projeto com `ProjectReference`**: o `.sln` gerado nomeia só o projeto aberto. Pelo código do
+  csharp-ls os projetos referenciados entram como metadados (`LoadMetadataForReferencedProjects`), o que
+  significa diagnóstico do projeto aberto sem navegação para o código dos referenciados — **isso não foi
+  medido** numa fixture com referência cruzada, é leitura do upstream.

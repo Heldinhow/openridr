@@ -4952,13 +4952,10 @@ fn build_is_refused_while_the_analysis_is_loading_the_solution_isolated() {
         refused.message,
         "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."
     );
-    let project_loaded = wait_lsp(
-        &host,
-        Duration::from_secs(120),
-        &["ready", "partial", "awaiting_diagnostics", "failed"],
-    );
-    assert_ne!(
-        project_loaded["state"], "failed",
+    // No document is open, so the loaded project analysis is `ready`, not `awaiting_diagnostics`.
+    let project_loaded = wait_lsp(&host, Duration::from_secs(120), &["ready", "failed"]);
+    assert_eq!(
+        project_loaded["state"], "ready",
         "{}",
         project_loaded["log"]
     );
