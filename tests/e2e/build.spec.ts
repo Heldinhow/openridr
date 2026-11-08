@@ -59,6 +59,10 @@ async function replaceProgram(page: Page, text: string) {
   await expect(page.getByTestId("app-log")).toContainText("Saved src/OrderDesk.Cli/Program.cs");
 }
 
+// The reason the gates show while the automatic discovery builds the test project (#275).
+const discoveryReason =
+  "Test discovery is building the test project; wait for it to finish or cancel the discovery.";
+
 const buildLogLimit = 20_000;
 
 /** The raw output plus the command and cwd behind it, read from the DOM after a failed wait. */
@@ -236,6 +240,37 @@ test("build waits for the automatic restore and asks before using unsaved buffer
     await expect(page.getByTestId("build-dirty-dialog")).toBeVisible();
     await page.getByTestId("build-decision-cancel").click();
     await expect(page.getByTestId("build-dirty-dialog")).toHaveCount(0);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+// The automatic discovery runs a real build of the test project, so the gates name it before the
+// click instead of letting the user start a build that collides on the same output file (#275).
+test("the build gate names the automatic discovery before the click", async ({ page }) => {
+  const { base, copy } = tempCopy("Order Desk discovery gate");
+  try {
+    await openTrustedEvaluated(page, copy);
+    await restoreAndReload(page);
+    await page.getByTestId("bottom-tab-tests").click();
+    await expect(page.getByTestId("tests-discover")).toBeEnabled({ timeout: 120_000 });
+    await page.getByTestId("tests-discover").click();
+
+    // The toolbar is always visible, so the reason is checked without a tab switch inside the
+    // window the discovery is running.
+    await expect(page.getByTestId("toolbar-run")).toHaveAttribute("title", discoveryReason);
+    await expect(page.getByTestId("toolbar-debug")).toHaveAttribute("title", discoveryReason);
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-disabled-reason")).toHaveText(discoveryReason);
+    await expect(page.getByTestId("build-action")).toBeDisabled();
+    await expect(page.getByTestId("build-solution")).toBeDisabled();
+
+    // The snapshot re-enables the gate on its own once the discovery settles; the build then runs.
+    await settleDiscovery(page);
+    await expect(page.getByTestId("build-disabled-reason")).toHaveCount(0);
+    await expect(page.getByTestId("build-action")).toBeEnabled();
+    await page.getByTestId("build-action").click();
+    await expectBuildState(page, "Build succeeded", 60_000);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

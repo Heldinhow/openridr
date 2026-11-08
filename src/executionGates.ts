@@ -1,9 +1,22 @@
-import type { EvaluationProject, Snapshot } from "./host/client";
+import type { Build, Evaluation, EvaluationProject, ProjectSdk, TestsDiscovery } from "./host/client";
+
+/** The snapshot fields the gates read; a full `Snapshot` satisfies it, so the workspace passes the
+ * whole state and the unit test builds only what a decision depends on. */
+export type GateSnapshot = {
+  sdk: { project: { state: ProjectSdk["state"] } };
+  evaluation: { state: Evaluation["state"]; stale: boolean };
+  build: { state: Build["state"] };
+  tests: { discovery: { state: TestsDiscovery["state"] } };
+};
+
+// The host refuses the build with the same reason while its own automation builds the project.
+const discoveryReason =
+  "Test discovery is building the test project; wait for it to finish or cancel the discovery.";
 
 // Pure Build/Run/Debug gates: the workspace gathers the inputs, these only decide the disabled reason.
 export interface GateContext {
   trusted: boolean;
-  snapshot: Snapshot;
+  snapshot: GateSnapshot;
   activeConfigEvaluated: boolean;
   restoreIncomplete: boolean;
   consoleCandidates: EvaluationProject[];
@@ -17,7 +30,7 @@ export interface GateContext {
 }
 
 export function buildDisabledReason(c: GateContext) {
-  const { evaluation } = c.snapshot;
+  const { evaluation, tests } = c.snapshot;
   return !c.trusted
     ? "Trust the workspace before building; nothing runs in Restricted mode."
     : c.snapshot.sdk.project.state !== "resolved"
@@ -38,9 +51,11 @@ export function buildDisabledReason(c: GateContext) {
                     ? "The active run configuration selects a project that is not an evaluated console project; edit the configuration."
                     : !c.startupProject
                       ? "More than one console project; choose the startup project explicitly."
-                      : c.snapshot.build.state === "running"
-                        ? "A build is already running."
-                        : null;
+                      : tests.discovery.state === "discovering"
+                        ? discoveryReason
+                        : c.snapshot.build.state === "running"
+                          ? "A build is already running."
+                          : null;
 }
 
 export function runAvailabilityReason(
@@ -49,7 +64,7 @@ export function runAvailabilityReason(
   configEvaluated: boolean,
   invalidSelectedProject = false,
 ) {
-  const { evaluation, build } = c.snapshot;
+  const { evaluation, build, tests } = c.snapshot;
   return !c.trusted
     ? "Trust the workspace before running; nothing runs in Restricted mode."
     : c.snapshot.sdk.project.state !== "resolved"
@@ -70,15 +85,17 @@ export function runAvailabilityReason(
                     ? "More than one console project; choose the startup project explicitly."
                     : c.runBuilding
                       ? "Run is already building; wait for it to finish or press Stop."
-                      : build.state === "running"
-                        ? "A build is running; wait for it to finish before running."
-                        : c.runRunning
-                          ? "A program is already running."
-                          : null;
+                      : tests.discovery.state === "discovering"
+                        ? discoveryReason
+                        : build.state === "running"
+                          ? "A build is running; wait for it to finish before running."
+                          : c.runRunning
+                            ? "A program is already running."
+                            : null;
 }
 
 export function debugDisabledReason(c: GateContext) {
-  const { evaluation, build } = c.snapshot;
+  const { evaluation, build, tests } = c.snapshot;
   // The automatic Debug flow enables the experimental flag and installs the adapter itself,
   // so neither is a UI gate; the host still validates both before launching.
   return !c.trusted
@@ -101,9 +118,11 @@ export function debugDisabledReason(c: GateContext) {
                     ? "More than one console project; choose the startup project explicitly."
                     : c.debugBuilding
                       ? "Debug is already building; wait for it to finish or press Stop."
-                      : build.state === "running"
-                        ? "A build is running; wait for it to finish before debugging."
-                        : c.debugActive
-                          ? "A debug session is already active."
-                          : null;
+                      : tests.discovery.state === "discovering"
+                        ? discoveryReason
+                        : build.state === "running"
+                          ? "A build is running; wait for it to finish before debugging."
+                          : c.debugActive
+                            ? "A debug session is already active."
+                            : null;
 }
