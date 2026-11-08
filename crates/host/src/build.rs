@@ -835,10 +835,18 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 /// Why a new build must not start, in priority order: the build that is already running, the
-/// restore that would rewrite the same assets, then the test discovery that is building the test
-/// project. `None` means nothing is building and the build may start. The analysis branch is a
-/// later ticket; this table stays the single place the refusal order is decided.
-pub fn refusal_reason(build: Option<u64>, restore: bool, discovery: Option<u64>) -> Option<String> {
+/// restore that would rewrite the same assets, the test discovery that is building the test
+/// project, then the analysis that is still loading the solution. `None` means nothing is building
+/// and the build may start. This table stays the single place the refusal order is decided.
+///
+/// The analysis only refuses while it loads: after `Finished loading solution` the csharp-ls
+/// `BuildHost` is alive but not building, so it no longer blocks the build.
+pub fn refusal_reason(
+    build: Option<u64>,
+    restore: bool,
+    discovery: Option<u64>,
+    analysis: &str,
+) -> Option<String> {
     if let Some(process_id) = build {
         return Some(format!(
             "A build is already running (process {process_id}). Cancel it before starting another."
@@ -847,10 +855,14 @@ pub fn refusal_reason(build: Option<u64>, restore: bool, discovery: Option<u64>)
     if restore {
         return Some("A restore is running; wait for it to finish before building.".to_string());
     }
-    discovery.map(|process_id| {
-        format!(
+    if let Some(process_id) = discovery {
+        return Some(format!(
             "A test discovery is building the test project (process {process_id}); wait for it to finish, or cancel the discovery to build now."
-        )
+        ));
+    }
+    (analysis == "loading").then(|| {
+        "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."
+            .to_string()
     })
 }
 
@@ -1004,29 +1016,72 @@ mod tests {
 
     #[test]
     fn the_build_refusal_names_the_first_running_operation_and_nothing_when_idle() {
-        assert_eq!(refusal_reason(None, false, None), None);
+        assert_eq!(refusal_reason(None, false, None, "unavailable"), None);
         assert_eq!(
-            refusal_reason(Some(7), false, None).as_deref(),
+            refusal_reason(None, false, None, "ready"),
+            None,
+            "a loaded analysis never blocks the build"
+        );
+        assert_eq!(
+            refusal_reason(Some(7), false, None, "ready").as_deref(),
             Some("A build is already running (process 7). Cancel it before starting another.")
         );
         assert_eq!(
-            refusal_reason(None, true, None).as_deref(),
+            refusal_reason(None, true, None, "ready").as_deref(),
             Some("A restore is running; wait for it to finish before building.")
         );
         assert_eq!(
-            refusal_reason(None, false, Some(9)).as_deref(),
+            refusal_reason(None, false, Some(9), "ready").as_deref(),
             Some(
                 "A test discovery is building the test project (process 9); wait for it to finish, or cancel the discovery to build now."
             )
         );
-        // Order: the explicit build wins over a restore, which wins over the discovery.
         assert_eq!(
-            refusal_reason(Some(7), true, Some(9)).as_deref(),
+            refusal_reason(None, false, None, "loading").as_deref(),
+            Some(
+                "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."
+            )
+        );
+        // Order: the explicit build wins over a restore, which wins over the discovery, which
+        // wins over the analysis that is still loading.
+        assert_eq!(
+            refusal_reason(Some(7), true, Some(9), "loading").as_deref(),
             Some("A build is already running (process 7). Cancel it before starting another.")
         );
         assert_eq!(
-            refusal_reason(None, true, Some(9)).as_deref(),
+            refusal_reason(None, true, Some(9), "loading").as_deref(),
             Some("A restore is running; wait for it to finish before building.")
+        );
+        assert_eq!(
+            refusal_reason(None, false, Some(9), "loading").as_deref(),
+            Some(
+                "A test discovery is building the test project (process 9); wait for it to finish, or cancel the discovery to build now."
+            )
+        );
+    }
+
+    #[test]
+    fn only_a_loading_analysis_blocks_the_build() {
+        for state in [
+            "ready",
+            "partial",
+            "awaiting_diagnostics",
+            "stopped",
+            "unavailable",
+            "starting",
+            "failed",
+        ] {
+            assert_eq!(
+                refusal_reason(None, false, None, state),
+                None,
+                "the {state} analysis must not block the build"
+            );
+        }
+        assert_eq!(
+            refusal_reason(None, false, None, "loading").as_deref(),
+            Some(
+                "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."
+            )
         );
     }
 

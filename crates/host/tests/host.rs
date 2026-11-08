@@ -4846,6 +4846,82 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isola
     );
 }
 
+/// The analysis blocks the build only while it loads the solution: during `loading`, `build.start`
+/// refuses with the reason that names "Stop analysis" and starts no process; once csharp-ls logs
+/// `Finished loading solution`, the same build really runs.
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn build_is_refused_while_the_analysis_is_loading_the_solution_isolated() {
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk analysis gate");
+    let host = support::host();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    ensure_tool(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    let restore = wait_for_restore(&host, Duration::from_secs(120));
+    assert_eq!(restore["state"], "ok", "{}", restore["log"]);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(evaluated["evaluation"]["state"], "ok");
+
+    // The measured window from the accepted `initialize` to `Finished loading solution` is
+    // seconds on this solution, so the 20 ms poll of `wait_lsp` observes `loading`.
+    let started_at = Instant::now();
+    let started = host.dispatch("lsp.start", json!({})).unwrap();
+    assert_eq!(started["lsp"]["state"], "starting");
+    let loading = wait_lsp(&host, Duration::from_secs(60), &["loading"]);
+    assert_eq!(loading["state"], "loading");
+    let loading_at = Instant::now();
+
+    let refused = match host.dispatch("build.start", json!({})) {
+        Ok(state) => panic!(
+            "build.start started while the analysis was loading: {}",
+            state["build"]["state"]
+        ),
+        Err(error) => error,
+    };
+    assert_eq!(refused.code, "invalid_state");
+    assert_eq!(
+        refused.message,
+        "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."
+    );
+    let state = snapshot(&host);
+    assert_eq!(state["build"]["state"], "idle");
+    assert!(
+        state["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|process| !process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("build:"))),
+        "a build process was started during the analysis: {}",
+        state["processes"]
+    );
+
+    // Loaded analysis (`ready`/`partial`/`awaiting_diagnostics`) never blocks: the same build starts
+    // and finishes for real.
+    let loaded = wait_lsp(
+        &host,
+        Duration::from_secs(120),
+        &["ready", "partial", "awaiting_diagnostics", "failed"],
+    );
+    assert_ne!(loaded["state"], "failed", "{}", loaded["log"]);
+    eprintln!(
+        "analysis window: start -> loading {:?}, loading -> loaded {:?}",
+        loading_at - started_at,
+        Instant::now() - loading_at
+    );
+    let started = host.dispatch("build.start", json!({})).unwrap();
+    assert_eq!(started["build"]["state"], "running", "{}", started["build"]);
+    let build = wait_for_build(&host, Duration::from_secs(180));
+    assert_eq!(build["state"], "ok", "{}", build["log"]);
+    assert_eq!(build["exit"], 0, "{}", build["log"]);
+}
+
 /// Stub launcher: answers `--version` like csharp-ls 0.28.0, then rejects `initialize` with an SDK message on stderr and idles.
 #[cfg(unix)]
 const REJECTING_LAUNCHER: &str = r#"#!/bin/sh
@@ -7313,6 +7389,14 @@ fn lsp_start_requires_tool_sdk_and_current_restore() {
 fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     support::run_isolated_leaf(
         "lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isolated",
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn build_is_refused_while_the_analysis_is_loading_the_solution() {
+    support::run_isolated_leaf(
+        "build_is_refused_while_the_analysis_is_loading_the_solution_isolated",
     );
 }
 
