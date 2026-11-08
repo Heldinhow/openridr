@@ -12,7 +12,12 @@ fn main() {
         std::process::exit(1);
     });
     let host = Host::new();
-    println!("openridr-host-http listening on http://{address}");
+    // The bound address, not the requested one: `--port 0` asks the kernel for a free port and the
+    // E2E helper reads the granted port from this line instead of choosing one (issue #246).
+    println!(
+        "openridr-host-http listening on http://{}",
+        server.server_addr()
+    );
     println!("dev bridge only: no authentication, never ship this binary");
 
     // One request at a time, like the app shell: no method needs to overtake another, because the

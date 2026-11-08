@@ -2,12 +2,11 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort, requestedScreenshotsDir, seedVerifiedTools } from "./environment";
+import { requestedScreenshotsDir, seedVerifiedTools } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // The welcome lists what the host stored, so this spec runs its own host with a real, isolated
 // OPENRIDR_HOME (recent.json + trusted.json) and points the UI at it, like trust-prompt.spec.ts.
-const port = hostPort + 2;
 const fixture = path.resolve("fixtures/OrderDesk");
 let home: string;
 let host: IsolatedHost;
@@ -17,7 +16,6 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
   host = await startIsolatedHost({
-    port,
     homePrefix: "openridr-welcome-home-",
     env: { OPENRIDR_TRUST_STORE: "on" },
     prepare: (prepared) => ({ OPENRIDR_BUNDLED_NETCOREDBG: seedVerifiedTools(prepared) }),
@@ -36,7 +34,7 @@ test.beforeEach(async () => {
 });
 
 async function hostCall(method: string, params = {}) {
-  const response = await fetch(`http://127.0.0.1:${port}/call`, {
+  const response = await fetch(`${host.base}/call`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ method, params }),

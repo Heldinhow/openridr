@@ -1382,7 +1382,7 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 
 - **Decisão do Helder (2026-11-07).** Mudança de interface pura se verifica com **Playwright em modo web** — só os specs da área, escrevendo/atualizando o spec do cenário. O **app Tauri real com `agent-desktop`** fica para o que é nativo do shell: menu nativo, atalhos do sistema, updater, seletor nativo, árvore de acessibilidade do WebKit, single-instance e DMG. O **host isolado** (`web.sh`) continua para o que não tem spec ou precisa de captura. Motivo: a regra antiga mandava abrir o app real para provar uma mudança de CSS e empurrava toda verificação de UI para a superfície mais cara e menos determinística.
 - **O que a #67 decidiu continua valendo.** O smoke noturno é o único E2E automatizado, nunca roda em PR, e a quarentena segue com motivo por spec (`docs/evidence/e2e-quarantine.md`). A decisão nova muda quem roda Playwright na sessão, não o que o CI roda.
-- **Convenção de portas, sem helper.** Default 1420 (UI) / 4317 (host); sessão que roda em paralelo, ou junto com `bun run dev`, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`. Porta ocupada falha na hora pelo `strictPort` do Vite de teste. Nada de script que "acha porta livre": escolher duas portas é a única decisão da sessão. A faixa é do par inteiro: cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`, então o par escolhido precisa de 10 portas de host livres acima dele.
+- **Convenção de portas, sem helper.** Default 1420 (UI) / 4317 (host); sessão que roda em paralelo, ou junto com `bun run dev`, escolhe outro par (faixa 15xx/44xx) e confere com `lsof -nP -iTCP:<porta> -sTCP:LISTEN`. Porta ocupada falha na hora pelo `strictPort` do Vite de teste. Nada de script que "acha porta livre": escolher duas portas é a única decisão da sessão. A faixa é do par inteiro: cada spec que sobe host próprio usa `hostPort + 1` até `hostPort + 7`, então o par escolhido precisa de 10 portas de host livres acima dele. *(Substituído em 2026-11-08 pela #246: as auxiliares são efêmeras; só o par do harness é escolhido.)*
 - **Consequência.** `docs/SPEC-E2E-PORTS.md`; issues #211 (app home derivado da porta da UI), #212 (esta documentação) e #213 (os quatro sítios de `workspace.spec.ts` que a #177 deixou vermelhos); evidência em `docs/evidence/e2e-ports.md`; `AGENTS.md`, `.agents/skills/verify-openridr/SKILL.md`, `scripts/e2e-smoke.txt` e `docs/evidence/e2e-quarantine.md` deixam de repetir a regra antiga. Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança de código.
 
 ## 2026-11-07 — Três buracos medidos do CI fechados sem dependência nova e sem tocar no ruleset (issue #142)
@@ -1443,7 +1443,7 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 ## 2026-11-07 — O host auxiliar do E2E prova a posse pelo `pid`; porta efêmera fica como follow-up (issue #216)
 
 - **A decisão.** Os sete specs que sobem host próprio (`trust-prompt`, `welcome`, `medium-editor-session`, `debug-advanced`, `tools-install-ux`, `analysis-gate`, `setup-gate-layout`) passam a obter o host por `tests/e2e/isolated-host.ts`, e o helper só aceita o `/health` cujo `pid` é o do filho que ele mesmo subiu. Porta ocupada por outro processo deixa de ser sucesso silencioso: vira falha imediata com a porta e o pid estranho na mensagem. O helper também assume o que os sete repetiam — o `page.route` de `/__host/(call|health)` e o ciclo de vida do `OPENRIDR_HOME` temporário (`stop()` mata o filho e apaga o home).
-- **Por que `pid` e não porta efêmera.** O `pid` responde a pergunta que o spec faz ("o processo que respondeu é meu?") sem tocar em produto: nenhuma linha de `crates/`, `src/` ou `src-tauri/`, nenhuma dependência nova, e a convenção de `hostPort + 1` … `hostPort + 7` de `AGENTS.md`/`SPEC-E2E-PORTS` continua verdadeira. Porta efêmera (`--port 0`) mataria a classe do problema, mas exigiria o `host-http` imprimir a porta concedida (`server_addr()`), reescrever a convenção de 10 portas em três docs e tornaria indemonstrável o critério "porta ocupada falha nomeando a porta" — e o PR deixaria de ser `risk:low`. Fica como follow-up da retro, sem issue agora.
+- **Por que `pid` e não porta efêmera.** O `pid` responde a pergunta que o spec faz ("o processo que respondeu é meu?") sem tocar em produto: nenhuma linha de `crates/`, `src/` ou `src-tauri/`, nenhuma dependência nova, e a convenção de `hostPort + 1` … `hostPort + 7` de `AGENTS.md`/`SPEC-E2E-PORTS` continua verdadeira. Porta efêmera (`--port 0`) mataria a classe do problema, mas exigiria o `host-http` imprimir a porta concedida (`server_addr()`), reescrever a convenção de 10 portas em três docs e tornaria indemonstrável o critério "porta ocupada falha nomeando a porta" — e o PR deixaria de ser `risk:low`. Fica como follow-up da retro, sem issue agora. *(Virou a #246, feita em 2026-11-08: o host auxiliar sobe em porta efêmera.)*
 - **O `cargo run` faz `exec`: `kill` no filho mata o host.** A nota de "host órfão" em `implementation-notes.md` (welcome-trust, 2026-11-01) estava errada e foi corrigida nesta frente: medido, o `/health` devolve o mesmo pid do `spawn` e `kill()` no filho derruba o host. Não há `lsof -ti tcp:… | xargs kill` a fazer entre rodadas.
 - **Três falhas explícitas, sem retry.** Filho saiu antes de responder (código de saída, com o pid estranho se um `/health` respondeu), `/health` com pid diferente do filho (os dois pids) e timeout de 300 s (a porta). Em qualquer uma o helper mata o filho e apaga o home antes de lançar; esperar a porta "ficar livre" foi recusado porque mascara a colisão em vez de nomeá-la.
 - **O teste da garantia é um decoy, fora do smoke.** `tests/e2e/isolated-host.spec.ts` sobe um decoy que responde `/health` com pid alheio e assere a recusa com a porta na mensagem, além do caminho feliz e do `stop()`. Não entra em `scripts/e2e-smoke.txt`: a lista é curada pela #67 e acrescentar spec lá é outra decisão.
@@ -1557,7 +1557,8 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Decisão.** A validação de `OPENRIDR_E2E_UI_PORT`/`OPENRIDR_E2E_HOST_PORT` passa a recusar, no load do
   módulo de ambiente, as portas da `kRestrictedPorts` do Chromium (`net/base/port_util.cc`), com a lista
   copiada inteira e a fonte/data no comentário. A recusa cobre também a faixa derivada `hostPort + 1` até
-  `+ 7` que os specs que sobem host próprio usam. A mensagem mantém o prefixo `Invalid E2E port` e
+  `+ 7` que os specs que sobem host próprio usam. *(A faixa derivada saiu em 2026-11-08 com a #246: a
+  recusa vale só para as duas portas escolhidas.)* A mensagem mantém o prefixo `Invalid E2E port` e
   acrescenta que o Chrome bloqueia a porta.
 - **Por que o erro precisa ser de configuração, não de rede.** O `ERR_UNSAFE_PORT` só aparece no
   `page.goto`, com host e Vite já de pé, e não diz qual das duas variáveis errou — a sessão perde a rodada
@@ -1568,7 +1569,8 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   1721/1722/1725 como aceitas — é o que prova que a lista foi copiada em vez de inventada.
 - **As derivadas entram.** Sete specs usam `hostPort + 1` até `+ 7` e o navegador alcança essas portas
   direto: um `hostPort` de 1716 quebra no `+ 3` exatamente como a issue descreve, só que no meio do run.
-  Recusar o par na hora custa poucas linhas e fecha a classe.
+  Recusar o par na hora custa poucas linhas e fecha a classe. *(Em 2026-11-08 a #246 tirou as derivadas
+  do mapa: o host auxiliar é efêmero e o navegador não conecta nele — quem fala com ele é o Node.)*
 - **Teste no CI de PR, não no Playwright.** O teste mora em `tests/unit` (job `typescript`), porque
   Playwright não roda em PR; um subprocesso por variável prova o wiring das duas, e o critério "erro no
   começo do run" fica como evidência executada (`playwright test --list` com porta restrita), não como teste
@@ -1720,3 +1722,36 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `tests/e2e/solution-explorer.spec.ts` (spec novo que falha a primeira chamada de `workspace.tree`),
   evidência em `docs/evidence/solution-listing-retry.md`. Nenhum `data-testid`, nenhuma mudança no
   host, nenhuma dependência nova.
+
+## 2026-11-08 — O host auxiliar do E2E sobe em porta efêmera e a faixa de 10 portas sai (issue #246)
+
+- **A decisão.** `openridr-host-http --port 0` passa a imprimir o endereço que o kernel concedeu
+  (`server.server_addr()`), e `tests/e2e/isolated-host.ts` sobe o host com `--port 0` e lê a porta dessa
+  linha em vez de receber uma. Os sete specs que sobem host próprio e `isolated-host.spec.ts` deixam de
+  declarar `const port = hostPort + N`. Só o par do harness (UI/host) continua escolhido pela sessão; as
+  auxiliares são do kernel.
+- **Por que a porta e não só o `pid`.** A #216 fez a colisão gritar (o helper recusa um `/health` cujo
+  `pid` não é o do filho que ele subiu), mas a colisão continuava possível: quem roda duas sessões
+  precisava de 10 portas de host livres acima do par, e um par vizinho ainda se cruzava. Porta efêmera
+  mata a classe: não existe número para escolher errado.
+- **O `pid` continua sendo a prova de posse.** A porta não prova que o processo que respondeu é o meu —
+  ela só diz onde ele está. O helper continua comparando o `pid` do `/health` com o do filho que subiu, e
+  o teste do decoy passou a provar isso por dentro do caminho novo: um filho de mentira imprime a porta
+  de um decoy alheio, e o helper recusa nomeando a porta e o `pid` estranho.
+- **O que deixa de ser demonstrável.** O critério da #216 "porta ocupada falha nomeando a porta" perde o
+  decoy na porta escolhida: o kernel nunca concede uma porta ocupada. O que sobra provando é o `/health`
+  de `pid` estranho — que é o caso real que a posse protege.
+- **A faixa sai dos três docs.** `AGENTS.md`, `docs/SPEC-E2E-PORTS.md` e esta entrada dizem a mesma
+  regra: o par do harness é escolhido, as auxiliares são efêmeras. `.agents/skills/verify-openridr/SKILL.md`
+  repetia a faixa e sai junto. `tests/e2e/environment.ts` perde a validação da faixa derivada
+  (`hostPort + 1` … `+ 7`), e o teste unitário que a pinava vira o contrário: um par vizinho de porta
+  bloqueada do Chrome é aceito.
+- **Por que a porta efêmera não precisa do filtro do Chrome.** O navegador não conecta na auxiliar: o
+  spec fala com ela por `route.fetch`/`fetch` do Node, e a faixa efêmera do macOS (49152–65535) não contém
+  nenhuma porta da `kRestrictedPorts`. A recusa das duas portas escolhidas continua no load do módulo de
+  ambiente.
+- **Consequência.** `crates/host-http/src/main.rs` e `crates/host-http/tests/ephemeral_port.rs` (teste
+  novo: `--port 0` imprime a porta concedida e o `/health` responde o `pid` do filho), o helper e o spec
+  dele, os sete specs, `environment.ts`, `tests/unit/e2eRestrictedPorts.test.ts`, os docs vivos e a
+  evidência em `docs/evidence/e2e-ephemeral-port.md`. Nenhuma dependência nova, nenhum `data-testid`,
+  nenhum contrato do host e nenhuma mudança na UI.

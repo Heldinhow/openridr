@@ -1,12 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import { hostPort } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // A fresh app home proves the mandatory setup: the first attempt fails like an unreachable
 // source, retry installs and verifies, and the trust prompt appears only after setup is done.
-const port = hostPort + 5;
 const fixture = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
 let host: IsolatedHost;
 
@@ -14,7 +12,6 @@ test.describe.configure({ mode: "serial", timeout: 240_000 });
 
 test.beforeAll(async () => {
   host = await startIsolatedHost({
-    port,
     homePrefix: "openridr-tools-ux-home-",
     env: { OPENRIDR_TRUST_STORE: "on", OPENRIDR_ENABLE_PROBE: "1" },
     prepare: (home) => {
