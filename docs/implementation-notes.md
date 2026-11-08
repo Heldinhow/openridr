@@ -1844,3 +1844,27 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Não verificado:** superfícies A/B/C do `verify-openridr` (nenhuma interface, host ou app mudou);
   disco realmente cheio (`note`/`FAIL` provados com `df` falso, não enchendo o volume); Windows e macOS
   Intel. Evidência: `docs/evidence/doctor-disk-space.md`.
+
+## Nível de listagem que falha é repetido com limite (2026-11-07, #282)
+
+- **O conserto.** `createListingCache.ensure` (`src/solutionListing.ts`) repete a leitura de um nível
+  que falhou até três tentativas (200/400 ms, `LISTING_RETRY_DELAYS_MS` — a mesma política da #264) e,
+  se todas falharem, **não** grava o nível no cache: a próxima expansão pergunta de novo em vez de
+  mostrar a pasta vazia até um `reload()`. A repetição aborta quando a epoch mudou (pedido substituído
+  por reload não gasta tentativa nem pinta a árvore). O `catch` que gravava `dirs[dir] = []` saiu; o
+  resto do contrato (epoch, `pending` por nível, `snapshot`) ficou igual.
+- **Por que ali.** O cache é quem decide o que é acerto de cache, e o teste unitário já é dele; o
+  `SolutionTree.tsx` não mudou — o que também deixa o diff fora do arquivo que a #264/#281 mexe.
+- **Testes.** `tests/unit/solutionListing.test.ts`: 5 casos novos (retry com sucesso na segunda
+  tentativa, três tentativas e nível fora do cache, falha de um nível não impede o outro, reload
+  durante a falha aborta a repetição, e o valor de `LISTING_RETRY_DELAYS_MS`). O caso antigo
+  "a failed level caches empty…" saiu: ele afirmava o comportamento que a issue chama de bug.
+  `tests/e2e/solution-explorer.spec.ts`: spec novo que falha a **primeira** chamada de
+  `workspace.tree` para `docs` com `page.route("**/call")` e afirma `tree-file-docs/notes.md` visível.
+- **Falha-antes medida.** Unitário: com o arquivo de `806a51a`, `expect(calls).toBe(3)` recebe 1 e
+  `snapshot()[""]` recebe `[]`. E2E: com o mesmo arquivo, o spec novo falha (a linha não aparece em
+  10 s); com o conserto, passa em 2,5 s.
+- **Bateria.** `bun test tests/unit` 127 passed; `bunx playwright test tests/e2e/solution-explorer.spec.ts`
+  13 passed; `solution-git-status.spec.ts` 3 passed; `bunx tsc --noEmit` limpo.
+- **Não verificado:** app Tauri real (UI pura, nada de shell nativo); Windows e macOS Intel; a taxa do
+  sintoma em produção (a issue não mediu). Evidência: `docs/evidence/solution-listing-retry.md`.
