@@ -26,8 +26,9 @@ em `~/.dotnet`. Data: 2026-11-08.
   geral em vez de inventar URL.
 - **Um bloco, três superfícies.** `src/welcome/ProjectSdkDownload.tsx` renderiza requisito, versões
   detectadas, mensagem do host, ação de download (+ alternativa), "Check again" e "Open global.json";
-  é usado pela nota do Solution Explorer e pelo card "Project SDK" do painel Toolchain. A barra de
-  status é uma linha e não leva link: nomeia o requisito e as versões detectadas.
+  é usado pela nota do Solution Explorer, pelo card "Project SDK" do painel Toolchain e pelo popover
+  da barra de status (a barra é uma linha e não comporta link; o popover do `status-mode` já existia e
+  é onde o bloco cabe, com `status-sdk-*` como prefixo dos testids para não colidir com a nota).
 - **"Check again" chama o `sdk.redetect` que já existia.** Quando o redetect leva `sdk_missing` →
   `resolved`, a UI dispara a avaliação uma vez — a comparação é feita antes/depois da chamada, nunca
   observando o snapshot, então um re-render não avalia de novo. O host marca `evaluation`, `build`,
@@ -50,7 +51,7 @@ em `~/.dotnet`. Data: 2026-11-08.
 
 - `cargo fmt --all --check` → limpo.
 - `cargo clippy --workspace --all-targets -- -D warnings` → limpo.
-- `cargo test -p openridr-host` → **646 passed, 0 failed, 70 ignored** (485 lib + 114 `host.rs` + 47
+- `cargo test -p openridr-host` → **647 passed, 0 failed, 70 ignored** (486 lib + 114 `host.rs` + 47
   outros).
 - `bun run build` (`tsc --noEmit` + `vite build`) → limpo; `bun test tests/unit` → **139 passed**.
 - Playwright em modo web, Chromium, portas 2820/5817:
@@ -64,6 +65,40 @@ em `~/.dotnet`. Data: 2026-11-08.
     do menu "Workspace actions" (o `data-testid` está dentro do `ToolbarMenu` desde `f7d92a1`, que está
     na `main`). A asserção do link de download que o #303 mudou em `trust-sdk.spec.ts:208` **passa**: o
     teste segue até a linha 232 antes de falhar.
+
+## Revisão de dois eixos
+
+Revisão em dois subagentes paralelos (Pi `openai/gpt-6.1-terra`, thinking medium), fixed point
+`git merge-base origin/main HEAD`. Achados e o que foi feito:
+
+- **Standards 1 (médio):** o skip do cenário "presente" em `evaluation.spec.ts` escondia uma regressão
+  que falhasse a resolução. Corrigido: o skip vem do inventário detectado e o teste afirma `resolved`.
+- **Standards 2 (médio):** o teste do "Check again" não provava que o clique chegou ao host. Corrigido:
+  `page.waitForRequest` espera o `sdk.redetect` em cada superfície antes das asserções.
+- **Spec 1 (médio):** a barra de status não renderizava o bloco, só um resumo. Corrigido: o bloco é
+  renderizado no popover do `status-mode`, com `status-sdk-download`, `status-sdk-check-again` e
+  `status-sdk-open-global-json`, e o cenário "incompatível" passa a afirmá-lo.
+- **Spec 3 (médio):** o card do Toolchain chamava `evaluation.run` direto, fora da coordenação de
+  "uma avaliação por contexto". Corrigido por remoção: a tela de boas-vindas não tem árvore, e a
+  avaliação do projeto agora resolvido é a primeira do workspace, que já é uma por contexto.
+- **Spec 4 (médio):** a mensagem de `sdk_missing` com pin não distinguia "nenhum SDK instalado" de "os
+  instalados não servem". Corrigido em `sdk::resolve`, com teste dos dois casos.
+- **Spec 5 (médio):** `tfm_sdk_line` aceitava `net10.7` como linha 10. Corrigido: só a forma `netN.0`
+  (com sufixo de plataforma opcional) afirma requisito, com testes negativos para `net10.7`,
+  `net10.0.1` e `net8.1-windows`.
+- **Spec 6 (baixo):** o cenário "presente" recusava um SDK mais novo que 10. Corrigido: skip e
+  asserção passam por "major ≥ 10".
+- **Spec 7 (baixo):** `requirement.source` de um projeto sem pin e sem TFM com requisito era `none`,
+  onde a entrada do ADR dizia `target_framework`. Mantido `none` (é o que deixa a tela dizer "o projeto
+  não declara requisito" em vez de inventar uma linha) e a entrada do ADR ganhou a cláusula que
+  registra o valor.
+- **Spec 2 (alto) — respondido, não corrigido.** O snapshot nomeia o SDK que a regra escolhe, mas o
+  MSBuild roda pelo muxer da raiz, que resolve `global.json` (inclusive um acima do workspace) e
+  prereleases por conta própria: os dois concordam enquanto o `global.json` mais próximo for o da raiz
+  do workspace e não houver prerelease mais novo que o maior estável. Fechar isso exige perguntar ao
+  muxer a versão que ele resolve no diretório do projeto (ou parar de invocar `dotnet msbuild`), o que
+  é mudança de outro contrato — a decisão do #289 fixa justamente a regra do host. Fica registrado como
+  `shortcut:` em `sdk::resolve_unpinned` e como frente própria.
 
 ## Não verificado
 
