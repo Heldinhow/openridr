@@ -2100,19 +2100,15 @@ impl Host {
         params: Value,
         solution: bool,
     ) -> HostResult<String> {
-        if let Some(process_id) = inner.build.running_process_id() {
-            return Err(HostError::new(
-                "invalid_state",
-                format!(
-                    "A build is already running (process {process_id}). Cancel it before starting another."
-                ),
-            ));
-        }
-        if inner.restore.running_process_id().is_some() {
-            return Err(HostError::new(
-                "invalid_state",
-                "A restore is running; wait for it to finish before building.",
-            ));
+        // One refusal table for every build door: the explicit build, Build Solution and the
+        // implicit build of Run/Debug all arrive here, so the discovery that is building the
+        // test project is refused in one place instead of racing it on the same files.
+        if let Some(reason) = build::refusal_reason(
+            inner.build.running_process_id(),
+            inner.restore.running_process_id().is_some(),
+            inner.tests.running_process_id(),
+        ) {
+            return Err(HostError::new("invalid_state", reason));
         }
         let Some(workspace) = inner.workspace.as_ref() else {
             return Err(HostError::new("invalid_state", "No workspace is open."));
@@ -2392,6 +2388,14 @@ impl Host {
                 "invalid_state",
                 format!(
                     "A test discovery is already running (process {process_id}). Cancel it before starting another."
+                ),
+            ));
+        }
+        if let Some(process_id) = inner.build.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "A build is running (process {process_id}); wait for it to finish before discovering tests."
                 ),
             ));
         }
