@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { createListingCache, type ListingEntry } from "../../src/solutionListing";
+import {
+  createListingCache,
+  LISTING_RETRY_DELAYS_MS,
+  type ListingEntry,
+} from "../../src/solutionListing";
+
+// The waits are the policy under test in production; the tests that assert the retry itself do not
+// spend them.
+const NO_WAIT: readonly number[] = [0, 0];
 
 const linkEntry = (path: string): ListingEntry => ({
   name: path,
@@ -81,17 +89,55 @@ describe("createListingCache", () => {
     expect(cache.snapshot()["src"]).toHaveLength(1);
   });
 
-  test("a failed level caches empty for that epoch and is asked again after a reload", async () => {
+  test("a level that fails once is read again and its children land", async () => {
     let calls = 0;
     const cache = createListingCache(async () => {
       calls += 1;
       if (calls === 1) throw new Error("unreadable");
       return [fileEntry("App.cs")];
-    });
+    }, NO_WAIT);
     await cache.ensure("");
-    expect(cache.snapshot()[""]).toEqual([]);
-    cache.reload();
-    await cache.ensure("", true);
+    expect(calls).toBe(2);
     expect(cache.snapshot()[""][0].path).toBe("App.cs");
+  });
+
+  test("a level that never answers is asked three times and is not cached as an empty folder", async () => {
+    let calls = 0;
+    const cache = createListingCache(async () => {
+      calls += 1;
+      throw new Error("unreadable");
+    }, NO_WAIT);
+    await cache.ensure("");
+    expect(calls).toBe(3); // the read plus the two retries
+    expect(cache.snapshot()[""]).toBeUndefined(); // no empty level to hit the cache guard
+    await cache.ensure("");
+    expect(calls).toBe(6); // the next expansion asks again instead of showing nothing until a reload
+  });
+
+  test("a level that failed for good does not stop the next level from loading", async () => {
+    const cache = createListingCache(async (dir) => {
+      if (dir === "bin") throw new Error("unreadable");
+      return [fileEntry(`${dir}/App.cs`)];
+    }, NO_WAIT);
+    await Promise.all([cache.ensure("bin"), cache.ensure("src")]);
+    expect(cache.snapshot()["bin"]).toBeUndefined();
+    expect(cache.snapshot()["src"][0].path).toBe("src/App.cs");
+  });
+
+  test("a reload while the level is failing stops the repetition", async () => {
+    let calls = 0;
+    const cache = createListingCache(async () => {
+      calls += 1;
+      throw new Error("unreadable");
+    }, NO_WAIT);
+    const run = cache.ensure("");
+    cache.reload(); // the request was replaced before its first answer arrived
+    await run;
+    expect(calls).toBe(1);
+    expect(cache.snapshot()[""]).toBeUndefined();
+  });
+
+  test("the retry policy is the one the tree-marker queries use (#264): three attempts, 200/400 ms", () => {
+    expect(LISTING_RETRY_DELAYS_MS).toEqual([200, 400]);
   });
 });
