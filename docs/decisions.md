@@ -1756,3 +1756,27 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   dele, os sete specs, `environment.ts`, `tests/unit/e2eRestrictedPorts.test.ts`, os docs vivos e a
   evidência em `docs/evidence/e2e-ephemeral-port.md`. Nenhuma dependência nova, nenhum `data-testid`,
   nenhum contrato do host e nenhuma mudança na UI.
+## 2026-11-07 — O E2E recusa a rodada abaixo do piso duro de disco (issue #270)
+
+- **Decisão.** O `playwright.config.ts` mede o espaço livre no volume de `os.tmpdir()` **no load do
+  config**, antes de montar plugins e servidores. Abaixo de 1024 MiB a rodada é recusada com exit
+  não-zero e uma mensagem com o número medido, o piso e o diretório; entre 1024 e 3071 MiB o harness
+  imprime uma linha `note` e segue; acima de 3072 MiB nada muda. Medição sem número (`df` ausente ou
+  saída estranha) é `note` e a rodada segue. Os dois pisos vêm do `doctor.sh`, e um teste de
+  `tests/unit` compara o script com as constantes do harness.
+- **Por que não no `globalSetup`, como a issue pedia.** Medido em Playwright 1.65: o `webServer` é um
+  plugin e `createGlobalSetupTasks` executa os plugin setups **antes** dos global setups
+  (`node_modules/playwright/lib/runner/index.js:6509-6515` e `:7130`). Num projeto mínimo com
+  `webServer` + `globalSetup`, o `globalSetup` fez `fetch` na URL do `webServer` e recebeu
+  `server already up = true`: no `globalSetup` o host já subiu e o `cargo run` já compilou. O load do
+  config é o único ponto anterior a qualquer servidor — a mesma decisão que a #258 tomou para portas
+  restritas.
+- **Por que fail-open na medição que falha.** O doctor já trata "sem número" como `note` e sai 0. Recusar
+  por falta de `df` trocaria um risco medido por um bloqueio certo, e `df` não é requisito do E2E.
+- **Por que sempre `os.tmpdir()`.** É onde o harness põe o app home por porta da UI e o diretório de
+  capturas por default. Um `OPENRIDR_E2E_HOME`/`OPENRIDR_SCREENSHOT_DIR` noutro volume é escolha da
+  sessão; a mensagem imprime o diretório medido, então o número não mente.
+- **Consequência.** `docs/SPEC-E2E-DISK-FLOOR.md`; ticket #287, filho de #270; seam é o `df` falso no
+  `PATH` (nenhuma variável só-de-teste no harness); `playwright test --list` também recusa abaixo do
+  piso. O PR é `medium` porque `playwright.config.ts` é caminho que a tabela de risco não conhece.
+  Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança no `doctor.sh`.
