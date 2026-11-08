@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { openToolchain, openTrustPopover, reveal } from "./disclosures";
+import { openToolchain, openTrustPopover, openWorkspaceActions, reveal } from "./disclosures";
 
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const solution = path.join(fixture, "OrderDesk.sln");
@@ -131,6 +131,7 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await expect(page.getByTestId("status-sdk")).toHaveText(
     /^Analysis runtime 10\.\d+\.\d+ · Project SDK 8\.0\.408$/,
   );
+  await openWorkspaceActions(page);
   await expect(page.getByTestId("eval-configuration")).toHaveAttribute("title", "MSBuild configuration for evaluation.");
   await expect(page.getByTestId("eval-tfm")).toHaveAttribute("title", "Target framework for evaluation.");
 
@@ -146,6 +147,7 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await openTrustPopover(page);
   await page.getByTestId("trust-revoke").click();
   await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
+  await openWorkspaceActions(page);
   for (const [id, selection] of [["eval-configuration", "a configuration"], ["eval-tfm", "a TFM"]]) {
     await expect(page.getByTestId(id)).toBeDisabled();
     await expect(page.getByTestId(id)).toHaveAttribute("title", `Trust the workspace and resolve the project SDK to select ${selection}.`);
@@ -178,7 +180,7 @@ test("trust resolves the project SDK, revoke blocks calls and editing still work
   await expect(page.getByTestId("app-log")).toContainText(`Saved ${programTab}`);
   expect(fs.readFileSync(program, "utf8")).toBe(revokedEdit);
 
-  await reveal(page.getByTestId("close-workspace"));
+  await openWorkspaceActions(page);
   await page.getByTestId("close-workspace").click();
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
   await expect(page.getByTestId("sdk-host")).toContainText(/10\.\d+\.\d+/);
@@ -228,6 +230,7 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(page.getByTestId("editor")).toContainText("8.0.999");
   await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+  await openWorkspaceActions(page);
   for (const [id, selection] of [["eval-configuration", "a configuration"], ["eval-tfm", "a TFM"]]) {
     await expect(page.getByTestId(id)).toBeDisabled();
     await expect(page.getByTestId(id)).toHaveAttribute("title", `Resolve the project SDK before selecting ${selection}.`);
@@ -237,7 +240,7 @@ test("missing project SDK is distinct and global.json is never rewritten", async
   expect(fs.existsSync(path.join(missingFixture, "bin"))).toBe(false);
   expect(fs.existsSync(path.join(missingFixture, "obj"))).toBe(false);
 
-  await reveal(page.getByTestId("close-workspace"));
+  await openWorkspaceActions(page);
   await page.getByTestId("close-workspace").click();
   await expect(page.getByTestId("workspace-path-input")).toBeVisible();
   expect(hashOf(missingGlobal)).toBe(before);
@@ -291,7 +294,7 @@ test("revoked workspace shows the remaining process and terminate observes the e
   await page.getByTestId(`tree-file-${programTab}`).click();
   await expect(page.getByTestId("editor")).toBeVisible();
   await replaceEditorText(page, "// unsaved when the workspace closes\n");
-  await reveal(page.getByTestId("close-workspace"));
+  await openWorkspaceActions(page);
   await page.getByTestId("close-workspace").click();
   await expect(page.getByRole("dialog")).toContainText("Close workspace with unsaved changes?");
   await page.getByTestId("confirm-discard").click();

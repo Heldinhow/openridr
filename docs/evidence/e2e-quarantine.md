@@ -17,12 +17,15 @@ Build, Run e Problems.
 | Spec | Testes | Por que está no smoke |
 |---|---|---|
 | `tests/e2e/workspace.spec.ts` | 16 | abrir solução, Trust/Restricted, editar/salvar, conflito de disco, erros de IO |
-| `tests/e2e/build.spec.ts` | 2 | build real, log cru, erro de compilação e navegação, restore automático |
+| `tests/e2e/build.spec.ts` | 4 | build real, log cru, erro de compilação e navegação, restore automático |
 | `tests/e2e/run.spec.ts` | 5 | run real, output do build salvo, stop observado, exceção, um clique |
 | `tests/e2e/qa2-diagnostics.spec.ts` | 2 | Problems no editor/gutter/status, análise real |
+| `tests/e2e/solution-git-status.spec.ts` | 7 | status de Git na árvore, `.gitignore`, symlink, consulta repetida com limite |
+| `tests/e2e/trust-sdk.spec.ts` | 3 | trust/revogação, SDK do projeto resolvido e `sdk_missing` distinto, processo sobrevivendo à revogação (issue #309) |
 
 Medição (macOS ARM64, 2026-11-06, headless, `workers=1`, um host por execução): **25 testes, 25
-passaram, ~2,8 min**, em duas rodadas seguidas. Antes disso, o teste
+passaram, ~2,8 min**, em duas rodadas seguidas. Remedido em 2026-11-08 com o conjunto atual (37
+testes, + `solution-git-status` e `trust-sdk`): **37 passaram, 4,8 min**, portas 1920/4917. Antes disso, o teste
 `workspace.spec.ts` › `opens the fixture asking for a Trust decision…` falhava porque esperava o
 texto do fluxo de download (`osx-arm64 asset exists`); com o netcoredbg embutido o texto é
 "Bundled with OpenRidr" e a expectativa foi corrigida (não é quarentena, é spec desatualizada).

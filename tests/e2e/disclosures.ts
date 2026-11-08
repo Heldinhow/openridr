@@ -18,6 +18,13 @@ export async function openTrustPopover(page: Page) {
   await expect(popover).toBeVisible();
 }
 
+// Configuration, TFM and close workspace live in the toolbar's Workspace actions popover, not in a <details>.
+export async function openWorkspaceActions(page: Page) {
+  const trigger = page.getByRole("button", { name: "Workspace actions" });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+}
+
 // Toolchain and processes live in the welcome's second view; switch to it when the welcome is showing.
 export async function openToolchain(page: Page) {
   await page.getByTestId("welcome-nav-toolchain").click();
