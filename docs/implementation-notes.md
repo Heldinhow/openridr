@@ -1881,13 +1881,13 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   (`Expected: "Test discovery is building…" Received: null`), passa depois; cobre também Run/Debug e o
   `null` com nada rodando. `bun test tests/unit` 126 passed.
 - **E2E.** Cenário novo em `tests/e2e/build.spec.ts` (Discover → motivo no `toolbar-run`/`toolbar-debug`
-  e em `build-disabled-reason`/`build-action`/`build-solution` → `settleDiscovery` → Build conclui) e
+  e em `build-disabled-reason`/`build-action`/`build-solution`/`build-solution-menu` →
+  `settleDiscovery` → Build conclui) e
   `settleDiscovery` no `openTrustedRestored` de `gates.spec.ts` e no `restoreAndReload` de `run.spec.ts`.
   O `settleDiscovery` de `tests/e2e/automatic.ts` passou a tratar workspace sem projeto de teste (o poll
   esperava uma revisão que nunca vem). Rodado: `build.spec.ts` 3 passed, `gates.spec.ts` 10 passed,
   `run.spec.ts` 5 passed.
-- **Não verificado:** o item `build-solution-menu` durante a janela (mesma fonte,
-  `buildDisabledReason`, não afirmado no spec); o app Tauri real (interface pura); Windows e macOS Intel.
+- **Não verificado:** o app Tauri real (interface pura); Windows e macOS Intel.
 
 ## A análise carregando também recusa o build (2026-11-07, #275; ticket #286)
 

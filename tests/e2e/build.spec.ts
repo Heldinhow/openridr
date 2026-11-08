@@ -264,6 +264,14 @@ test("the build gate names the automatic discovery before the click", async ({ p
     await expect(page.getByTestId("build-disabled-reason")).toHaveText(discoveryReason);
     await expect(page.getByTestId("build-action")).toBeDisabled();
     await expect(page.getByTestId("build-solution")).toBeDisabled();
+    // The menu item reads the same gate, so it is disabled with the same reason.
+    await page.getByRole("button", { name: "Workspace actions" }).click();
+    await expect(page.getByTestId("build-solution-menu")).toBeDisabled();
+    await expect(page.getByTestId("build-solution-menu")).toHaveAttribute(
+      "title",
+      discoveryReason,
+    );
+    await page.keyboard.press("Escape");
 
     // The snapshot re-enables the gate on its own once the discovery settles; the build then runs.
     await settleDiscovery(page);

@@ -14,7 +14,7 @@ Decisão: [decisions.md](../decisions.md) (2026-11-07, issue #275). Tickets: #28
 | A descoberta recusa enquanto um build roda | `crates/host/tests/test_discovery.rs` › `discovery_is_refused_while_a_build_is_running` | `invalid_state` com o motivo, `revision` 0 e nenhum processo; depois do `build.cancel`, a mesma descoberta começa |
 | A tabela de motivos e a ordem | `crates/host/src/build.rs` › `the_build_refusal_names_the_first_running_operation_and_nothing_when_idle` e `only_a_loading_analysis_blocks_the_build` | build > restore > descoberta > análise carregando; `None` com nada rodando |
 | O build recusa enquanto a análise carrega a solução | `crates/host/tests/host.rs` › `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` | `invalid_state` com o motivo durante `loading`, nenhum processo; com `ready`, o build roda (`ok`, exit 0) |
-| A UI nomeia a descoberta antes do clique | `tests/e2e/build.spec.ts` › `the build gate names the automatic discovery before the click` | `toolbar-run`/`toolbar-debug` com o motivo no `title`, `build-disabled-reason` com o texto, `build-action`/`build-solution` desabilitados; depois de assentar, o Build conclui |
+| A UI nomeia a descoberta antes do clique | `tests/e2e/build.spec.ts` › `the build gate names the automatic discovery before the click` | `toolbar-run`/`toolbar-debug` com o motivo no `title`, `build-disabled-reason` com o texto, `build-action`/`build-solution`/`build-solution-menu` desabilitados; depois de assentar, o Build conclui |
 | O gate da UI e a ordem das recusas | `tests/unit/executionGates.test.ts` | motivo da descoberta e da análise, `null` com nada rodando, ordem (build e descoberta ganham da análise) e projeto sem gate |
 
 ## Falha-antes medida
