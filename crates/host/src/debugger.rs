@@ -1885,7 +1885,9 @@ mod tests {
     use super::*;
     use crate::test_harness::EnvVar;
 
-    #[cfg(unix)]
+    // Only the bundled-adapter test below uses it, so the gate has to match that test's: anywhere
+    // else the helper is dead code, and `-D warnings` turns that into a red clippy job.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
     fn fake_adapter(dir: &Path, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         fs::create_dir_all(dir).unwrap();

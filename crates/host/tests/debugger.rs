@@ -339,6 +339,9 @@ fn tool_dir(home: &Path) -> PathBuf {
     home.join("tools/netcoredbg")
 }
 
+// Only the two bundled-adapter tests below use it, so the gate has to match theirs: anywhere else
+// the helper is dead code, and `-D warnings` turns that into a red clippy job.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn fake_netcoredbg(path: &Path) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();

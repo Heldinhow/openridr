@@ -1,0 +1,79 @@
+name: platforms
+
+# The host on the two targets that are not macOS arm64: Windows x64 and macOS Intel. Every `cfg(windows)`
+# branch (process exit, terminal, app home, SDK roots, browser opener) is compiled and tested here for the
+# first time; `ci.yml` keeps running only on macos-15, so nothing here adds minutes to a pull request and
+# nothing here is a required check.
+on:
+  # TEMPORARY: GitHub only dispatches `workflow_dispatch` for a workflow that already exists on the default
+  # branch, so the pull request that introduces this file could not run it otherwise. The owner of that
+  # branch removes this trigger once its run is green.
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # 04:30 UTC every day: after the nightly E2E smoke, so the two do not queue together.
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platforms-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    # Two jobs with the same steps: the runner label is the only difference, and the matrix keeps the
+    # steps in one place. The display names are `rust-windows` and `rust-macos-intel`.
+    name: rust-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      # A red Windows run must not hide the Intel one: both results are wanted from the same run.
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-2025
+          - name: macos-intel
+            os: macos-15-intel
+    env:
+      # The fixture output is parsed in English; a translated runner would break the assertions.
+      DOTNET_CLI_UI_LANGUAGE: en
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The channel and clippy come from rust-toolchain.toml: no toolchain action to pin and no second
+      # place where the Rust version lives. Both runner images already ship rustup.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --component clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # The fixtures pin SDK 8.0.408 in their global.json with rollForward: disable, and neither runner
+      # image ships that exact version.
+      - name: Set up the fixture .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "8.0.408"
+
+      # The first `dotnet` run on a clean machine creates the NuGet configuration and fills the package
+      # cache. Several host tests restore at the same time, and on a fresh runner the race left one of
+      # them with an empty source list (NU1100). One restore first, with a loud failure if the network or
+      # the SDK is missing, instead of a flaky test result. Same reason as the `rust` job in ci.yml.
+      - name: Warm the NuGet configuration
+        run: dotnet restore fixtures/OrderDesk/OrderDesk.sln
+
+      # src-tauri is a separate workspace and stays out: this workflow is about the host crate.
+      - name: Clippy
+        run: cargo clippy -p openridr-host --all-targets -- -D warnings
+
+      - name: Host tests
+        run: cargo test -p openridr-host

@@ -218,6 +218,8 @@ fn text(path: &Path) -> String {
 }
 
 /// Sorted entry names of a folder, so a test can state exactly what must not have appeared there.
+/// Only the unix-gated symlink tests use it; without the gate it is dead code on Windows.
+#[cfg(unix)]
 fn entry_names(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir)
         .unwrap()
@@ -227,6 +229,7 @@ fn entry_names(dir: &Path) -> Vec<String> {
     names
 }
 
+#[cfg(unix)]
 #[test]
 fn file_access_is_confined_to_the_workspace() {
     let (_outer, root, outside) = nested_workspace();
@@ -335,6 +338,7 @@ fn file_access_is_confined_to_the_workspace() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     let (_outer, root, outside) = nested_workspace();
@@ -5345,6 +5349,9 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process_isolated() 
     }
 }
 
+// The installer it fakes is a `#!/bin/sh` script made executable, so the leaf and its wrapper are
+// unix-only: without the gate the test binary does not compile on Windows.
+#[cfg(unix)]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn cancelling_a_running_install_reports_termination_and_never_ready_isolated() {
@@ -7780,6 +7787,7 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn cancelling_a_running_install_reports_termination_and_never_ready() {
     support::run_isolated_leaf(
