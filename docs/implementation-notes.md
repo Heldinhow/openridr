@@ -2260,7 +2260,11 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   outras frentes que rodam em paralelo, então o runner com cache vazio segue não medido.
 - **O spec entrou no smoke noturno** (`scripts/e2e-smoke.txt`), que era o outro lado do problema: fora
   de qualquer lista, o vermelho não aparecia em lugar nenhum. O runner do `e2e-smoke.yml` já instala o
-  SDK 8.0.408 das fixtures e já roda `workspace.spec.ts`, que também exige o runtime 10.x — a última
-  run verde do workflow (2026-11-07 21:06) prova que o ambiente atende.
-- **Não verificado:** Windows e macOS Intel; Chrome real (a máquina só tem Chromium); a run do
-  `e2e-smoke.yml` com o spec novo (o workflow é noturno e não roda em PR — a evidência aqui é local).
+  SDK 8.0.408 das fixtures e já roda `workspace.spec.ts`, que também exige o runtime 10.x.
+- **Prova em runner nova, como o contrato da lista pede.** `gh workflow run e2e-smoke.yml --ref
+  test/issue-309-trust-sdk` (run 42445156939, `macos-15`, NuGet frio, sem `obj/` nem `bin/`): **37
+  passed, 7,2 min**, com os três do `trust-sdk` em 12,4 s / 4,5 s / 9,0 s. O workflow foi despachado
+  no branch de propósito: uma verde não tem efeito na issue de rastreio quando não há nenhuma aberta
+  (o `e2e-smoke-issue.sh` só age sobre issue aberta), então a prova não mexeu em estado
+  compartilhado.
+- **Não verificado:** Windows e macOS Intel; Chrome real (a máquina e o runner só têm Chromium).
