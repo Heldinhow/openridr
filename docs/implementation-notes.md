@@ -2253,6 +2253,11 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Depois, medido:** 3 passed (14,4 s e 14,9 s) em duas rodadas seguidas sozinho. O conjunto do smoke
   inteiro com o spec novo (`bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)`): 37 passed,
   4,8 min — nenhum spec vizinho quebrou com o menu aberto.
+- **Frio, como o contrato do smoke pede:** apagando `obj/` e `bin/` das fixtures entre as rodadas,
+  3 passed em duas rodadas seguidas (45,4 s e 41,2 s). O teste 1, que faz restore real, gasta 19,7 s
+  dos 30 s de timeout — mesma faixa de `build.spec.ts` (20,5 s) e `run.spec.ts` (24,8 s), que já
+  estão na lista. O cache NuGet global (`~/.nuget/packages`) ficou quente: limpá-lo afetaria as
+  outras frentes que rodam em paralelo, então o runner com cache vazio segue não medido.
 - **O spec entrou no smoke noturno** (`scripts/e2e-smoke.txt`), que era o outro lado do problema: fora
   de qualquer lista, o vermelho não aparecia em lugar nenhum. O runner do `e2e-smoke.yml` já instala o
   SDK 8.0.408 das fixtures e já roda `workspace.spec.ts`, que também exige o runtime 10.x — a última

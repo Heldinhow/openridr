@@ -17,7 +17,8 @@
 # 2026-11-06 (revisão r1 da #49): + solution-git-status.spec.ts. Medido na #250 (2026-11-07):
 # o spec sozinho passa 3/3 nas portas 1820/4717; a contagem de 25 acima é do conjunto anterior.
 # 2026-11-08 (issue #309): + trust-sdk.spec.ts, que estava vermelho 3/3 e fora de qualquer lista.
-# Medido sozinho 3/3 verde em duas rodadas seguidas (~15 s cada, portas 1920/4917) depois do fix.
+# Medido sozinho 3/3 verde em duas rodadas seguidas com as fixtures frias (sem obj/bin): 45,4 s e
+# 41,2 s, portas 1920/4917. O teste mais lento é o 1, com restore real: 19,7 s dos 30 s de timeout.
 tests/e2e/workspace.spec.ts
 tests/e2e/build.spec.ts
 tests/e2e/run.spec.ts

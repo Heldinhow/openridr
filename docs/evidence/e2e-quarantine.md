@@ -25,7 +25,12 @@ Build, Run e Problems.
 
 Medição (macOS ARM64, 2026-11-06, headless, `workers=1`, um host por execução): **25 testes, 25
 passaram, ~2,8 min**, em duas rodadas seguidas. Remedido em 2026-11-08 com o conjunto atual (37
-testes, + `solution-git-status` e `trust-sdk`): **37 passaram, 4,8 min**, portas 1920/4917. Antes disso, o teste
+testes, + `solution-git-status` e `trust-sdk`): **37 passaram, 4,8 min**, portas 1920/4917.
+
+O `trust-sdk.spec.ts` entrou em 2026-11-08 (#309) com a prova que o contrato pede para uma entrada
+nova: sozinho, **duas rodadas seguidas com as fixtures frias** (sem `obj/`/`bin/`), 45,4 s e 41,2 s.
+O teste mais lento é o primeiro (restore real): 19,7 s dos 30 s de timeout — a mesma faixa dos que já
+estavam na lista (`build.spec.ts` 20,5 s, `run.spec.ts` 24,8 s na rodada combinada). Antes disso, o teste
 `workspace.spec.ts` › `opens the fixture asking for a Trust decision…` falhava porque esperava o
 texto do fluxo de download (`osx-arm64 asset exists`); com o netcoredbg embutido o texto é
 "Bundled with OpenRidr" e a expectativa foi corrigida (não é quarentena, é spec desatualizada).
