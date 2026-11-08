@@ -122,6 +122,7 @@ O que o CI (`.github/workflows/ci.yml`) roda em todo PR para `main`:
 | `typescript` (ubuntu) | `bun install --frozen-lockfile`, `tsc --noEmit`, `vite build`, `bun test tests/unit` |
 | `rust` (macos-15) | `cargo fmt --check` (workspace e `src-tauri`), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p openridr-host` com o SDK 8.0.408 das fixtures |
 | `rust-tauri` (macos-15) | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` e `cargo test --manifest-path src-tauri/Cargo.toml`, com as duas pastas de resource vazias; **informativo** |
+| `shell` (ubuntu) | `dash scripts/ci-shell-tests.sh` — todo `tests/shell/*.test.sh`, descoberto por glob, sob o `/bin/sh` do runner |
 | `governance` | `actionlint`, `zizmor`, título do PR no padrão conventional, corpo com issue + Evidência |
 | `risk` | tier calculado pelos caminhos, label `risk:*`, no alto o PR do dono passa sem review e os demais precisam de aprovação, auto-merge no baixo (`scripts/ci-risk-tier.sh`, `scripts/ci-risk-gate.sh`) |
 | `security` | `gitleaks` no histórico do PR |
@@ -131,7 +132,7 @@ O `rust-tauri` é **informativo**: `continue-on-error: true` faz o `result` do j
 
 O smoke E2E é noturno e não bloqueia PR: a lista de specs está em `scripts/e2e-smoke.txt` (caminho relativo à raiz, um por linha) e quem manda nela é a quarentena da #67.
 
-Antes de empurrar um PR que mexe em `scripts/` ou em `tests/shell/`, rode o que o CI vai rodar, com as duas ferramentas que o Mac não traz de fábrica: `brew install shellcheck dash` (o `actionlint` do job `governance` liga o shellcheck por padrão; sem ele, o local passa e o run reprova) e **`dash <arquivo>`** em vez de `sh <arquivo>` — o `/bin/sh` do runner é dash, o do Mac é bash, e `10#`, `local` e `[[ ]]` passam num e falham no outro.
+Antes de empurrar um PR que mexe em `scripts/` ou em `tests/shell/`, rode `dash scripts/ci-shell-tests.sh` (é o que o job `shell` roda) e o `actionlint` do job `governance`, que liga o shellcheck por padrão: sem ele, o local passa e o run reprova. O Mac não traz nenhum dos dois de fábrica (`brew install shellcheck dash`), e **`dash <arquivo>`** — nunca `sh <arquivo>` — porque o `/bin/sh` do runner é dash, o do Mac é bash, e `10#`, `local` e `[[ ]]` passam num e falham no outro.
 
 ### Risco do PR: tier pelos caminhos, auto-merge no baixo, aprovação no alto
 
