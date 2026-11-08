@@ -102,16 +102,48 @@ Cada teste falso do `ci-shell-tests.test.sh` recusa rodar se `BASH_VERSION` esti
 Ou seja: o guarda não é decorativo — com o shell do harness (bash no macOS) ele reprova, e o runner
 padrão (dash) passa.
 
+## No runner ubuntu (PR #298)
+
+O job rodou no `ubuntu-latest` do próprio PR, que é a medida que faltava: o dash da distro e o tempo de
+parede do job.
+
+| Run | Job `Shell (dash, tests/shell)` | Resultado |
+|---|---|---|
+| [42434969787](https://github.com/Heldinhow/openridr/actions/runs/42434969787) | `success` | **17 s** de parede (01:36:28 → 01:36:45), suíte em **4 s**, `9 passed, 0 failed under dash` |
+| [42435076018](https://github.com/Heldinhow/openridr/actions/runs/42435076018) | **`failure`** | com `tests/shell/zz-broken.test.sh` (`exit 1`): `FAIL - …/zz-broken.test.sh (exit 1, 0s)`, `9 passed, 1 failed under dash (3s)`, `Process completed with exit code 1` |
+
+O segundo run é a prova de ponta a ponta do critério de aceite: o arquivo quebrado reprovou **o job no
+runner**, não só o runner na máquina local. O arquivo foi apagado no commit seguinte e a árvore voltou a
+ser idêntica à do commit do ticket (`git diff 2268a43 HEAD --stat` vazio).
+
+Saída do run verde no ubuntu:
+
+```text
+shell tests: /home/runner/work/openridr/openridr/tests/shell/*.test.sh under dash
+ok   - …/ci-aggregate.test.sh (1s)
+ok   - …/ci-risk-gate.test.sh (0s)
+ok   - …/ci-shell-tests.test.sh (0s)
+ok   - …/ci-workflow-bootstrap.test.sh (0s)
+ok   - …/doctor.test.sh (1s)
+ok   - …/e2e-smoke-issue.test.sh (0s)
+skip - launcher case needs no running openridr and the debug bundle at …/src-tauri/target/debug/bundle/macos/OpenRidr.app
+ok   - …/git-remote-fixture.test.sh (1s)
+ok   - …/pre-commit.test.sh (1s)
+ok   - …/revert-rate.test.sh (0s)
+shell tests: 9 passed, 0 failed under dash (4s)
+```
+
+Nada ficou de fora no ubuntu: os nove arquivos rodaram. O único `skip -` é interno do
+`git-remote-fixture.test.sh` (o caso do launcher precisa do bundle de debug, que não existe em runner
+nenhum) e o arquivo sai 0, então o runner o conta como `ok` — o skip aparece na saída, não é escondido.
+
 ## Não verificado
 
-- **Nenhum runner ubuntu foi executado nesta sessão.** O job `shell` só é medido de verdade no run do PR;
-  o tempo de parede do job (checkout + suíte) e o dash da distro não foram observados aqui. O que está
-  medido é a suíte: **7 s** localmente, muito abaixo do `timeout-minutes: 10`.
 - **Sem rede:** lido no código, não medido com a rede bloqueada. `gh`, `bun`, `cargo` e `df` são stubs nos
   testes; `scripts/git-remote-fixture.sh` cria repositórios bare locais e não faz login nem clone remoto.
 - **`git-remote-fixture.test.sh` imprime um `skip -`** localmente: o caso do launcher precisa do bundle de
   debug (`src-tauri/target/debug/bundle/macos/OpenRidr.app`), que não existe nesta worktree. O arquivo sai
-  com exit 0, então o runner o conta como `ok`. No ubuntu o caso vai pular pelo mesmo motivo — o skip é do
+  com exit 0, então o runner o conta como `ok`. No ubuntu o caso pula pelo mesmo motivo — o skip é do
   teste, não do runner, e o runner não o esconde.
-- **O run do PR é a única medida no ubuntu.** Até o primeiro run verde, o que existe é a suíte medida no
-  macOS sob dash; a rodada do PR (link abaixo) é a evidência do job no runner.
+- **Nenhum teste de `tests/shell/` usa `shellcheck` hoje**, então o job não o instala. Se um teste passar a
+  exigir, o passo falha com `shellcheck: not found` em vez de pular em silêncio.
