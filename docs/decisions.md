@@ -934,6 +934,8 @@ lembrar do run — o mesmo erro voltaria no próximo leitor.
 
 ## 2026-11-06 — Suíte de testes hermética: o teste decide o ambiente; ticket é issue do GitHub
 
+> **Substituída em parte em 2026-11-07** por "O fluxo do repositório é o main flow": a spec da frente passa a ser o corpo da issue-mãe e o fluxo não tem retro. O resto da entrada (ambiente hermético, paralelismo, skip) continua valendo.
+
 - **Ambiente é decisão do teste, não do shell.** Um `OPENRIDR_BUNDLED_NETCOREDBG` exportado derrubava 10 dos 14 testes do adaptador (medido: `4 passed; 10 failed`) e 2 dos 98 do host. O harness (`crates/host/tests/support`) remove uma vez por binário as variáveis `OPENRIDR_*` que o host lê, e cada helper que precisa de uma a define e a restaura no `Drop`. Nada muda no produto: o host continua lendo o ambiente; quem abre mão da configuração implícita é o teste.
 - **Nenhum teste escreve o ambiente do processo compartilhado.** O ambiente comum de um binário de teste é definido **uma única vez**, antes de qualquer teste: `support::prepare()` (integração) e `test_harness::prepare()` (unidade da lib) removem as `OPENRIDR_*` herdadas e apontam `OPENRIDR_HOME` para uma home temporária do processo; a integração liga também o probe. Depois disso ninguém escreve env. Teste que precisa de valores diferentes (instalação de ferramenta, bundle, hostroot, store de trust, `SHELL`, probe desligado) roda o **corpo** num processo-filho dedicado: o corpo vira uma folha `#[ignore]` (`*_isolated`) e um wrapper chama `run_isolated_leaf`, que exige `1 passed`. O filho recebe ambiente controlado (`env_clear` + só `PATH`/`HOME`/`TMPDIR`/`LANG`/`LC_ALL`), não o do shell. Um teste-guard varre `crates/host/src/**` e `crates/host/tests/**` recursivamente e falha se `set_var`/`remove_var`/`EnvVar::` aparecer fora de folha isolada (ou do módulo de harness), se uma folha `*_isolated` não for `#[ignore]`, ou se um teste não isolado não chamar `prepare`/`host` antes de tocar no host. O problema vira impossível por construção, sem lock, leitor sem guard, thread interna do host lendo env ou deadlock.
 - **Paralelismo default, sem lock de ambiente.** `cargo test` roda com o paralelismo default e `--test-threads=1` não é pré-requisito de verde. Como o ambiente do processo é imutável depois do setup, leitura concorrente é segura por definição; os corpos isolados rodam em paralelo, cada um no seu processo.
@@ -1672,3 +1674,30 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   #276; autoteste de 45 para 51 casos (`unicode-docs`, `unicode-product`, `unicode-product-reason`,
   `space-in-name`, `quoted-tab`, `quoted-tab-reason`); `AGENTS.md` intocado (ele não afirmava nada falso sobre citação). Nenhuma
   dependência nova, nenhum script novo, nenhum `data-testid`.
+
+## 2026-11-07 — O fluxo do repositório é o main flow: spec na issue-mãe, um PR por frente, sem retro (issue #290)
+
+- **Decisão.** O processo escrito passa a ser o main flow das skills: `grill-with-docs` → `to-spec` →
+  `to-tickets` → `implement-spec` → `code-review`, **sem `/retro`**. A spec de uma frente é o **corpo da
+  issue-mãe**; os tickets são sub-issues nativas dela, com bloqueio nativo; a implementação roda numa
+  **branch de integração por frente**, com um implementer por ticket usando `tdd`, e fecha **um PR por
+  frente** — draft assim que a branch tem o primeiro commit, pronto para review no fim, com `Closes` da
+  mãe e de cada ticket.
+- **O que substitui.** (a) O "code review em subagente único" de 2026-11-06 que o `AGENTS.md` registrava:
+  agora é a skill `code-review`, dois eixos (Standards e Spec) em subagentes paralelos, modelo
+  `openai/gpt-6.1-terra` com `thinking=medium`, fixed point `git merge-base origin/main HEAD`. (b) O
+  bullet "Spec, RETRO e evidência continuam em `docs/`" da entrada de 2026-11-06 (suíte hermética): só a
+  evidência (`docs/evidence/<tema>.md`) e as decisões continuam em `docs/`; a spec passa a ser a
+  issue-mãe. (c) O `/retro` e o `docs/RETRO-<tema>.md` do fluxo: os retros existentes ficam como
+  histórico e nenhum é criado para frente nova.
+- **Por que.** O fluxo antigo foi escrito para o mantenedor trabalhando sozinho com um agente. A partir
+  do Super Agent toda frente é conduzida pelas skills, e um `AGENTS.md` que manda criar `docs/SPEC-*`,
+  abrir um PR por ticket e fechar com retro manda o agente fazer o contrário do que o orquestrador pede.
+  Documento de processo contraditório é pior que documento ausente: o agente segue o que leu.
+- **O que não muda.** Risk tiers e o gate de PR, a verificação pela superfície (`verify-openridr`),
+  `docs/evidence/<tema>.md`, `data-testid` como contrato, stage explícito, commit convencional um por
+  ticket, e o merge continuar fora da sessão.
+- **Consequência.** `AGENTS.md` ("Leia antes de mexer", "Pull request e CI", "Verificação antes de
+  entregar" e a regra "Ticket"), `docs/agents/issue-tracker.md` ("O que continua em `docs/`"),
+  `docs/agents/domain.md` (árvore de layout) e `docs/README.md` (convenção de trabalho novo). Nenhuma
+  linha de `src/`, `crates/` ou `src-tauri/`, nenhum `data-testid`, nenhuma dependência nova.

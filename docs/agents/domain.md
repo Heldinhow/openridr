@@ -22,8 +22,8 @@ Layout: **single-context** — um `GLOSSARY.md` e um log de decisões na raiz, s
 │   ├── README.md           ← índice dos docs
 │   ├── MAPA.md             ← mapa do código
 │   ├── SPEC.md             ← contrato do produto (P0)
-│   ├── SPEC-<tema>.md
-│   ├── RETRO-<tema>.md
+│   ├── SPEC-<tema>.md      ← histórico (a spec nova é a issue-mãe)
+│   ├── RETRO-<tema>.md     ← histórico (o fluxo não tem retro)
 │   ├── evidence/<tema>.md
 │   └── agents/             ← esta config
 ├── src/

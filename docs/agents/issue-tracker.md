@@ -40,10 +40,9 @@ Toda **frente** (uma spec) tem uma **issue-mãe**; cada fatia/ticket é uma issu
 
 ## O que continua em `docs/`
 
-- `docs/SPEC-<tema>.md` — a spec da frente (normativa), ligada na issue-mãe.
-- `docs/RETRO-<tema>.md`, `docs/REVIEW-<tema>.md` — retro e revisão.
 - `docs/evidence/<tema>.md` — evidência de verificação.
 - `docs/decisions.md` — decisões incrementais (append).
+- `docs/SPEC-*.md`, `docs/RETRO-*.md`, `docs/REVIEW-*.md` — **histórico**: a spec de uma frente nova é o corpo da issue-mãe e o fluxo não tem retro.
 
 Tickets antigos em `docs/tickets*/` (e os SPEC/RETRO/evidence deles) **ficam como estão**: histórico, não migrar. Para leitura, é o ticket que manda no trabalho novo; o doc histórico só entra como contexto.
 
