@@ -15,6 +15,7 @@ import {
   dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, symbolKindOf,
   type ProjectKind, type SymbolKind,
 } from "./solutionVisuals";
+import { askTreeQuery } from "./treeQueryRetry";
 import { TreeRow, type MenuPosition } from "./TreeRow";
 
 export type TreeTarget =
@@ -285,15 +286,14 @@ export function SolutionTree(p: Props) {
     void (async () => {
       const ignored: string[] = [];
       for (let start = 0; start < paths.length; start += 128) {
-        try {
-          const result = await call<{ ignored: string[] }>("git.ignored", {
-            paths: paths.slice(start, start + 128),
-          });
-          if (!alive) return;
-          ignored.push(...(result.ignored ?? []));
-        } catch {
-          break; // keep what the batches already proved; a missing marker is safer than a wrong one
-        }
+        const result = await askTreeQuery(
+          () => call<{ ignored: string[] }>("git.ignored", { paths: paths.slice(start, start + 128) }),
+          () => !alive,
+        );
+        if (!alive) return;
+        // A batch that was given up leaves its rows unmarked; the batches after it still get a turn.
+        if (!result) continue;
+        ignored.push(...(result.ignored ?? []));
       }
       if (!alive) return;
       setIgnoredPaths(ignored);
@@ -316,20 +316,18 @@ export function SolutionTree(p: Props) {
           const cached = symbolCache.current.get(path);
           if (cached) known[path] = cached.modified;
         }
-        try {
-          const result = await call<{ entries: SymbolEntry[] }>("workspace.symbolKinds", {
-            paths: batch,
-            known,
-          });
-          if (!alive) return;
-          for (const entry of result.entries ?? []) {
-            updates.push([
-              entry.path,
-              { kind: symbolKindOf(entry.kind) ?? null, modified: entry.modified },
-            ]);
-          }
-        } catch {
-          break; // keep the badges already shown and apply the batches that succeeded
+        const result = await askTreeQuery(
+          () => call<{ entries: SymbolEntry[] }>("workspace.symbolKinds", { paths: batch, known }),
+          () => !alive,
+        );
+        if (!alive) return;
+        // A batch that was given up keeps the badges already shown; the next batch still runs.
+        if (!result) continue;
+        for (const entry of result.entries ?? []) {
+          updates.push([
+            entry.path,
+            { kind: symbolKindOf(entry.kind) ?? null, modified: entry.modified },
+          ]);
         }
       }
       if (!alive || updates.length === 0) return;
@@ -390,16 +388,16 @@ export function SolutionTree(p: Props) {
     void (async () => {
       const links = new Set<string>();
       for (let start = 0; start < candidates.length; start += 128) {
-        try {
-          const result = await call<{ entries: Array<{ path: string; symlink: boolean }> }>(
+        const result = await askTreeQuery(
+          () => call<{ entries: Array<{ path: string; symlink: boolean }> }>(
             "workspace.symlinks",
             { paths: candidates.slice(start, start + 128) },
-          );
-          if (!alive) return;
-          for (const entry of result.entries ?? []) if (entry.symlink) links.add(entry.path);
-        } catch {
-          break; // keep what the batches already proved; a missing marker is safer than a wrong one
-        }
+          ),
+          () => !alive,
+        );
+        if (!alive) return;
+        if (!result) continue;
+        for (const entry of result.entries ?? []) if (entry.symlink) links.add(entry.path);
       }
       if (!alive) return;
       symlinkRef.current = links;

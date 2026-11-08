@@ -1780,3 +1780,32 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `PATH` (nenhuma variável só-de-teste no harness); `playwright test --list` também recusa abaixo do
   piso. O PR é `medium` porque `playwright.config.ts` é caminho que a tabela de risco não conhece.
   Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança no `doctor.sh`.
+
+## 2026-11-08 — Consulta de árvore que falha é repetida com limite, não tratada como resposta vazia (issue #264, ticket #281)
+
+- **Decisão.** As três consultas de marcador da Solution Explorer (`git.ignored`,
+  `workspace.symlinks`, `workspace.symbolKinds`) repetem o lote que falhou até três tentativas no
+  total — a original mais duas, com 200 ms e 400 ms (`TREE_QUERY_RETRY_DELAYS_MS`, em
+  `src/treeQueryRetry.ts`). A repetição não acontece quando o pedido já foi substituído (workspace,
+  revisão do Git ou caminhos visíveis mudaram), nem antes nem depois da espera. Depois do último
+  fracasso o laço **continua** para o lote seguinte em vez de abandonar o resto; o que os lotes
+  anteriores provaram fica pintado e o lote perdido fica sem marcador, como hoje.
+- **Por que repetir e não manter a resposta anterior.** Manter o marcador antigo contrariaria a
+  decisão já registrada no código ("a missing marker is safer than a wrong one") e não ajudaria a
+  primeira consulta de um workspace, que não tem resposta anterior. A repetição cobre os dois casos:
+  a resposta que não chegou e a que chegaria errada.
+- **Por que o helper é um módulo e tem teste unitário.** A spec pedia helper local e prova só no E2E,
+  porque o repo não tem teste de componente React. A medição desmentiu a premissa: o componente
+  re-consulta sozinho a cada poll de `workspace.state` (400 ms) — o snapshot novo recalcula `views`,
+  o memo do pedido devolve objeto novo e o efeito pede de novo (~4 consultas/s medidas no E2E). Um
+  E2E que falhe a primeira chamada não distingue "repetiu" de "pediu de novo no próximo render", e
+  com o conserto revertido o marcador volta assim mesmo. A política foi para
+  `src/treeQueryRetry.ts` e a falha-antes determinística é o unitário
+  (`tests/unit/treeQueryRetry.test.ts`); o E2E afirma o contrato visível.
+- **O laço de re-consulta fica fora de escopo.** Ele é anterior a esta frente (o poll substitui o
+  snapshot e o pedido é recalculado por identidade de objeto), não é o que a #264 descreve e foi
+  registrado na [#300](https://github.com/Heldinhow/openridr/issues/300) com a medição. A limpeza de estado na troca de identidade do pedido
+  continua como estava.
+- **Consequência.** `src/treeQueryRetry.ts` (novo), `src/SolutionTree.tsx`, 6 testes unitários e 3
+  E2E em `tests/e2e/solution-git-status.spec.ts`; evidência em `docs/evidence/tree-query-retry.md`.
+  Nenhum `data-testid` renomeado, nenhuma dependência nova, nenhuma mudança no host.

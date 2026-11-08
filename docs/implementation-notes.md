@@ -1906,3 +1906,36 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   Chrome real (só Chromium); Windows e macOS Intel. O teste Rust novo não roda no job `rust` do CI
   (`cargo test -p openridr-host`), só em `cargo test --workspace`. Evidência:
   `docs/evidence/e2e-ephemeral-port.md`.
+
+## Consulta de árvore que falha é repetida com limite (2026-11-08, #264; ticket #281)
+
+- **O conserto.** `src/treeQueryRetry.ts` (novo) expõe `askTreeQuery(ask, superseded, delays)`:
+  repete o lote que falhou até três tentativas no total (`TREE_QUERY_RETRY_DELAYS_MS = [200, 400]`),
+  aborta sem repetir quando o pedido já foi substituído (antes e depois da espera) e devolve `null`
+  quando desiste. As três consultas de marcador do `SolutionTree.tsx` (`git.ignored`,
+  `workspace.symlinks`, `workspace.symbolKinds`) chamam o helper e, depois de um lote dado por
+  perdido, seguem com `continue` em vez do `break` que abandonava o resto da lista.
+- **Por que o helper é módulo.** A spec pedia helper local e prova só no E2E. Medido: o componente
+  re-consulta sozinho a cada poll de `workspace.state` (400 ms) — ~4 `git.ignored`/s no E2E, com o
+  pedido de identidade idêntica —, então um E2E que falhe a primeira chamada não distingue "repetiu"
+  de "pediu de novo no próximo render". A política ganhou teste unitário (a falha-antes
+  determinística) e o E2E ficou com o contrato visível.
+- **Testes.** `tests/unit/treeQueryRetry.test.ts` (6 casos: sucesso direto, repetição com sucesso,
+  três tentativas e desiste, pedido substituído antes e durante a espera, e a política `[200, 400]`).
+  `tests/e2e/solution-git-status.spec.ts`: 3 testes novos, um por consulta, cada um perdendo a
+  primeira resposta do método com `page.route("**/call")`; o helper do spec para o poll
+  `workspace.state` e o refresh `git.status` e espera 1 s de silêncio antes de trocar a identidade
+  (recolher/expandir o projeto, alternar "Show all files", "Re-evaluate project model").
+- **Falha-antes medida.** Unitário: com o comportamento antigo (pergunta uma vez), 2 dos 6 falham.
+  E2E `.gitignore` e symlink: com o `SolutionTree.tsx` de `c35f60b`, 2 failed (`data-git-status` e
+  `data-symlink` vazios depois de 10 s); com o conserto, 6 passed. O E2E do tipo C# passa com o
+  conserto revertido: o badge de um fonte novo é pedido duas vezes (reavaliação manual e automática
+  do modelo "changed on disk"), então a segunda varredura pinta sem repetição — limite registrado na
+  evidência.
+- **Bateria.** `bun test tests/unit` 145 passed; `bunx tsc --noEmit` limpo;
+  `bunx playwright test tests/e2e/solution-git-status.spec.ts` 6 passed;
+  `--repeat-each=8` 48 passed.
+- **Não verificado:** app Tauri real (UI pura); a causa da resposta que não chegou (transporte ou
+  host sob o lock — a spec já a deixava fora de escopo); a taxa do sintoma em produção; Windows e
+  macOS Intel. O laço de re-consulta a cada poll é anterior e ficou fora desta frente (#300).
+  Evidência: `docs/evidence/tree-query-retry.md`.

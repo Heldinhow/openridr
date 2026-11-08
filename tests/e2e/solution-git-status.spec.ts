@@ -55,6 +55,44 @@ async function refocus(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 }
 
+/**
+ * #264 — the first host answer for `method` that carries `path` is refused; every other call passes.
+ * A tree query that gives up on the first failure leaves the row without its marker, so the marker
+ * itself is the assertion.
+ *
+ * The `workspace.state` poll and the `git.status` refresh are stopped here: both re-render the tree,
+ * and a re-render asks the queries again — which would hide whether the query was repeated. The
+ * returned `settle` waits for the calls already in the air to land before the identity changes, so
+ * the refusal lands on the request under test instead of on a stale one.
+ */
+async function refuseFirstAnswerFor(page: Page, method: string, path: string) {
+  let refused = false;
+  let lastPassed = Date.now();
+  await page.route("**/call", async (route) => {
+    const body = route.request().postDataJSON() as { method?: string; params?: { paths?: string[] } };
+    if (body.method === "workspace.state" || body.method === "git.status") {
+      await route.abort();
+      return;
+    }
+    lastPassed = Date.now();
+    const carries = body.method === method && (body.params?.paths ?? []).includes(path);
+    if (!carries || refused) {
+      await route.continue();
+      return;
+    }
+    refused = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: false, error: { code: "host_error", message: "injected failure" } }),
+    });
+  });
+  return {
+    refused: () => refused,
+    settle: () => expect.poll(() => Date.now() - lastPassed).toBeGreaterThan(1000),
+  };
+}
+
 test.beforeEach(async ({ request }) => {
   await request.post(`${host}/call`, { data: { method: "workspace.close", params: {} } });
   setupRepo();
@@ -130,4 +168,66 @@ test("symlinks are marked and a symlinked folder is not expanded", async ({ page
   await expect(linkDir.locator(".symlink-mark")).toHaveCount(0);
   await linkDir.click();
   await expect(page.getByTestId("tree-file-LinkDir/Order.cs")).toHaveCount(0);
+});
+
+// #264: a tree query that fails once must ask again, not leave the row without its marker.
+// The badge on an evaluated source is the signal that the model (and the tree it paints) settled:
+// the query under test is the only one a new Git revision or evaluation asks for afterwards.
+async function waitForEvaluatedTree(page: Page) {
+  await expect(page.getByTestId(`tree-file-${order}`)).toHaveAttribute("data-symbol-kind", "class");
+}
+
+test("an ignored answer that fails once is asked again instead of dropping the marker", async ({ page }) => {
+  // A source covered by `.gitignore`: the evaluated tree shows it, so the query has one identity.
+  const file = "src/OrderDesk.Core/Ignored.cs";
+  fs.writeFileSync(path.join(repo, file), "namespace OrderDesk.Core;\n\nclass Ignored {}\n");
+  fs.appendFileSync(path.join(repo, ".gitignore"), "Ignored.cs\n");
+  await openTrusted(page);
+  await waitForEvaluatedTree(page);
+  const ignored = page.getByTestId(`tree-file-${file}`);
+  await expect(ignored).toHaveAttribute("data-git-status", "ignored");
+
+  // Collapsing drops the row from the request and clears the marker; expanding asks again, and the
+  // first answer to that request is lost, so the marker can only come back from a repeated query.
+  const project = page.getByTestId("tree-project-OrderDesk.Core");
+  await project.click();
+  const { refused, settle } = await refuseFirstAnswerFor(page, "git.ignored", file);
+  await settle();
+  await project.click();
+  await expect.poll(refused).toBe(true);
+  await expect(ignored).toHaveAttribute("data-git-status", "ignored");
+});
+
+test("a symlink answer that fails once is asked again instead of dropping the marker", async ({ page }) => {
+  const file = "src/OrderDesk.Core/Linked.cs";
+  fs.symlinkSync(path.join(repo, order), path.join(repo, file));
+  await openTrusted(page);
+  await waitForEvaluatedTree(page);
+  const linked = page.getByTestId(`tree-file-${file}`);
+  await expect(linked).toHaveAttribute("data-symlink", "true");
+
+  // "Show all files" turns the evaluated query off and clears its markers; turning it back on asks
+  // again, and the first answer to that request is lost.
+  await page.getByTestId("tree-show-all").click();
+  const { refused, settle } = await refuseFirstAnswerFor(page, "workspace.symlinks", file);
+  await settle();
+  await page.getByTestId("tree-show-all").click();
+  await expect.poll(refused).toBe(true);
+  await expect(linked).toHaveAttribute("data-symlink", "true");
+});
+
+test("a symbol-kind answer that fails once is asked again instead of dropping the badge", async ({ page }) => {
+  await openTrusted(page);
+  await waitForEvaluatedTree(page);
+  // A source the badge scan never answered for: only a fresh answer can paint its badge. The
+  // re-evaluation below is the first scan that asks for it; the automatic one for the model that
+  // changed on disk asks again, so this test asserts the badge and not the retry (see the evidence).
+  const file = "src/OrderDesk.Core/RetryBadge.cs";
+  fs.writeFileSync(path.join(repo, file), "namespace OrderDesk;\n\nclass RetryBadge {}\n");
+  const { refused, settle } = await refuseFirstAnswerFor(page, "workspace.symbolKinds", file);
+  await settle();
+  await page.getByTestId("tree-more").click();
+  await page.getByTestId("tree-more-reevaluate").click();
+  await expect.poll(refused).toBe(true);
+  await expect(page.getByTestId(`tree-file-${file}`)).toHaveAttribute("data-symbol-kind", "class");
 });
