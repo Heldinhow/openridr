@@ -480,7 +480,10 @@ fn taskkill(pid: u32, hard: bool) -> bool {
 }
 
 /// The signal that killed the child, if any. A normal exit reports `code()` and no signal.
-#[cfg(unix)]
+///
+/// Only the `not(unix)` branch of `refresh` asks for it: on unix the signal comes from `waitid`.
+/// The stray `#[cfg(unix)]` this used to carry made the function exist on no platform at all, which
+/// only showed up the first time the crate was compiled for Windows.
 #[cfg(not(unix))]
 fn exit_signal(_status: &std::process::ExitStatus) -> Option<i32> {
     None

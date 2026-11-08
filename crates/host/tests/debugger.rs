@@ -339,6 +339,9 @@ fn tool_dir(home: &Path) -> PathBuf {
     home.join("tools/netcoredbg")
 }
 
+// Only the macOS arm64 leaves use it, so it is dead code on the other targets and `-D warnings`
+// refuses that.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn fake_netcoredbg(path: &Path) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();

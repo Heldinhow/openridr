@@ -1885,7 +1885,9 @@ mod tests {
     use super::*;
     use crate::test_harness::EnvVar;
 
-    #[cfg(unix)]
+    // Only the macOS arm64 leaves use it, so it is dead code on the other targets and `-D warnings`
+    // refuses that.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn fake_adapter(dir: &Path, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         fs::create_dir_all(dir).unwrap();
