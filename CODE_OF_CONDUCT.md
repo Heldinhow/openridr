@@ -59,14 +59,14 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported privately through GitHub's private vulnerability reporting form:
+reported privately through GitHub's private vulnerability reporting form,
+which is active for this repository:
 
 <https://github.com/Heldinhow/openridr/security/advisories/new>
 
-That channel is **not yet enabled**: the maintainer must activate private
-vulnerability reporting in the repository settings before a report can be
-filed. Until then, conduct reports cannot be received privately, and this
-document does not publish a personal email address as a fallback.
+This document does not publish a personal email address as a fallback. The
+maintainer can disable the channel; while it is disabled, conduct reports
+cannot be received privately.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

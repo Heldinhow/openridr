@@ -73,10 +73,9 @@ issue, and open an issue to agree on the approach before a large change.
 
 - [Code of Conduct](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1.
 - [Security policy](SECURITY.md) — report vulnerabilities through GitHub's private vulnerability
-  reporting. The maintainer still has to enable that channel; until then there is no private
-  reporting path, so do not open a public issue with exploit details.
-- Discussions are not enabled yet. Until the maintainer turns them on, there is no dedicated
-  channel for general questions.
+  reporting, which is active for this repository. Do not open a public issue with exploit details.
+- [Discussions](https://github.com/Heldinhow/openridr/discussions) — questions in **Q&A**, ideas and
+  proposals in **Ideas**.
 - Documentation index: [docs/README.md](docs/README.md).
 
 ## License

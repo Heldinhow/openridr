@@ -1788,7 +1788,9 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 ## Comunidade open source (#224, #226–#229)
 
 - README, políticas de conduta e segurança, CONTRIBUTING e templates de issue/PR; evidência em `docs/evidence/open-source-ready.md`.
-- Não verificado: issue chooser e community profile após merge, Discussions e reporte privado até ativação pelo mantenedor; app e E2E não se aplicam. Meta de 3–5 issues rotuladas permanece pendente por falta de candidatas adequadas.
+- 2026-11-08: Discussions e reporte privado de vulnerabilidade ativos (`has_discussions: true`, `private-vulnerability-reporting.enabled: true`), community profile em 100%; os documentos deixaram de dizer que os canais estavam desativados.
+- Quatro issues abertas e sem responsável receberam rótulo: #260 (`good first issue`) e #246, #269, #280 (`help wanted`); o guia explica os rótulos e manda comentar para reservar a issue.
+- Não verificado: renderização no GitHub e issue chooser no default branch até o merge; app e E2E não se aplicam.
 
 ## Cancelar push, update e fetch em andamento (2026-11-07, #150; tickets #206, #207, #208)
 

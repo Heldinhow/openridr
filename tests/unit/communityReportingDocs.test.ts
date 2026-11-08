@@ -26,9 +26,14 @@ describe("CODE_OF_CONDUCT.md", () => {
     expect(conduct).toContain("## Enforcement Guidelines");
   });
 
-  test("sends conduct reports to the private channel and says it is not active yet", () => {
+  test("sends conduct reports to the active private channel", () => {
     expect(conduct).toContain(PRIVATE_REPORTING);
-    expect(conduct.toLowerCase()).toContain("not yet enabled");
+    expect(conduct.toLowerCase()).toContain("private vulnerability reporting");
+    expect(conduct.toLowerCase()).toContain("is active");
+  });
+
+  test("does not claim the private channel is unavailable", () => {
+    expect(conduct.toLowerCase()).not.toContain("not yet enabled");
   });
 
   test("does not publish a personal email address", () => {
@@ -50,9 +55,14 @@ describe("SECURITY.md", () => {
     expect(security).toContain("not verified");
   });
 
-  test("sends vulnerability reports to the private channel and says it is not active yet", () => {
+  test("sends vulnerability reports to the active private channel", () => {
     expect(security).toContain(PRIVATE_REPORTING);
-    expect(security.toLowerCase()).toContain("not yet enabled");
+    expect(security.toLowerCase()).toContain("private vulnerability reporting");
+    expect(security.toLowerCase()).toContain("is active");
+  });
+
+  test("does not claim the private channel is unavailable", () => {
+    expect(security.toLowerCase()).not.toContain("not yet enabled");
   });
 
   test("does not publish a personal email address", () => {
