@@ -158,6 +158,8 @@ fn wait_for_run(host: &Host, timeout: Duration) -> Value {
     }
 }
 
+// Only the macOS leaf below uses it, so it is dead code on the other targets.
+#[cfg(target_os = "macos")]
 fn project_path(discovery: &Value) -> String {
     discovery["project"]["path"].as_str().unwrap().to_string()
 }
@@ -176,6 +178,8 @@ fn discovery_processes(state: &Value) -> Vec<Value> {
         .collect()
 }
 
+// Only the unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 fn build_processes(state: &Value) -> Vec<Value> {
     state["processes"]
         .as_array()
@@ -191,6 +195,7 @@ fn build_processes(state: &Value) -> Vec<Value> {
 }
 
 /// Waits until the discovery has a real process and has logged something: it is building.
+#[cfg(unix)]
 fn wait_for_discovery_process(host: &Host, timeout: Duration) -> u64 {
     let deadline = Instant::now() + timeout;
     loop {
@@ -208,6 +213,7 @@ fn wait_for_discovery_process(host: &Host, timeout: Duration) -> u64 {
     }
 }
 
+#[cfg(unix)]
 fn wait_for_build(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -224,6 +230,7 @@ fn wait_for_build(host: &Host, timeout: Duration) -> Value {
     }
 }
 
+#[cfg(unix)]
 fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     loop {
