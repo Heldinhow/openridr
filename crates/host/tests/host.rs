@@ -1647,6 +1647,107 @@ fn a_project_without_global_json_resolves_the_installed_sdk_and_evaluates() {
     );
 }
 
+/// The highest stable install (`high`) and the highest stable install of a lower line, at least 5,
+/// in the same root (`low`). The ancestor-pin scenario needs both installed by one muxer; without
+/// the pair it cannot be built on this machine, so the tests report "not verified" and return.
+fn muxer_pin_pair() -> Option<((sdk::Version, sdk::Install), (sdk::Version, sdk::Install))> {
+    let inventory = sdk::inventory();
+    let mut stable: Vec<(sdk::Version, sdk::Install)> = inventory
+        .installs
+        .iter()
+        .filter_map(|install| Some((sdk::Version::parse(&install.version)?, install.clone())))
+        .filter(|(version, _)| version.prerelease.is_none())
+        .collect();
+    stable.sort_by(|(left, _), (right, _)| right.cmp(left));
+    let pair = stable.first().and_then(|high| {
+        let (high_version, high_install) = high;
+        stable
+            .iter()
+            .find(|(version, install)| {
+                install.root == high_install.root
+                    && version.major < high_version.major
+                    && version.major >= 5
+            })
+            .map(|low| (high.clone(), low.clone()))
+    });
+    if pair.is_none() {
+        let seen: Vec<(&str, &Path)> = inventory
+            .installs
+            .iter()
+            .map(|install| (install.version.as_str(), install.root.as_path()))
+            .collect();
+        eprintln!("not verified: no root installs two stable SDK lines (>= 5): detected {seen:?}");
+    }
+    pair
+}
+
+/// A project under `ancestor/app` whose only `global.json` is `ancestor/global.json`: the host
+/// reads the workspace root (`app/`) and sees no pin, while the muxer runs in `app/` and finds the
+/// ancestor file.
+fn ancestor_pinned_workspace(tfm: &str, pin: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let app = dir.path().join("app");
+    fs::create_dir_all(&app).unwrap();
+    fs::write(
+        app.join("NoPin.csproj"),
+        format!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>{tfm}</TargetFramework></PropertyGroup></Project>\n"
+        ),
+    )
+    .unwrap();
+    fs::write(app.join("NoPin.cs"), "class C {}\n").unwrap();
+    fs::write(
+        dir.path().join("global.json"),
+        format!("{{ \"sdk\": {{ \"version\": \"{pin}\", \"rollForward\": \"disable\" }} }}\n"),
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn the_snapshot_names_the_sdk_the_muxer_resolves_not_its_own_rule() {
+    let Some(((_, high), (low_version, low))) = muxer_pin_pair() else {
+        return;
+    };
+    let host = support::host();
+    let workspace = ancestor_pinned_workspace(&format!("net{}.0", low_version.major), &low.version);
+    open(&host, &workspace.path().join("app/NoPin.csproj"));
+    let trusted = grant(&host);
+    let project = &trusted["sdk"]["project"];
+
+    assert_eq!(project["state"], "resolved");
+    assert_eq!(
+        project["resolvedVersion"], low.version,
+        "the muxer reads the ancestor pin; the host rule would name {}",
+        high.version
+    );
+    assert_eq!(project["requirement"]["source"], "target_framework");
+    assert_eq!(project["globalJsonPath"], Value::Null);
+    assert_eq!(project["root"], low.root.to_string_lossy().as_ref());
+}
+
+#[test]
+fn a_muxer_pin_that_misses_the_requirement_is_sdk_missing() {
+    let Some(((high_version, _), (_, low))) = muxer_pin_pair() else {
+        return;
+    };
+    let host = support::host();
+    let workspace =
+        ancestor_pinned_workspace(&format!("net{}.0", high_version.major), &low.version);
+    open(&host, &workspace.path().join("app/NoPin.csproj"));
+    let trusted = grant(&host);
+    let project = &trusted["sdk"]["project"];
+
+    assert_eq!(project["state"], "sdk_missing");
+    assert_eq!(project["resolvedVersion"], Value::Null);
+    let message = project["message"].as_str().unwrap();
+    assert!(message.contains(&low.version), "{message}");
+    assert!(
+        message.contains(&format!("{}.0", high_version.major)),
+        "{message}"
+    );
+}
+
 #[test]
 fn an_impossible_pin_stays_sdk_missing_with_requirement_and_detected() {
     let host = support::host();
