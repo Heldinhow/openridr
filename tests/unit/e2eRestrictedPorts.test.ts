@@ -60,11 +60,10 @@ describe("the environment module", () => {
     expect(stderr).toContain("Chrome");
   });
 
-  test("refuses a pair whose derived host range touches a blocked port", () => {
-    // 1716 + 3 is 1719: a spec that starts its own host would reach a port Chrome blocks.
-    const stderr = loadEnvironment({ OPENRIDR_E2E_HOST_PORT: "1716" });
-    expect(stderr).toContain("Invalid E2E port: 1719");
-    expect(stderr).toContain("1420/1716");
+  test("accepts a pair whose neighbouring ports are blocked", () => {
+    // Only the two chosen ports matter: a spec that starts its own host gets a port from the
+    // kernel, so 1716 + 3 is not a port anyone reaches any more (issue #246).
+    expect(loadEnvironment({ OPENRIDR_E2E_HOST_PORT: "1716" })).toBe("");
   });
 
   test("keeps refusing an equal pair", () => {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { revisionOf, settleRestore } from "./automatic";
-import { hostPort, seedVerifiedTools } from "./environment";
+import { seedVerifiedTools } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 /**
@@ -12,7 +12,6 @@ import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
  * tests own a host whose bundled adapter is the operator-installed netcoredbg: the same DAP
  * session a user gets, without a download.
  */
-const port = hostPort + 4;
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
 const realAdapter = path.join(
   process.env.HOME ?? "",
@@ -25,7 +24,6 @@ test.use({ viewport: { width: 1440, height: 900 } });
 
 test.beforeAll(async () => {
   host = await startIsolatedHost({
-    port,
     homePrefix: "openridr-debug-advanced-home-",
     env: { OPENRIDR_TRUST_STORE: "on", OPENRIDR_ENABLE_PROBE: "1" },
     prepare: (home) => {
@@ -47,7 +45,7 @@ test.afterAll(async () => {
 });
 
 async function hostCall(method: string, params: object = {}) {
-  const response = await fetch(`http://127.0.0.1:${port}/call`, {
+  const response = await fetch(`${host.base}/call`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ method, params }),

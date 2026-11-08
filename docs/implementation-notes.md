@@ -1868,3 +1868,41 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   13 passed; `solution-git-status.spec.ts` 3 passed; `bunx tsc --noEmit` limpo.
 - **Não verificado:** app Tauri real (UI pura, nada de shell nativo); Windows e macOS Intel; a taxa do
   sintoma em produção (a issue não mediu). Evidência: `docs/evidence/solution-listing-retry.md`.
+
+## Host auxiliar do E2E em porta efêmera (2026-11-08, #246)
+
+- **O conserto.** `crates/host-http/src/main.rs` passou a imprimir `server.server_addr()` em vez do
+  endereço pedido, então `--port 0` publica a porta que o kernel concedeu. `tests/e2e/isolated-host.ts`
+  sobe o host com `--port 0`, lê a linha `openridr-host-http listening on http://127.0.0.1:<porta>` do
+  `stdout` do filho e devolve `port`/`base` a partir dela; a verificação de posse por `pid` da #216
+  ficou igual (o helper só aceita o `/health` cujo `pid` é o do filho que subiu). O `stderr` do filho
+  fica num buffer de 4 KB e entra na mensagem de falha, porque "saiu antes de imprimir a porta" sem o
+  motivo do cargo/do bind não diz nada.
+- **Os sete specs.** `trust-prompt`, `welcome`, `medium-editor-session`, `debug-advanced`,
+  `tools-install-ux`, `analysis-gate` e `setup-gate-layout` perderam `const port = hostPort + N` e a
+  opção `port`; quem chamava o host por `http://127.0.0.1:${port}` passou a usar `host.base` (o
+  `analysis-gate` tinha um `base` de módulo, que só existe depois do `beforeAll` — virou `host.base`
+  dentro dos hooks).
+- **A faixa sai.** `tests/e2e/environment.ts` perdeu o laço que recusava `hostPort + 1` … `+ 7` quando
+  alguma caía em porta bloqueada do Chrome; o teste unitário que a pinava virou o contrário (um par
+  vizinho de porta bloqueada é aceito). `AGENTS.md`, `docs/SPEC-E2E-PORTS.md`, `docs/decisions.md`,
+  `.agents/skills/verify-openridr/SKILL.md` e `docs/MAPA.md` dizem a regra nova: só o par do harness é
+  escolhido, as auxiliares são efêmeras.
+- **O decoy da #216, adaptado.** Não existe mais "porta escolhida ocupada por outro processo" para
+  demonstrar, então o teste do helper ganhou uma costura de teste (`command`) e um filho de mentira que
+  imprime a porta de um decoy alheio: o helper lê a porta, sonda o `/health`, vê `pid: 999999` e recusa
+  nomeando porta e pid. É a recusa por dentro do caminho novo, não uma unidade isolada.
+- **Falha-antes medida.** `cargo test -p openridr-host-http --test ephemeral_port` com o `main.rs`
+  antigo: `the bridge printed the requested port: openridr-host-http listening on http://127.0.0.1:0`.
+  Depois: 2 passed. O E2E antes do conserto não teria como passar — o helper não teria porta para ler.
+- **Bateria.** `cargo test -p openridr-host-http` 2 passed; `cargo fmt --check` e
+  `cargo clippy --workspace --all-targets -D warnings` limpos; `bun test tests/unit` 127 passed;
+  `bunx tsc --noEmit` e `bun run build` limpos; E2E: `isolated-host.spec.ts` 6 passed, os sete specs
+  com 11 passed e 7 skipped, e duas sessões em paralelo no mesmo worktree (1520/4417 e 1521/4418) com
+  6 + 6 passed — inclusive o mesmo spec (`isolated-host.spec.ts`) nas duas, o que exigiu prefixo de
+  home com o `pid` do worker (o `os.tmpdir()` é compartilhado e a contagem de diretórios via o da
+  outra sessão).
+- **Não verificado:** as 7 asserções do `debug-advanced` (skip: netcoredbg real ausente nesta máquina);
+  Chrome real (só Chromium); Windows e macOS Intel. O teste Rust novo não roda no job `rust` do CI
+  (`cargo test -p openridr-host`), só em `cargo test --workspace`. Evidência:
+  `docs/evidence/e2e-ephemeral-port.md`.

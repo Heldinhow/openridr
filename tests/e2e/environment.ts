@@ -87,8 +87,8 @@ const RESTRICTED_PORTS = new Set([
   10080, // Amanda
 ]);
 
-function chromeBlocked(value: number, where = ""): string {
-  return `Invalid E2E port: ${value}${where} is blocked by Chrome (net::ERR_UNSAFE_PORT)`;
+function chromeBlocked(value: number): string {
+  return `Invalid E2E port: ${value} is blocked by Chrome (net::ERR_UNSAFE_PORT)`;
 }
 
 export function port(value: string | undefined, fallback: number): number {
@@ -105,14 +105,8 @@ export function port(value: string | undefined, fallback: number): number {
 export const uiPort = port(process.env.OPENRIDR_E2E_UI_PORT, 1420);
 export const hostPort = port(process.env.OPENRIDR_E2E_HOST_PORT, 4317);
 if (uiPort === hostPort) throw new Error("E2E UI and host ports must differ");
-// Specs that start their own host take hostPort + 1 .. + 7, and the browser reaches them directly.
-for (let offset = 1; offset <= 7; offset += 1) {
-  const derived = hostPort + offset;
-  if (RESTRICTED_PORTS.has(derived)) {
-    const where = ` (hostPort + ${offset} of ${uiPort}/${hostPort})`;
-    throw new Error(`${chromeBlocked(derived, where)}; choose another port pair`);
-  }
-}
+// These two are the only ports a session chooses: a spec that starts its own host asks the kernel
+// for one (`--port 0`) and reads the granted port from the bridge's own line (issue #246).
 export const frontend = `http://127.0.0.1:${uiPort}`;
 export const host = `http://127.0.0.1:${hostPort}`;
 /**

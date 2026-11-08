@@ -2,12 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { hostPort, seedVerifiedTools } from "./environment";
+import { seedVerifiedTools } from "./environment";
 import { startIsolatedHost, type IsolatedHost } from "./isolated-host";
 
 // The shared E2E host runs with OPENRIDR_SESSION_STORE=off so specs cannot restore each other's
 // tabs. Session persistence needs its own host, like trust-prompt.spec.ts does for trust.
-const port = hostPort + 3;
 const fixture = path.resolve("fixtures/OrderDesk");
 const program = "src/OrderDesk.Cli/Program.cs";
 const order = "src/OrderDesk.Core/Order.cs";
@@ -17,7 +16,6 @@ test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 test.beforeAll(async () => {
   host = await startIsolatedHost({
-    port,
     homePrefix: "openridr-session-home-",
     env: { OPENRIDR_TRUST_STORE: "on" },
     prepare: (home) => ({ OPENRIDR_BUNDLED_NETCOREDBG: seedVerifiedTools(home) }),
