@@ -1,7 +1,8 @@
 # Evidência — consulta de árvore que falha é repetida com limite (#264, ticket #281)
 
 Issue: [#264](https://github.com/Heldinhow/openridr/issues/264), ticket
-[#281](https://github.com/Heldinhow/openridr/issues/281). Ambiente: macOS ARM64, worktree isolada,
+[#281](https://github.com/Heldinhow/openridr/issues/281), irmã
+[#300](https://github.com/Heldinhow/openridr/issues/300). Ambiente: macOS ARM64, worktree isolada,
 portas 1920/4917 (home do E2E derivada da porta da UI), Chromium. Data: 2026-11-08.
 
 ## O conserto
@@ -17,27 +18,26 @@ identidade do pedido.
   o pedido já foi substituído — antes e depois da espera — e devolve `null` quando desiste.
 - `src/SolutionTree.tsx`: as três consultas chamam o helper; depois de um lote dado por perdido o laço
   **continua** (`continue`) em vez de `break`, então os lotes seguintes ainda rodam e o que os
-  anteriores provaram fica pintado.
-- A limpeza na troca de identidade do pedido (workspace, revisão do Git, caminhos visíveis) ficou
-  como estava: resposta de identidade antiga nunca pinta a árvore.
+  anteriores provaram fica pintado. A resposta malformada de um lote (`entries`/`ignored` que não é
+  array) é tratada como lote dado por perdido, não como exceção não observada.
+- **O efeito das consultas segue o id do pedido, não o objeto.** Era o achado alto da revisão: o poll
+  de `workspace.state` (400 ms) substitui o snapshot, `views` é recalculado, o memo do pedido devolve
+  um objeto novo com o **mesmo** `treeQueryId` e o efeito re-rodava — cancelando a repetição que
+  esperava e descartando os lotes que já tinham respondido. Com o efeito preso ao id, a consulta
+  roda uma vez por identidade (workspace + revisão do Git + caminhos visíveis), que é o contrato que
+  os comentários do arquivo já prometiam. Isso também fecha a
+  [#300](https://github.com/Heldinhow/openridr/issues/300) (a árvore re-consultava a cada poll).
+- A limpeza na troca de identidade do pedido ficou como estava: resposta de identidade antiga nunca
+  pinta a árvore.
 - Nada mudou no host, nos `data-testid` ou nas dependências.
 
 ## Por que o helper é um módulo, e não local ao componente
 
 A spec pedia um helper local e a prova só no E2E, porque o repo não tem teste de componente React.
-**A medição desmentiu a premissa**: o componente re-consulta sozinho. A cada 400 ms o
-`workspace.state` substitui o snapshot, `views` é recalculado, `visibleFilePaths` ganha identidade
-nova, o memo do pedido devolve um objeto novo e o efeito pede de novo — medido com log no efeito:
-4 consultas `git.ignored` por segundo no spec, com o pedido de identidade idêntica. O mesmo acontece
-com `workspace.symlinks`; `workspace.symbolKinds` não entra no laço porque sua dependência é a
-assinatura em texto, não o objeto.
-
-Consequência para o teste: um E2E que só falhe a primeira chamada **não** distingue "repetiu" de
-"pediu de novo no próximo render" — com o conserto revertido, o marcador volta assim mesmo. Por isso
-o helper virou módulo e a política ganhou teste unitário (`tests/unit/treeQueryRetry.test.ts`), que é
-a falha-antes determinística. O laço de re-consulta em si é anterior a esta frente e ficou fora de
-escopo: registrado na
-[#300](https://github.com/Heldinhow/openridr/issues/300) com a medição.
+Com o efeito agora preso ao id, o E2E distingue "repetiu" de "pediu de novo" — mas o unitário continua
+sendo a prova determinística da política (três tentativas, as esperas, o aborto por substituição), e o
+helper é compartilhado pelas três consultas. O teste unitário custa 6 casos e não precisa de host,
+dotnet nem navegador; o E2E fica com o contrato visível.
 
 ## Testes
 
@@ -48,11 +48,12 @@ escopo: registrado na
 - `tests/e2e/solution-git-status.spec.ts`: três testes novos, um por consulta, cada um perdendo a
   **primeira** resposta do método com `page.route("**/call")` e afirmando o marcador na linha
   (`data-git-status="ignored"` num fonte coberto pelo `.gitignore`, `data-symlink="true"` num
-  `Linked.cs`, `data-symbol-kind="class"` num fonte novo). O helper do spec para o poll
-  `workspace.state` e o refresh `git.status` durante o teste e espera 1 s de silêncio antes de mudar a
-  identidade: sem isso, um render alheio pede de novo e o teste mede o poll, não a consulta.
-- A identidade é trocada pelo caminho real: recolher/expandir o projeto (`.gitignore`), alternar
-  "Show all files" (symlinks) e "Re-evaluate project model" (tipo C#).
+  `Linked.cs`, `data-symbol-kind="class"` num fonte novo). A identidade é trocada pelo caminho real:
+  recolher/expandir o projeto (`.gitignore`), alternar "Show all files" (symlinks) e tirar/pôr o
+  fonte de volta no projeto (tipo C#, cuja varredura só acontece numa reavaliação).
+- O helper do spec recusa a primeira resposta e, no caso do tipo C#, também as varreduras seguintes
+  (só a repetição, que chega em 200/400 ms, passa): sem isso uma segunda varredura pintaria o que a
+  resposta perdida não pintou e o teste mediria outra coisa.
 
 ## Falha-antes medida
 
@@ -60,22 +61,21 @@ escopo: registrado na
   devolve `null`), `bun test tests/unit/treeQueryRetry.test.ts` → **2 failed** (`a failed answer is
   asked again…` e `a batch that never answers is given up after three attempts`), 4 passed. Com o
   helper: 6 passed.
-- **E2E `.gitignore` e symlink.** Com `src/SolutionTree.tsx` de `c35f60b` (sem o helper) e o spec
-  novo: **2 failed** — `data-git-status` recebe `""` e `data-symlink` recebe `""` depois de 10 s. Com
-  o conserto: 2 passed.
-- **E2E tipo C#.** Com o conserto revertido ele **passa**: o badge de um fonte novo é pedido duas
-  vezes (a reavaliação manual e a automática do modelo que "changed on disk"), então a segunda
-  varredura pinta o badge sem repetição. Fica registrado como limite do teste: ele afirma o contrato
-  visível (o badge não fica faltando), não a repetição; a repetição dessa consulta é provada pelo
-  unitário, que é o mesmo helper das três.
+- **E2E, com o efeito preso ao id e só a repetição revertida** (o "antes" da política): os **três**
+  testes falham — `data-git-status` e `data-symlink` recebem `""` e `data-symbol-kind` recebe `""`
+  depois de 10 s. Com a repetição: os três passam.
+- **E2E, com o conserto inteiro revertido** (`SolutionTree.tsx` de `c35f60b`): os três **passam** — a
+  árvore re-consulta a cada poll e o marcador volta sem repetição. É por isso que o efeito preso ao
+  id faz parte desta frente: sem ele a repetição é cancelada pelo render seguinte e o sintoma é
+  mascarado, que é o critério "os marcadores já provados ficam pintados" do ticket.
 
 ## Bateria
 
 - `bun test tests/unit` → 145 passed, 0 fail (19 arquivos), incluindo os 6 novos.
 - `bunx tsc --noEmit` limpo.
-- `bunx playwright test tests/e2e/solution-git-status.spec.ts` → 6 passed (1,6 min).
+- `bunx playwright test tests/e2e/solution-git-status.spec.ts` → 6 passed (47 s).
 - `bunx playwright test tests/e2e/solution-git-status.spec.ts --repeat-each=8` → **48 passed**
-  (12,9 min), sem o sintoma da #245 (1 falha em 42 execuções para cada um).
+  (sem o sintoma da #245, 1 falha em 42 execuções para cada marcador).
 
 ## Não verificado
 
@@ -85,5 +85,3 @@ escopo: registrado na
   erro do host sob o lock único). O conserto muda o comportamento, não a causa — como a spec diz.
 - A taxa do sintoma em produção: a #245 mediu 1 em 42 execuções no E2E, não em uso real.
 - Windows e macOS Intel (não suportados sem evidência).
-- O laço de re-consulta a cada poll (acima) não foi corrigido nesta frente; a
-  [#300](https://github.com/Heldinhow/openridr/issues/300) leva a medição.

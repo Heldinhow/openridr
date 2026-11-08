@@ -1795,17 +1795,19 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   primeira consulta de um workspace, que não tem resposta anterior. A repetição cobre os dois casos:
   a resposta que não chegou e a que chegaria errada.
 - **Por que o helper é um módulo e tem teste unitário.** A spec pedia helper local e prova só no E2E,
-  porque o repo não tem teste de componente React. A medição desmentiu a premissa: o componente
-  re-consulta sozinho a cada poll de `workspace.state` (400 ms) — o snapshot novo recalcula `views`,
-  o memo do pedido devolve objeto novo e o efeito pede de novo (~4 consultas/s medidas no E2E). Um
-  E2E que falhe a primeira chamada não distingue "repetiu" de "pediu de novo no próximo render", e
-  com o conserto revertido o marcador volta assim mesmo. A política foi para
-  `src/treeQueryRetry.ts` e a falha-antes determinística é o unitário
-  (`tests/unit/treeQueryRetry.test.ts`); o E2E afirma o contrato visível.
-- **O laço de re-consulta fica fora de escopo.** Ele é anterior a esta frente (o poll substitui o
-  snapshot e o pedido é recalculado por identidade de objeto), não é o que a #264 descreve e foi
-  registrado na [#300](https://github.com/Heldinhow/openridr/issues/300) com a medição. A limpeza de estado na troca de identidade do pedido
-  continua como estava.
+  porque o repo não tem teste de componente React. A política é compartilhada pelas três consultas e
+  o unitário (`tests/unit/treeQueryRetry.test.ts`) é a prova determinística dela — três tentativas,
+  as esperas, o aborto por substituição — sem host, dotnet ou navegador; o E2E fica com o contrato
+  visível.
+- **O efeito segue o id do pedido, não o objeto.** Achado da revisão: o poll de `workspace.state`
+  (400 ms) substitui o snapshot, `views` é recalculado e o memo do pedido devolve um objeto novo com o
+  mesmo `treeQueryId`; o efeito re-rodava, cancelava a repetição que esperava e descartava os lotes
+  que já tinham respondido — o critério "os marcadores já provados ficam pintados" não valia na
+  prática. Com a dependência no `id` (string) e os caminhos lidos de um ref, a consulta roda uma vez
+  por identidade, que é o contrato que os comentários do arquivo já prometiam. Isso fecha também a
+  [#300](https://github.com/Heldinhow/openridr/issues/300) (a árvore re-consultava a cada poll), que
+  entrou nesta frente porque sem ela a repetição não sobrevive ao render seguinte. A limpeza de
+  estado na troca de identidade do pedido continua como estava.
 - **Consequência.** `src/treeQueryRetry.ts` (novo), `src/SolutionTree.tsx`, 6 testes unitários e 3
   E2E em `tests/e2e/solution-git-status.spec.ts`; evidência em `docs/evidence/tree-query-retry.md`.
   Nenhum `data-testid` renomeado, nenhuma dependência nova, nenhuma mudança no host.

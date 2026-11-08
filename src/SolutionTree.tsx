@@ -276,12 +276,17 @@ export function SolutionTree(p: Props) {
     };
   }, [p.gitStatus, p.workspaceDir, p.gitRevision, visibleFilePaths]);
 
+  // The effect follows the request id, not the object: the snapshot poll replaces `views` with an
+  // equal model, and a new object for the same id would cancel a retry that is still waiting.
+  const ignoredRequestRef = useRef(ignoredRequest);
+  ignoredRequestRef.current = ignoredRequest;
   useEffect(() => {
     // The previous answer belongs to an older snapshot: drop it before asking again, and let the
     // cleanup flag discard a response that arrives after this request was replaced.
     setIgnoredPaths((current) => (current.length === 0 ? current : []));
-    if (!ignoredRequest || ignoredRequest.paths.length === 0) return;
-    const paths = ignoredRequest.paths;
+    const request = ignoredRequestRef.current;
+    if (!request || request.paths.length === 0) return;
+    const paths = request.paths;
     let alive = true;
     void (async () => {
       const ignored: string[] = [];
@@ -293,7 +298,7 @@ export function SolutionTree(p: Props) {
         if (!alive) return;
         // A batch that was given up leaves its rows unmarked; the batches after it still get a turn.
         if (!result) continue;
-        ignored.push(...(result.ignored ?? []));
+        ignored.push(...(Array.isArray(result.ignored) ? result.ignored : []));
       }
       if (!alive) return;
       setIgnoredPaths(ignored);
@@ -301,7 +306,7 @@ export function SolutionTree(p: Props) {
     return () => {
       alive = false;
     };
-  }, [ignoredRequest]);
+  }, [ignoredRequest?.id]);
   // Batches of 128 keep the host's 256-file cap out of reach; `known` makes unchanged files a stat.
   useEffect(() => {
     if (!visibleSignature) return;
@@ -323,7 +328,7 @@ export function SolutionTree(p: Props) {
         if (!alive) return;
         // A batch that was given up keeps the badges already shown; the next batch still runs.
         if (!result) continue;
-        for (const entry of result.entries ?? []) {
+        for (const entry of Array.isArray(result.entries) ? result.entries : []) {
           updates.push([
             entry.path,
             { kind: symbolKindOf(entry.kind) ?? null, modified: entry.modified },
@@ -377,13 +382,18 @@ export function SolutionTree(p: Props) {
     return { id: treeQueryId(`symlinks:${p.workspaceDir}`, p.gitRevision, list), paths: list };
   }, [p.showAll, views, p.workspaceDir, p.gitRevision]);
 
+  // Same as the ignored query: the poll replaces the model with an equal one, and the effect must
+  // follow the request id so a retry in flight is not cancelled by an unrelated render.
+  const symlinkRequestRef = useRef(symlinkRequest);
+  symlinkRequestRef.current = symlinkRequest;
   useEffect(() => {
     // A marker from the previous workspace/revision must not survive while the new answer is in
     // flight, and a late response is dropped by the cleanup flag.
     symlinkRef.current = new Set();
     setSymlinks(symlinkRef.current);
-    if (!symlinkRequest || symlinkRequest.paths.length === 0) return;
-    const candidates = symlinkRequest.paths;
+    const request = symlinkRequestRef.current;
+    if (!request || request.paths.length === 0) return;
+    const candidates = request.paths;
     let alive = true;
     void (async () => {
       const links = new Set<string>();
@@ -397,7 +407,9 @@ export function SolutionTree(p: Props) {
         );
         if (!alive) return;
         if (!result) continue;
-        for (const entry of result.entries ?? []) if (entry.symlink) links.add(entry.path);
+        for (const entry of Array.isArray(result.entries) ? result.entries : []) {
+          if (entry.symlink) links.add(entry.path);
+        }
       }
       if (!alive) return;
       symlinkRef.current = links;
@@ -406,7 +418,7 @@ export function SolutionTree(p: Props) {
     return () => {
       alive = false;
     };
-  }, [symlinkRequest]);
+  }, [symlinkRequest?.id]);
 
   const open = (key: string) => (filter ? true : p.expanded.has(key));
 

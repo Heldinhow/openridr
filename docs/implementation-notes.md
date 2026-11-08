@@ -1915,27 +1915,31 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   quando desiste. As três consultas de marcador do `SolutionTree.tsx` (`git.ignored`,
   `workspace.symlinks`, `workspace.symbolKinds`) chamam o helper e, depois de um lote dado por
   perdido, seguem com `continue` em vez do `break` que abandonava o resto da lista.
-- **Por que o helper é módulo.** A spec pedia helper local e prova só no E2E. Medido: o componente
-  re-consulta sozinho a cada poll de `workspace.state` (400 ms) — ~4 `git.ignored`/s no E2E, com o
-  pedido de identidade idêntica —, então um E2E que falhe a primeira chamada não distingue "repetiu"
-  de "pediu de novo no próximo render". A política ganhou teste unitário (a falha-antes
-  determinística) e o E2E ficou com o contrato visível.
+- **Por que o helper é módulo.** A spec pedia helper local e prova só no E2E. A política é
+  compartilhada pelas três consultas e o unitário é a prova determinística dela (três tentativas, as
+  esperas, o aborto por substituição) sem host, dotnet ou navegador; o E2E fica com o contrato
+  visível.
 - **Testes.** `tests/unit/treeQueryRetry.test.ts` (6 casos: sucesso direto, repetição com sucesso,
   três tentativas e desiste, pedido substituído antes e durante a espera, e a política `[200, 400]`).
   `tests/e2e/solution-git-status.spec.ts`: 3 testes novos, um por consulta, cada um perdendo a
-  primeira resposta do método com `page.route("**/call")`; o helper do spec para o poll
-  `workspace.state` e o refresh `git.status` e espera 1 s de silêncio antes de trocar a identidade
-  (recolher/expandir o projeto, alternar "Show all files", "Re-evaluate project model").
+  primeira resposta do método com `page.route("**/call")`; a identidade é trocada pelo caminho real
+  (recolher/expandir o projeto, alternar "Show all files", tirar/pôr o fonte de volta no projeto) e
+  no caso do tipo C# o helper também recusa as varreduras seguintes, para só a repetição passar.
+- **Achado da revisão (alto): o efeito seguia o objeto do pedido.** O poll de `workspace.state`
+  (400 ms) substitui o snapshot, `views` é recalculado e o memo do pedido devolve um objeto novo com o
+  mesmo `treeQueryId`; o efeito re-rodava, cancelava a repetição que esperava e descartava os lotes
+  que já tinham respondido. Agora o efeito depende do `id` (string) e lê os caminhos de um ref: uma
+  consulta por identidade. Fecha também a #300 (a árvore re-consultava a cada poll). A resposta
+  malformada de um lote (`entries`/`ignored` que não é array) virou lote dado por perdido, não
+  exceção não observada — o outro achado médio da revisão.
 - **Falha-antes medida.** Unitário: com o comportamento antigo (pergunta uma vez), 2 dos 6 falham.
-  E2E `.gitignore` e symlink: com o `SolutionTree.tsx` de `c35f60b`, 2 failed (`data-git-status` e
-  `data-symlink` vazios depois de 10 s); com o conserto, 6 passed. O E2E do tipo C# passa com o
-  conserto revertido: o badge de um fonte novo é pedido duas vezes (reavaliação manual e automática
-  do modelo "changed on disk"), então a segunda varredura pinta sem repetição — limite registrado na
-  evidência.
+  E2E, com o efeito preso ao id e só a repetição revertida: os três falham (`data-git-status`,
+  `data-symlink` e `data-symbol-kind` vazios depois de 10 s); com a repetição, os três passam. Com o
+  conserto inteiro revertido os três passam, porque a árvore re-consulta a cada poll e mascara o
+  sintoma — o motivo de o efeito preso ao id fazer parte da frente.
 - **Bateria.** `bun test tests/unit` 145 passed; `bunx tsc --noEmit` limpo;
   `bunx playwright test tests/e2e/solution-git-status.spec.ts` 6 passed;
   `--repeat-each=8` 48 passed.
 - **Não verificado:** app Tauri real (UI pura); a causa da resposta que não chegou (transporte ou
   host sob o lock — a spec já a deixava fora de escopo); a taxa do sintoma em produção; Windows e
-  macOS Intel. O laço de re-consulta a cada poll é anterior e ficou fora desta frente (#300).
-  Evidência: `docs/evidence/tree-query-retry.md`.
+  macOS Intel. Evidência: `docs/evidence/tree-query-retry.md`.
