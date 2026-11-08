@@ -26,8 +26,14 @@ Issue #224; tickets #226–#229. Verification on 2026-11-07, macOS Apple Silicon
     `.github/workflows/**` is high risk.
   - #280 `help wanted`: the Windows `dotnet tool install` failure in `crates/host/src/tools.rs`;
     fully specified, no blockers.
-- `help wanted` means the maintainer wants outside help on a fully specified issue; it does not
-  promise a low-risk PR. The guide says the tier depends on the paths the PR changes.
+- **How "low-risk" was read.** No open, unassigned issue would produce a `risk:low` pull request:
+  the only documentation-only candidate, #203, is blocked by #201 and #202, and every other open
+  issue touches product code, CI or `AGENTS.md`. The criterion was therefore read as "low risk to
+  hand to a newcomer": no trust boundary, no signing, no release path, no dependency change and no
+  decision that belongs to the maintainer. #246 and #269 are `risk:high` by the path table, and the
+  guide now says so instead of implying that a label promises an easy merge. Reducing the set to
+  #260 and #280 would have left the label pages nearly empty, which is the opposite of what the
+  ticket asks for; no label was put on an issue whose scope or blocker made it unusable.
 - Not labeled: #228 itself (assigned and in flight), #264, #270, #275 and #287 (assigned), #247 (an
   agent-process document that edits `AGENTS.md`, high risk and not newcomer work), #203 (blocked by
   #201 and #202) and the Windows/Intel release work (#199–#202, #204–#205), which cannot be verified
@@ -76,5 +82,27 @@ For #227, two calls to `pi/mistral/deepseek-v4-1-flash-1017` (`thinking=max`) an
 For #228 the first two Mistral calls failed with the same message; the authorized GPT fallback produced the guide but found no safe candidates to label. For #229 the first Mistral attempt failed with HTTP 503 `Service unavailable`; its retry succeeded. Independent review of `9e3f97f...c80f0cb` identified inaccurate Debug, license, and questions-channel wording, corrected after review. No additional dependency was added.
 
 On 2026-11-08 the #228 follow-up was implemented in a single session: the guide, README, security
-and conduct documents, issue chooser and unit tests were updated, and the orchestrator applied the
-four labels. No independent review had run when this evidence was written.
+and conduct documents, issue chooser and unit tests were updated, and the session applied the four
+labels. Independent review ran on `d52cdc7...` with `pi/openai/gpt-6.1-terra` (`thinking=medium`), one
+sub-agent per axis, fixed point `806a51a`.
+
+Findings and what happened to each:
+
+- **Standards, medium:** the implementation notes did not mark end-to-end private reporting as not
+  verified. Fixed: the notes now list the unexercised submission, the discussion and the GitHub
+  rendering.
+- **Standards, judgement:** the two documents repeated the same channel assertions. Fixed with one
+  shared `expectActivePrivateChannel` helper in `tests/unit/communityReportingDocs.test.ts`.
+- **Standards, judgement:** the document tests assert wording, not behaviour. Kept: the published
+  document is the seam, which is how `tests/unit/readme.test.ts` and
+  `tests/unit/communityReportingDocs.test.ts` already tested these files before this change.
+- **Spec, high:** labeling `help wanted` on `risk:high` issues reads against the criterion's
+  "low-risk". Answered above and in the guide rather than reverted: no eligible `risk:low` issue
+  exists, and the guide now states that the label does not promise an automatic merge.
+- **Spec, medium:** `CODE_OF_CONDUCT.md` overclaimed the conduct channel. Fixed: it now says the form
+  is GitHub's security advisory interface reused as the private contact channel, that the report is
+  visible only to the maintainer, and that the vulnerability-specific fields are left empty where
+  they do not apply.
+- **Spec, note:** updating the README, security, conduct and issue-chooser channel status is wider
+  than the guide-and-label contract of #228, but it is the parent #224's intent and the documents
+  were factually wrong after the maintainer enabled the settings.

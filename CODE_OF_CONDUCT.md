@@ -60,11 +60,15 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported privately through GitHub's private vulnerability reporting form,
-which is active for this repository:
+which is active for this repository and is the only private channel:
 
 <https://github.com/Heldinhow/openridr/security/advisories/new>
 
-This document does not publish a personal email address as a fallback. The
+The form is GitHub's security advisory interface, reused here as the private
+contact channel: the report is visible only to the maintainer. Its fields are
+written for vulnerabilities, so describe the incident in the description and
+leave the vulnerability-specific metadata empty where it does not apply. This
+document does not publish a personal email address as a fallback, and the
 maintainer can disable the channel; while it is disabled, conduct reports
 cannot be received privately.
 

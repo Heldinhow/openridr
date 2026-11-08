@@ -1789,8 +1789,8 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 
 - README, políticas de conduta e segurança, CONTRIBUTING e templates de issue/PR; evidência em `docs/evidence/open-source-ready.md`.
 - 2026-11-08: Discussions e reporte privado de vulnerabilidade ativos (`has_discussions: true`, `private-vulnerability-reporting.enabled: true`), community profile em 100%; os documentos deixaram de dizer que os canais estavam desativados.
-- Quatro issues abertas e sem responsável receberam rótulo: #260 (`good first issue`) e #246, #269, #280 (`help wanted`); o guia explica os rótulos e manda comentar para reservar a issue.
-- Não verificado: renderização no GitHub e issue chooser no default branch até o merge; app e E2E não se aplicam.
+- Quatro issues abertas e sem responsável receberam rótulo: #260 (`good first issue`) e #246, #269, #280 (`help wanted`); o guia explica os rótulos e manda comentar para reservar a issue. `help wanted` não promete PR de risco baixo: #246 e #269 são `risk:high` pela tabela, e o guia diz isso.
+- Não verificado: envio real de um relatório privado (o formulário é o de advisory de segurança, reusado para conduta); criação de uma discussion; renderização no GitHub e issue chooser no default branch até o merge; app e E2E não se aplicam.
 
 ## Cancelar push, update e fetch em andamento (2026-11-07, #150; tickets #206, #207, #208)
 
