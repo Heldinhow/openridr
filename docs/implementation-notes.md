@@ -2296,3 +2296,31 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   divergindo da avaliação (registrado como `shortcut:` em `resolve_without_pin` e na issue #313);
   Windows e macOS Intel; app Tauri real (mudança só de host, coberta pela fronteira e pelo Playwright
   em modo web).
+
+## A avaliação roda o muxer com `cwd` na raiz da workspace (2026-11-08, #313)
+
+- **O que mudou.** `crates/host/src/evaluation.rs`: `invoke` recebe a `root` da workspace e usa
+  `.current_dir(root)` no lugar de `project.parent()`; `evaluate_project` já tinha a raiz e passa nos
+  dois call sites (a primeira avaliação e a segunda, com TFM selecionado). O comando ganhou
+  `-getProperty:NETCoreSdkVersion`, então o log de cada projeto diz qual SDK o avaliou. Em
+  `crates/host/src/lib.rs`, o `shortcut:` de `resolve_without_pin` (que registrava a divergência) virou
+  uma linha dizendo que a raiz é também o `cwd` da avaliação. Nenhum `data-testid` tocado, nenhuma
+  mudança de UI, nenhum contrato novo no snapshot.
+- **Falha-antes medida (host).** Revertendo só o `cwd`, o teste novo falha com `left: "8.0.408"` (o SDK
+  que a avaliação usou, lido do `NETCoreSdkVersion` no log) contra `right: "10.0.403"` (o que o snapshot
+  nomeia). Medido à mão antes de qualquer código: raiz sem pin, `src/global.json` fixando `8.0.408` e
+  projeto `net10.0` — `dotnet --version` na raiz responde `10.0.403` e o `-getProperty` com cwd em
+  `src/App` responde `8.0.408`, **sem falhar**. A divergência era silenciosa.
+- **Bateria.** `cargo test -p openridr-host`: 658 passed, 0 failed, 71 ignored (490 unit + 119 de
+  `host.rs` + 49 dos outros binários). `cargo fmt --all -- --check` limpo; `cargo clippy --workspace
+  --all-targets -- -D warnings` limpo. E2E em modo web (Chromium, portas 1920/4917):
+  `tests/e2e/evaluation.spec.ts` + `tests/e2e/sdk-prerequisites.spec.ts` → 14 passed, sem mudança nos
+  specs.
+- **A falha de `test_run` que apareceu no caminho.** Uma execução da suíte completa falhou em
+  `real_run_reports_trx_outcomes_positions_and_only_the_selected_identity` (`test_run.rs:297`, o
+  `position.path`): é a segunda observação da linha que a tabela de
+  `docs/evidence/test-stability.md` já tinha para esse teste, e a linha foi atualizada com ela (1 falha
+  em ~22 execuções do binário, 4 execuções do teste sozinho verdes). A asserção é do mapeamento TRX →
+  posição, que usa a raiz da workspace e não o `cwd` da avaliação; a causa segue não determinada.
+- **Não verificado:** Windows e macOS Intel; `src-tauri` (não tocado, job informativo); a causa da falha
+  de `test_run` acima (o valor recebido não foi preservado nesta observação).

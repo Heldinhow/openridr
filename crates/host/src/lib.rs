@@ -8101,8 +8101,7 @@ fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
 
 fn resolve_without_pin(root: &Path, line: Option<&str>, installs: &[Install]) -> ProjectSdk {
     // The rule picks which root's muxer to ask; the muxer's own answer is what MSBuild will use.
-    // shortcut: the muxer is asked at the workspace root, the cwd of restore/build/run/test, while
-    // evaluation runs in the project directory; a global.json between the two still diverges.
+    // The muxer is asked at the workspace root, which is also the evaluation's cwd.
     let install = match sdk::resolve_unpinned(line, installs) {
         Ok(install) => install,
         Err(message) => return ProjectSdk::missing_unpinned(line, message),
