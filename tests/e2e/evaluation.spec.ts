@@ -288,7 +288,12 @@ test("a workspace without global.json resolves the SDK its TargetFramework needs
       })
     ).json()) as { data: any };
     const sdk = state.data.sdk.project;
-    test.skip(sdk.state !== "resolved", "this machine has no SDK 8 or newer");
+    // Skip on the inventory, never on the outcome: a regression that fails to resolve must fail here.
+    test.skip(
+      !sdk.detected.some((version: string) => Number(version.split(".")[0]) >= 8),
+      "this machine has no SDK 8 or newer; a net8.0 project cannot resolve here",
+    );
+    expect(sdk.state).toBe("resolved");
 
     // No pin: the host derives the requirement from the TargetFramework and picks the SDK.
     expect(sdk.requirement.source).toBe("target_framework");

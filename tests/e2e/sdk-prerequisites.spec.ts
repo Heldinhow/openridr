@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page, type Request } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { host } from "./environment";
@@ -40,6 +40,16 @@ const extension =
 async function call(request: APIRequestContext, method: string, params: object = {}) {
   const response = await request.post(`${host}/call`, { data: { method, params } });
   return (await response.json()) as { ok: boolean; data: any };
+}
+
+/** The click has to reach the host: the assertions after it would hold on a button that does nothing. */
+function isRedetect(request: Request) {
+  if (!request.url().endsWith("/__host/call")) return false;
+  try {
+    return (request.postDataJSON() as { method?: string } | null)?.method === "sdk.redetect";
+  } catch {
+    return false;
+  }
 }
 
 async function openViaHost(page: Page, target: string) {
@@ -284,7 +294,9 @@ test("Check again repeats the detection and keeps the requirement when it is sti
   await expect(reason).toContainText(detectedLine);
 
   // The click is the only trigger: nothing watches the disk, so the same inventory comes back.
+  const treeRedetect = page.waitForRequest(isRedetect);
   await page.getByTestId("sdk-check-again").click();
+  await treeRedetect;
   await expect(reason).toContainText("global.json requests 8.0.999");
   await expect(reason).toContainText(detectedLine);
   await expect(page.getByTestId("sdk-project-message")).toContainText("8.0.999");
@@ -295,7 +307,9 @@ test("Check again repeats the detection and keeps the requirement when it is sti
   await page.reload();
   await openToolchain(page);
   const card = page.getByTestId("sdk-project");
+  const cardRedetect = page.waitForRequest(isRedetect);
   await page.getByTestId("sdk-check-again").click();
+  await cardRedetect;
   await expect(card).toContainText("Project SDK missing");
   await expect(card).toContainText("global.json requests 8.0.999");
   await expect(card).toContainText(detectedLine);
