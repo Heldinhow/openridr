@@ -16,7 +16,7 @@ Decisão: [decisions.md](../decisions.md) (2026-11-07, issue #275). Tickets: #28
 | O build recusa enquanto a análise carrega a solução | `crates/host/tests/host.rs` › `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` | `invalid_state` com o motivo durante `loading`, nenhum processo; com `ready`, o build roda (`ok`, exit 0) |
 | A análise não começa durante um build | `crates/host/tests/host.rs` › `analysis_is_refused_while_a_build_is_running` | `lsp.start` e `lsp.restart` → `invalid_state` com o motivo e `lsp.state` continua `unavailable`; o `lsp.restart` é checado antes de parar a sessão viva |
 | A UI nomeia a descoberta antes do clique | `tests/e2e/build.spec.ts` › `the build gate names the automatic discovery before the click` | `toolbar-run`/`toolbar-debug` com o motivo no `title`, `build-disabled-reason` com o texto, `build-action`/`build-solution`/`build-solution-menu` desabilitados (com o motivo no `title`), `run-action` desabilitado com `run-disabled-reason`; depois de assentar, Build/Build Solution/Run reabilitam sem reload e o Build conclui |
-| O gate da UI e a ordem das recusas | `tests/unit/executionGates.test.ts` | motivo da descoberta e da análise, `null` com nada rodando, ordem (build e descoberta ganham da análise) e projeto sem gate |
+| O gate da UI e a ordem das recusas | `tests/unit/executionGates.test.ts` | motivo da descoberta e da análise, `null` com nada rodando, ordem (build e descoberta ganham da análise); desde o #299 o gate vale para os dois tipos de workspace, sem exceção de projeto |
 
 ## Falha-antes medida
 
@@ -46,11 +46,16 @@ medido no CrashApp, `loading` por mais de 3 minutos, processo a 0% de CPU, log p
 para qualquer workspace, `run.spec.ts` (LongRunner, CrashApp) ficou com Build desabilitado até o
 timeout de 3 min: **4 testes vermelhos**, medidos duas vezes.
 
-Por isso o gate da análise é **solution-only** nos dois lados (`start_build_locked` no host,
-`analysisLoading` em `executionGates.ts`), e o leaf do #286 cobre a exceção: com o projeto em
-`loading`, `build.start` **precisa** funcionar. O travamento em si é o
-[#299](https://github.com/Heldinhow/openridr/issues/299); quando ele for corrigido, o gate deve
-voltar a valer para projeto.
+Por isso o gate da análise ficou **solution-only** nos dois lados (`start_build_locked` no host,
+`analysisLoading` em `executionGates.ts`) e o leaf do #286 cobriu a exceção: com o projeto em
+`loading`, `build.start` **precisava** funcionar.
+
+> **Resolvido em 2026-11-08 pelo [#299](https://github.com/Heldinhow/openridr/issues/299).** O host passou
+a lançar o csharp-ls com uma solução gerada para o workspace de projeto, o projeto sai de `loading` em
+~4 s e o gate voltou a valer para os dois tipos de workspace: `start_build_locked` e `analysisLoading`
+não olham mais o tipo, e o leaf do #286 inverteu a exceção (com o projeto em `loading`, `build.start`
+**recusa**). Prova em [project-workspace-analysis.md](project-workspace-analysis.md); decisão em
+[decisions.md](../decisions.md) (2026-11-08, issue #299).
 
 ## E2E (Playwright em modo web, `PLAYWRIGHT_CHANNEL=chromium`, par 1620/4517)
 
@@ -68,7 +73,8 @@ Antes do ajuste solution-only, `run.spec.ts` dava 2–4 vermelhos (LongRunner e 
 - **Recarga da análise depois de carregada.** O csharp-ls recarrega o projeto sozinho quando um
   arquivo muda e o host não observa isso (o estado não volta a `loading`). Fora do escopo, como a
   spec registra.
-- **Workspace de projeto** não tem gate de análise hoje, por causa do #299.
+- **Workspace de projeto** tinha gate só depois do #299: a análise do projeto travava em `loading` e o gate
+  ficou solution-only até o fix (ver [project-workspace-analysis.md](project-workspace-analysis.md)).
 - **Build durante test run** (`tests.run`) é outra colisão, com outro dono; fora do escopo da spec.
 
 ## Não verificado

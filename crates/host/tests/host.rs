@@ -4921,9 +4921,9 @@ fn build_is_refused_while_the_analysis_is_loading_the_solution_isolated() {
     assert_eq!(build["state"], "ok", "{}", build["log"]);
     assert_eq!(build["exit"], 0, "{}", build["log"]);
 
-    // A project workspace is the exception the host measured: csharp-ls never leaves `loading`
-    // there, so the analysis gate is solution-only. The build must still start while it loads,
-    // otherwise Build would stay disabled forever.
+    // A project workspace loads the same way (#299): csharp-ls hangs forever when it discovers
+    // project files by itself, so the host hands it a generated solution and the gate applies
+    // there too.
     let crash = temp.path().join("Crash App analysis gate");
     copy_tree(
         &fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/CrashApp"))
@@ -4940,10 +4940,26 @@ fn build_is_refused_while_the_analysis_is_loading_the_solution_isolated() {
     host.dispatch("lsp.start", json!({})).unwrap();
     let project_loading = wait_lsp(&host, Duration::from_secs(60), &["loading"]);
     assert_eq!(project_loading["state"], "loading");
-    let started = match host.dispatch("build.start", json!({})) {
-        Ok(state) => state,
-        Err(error) => panic!("the analysis gate locked a project workspace: {error}"),
+    let refused = match host.dispatch("build.start", json!({})) {
+        Ok(state) => panic!(
+            "build.start started while the project analysis was loading: {}",
+            state["build"]["state"]
+        ),
+        Err(error) => error,
     };
+    assert_eq!(refused.code, "invalid_state");
+    assert_eq!(
+        refused.message,
+        "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."
+    );
+    // No document is open, so the loaded project analysis is `ready`, not `awaiting_diagnostics`.
+    let project_loaded = wait_lsp(&host, Duration::from_secs(120), &["ready", "failed"]);
+    assert_eq!(
+        project_loaded["state"], "ready",
+        "{}",
+        project_loaded["log"]
+    );
+    let started = host.dispatch("build.start", json!({})).unwrap();
     assert_eq!(started["build"]["state"], "running", "{}", started["build"]);
     let build = wait_for_build(&host, Duration::from_secs(180));
     assert_eq!(build["state"], "ok", "{}", build["log"]);
