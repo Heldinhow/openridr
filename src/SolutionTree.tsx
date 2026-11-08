@@ -332,10 +332,9 @@ export function SolutionTree(p: Props) {
         if (!result) continue;
         for (const entry of Array.isArray(result.entries) ? result.entries : []) {
           if (!entry || typeof entry.path !== "string") continue;
-          updates.push([
-            entry.path,
-            { kind: symbolKindOf(entry.kind) ?? null, modified: entry.modified },
-          ]);
+          // A malformed `modified` is not a timestamp the cache can trust: 0 asks for a fresh stat.
+          const modified = typeof entry.modified === "number" ? entry.modified : 0;
+          updates.push([entry.path, { kind: symbolKindOf(entry.kind) ?? null, modified }]);
         }
       }
       if (!alive || updates.length === 0) return;
@@ -411,7 +410,7 @@ export function SolutionTree(p: Props) {
         if (!alive) return;
         if (!result) continue;
         for (const entry of Array.isArray(result.entries) ? result.entries : []) {
-          if (entry && typeof entry.path === "string" && entry.symlink) links.add(entry.path);
+          if (entry && typeof entry.path === "string" && entry.symlink === true) links.add(entry.path);
         }
       }
       if (!alive) return;

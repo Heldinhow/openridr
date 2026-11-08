@@ -56,7 +56,9 @@ dotnet nem navegador; o E2E fica com o contrato visível.
   a repetição —, então uma varredura posterior não passa por repetição.
 - O helper do spec recusa a primeira resposta e, no caso do tipo C#, também as varreduras seguintes
   (só a repetição, que chega em 200/400 ms, passa): sem isso uma segunda varredura pintaria o que a
-  resposta perdida não pintou e o teste mediria outra coisa.
+  resposta perdida não pintou e o teste mediria outra coisa. Nos testes de `.gitignore` e symlink o
+  helper também para o poll `workspace.state` e o refresh `git.status`: com o poll parado, um render
+  não pode pedir de novo e só a repetição da consulta pinta o marcador.
 - **Teste da #300** (mesmo spec): com a árvore parada, três polls de `workspace.state` com a mesma
   identidade não podem pedir `git.ignored`/`workspace.symlinks` de novo; um `focus` (nova revisão do
   Git) pede os dois outra vez.
@@ -70,20 +72,18 @@ dotnet nem navegador; o E2E fica com o contrato visível.
 - **E2E, com o efeito preso ao id e só a repetição revertida** (o "antes" da política): os **três**
   testes falham — `data-git-status` e `data-symlink` recebem `""` e `data-symbol-kind` recebe `""`
   depois de 10 s. Com a repetição: os três passam.
-- **E2E, com o conserto inteiro revertido** (`SolutionTree.tsx` de `c35f60b`): dos quatro testes
-  novos, **três falham** — symlink (8 chamadas em vez de 2), tipo C# (badge vazio) e #300 (5 chamadas
-  em vez de 0) — e o de `.gitignore` passa, porque a re-consulta do poll pinta o marcador em ~400 ms
-  e, no nível do marcador, ela é indistinguível de uma repetição; o teste da #300 é quem pega esse
-  caminho. É por isso que o efeito preso ao id faz parte desta frente: sem ele a repetição é
-  cancelada pelo render seguinte e o sintoma é mascarado, que é o critério "os marcadores já provados
-  ficam pintados" do ticket.
+- **E2E, com o conserto inteiro revertido** (`SolutionTree.tsx` de `c35f60b`): os **quatro** testes
+  novos falham — `.gitignore` com 6 chamadas em vez de 2, symlink com 5 em vez de 2, tipo C# sem
+  badge e #300 com 5 chamadas em vez de 0. É por isso que o efeito preso ao id faz parte desta
+  frente: sem ele a repetição é cancelada pelo render seguinte e o sintoma é mascarado, que é o
+  critério "os marcadores já provados ficam pintados" do ticket.
 
 ## Bateria
 
 - `bun test tests/unit` → 145 passed, 0 fail (19 arquivos), incluindo os 6 novos.
 - `bunx tsc --noEmit` limpo.
-- `bunx playwright test tests/e2e/solution-git-status.spec.ts` → 6 passed (47 s).
-- `bunx playwright test tests/e2e/solution-git-status.spec.ts --repeat-each=8` → **48 passed**
+- `bunx playwright test tests/e2e/solution-git-status.spec.ts` → 7 passed (50 s).
+- `bunx playwright test tests/e2e/solution-git-status.spec.ts --repeat-each=8` → **56 passed**
   (sem o sintoma da #245, 1 falha em 42 execuções para cada marcador).
 
 ## Não verificado

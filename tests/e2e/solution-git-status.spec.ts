@@ -68,13 +68,19 @@ async function refuseFirstAnswerFor(
   page: Page,
   method: string,
   path: string,
-  { retryWindow = false }: { retryWindow?: boolean } = {},
+  { retryWindow = false, stopPoll = false }: { retryWindow?: boolean; stopPoll?: boolean } = {},
 ) {
   let refused = false;
   let calls = 0;
   let lastRefusal = 0;
   await page.route("**/call", async (route) => {
     const body = route.request().postDataJSON() as { method?: string; params?: { paths?: string[] } };
+    // With the poll and the Git refresh stopped, a re-render cannot ask again: only the query's own
+    // retry can paint.
+    if (stopPoll && (body.method === "workspace.state" || body.method === "git.status")) {
+      await route.abort();
+      return;
+    }
     const carries = body.method === method && (body.params?.paths ?? []).includes(path);
     if (carries) calls += 1;
     const retry = retryWindow && refused && Date.now() - lastRefusal <= 1000;
@@ -190,7 +196,7 @@ test("an ignored answer that fails once is asked again instead of dropping the m
   // first answer to that request is lost, so the marker can only come back from a repeated query.
   const project = page.getByTestId("tree-project-OrderDesk.Core");
   await project.click();
-  const { refused, calls } = await refuseFirstAnswerFor(page, "git.ignored", file);
+  const { refused, calls } = await refuseFirstAnswerFor(page, "git.ignored", file, { stopPoll: true });
   await project.click();
   await expect.poll(refused).toBe(true);
   await expect(ignored).toHaveAttribute("data-git-status", "ignored");
@@ -209,7 +215,9 @@ test("a symlink answer that fails once is asked again instead of dropping the ma
   // "Show all files" turns the evaluated query off and clears its markers; turning it back on asks
   // again, and the first answer to that request is lost.
   await page.getByTestId("tree-show-all").click();
-  const { refused, calls } = await refuseFirstAnswerFor(page, "workspace.symlinks", file);
+  const { refused, calls } = await refuseFirstAnswerFor(page, "workspace.symlinks", file, {
+    stopPoll: true,
+  });
   await page.getByTestId("tree-show-all").click();
   await expect.poll(refused).toBe(true);
   await expect(linked).toHaveAttribute("data-symlink", "true");
@@ -245,23 +253,34 @@ test("the markers are asked once per identity, not on every state poll", async (
   await waitForEvaluatedTree(page);
   await expect(page.getByTestId(`tree-file-${file}`)).toHaveAttribute("data-symlink", "true");
 
-  // Let the Git refresh from opening the workspace land before counting.
-  await page.waitForTimeout(1200);
-  const calls = { ignored: 0, symlinks: 0, polls: 0 };
+  const calls = { ignored: 0, symlinks: 0 };
   await page.route("**/call", async (route) => {
     const body = route.request().postDataJSON() as { method?: string; params?: { paths?: string[] } };
     const carries = (body.params?.paths ?? []).includes(file);
-    if (body.method === "workspace.state") calls.polls += 1;
     if (body.method === "git.ignored" && carries) calls.ignored += 1;
     if (body.method === "workspace.symlinks" && carries) calls.symlinks += 1;
     await route.continue();
   });
-  // Three polls with the same identity: the markers are not asked again.
-  await expect.poll(() => calls.polls).toBeGreaterThanOrEqual(3);
+  const pollAnswered = () =>
+    page.waitForResponse((response) => {
+      const request = response.request();
+      if (!request.url().endsWith("/call")) return false;
+      const body = request.postDataJSON() as { method?: string } | null;
+      return body?.method === "workspace.state";
+    });
+  // The refresh from opening the workspace lands first; the counting starts after it.
+  await pollAnswered();
+  calls.ignored = 0;
+  calls.symlinks = 0;
+  // Three poll answers with the same identity: neither marker is asked again.
+  await pollAnswered();
+  await pollAnswered();
+  await pollAnswered();
   expect(calls.ignored).toBe(0);
   expect(calls.symlinks).toBe(0);
 
   // A new Git revision is a new identity: both are asked again.
   await refocus(page);
-  await expect.poll(() => calls.ignored + calls.symlinks).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => calls.ignored).toBeGreaterThanOrEqual(1);
+  await expect.poll(() => calls.symlinks).toBeGreaterThanOrEqual(1);
 });

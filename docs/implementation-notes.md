@@ -2032,11 +2032,13 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   `tests/e2e/solution-git-status.spec.ts`: 3 testes novos, um por consulta, cada um perdendo a
   primeira resposta do método com `page.route("**/call")`; a identidade é trocada pelo caminho real
   (recolher/expandir o projeto, alternar "Show all files", tirar/pôr o fonte de volta no projeto) e
-  no caso do tipo C# o helper também recusa as varreduras seguintes, para só a repetição passar. Cada
-  teste exige **exatamente duas** chamadas carregando o caminho (a perdida e a repetição), então uma
-  varredura posterior não passa por repetição. Um quarto teste conta chamadas por identidade: três
-  polls de `workspace.state` não podem pedir de novo, um `focus` (nova revisão do Git) pode — é a
-  regressão da #300.
+  no caso do tipo C# o helper também recusa as varreduras seguintes, para só a repetição passar; nos
+  testes de `.gitignore` e symlink ele também para o poll `workspace.state` e o refresh `git.status`,
+  para um render não pedir de novo. Cada teste exige **exatamente duas** chamadas carregando o
+  caminho (a perdida e a repetição), então uma varredura posterior não passa por repetição. Um quarto
+  teste conta chamadas por identidade: três respostas de `workspace.state` com a mesma identidade não
+  podem pedir de novo, um `focus` (nova revisão do Git) pede `git.ignored` **e** `workspace.symlinks`
+  outra vez — é a regressão da #300.
 - **Achado da revisão (alto): o efeito seguia o objeto do pedido.** O poll de `workspace.state`
   (400 ms) substitui o snapshot, `views` é recalculado e o memo do pedido devolve um objeto novo com o
   mesmo `treeQueryId`; o efeito re-rodava, cancelava a repetição que esperava e descartava os lotes
@@ -2047,10 +2049,8 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Falha-antes medida.** Unitário: com o comportamento antigo (pergunta uma vez), 2 dos 6 falham.
   E2E, com o efeito preso ao id e só a repetição revertida: os três falham (`data-git-status`,
   `data-symlink` e `data-symbol-kind` vazios depois de 10 s); com a repetição, os três passam. Com o
-  conserto inteiro revertido, três dos quatro testes novos falham (symlink com 8 chamadas em vez de
-  2, tipo C# sem badge e #300 com 5 chamadas em vez de 0); o de `.gitignore` passa porque a
-  re-consulta do poll pinta o marcador em ~400 ms e, no nível do marcador, é indistinguível de uma
-  repetição — o teste da #300 é quem pega esse caminho.
+  conserto inteiro revertido, os quatro testes novos falham (`.gitignore` com 6 chamadas em vez de 2,
+  symlink com 5 em vez de 2, tipo C# sem badge e #300 com 5 chamadas em vez de 0).
 - **Bateria.** `bun test tests/unit` 145 passed; `bunx tsc --noEmit` limpo;
   `bunx playwright test tests/e2e/solution-git-status.spec.ts` 7 passed;
   `--repeat-each=8` 56 passed.
