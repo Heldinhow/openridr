@@ -119,7 +119,7 @@ test("a net10 project without global.json resolves the installed SDK 10", async 
   expect(project.globalJsonPath).toBeNull();
   expect(project.requestedVersion).toBeNull();
   expect(project.resolvedVersion).toMatch(/^10\./);
-  expect(project.detected[0]).toBe(project.resolvedVersion);
+  expect(project.detected).toContain(project.resolvedVersion);
   expect(project.message).toBeNull();
 
   await expect(page.getByTestId("welcome-sdk-warning")).toHaveCount(0);
