@@ -14,11 +14,11 @@ Estado do produto: **OpenRidr 0.3.0-alpha.4**, macOS Apple Silicon. Onde fica ca
 | [RELEASE-ALPHA.md](RELEASE-ALPHA.md) | notas da alpha atual (novidades, instalar, limitações, sha256) | reescrito a cada release |
 | [install-app.md](install-app.md) | `bun run app:install` e "abrir com" (Finder/Dock/terminal) | |
 | [VERIFICACAO-FORMAL.md](VERIFICACAO-FORMAL.md) | 3 regras críticas candidatas a modelo formal + PoC de trust | proposta; evidência em [evidence/verify-openridr.md](evidence/verify-openridr.md) |
-| [RETRO-*.md](.) | lições por onda de trabalho | só se o tema for o mesmo |
+| [RETRO-*.md](.) | lições por onda de trabalho | histórico: o fluxo não tem retro |
 
 ## Feature → docs
 
-Convenção para trabalho novo: `SPEC-<tema>.md` em `docs/`, **tickets como GitHub issues** ligadas à issue-mãe da frente (sub-issue, ou `Part of #N` na primeira linha do corpo; bloqueio em `Blocked by: #M`), `RETRO-<tema>.md`, evidência em `evidence/<tema>.md`, decisão nova em `decisions.md`. O tracker e as operações de `gh` estão em [agents/issue-tracker.md](agents/issue-tracker.md); as pastas `tickets-*/` da tabela abaixo são histórico e não recebem tickets novos.
+Convenção para trabalho novo: a spec é o **corpo da issue-mãe** e cada ticket é uma **sub-issue** dela (ou `Part of #N` na primeira linha do corpo; bloqueio nativo, ou `Blocked by: #M`), com evidência em `evidence/<tema>.md` e decisão nova em `decisions.md`. Uma frente = uma branch de integração = um PR. O tracker e as operações de `gh` estão em [agents/issue-tracker.md](agents/issue-tracker.md); `SPEC-*.md`, `RETRO-*.md`, `REVIEW-*.md` e as pastas `tickets-*/` da tabela abaixo são histórico e não recebem trabalho novo.
 
 | Feature / onda | Spec | Tickets | Retro / review | Evidência |
 |---|---|---|---|---|

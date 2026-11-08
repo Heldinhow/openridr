@@ -11,7 +11,7 @@ IDE C# inspirada no Rider: Tauri 2 + Rust (host) + React/TS (UI). Alvo verificad
 - `docs/decisions.md` — decisões incrementais; siga-as e registre uma nova em vez de reabrir uma antiga.
 - `docs/implementation-notes.md` — como cada ticket foi feito e o que não foi verificado.
 - `docs/REVIEW-MVP-RIDER.md` e `docs/RETRO-MVP-RIDER.md` — dívida e lições conhecidas.
-- Trabalho novo segue a convenção de `docs/README.md`: `SPEC-<tema>.md`, **tickets como GitHub issues**, `RETRO-<tema>.md`, `evidence/<tema>.md`.
+- Trabalho novo segue o main flow das skills: grill → spec na issue-mãe → tickets → implement → `code-review`, **um PR por frente**, sem retro. Detalhes em `docs/README.md` e na decisão de 2026-11-07.
 
 ## Agent skills
 
@@ -108,7 +108,7 @@ A fonte única é a tabela de [`docs/evidence/test-stability.md`](docs/evidence/
 
 ## Pull request e CI
 
-A sessão que termina **empurra a própria branch e abre o PR**: `git push -u origin <branch>` e `gh pr create` com o corpo do `.github/pull_request_template.md` (`Closes #N`, `## Summary`, `## Evidence`, `## Security review`, `## Merge danger`). Sem referência a issue e sem Evidência o job `governance` reprova o PR: é contrato, não sugestão.
+**Um PR por frente, não por ticket.** A sessão empurra a branch de integração (`git push -u origin <branch>`) e abre o PR **draft** depois do primeiro merge nela, marcando-o pronto no fim; o corpo é o do `.github/pull_request_template.md` (`Closes` da mãe e de cada ticket, `## Summary`, `## Evidence`, `## Security review`, `## Merge danger`). Sem referência a issue e sem Evidência o job `governance` reprova o PR: é contrato, não sugestão.
 
 - **Merge não é da sessão.** Com o CI verde, quem mergeia é o mantenedor/orquestrador — exceto `risk:low`, que o GitHub mergeia sozinho quando os checks obrigatórios ficam verdes (ver “Risco do PR” abaixo). A sessão não faz merge, não dá `--force` na branch depois do PR aberto e nunca usa `--no-verify`.
 - **PR de risco alto pede o Helder**: `.github/workflows/**`, `.github/rulesets/**`, `AGENTS.md`, `scripts/release*`/`vendor-*`/`ci-*`, assinatura/entitlements, `src-tauri/tauri.conf.json`, o modelo de trust e mudança de dependência (`Cargo.lock`/`bun.lock`, ou tabela de dependência em `Cargo.toml`/`package.json`). O tier é calculado pelos caminhos (não por quem escreveu) e o gate não fica verde até a aprovação — ou, quando o autor do PR é o dono do repo, sem review nenhuma: ver “Risco do PR”.
@@ -179,9 +179,9 @@ O passo `/code-review` é, por padrão:
 
 1. **Checagem objetiva e curta** do diff contra a spec/ticket e os padrões deste arquivo (`## Regras`, `data-testid`, dependências). Lista só desvios concretos com `arquivo:linha`.
 2. **Rodar o skill `verify-openridr`** (`.agents/skills/verify-openridr/SKILL.md`) nas features tocadas, pela superfície que a mudança pede: **Playwright em modo web** para interface pura (só os specs da área, escrevendo/atualizando o spec do cenário); **app Tauri real com `agent-desktop`** (receitas em `.agents/skills/test-app-agent-desktop`) só para o que é nativo do shell — menu nativo, atalhos do sistema, updater, seletor nativo, árvore de acessibilidade do WebKit, single-instance, DMG; **host isolado** (`web.sh`) para o que não tem spec ou precisa de captura. O que não rodou entra como "não verificado".
-3. **Code review em subagente único** (decisão de 2026-11-06) depois da implementação, antes do retro/PR: `delegate_task` do T3 com target Pi, model `openai-codex/gpt-6.1-terra` e option `thinking=medium`; fixed point = `git merge-base origin/main HEAD`; spec = a issue (e as filhas). Corrija achado alto/médio na hora; baixo, só se for simples. Sem `delegate_task` disponível: avise o orquestrador com o SHA do commit e siga. Revisão adversarial aberta/multi-agente continua só se o usuário pedir.
+3. **`code-review` de dois eixos** (Standards e Spec, em subagentes paralelos) na branch de integração depois de todos os tickets, antes de o PR ficar pronto para review: `delegate_task` do T3 com target Pi, model `openai/gpt-6.1-terra` e option `thinking=medium`; fixed point = `git merge-base origin/main HEAD`; spec = a issue-mãe (e as filhas). Corrija achado alto/médio na hora; baixo, só se for simples. Sem `delegate_task` disponível: avise o orquestrador com o SHA do commit e siga. Revisão adversarial aberta/multi-agente continua só se o usuário pedir.
 
-Resto do fluxo (grill → spec → tickets → implement → retro) segue igual. Propostas de verificação formal: [docs/VERIFICACAO-FORMAL.md](docs/VERIFICACAO-FORMAL.md); a PoC de trust roda com `cargo test -p openridr-host --test trust_model`.
+O fluxo é grill → spec → tickets → implement → `code-review`, **sem `/retro`**: `docs/RETRO-*.md` e `docs/SPEC-*.md` são histórico e não recebem frente nova. Propostas de verificação formal: [docs/VERIFICACAO-FORMAL.md](docs/VERIFICACAO-FORMAL.md); a PoC de trust roda com `cargo test -p openridr-host --test trust_model`.
 
 ## Regras
 
@@ -189,7 +189,7 @@ Resto do fluxo (grill → spec → tickets → implement → retro) segue igual.
 - **Zero dependência nova** de UI/runtime sem decisão registrada e aprovação explícita.
 - Um componente por arquivo; comentários em inglês; uma função de erro por fronteira (use `messageOf`/`requireAction` em vez de repetir mapeamento).
 - **Prova real, não inventada**: o que o ambiente não permitiu executar vai como "não verificado" no `implementation-notes.md` e no ticket.
-- **Ticket**: trabalho novo nasce como GitHub issue ligada à issue-mãe da frente (sub-issue, ou `Part of #N` na primeira linha do corpo), com bloqueio em `Blocked by: #M`. `docs/SPEC-<tema>.md`, `docs/RETRO-<tema>.md` e `docs/evidence/<tema>.md` continuam em `docs/`. Tickets antigos em `docs/tickets-*/` são histórico: não migre, não crie pasta nova no molde deles.
+- **Ticket**: a spec de uma frente é o corpo da issue-mãe e cada ticket é uma sub-issue dela (ou `Part of #N` na primeira linha do corpo), com bloqueio nativo ou `Blocked by: #M`. Nada de `docs/SPEC-*` nem `docs/RETRO-*` para trabalho novo — os existentes e os `docs/tickets-*/` são histórico: não migre, não crie pasta nova no molde deles. Evidência continua em `docs/evidence/<tema>.md`.
 - **Commit**: um por ticket/fatia, mensagem convencional (`feat(git): ...`, `fix(search): ...`, `docs: ...`, `chore: ...`), com código, testes e checklist atualizado.
 - **Stage explícito**: use `scripts/commit-only.sh "msg" <paths>` (faz o `git add -N` dos novos e `git commit --only -m "msg" -- <paths>`); à mão, é `git commit --only -m "msg" -- <paths>`; nunca use `git add -A` nem altere o index do usuário. Duas armadilhas que falharam 38 vezes em 10 sessões: (1) `-m` vai **antes** do `--` (depois dele vira pathspec); (2) arquivo/pasta **novo** precisa de `git add -N <paths>` antes (só marca intenção), senão dá `pathspec ... did not match`. Deixe `dist/`, `target/`, `test-results/` e afins fora (ver `.gitignore`).
-- **Push e PR são da sessão; merge não.** Terminado o ticket: `git push` da branch e `gh pr create` com o template (ver "Pull request e CI"). Nunca merge feito pela sessão, nunca `--force` na `main`, nunca `--no-verify` — o hook de pre-commit roda o check proporcional ao diff (docs: nada; TS: `tsc --noEmit`; Rust: `cargo check`; misto: os dois) e `bun run check` continua sendo o completo.
+- **Push e PR são da sessão; merge não.** A frente termina com a branch de integração empurrada e o PR aberto, pronto para review — o quando e o corpo estão em "Pull request e CI". Nunca merge feito pela sessão, nunca `--force` na `main`, nunca `--no-verify` — o hook de pre-commit roda o check proporcional ao diff (docs: nada; TS: `tsc --noEmit`; Rust: `cargo check`; misto: os dois) e `bun run check` continua sendo o completo.
