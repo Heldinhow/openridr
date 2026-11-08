@@ -1,5 +1,5 @@
 import { profileTitle, type ProfileId } from "../actions/keymap";
-import type { Snapshot } from "../host/client";
+import type { ProjectSdk, Snapshot } from "../host/client";
 import type { PartialWorkspaceStatus } from "../evaluationStatus";
 import { Icon } from "../Icon";
 import { StatusMode } from "./StatusMode";
@@ -21,11 +21,13 @@ type RestoreStatus = {
   onRetry: (() => void) | null;
 };
 
-export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluation, partial, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile }: {
+export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, evaluation, partial, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile }: {
   workspace: { name: string; path: string };
   snapshot: Snapshot;
   onSnapshot: (snapshot: Snapshot) => void;
   sdkSummary: string;
+  /** The project SDK block, for the popover: the bar itself is one line and holds no link. */
+  sdk: { project: ProjectSdk; onOpenGlobalJson: () => void; onCheckAgain: () => void };
   evaluation: EvaluationStatus;
   /** Incomplete evaluated context; the old tree footnote now lives here. */
   partial: PartialWorkspaceStatus | null;
@@ -46,7 +48,12 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, evaluat
     <footer className="status" role="contentinfo" aria-label="Status bar">
       <span className="sr-only" data-testid="status-workspace" title={workspace.path}>{workspace.name}</span>
       <span data-testid="status-breadcrumb" title={breadcrumb}>{breadcrumb}</span>
-      <StatusMode snapshot={snapshot} onSnapshot={onSnapshot} sdkSummary={sdkSummary} />
+      <StatusMode
+        snapshot={snapshot}
+        onSnapshot={onSnapshot}
+        sdkSummary={sdkSummary}
+        sdk={sdk}
+      />
       <span className="sr-only" data-testid="status-sdk" title={sdkSummary}>{sdkSummary}</span>
       {restore.state === "running" && (
         <span data-testid="status-restore">

@@ -858,15 +858,18 @@ pub fn resolve(
     };
 
     selected.ok_or_else(|| {
-        let detected = if installs.is_empty() {
-            "none".to_string()
-        } else {
-            installs
-                .iter()
-                .map(|install| install.version.clone())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
+        // "Nothing installed" and "the installed ones do not serve" are different problems.
+        if installs.is_empty() {
+            return format!(
+                "No .NET SDK was detected in any root; global.json requests {request_version} with rollForward {} (detected: none). OpenRidr does not rewrite global.json and does not substitute the .NET 10 analysis runtime.",
+                policy.as_str()
+            );
+        }
+        let detected = installs
+            .iter()
+            .map(|install| install.version.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
         format!(
             "No detected .NET SDK satisfies global.json version {request_version} with rollForward {} (detected: {detected}). OpenRidr does not rewrite global.json and does not substitute the .NET 10 analysis runtime.",
             policy.as_str()
@@ -886,7 +889,8 @@ pub fn tfm_sdk_line(tfm: &str) -> Option<u64> {
     let minor_end = tail
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(tail.len());
-    if minor_end == 0 {
+    // Only the `netN.0` form names an SDK line; `net10.7` is not a TFM this build recognises.
+    if &tail[..minor_end] != "0" {
         return None;
     }
     let after = &tail[minor_end..];
@@ -924,6 +928,10 @@ pub fn detected_versions(installs: &[Install]) -> Vec<String> {
 /// Without a pin the selection follows the muxer itself: the highest installed SDK that satisfies
 /// the line, a prerelease only when it is the only one that does, and the highest stable install
 /// when the project asserts no requirement.
+// shortcut: this names the SDK the snapshot reports, while MSBuild still runs through the root's
+// muxer, which resolves global.json (including one above the workspace) and prereleases by its own
+// rule. They agree while the workspace root is the nearest global.json and no prerelease is newer
+// than the highest stable; upgrade by asking the muxer for the version it resolves in the project.
 pub fn resolve_unpinned(line: Option<&str>, installs: &[Install]) -> Result<Install, String> {
     let required = line.and_then(|line| line.split('.').next()?.parse::<u64>().ok());
     let mut candidates: Vec<(&Install, Version)> = installs
@@ -1086,6 +1094,29 @@ mod tests {
         assert!(error.contains("8.0.999"));
         assert!(error.contains("rollForward disable"));
         assert!(error.contains("10.0.100"));
+        assert!(error.contains("No detected .NET SDK satisfies"), "{error}");
+    }
+
+    #[test]
+    fn no_sdk_installed_reads_differently_from_one_that_does_not_serve() {
+        let nothing = resolve("8.0.408", Some("disable"), None, &[]).unwrap_err();
+        assert!(
+            nothing.contains("No .NET SDK was detected in any root"),
+            "{nothing}"
+        );
+        assert!(nothing.contains("8.0.408"), "{nothing}");
+        assert!(
+            !nothing.contains("No detected .NET SDK satisfies"),
+            "{nothing}"
+        );
+
+        let too_old = installs(&[("10.0.100", "/system")]);
+        let unsatisfied = resolve("8.0.999", Some("disable"), None, &too_old).unwrap_err();
+        assert!(
+            unsatisfied.contains("No detected .NET SDK satisfies"),
+            "{unsatisfied}"
+        );
+        assert!(!unsatisfied.contains("in any root"), "{unsatisfied}");
     }
 
     #[test]
@@ -1112,6 +1143,9 @@ mod tests {
             "net10",
             "net10.",
             "net10.x",
+            "net10.7",
+            "net10.0.1",
+            "net8.1-windows",
             "unknown",
             "",
         ] {

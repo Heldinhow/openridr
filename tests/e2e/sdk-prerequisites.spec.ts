@@ -163,9 +163,10 @@ test("a net10 project without global.json resolves the installed SDK 10", async 
   await openViaHost(page, net10NoPin);
   const opened = await call(request, "workspace.state");
   const detected: string[] = opened.data.sdk.project.detected;
+  // `net10.0` asks for SDK 10 or newer, so a newer stable satisfies it too.
   test.skip(
-    !detected.some((version) => version.startsWith("10.")),
-    "this machine has no SDK 10; a net10.0 project cannot resolve here",
+    !detected.some((version) => Number(version.split(".")[0]) >= 10),
+    "this machine has no SDK 10 or newer; a net10.0 project cannot resolve here",
   );
   await trustViaHost(page);
 
@@ -177,7 +178,7 @@ test("a net10 project without global.json resolves the installed SDK 10", async 
   expect(project.requirement.version).toBeNull();
   expect(project.globalJsonPath).toBeNull();
   expect(project.requestedVersion).toBeNull();
-  expect(project.resolvedVersion).toMatch(/^10\./);
+  expect(Number(project.resolvedVersion.split(".")[0])).toBeGreaterThanOrEqual(10);
   expect(project.detected).toContain(project.resolvedVersion);
   expect(project.message).toBeNull();
 
@@ -227,6 +228,20 @@ test("a missing project SDK names the pinned version and links the exact patch, 
   await expect(page.getByTestId("status-sdk")).toContainText(
     `detected: ${sdk.detected.join(", ") || "none"}`,
   );
+  // The third surface: the same block, in the status popover, with both actions.
+  await page.getByTestId("status-mode").click();
+  const popover = page.getByTestId("status-mode-popover");
+  await expect(popover.getByTestId("status-sdk-requirement")).toContainText(
+    "global.json requests 8.0.999",
+  );
+  await expect(popover.getByTestId("status-sdk-detected")).toContainText(detected);
+  await expect(popover.getByTestId("status-sdk-download")).toHaveAttribute(
+    "href",
+    sdk.download.url,
+  );
+  await expect(popover.getByTestId("status-sdk-check-again")).toBeVisible();
+  await expect(popover.getByTestId("status-sdk-open-global-json")).toBeVisible();
+  await page.keyboard.press("Escape");
 
   // The Toolchain card lives in the welcome view; a reload lands there with the workspace still open.
   await page.reload();

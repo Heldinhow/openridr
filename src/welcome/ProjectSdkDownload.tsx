@@ -1,10 +1,15 @@
 import type { ProjectSdk } from "../host/client";
 
-// The two surfaces that render the block keep their own contract testids; the status bar is one
-// line and holds no link, so it words the requirement itself.
+// Each surface keeps its own contract testids; `block` prefixes the rest so the status popover and
+// the tree note can be in the DOM at the same time without colliding.
 const testIds = {
-  tree: { download: "eval-sdk-download", openGlobalJson: "eval-open-global-json" },
-  toolchain: { download: "sdk-download", openGlobalJson: "sdk-open-global-json" },
+  tree: { block: "sdk", download: "eval-sdk-download", openGlobalJson: "eval-open-global-json" },
+  toolchain: { block: "sdk", download: "sdk-download", openGlobalJson: "sdk-open-global-json" },
+  status: {
+    block: "status-sdk",
+    download: "status-sdk-download",
+    openGlobalJson: "status-sdk-open-global-json",
+  },
 };
 
 /**
@@ -20,7 +25,7 @@ export function ProjectSdkDownload({
   onCheckAgain,
 }: {
   project: ProjectSdk;
-  surface: "tree" | "toolchain";
+  surface: "tree" | "toolchain" | "status";
   /** The declared TargetFrameworks, when the surface has them, to name the origin concretely. */
   tfms?: string[];
   onOpenGlobalJson: () => void;
@@ -42,13 +47,13 @@ export function ProjectSdkDownload({
 
   return (
     <>
-      <p data-testid="sdk-requirement">{origin}.</p>
-      <p className="muted" data-testid="sdk-detected">
+      <p data-testid={`${ids.block}-requirement`}>{origin}.</p>
+      <p className="muted" data-testid={`${ids.block}-detected`}>
         {project.detected.length > 0
           ? `Detected SDKs: ${project.detected.join(", ")}`
           : "No SDK detected"}
       </p>
-      {project.message && <p data-testid="sdk-project-message">{project.message}</p>}
+      {project.message && <p data-testid={`${ids.block}-project-message`}>{project.message}</p>}
       <p>
         <a
           data-testid={ids.download}
@@ -62,7 +67,7 @@ export function ProjectSdkDownload({
           <>
             {" · "}
             <a
-              data-testid="sdk-download-fallback"
+              data-testid={`${ids.block}-download-fallback`}
               href={download.fallbackUrl}
               target="_blank"
               rel="noreferrer noopener"
@@ -73,7 +78,7 @@ export function ProjectSdkDownload({
         )}
       </p>
       <p>
-        <button type="button" data-testid="sdk-check-again" onClick={onCheckAgain}>
+        <button type="button" data-testid={`${ids.block}-check-again`} onClick={onCheckAgain}>
           Check again
         </button>
       </p>

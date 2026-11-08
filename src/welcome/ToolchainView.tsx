@@ -21,14 +21,10 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
   async function redetect() {
     setRedetecting(true);
     setToolchainError(null);
-    const wasMissing = sdk?.project.state === "sdk_missing";
     try {
-      const next = await call<Snapshot>("sdk.redetect");
-      onSnapshot(next);
-      // Compared before and after this call, never watched: a re-render cannot evaluate again.
-      if (wasMissing && next.sdk.project.state === "resolved") {
-        onSnapshot(await call<Snapshot>("evaluation.run", {}));
-      }
+      // The welcome screen holds no tree: the evaluation of a now-resolved project belongs to the
+      // workspace, whose first evaluation per context already runs it once.
+      onSnapshot(await call<Snapshot>("sdk.redetect"));
     } catch (caught) {
       setToolchainError(messageOf(caught));
     } finally {

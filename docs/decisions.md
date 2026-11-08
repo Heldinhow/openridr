@@ -1825,6 +1825,9 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `requirement.source = "target_framework"` com `globalJsonPath`/`requestedVersion` nulos. `sdk_missing`
   continua sendo o único estado de falha e ganha `requirement`, `detected` e `download`; "nenhum SDK
   instalado" e "os instalados não servem" se distinguem pela mensagem, não por um estado novo.
+  Quando nenhum TFM afirma requisito (só `netstandard2.0`, `net472`, TFM desconhecido), `source` é
+  `none` e `line` é nulo: continua sendo o caso sem pin, e a distinção é o que deixa a tela dizer
+  "o projeto não declara requisito" em vez de inventar uma linha.
 - **Link sem rede.** O host monta a URL: patch exato
   (`https://builds.dotnet.microsoft.com/dotnet/Sdk/<versão>/dotnet-sdk-<versão>-<os>-<arch>.<ext>`) quando
   o requisito nomeia uma versão; senão o `aka.ms` da linha

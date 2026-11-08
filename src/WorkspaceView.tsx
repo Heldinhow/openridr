@@ -5435,6 +5435,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         snapshot={snapshot}
         onSnapshot={onSnapshot}
         sdkSummary={sdkSummary}
+        sdk={{
+          project: projectSdk,
+          onOpenGlobalJson: openGlobalJson,
+          onCheckAgain: () => void redetectSdks(),
+        }}
         evaluation={{ ...evaluationStatus, reevaluate: evaluationRun }}
         partial={partialWorkspace}
         restore={{
