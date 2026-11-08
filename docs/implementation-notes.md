@@ -2231,6 +2231,44 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   configurations, que só existe no workspace) e foi verificada só pelo clique "ainda não atendido" —
   o caminho com transição ali não foi exercitado.
 
+## `trust-sdk.spec.ts` verde de novo: o menu é que esconde os controles (2026-11-08, #309)
+
+- **O defeito era o spec, medido.** `f7d92a1` (`feat(msbuild): evaluate project model behind trust`)
+  moveu `eval-configuration`, `eval-tfm`, `close-workspace`, `sdk-redetect` e `sdk-open-global-json`
+  para dentro do popover do menu "Workspace actions" (`ToolbarMenu` em `src/WorkspaceView.tsx`), e o
+  `ToolbarMenu` só monta o conteúdo quando está aberto. O `data-testid` não sumiu — o contrato de DOM
+  foi preservado, e oito specs já abrem o menu (`getByRole("button", { name: "Workspace actions" })`)
+  desde o ticket de a11y dos menus. `tests/e2e/trust-sdk.spec.ts` foi o único que ficou de fora dessa
+  atualização mecânica, e o `reveal()` de `tests/e2e/disclosures.ts` não o salva: ele abre
+  `ancestor::details`, e o menu não é um `<details>`.
+- **Falha-antes medida** (Chromium, portas 1920/4917, `bunx playwright test tests/e2e/trust-sdk.spec.ts`):
+  3 de 3 vermelhos, com os sintomas da issue — `eval-configuration` "element(s) not found" nas linhas
+  134 e 232, e `close-workspace` "not attached" na linha 294 via `disclosures.ts:5`. O snapshot do
+  `error-context.md` mostra o botão "Workspace actions" no toolbar e nenhum `close-workspace` no DOM.
+- **Conserto, só no teste.** `openWorkspaceActions(page)` em `tests/e2e/disclosures.ts` (abre o popover
+  se `aria-expanded` não for `true`, e espera `aria-expanded="true"`) usado nos cinco sítios do spec:
+  os dois pares `eval-configuration`/`eval-tfm` (trusted e revogado, no teste 1; `sdk_missing`, no
+  teste 2) e os três `close-workspace`. Nenhuma regra de trust, nenhum `data-testid` e nenhum
+  componente mudaram; o `reveal()` continua sendo o helper certo para `sdk-redetect` do Toolchain.
+- **Depois, medido:** 3 passed (14,4 s e 14,9 s) em duas rodadas seguidas sozinho. O conjunto do smoke
+  inteiro com o spec novo (`bunx playwright test $(grep -v '^#' scripts/e2e-smoke.txt)`): 37 passed,
+  4,8 min — nenhum spec vizinho quebrou com o menu aberto.
+- **Frio, como o contrato do smoke pede:** apagando `obj/` e `bin/` das fixtures entre as rodadas,
+  3 passed em duas rodadas seguidas (45,4 s e 41,2 s). O teste 1, que faz restore real, gasta 19,7 s
+  dos 30 s de timeout — mesma faixa de `build.spec.ts` (20,5 s) e `run.spec.ts` (24,8 s), que já
+  estão na lista. O cache NuGet global (`~/.nuget/packages`) ficou quente: limpá-lo afetaria as
+  outras frentes que rodam em paralelo, então o runner com cache vazio segue não medido.
+- **O spec entrou no smoke noturno** (`scripts/e2e-smoke.txt`), que era o outro lado do problema: fora
+  de qualquer lista, o vermelho não aparecia em lugar nenhum. O runner do `e2e-smoke.yml` já instala o
+  SDK 8.0.408 das fixtures e já roda `workspace.spec.ts`, que também exige o runtime 10.x.
+- **Prova em runner nova, como o contrato da lista pede.** `gh workflow run e2e-smoke.yml --ref
+  test/issue-309-trust-sdk` (run 42445156939, `macos-15`, NuGet frio, sem `obj/` nem `bin/`): **37
+  passed, 7,2 min**, com os três do `trust-sdk` em 12,4 s / 4,5 s / 9,0 s. O workflow foi despachado
+  no branch de propósito: uma verde não tem efeito na issue de rastreio quando não há nenhuma aberta
+  (o `e2e-smoke-issue.sh` só age sobre issue aberta), então a prova não mexeu em estado
+  compartilhado.
+- **Não verificado:** Windows e macOS Intel; Chrome real (a máquina e o runner só têm Chromium).
+
 ## O snapshot pergunta ao muxer qual SDK ele resolve (2026-11-08, #310)
 
 - **O que mudou.** `crates/host/src/sdk.rs`: `muxer_version(root, cwd)` roda `<raiz>/dotnet --version`
