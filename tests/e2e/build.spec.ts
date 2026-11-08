@@ -263,7 +263,12 @@ test("the build gate names the automatic discovery before the click", async ({ p
     await page.getByTestId("bottom-tab-build").click();
     await expect(page.getByTestId("build-disabled-reason")).toHaveText(discoveryReason);
     await expect(page.getByTestId("build-action")).toBeDisabled();
+    await expect(page.getByTestId("build-action")).toHaveAttribute("title", discoveryReason);
     await expect(page.getByTestId("build-solution")).toBeDisabled();
+    await expect(page.getByTestId("build-solution")).toHaveAttribute("title", discoveryReason);
+    // Run builds implicitly, so it names the same reason instead of failing on the click.
+    await expect(page.getByTestId("run-action")).toBeDisabled();
+    await expect(page.getByTestId("run-disabled-reason")).toContainText(discoveryReason);
     // The menu item reads the same gate, so it is disabled with the same reason.
     await page.getByRole("button", { name: "Workspace actions" }).click();
     await expect(page.getByTestId("build-solution-menu")).toBeDisabled();
@@ -277,6 +282,9 @@ test("the build gate names the automatic discovery before the click", async ({ p
     await settleDiscovery(page);
     await expect(page.getByTestId("build-disabled-reason")).toHaveCount(0);
     await expect(page.getByTestId("build-action")).toBeEnabled();
+    await expect(page.getByTestId("build-solution")).toBeEnabled();
+    await expect(page.getByTestId("run-action")).toBeEnabled();
+    await expect(page.getByTestId("run-disabled-reason")).toHaveCount(0);
     await page.getByTestId("build-action").click();
     await expectBuildState(page, "Build succeeded", 60_000);
   } finally {

@@ -1912,3 +1912,20 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   unidade; `tests/unit/executionGates.test.ts` cobre o motivo, a ordem e o projeto sem gate.
 - **Não verificado:** a recarga da análise depois de carregada (o host não a observa — risco residual da
   spec); o app Tauri real; Windows e macOS Intel. Evidência: `docs/evidence/concurrent-builds.md`.
+
+## A análise não começa durante um build (2026-11-07, #275; achado do code-review)
+
+- **O que mudou.** `analysis_blocked_by_build` (`crates/host/src/lib.rs`) é a outra porta do mesmo
+  contrato: `lsp.start` e `lsp.restart` recusam com `invalid_state` e
+  `A build is running (process {id}); wait for it to finish before starting analysis.` enquanto um
+  build roda. No `lsp.restart` a checagem vem **antes** do `stop_lsp_inner`, senão o restart mataria a
+  sessão viva e falharia em seguida. Na UI, `lspStartBlocker` (ToolchainPanels) devolve
+  `A build is running; wait for it to finish before starting analysis.`, então os botões de análise
+  ficam desabilitados com o motivo e o auto-start espera o build terminar (o efeito não marca a
+  fronteira enquanto o blocker não é `null`).
+- **Por quê.** O code-review de spec apontou a assimetria: sem isso, carregar a solução durante um
+  build roda MSBuild sobre o mesmo `obj/`/`bin/` e reabre a colisão da #275 pelo outro lado.
+- **Teste.** `analysis_is_refused_while_a_build_is_running` (`--test host`, projeto "Hang" com
+  `sleep 30`): `lsp.start` e `lsp.restart` recusam com o motivo e `lsp.state` continua `unavailable`.
+  A checagem vem antes do `still_ready()`, então o teste não depende de csharp-ls instalado.
+- **Não verificado:** o app Tauri real; Windows e macOS Intel.

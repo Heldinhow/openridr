@@ -5648,6 +5648,44 @@ fn cancelling_a_real_hanging_build_reports_requested_and_observed_termination() 
     );
 }
 
+/// The other door of the same contract: loading the solution runs MSBuild over the same files, so
+/// the analysis never starts while a build is running. Checked before the tool, so the refusal
+/// does not depend on csharp-ls being installed.
+#[cfg(unix)]
+#[test]
+fn analysis_is_refused_while_a_build_is_running() {
+    let temp = hanging_build_workspace();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let host = support::host();
+    ready_for_build(&host, &root);
+    let started = host.dispatch("build.start", json!({})).unwrap();
+    let process_id = started["build"]["processId"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("no build process: {}", started["build"]));
+    wait_for_build_output(&host, "Slow.dll", Duration::from_secs(30));
+
+    for method in ["lsp.start", "lsp.restart"] {
+        let refused = match host.dispatch(method, json!({})) {
+            Ok(state) => panic!(
+                "{method} started while a build was running: {}",
+                state["lsp"]
+            ),
+            Err(error) => error,
+        };
+        assert_eq!(refused.code, "invalid_state", "{method}: {refused}");
+        assert_eq!(
+            refused.message,
+            format!(
+                "A build is running (process {process_id}); wait for it to finish before starting analysis."
+            ),
+            "{method}"
+        );
+    }
+    assert_eq!(snapshot(&host)["lsp"]["state"], "unavailable");
+
+    host.dispatch("build.cancel", json!({})).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn revoking_trust_seals_a_running_build_and_drops_its_late_exit() {

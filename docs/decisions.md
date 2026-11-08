@@ -1708,7 +1708,9 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `invalid_state` e motivo nomeado enquanto a descoberta automática de testes roda ou enquanto a análise
   está carregando a solução. A recusa é a mesma do restore ("wait for it to finish before building"), e o
   motivo diz qual automação está construindo e qual é a saída (cancelar a descoberta, parar a análise). A
-  simetria também vale: `tests.discover` recusa enquanto um build roda.
+  simetria também vale nas duas portas da automação: `tests.discover` recusa enquanto um build roda, e
+  `lsp.start`/`lsp.restart` recusam enquanto um build roda — senão a análise reabriria a mesma colisão
+  pelo outro lado.
 - **Por que recusar, não enfileirar.** Enfileirar (o clique não se perde) exigiria estado novo no build,
   gatilho no fim da descoberta, cancelamento e invalidação por workspace/contexto/trust/restore: um build
   enfileirado que sobrevive a uma troca de workspace é um bug novo. O ganho sobre recusar é o clique que

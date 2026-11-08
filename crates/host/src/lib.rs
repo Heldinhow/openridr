@@ -4582,6 +4582,11 @@ impl Host {
         if let Some(verbose) = verbose {
             inner.lsp_verbose = verbose;
         }
+        // Checked before the stop: a restart during a build must not kill the live session and
+        // then fail to start a new one.
+        if let Some(error) = analysis_blocked_by_build(&inner) {
+            return Err(error);
+        }
         stop_lsp_inner(
             &mut inner,
             "Analysis restarted by the user; the previous session was shut down.",
@@ -4601,6 +4606,9 @@ impl Host {
                     json!({ "action": { "method": "lsp.restart", "params": {} } }),
                 ));
             }
+        }
+        if let Some(error) = analysis_blocked_by_build(inner) {
+            return Err(error);
         }
         if !inner.tools.still_ready() {
             return Err(HostError::with_details(
@@ -7628,6 +7636,20 @@ fn stop_restore(inner: &mut Inner, reason: &str) {
     };
     let status = inner.processes.lock().unwrap().terminate_status(process_id);
     inner.restore.seal(reason, status.as_ref());
+}
+
+/// The other door of the build contract: loading the solution runs MSBuild over the same `obj/`
+/// and `bin/` the build is writing, so the analysis waits for the build to finish instead of
+/// racing it. `None` means the analysis may load.
+fn analysis_blocked_by_build(inner: &Inner) -> Option<HostError> {
+    inner.build.running_process_id().map(|process_id| {
+        HostError::new(
+            "invalid_state",
+            format!(
+                "A build is running (process {process_id}); wait for it to finish before starting analysis."
+            ),
+        )
+    })
 }
 
 /// Shuts the live language server down (shutdown → exit), then makes the registry observe

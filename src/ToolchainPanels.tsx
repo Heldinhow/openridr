@@ -536,7 +536,9 @@ export function lspStartBlocker(snapshot: Snapshot): string | null {
           ? "A restore is running; analysis starts after it completes."
           : !restoreCurrent
             ? "Restore is not current. Analysis never restores; run the explicit Restore first."
-            : null;
+            : snapshot.build.state === "running"
+              ? "A build is running; wait for it to finish before starting analysis."
+              : null;
 }
 
 export function LspPanel({ snapshot, onChange }: Props) {
