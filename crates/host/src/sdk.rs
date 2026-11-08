@@ -983,7 +983,7 @@ pub fn detected_versions(installs: &[Install]) -> Vec<String> {
 /// install when the project asserts no requirement. The caller reports the muxer's answer, not
 /// this pick.
 pub fn resolve_unpinned(line: Option<&str>, installs: &[Install]) -> Result<Install, String> {
-    let required = line.and_then(|line| line.split('.').next()?.parse::<u64>().ok());
+    let required = required_line(line);
     let mut candidates: Vec<(&Install, Version)> = installs
         .iter()
         .filter_map(|install| {
@@ -1010,10 +1010,16 @@ pub fn resolve_unpinned(line: Option<&str>, installs: &[Install]) -> Result<Inst
 /// Whether `version` satisfies the TargetFramework line (`net10.0` → 10.x or newer). No line
 /// asserts no requirement, so anything satisfies it.
 pub fn satisfies_line(line: Option<&str>, version: &str) -> bool {
-    let Some(required) = line.and_then(|line| line.split('.').next()?.parse::<u64>().ok()) else {
+    let Some(required) = required_line(line) else {
         return true;
     };
     Version::parse(version).is_some_and(|version| version.major >= required)
+}
+
+/// The SDK major line a requirement names (`"10.0"` → 10). One reading of the line, shared by
+/// the selection and the check that the muxer's answer still meets it.
+fn required_line(line: Option<&str>) -> Option<u64> {
+    line.and_then(|line| line.split('.').next()?.parse::<u64>().ok())
 }
 
 fn unpinned_missing_message(required: Option<u64>, installs: &[Install]) -> String {

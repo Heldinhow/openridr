@@ -47,8 +47,13 @@ Depois da mudança:
 $ cargo test -p openridr-host --test host -- muxer
 test a_muxer_pin_that_misses_the_requirement_is_sdk_missing ... ok
 test the_snapshot_names_the_sdk_the_muxer_resolves_not_its_own_rule ... ok
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 144 filtered out; finished in 0.22s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 144 filtered out; finished in 0.34s
 ```
+
+O primeiro teste faz a comparação que a issue pede — `sdk.project.resolvedVersion` contra **a versão que
+o build realmente usou** — sem reusar o código de produção: ele roda `<raiz>/dotnet msbuild
+NoPin.csproj -getProperty:NETCoreSdkVersion` no diretório do projeto e exige que o valor seja igual ao
+`resolvedVersion` do snapshot. Medido à mão no cenário da reprodução: `NETCoreSdkVersion` = `8.0.408`.
 
 ## O resto do que rodou
 
@@ -75,5 +80,23 @@ continuam iguais. Chrome não está instalado nesta máquina, por isso `PLAYWRIG
   dois testes de fronteira.
 - **`global.json` entre a raiz da workspace e o diretório do projeto.** O muxer é consultado na raiz
   (o `cwd` de restore/build/run/test) e a avaliação roda no diretório do projeto; a divergência que
-  sobra está registrada como `shortcut:` em `resolve_without_pin`.
+  sobra está registrada como `shortcut:` em `resolve_without_pin` e na issue **#313**.
 - **Windows e macOS Intel**, como no resto do produto.
+
+## Suíte inteira do host (o job `rust` do CI)
+
+`cargo test -p openridr-host`, 2026-11-08, no estado final da branch:
+
+```
+test result: ok. 490 passed; 0 failed; 15 ignored
+test result: ok.  11 passed; 0 failed; 11 ignored
+test result: ok.   2 passed; 0 failed;  2 ignored
+test result: ok.  15 passed; 0 failed; 14 ignored
+test result: ok. 118 passed; 0 failed; 28 ignored
+test result: ok.  13 passed; 0 failed;  0 ignored
+test result: ok.   7 passed; 0 failed;  0 ignored
+test result: ok.   1 passed; 0 failed;  1 ignored
+```
+
+**657 passed, 0 failed, 70 ignored.** Os `ignored` são os leaves isolados de sempre (cada um roda no
+próprio processo).

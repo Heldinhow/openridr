@@ -1704,6 +1704,30 @@ fn ancestor_pinned_workspace(tfm: &str, pin: &str) -> tempfile::TempDir {
     dir
 }
 
+/// The SDK MSBuild itself reports using, measured outside the host: the issue asks to compare the
+/// snapshot against "the version the build actually used", not against another prediction.
+fn msbuild_sdk_version(root: &Path, project: &Path) -> String {
+    let output = std::process::Command::new(root.join("dotnet"))
+        .arg("msbuild")
+        .arg(project)
+        .arg("-nologo")
+        .arg("-getProperty:NETCoreSdkVersion")
+        .current_dir(project.parent().unwrap())
+        .env("DOTNET_ROOT", root)
+        .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+        .env("DOTNET_CLI_UI_LANGUAGE", "en")
+        .env("DOTNET_NOLOGO", "1")
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        .output()
+        .expect("the project SDK muxer runs msbuild");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 #[test]
 fn the_snapshot_names_the_sdk_the_muxer_resolves_not_its_own_rule() {
     let Some(((_, high), (low_version, low))) = muxer_pin_pair() else {
@@ -1711,7 +1735,8 @@ fn the_snapshot_names_the_sdk_the_muxer_resolves_not_its_own_rule() {
     };
     let host = support::host();
     let workspace = ancestor_pinned_workspace(&format!("net{}.0", low_version.major), &low.version);
-    open(&host, &workspace.path().join("app/NoPin.csproj"));
+    let project_path = workspace.path().join("app/NoPin.csproj");
+    open(&host, &project_path);
     let trusted = grant(&host);
     let project = &trusted["sdk"]["project"];
 
@@ -1724,6 +1749,11 @@ fn the_snapshot_names_the_sdk_the_muxer_resolves_not_its_own_rule() {
     assert_eq!(project["requirement"]["source"], "target_framework");
     assert_eq!(project["globalJsonPath"], Value::Null);
     assert_eq!(project["root"], low.root.to_string_lossy().as_ref());
+    assert_eq!(
+        msbuild_sdk_version(&low.root, &project_path),
+        project["resolvedVersion"].as_str().unwrap(),
+        "the snapshot names the SDK MSBuild reports using"
+    );
 }
 
 #[test]
