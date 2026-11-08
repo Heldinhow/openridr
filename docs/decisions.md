@@ -1701,3 +1701,28 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   entregar" e a regra "Ticket"), `docs/agents/issue-tracker.md` ("O que continua em `docs/`"),
   `docs/agents/domain.md` (árvore de layout) e `docs/README.md` (convenção de trabalho novo). Nenhuma
   linha de `src/`, `crates/` ou `src-tauri/`, nenhum `data-testid`, nenhuma dependência nova.
+
+## 2026-11-07 — Build explícito recusa enquanto a automação do app constrói (issue #275)
+
+- **Decisão.** `build.start`, `build.solution` e o build implícito de Run/Debug recusam com
+  `invalid_state` e motivo nomeado enquanto a descoberta automática de testes roda ou enquanto a análise
+  está carregando a solução. A recusa é a mesma do restore ("wait for it to finish before building"), e o
+  motivo diz qual automação está construindo e qual é a saída (cancelar a descoberta, parar a análise). A
+  simetria também vale: `tests.discover` recusa enquanto um build roda.
+- **Por que recusar, não enfileirar.** Enfileirar (o clique não se perde) exigiria estado novo no build,
+  gatilho no fim da descoberta, cancelamento e invalidação por workspace/contexto/trust/restore: um build
+  enfileirado que sobrevive a uma troca de workspace é um bug novo. O ganho sobre recusar é o clique que
+  não se repete, e o custo é superfície nova num caminho que hoje é só uma checagem.
+- **Por que a análise só bloqueia enquanto carrega.** O estado da análise vai a `loading` no `initialize`
+  aceito e sai no `Finished loading solution` do csharp-ls (~5 s medidos no OrderDesk, 3 projetos, nesta
+  máquina). Depois disso o `BuildHost` continua vivo mas não constrói: bloquear mais seria bloquear sem
+  causa. A recarga que o csharp-ls faz sozinho depois de carregada não é observável pelo host e fica como
+  risco residual escrito na evidência.
+- **Por que a tabela de motivos é uma função pura.** A ordem (build > restore > descoberta > análise
+  carregando) é contrato, não detalhe: quem vem primeiro decide qual motivo o usuário lê. Fora do corpo
+  de `start_build_locked`, ela é testável sem csharp-ls real e sem workspace.
+- **Consequência.** `docs/SPEC-CONCURRENT-BUILDS.md`; evidência em
+  `docs/evidence/concurrent-builds.md`; o gate de UI em `executionGates.ts` ganha teste de unidade em
+  `tests/unit/` (o E2E não roda em PR); os specs que afirmam "enabled" logo depois de restaurar passam a
+  esperar a descoberta com o `settleDiscovery` da #251. Nenhum `data-testid` novo, nenhuma dependência
+  nova, nenhum estado novo na UI.
