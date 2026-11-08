@@ -115,6 +115,7 @@ fn age_tree(root: &Path) {
 /// package cache, and `restore_reports_the_exact_command_and_creates_real_assets` already proves
 /// a real restore, while `evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts`
 /// proves a copy without these artifacts is `not_restored`.
+#[cfg(unix)]
 fn stage_restore_artifacts(root: &Path) {
     for project in [
         "src/OrderDesk.Cli",
@@ -1000,6 +1001,7 @@ fn grant(host: &Host) -> Value {
         .expect("trust is granted")
 }
 
+#[cfg(unix)]
 fn process_id(snapshot: &Value) -> u64 {
     snapshot["processes"]
         .as_array()
@@ -3410,6 +3412,7 @@ fn a_late_evaluation_does_not_replace_a_newer_selection() {
     assert_eq!(state["evaluation"]["state"], "ok");
 }
 
+#[cfg(unix)]
 fn global_json_8(dir: &Path) {
     fs::write(
         dir.join("global.json"),
@@ -3418,6 +3421,7 @@ fn global_json_8(dir: &Path) {
     .unwrap();
 }
 
+#[cfg(unix)]
 fn write_project(dir: &Path, name: &str, extra: &str) {
     fs::write(
         dir.join(format!("{name}.csproj")),
@@ -3886,6 +3890,7 @@ fn switching_workspaces_stops_a_running_restore_and_drops_its_record() {
     );
 }
 
+#[cfg(unix)]
 fn real_install(version: &str) -> sdk::Install {
     sdk::inventory()
         .installs
@@ -3894,6 +3899,7 @@ fn real_install(version: &str) -> sdk::Install {
         .unwrap_or_else(|| panic!("expected SDK {version} on this machine"))
 }
 
+#[cfg(unix)]
 fn runtime_10() -> sdk::RuntimeInstall {
     let mut runtimes = sdk::inventory().runtimes;
     runtimes.retain(|runtime| {
@@ -3946,6 +3952,7 @@ fn ensure_tool(host: &Host) {
     assert_eq!(done["state"], "ready", "{}", done["log"]);
 }
 
+#[cfg(unix)]
 fn wait_lsp(host: &Host, timeout: Duration, states: &[&str]) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -3963,6 +3970,7 @@ fn wait_lsp(host: &Host, timeout: Duration, states: &[&str]) -> Value {
     }
 }
 
+#[cfg(unix)]
 fn wait_publication(host: &Host, timeout: Duration, predicate: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -5588,6 +5596,7 @@ fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown
     assert_eq!(snapshot(&host)["trust"]["granted"], false);
 }
 
+#[cfg(unix)]
 fn write_console_project(dir: &Path, name: &str, extra: &str) {
     fs::write(
         dir.join(format!("{name}.csproj")),
@@ -5621,6 +5630,7 @@ fn wait_for_build(host: &Host, timeout: Duration) -> Value {
 }
 
 /// Waits until the DAP record leaves `building`/`preparing`: the session has real state.
+#[cfg(unix)]
 fn wait_for_dap(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -5637,6 +5647,7 @@ fn wait_for_dap(host: &Host, timeout: Duration) -> Value {
     }
 }
 
+#[cfg(unix)]
 fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     loop {
@@ -6928,6 +6939,7 @@ fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build_isolate
     let _ = host.dispatch("debug.stop", json!({}));
 }
 
+#[cfg(unix)]
 fn wait_for_terminal_output(host: &Host, needle: &str, timeout: Duration) -> String {
     let deadline = Instant::now() + timeout;
     loop {
@@ -6947,8 +6959,10 @@ fn wait_for_terminal_output(host: &Host, needle: &str, timeout: Duration) -> Str
 }
 
 /// Stops the shell even when an assertion fails, so a failed test leaves no stray child.
+#[cfg(unix)]
 struct TerminalCleanup<'a>(&'a Host);
 
+#[cfg(unix)]
 impl Drop for TerminalCleanup<'_> {
     fn drop(&mut self) {
         let _ = self.0.dispatch("terminal.stop", json!({ "confirm": true }));
