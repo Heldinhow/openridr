@@ -2,6 +2,9 @@
 
 Formato: data, decisão, motivo, consequência. Só entram decisões pequenas tomadas durante a implementação; decisões grandes continuam na [SPEC](SPEC.md).
 
+<!-- Append-only: num conflito de merge ficam as duas entradas, a desta branch primeiro e as antigas na
+     ordem em que entraram — nunca reordenar nem reescrever entrada velha. -->
+
 ## 2026-10-27 — Base própria, sem código do OpenIdea
 
 O shell é escrito do zero (Tauri 2 + Rust + React/TS). Nenhum arquivo do OpenIdea foi clonado ou incorporado; a "auditoria da base" resulta em: nada reutilizado, nenhuma licença de terceiro herdada além das dependências declaradas. Avisos e identidade OpenRidr são preservados. Motivo: não há checkout local e a SPEC exige auditar antes de reutilizar; copiar sem auditoria seria pior.
