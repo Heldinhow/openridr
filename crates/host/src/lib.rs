@@ -2102,11 +2102,18 @@ impl Host {
     ) -> HostResult<String> {
         // One refusal table for every build door: the explicit build, Build Solution and the
         // implicit build of Run/Debug all arrive here, so the discovery that is building the
-        // test project is refused in one place instead of racing it on the same files.
+        // test project and the analysis that is still loading the solution are refused in one
+        // place instead of racing them on the same files.
+        let analysis = inner
+            .lsp
+            .as_ref()
+            .map(|lsp| lsp.state())
+            .unwrap_or("unavailable");
         if let Some(reason) = build::refusal_reason(
             inner.build.running_process_id(),
             inner.restore.running_process_id().is_some(),
             inner.tests.running_process_id(),
+            analysis,
         ) {
             return Err(HostError::new("invalid_state", reason));
         }
