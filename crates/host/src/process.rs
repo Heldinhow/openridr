@@ -59,6 +59,7 @@ struct Entry {
     termination: Option<Termination>,
     /// Unix waits without reaping until the whole group has been terminated; this keeps the
     /// pid/pgid reserved so the cleanup cannot hit a recycled group.
+    #[cfg(unix)]
     reaped: bool,
 }
 
@@ -162,9 +163,8 @@ impl Entry {
         }
     }
 
-    #[cfg(not(unix))]
-    fn finish_group(&mut self) {}
-
+    /// Only the unix branch of `refresh` reaps: the other platforms let `try_wait` do it.
+    #[cfg(unix)]
     fn reap(&mut self) {
         if self.reaped {
             return;
@@ -263,6 +263,7 @@ impl Registry {
             awaiting_decision: false,
             kept: false,
             termination: None,
+            #[cfg(unix)]
             reaped: false,
         });
         id
@@ -295,6 +296,7 @@ impl Registry {
             awaiting_decision: false,
             kept: false,
             termination: None,
+            #[cfg(unix)]
             reaped: false,
         });
         (id, slot)
@@ -480,7 +482,10 @@ fn taskkill(pid: u32, hard: bool) -> bool {
 }
 
 /// The signal that killed the child, if any. A normal exit reports `code()` and no signal.
-#[cfg(unix)]
+///
+/// Only the `not(unix)` branch of `refresh` asks for it: on unix the signal comes from `waitid`.
+/// The stray `#[cfg(unix)]` this used to carry made the function exist on no platform at all, which
+/// only showed up the first time the crate was compiled for Windows.
 #[cfg(not(unix))]
 fn exit_signal(_status: &std::process::ExitStatus) -> Option<i32> {
     None

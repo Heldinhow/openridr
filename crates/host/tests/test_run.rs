@@ -7,14 +7,21 @@ mod support;
 use openridr_host::Host;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+// Only the unix fixture helpers use it.
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+// Only the macOS/unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 fn fixture() -> PathBuf {
     fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/OrderDesk"))
         .expect("fixture OrderDesk exists")
 }
 
+// Only the macOS/unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for entry in fs::read_dir(from).unwrap() {
@@ -32,6 +39,8 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+// Only the macOS/unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 fn fixture_copy(parent: &Path, name: &str) -> PathBuf {
     let copy = parent.join(name);
     copy_tree(&fixture(), &copy);
@@ -110,8 +119,12 @@ fn prepare(host: &Host, target_framework: Option<&str>) -> Value {
     snapshot(host)
 }
 
+// Only the macOS/unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 const DISCOVER: &str = "tests/OrderDesk.Tests/OrderDesk.Tests.csproj";
 
+// Only the macOS/unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 fn discover_fixture(host: &Host) -> Value {
     host.dispatch(
         "tests.discover",
@@ -134,6 +147,8 @@ fn discover_fixture(host: &Host) -> Value {
     }
 }
 
+// Only the macOS/unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 fn wait_for_run(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -580,6 +595,8 @@ fn duplicate_display_names_are_one_ambiguous_identity_never_a_selected_run() {
     assert!(names.contains(&"Disp.B.Two"), "{names:?}");
 }
 
+// Only the macOS/unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 fn wait_for_run_discovery(host: &Host) -> Value {
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {

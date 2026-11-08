@@ -187,6 +187,9 @@ fn discover_through_a_local_proxy_reports_the_proxy_isolated() {
 /// A program that prints the `scutil --proxy` dictionary pointing at `proxy`. Pointing the seam at
 /// it lets the product path read a "system setting" without touching the machine's network
 /// configuration.
+// The fake is a `#!/bin/sh` script made executable, and the setting it fakes is the macOS one: the
+// helper and its two tests are unix-only, or the test binary does not compile on Windows.
+#[cfg(unix)]
 fn fake_scutil(proxy: &LocalProxy) -> (tempfile::TempDir, PathBuf) {
     use std::os::unix::fs::PermissionsExt;
     let directory = tempfile::tempdir().unwrap();
@@ -203,6 +206,7 @@ fn fake_scutil(proxy: &LocalProxy) -> (tempfile::TempDir, PathBuf) {
     (directory, program)
 }
 
+#[cfg(unix)]
 #[test]
 fn discover_through_the_system_proxy_reports_the_proxy() {
     support::run_isolated_leaf("discover_through_the_system_proxy_reports_the_proxy_isolated");
@@ -210,6 +214,7 @@ fn discover_through_the_system_proxy_reports_the_proxy() {
 
 /// The issue in one test: no proxy variable anywhere, only the macOS setting, and Discover still
 /// reaches the proxy instead of trying the destination directly.
+#[cfg(unix)]
 #[test]
 #[ignore = "isolated leaf: it points OPENRIDR_SYSTEM_PROXY at a fake scutil for its own host"]
 fn discover_through_the_system_proxy_reports_the_proxy_isolated() {

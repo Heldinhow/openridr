@@ -339,6 +339,9 @@ fn tool_dir(home: &Path) -> PathBuf {
     home.join("tools/netcoredbg")
 }
 
+// Only the macOS arm64 leaves use it, so it is dead code on the other targets and `-D warnings`
+// refuses that.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn fake_netcoredbg(path: &Path) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();
@@ -355,6 +358,9 @@ fn fake_netcoredbg(path: &Path) {
     }
 }
 
+// The gate it asserts is the Apple Silicon one: macOS Intel reports `unavailable`, because the
+// 3.2.0-1092 release publishes no osx-x64 asset.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it_isolated() {
@@ -1145,6 +1151,18 @@ fn cancel_keeps_partial_state_and_retry_completes_isolated() {
     assert!(Path::new(finished["destination"].as_str().unwrap()).starts_with(seam.home.path()));
 }
 
+/// The gate state `debugger::gate` really produces here: Apple Silicon is the one platform that is
+/// experimental, macOS Intel and Linux have no asset, and Windows is available but unproven.
+fn expected_adapter_state() -> &'static str {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "experimental_disabled"
+    } else if cfg!(windows) {
+        "not_checked"
+    } else {
+        "unavailable"
+    }
+}
+
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn the_debugger_methods_are_gated_before_trust_like_the_other_executables_isolated() {
@@ -1168,7 +1186,7 @@ fn the_debugger_methods_are_gated_before_trust_like_the_other_executables_isolat
     // Planning and reading the state stay read-only and trust-free.
     assert_eq!(
         host.dispatch("debug.plan", json!({})).unwrap()["debug"]["adapterState"],
-        "experimental_disabled"
+        expected_adapter_state()
     );
     assert_eq!(
         host.dispatch("debug.state", json!({})).unwrap()["debug"]["version"],
@@ -1309,6 +1327,7 @@ fn an_ambient_bundled_override_never_reaches_the_controlled_installer() {
 
 // Each leaf below writes `OPENRIDR_*` for its host, so it runs in its own process: the
 // shared test process never changes its environment.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
     support::run_isolated_leaf(

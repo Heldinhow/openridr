@@ -1,7 +1,10 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use openridr_host::{hostroot, sdk, Host, EXECUTABLE_METHODS};
+use openridr_host::{sdk, Host, EXECUTABLE_METHODS};
+// Only the macOS host-root leaf uses it, so it is an unused import on the other targets.
+#[cfg(target_os = "macos")]
+use openridr_host::hostroot;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -112,6 +115,7 @@ fn age_tree(root: &Path) {
 /// package cache, and `restore_reports_the_exact_command_and_creates_real_assets` already proves
 /// a real restore, while `evaluation_of_a_fresh_copy_with_spaces_creates_no_restore_artifacts`
 /// proves a copy without these artifacts is `not_restored`.
+#[cfg(unix)]
 fn stage_restore_artifacts(root: &Path) {
     for project in [
         "src/OrderDesk.Cli",
@@ -218,6 +222,8 @@ fn text(path: &Path) -> String {
 }
 
 /// Sorted entry names of a folder, so a test can state exactly what must not have appeared there.
+/// Only the unix-gated symlink tests use it; without the gate it is dead code on Windows.
+#[cfg(unix)]
 fn entry_names(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir)
         .unwrap()
@@ -227,6 +233,7 @@ fn entry_names(dir: &Path) -> Vec<String> {
     names
 }
 
+#[cfg(unix)]
 #[test]
 fn file_access_is_confined_to_the_workspace() {
     let (_outer, root, outside) = nested_workspace();
@@ -335,6 +342,7 @@ fn file_access_is_confined_to_the_workspace() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn file_operations_refuse_escapes_and_leave_the_outside_untouched() {
     let (_outer, root, outside) = nested_workspace();
@@ -993,6 +1001,7 @@ fn grant(host: &Host) -> Value {
         .expect("trust is granted")
 }
 
+#[cfg(unix)]
 fn process_id(snapshot: &Value) -> u64 {
     snapshot["processes"]
         .as_array()
@@ -3477,6 +3486,7 @@ fn a_late_evaluation_does_not_replace_a_newer_selection() {
     assert_eq!(state["evaluation"]["state"], "ok");
 }
 
+#[cfg(unix)]
 fn global_json_8(dir: &Path) {
     fs::write(
         dir.join("global.json"),
@@ -3485,6 +3495,7 @@ fn global_json_8(dir: &Path) {
     .unwrap();
 }
 
+#[cfg(unix)]
 fn write_project(dir: &Path, name: &str, extra: &str) {
     fs::write(
         dir.join(format!("{name}.csproj")),
@@ -3953,6 +3964,7 @@ fn switching_workspaces_stops_a_running_restore_and_drops_its_record() {
     );
 }
 
+#[cfg(unix)]
 fn real_install(version: &str) -> sdk::Install {
     sdk::inventory()
         .installs
@@ -3961,6 +3973,7 @@ fn real_install(version: &str) -> sdk::Install {
         .unwrap_or_else(|| panic!("expected SDK {version} on this machine"))
 }
 
+#[cfg(unix)]
 fn runtime_10() -> sdk::RuntimeInstall {
     let mut runtimes = sdk::inventory().runtimes;
     runtimes.retain(|runtime| {
@@ -4013,6 +4026,7 @@ fn ensure_tool(host: &Host) {
     assert_eq!(done["state"], "ready", "{}", done["log"]);
 }
 
+#[cfg(unix)]
 fn wait_lsp(host: &Host, timeout: Duration, states: &[&str]) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -4030,6 +4044,7 @@ fn wait_lsp(host: &Host, timeout: Duration, states: &[&str]) -> Value {
     }
 }
 
+#[cfg(unix)]
 fn wait_publication(host: &Host, timeout: Duration, predicate: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -4320,7 +4335,9 @@ fn setup_starts_before_trust_without_running_project_code_isolated() {
     host.dispatch("workspace.close", json!({})).unwrap();
 }
 
-#[cfg(unix)]
+// The setup it drives only reaches `ready` with a bundled adapter, and `debugger::view` considers the
+// bundle on `osx-arm64` alone: macOS Intel has no osx-x64 asset and Windows no bundled adapter.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn setup_reuses_the_verified_installation_and_never_asks_again_isolated() {
@@ -4430,7 +4447,7 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed_isolated() {
     assert_eq!(failed["trust"]["granted"], false);
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn failed_reinstall_keeps_the_previous_verified_tool_ready_isolated() {
@@ -4515,7 +4532,7 @@ exit 0
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies_isolated() {
@@ -5419,6 +5436,9 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process_isolated() 
     }
 }
 
+// The installer it fakes is a `#!/bin/sh` script made executable, so the leaf and its wrapper are
+// unix-only: without the gate the test binary does not compile on Windows.
+#[cfg(unix)]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn cancelling_a_running_install_reports_termination_and_never_ready_isolated() {
@@ -5650,6 +5670,7 @@ fn lsp_completion_and_definition_answer_from_the_real_session_and_reject_unknown
     assert_eq!(snapshot(&host)["trust"]["granted"], false);
 }
 
+#[cfg(unix)]
 fn write_console_project(dir: &Path, name: &str, extra: &str) {
     fs::write(
         dir.join(format!("{name}.csproj")),
@@ -5683,6 +5704,7 @@ fn wait_for_build(host: &Host, timeout: Duration) -> Value {
 }
 
 /// Waits until the DAP record leaves `building`/`preparing`: the session has real state.
+#[cfg(unix)]
 fn wait_for_dap(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -5699,6 +5721,7 @@ fn wait_for_dap(host: &Host, timeout: Duration) -> Value {
     }
 }
 
+#[cfg(unix)]
 fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     loop {
@@ -6527,7 +6550,6 @@ fn sleeper_project(dir: &Path) {
     .unwrap();
 }
 
-#[cfg(unix)]
 fn wait_for_run(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {
@@ -6991,6 +7013,7 @@ fn debug_implicitly_builds_and_starts_the_session_when_there_is_no_build_isolate
     let _ = host.dispatch("debug.stop", json!({}));
 }
 
+#[cfg(unix)]
 fn wait_for_terminal_output(host: &Host, needle: &str, timeout: Duration) -> String {
     let deadline = Instant::now() + timeout;
     loop {
@@ -7010,8 +7033,10 @@ fn wait_for_terminal_output(host: &Host, needle: &str, timeout: Duration) -> Str
 }
 
 /// Stops the shell even when an assertion fails, so a failed test leaves no stray child.
+#[cfg(unix)]
 struct TerminalCleanup<'a>(&'a Host);
 
+#[cfg(unix)]
 impl Drop for TerminalCleanup<'_> {
     fn drop(&mut self) {
         let _ = self.0.dispatch("terminal.stop", json!({ "confirm": true }));
@@ -7765,7 +7790,7 @@ fn setup_starts_before_trust_without_running_project_code() {
     support::run_isolated_leaf("setup_starts_before_trust_without_running_project_code_isolated");
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn setup_reuses_the_verified_installation_and_never_asks_again() {
     support::run_isolated_leaf(
@@ -7781,13 +7806,13 @@ fn setup_reports_a_missing_bundled_adapter_and_keeps_trust_closed() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn failed_reinstall_keeps_the_previous_verified_tool_ready() {
     support::run_isolated_leaf("failed_reinstall_keeps_the_previous_verified_tool_ready_isolated");
 }
 
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn a_reinstall_survives_a_workspace_switch_and_never_loses_both_copies() {
     support::run_isolated_leaf(
@@ -7854,6 +7879,7 @@ fn initialize_failure_surfaces_the_sdk_message_and_kills_the_process() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn cancelling_a_running_install_reports_termination_and_never_ready() {
     support::run_isolated_leaf(

@@ -95,16 +95,21 @@ pub fn open_when_ready(url: &str, alive: impl Fn() -> bool + Send + 'static) -> 
 }
 
 /// The platform opener with the URL as its single argument: never a shell, never a command line
-/// string. `None` means this platform has no opener wired (Windows is not supported yet).
+/// string. `None` means this platform has no opener wired.
 fn command(url: &str) -> Option<Command> {
-    let program = if cfg!(target_os = "macos") {
-        "open"
+    let mut command = if cfg!(target_os = "macos") {
+        Command::new("open")
     } else if cfg!(target_os = "linux") {
-        "xdg-open"
+        Command::new("xdg-open")
+    } else if cfg!(windows) {
+        // `rundll32` hands the URL to the registered protocol handler; `cmd /C` would go through a
+        // shell, where `&` in the URL splits the command line.
+        let mut command = Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler");
+        command
     } else {
         return None;
     };
-    let mut command = Command::new(program);
     command.arg(url).stdout(Stdio::null()).stderr(Stdio::null());
     Some(command)
 }
@@ -339,16 +344,20 @@ mod tests {
 
     #[test]
     fn the_opener_takes_the_url_as_its_only_argument() {
-        let Some(command) = command("http://localhost:5083/page?q=1&x=2") else {
-            return; // Windows: no opener is wired, declared out of scope.
-        };
+        let url = "http://localhost:5083/page?q=1&x=2";
+        let command = command(url).expect("every supported platform has an opener");
         let program = command.get_program().to_string_lossy().to_string();
-        assert!(program == "open" || program == "xdg-open", "{program}");
         let args: Vec<String> = command
             .get_args()
             .map(|argument| argument.to_string_lossy().to_string())
             .collect();
-        assert_eq!(args, vec!["http://localhost:5083/page?q=1&x=2"]);
+        if cfg!(windows) {
+            assert_eq!(program, "rundll32");
+            assert_eq!(args, vec!["url.dll,FileProtocolHandler", url]);
+        } else {
+            assert!(program == "open" || program == "xdg-open", "{program}");
+            assert_eq!(args, vec![url]);
+        }
     }
 
     #[test]

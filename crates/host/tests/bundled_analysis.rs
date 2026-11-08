@@ -20,6 +20,8 @@ fn open(host: &Host, path: &Path) -> Value {
     opened
 }
 
+// Only the unix leaves below use it, so it is dead code on the other targets.
+#[cfg(unix)]
 fn snapshot(host: &Host) -> Value {
     for _ in 0..500 {
         let state = host.dispatch("workspace.state", json!({})).unwrap();

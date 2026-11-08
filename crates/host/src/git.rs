@@ -3442,6 +3442,9 @@ mod tests {
     /// platform-specific: on Unix, `set_readonly(false)` sets *every* write bit (`0o222`), which would
     /// also make group and others able to write, so the owner bit is added to the mode instead. Clippy
     /// rejects the `set_readonly(false)` form for exactly that reason (`permissions_set_readonly_false`).
+    // The `not(unix)` branch below is the lint's counterexample on purpose: outside unix the readonly
+    // attribute *is* the only write bit, so clearing it is exactly the intent.
+    #[allow(clippy::permissions_set_readonly_false)]
     fn make_writable(path: &Path) {
         #[cfg(unix)]
         {
