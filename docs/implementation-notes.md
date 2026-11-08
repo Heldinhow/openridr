@@ -1927,3 +1927,90 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Não verificado:** a corrida no app real (a prova é o teste de threads do host); E2E (nenhum spec
   escreve estado do host em paralelo, e a mudança não tem superfície de UI); Windows e macOS Intel.
   Evidência: `docs/evidence/atomic-tmp-name.md`.
+
+## O host recusa build enquanto a descoberta de testes constrói (2026-11-07, #275; ticket #284)
+
+- **O que mudou.** `build::refusal_reason(build, restore, discovery)` em `crates/host/src/build.rs` é a
+  tabela pura de motivos, na ordem build > restore > descoberta, com `None` quando nada está rodando.
+  `start_build_locked` passou a usá-la no topo, e é o chokepoint de `build.start`, `build.solution` e do
+  build implícito de Run/Debug — nenhuma porta paralela. `start_tests_discovery` ganhou a simetria:
+  recusa com build rodando (`A build is running (process {id}); wait for it to finish before discovering
+  tests.`).
+- **A recusa é `invalid_state` com o motivo acordado**, o mesmo código que a UI já trata para os gates
+  existentes: `A test discovery is building the test project (process {id}); wait for it to finish, or
+  cancel the discovery to build now.`
+- **Falha-antes medida.** Com o teste final e o fix em stash: `build.start started while the discovery
+  was building: "running"` e `the discovery started while a build was running: "discovering"`.
+- **Teste.** `build_is_refused_while_a_discovery_is_building_the_test_project` (OrderDesk real: recusa
+  durante a descoberta, nenhum processo `build:`, e o mesmo `build.start` roda depois) e
+  `discovery_is_refused_while_a_build_is_running` (projeto "Hang" com `sleep 30` no target).
+  `cargo test -p openridr-host --test test_discovery` 13 passed; `--lib build::` 13 passed.
+- **Não verificado:** Run/Debug durante a descoberta (mesmo chokepoint, não exercitado); Windows e macOS
+  Intel. Evidência: `docs/evidence/concurrent-builds.md`.
+
+## A UI nomeia a descoberta antes do clique (2026-11-07, #275; ticket #285)
+
+- **O que mudou.** `buildDisabledReason`, `runAvailabilityReason` e `debugDisabledReason`
+  (`src/executionGates.ts`) devolvem o motivo acordado enquanto `snapshot.tests.discovery.state ===
+  "discovering"`: `Test discovery is building the test project; wait for it to finish or cancel the
+  discovery.` Nenhum `data-testid` novo, nenhuma dependência nova, nenhum estado novo de UI: o motivo
+  chega ao `title` e ao texto de `build-disabled-reason`/`run-disabled-reason`/`dap-disabled-reason` que
+  já existiam.
+- **Uma decisão fora do ticket.** `GateContext.snapshot` passou de `Snapshot` para `GateSnapshot`, o
+  subconjunto que as funções leem. Um `Snapshot` completo continua atribuível, então `WorkspaceView` não
+  mudou; o teste de unidade monta só o que uma decisão usa.
+- **Ordem.** A descoberta entra depois de "Run/Debug is already building" e antes de "A build is
+  running", para não reordenar as recusas que já existiam. Build e descoberta são mutuamente exclusivos
+  no host (a simetria do #284), então a ordem entre os dois não muda o que o usuário lê.
+- **Teste.** `tests/unit/executionGates.test.ts` (novo): falha-antes medida com o código antigo
+  (`Expected: "Test discovery is building…" Received: null`), passa depois; cobre também Run/Debug e o
+  `null` com nada rodando. `bun test tests/unit` 126 passed.
+- **E2E.** Cenário novo em `tests/e2e/build.spec.ts` (Discover → motivo no `toolbar-run`/`toolbar-debug`
+  e em `build-disabled-reason`/`build-action`/`build-solution`/`build-solution-menu` →
+  `settleDiscovery` → Build conclui) e
+  `settleDiscovery` no `openTrustedRestored` de `gates.spec.ts` e no `restoreAndReload` de `run.spec.ts`.
+  O `settleDiscovery` de `tests/e2e/automatic.ts` passou a tratar workspace sem projeto de teste (o poll
+  esperava uma revisão que nunca vem). Rodado: `build.spec.ts` 3 passed, `gates.spec.ts` 10 passed,
+  `run.spec.ts` 5 passed.
+- **Não verificado:** o app Tauri real (interface pura); Windows e macOS Intel.
+
+## A análise carregando também recusa o build (2026-11-07, #275; ticket #286)
+
+- **O que mudou.** `refusal_reason` ganhou o quarto ramo, por último (build > restore > descoberta >
+  análise carregando): só `lsp.state == "loading"` recusa, com
+  `Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now.`
+  Na UI, `GateSnapshot` ganhou `lsp` e `workspace`, e o motivo entra nos três gates depois de "A build is
+  running" e antes de `runRunning`/`debugActive`, com o texto
+  `Analysis is loading the solution; wait for it to finish or stop analysis.`
+- **O achado que mudou o contrato: o gate é solution-only.** Num workspace de projeto o csharp-ls nunca
+  sai de `loading` (medido no CrashApp: >3 min, 0% de CPU, log parado em `loading project`; a solução do
+  OrderDesk carrega em ~6 s). Com o gate valendo para projeto, `run.spec.ts` (LongRunner e CrashApp)
+  ficou com Build desabilitado até o timeout: 4 vermelhos medidos em duas rodadas. O gate passou a valer
+  só para `WorkspaceKind::Solution` nos dois lados (`start_build_locked` e `analysisLoading`), e o
+  travamento virou a issue #299. Quando ela for corrigida, o gate deve voltar a valer para projeto.
+- **Falha-antes medida.** Host: `build.start started while the analysis was loading: "running"`. UI:
+  motivo `null` em Build/Run/Debug durante `loading`.
+- **Janela medida.** `lsp.start` → `loading` 0,8 s; `loading` → `ready` 3,5 s (OrderDesk, leaf do host).
+- **Teste.** `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` (recusa durante
+  `loading`, build real depois de `ready`, e a exceção do projeto: com o projeto em `loading` o build
+  **precisa** funcionar) e `only_a_loading_analysis_blocks_the_build`/`the_build_refusal_names_…` na
+  unidade; `tests/unit/executionGates.test.ts` cobre o motivo, a ordem e o projeto sem gate.
+- **Não verificado:** a recarga da análise depois de carregada (o host não a observa — risco residual da
+  spec); o app Tauri real; Windows e macOS Intel. Evidência: `docs/evidence/concurrent-builds.md`.
+
+## A análise não começa durante um build (2026-11-07, #275; achado do code-review)
+
+- **O que mudou.** `analysis_blocked_by_build` (`crates/host/src/lib.rs`) é a outra porta do mesmo
+  contrato: `lsp.start` e `lsp.restart` recusam com `invalid_state` e
+  `A build is running (process {id}); wait for it to finish before starting analysis.` enquanto um
+  build roda. No `lsp.restart` a checagem vem **antes** do `stop_lsp_inner`, senão o restart mataria a
+  sessão viva e falharia em seguida. Na UI, `lspStartBlocker` (ToolchainPanels) devolve
+  `A build is running; wait for it to finish before starting analysis.`, então os botões de análise
+  ficam desabilitados com o motivo e o auto-start espera o build terminar (o efeito não marca a
+  fronteira enquanto o blocker não é `null`).
+- **Por quê.** O code-review de spec apontou a assimetria: sem isso, carregar a solução durante um
+  build roda MSBuild sobre o mesmo `obj/`/`bin/` e reabre a colisão da #275 pelo outro lado.
+- **Teste.** `analysis_is_refused_while_a_build_is_running` (`--test host`, projeto "Hang" com
+  `sleep 30`): `lsp.start` e `lsp.restart` recusam com o motivo e `lsp.state` continua `unavailable`.
+  A checagem vem antes do `still_ready()`, então o teste não depende de csharp-ls instalado.
+- **Não verificado:** o app Tauri real; Windows e macOS Intel.

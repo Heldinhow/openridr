@@ -9,6 +9,7 @@ import {
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { settleDiscovery } from "./automatic";
 import { host } from "./environment";
 
 // Text of the Build/Run/Debug gates in src/executionGates.ts, asserted at real seams.
@@ -30,6 +31,9 @@ async function openTrustedRestored(page: Page) {
   await expect(page.getByTestId("restore-state")).toContainText("Restore succeeded", { timeout: 60_000 });
   await expect(page.getByTestId("eval-restore")).toHaveText("Restored", { timeout: 60_000 });
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 30_000 });
+  // The automatic discovery builds the test project and the gates refuse a build while it runs
+  // (#275), so "enabled" is only true after it settles.
+  await settleDiscovery(page);
   return base;
 }
 

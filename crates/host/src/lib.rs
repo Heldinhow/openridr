@@ -2100,19 +2100,30 @@ impl Host {
         params: Value,
         solution: bool,
     ) -> HostResult<String> {
-        if let Some(process_id) = inner.build.running_process_id() {
-            return Err(HostError::new(
-                "invalid_state",
-                format!(
-                    "A build is already running (process {process_id}). Cancel it before starting another."
-                ),
-            ));
-        }
-        if inner.restore.running_process_id().is_some() {
-            return Err(HostError::new(
-                "invalid_state",
-                "A restore is running; wait for it to finish before building.",
-            ));
+        // One refusal table for every build door: the explicit build, Build Solution and the
+        // implicit build of Run/Debug all arrive here, so the discovery that is building the
+        // test project and the analysis that is still loading the solution are refused in one
+        // place instead of racing them on the same files.
+        //
+        // The analysis only gates a solution workspace: csharp-ls never leaves `loading` on a
+        // project workspace (measured: stuck on `loading project` for minutes at 0% CPU), so
+        // gating it there would keep Build disabled forever. See
+        // docs/evidence/concurrent-builds.md.
+        let solution_workspace = inner
+            .workspace
+            .as_ref()
+            .is_some_and(|workspace| matches!(workspace.kind, WorkspaceKind::Solution));
+        let analysis = match inner.lsp.as_ref().map(|lsp| lsp.state()) {
+            Some(state) if solution_workspace => state,
+            _ => "unavailable",
+        };
+        if let Some(reason) = build::refusal_reason(
+            inner.build.running_process_id(),
+            inner.restore.running_process_id().is_some(),
+            inner.tests.running_process_id(),
+            analysis,
+        ) {
+            return Err(HostError::new("invalid_state", reason));
         }
         let Some(workspace) = inner.workspace.as_ref() else {
             return Err(HostError::new("invalid_state", "No workspace is open."));
@@ -2392,6 +2403,14 @@ impl Host {
                 "invalid_state",
                 format!(
                     "A test discovery is already running (process {process_id}). Cancel it before starting another."
+                ),
+            ));
+        }
+        if let Some(process_id) = inner.build.running_process_id() {
+            return Err(HostError::new(
+                "invalid_state",
+                format!(
+                    "A build is running (process {process_id}); wait for it to finish before discovering tests."
                 ),
             ));
         }
@@ -4563,6 +4582,11 @@ impl Host {
         if let Some(verbose) = verbose {
             inner.lsp_verbose = verbose;
         }
+        // Checked before the stop: a restart during a build must not kill the live session and
+        // then fail to start a new one.
+        if let Some(error) = analysis_blocked_by_build(&inner) {
+            return Err(error);
+        }
         stop_lsp_inner(
             &mut inner,
             "Analysis restarted by the user; the previous session was shut down.",
@@ -4582,6 +4606,9 @@ impl Host {
                     json!({ "action": { "method": "lsp.restart", "params": {} } }),
                 ));
             }
+        }
+        if let Some(error) = analysis_blocked_by_build(inner) {
+            return Err(error);
         }
         if !inner.tools.still_ready() {
             return Err(HostError::with_details(
@@ -7609,6 +7636,20 @@ fn stop_restore(inner: &mut Inner, reason: &str) {
     };
     let status = inner.processes.lock().unwrap().terminate_status(process_id);
     inner.restore.seal(reason, status.as_ref());
+}
+
+/// The other door of the build contract: loading the solution runs MSBuild over the same `obj/`
+/// and `bin/` the build is writing, so the analysis waits for the build to finish instead of
+/// racing it. `None` means the analysis may load.
+fn analysis_blocked_by_build(inner: &Inner) -> Option<HostError> {
+    inner.build.running_process_id().map(|process_id| {
+        HostError::new(
+            "invalid_state",
+            format!(
+                "A build is running (process {process_id}); wait for it to finish before starting analysis."
+            ),
+        )
+    })
 }
 
 /// Shuts the live language server down (shutdown → exit), then makes the registry observe
