@@ -133,6 +133,10 @@ ok   - …/revert-rate.test.sh (0s)
 shell tests: 9 passed, 0 failed under dash (4s)
 ```
 
+A variante `GATE_SHELL=dash` do `ci-risk-gate.test.sh` não precisa ser pedida no job: no ubuntu o `sh`
+**é** o dash, então o gate sob teste já roda sob o `/bin/sh` do runner. Localmente (macOS, `sh` = bash) a
+variante foi rodada à mão, junto com a do `ci-workflow-bootstrap.test.sh`.
+
 Nada ficou de fora no ubuntu: os nove arquivos rodaram. O único `skip -` é interno do
 `git-remote-fixture.test.sh` (o caso do launcher precisa do bundle de debug, que não existe em runner
 nenhum) e o arquivo sai 0, então o runner o conta como `ok` — o skip aparece na saída, não é escondido.
