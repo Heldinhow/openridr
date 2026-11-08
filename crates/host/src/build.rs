@@ -834,6 +834,26 @@ fn normalize(path: &Path) -> PathBuf {
     result
 }
 
+/// Why a new build must not start, in priority order: the build that is already running, the
+/// restore that would rewrite the same assets, then the test discovery that is building the test
+/// project. `None` means nothing is building and the build may start. The analysis branch is a
+/// later ticket; this table stays the single place the refusal order is decided.
+pub fn refusal_reason(build: Option<u64>, restore: bool, discovery: Option<u64>) -> Option<String> {
+    if let Some(process_id) = build {
+        return Some(format!(
+            "A build is already running (process {process_id}). Cancel it before starting another."
+        ));
+    }
+    if restore {
+        return Some("A restore is running; wait for it to finish before building.".to_string());
+    }
+    discovery.map(|process_id| {
+        format!(
+            "A test discovery is building the test project (process {process_id}); wait for it to finish, or cancel the discovery to build now."
+        )
+    })
+}
+
 /// One console project per build; an explicit request may also name an evaluated library or
 /// test project, matching the tree menu's build gate.
 pub fn select_startup<'a>(
@@ -980,6 +1000,34 @@ mod tests {
             Line::Rejected => panic!("line was rejected: {line}"),
             Line::Ignored => panic!("line was not recognized: {line}"),
         }
+    }
+
+    #[test]
+    fn the_build_refusal_names_the_first_running_operation_and_nothing_when_idle() {
+        assert_eq!(refusal_reason(None, false, None), None);
+        assert_eq!(
+            refusal_reason(Some(7), false, None).as_deref(),
+            Some("A build is already running (process 7). Cancel it before starting another.")
+        );
+        assert_eq!(
+            refusal_reason(None, true, None).as_deref(),
+            Some("A restore is running; wait for it to finish before building.")
+        );
+        assert_eq!(
+            refusal_reason(None, false, Some(9)).as_deref(),
+            Some(
+                "A test discovery is building the test project (process 9); wait for it to finish, or cancel the discovery to build now."
+            )
+        );
+        // Order: the explicit build wins over a restore, which wins over the discovery.
+        assert_eq!(
+            refusal_reason(Some(7), true, Some(9)).as_deref(),
+            Some("A build is already running (process 7). Cancel it before starting another.")
+        );
+        assert_eq!(
+            refusal_reason(None, true, Some(9)).as_deref(),
+            Some("A restore is running; wait for it to finish before building.")
+        );
     }
 
     #[test]
