@@ -51,7 +51,9 @@ segundo subprocesso do teste. É por isso que o comando ganhou `-getProperty:NET
 Os `global.json` dos testes e das fixtures estão todos na raiz da workspace que eles abrem
 (`fixtures/MultiConsole` e `fixtures/OrderDesk` pinam na raiz; `fixtures/OutsideSolution/app/global.json`
 fica no diretório da solution), então a suíte inteira é a prova: **658 passed, 0 failed, 71 ignored**,
-com o mesmo número de testes de antes mais o novo.
+com o mesmo número de testes de antes mais o novo. Os 71 `ignored` não ficam de fora: são os leaves
+isolados, que o teste pai roda num processo próprio via `support::run_isolated_leaf` e exige `1 passed`
+no filho — se um deles falha, o pai falha.
 
 A consequência que a mudança cria e a suíte confirma: um projeto **fora** do diretório da solution
 (`fixtures/OutsideSolution/lib`, `outside-app`, `tests`) passa a ser avaliado sob o `global.json` da raiz
@@ -72,10 +74,21 @@ continua verde.
 Chrome não está instalado nesta máquina, por isso `PLAYWRIGHT_CHANNEL=chromium`. Nenhum spec de E2E mudou:
 a mudança é de host e o caso comum (pin na raiz, ou nenhum pin) já era o mesmo antes.
 
+## A falha de `test_run` que apareceu no caminho
+
+Uma das execuções da suíte completa falhou em
+`crates/host/tests/test_run.rs::real_run_reports_trx_outcomes_positions_and_only_the_selected_identity`
+(`test_run.rs:297`, a asserção do `position.path`). É a **segunda observação** da linha que a tabela de
+[`test-stability.md`](test-stability.md) já tem para esse teste (a primeira foi na sessão da #55, mesma
+asserção, `Null` no lugar de `tests/OrderDesk.Tests/OrderTests.cs`); a linha foi atualizada com esta.
+Medido: 1 falha em ~22 execuções do binário `--test test_run` e em 1 de 4 execuções da suíte completa;
+4 execuções do teste sozinho (`--exact`) verdes. A asserção é do mapeamento TRX → posição
+(`position_from_stack`, que usa a raiz da workspace, nunca o `cwd` da avaliação), então não há relação
+com esta mudança; a causa continua não determinada.
+
 ## Não verificado
 
 - **Windows e macOS Intel**, como no resto do produto.
 - **`src-tauri`**: não tocado; o job `rust-tauri` é informativo e não roda aqui.
-- **Uma execução da suíte completa teve 1 falha em `test_run`** que não se repetiu em duas execuções
-  seguintes da suíte nem isolada (`cargo test -p openridr-host --test test_run` → 7 passed); o nome do
-  teste não foi capturado. Não está na tabela de estabilidade e não toca o código mudado.
+- **A causa da falha de `test_run` acima**: o valor recebido na asserção não foi preservado nesta
+  observação; registrado na tabela, não mascarado.

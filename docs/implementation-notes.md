@@ -2316,6 +2316,11 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   --all-targets -- -D warnings` limpo. E2E em modo web (Chromium, portas 1920/4917):
   `tests/e2e/evaluation.spec.ts` + `tests/e2e/sdk-prerequisites.spec.ts` → 14 passed, sem mudança nos
   specs.
-- **Não verificado:** Windows e macOS Intel; `src-tauri` (não tocado, job informativo); uma execução da
-  suíte completa teve 1 falha em `test_run` que não se repetiu em duas execuções seguintes nem isolada,
-  com o nome do teste não capturado — não está na tabela de estabilidade e não toca o código mudado.
+- **A falha de `test_run` que apareceu no caminho.** Uma execução da suíte completa falhou em
+  `real_run_reports_trx_outcomes_positions_and_only_the_selected_identity` (`test_run.rs:297`, o
+  `position.path`): é a segunda observação da linha que a tabela de
+  `docs/evidence/test-stability.md` já tinha para esse teste, e a linha foi atualizada com ela (1 falha
+  em ~22 execuções do binário, 4 execuções do teste sozinho verdes). A asserção é do mapeamento TRX →
+  posição, que usa a raiz da workspace e não o `cwd` da avaliação; a causa segue não determinada.
+- **Não verificado:** Windows e macOS Intel; `src-tauri` (não tocado, job informativo); a causa da falha
+  de `test_run` acima (o valor recebido não foi preservado nesta observação).

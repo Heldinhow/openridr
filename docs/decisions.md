@@ -1992,8 +1992,10 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   dizia `10.0.403` e o `-getProperty:NETCoreSdkVersion` da avaliação respondia `8.0.408`, **sem falhar**.
   A divergência era silenciosa; só o build (que já rodava na raiz) usava o SDK do snapshot.
 - **O que não muda.** `Directory.Build.props`, `obj/`, `bin/` e `TargetPath` são resolvidos pelo caminho
-  do projeto, não pelo `cwd`, então nenhum projeto muda de resultado por causa disso — o único arquivo
-  que o `cwd` decide é o `global.json` que o muxer encontra. Nenhuma leitura fora da workspace, nenhuma
+  do projeto, não pelo `cwd`. O que o `cwd` decide é o `global.json` que o muxer encontra e qualquer
+  expressão do próprio projeto que leia o diretório de trabalho (`$(MSBuildStartupDirectory)` ou uma
+  função de propriedade equivalente) — nenhuma fixture faz isso e a suíte inteira continua verde, mas
+  é um jeito de o resultado mudar que este teste não cobre. Nenhuma leitura fora da workspace, nenhuma
   escrita, nenhuma rede, nenhuma dependência, nenhum subprocesso a mais.
 - **Projeto fora do diretório da solução muda de SDK.** Antes ele era avaliado no próprio diretório e o
   muxer resolvia o maior SDK estável; agora é avaliado sob o `global.json` da raiz, como restore/build/
@@ -2001,7 +2003,9 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   #289 (que admite o diretório do projeto de fora) não muda.
 - **O log passa a nomear o SDK.** O comando da avaliação ganhou `-getProperty:NETCoreSdkVersion`, então
   o log de cada projeto diz qual SDK o avaliou — a pergunta que #310 e #313 não conseguiam responder
-  olhando o resultado. Nenhuma propriedade nova no modelo e nenhuma mudança de UI.
+  olhando o resultado. Vale enquanto o log não é truncado: `cap_log` guarda os **últimos** 32k
+  caracteres, então num projeto com muitos itens a lista de `Compile`/`PackageReference` pode empurrar
+  as propriedades para fora do log. Nenhuma propriedade nova no modelo e nenhuma mudança de UI.
 - **Consequência.** `crates/host/src/evaluation.rs` (`invoke` recebe a raiz), `crates/host/src/lib.rs`
   (sai o `shortcut:` de `resolve_without_pin`) e um teste de fronteira em `crates/host/tests/host.rs`.
   Nenhum `data-testid` tocado.
