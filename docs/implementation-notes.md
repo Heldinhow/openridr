@@ -2035,7 +2035,10 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Janela medida.** Projeto (CrashApp, host de verdade): `lsp.start` → `loading` ~2 s; `loading` →
   `ready` ~4 s, com `Finished loading solution ".../analysis/CrashApp.sln"` no log.
 - **Teste.** `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` cobre o projeto
-  (recusa durante `loading`, build real depois) e `tests/unit/executionGates.test.ts` perdeu o caso
-  "projeto não espera".
-- **Não verificado:** o app Tauri real; E2E (nenhum spec cobre o gate da análise); projeto com
-  `ProjectReference`; Windows e macOS Intel. Evidência: `docs/evidence/project-workspace-analysis.md`.
+  (recusa durante `loading`, `ready` depois, build real) e `tests/unit/executionGates.test.ts` perdeu o
+  caso "projeto não espera". Na UI, `build.spec.ts` ganhou
+  `the build gate names the analysis loading a project workspace` (CrashApp + `lsp.restart` → motivo no
+  `build-disabled-reason`, Build/Run desabilitados, gate liberando e build concluindo).
+- **Não verificado:** o app Tauri real; projeto com `ProjectReference`; Windows e macOS Intel. O E2E da
+  área rodou à mão (build 4 passed duas vezes, run 5 passed, execution-gates 4 passed), mas não roda em
+  PR. Evidência: `docs/evidence/project-workspace-analysis.md`.

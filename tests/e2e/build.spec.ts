@@ -25,9 +25,9 @@ function tempCopy(name: string) {
   return { base, copy };
 }
 
-async function openTrustedEvaluated(page: Page, copy: string) {
+async function openTrustedEvaluated(page: Page, copy: string, file = "OrderDesk.sln") {
   await page.goto("/");
-  await page.getByTestId("workspace-path-input").fill(path.join(copy, "OrderDesk.sln"));
+  await page.getByTestId("workspace-path-input").fill(path.join(copy, file));
   await page.getByTestId("workspace-open").click();
   await page.getByTestId("trust-prompt-trust").click();
   await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
@@ -62,6 +62,9 @@ async function replaceProgram(page: Page, text: string) {
 // The reason the gates show while the automatic discovery builds the test project (#275).
 const discoveryReason =
   "Test discovery is building the test project; wait for it to finish or cancel the discovery.";
+// The reason they show while csharp-ls loads the workspace (#286).
+const analysisReason =
+  "Analysis is loading the solution; wait for it to finish or stop analysis.";
 
 const buildLogLimit = 20_000;
 
@@ -285,6 +288,50 @@ test("the build gate names the automatic discovery before the click", async ({ p
     await expect(page.getByTestId("build-solution")).toBeEnabled();
     await expect(page.getByTestId("run-action")).toBeEnabled();
     await expect(page.getByTestId("run-disabled-reason")).toHaveCount(0);
+    await page.getByTestId("build-action").click();
+    await expectBuildState(page, "Build succeeded", 60_000);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("the build gate names the analysis loading a project workspace", async ({ page }) => {
+  // A project workspace loads through a solution the host generates (#299); the analysis gate
+  // applies there like it does for a solution, so Build/Run/Debug wait for the same window.
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "openridr-build-project-"));
+  const copy = path.join(base, "Crash App");
+  fs.cpSync(path.resolve(process.cwd(), "fixtures/CrashApp"), copy, {
+    recursive: true,
+    filter: (source) => !/[\\/](bin|obj)([\\/]|$)/.test(source),
+  });
+  try {
+    await openTrustedEvaluated(page, copy, "CrashApp.csproj");
+    await settleDiscovery(page);
+    // The analysis starts by itself; the restart below is what owns the loading window. Trust
+    // evaluates the project, so the loaded analysis reports partial coverage instead of ready.
+    await expect(page.getByTestId("lsp-state")).toHaveText(/Ready|Partial coverage/, {
+      timeout: 120_000,
+    });
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-disabled-reason")).toHaveCount(0);
+
+    // Measured window: `starting` ~1 s, `loading` ~2 s, then `Finished loading solution`.
+    await page.evaluate(async () => {
+      await fetch("/__host/call", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ method: "lsp.restart", params: {} }),
+      });
+    });
+    await expect(page.getByTestId("build-disabled-reason")).toHaveText(analysisReason);
+    await expect(page.getByTestId("build-action")).toBeDisabled();
+    await expect(page.getByTestId("build-action")).toHaveAttribute("title", analysisReason);
+    await expect(page.getByTestId("run-action")).toBeDisabled();
+
+    // The snapshot re-enables the gate on its own once the analysis loads; the build then runs.
+    await expect(page.getByTestId("build-disabled-reason")).toHaveCount(0, {
+      timeout: 120_000,
+    });
     await page.getByTestId("build-action").click();
     await expectBuildState(page, "Build succeeded", 60_000);
   } finally {
