@@ -1800,6 +1800,95 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   relógio, verde com o contador. Assinatura, formato e local de `trusted.json` não mudam; nenhuma
   dependência nova. Evidência: `docs/evidence/atomic-tmp-name.md`.
 
+## 2026-11-07 — Build explícito recusa enquanto a automação do app constrói (issue #275)
+
+- **Decisão.** `build.start`, `build.solution` e o build implícito de Run/Debug recusam com
+  `invalid_state` e motivo nomeado enquanto a descoberta automática de testes roda ou enquanto a análise
+  está carregando a solução. A recusa é a mesma do restore ("wait for it to finish before building"), e o
+  motivo diz qual automação está construindo e qual é a saída (cancelar a descoberta, parar a análise). A
+  simetria também vale nas duas portas da automação: `tests.discover` recusa enquanto um build roda, e
+  `lsp.start`/`lsp.restart` recusam enquanto um build roda — senão a análise reabriria a mesma colisão
+  pelo outro lado.
+- **Por que recusar, não enfileirar.** Enfileirar (o clique não se perde) exigiria estado novo no build,
+  gatilho no fim da descoberta, cancelamento e invalidação por workspace/contexto/trust/restore: um build
+  enfileirado que sobrevive a uma troca de workspace é um bug novo. O ganho sobre recusar é o clique que
+  não se repete, e o custo é superfície nova num caminho que hoje é só uma checagem.
+- **Por que a análise só bloqueia enquanto carrega.** O estado da análise vai a `loading` no `initialize`
+  aceito e sai no `Finished loading solution` do csharp-ls (~5 s medidos no OrderDesk, 3 projetos, nesta
+  máquina). Depois disso o `BuildHost` continua vivo mas não constrói: bloquear mais seria bloquear sem
+  causa. A recarga que o csharp-ls faz sozinho depois de carregada não é observável pelo host e fica como
+  risco residual escrito na evidência.
+- **Por que a tabela de motivos é uma função pura.** A ordem (build > restore > descoberta > análise
+  carregando) é contrato, não detalhe: quem vem primeiro decide qual motivo o usuário lê. Fora do corpo
+  de `start_build_locked`, ela é testável sem csharp-ls real e sem workspace.
+- **Consequência.** issue #275 (a spec é o corpo da issue-mãe); evidência em
+  `docs/evidence/concurrent-builds.md`; o gate de UI em `executionGates.ts` ganha teste de unidade em
+  `tests/unit/` (o E2E não roda em PR); os specs que afirmam "enabled" logo depois de restaurar passam a
+  esperar a descoberta com o `settleDiscovery` da #251. Nenhum `data-testid` novo, nenhuma dependência
+  nova, nenhum estado novo na UI.
+
+## 2026-11-08 — A análise de workspace de projeto carrega por uma solução gerada (issue #299)
+
+- **Decisão.** Para um workspace de projeto (`.csproj` aberto direto), o host escreve uma solução mínima
+  em `<app home>/analysis/<nome>-<16 hex do sha256 do caminho>.sln` nomeando o projeto aberto e lança o csharp-ls com
+  `--solution <essa solução>` — o mesmo caminho do workspace de solução. Com isso o projeto sai de
+  `loading` como a solução, e o gate da #275 volta a valer para os dois tipos: `start_build_locked` não
+  olha mais o tipo do workspace e `analysisLoading` em `executionGates.ts` também não.
+- **Por que não consertar a descoberta do csharp-ls.** A descoberta de projetos do próprio servidor trava
+  dentro de `MSBuildWorkspace.OpenProjectAsync` e nunca retorna (0.28.0: log parado em `loading project`,
+  processo a 0% de CPU, sem filho `dotnet`/BuildHost; o mesmo projeto via `--solution` carrega em ~4 s).
+  O código é do upstream e o mesmo defeito está na `master` de hoje: o host não corrige o servidor, só
+  escolhe o caminho que funciona.
+- **Por que uma solução gerada e não o `.csproj` no `--solution`.** `--solution` passa por
+  `SolutionFile.Parse`; um `.csproj` ali falha no parse, o servidor fica defunto e nunca emite
+  `Finished loading solution` — a análise ficaria em `loading` do mesmo jeito.
+- **Por que no app home.** O arquivo é do app, não do usuário: um `.sln` ao lado do `.csproj` poluiria o
+  repositório dele. A solução nomeia o projeto por caminho absoluto, então a distância entre os dois não
+  importa, e o arquivo é reescrito a cada `lsp.start`. O digest do caminho no nome separa dois projetos de
+  mesmo nome em pastas diferentes, e um caminho com aspa ou quebra de linha é recusado com
+  `operation_failed` — o `.sln` não tem como representá-lo, e recusar é melhor que escrever um arquivo que
+  o csharp-ls não consegue ler.
+- **Consequência.** `lsp.solution` passa a ser preenchido também no workspace de projeto (caminho da
+  solução gerada; a UI não o renderiza). Evidência em
+  `docs/evidence/project-workspace-analysis.md`; `docs/evidence/concurrent-builds.md` deixa de registrar a
+  exceção. O leaf `build_is_refused_while_the_analysis_is_loading_the_solution_isolated` cobre o projeto
+  (recusa durante `loading`, build real depois) e o teste de unidade do gate perde o caso "projeto não
+  espera".
+## 2026-11-08 — Consulta de árvore que falha é repetida com limite, não tratada como resposta vazia (issue #264, ticket #281)
+
+- **Decisão.** As três consultas de marcador da Solution Explorer (`git.ignored`,
+  `workspace.symlinks`, `workspace.symbolKinds`) repetem o lote que falhou até três tentativas no
+  total — a original mais duas, com 200 ms e 400 ms (`TREE_QUERY_RETRY_DELAYS_MS`, em
+  `src/treeQueryRetry.ts`). A repetição não acontece quando o pedido já foi substituído (workspace,
+  revisão do Git ou caminhos visíveis mudaram), nem antes nem depois da espera. Depois do último
+  fracasso o laço **continua** para o lote seguinte em vez de abandonar o resto; o que os lotes
+  anteriores provaram fica pintado e o lote perdido fica sem marcador, como hoje.
+- **Por que repetir e não manter a resposta anterior.** Manter o marcador antigo contrariaria a
+  decisão já registrada no código ("a missing marker is safer than a wrong one") e não ajudaria a
+  primeira consulta de um workspace, que não tem resposta anterior. A repetição cobre os dois casos:
+  a resposta que não chegou e a que chegaria errada.
+- **Por que o helper é um módulo e tem teste unitário.** A spec pedia helper local e prova só no E2E,
+  porque o repo não tem teste de componente React. A política é compartilhada pelas três consultas e
+  o unitário (`tests/unit/treeQueryRetry.test.ts`) é a prova determinística dela — três tentativas,
+  as esperas, o aborto por substituição — sem host, dotnet ou navegador; o E2E fica com o contrato
+  visível.
+- **O efeito segue o id do pedido, não o objeto.** Achado da revisão: o poll de `workspace.state`
+  (400 ms) substitui o snapshot, `views` é recalculado e o memo do pedido devolve um objeto novo com o
+  mesmo `treeQueryId`; o efeito re-rodava, cancelava a repetição que esperava e descartava os lotes
+  que já tinham respondido — o critério "os marcadores já provados ficam pintados" não valia na
+  prática. Com a dependência no `id` (string) e os caminhos lidos de um ref, a consulta roda uma vez
+  por identidade, que é o contrato que os comentários do arquivo já prometiam. Isso fecha também a
+  [#300](https://github.com/Heldinhow/openridr/issues/300) (a árvore re-consultava a cada poll), que
+  entrou nesta frente porque sem ela a repetição não sobrevive ao render seguinte. A limpeza de
+  estado na troca de identidade do pedido continua como estava.
+- **A resposta malformada de um lote é lote perdido.** Array que não é array, ou elemento que não é
+  objeto/string, é descartado em vez de virar exceção não observada fora do `try` do helper — o
+  processamento da resposta deixou de estar dentro do `catch` que existia antes do retry.
+- **Consequência.** `src/treeQueryRetry.ts` (novo), `src/SolutionTree.tsx`, 6 testes unitários e 4
+  E2E em `tests/e2e/solution-git-status.spec.ts` (três da repetição, um da #300 contando chamadas por
+  identidade); evidência em `docs/evidence/tree-query-retry.md`. Nenhum `data-testid` renomeado,
+  nenhuma dependência nova, nenhuma mudança no host.
+
 ## 2026-11-07 — Sem `global.json`, o projeto resolve o maior SDK instalado que atenda ao TargetFramework (issue #289)
 
 - **A decisão.** `sdk.project` deixa de responder "o que o `global.json` pede" e passa a responder "qual

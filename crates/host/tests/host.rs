@@ -5005,6 +5005,126 @@ fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isola
     );
 }
 
+/// The analysis blocks the build only while it loads the solution: during `loading`, `build.start`
+/// refuses with the reason that names "Stop analysis" and starts no process; once csharp-ls logs
+/// `Finished loading solution`, the same build really runs.
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn build_is_refused_while_the_analysis_is_loading_the_solution_isolated() {
+    let _forced = EnvVar::remove("OPENRIDR_FORCE_HOSTROOT");
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk analysis gate");
+    let host = support::host();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    ensure_tool(&host);
+    host.dispatch("evaluation.run", json!({})).unwrap();
+    host.dispatch("restore.start", json!({})).unwrap();
+    let restore = wait_for_restore(&host, Duration::from_secs(120));
+    assert_eq!(restore["state"], "ok", "{}", restore["log"]);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(evaluated["evaluation"]["state"], "ok");
+
+    // The measured window from the accepted `initialize` to `Finished loading solution` is
+    // seconds on this solution, so the 20 ms poll of `wait_lsp` observes `loading`.
+    let started_at = Instant::now();
+    let started = host.dispatch("lsp.start", json!({})).unwrap();
+    assert_eq!(started["lsp"]["state"], "starting");
+    let loading = wait_lsp(&host, Duration::from_secs(60), &["loading"]);
+    assert_eq!(loading["state"], "loading");
+    let loading_at = Instant::now();
+
+    let refused = match host.dispatch("build.start", json!({})) {
+        Ok(state) => panic!(
+            "build.start started while the analysis was loading: {}",
+            state["build"]["state"]
+        ),
+        Err(error) => error,
+    };
+    assert_eq!(refused.code, "invalid_state");
+    assert_eq!(
+        refused.message,
+        "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."
+    );
+    let state = snapshot(&host);
+    assert_eq!(state["build"]["state"], "idle");
+    assert!(
+        state["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|process| !process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("build:"))),
+        "a build process was started during the analysis: {}",
+        state["processes"]
+    );
+
+    // Loaded analysis (`ready`/`partial`/`awaiting_diagnostics`) never blocks: the same build starts
+    // and finishes for real.
+    let loaded = wait_lsp(
+        &host,
+        Duration::from_secs(120),
+        &["ready", "partial", "awaiting_diagnostics", "failed"],
+    );
+    assert_ne!(loaded["state"], "failed", "{}", loaded["log"]);
+    eprintln!(
+        "analysis window: start -> loading {:?}, loading -> loaded {:?}",
+        loading_at - started_at,
+        Instant::now() - loading_at
+    );
+    let started = host.dispatch("build.start", json!({})).unwrap();
+    assert_eq!(started["build"]["state"], "running", "{}", started["build"]);
+    let build = wait_for_build(&host, Duration::from_secs(180));
+    assert_eq!(build["state"], "ok", "{}", build["log"]);
+    assert_eq!(build["exit"], 0, "{}", build["log"]);
+
+    // A project workspace loads the same way (#299): csharp-ls hangs forever when it discovers
+    // project files by itself, so the host hands it a generated solution and the gate applies
+    // there too.
+    let crash = temp.path().join("Crash App analysis gate");
+    copy_tree(
+        &fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/CrashApp"))
+            .unwrap(),
+        &crash,
+    );
+    open(&host, &crash.join("CrashApp.csproj"));
+    grant(&host);
+    host.dispatch("restore.start", json!({})).unwrap();
+    let restore = wait_for_restore(&host, Duration::from_secs(120));
+    assert_eq!(restore["state"], "ok", "{}", restore["log"]);
+    let evaluated = host.dispatch("evaluation.run", json!({})).unwrap();
+    assert_eq!(evaluated["evaluation"]["state"], "ok");
+    host.dispatch("lsp.start", json!({})).unwrap();
+    let project_loading = wait_lsp(&host, Duration::from_secs(60), &["loading"]);
+    assert_eq!(project_loading["state"], "loading");
+    let refused = match host.dispatch("build.start", json!({})) {
+        Ok(state) => panic!(
+            "build.start started while the project analysis was loading: {}",
+            state["build"]["state"]
+        ),
+        Err(error) => error,
+    };
+    assert_eq!(refused.code, "invalid_state");
+    assert_eq!(
+        refused.message,
+        "Analysis is loading the solution (csharp-ls); wait for it to finish, or stop analysis to build now."
+    );
+    // No document is open, so the loaded project analysis is `ready`, not `awaiting_diagnostics`.
+    let project_loaded = wait_lsp(&host, Duration::from_secs(120), &["ready", "failed"]);
+    assert_eq!(
+        project_loaded["state"], "ready",
+        "{}",
+        project_loaded["log"]
+    );
+    let started = host.dispatch("build.start", json!({})).unwrap();
+    assert_eq!(started["build"]["state"], "running", "{}", started["build"]);
+    let build = wait_for_build(&host, Duration::from_secs(180));
+    assert_eq!(build["state"], "ok", "{}", build["log"]);
+    let _ = host.dispatch("lsp.stop", json!({}));
+}
+
 /// Stub launcher: answers `--version` like csharp-ls 0.28.0, then rejects `initialize` with an SDK message on stderr and idles.
 #[cfg(unix)]
 const REJECTING_LAUNCHER: &str = r#"#!/bin/sh
@@ -5701,6 +5821,44 @@ fn cancelling_a_real_hanging_build_reports_requested_and_observed_termination() 
         error_code(host.dispatch("build.cancel", json!({}))),
         "invalid_state"
     );
+}
+
+/// The other door of the same contract: loading the solution runs MSBuild over the same files, so
+/// the analysis never starts while a build is running. Checked before the tool, so the refusal
+/// does not depend on csharp-ls being installed.
+#[cfg(unix)]
+#[test]
+fn analysis_is_refused_while_a_build_is_running() {
+    let temp = hanging_build_workspace();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let host = support::host();
+    ready_for_build(&host, &root);
+    let started = host.dispatch("build.start", json!({})).unwrap();
+    let process_id = started["build"]["processId"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("no build process: {}", started["build"]));
+    wait_for_build_output(&host, "Slow.dll", Duration::from_secs(30));
+
+    for method in ["lsp.start", "lsp.restart"] {
+        let refused = match host.dispatch(method, json!({})) {
+            Ok(state) => panic!(
+                "{method} started while a build was running: {}",
+                state["lsp"]
+            ),
+            Err(error) => error,
+        };
+        assert_eq!(refused.code, "invalid_state", "{method}: {refused}");
+        assert_eq!(
+            refused.message,
+            format!(
+                "A build is running (process {process_id}); wait for it to finish before starting analysis."
+            ),
+            "{method}"
+        );
+    }
+    assert_eq!(snapshot(&host)["lsp"]["state"], "unavailable");
+
+    host.dispatch("build.cancel", json!({})).unwrap();
 }
 
 #[cfg(unix)]
@@ -7472,6 +7630,14 @@ fn lsp_start_requires_tool_sdk_and_current_restore() {
 fn lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke() {
     support::run_isolated_leaf(
         "lsp_loads_the_real_solution_republishes_diagnostics_and_stops_on_revoke_isolated",
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn build_is_refused_while_the_analysis_is_loading_the_solution() {
+    support::run_isolated_leaf(
+        "build_is_refused_while_the_analysis_is_loading_the_solution_isolated",
     );
 }
 

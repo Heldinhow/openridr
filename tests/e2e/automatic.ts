@@ -26,17 +26,29 @@ async function discoverySnapshot(page: Page) {
     data: { method: "workspace.state", params: {} },
   });
   const body = await response.json();
-  return body.data.tests.discovery as { revision: number; state: string };
+  const data = body.data;
+  const discovery = data.tests.discovery as { revision: number; state: string };
+  // A workspace with no evaluated test project never discovers: the automatic discovery is only
+  // started when exactly one test project is available. Fixtures like CrashApp are settled from
+  // the start, so the poll must not wait for a revision that will never come.
+  const evaluation = data.evaluation as { state: string; projects: { kind: string; state: string }[] };
+  const evaluated = ["ok", "partial"].includes(evaluation.state);
+  const testProject = (evaluation.projects ?? []).some(
+    (project) => project.kind === "test" && project.state === "ok",
+  );
+  return { ...discovery, evaluated, testProject };
 }
 
 /** Waits for the automatic discovery to finish: it builds the test project, so a build started
  * while it runs can collide on the same output file (#251). A workspace with no test project
- * never discovers, and the poll times out instead of passing silently. */
+ * never discovers; it is settled as soon as the evaluation says so. */
 export async function settleDiscovery(page: Page) {
   await expect
     .poll(
       async () => {
         const discovery = await discoverySnapshot(page);
+        if (!discovery.evaluated) return `evaluating:${discovery.state}`;
+        if (!discovery.testProject) return "settled";
         return discovery.revision >= 1 && discovery.state !== "discovering"
           ? "settled"
           : `${discovery.state}:${discovery.revision}`;
