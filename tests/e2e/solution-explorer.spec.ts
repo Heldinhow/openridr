@@ -110,6 +110,9 @@ test("a directory level that fails to list is asked again and shows its children
   const root = tempCopy();
   fs.mkdirSync(path.join(root, "docs"));
   fs.writeFileSync(path.join(root, "docs/notes.md"), "# notes\n");
+  // The first read of the level under test fails once. Failing the page's very first
+  // `workspace.tree` (the root level) instead would pass even with the bug: the "Show all files"
+  // reload re-reads every open level, which is the escape hatch this fix removes.
   let failed = 0;
   await page.route("**/call", async (route) => {
     const body = route.request().postDataJSON() as { method: string; params?: { dir?: string } };
