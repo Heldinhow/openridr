@@ -7,6 +7,8 @@ import { openToolchain } from "./disclosures";
 // .NET 10 runtime that runs csharp-ls. The host decides; these tests read the rendered answer.
 const solution = path.resolve("fixtures/OrderDesk/OrderDesk.sln");
 const missingProject = path.resolve("fixtures/MissingSdk/MissingSdk.csproj");
+// A net10.0 project with no global.json: the TargetFramework is the SDK requirement.
+const net10NoPin = path.resolve("fixtures/Net10NoPin/Net10NoPin.csproj");
 
 // Mirrors sdk::AnalysisRuntime::from_runtimes(&[]) (crates/host/src/sdk.rs, guarded by a unit
 // test). A real runtime-10 root cannot be hidden from the shared E2E host, so the snapshot is
@@ -33,7 +35,20 @@ async function openViaHost(page: Page, target: string) {
   await page.goto("/");
 }
 
+async function setupState(page: Page) {
+  const response = await page.request.post(`${host}/call`, {
+    data: { method: "app.state", params: {} },
+  });
+  return ((await response.json()) as { data: { setup: { state: string } } }).data.setup.state;
+}
+
 async function trustViaHost(page: Page) {
+  // A workspace opened through the host does not run the setup gate, and the direct grant is
+  // refused until the host reports the verified tools ready.
+  if ((await setupState(page)) !== "ready") {
+    await page.request.post(`${host}/call`, { data: { method: "setup.start", params: {} } });
+    await expect.poll(() => setupState(page), { timeout: 120_000 }).toBe("ready");
+  }
   await page.request.post(`${host}/call`, {
     data: { method: "trust.grant", params: { remember: false } },
   });
@@ -80,6 +95,41 @@ test("a project pinned to SDK 8.0.408 with the .NET 10 runtime shows no prerequi
   await expect(page.getByTestId("sdk-host-instructions")).toHaveCount(0);
   await expect(page.getByTestId("sdk-project")).toContainText("SDK 8.0.408");
   await expect(page.getByTestId("sdk-project")).toContainText("global.json requests 8.0.408");
+});
+
+test("a net10 project without global.json resolves the installed SDK 10", async ({
+  page,
+  request,
+}) => {
+  await openViaHost(page, net10NoPin);
+  const opened = await call(request, "workspace.state");
+  const detected: string[] = opened.data.sdk.project.detected;
+  test.skip(
+    !detected.some((version) => version.startsWith("10.")),
+    "this machine has no SDK 10; a net10.0 project cannot resolve here",
+  );
+  await trustViaHost(page);
+
+  const state = await call(request, "workspace.state");
+  const project = state.data.sdk.project;
+  expect(project.state).toBe("resolved");
+  expect(project.requirement.source).toBe("target_framework");
+  expect(project.requirement.line).toBe("10.0");
+  expect(project.requirement.version).toBeNull();
+  expect(project.globalJsonPath).toBeNull();
+  expect(project.requestedVersion).toBeNull();
+  expect(project.resolvedVersion).toMatch(/^10\./);
+  expect(project.detected[0]).toBe(project.resolvedVersion);
+  expect(project.message).toBeNull();
+
+  await expect(page.getByTestId("welcome-sdk-warning")).toHaveCount(0);
+  await openToolchain(page);
+  const card = page.getByTestId("sdk-project");
+  await expect(card).toContainText(`SDK ${project.resolvedVersion}`);
+  await expect(card).toContainText("requires SDK 10.0 or newer");
+  // Nothing is missing, so nothing complains about global.json.
+  await expect(card).not.toContainText("No global.json");
+  await expect(card).not.toContainText("Project SDK missing");
 });
 
 test("a missing project SDK names the pinned version and links the SDK page, never the runtime", async ({

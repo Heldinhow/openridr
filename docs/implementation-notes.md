@@ -35,7 +35,10 @@ A UI nunca executa processo. Toda operação passa por `dispatch(method, params)
   "outline": { "source": "text", "projects": [...], "globalJson": {...} },
   "trust": { "granted": false, "workspaceId": null, "decidedAt": null, "revokedAt": null },
   "sdk": { "host": {"state":"found|missing","version","root","sdkPath","instructionsUrl","message"},
-           "project": {"state":"no_workspace|not_inspected|resolved|sdk_missing|no_global_json|not_pinned|invalid_global_json",
+           "project": {"state":"no_workspace|not_inspected|resolved|sdk_missing|invalid_global_json",
+                       "requirement": {"source":"global_json|target_framework|none","version","line",
+                                       "rollForward","allowPrerelease"},
+                       "detected": ["10.0.403", "8.0.408"],
                        "globalJsonPath","requestedVersion","rollForward","allowPrerelease",
                        "resolvedVersion","root","sdkPath","instructionsUrl","message"},
            "roots": [{"root","source","versions":[{"version","path"}],"exit","error"}],
@@ -1927,3 +1930,45 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Não verificado:** a corrida no app real (a prova é o teste de threads do host); E2E (nenhum spec
   escreve estado do host em paralelo, e a mudança não tem superfície de UI); Windows e macOS Intel.
   Evidência: `docs/evidence/atomic-tmp-name.md`.
+
+## Sem pin, o projeto resolve o SDK instalado que atende ao TargetFramework (2026-11-08, #289; ticket #302)
+
+- **O que mudou.** `crates/host/src/sdk.rs` ganhou `SdkRequirement` (`source` = `global_json` |
+  `target_framework` | `none`, `version`, `line`, `rollForward`, `allowPrerelease`), `detected` no
+  `ProjectSdk`, a derivação por TFM (`tfm_sdk_line`/`requirement_line`) e a resolução sem pin
+  (`resolve_unpinned`: maior estável que atende, prerelease só quando é o único, maior estável quando
+  não há requisito). `ProjectSdk::no_global_json`/`not_pinned` saíram; no lugar entraram
+  `resolved_unpinned`/`missing_unpinned`. `crates/host/src/lib.rs`: `inspect_project_sdk` deriva a
+  linha de `outline_tfms(&workspace.outline)` quando não há pin (ou quando o `global.json` não declara
+  `sdk.version`) e delega a `resolve_without_pin`; o `detected` é carimbado no `snapshot()` a partir do
+  inventário, então `sdk.redetect` e as versões reportadas nunca discordam. Os gates de
+  evaluation/restore/build/run/debug/test/analysis não mudaram: continuam exigindo `resolved`, e agora
+  existe `resolved` sem pin. UI: `ProjectSdkBody` perdeu os casos `no_global_json`/`not_pinned` e passa
+  a renderizar `requirement` (o host decide, a UI só escreve a frase); `sdkSummary` e a nota
+  `eval-disabled-reason` nomeiam o requisito em vez de culpar o `global.json`. Nenhum `data-testid`
+  removido, nenhuma dependência nova, nenhuma escrita em `global.json`.
+- **Falha-antes medida.** Com `crates/host/src/` do `9b2beb6` e os testes novos de fronteira:
+  `cargo test -p openridr-host --test host -- a_project_without_global_json an_impossible_pin` →
+  2 failed (`left: "no_global_json"`, `right: "resolved"`; e `requirement` = `null`). Com a mudança:
+  2 passed. O mesmo caminho é o que a barra de status e a nota da árvore liam: um projeto `net8.0` sem
+  `global.json` nesta máquina (SDK 8.0.408 e 10.0.403 em `~/.dotnet`) resolve para 10.0.403 e avalia.
+- **Bateria.** `cargo test -p openridr-host`: 639 passed, 0 failed, 70 ignored (479 unit + 113 de
+  `host.rs` + 47 dos outros binários); `--lib sdk::` 23 passed (8 novos: derivação por TFM, multi-TFM,
+  resolução sem pin, prerelease só quando único, mensagem de `sdk_missing`, os três `source` e o
+  camelCase de `requirement`/`detected`). `cargo fmt --all --check` e
+  `cargo clippy --workspace --all-targets -D warnings` limpos; `bunx tsc --noEmit` limpo;
+  `bun test tests/unit` 139 passed. E2E (Chromium, portas 2920/5917):
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts tests/e2e/evaluation.spec.ts` → 11 passed,
+  incluindo o cenário "presente" novo (`fixtures/Net10NoPin/`, sem `global.json`, resolve 10.0.403) e o
+  teste reescrito de `evaluation.spec.ts` (projeto `net8.0` sem pin: sem nota, `status-sdk` com o SDK
+  escolhido, avaliação automática até `Evaluated`).
+- **O helper `trustViaHost` do `sdk-prerequisites.spec.ts` agora espera o setup.** Medido no `9b2beb6`:
+  o spec falhava 2 de 3 na máquina fria (e 3 de 3 com o cenário novo) porque `workspace.close` zera
+  `debugger_experimental`, então o `trust.grant` direto volta `setup_required` até o host rodar o setup
+  de novo — o caminho pela UI espera o gate, o caminho direto não. O helper dispara `setup.start` e
+  espera `app.state.setup.state == "ready"` antes do grant; não é backdoor de teste, é o mesmo método
+  que a tela de setup usa.
+- **Não verificado:** Windows e macOS Intel; app Tauri real (mudança de host + UI pura, coberta por
+  Playwright em modo web); a tela de download do SDK e o "Check again" são dos tickets #303/#304 e não
+  existem aqui; `sdk_missing` sem SDK nenhum instalado não foi exercitado numa máquina sem SDK (só pelo
+  teste unitário de `resolve_unpinned` com `installs` vazio).

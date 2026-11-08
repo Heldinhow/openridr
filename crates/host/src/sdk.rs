@@ -69,10 +69,70 @@ pub struct AnalysisRuntime {
     pub bundled: bool,
 }
 
+/// Where the project's SDK requirement comes from: the global.json pin, the declared
+/// TargetFramework, or nothing at all.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdkRequirement {
+    pub source: &'static str,
+    /// The exact pinned version; only when `source` is `global_json`.
+    pub version: Option<String>,
+    /// The SDK line the requirement names ("8.0", "10.0"); `None` when `source` is `none`.
+    pub line: Option<String>,
+    /// global.json as written: the `patch` default belongs to the view, not to this field.
+    pub roll_forward: Option<String>,
+    pub allow_prerelease: Option<bool>,
+}
+
+impl SdkRequirement {
+    fn none() -> Self {
+        Self {
+            source: "none",
+            version: None,
+            line: None,
+            roll_forward: None,
+            allow_prerelease: None,
+        }
+    }
+
+    fn pinned(request: &GlobalJsonRequest) -> Self {
+        Self {
+            source: "global_json",
+            version: request.version.clone(),
+            line: request.version.as_deref().and_then(version_line),
+            roll_forward: request.roll_forward.clone(),
+            allow_prerelease: request.allow_prerelease,
+        }
+    }
+
+    /// Without a pin the line comes from the TargetFramework; no line means no requirement.
+    fn target_framework(line: Option<&str>) -> Self {
+        Self {
+            source: if line.is_some() {
+                "target_framework"
+            } else {
+                "none"
+            },
+            version: None,
+            line: line.map(str::to_string),
+            roll_forward: None,
+            allow_prerelease: None,
+        }
+    }
+}
+
+fn version_line(version: &str) -> Option<String> {
+    let version = Version::parse(version)?;
+    Some(format!("{}.{}", version.major, version.minor))
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSdk {
     pub state: &'static str,
+    pub requirement: SdkRequirement,
+    /// Every installed SDK version, highest first; filled by the snapshot from the inventory.
+    pub detected: Vec<String>,
     pub global_json_path: Option<String>,
     pub requested_version: Option<String>,
     pub roll_forward: Option<String>,
@@ -96,6 +156,8 @@ impl ProjectSdk {
     fn empty(state: &'static str, message: impl Into<String>) -> Self {
         Self {
             state,
+            requirement: SdkRequirement::none(),
+            detected: Vec::new(),
             global_json_path: None,
             requested_version: None,
             roll_forward: None,
@@ -118,6 +180,10 @@ impl ProjectSdk {
     pub fn not_inspected(global_json: Option<&GlobalJsonRequest>) -> Self {
         Self {
             state: "not_inspected",
+            requirement: global_json
+                .map(SdkRequirement::pinned)
+                .unwrap_or_else(SdkRequirement::none),
+            detected: Vec::new(),
             global_json_path: global_json.map(|request| request.path.clone()),
             requested_version: global_json.and_then(|request| request.version.clone()),
             roll_forward: global_json.and_then(|request| request.roll_forward.clone()),
@@ -132,31 +198,6 @@ impl ProjectSdk {
         }
     }
 
-    pub fn no_global_json() -> Self {
-        Self::empty(
-            "no_global_json",
-            "No global.json at the workspace root: no project SDK is pinned. OpenRidr does not substitute the .NET 10 analysis runtime.",
-        )
-    }
-
-    pub fn not_pinned(path: &str) -> Self {
-        Self {
-            state: "not_pinned",
-            global_json_path: Some(path.to_string()),
-            requested_version: None,
-            roll_forward: None,
-            allow_prerelease: None,
-            resolved_version: None,
-            root: None,
-            sdk_path: None,
-            instructions_url: SDK_INSTRUCTIONS_URL,
-            message: Some(
-                "global.json does not declare sdk.version, so this build does not claim a project SDK."
-                    .to_string(),
-            ),
-        }
-    }
-
     pub fn invalid(path: &str, message: impl Into<String>) -> Self {
         let mut view = Self::empty("invalid_global_json", message);
         view.global_json_path = Some(path.to_string());
@@ -166,6 +207,8 @@ impl ProjectSdk {
     pub fn resolved(request: &GlobalJsonRequest, install: &Install) -> Self {
         Self {
             state: "resolved",
+            requirement: SdkRequirement::pinned(request),
+            detected: Vec::new(),
             global_json_path: Some(request.path.clone()),
             requested_version: request.version.clone(),
             roll_forward: Some(
@@ -187,9 +230,52 @@ impl ProjectSdk {
         }
     }
 
+    /// Resolved with no pin: the requirement came from the TargetFramework (or from nothing).
+    pub fn resolved_unpinned(line: Option<&str>, install: &Install) -> Self {
+        let prerelease = Version::parse(&install.version).is_some_and(|v| v.prerelease.is_some());
+        Self {
+            state: "resolved",
+            requirement: SdkRequirement::target_framework(line),
+            detected: Vec::new(),
+            global_json_path: None,
+            requested_version: None,
+            roll_forward: None,
+            allow_prerelease: None,
+            resolved_version: Some(install.version.clone()),
+            root: Some(install.root.to_string_lossy().to_string()),
+            sdk_path: Some(install.path.clone()),
+            instructions_url: SDK_INSTRUCTIONS_URL,
+            message: prerelease.then(|| {
+                format!(
+                    "Project SDK {} is a prerelease: no stable installed SDK satisfies this project.",
+                    install.version
+                )
+            }),
+        }
+    }
+
+    pub fn missing_unpinned(line: Option<&str>, message: impl Into<String>) -> Self {
+        Self {
+            state: "sdk_missing",
+            requirement: SdkRequirement::target_framework(line),
+            detected: Vec::new(),
+            global_json_path: None,
+            requested_version: None,
+            roll_forward: None,
+            allow_prerelease: None,
+            resolved_version: None,
+            root: None,
+            sdk_path: None,
+            instructions_url: SDK_INSTRUCTIONS_URL,
+            message: Some(message.into()),
+        }
+    }
+
     pub fn missing(request: &GlobalJsonRequest, message: impl Into<String>) -> Self {
         Self {
             state: "sdk_missing",
+            requirement: SdkRequirement::pinned(request),
+            detected: Vec::new(),
             global_json_path: Some(request.path.clone()),
             requested_version: request.version.clone(),
             roll_forward: Some(
@@ -713,6 +799,101 @@ pub fn resolve(
     })
 }
 
+/// The SDK line a TargetFramework asserts. `netN.0` with N >= 5 names SDK N.x or newer and the
+/// platform suffix is ignored (`net10.0-windows10.0.19041.0` still names 10); `netstandard*`,
+/// `netcoreapp*`, `net4x` and anything unknown assert no requirement.
+pub fn tfm_sdk_line(tfm: &str) -> Option<u64> {
+    let rest = tfm.trim().to_ascii_lowercase();
+    let (major, tail) = rest.strip_prefix("net")?.split_once('.')?;
+    if major.is_empty() || !major.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let minor_end = tail
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(tail.len());
+    if minor_end == 0 {
+        return None;
+    }
+    let after = &tail[minor_end..];
+    if !(after.is_empty() || after.starts_with('-')) {
+        return None;
+    }
+    let major: u64 = major.parse().ok()?;
+    (major >= 5).then_some(major)
+}
+
+/// The highest line the declared TargetFrameworks assert, as the snapshot's `requirement.line`.
+pub fn requirement_line(tfms: &[String]) -> Option<String> {
+    tfms.iter()
+        .filter_map(|tfm| tfm_sdk_line(tfm))
+        .max()
+        .map(|major| format!("{major}.0"))
+}
+
+/// Every installed version, highest first, once per version: two roots may ship the same one.
+pub fn detected_versions(installs: &[Install]) -> Vec<String> {
+    let mut versions: Vec<(Version, String)> = installs
+        .iter()
+        .filter_map(|install| Some((Version::parse(&install.version)?, install.version.clone())))
+        .collect();
+    versions.sort_by(|(left, _), (right, _)| right.cmp(left));
+    let mut detected: Vec<String> = Vec::new();
+    for (_, version) in versions {
+        if !detected.contains(&version) {
+            detected.push(version);
+        }
+    }
+    detected
+}
+
+/// Without a pin the selection follows the muxer itself: the highest installed SDK that satisfies
+/// the line, a prerelease only when it is the only one that does, and the highest stable install
+/// when the project asserts no requirement.
+pub fn resolve_unpinned(line: Option<&str>, installs: &[Install]) -> Result<Install, String> {
+    let required = line.and_then(|line| line.split('.').next()?.parse::<u64>().ok());
+    let mut candidates: Vec<(&Install, Version)> = installs
+        .iter()
+        .filter_map(|install| {
+            let version = Version::parse(&install.version)?;
+            if required.is_some_and(|major| version.major < major) {
+                return None;
+            }
+            Some((install, version))
+        })
+        .collect();
+    candidates.sort_by(|(left_install, left), (right_install, right)| {
+        right
+            .cmp(left)
+            .then_with(|| left_install.root.cmp(&right_install.root))
+    });
+    candidates
+        .iter()
+        .find(|(_, version)| version.prerelease.is_none())
+        .or_else(|| candidates.first())
+        .map(|(install, _)| (*install).clone())
+        .ok_or_else(|| unpinned_missing_message(required, installs))
+}
+
+fn unpinned_missing_message(required: Option<u64>, installs: &[Install]) -> String {
+    let detected = detected_versions(installs);
+    let detected = if detected.is_empty() {
+        "none".to_string()
+    } else {
+        detected.join(", ")
+    };
+    let requirement = required
+        .map(|major| format!("SDK {major}.0 or newer"))
+        .unwrap_or_else(|| "any SDK".to_string());
+    if installs.is_empty() {
+        return format!(
+            "No .NET SDK was detected in any root (detected: none); the project needs {requirement}. OpenRidr does not install an SDK and does not substitute the .NET 10 analysis runtime."
+        );
+    }
+    format!(
+        "No detected .NET SDK satisfies the TargetFramework requirement ({requirement}) (detected: {detected}). OpenRidr does not install an SDK and does not substitute the .NET 10 analysis runtime."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -838,6 +1019,185 @@ mod tests {
         let resolved = resolve("8.0.408", Some("latestPatch"), None, &detected).unwrap();
         assert_eq!(resolved.version, "8.0.416");
         assert_eq!(resolved.root, PathBuf::from("/b"));
+    }
+
+    #[test]
+    fn target_framework_names_the_sdk_line_or_nothing() {
+        assert_eq!(tfm_sdk_line("net10.0"), Some(10));
+        assert_eq!(tfm_sdk_line("net8.0-windows"), Some(8));
+        assert_eq!(tfm_sdk_line("net10.0-windows10.0.19041.0"), Some(10));
+        assert_eq!(tfm_sdk_line("NET10.0"), Some(10));
+        for tfm in [
+            "netstandard2.0",
+            "netcoreapp3.1",
+            "net472",
+            "net4.7.2",
+            "net4.0",
+            "net",
+            "net10",
+            "net10.",
+            "net10.x",
+            "unknown",
+            "",
+        ] {
+            assert_eq!(tfm_sdk_line(tfm), None, "{tfm} asserts no requirement");
+        }
+    }
+
+    #[test]
+    fn requirement_line_is_the_highest_declared_tfm() {
+        let tfms = |items: &[&str]| items.iter().map(|tfm| tfm.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            requirement_line(&tfms(&["net8.0"])),
+            Some("8.0".to_string())
+        );
+        assert_eq!(
+            requirement_line(&tfms(&["net8.0", "net10.0-windows", "netstandard2.0"])),
+            Some("10.0".to_string())
+        );
+        assert_eq!(requirement_line(&tfms(&["netstandard2.0", "net472"])), None);
+        assert_eq!(requirement_line(&[]), None);
+    }
+
+    #[test]
+    fn without_a_pin_the_highest_satisfying_stable_install_wins() {
+        let detected = installs(&[("8.0.408", "/sdks/8"), ("10.0.403", "/home")]);
+        let resolved = resolve_unpinned(Some("8.0"), &detected).unwrap();
+        assert_eq!(resolved.version, "10.0.403");
+        assert_eq!(resolved.root, PathBuf::from("/home"));
+
+        // A higher major satisfies a lower line, never the other way around.
+        assert!(resolve_unpinned(Some("11.0"), &detected).is_err());
+        let only_ten = installs(&[("10.0.403", "/home")]);
+        assert_eq!(
+            resolve_unpinned(Some("10.0"), &only_ten).unwrap().version,
+            "10.0.403"
+        );
+    }
+
+    #[test]
+    fn without_a_pin_a_prerelease_is_used_only_when_nothing_stable_satisfies() {
+        let mixed = installs(&[("9.0.100", "/nine"), ("10.0.100-preview.1", "/pre")]);
+        assert_eq!(
+            resolve_unpinned(Some("10.0"), &mixed).unwrap().version,
+            "10.0.100-preview.1"
+        );
+        let stable_also_satisfies =
+            installs(&[("10.0.403", "/home"), ("11.0.100-preview.1", "/pre")]);
+        assert_eq!(
+            resolve_unpinned(Some("10.0"), &stable_also_satisfies)
+                .unwrap()
+                .version,
+            "10.0.403"
+        );
+
+        // No requirement: the highest stable install, a prerelease only when it is all there is.
+        let no_requirement = installs(&[("10.0.403", "/home"), ("11.0.100-preview.1", "/pre")]);
+        assert_eq!(
+            resolve_unpinned(None, &no_requirement).unwrap().version,
+            "10.0.403"
+        );
+        let only_prerelease = installs(&[("11.0.100-preview.1", "/pre")]);
+        assert_eq!(
+            resolve_unpinned(None, &only_prerelease).unwrap().version,
+            "11.0.100-preview.1"
+        );
+    }
+
+    #[test]
+    fn without_a_pin_the_missing_message_names_the_requirement_and_the_detected_versions() {
+        let none_installed = resolve_unpinned(Some("10.0"), &[]).unwrap_err();
+        assert!(
+            none_installed.contains("detected: none"),
+            "{none_installed}"
+        );
+        assert!(
+            none_installed.contains("SDK 10.0 or newer"),
+            "{none_installed}"
+        );
+        assert!(
+            !none_installed.contains("does not satisfy"),
+            "{none_installed}"
+        );
+
+        let too_old = installs(&[("8.0.408", "/sdks/8")]);
+        let unsatisfied = resolve_unpinned(Some("10.0"), &too_old).unwrap_err();
+        assert!(unsatisfied.contains("detected: 8.0.408"), "{unsatisfied}");
+        assert!(unsatisfied.contains("SDK 10.0 or newer"), "{unsatisfied}");
+        assert!(unsatisfied.contains("does not substitute the .NET 10 analysis runtime"));
+
+        let no_requirement = resolve_unpinned(None, &[]).unwrap_err();
+        assert!(
+            no_requirement.contains("detected: none"),
+            "{no_requirement}"
+        );
+    }
+
+    #[test]
+    fn requirement_source_is_the_pin_the_target_framework_or_nothing() {
+        let request = GlobalJsonRequest {
+            path: "global.json".to_string(),
+            version: Some("8.0.408".to_string()),
+            roll_forward: Some("disable".to_string()),
+            allow_prerelease: None,
+        };
+        let pinned = ProjectSdk::resolved(&request, &installs(&[("8.0.408", "/sdks/8")])[0]);
+        assert_eq!(pinned.requirement.source, "global_json");
+        assert_eq!(pinned.requirement.version.as_deref(), Some("8.0.408"));
+        assert_eq!(pinned.requirement.line.as_deref(), Some("8.0"));
+        assert_eq!(pinned.requirement.roll_forward.as_deref(), Some("disable"));
+
+        let unpinned =
+            ProjectSdk::resolved_unpinned(Some("10.0"), &installs(&[("10.0.403", "/home")])[0]);
+        assert_eq!(unpinned.state, "resolved");
+        assert_eq!(unpinned.requirement.source, "target_framework");
+        assert_eq!(unpinned.requirement.version, None);
+        assert_eq!(unpinned.requirement.line.as_deref(), Some("10.0"));
+        assert_eq!(unpinned.global_json_path, None);
+        assert_eq!(unpinned.requested_version, None);
+        assert_eq!(unpinned.roll_forward, None);
+        assert_eq!(unpinned.allow_prerelease, None);
+        assert_eq!(unpinned.message, None);
+
+        let no_requirement =
+            ProjectSdk::resolved_unpinned(None, &installs(&[("10.0.403", "/home")])[0]);
+        assert_eq!(no_requirement.requirement.source, "none");
+        assert_eq!(no_requirement.requirement.line, None);
+
+        let missing = ProjectSdk::missing_unpinned(Some("10.0"), "nothing satisfies");
+        assert_eq!(missing.state, "sdk_missing");
+        assert_eq!(missing.requirement.source, "target_framework");
+        assert_eq!(missing.requirement.line.as_deref(), Some("10.0"));
+        assert_eq!(missing.resolved_version, None);
+    }
+
+    #[test]
+    fn a_prerelease_selection_says_so_in_the_message() {
+        let install = installs(&[("11.0.100-preview.1", "/pre")]);
+        let resolved = ProjectSdk::resolved_unpinned(Some("10.0"), &install[0]);
+        let message = resolved.message.as_deref().unwrap();
+        assert!(message.contains("prerelease"), "{message}");
+        assert!(message.contains("11.0.100-preview.1"), "{message}");
+    }
+
+    #[test]
+    fn the_snapshot_carries_requirement_and_detected_in_camel_case() {
+        let mut view =
+            ProjectSdk::resolved_unpinned(Some("10.0"), &installs(&[("10.0.403", "/home")])[0]);
+        view.detected = detected_versions(&installs(&[
+            ("8.0.408", "/a"),
+            ("10.0.403", "/b"),
+            ("8.0.408", "/c"),
+        ]));
+        let value = serde_json::to_value(&view).unwrap();
+        assert_eq!(value["requirement"]["source"], "target_framework");
+        assert_eq!(value["requirement"]["line"], "10.0");
+        assert_eq!(value["requirement"]["version"], serde_json::json!(null));
+        assert_eq!(
+            value["detected"],
+            serde_json::json!(["10.0.403", "8.0.408"])
+        );
+        assert_eq!(value["state"], "resolved");
     }
 
     #[test]

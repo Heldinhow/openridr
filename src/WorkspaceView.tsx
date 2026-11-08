@@ -3512,7 +3512,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       disabledReason:
         projectSdk.state === "sdk_missing" || projectSdk.state === "invalid_global_json"
           ? null
-          : "global.json is valid or no project SDK is pinned.",
+          : "There is no global.json problem to open.",
     }),
     define({
       id: "workspace.close",
@@ -4137,14 +4137,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     projectSdk.state === "resolved"
       ? `Project SDK ${projectSdk.resolvedVersion}`
       : projectSdk.state === "sdk_missing"
-        ? `Project SDK missing (${projectSdk.requestedVersion ?? "pinned"})`
+        ? `Project SDK missing (${
+            projectSdk.requirement.version ??
+            projectSdk.requirement.line ??
+            "no SDK detected"
+          })`
         : projectSdk.state === "not_inspected"
           ? "Project SDK not inspected"
-          : projectSdk.state === "no_global_json"
-            ? "No pinned project SDK"
-            : projectSdk.state === "not_pinned"
-              ? "Project SDK not pinned"
-              : "Project SDK unresolved"
+          : "Project SDK unresolved"
   }`;
 
   const allDiagnostics = collectDiagnostics(snapshot.diagnostics, build, buildObsolete, editedAt);
@@ -4649,11 +4649,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               ) : projectSdk.state === "sdk_missing" ? (
                 <>
                   <p>
-                    {projectSdk.globalJsonPath ?? "global.json"} requests{" "}
-                    {projectSdk.requestedVersion ?? "a pinned SDK"}. OpenRidr detects SDKs but
-                    never installs one or substitutes the .NET 10 analysis runtime. Install that
-                    SDK (or change global.json) and redetect.
+                    {projectSdk.requirement.source === "global_json"
+                      ? `${projectSdk.globalJsonPath ?? "global.json"} requests ${
+                          projectSdk.requestedVersion ?? "a pinned SDK"
+                        }. `
+                      : projectSdk.requirement.line
+                        ? `The declared TargetFramework requires SDK ${projectSdk.requirement.line} or newer. `
+                        : "The project declares no SDK requirement. "}
+                    OpenRidr detects SDKs but never installs one.
                   </p>
+                  <p className="muted">{projectSdk.message}</p>
                   <div className="actions">
                     <button data-testid="eval-redetect" onClick={() => void redetectSdks()}>
                       Redetect SDKs
@@ -4676,8 +4681,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               ) : (
                 <p>
                   {projectSdk.message ?? "No project SDK is resolved."} Evaluation, build and run
-                  need a project SDK from global.json or the declared TargetFramework; fix or add
-                  global.json.
+                  need a resolved project SDK.
                 </p>
               )}
             </div>

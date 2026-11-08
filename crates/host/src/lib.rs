@@ -44,7 +44,7 @@ use scope::Scope;
 
 use outline::build_outline;
 use process::Registry;
-use sdk::{AnalysisRuntime, GlobalJsonRequest, Inventory, ProjectSdk, SdkRoot};
+use sdk::{AnalysisRuntime, GlobalJsonRequest, Install, Inventory, ProjectSdk, SdkRoot};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -1024,9 +1024,12 @@ impl Host {
             }
         }
         let inventory = inner.inventory.as_ref().expect("inventory was initialized");
+        let mut project_sdk = inner.project_sdk.clone();
+        // Always the current inventory, so a redetect and the versions it reports never disagree.
+        project_sdk.detected = sdk::detected_versions(&inventory.installs);
         let sdk = SdkView {
             host: AnalysisRuntime::for_analysis(&inventory.runtimes),
-            project: inner.project_sdk.clone(),
+            project: project_sdk,
             roots: inventory.roots.clone(),
             inspected_at: Some(inventory.inspected_at),
         };
@@ -7999,9 +8002,11 @@ fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
     let Some(inventory) = inner.inventory.as_ref() else {
         return ProjectSdk::no_workspace();
     };
+    // Without a pin the declared TargetFrameworks are the requirement; the highest line wins.
+    let line = sdk::requirement_line(&outline_tfms(&workspace.outline));
     let global_path = workspace.root.join("global.json");
     let Ok(canonical) = fs::canonicalize(&global_path) else {
-        return ProjectSdk::no_global_json();
+        return resolve_without_pin(line.as_deref(), &inventory.installs);
     };
     if !canonical.starts_with(&workspace.root) {
         return ProjectSdk::invalid("global.json", "global.json resolves outside the workspace.");
@@ -8041,11 +8046,18 @@ fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
         allow_prerelease,
     };
     let Some(version) = version else {
-        return ProjectSdk::not_pinned("global.json");
+        return resolve_without_pin(line.as_deref(), &inventory.installs);
     };
     match sdk::resolve(version, roll_forward, allow_prerelease, &inventory.installs) {
         Ok(install) => ProjectSdk::resolved(&request, &install),
         Err(message) => ProjectSdk::missing(&request, message),
+    }
+}
+
+fn resolve_without_pin(line: Option<&str>, installs: &[Install]) -> ProjectSdk {
+    match sdk::resolve_unpinned(line, installs) {
+        Ok(install) => ProjectSdk::resolved_unpinned(line, &install),
+        Err(message) => ProjectSdk::missing_unpinned(line, message),
     }
 }
 

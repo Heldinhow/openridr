@@ -21,6 +21,21 @@ export function ProjectSdkBody({
       }`
     : null;
   const declared = tfms.length > 0 ? tfms.join(", ") : null;
+  // The host decides the requirement; this only words it. A project with no pin is not a
+  // problem: the TargetFramework is the requirement.
+  const requirement =
+    project.requirement.source === "target_framework"
+      ? `Not pinned: the declared TargetFramework${
+          declared ? ` (${declared})` : ""
+        } requires SDK ${project.requirement.line} or newer`
+      : project.requirement.source === "none"
+        ? "Not pinned and no TargetFramework requirement: the highest installed stable SDK is used"
+        : null;
+  const openGlobalJson = project.globalJsonPath ? (
+    <button type="button" data-testid="sdk-open-global-json" onClick={onOpenGlobalJson}>
+      Open global.json
+    </button>
+  ) : null;
 
   switch (project.state) {
     case "resolved":
@@ -29,9 +44,10 @@ export function ProjectSdkBody({
           <strong className="success">SDK {project.resolvedVersion}</strong>{" "}
           <span className="tag">resolved after trust · not a build</span>
           <p>
-            {pin}
+            {pin ?? requirement}
             {project.allowPrerelease ? " · prerelease allowed" : ""}.
           </p>
+          {project.message && <p data-testid="sdk-project-message">{project.message}</p>}
           <p className="muted">
             Resolved root: <code>{project.root}</code>
             <br />
@@ -45,14 +61,11 @@ export function ProjectSdkBody({
           <strong className="error">Project SDK missing</strong>
           <p data-testid="sdk-project-message">{project.message}</p>
           <p>
-            {pin ?? "global.json does not declare an SDK version."} Install that SDK or change
-            global.json yourself; this build does neither and never substitutes the .NET 10
-            analysis runtime.
+            {pin ?? requirement}. Install that SDK yourself; this build never installs one and
+            never substitutes the .NET 10 analysis runtime.
           </p>
           <p>{installLink}</p>
-          <button type="button" data-testid="sdk-open-global-json" onClick={onOpenGlobalJson}>
-            Open global.json
-          </button>
+          {openGlobalJson}
         </>
       );
     case "invalid_global_json":
@@ -63,25 +76,7 @@ export function ProjectSdkBody({
           <p>
             OpenRidr treats global.json as text and never rewrites it. {installLink}
           </p>
-          <button type="button" data-testid="sdk-open-global-json" onClick={onOpenGlobalJson}>
-            Open global.json
-          </button>
-        </>
-      );
-    case "not_pinned":
-      return (
-        <>
-          <strong>Not pinned</strong>
-          <p data-testid="sdk-project-message">{project.message}</p>
-          <p>
-            {declared
-              ? `The declared TargetFramework (${declared}) decides which SDK MSBuild needs. `
-              : "The project TargetFramework decides which SDK MSBuild needs. "}
-            Add sdk.version to global.json to pin it explicitly.
-          </p>
-          <button type="button" data-testid="sdk-open-global-json" onClick={onOpenGlobalJson}>
-            Open global.json
-          </button>
+          {openGlobalJson}
         </>
       );
     case "not_inspected":
@@ -93,19 +88,6 @@ export function ProjectSdkBody({
             analysis runtime is never used as its substitute.
           </p>
           {pin && <p className="muted">{pin} (read as text).</p>}
-        </>
-      );
-    case "no_global_json":
-      return (
-        <>
-          <strong>No global.json</strong>
-          <p data-testid="sdk-project-message">{project.message}</p>
-          <p>
-            {declared
-              ? `Without a pin, the declared TargetFramework (${declared}) decides which SDK MSBuild needs. `
-              : "Without a pin, the project TargetFramework decides which SDK MSBuild needs. "}
-            Add global.json to resolve one explicitly.
-          </p>
         </>
       );
     case "no_workspace":
