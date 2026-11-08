@@ -17,7 +17,21 @@ A fresh worktree needs its own `bun install`. Some checks require additional too
 
 ## Find and propose work
 
-Browse [good first issues](https://github.com/Heldinhow/openridr/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) and [help wanted issues](https://github.com/Heldinhow/openridr/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22). Read the issue, comments, linked specification and any blockers before starting; check that it is unassigned and ask on the issue if its scope is unclear. For new work, discuss or open an issue first so the approach can be agreed before a PR.
+Browse [good first issues](https://github.com/Heldinhow/openridr/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) and [help wanted issues](https://github.com/Heldinhow/openridr/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22). The two labels mean different things:
+
+- **good first issue** — small and self-contained, with no product-code risk surface. A good place to
+  start if this is your first contribution.
+- **help wanted** — the maintainer wants outside help and the issue is fully specified, but it may
+  touch product code or CI, and its pull request can be high risk. The label says the work is welcome,
+  not that the merge is automatic.
+
+The labeled issues were checked for scope, blockers and whether someone is already working on them.
+That check is a snapshot: the issue is the source of truth, so read it and its comments, and comment on
+the issue to claim it before you start. The risk tier of the pull request that closes an issue is
+explained in [CI and risk](#ci-and-risk) below; it depends on the paths the PR changes, not on the
+label.
+
+For new work, discuss or open an issue first so the approach can be agreed before a PR.
 
 ## From issue to pull request
 
