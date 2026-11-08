@@ -23,6 +23,7 @@ function context(patch: {
     },
     debug: { os: "macos", arch: "aarch64", adapterState: "ready", gateReason: null, adapterMessage: "", appleSiliconExperimental: true, ...patch.debug },
     app: { platform: "macos", arch: "arm64", ...patch.app },
+    tests: { discovery: { state: "idle" } },
     lsp: { state: "ready" },
     workspace: { kind: "solution" },
   } as unknown as Snapshot;
