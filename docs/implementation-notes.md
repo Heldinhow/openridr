@@ -2268,3 +2268,31 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   (o `e2e-smoke-issue.sh` só age sobre issue aberta), então a prova não mexeu em estado
   compartilhado.
 - **Não verificado:** Windows e macOS Intel; Chrome real (a máquina e o runner só têm Chromium).
+
+## O snapshot pergunta ao muxer qual SDK ele resolve (2026-11-08, #310)
+
+- **O que mudou.** `crates/host/src/sdk.rs`: `muxer_version(root, cwd)` roda `<raiz>/dotnet --version`
+  com o `cwd` e o mesmo env dos outros filhos (`DOTNET_ROOT`, `DOTNET_MULTILEVEL_LOOKUP=0`, saída em
+  inglês, sem telemetria) e devolve a versão que o muxer resolve; `satisfies_line(line, version)` diz
+  se ela ainda atende a linha do TargetFramework; `required_line` passou a ser a única leitura da
+  linha (usada pela seleção e pela checagem). `crates/host/src/lib.rs`: `resolve_without_pin` usa
+  `resolve_unpinned` só para escolher a raiz, pergunta a versão ao muxer dessa raiz e reporta **essa**;
+  se ela não atende a linha, o estado é `sdk_missing` com a versão do muxer na mensagem. O `shortcut:`
+  que registrava a divergência saiu. O caminho com pin não mudou.
+- **Falha-antes medida (host).** Com `git stash push -- crates/host/src`, os dois testes novos falham:
+  `the_snapshot_names_the_sdk_the_muxer_resolves_not_its_own_rule` com `left: "10.0.403"` (a regra)
+  contra `right: "8.0.408"` (o muxer) e `a_muxer_pin_that_misses_the_requirement_is_sdk_missing` com
+  `left: "resolved"` contra `right: "sdk_missing"`. Medido também à mão antes de qualquer código: com
+  `global.json` acima da workspace fixando `8.0.408` e projeto `net10.0`, `dotnet --version` em `app/`
+  responde `8.0.408`, a avaliação (`-getProperty`) passa e o `dotnet build` falha com `NETSDK1045`.
+- **Bateria.** `cargo test -p openridr-host`: 657 passed, 0 failed, 70 ignored (490 unit + 118 de
+  `host.rs` + 41 dos outros binários); `--lib -- sdk::` 30 passed; `--test host -- sdk` 12 passed, 3
+  ignored (leaves isolados). `cargo fmt --all` limpo; `cargo clippy --workspace --all-targets -- -D
+  warnings` limpo. E2E (Chromium, portas 2320/5317):
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts` → 7 passed, sem mudança no spec.
+- **Não verificado:** o caso do prerelease mais novo que o maior estável (não há prerelease instalado
+  nesta máquina e instalar um é decisão do usuário); os caminhos de erro de `muxer_version` (exigiriam
+  um muxer falso); um `global.json` **entre** a raiz da workspace e o diretório do projeto, que segue
+  divergindo da avaliação (registrado como `shortcut:` em `resolve_without_pin` e na issue #313);
+  Windows e macOS Intel; app Tauri real (mudança só de host, coberta pela fronteira e pelo Playwright
+  em modo web).

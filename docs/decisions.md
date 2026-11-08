@@ -1935,3 +1935,42 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   fronteira em `crates/host/tests/host.rs` e `tests/e2e/sdk-prerequisites.spec.ts`. Nenhuma dependência
   nova, nenhum `data-testid` removido, nenhuma instalação automática e nenhuma escrita em `global.json`
   ou no PATH.
+
+## 2026-11-08 — O snapshot pergunta ao muxer qual SDK ele resolve, em vez de prever (issue #310)
+
+- **A decisão.** Sem pin, `sdk.project.resolvedVersion` deixa de ser o resultado da regra do host
+  (`resolve_unpinned`) e passa a ser a resposta do **mesmo muxer que executa o MSBuild**:
+  `<raiz>/dotnet --version` com `cwd` na raiz do workspace e o mesmo `DOTNET_ROOT`/
+  `DOTNET_MULTILEVEL_LOOKUP=0` dos outros filhos. A regra continua existindo só para escolher **qual
+  raiz** é consultada; quem responde é o muxer.
+- **Motivo.** As duas regras concordam no caso comum e divergem em dois: um `global.json` **acima** da
+  raiz do workspace (o host só lê `<raiz>/global.json`, o muxer sobe a árvore) e um prerelease mais
+  novo que o maior estável instalado na mesma raiz. Medido nesta máquina (`~/.dotnet` com 8.0.408 e
+  10.0.403): com `global.json` em `/tmp/X` fixando `8.0.408` e um projeto `net10.0` em `/tmp/X/app`
+  sem `global.json` próprio, `dotnet --version` em `app/` responde `8.0.408`, a avaliação (`-getProperty`)
+  **passa** e o `dotnet build` falha com `NETSDK1045` — a tela dizia `10.0.403` e o build rodava `8.0.408`.
+- **A resposta do muxer também decide o estado.** Se ela não satisfaz a linha do TargetFramework, o
+  estado é `sdk_missing` com a versão que o muxer resolve na mensagem, em vez de `resolved` seguido de
+  build quebrado. Era a metade "ou falha, mesmo com `state == \"resolved\"`" do problema.
+- **Substitui parcialmente** "Sem `global.json`, o projeto resolve o maior SDK instalado que atenda ao
+  TargetFramework" (2026-11-07, #289): o bullet "sem pin, a resolução escolhe o maior SDK estável
+  instalado que satisfaça o requisito" deixa de ser o que a tela reporta — a regra passa a escolher só
+  a raiz consultada e quem responde é o muxer. **Continuam valendo** daquela entrada: o requisito vem
+  do pin ou do TargetFramework, `sdk_missing` é o único estado de falha, a URL é montada no host sem
+  rede e a UI não recalcula regra.
+- **O que não muda.** O caminho com pin (`<raiz>/global.json` com `sdk.version`) continua resolvendo
+  pela regra do host e o pin continua tendo precedência; `evaluation.rs` continua chamando
+  `dotnet msbuild` (nenhuma mudança em como o MSBuild é invocado); nenhuma leitura de arquivo fora da
+  workspace, nenhuma escrita em `global.json`/PATH, nenhuma instalação, nenhuma rede, nenhuma
+  dependência nova. `sdk.project` continua sendo um valor por workspace.
+- **Custo.** Uma chamada `dotnet --version` (~0,2 s medidos) por trust e por `sdk.redetect`, no lugar
+  de uma previsão. Se o muxer não inicia ou não responde uma versão, o estado é `sdk_missing` com o
+  motivo: sem muxer não há build de qualquer forma.
+- **Limite conhecido (registrado como `shortcut:` em `resolve_without_pin`).** O muxer é consultado na
+  raiz do workspace, que é o `cwd` de restore/build/run/test; a avaliação roda no diretório do projeto,
+  então um `global.json` **entre** a raiz e o diretório do projeto ainda diverge. Fechar isso exige
+  mudar o `cwd` da avaliação (decisão de 2026-10-28), então ficou na issue #313.
+- **Consequência.** `crates/host/src/sdk.rs` (`muxer_version`, `satisfies_line`, remoção do `shortcut:`
+  de `resolve_unpinned`), `crates/host/src/lib.rs` (`resolve_without_pin`), dois testes de fronteira em
+  `crates/host/tests/host.rs` e um unitário de `satisfies_line`. Nenhum `data-testid` tocado, nenhuma
+  mudança de UI.

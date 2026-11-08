@@ -4,7 +4,7 @@ use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SDK_INSTRUCTIONS_URL: &str = "https://dotnet.microsoft.com/download/dotnet";
@@ -318,7 +318,7 @@ impl ProjectSdk {
             instructions_url: SDK_INSTRUCTIONS_URL,
             message: prerelease.then(|| {
                 format!(
-                    "Project SDK {} is a prerelease: no stable installed SDK satisfies this project.",
+                    "Project SDK {} is a prerelease: the .NET muxer resolves it for this workspace.",
                     install.version
                 )
             }),
@@ -539,6 +539,59 @@ fn run_muxer(root: &Path, arg: &str) -> std::io::Result<std::process::Output> {
         .env("DOTNET_NOLOGO", "1")
         .env("DOTNET_CLI_UI_LANGUAGE", "en")
         .output()
+}
+
+/// The SDK version the muxer at `root` resolves when it runs with `cwd`. The muxer looks for
+/// `global.json` from the working directory upwards and applies its own policy, so this is the
+/// only answer that matches what MSBuild will use.
+pub fn muxer_version(root: &Path, cwd: &Path) -> Result<String, String> {
+    let output = Command::new(root.join(dotnet_exe()))
+        .arg("--version")
+        .current_dir(cwd)
+        .env("DOTNET_ROOT", root)
+        .env("DOTNET_MULTILEVEL_LOOKUP", "0")
+        .env("DOTNET_CLI_UI_LANGUAGE", "en")
+        .env("DOTNET_NOLOGO", "1")
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| {
+            format!(
+                "The .NET muxer at {} could not be started: {error}",
+                root.to_string_lossy()
+            )
+        })?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = first_line(&stderr)
+            .or_else(|| first_line(&stdout))
+            .unwrap_or_else(|| format!("exit code {}", output.status.code().unwrap_or(-1)));
+        return Err(format!(
+            "The .NET muxer at {} did not report an SDK version: {detail}",
+            root.to_string_lossy()
+        ));
+    }
+    let version = first_line(&stdout).ok_or_else(|| {
+        format!(
+            "The .NET muxer at {} did not report an SDK version.",
+            root.to_string_lossy()
+        )
+    })?;
+    if Version::parse(&version).is_none() {
+        return Err(format!(
+            "The .NET muxer at {} reported `{version}`, which is not an SDK version.",
+            root.to_string_lossy()
+        ));
+    }
+    Ok(version)
+}
+
+fn first_line(text: &str) -> Option<String> {
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
 }
 
 pub fn parse_list_sdks(text: &str) -> Vec<(String, String)> {
@@ -925,15 +978,12 @@ pub fn detected_versions(installs: &[Install]) -> Vec<String> {
     detected
 }
 
-/// Without a pin the selection follows the muxer itself: the highest installed SDK that satisfies
-/// the line, a prerelease only when it is the only one that does, and the highest stable install
-/// when the project asserts no requirement.
-// shortcut: this names the SDK the snapshot reports, while MSBuild still runs through the root's
-// muxer, which resolves global.json (including one above the workspace) and prereleases by its own
-// rule. They agree while the workspace root is the nearest global.json and no prerelease is newer
-// than the highest stable; upgrade by asking the muxer for the version it resolves in the project.
+/// Without a pin this picks *which root's muxer is asked*: the highest installed SDK that
+/// satisfies the line, a prerelease only when it is the only one that does, and the highest stable
+/// install when the project asserts no requirement. The caller reports the muxer's answer, not
+/// this pick.
 pub fn resolve_unpinned(line: Option<&str>, installs: &[Install]) -> Result<Install, String> {
-    let required = line.and_then(|line| line.split('.').next()?.parse::<u64>().ok());
+    let required = required_line(line);
     let mut candidates: Vec<(&Install, Version)> = installs
         .iter()
         .filter_map(|install| {
@@ -955,6 +1005,21 @@ pub fn resolve_unpinned(line: Option<&str>, installs: &[Install]) -> Result<Inst
         .or_else(|| candidates.first())
         .map(|(install, _)| (*install).clone())
         .ok_or_else(|| unpinned_missing_message(required, installs))
+}
+
+/// Whether `version` satisfies the TargetFramework line (`net10.0` → 10.x or newer). No line
+/// asserts no requirement, so anything satisfies it.
+pub fn satisfies_line(line: Option<&str>, version: &str) -> bool {
+    let Some(required) = required_line(line) else {
+        return true;
+    };
+    Version::parse(version).is_some_and(|version| version.major >= required)
+}
+
+/// The SDK major line a requirement names (`"10.0"` → 10). One reading of the line, shared by
+/// the selection and the check that the muxer's answer still meets it.
+fn required_line(line: Option<&str>) -> Option<u64> {
+    line.and_then(|line| line.split('.').next()?.parse::<u64>().ok())
 }
 
 fn unpinned_missing_message(required: Option<u64>, installs: &[Install]) -> String {
@@ -1240,6 +1305,15 @@ mod tests {
             no_requirement.contains("detected: none"),
             "{no_requirement}"
         );
+    }
+
+    #[test]
+    fn satisfies_line_accepts_the_line_major_or_newer() {
+        assert!(satisfies_line(None, "10.0.403"));
+        assert!(satisfies_line(Some("10.0"), "10.0.403"));
+        assert!(!satisfies_line(Some("10.0"), "9.0.100"));
+        assert!(satisfies_line(Some("10.0"), "11.0.100-preview.1"));
+        assert!(!satisfies_line(Some("10.0"), "not-a-version"));
     }
 
     #[test]
