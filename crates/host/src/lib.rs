@@ -8051,7 +8051,7 @@ fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
     let line = sdk::requirement_line(&outline_tfms(&workspace.outline));
     let global_path = workspace.root.join("global.json");
     let Ok(canonical) = fs::canonicalize(&global_path) else {
-        return resolve_without_pin(line.as_deref(), &inventory.installs);
+        return resolve_without_pin(&workspace.root, line.as_deref(), &inventory.installs);
     };
     if !canonical.starts_with(&workspace.root) {
         return ProjectSdk::invalid("global.json", "global.json resolves outside the workspace.");
@@ -8091,7 +8091,7 @@ fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
         allow_prerelease,
     };
     let Some(version) = version else {
-        return resolve_without_pin(line.as_deref(), &inventory.installs);
+        return resolve_without_pin(&workspace.root, line.as_deref(), &inventory.installs);
     };
     match sdk::resolve(version, roll_forward, allow_prerelease, &inventory.installs) {
         Ok(install) => ProjectSdk::resolved(&request, &install),
@@ -8099,11 +8099,39 @@ fn inspect_project_sdk(inner: &Inner) -> ProjectSdk {
     }
 }
 
-fn resolve_without_pin(line: Option<&str>, installs: &[Install]) -> ProjectSdk {
-    match sdk::resolve_unpinned(line, installs) {
-        Ok(install) => ProjectSdk::resolved_unpinned(line, &install),
-        Err(message) => ProjectSdk::missing_unpinned(line, message),
+fn resolve_without_pin(root: &Path, line: Option<&str>, installs: &[Install]) -> ProjectSdk {
+    // The rule picks which root's muxer to ask; the muxer's own answer is what MSBuild will use.
+    // shortcut: the muxer is asked at the workspace root, the cwd of restore/build/run/test, while
+    // evaluation runs in the project directory; a global.json between the two still diverges.
+    let install = match sdk::resolve_unpinned(line, installs) {
+        Ok(install) => install,
+        Err(message) => return ProjectSdk::missing_unpinned(line, message),
+    };
+    let version = match sdk::muxer_version(&install.root, root) {
+        Ok(version) => version,
+        Err(message) => return ProjectSdk::missing_unpinned(line, message),
+    };
+    let resolved = Install {
+        path: install
+            .root
+            .join("sdk")
+            .join(&version)
+            .to_string_lossy()
+            .to_string(),
+        version,
+        root: install.root.clone(),
+    };
+    if sdk::satisfies_line(line, &resolved.version) {
+        return ProjectSdk::resolved_unpinned(line, &resolved);
     }
+    ProjectSdk::missing_unpinned(
+        line,
+        format!(
+            "The .NET muxer resolves SDK {} for this workspace, which does not satisfy the TargetFramework requirement (SDK {} or newer). The muxer reads global.json from the workspace upwards, so a file above the workspace can pin it; OpenRidr does not rewrite global.json.",
+            resolved.version,
+            line.unwrap_or("")
+        ),
+    )
 }
 
 fn global_json_request(outline: &Outline) -> Option<GlobalJsonRequest> {
