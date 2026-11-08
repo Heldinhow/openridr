@@ -5,7 +5,12 @@ use crate::scope::Scope;
 use serde::Serialize;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Distinguishes concurrent writes inside one process. The clock alone is not enough: this
+/// platform repeats `SystemTime::now()` across threads, so two writers picked the same `.tmp`
+/// and one of them lost the rename.
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Encoding {
@@ -157,10 +162,7 @@ pub(crate) fn write_json_atomic<T: Serialize>(
     let temp = path.with_file_name(format!(
         ".{name}-{}-{}.tmp",
         std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or_default()
+        TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
     if let Err(error) = fs::write(&temp, text) {
         return Err(HostError::new(
@@ -369,6 +371,36 @@ mod tests {
             canonical_confined(&scope, &root.join("absent/deep.cs")),
             Err(ConfineError::Missing)
         );
+    }
+
+    #[test]
+    fn concurrent_writes_to_one_path_all_succeed_and_leave_valid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trusted.json");
+        write_json_atomic(&path, &serde_json::json!({ "seed": true }), "invalid").unwrap();
+        std::thread::scope(|scope| {
+            for thread in 0..8 {
+                let path = &path;
+                scope.spawn(move || {
+                    for iteration in 0..200 {
+                        let value = serde_json::json!({ "thread": thread, "iteration": iteration });
+                        if let Err(error) = write_json_atomic(path, &value, "invalid") {
+                            panic!("write {thread}/{iteration} failed: {error}");
+                        }
+                        let text = fs::read_to_string(path).unwrap();
+                        let stored: serde_json::Value =
+                            serde_json::from_str(&text).unwrap_or_else(|error| {
+                                panic!("write {thread}/{iteration} left {text:?}: {error}")
+                            });
+                        // Another writer may have won the rename, so the value is the seed or a
+                        // complete write of some thread: never a partial or an empty object.
+                        let complete = stored == serde_json::json!({ "seed": true })
+                            || (stored["thread"].is_u64() && stored["iteration"].is_u64());
+                        assert!(complete, "write {thread}/{iteration} left {stored}");
+                    }
+                });
+            }
+        });
     }
 
     #[test]

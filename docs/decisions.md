@@ -2,6 +2,9 @@
 
 Formato: data, decisão, motivo, consequência. Só entram decisões pequenas tomadas durante a implementação; decisões grandes continuam na [SPEC](SPEC.md).
 
+<!-- Append-only: num conflito de merge ficam as duas entradas, a desta branch primeiro e as antigas na
+     ordem em que entraram — nunca reordenar nem reescrever entrada velha. -->
+
 ## 2026-10-27 — Base própria, sem código do OpenIdea
 
 O shell é escrito do zero (Tauri 2 + Rust + React/TS). Nenhum arquivo do OpenIdea foi clonado ou incorporado; a "auditoria da base" resulta em: nada reutilizado, nenhuma licença de terceiro herdada além das dependências declaradas. Avisos e identidade OpenRidr são preservados. Motivo: não há checkout local e a SPEC exige auditar antes de reutilizar; copiar sem auditoria seria pior.
@@ -1780,3 +1783,19 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `PATH` (nenhuma variável só-de-teste no harness); `playwright test --list` também recusa abaixo do
   piso. O PR é `medium` porque `playwright.config.ts` é caminho que a tabela de risco não conhece.
   Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança no `doctor.sh`.
+
+## 2026-11-07 — O `.tmp` do `write_json_atomic` é nomeado por contador do processo, não pelo relógio (issue #294)
+
+- **A decisão.** `crates/host/src/fsutil.rs` nomeia o temporário com `pid` + um contador atômico do
+  processo (`static TEMP_SEQUENCE: AtomicU64`). O relógio sai do nome; `SystemTime`/`UNIX_EPOCH` saíram
+  do arquivo.
+- **Por que o relógio não servia.** Este macOS repete `SystemTime::now()` entre threads (a issue mediu
+  15.506 de 16.000 timestamps duplicados com 8 threads), então duas escritas concorrentes no mesmo
+  destino escolhiam o mesmo `.tmp`: uma renomeava e a outra falhava em `rename` com `No such file or
+  directory`, e o `fs::write` de uma podia truncar o arquivo que a outra renomeava — `trusted.json`
+  parcial lido como `trusted_unreadable`. O pid separa processos, o contador separa escritas dentro do
+  processo; nenhum dos dois depende da resolução do relógio.
+- **Consequência.** Teste novo em `crates/host/src/fsutil.rs` (8 threads × 200 escritas no mesmo
+  destino; cada escrita tem de voltar `Ok` e o arquivo relido tem de ser JSON válido) — vermelho com o
+  relógio, verde com o contador. Assinatura, formato e local de `trusted.json` não mudam; nenhuma
+  dependência nova. Evidência: `docs/evidence/atomic-tmp-name.md`.
