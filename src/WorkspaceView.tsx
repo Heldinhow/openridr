@@ -481,10 +481,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     const timer = window.setTimeout(() => setEditorTarget(null), 0);
     return () => window.clearTimeout(timer);
   }, [editorTarget]);
-  // 84 = toolbar 52 + splitter 4 + status 28; the panel never squeezes the editor below 180 px.
+  // Fixed rows (toolbar 52 + splitter 4 + status 28) plus the window chrome rider-chrome.css puts
+  // around them (4 px at the bottom and 4 px between the 6 rows). The panel never squeezes the
+  // editor below 180 px, so the budget has to count the chrome too, not just the rows.
+  const chromeHeight = 52 + 4 + 28 + 4 + 5 * 4;
   const outputMax = Math.max(
     120,
-    Math.min(500, Math.floor(viewportHeight * 0.42), viewportHeight - 84 - 180),
+    Math.min(500, Math.floor(viewportHeight * 0.42), viewportHeight - chromeHeight - 180),
   );
   const visibleOutputHeight = Math.min(outputHeight, outputMax);
   // 34 rail + sidebar + 4 splitter + editor + 34 rail: a narrow window narrows the tree, not the editor.
