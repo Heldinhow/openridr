@@ -7,7 +7,7 @@ Layout: **single-context** — um `GLOSSARY.md` e um log de decisões na raiz, s
 ## Antes de explorar, leia
 
 - **`GLOSSARY.md`** (raiz) — vocabulário do produto: Solution Explorer, Run configuration, Build implícito, Trust decision, Restricted mode, etc.
-- **`docs/decisions.md`** — o equivalente de `docs/adr/` neste repo: decisões incrementais em ordem cronológica (append). `grep -n '^## ' docs/decisions.md | grep -i <tema>` para achar; entradas marcadas "Substituída…" já não valem.
+- **`docs/decisions.md`** — o equivalente de `docs/adr/` neste repo: decisões incrementais em ordem cronológica (append). `grep -n '^## ' docs/decisions.md | grep -i <tema>` para achar; entradas marcadas "Substituída…" já não valem — "em parte" quer dizer só o que o bloco nomeia.
 - **`docs/README.md`** — índice: feature → spec / ticket / retro / evidência, e o que é histórico (não use `docs/PROPOSTA-UI-*`, `release-decision.md`, `index.html`, `wireframes.md` como estado atual).
 - **`docs/MAPA.md`** — onde fica o quê no código; é o mapa de navegação antes de abrir `WorkspaceView.tsx` ou `crates/host/src/lib.rs`.
 

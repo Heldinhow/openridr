@@ -1681,8 +1681,8 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `to-tickets` → `implement-spec` → `code-review`, **sem `/retro`**. A spec de uma frente é o **corpo da
   issue-mãe**; os tickets são sub-issues nativas dela, com bloqueio nativo; a implementação roda numa
   **branch de integração por frente**, com um implementer por ticket usando `tdd`, e fecha **um PR por
-  frente** — draft assim que a branch tem o primeiro commit, pronto para review no fim, com `Closes` da
-  mãe e de cada ticket.
+  frente** — draft depois do primeiro merge na branch de integração, pronto para review no fim, com
+  `Closes` da mãe e de cada ticket.
 - **O que substitui.** (a) O "code review em subagente único" de 2026-11-06 que o `AGENTS.md` registrava:
   agora é a skill `code-review`, dois eixos (Standards e Spec) em subagentes paralelos, modelo
   `openai/gpt-6.1-terra` com `thinking=medium`, fixed point `git merge-base origin/main HEAD`. (b) O
