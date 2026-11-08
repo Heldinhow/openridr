@@ -2526,6 +2526,8 @@ mod tests {
         assert!(destination.join("old").is_file());
     }
 
+    // Only the unix leaf below uses it, so it is dead code on the other targets.
+    #[cfg(unix)]
     fn worker_test_plan(temp: &Path) -> Plan {
         Plan {
             tool: TOOL,

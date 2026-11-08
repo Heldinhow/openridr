@@ -293,6 +293,9 @@ impl Clone for Start {
 pub struct Attachment {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
+    /// Only `signal_foreground` reads it, and only on unix: there is no foreground process group
+    /// to signal elsewhere.
+    #[cfg(unix)]
     pid: u32,
 }
 
@@ -357,6 +360,7 @@ pub fn spawn(start: Start) -> HostResult<Session> {
         Attachment {
             master: pair.master,
             writer,
+            #[cfg(unix)]
             pid,
         },
     );

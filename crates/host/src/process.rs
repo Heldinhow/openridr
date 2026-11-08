@@ -59,6 +59,7 @@ struct Entry {
     termination: Option<Termination>,
     /// Unix waits without reaping until the whole group has been terminated; this keeps the
     /// pid/pgid reserved so the cleanup cannot hit a recycled group.
+    #[cfg(unix)]
     reaped: bool,
 }
 
@@ -162,9 +163,8 @@ impl Entry {
         }
     }
 
-    #[cfg(not(unix))]
-    fn finish_group(&mut self) {}
-
+    /// Only the unix branch of `refresh` reaps: the other platforms let `try_wait` do it.
+    #[cfg(unix)]
     fn reap(&mut self) {
         if self.reaped {
             return;
@@ -263,6 +263,7 @@ impl Registry {
             awaiting_decision: false,
             kept: false,
             termination: None,
+            #[cfg(unix)]
             reaped: false,
         });
         id
@@ -295,6 +296,7 @@ impl Registry {
             awaiting_decision: false,
             kept: false,
             termination: None,
+            #[cfg(unix)]
             reaped: false,
         });
         (id, slot)
