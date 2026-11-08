@@ -2,6 +2,9 @@
 
 Formato: data, decisão, motivo, consequência. Só entram decisões pequenas tomadas durante a implementação; decisões grandes continuam na [SPEC](SPEC.md).
 
+<!-- Append-only: num conflito de merge ficam as duas entradas, a desta branch primeiro e as antigas na
+     ordem em que entraram — nunca reordenar nem reescrever entrada velha. -->
+
 ## 2026-10-27 — Base própria, sem código do OpenIdea
 
 O shell é escrito do zero (Tauri 2 + Rust + React/TS). Nenhum arquivo do OpenIdea foi clonado ou incorporado; a "auditoria da base" resulta em: nada reutilizado, nenhuma licença de terceiro herdada além das dependências declaradas. Avisos e identidade OpenRidr são preservados. Motivo: não há checkout local e a SPEC exige auditar antes de reutilizar; copiar sem auditoria seria pior.
@@ -1780,6 +1783,49 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `PATH` (nenhuma variável só-de-teste no harness); `playwright test --list` também recusa abaixo do
   piso. O PR é `medium` porque `playwright.config.ts` é caminho que a tabela de risco não conhece.
   Nenhuma dependência nova, nenhum `data-testid`, nenhuma mudança no `doctor.sh`.
+
+## 2026-11-07 — O `.tmp` do `write_json_atomic` é nomeado por contador do processo, não pelo relógio (issue #294)
+
+- **A decisão.** `crates/host/src/fsutil.rs` nomeia o temporário com `pid` + um contador atômico do
+  processo (`static TEMP_SEQUENCE: AtomicU64`). O relógio sai do nome; `SystemTime`/`UNIX_EPOCH` saíram
+  do arquivo.
+- **Por que o relógio não servia.** Este macOS repete `SystemTime::now()` entre threads (a issue mediu
+  15.506 de 16.000 timestamps duplicados com 8 threads), então duas escritas concorrentes no mesmo
+  destino escolhiam o mesmo `.tmp`: uma renomeava e a outra falhava em `rename` com `No such file or
+  directory`, e o `fs::write` de uma podia truncar o arquivo que a outra renomeava — `trusted.json`
+  parcial lido como `trusted_unreadable`. O pid separa processos, o contador separa escritas dentro do
+  processo; nenhum dos dois depende da resolução do relógio.
+- **Consequência.** Teste novo em `crates/host/src/fsutil.rs` (8 threads × 200 escritas no mesmo
+  destino; cada escrita tem de voltar `Ok` e o arquivo relido tem de ser JSON válido) — vermelho com o
+  relógio, verde com o contador. Assinatura, formato e local de `trusted.json` não mudam; nenhuma
+  dependência nova. Evidência: `docs/evidence/atomic-tmp-name.md`.
+
+## 2026-11-07 — Build explícito recusa enquanto a automação do app constrói (issue #275)
+
+- **Decisão.** `build.start`, `build.solution` e o build implícito de Run/Debug recusam com
+  `invalid_state` e motivo nomeado enquanto a descoberta automática de testes roda ou enquanto a análise
+  está carregando a solução. A recusa é a mesma do restore ("wait for it to finish before building"), e o
+  motivo diz qual automação está construindo e qual é a saída (cancelar a descoberta, parar a análise). A
+  simetria também vale nas duas portas da automação: `tests.discover` recusa enquanto um build roda, e
+  `lsp.start`/`lsp.restart` recusam enquanto um build roda — senão a análise reabriria a mesma colisão
+  pelo outro lado.
+- **Por que recusar, não enfileirar.** Enfileirar (o clique não se perde) exigiria estado novo no build,
+  gatilho no fim da descoberta, cancelamento e invalidação por workspace/contexto/trust/restore: um build
+  enfileirado que sobrevive a uma troca de workspace é um bug novo. O ganho sobre recusar é o clique que
+  não se repete, e o custo é superfície nova num caminho que hoje é só uma checagem.
+- **Por que a análise só bloqueia enquanto carrega.** O estado da análise vai a `loading` no `initialize`
+  aceito e sai no `Finished loading solution` do csharp-ls (~5 s medidos no OrderDesk, 3 projetos, nesta
+  máquina). Depois disso o `BuildHost` continua vivo mas não constrói: bloquear mais seria bloquear sem
+  causa. A recarga que o csharp-ls faz sozinho depois de carregada não é observável pelo host e fica como
+  risco residual escrito na evidência.
+- **Por que a tabela de motivos é uma função pura.** A ordem (build > restore > descoberta > análise
+  carregando) é contrato, não detalhe: quem vem primeiro decide qual motivo o usuário lê. Fora do corpo
+  de `start_build_locked`, ela é testável sem csharp-ls real e sem workspace.
+- **Consequência.** issue #275 (a spec é o corpo da issue-mãe); evidência em
+  `docs/evidence/concurrent-builds.md`; o gate de UI em `executionGates.ts` ganha teste de unidade em
+  `tests/unit/` (o E2E não roda em PR); os specs que afirmam "enabled" logo depois de restaurar passam a
+  esperar a descoberta com o `settleDiscovery` da #251. Nenhum `data-testid` novo, nenhuma dependência
+  nova, nenhum estado novo na UI.
 
 ## 2026-11-08 — Consulta de árvore que falha é repetida com limite, não tratada como resposta vazia (issue #264, ticket #281)
 

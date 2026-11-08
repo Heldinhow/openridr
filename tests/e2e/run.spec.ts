@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { revisionOf, settleRestore } from "./automatic";
+import { revisionOf, settleDiscovery, settleRestore } from "./automatic";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -52,6 +52,9 @@ async function restoreAndReload(page: Page) {
     timeout: 30_000,
   });
   await expect(page.getByTestId("eval-state")).not.toContainText("stale");
+  // The automatic discovery builds the test project and the gates refuse a build while it runs
+  // (#275), so "Run enabled" below is only true after it settles.
+  await settleDiscovery(page);
 }
 
 async function build(page: Page) {

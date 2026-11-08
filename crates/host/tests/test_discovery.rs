@@ -176,6 +176,70 @@ fn discovery_processes(state: &Value) -> Vec<Value> {
         .collect()
 }
 
+fn build_processes(state: &Value) -> Vec<Value> {
+    state["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|process| {
+            process["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("build:"))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Waits until the discovery has a real process and has logged something: it is building.
+fn wait_for_discovery_process(host: &Host, timeout: Duration) -> u64 {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let discovery = snapshot(host)["tests"]["discovery"].clone();
+        if let Some(process_id) = discovery["processId"].as_u64() {
+            if !discovery["log"].as_str().unwrap_or_default().is_empty() {
+                return process_id;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "discovery process never started: {discovery}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn wait_for_build(host: &Host, timeout: Duration) -> Value {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let build = snapshot(host)["build"].clone();
+        if build["state"] != "running" {
+            return build;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "build did not finish: {}",
+            build["log"]
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn wait_for_build_output(host: &Host, needle: &str, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let build = snapshot(host)["build"].clone();
+        let log = build["log"].as_str().unwrap_or_default().to_string();
+        if log.contains(needle) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "build never logged {needle}: {log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 #[test]
 fn discovery_is_denied_before_trust_and_before_the_explicit_restore() {
     let temp = tempfile::tempdir().unwrap();
@@ -733,4 +797,118 @@ fn revoking_trust_seals_a_running_discovery_and_keeps_its_log() {
         later["log"], discovery["log"],
         "late output changed a sealed log"
     );
+}
+
+/// The explicit build and the discovery never build the same project at the same time: while
+/// the discovery is building, `build.start` and `build.solution` refuse with the reason that
+/// names the discovery process, and the same build really runs once the discovery settles.
+#[cfg(unix)]
+#[test]
+fn build_is_refused_while_a_discovery_is_building_the_test_project() {
+    let temp = tempfile::tempdir().unwrap();
+    let copy = fixture_copy(temp.path(), "Order Desk concurrent build");
+    let host = support::host();
+    open(&host, &copy.join("OrderDesk.sln"));
+    grant(&host);
+    prepare(&host, Some("net8.0"));
+
+    // The discovery runs a real `dotnet test` build of the test project and its references
+    // (OrderDesk.Core), the same files an explicit build of OrderDesk.Cli writes.
+    host.dispatch(
+        "tests.discover",
+        json!({
+            "project": "tests/OrderDesk.Tests/OrderDesk.Tests.csproj",
+            "targetFramework": "net8.0",
+        }),
+    )
+    .unwrap();
+    let discovery_process = wait_for_discovery_process(&host, Duration::from_secs(60));
+
+    let expected = format!(
+        "A test discovery is building the test project (process {discovery_process}); wait for it to finish, or cancel the discovery to build now."
+    );
+    for method in ["build.start", "build.solution"] {
+        let refused = match host.dispatch(method, json!({})) {
+            Ok(state) => panic!(
+                "{method} started while the discovery was building: {}",
+                state["build"]["state"]
+            ),
+            Err(error) => error,
+        };
+        assert_eq!(refused.code, "invalid_state", "{method}: {refused}");
+        assert_eq!(refused.message, expected, "{method}");
+    }
+    let state = snapshot(&host);
+    assert_eq!(state["build"]["state"], "idle");
+    assert!(
+        build_processes(&state).is_empty(),
+        "a build process was started during the discovery: {}",
+        state["processes"]
+    );
+
+    // Once the discovery settles, the same build really runs and succeeds.
+    let settled = wait_for_discovery(&host, Duration::from_secs(240));
+    assert_eq!(settled["state"], "completed", "{}", settled["log"]);
+
+    let started = host.dispatch("build.start", json!({})).unwrap();
+    assert_eq!(started["build"]["state"], "running", "{}", started["build"]);
+    let build = wait_for_build(&host, Duration::from_secs(120));
+    assert_eq!(build["state"], "ok", "{}", build["log"]);
+    assert_eq!(build["exit"], 0, "{}", build["log"]);
+    assert_eq!(build["project"]["name"], "OrderDesk.Cli");
+}
+
+/// The opposite direction: a discovery never starts a `dotnet test` that builds while an
+/// explicit build is running.
+#[cfg(unix)]
+#[test]
+fn discovery_is_refused_while_a_build_is_running() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    test_project(
+        &root,
+        "Slow",
+        &format!(
+            "{ADAPTER_PACKAGES}<Target Name=\"Hang\" AfterTargets=\"Build\"><Exec Command=\"sleep 30\" /></Target>"
+        ),
+        "public sealed class C { }\n",
+    );
+    let host = support::host();
+    open(&host, &root.join("Slow.csproj"));
+    grant(&host);
+    prepare(&host, None);
+
+    let started = host
+        .dispatch("build.start", json!({ "project": "Slow.csproj" }))
+        .unwrap();
+    let build_process = started["build"]["processId"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("no build process: {}", started["build"]));
+    wait_for_build_output(&host, "Slow.dll", Duration::from_secs(60));
+
+    let refused = match host.dispatch("tests.discover", json!({ "project": "Slow.csproj" })) {
+        Ok(state) => panic!(
+            "the discovery started while a build was running: {}",
+            state["tests"]["discovery"]["state"]
+        ),
+        Err(error) => error,
+    };
+    assert_eq!(refused.code, "invalid_state");
+    assert_eq!(
+        refused.message,
+        format!(
+            "A build is running (process {build_process}); wait for it to finish before discovering tests."
+        )
+    );
+    let state = snapshot(&host);
+    assert_eq!(state["tests"]["discovery"]["revision"], 0);
+    assert!(discovery_processes(&state).is_empty());
+
+    // Once the build is gone the same discovery starts for real.
+    host.dispatch("build.cancel", json!({})).unwrap();
+    let started = host
+        .dispatch("tests.discover", json!({ "project": "Slow.csproj" }))
+        .unwrap();
+    assert_eq!(started["tests"]["discovery"]["state"], "discovering");
+    host.dispatch("tests.discover_cancel", json!({})).unwrap();
 }

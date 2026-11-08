@@ -147,6 +147,27 @@ jobs:
       - name: Tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+  shell:
+    # tests/shell/*.test.sh are POSIX sh, and the runner's /bin/sh is dash: the macOS /bin/sh is bash,
+    # which hides `local`, `[[ ]]` and `10#`, so a test that passes locally can fail here. The list is the
+    # glob in scripts/ci-shell-tests.sh, never a hand-written one in this file, and the logic lives in the
+    # script because tests/shell/ci-shell-tests.test.sh exercises it locally.
+    #
+    # No test in tests/shell/ needs shellcheck today: the `governance` job already runs it through
+    # actionlint, and nothing here is linted on its own. The only required check stays the `ci`
+    # aggregator, so this job adds a gate without touching the ruleset.
+    name: Shell (dash, tests/shell)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the shell tests under dash
+        run: dash scripts/ci-shell-tests.sh
+
   governance:
     name: Governance (workflows, PR title, PR body)
     # Only a pull request has a title and a body to check.
@@ -467,7 +488,7 @@ jobs:
   # ruleset. A skipped PR-only job is not a failure, so `push` to main can pass without them.
   ci:
     name: ci
-    needs: [typescript, rust, rust-tauri, governance, risk, security]
+    needs: [typescript, rust, rust-tauri, shell, governance, risk, security]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
