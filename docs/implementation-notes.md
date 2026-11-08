@@ -2023,3 +2023,53 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   plataformas foi aberto); uma máquina real sem SDK nenhum instalado — o cenário "ausente" é o overlay
   do snapshot, com o shape guardado pelo teste unitário; app Tauri real (host + UI pura, coberto por
   Playwright em modo web); o "Check again" é do #304 e não existe aqui.
+
+## Check again: nova detecção e reavaliação sem reiniciar o app (2026-11-08, #289; ticket #304)
+
+- **O que mudou.** `crates/host/src/run.rs` ganhou `Run::mark_stale(reason)`: marca `stale` e
+  `stale_reason` (só se ainda não havia um) e **não** cancela nem sela — `seal` continua sendo a
+  fronteira que para o processo. `crates/host/src/lib.rs`: `redetect_sdks` passou a marcar o `run`
+  stale com a mesma família de mensagens dos outros registros ("SDK inventory refreshed; this program
+  ran on another toolchain."), então build/run/testes feitos com o toolchain anterior ficam
+  desatualizados sem que o redetect mate o processo que o usuário iniciou. UI:
+  `src/welcome/ProjectSdkDownload.tsx` (o bloco único da nota da árvore e do card "Project SDK")
+  ganhou o botão `data-testid="sdk-check-again"` ("Check again"), que chama o `sdk.redetect`
+  existente pela prop `onCheckAgain`; `ProjectSdkBody` e `ToolchainView` repassam a ação, e a nota da
+  árvore usa o `redetectSdks()` que já existia. `eval-redetect` (contrato) continua onde estava: na
+  nota da árvore há dois botões para a mesma detecção, de propósito.
+- **Reavaliação na transição.** `redetectSdks()` compara `projectSdk.state` **antes** com o
+  `next.sdk.project.state` **depois** da chamada e, só quando foi `sdk_missing` → `resolved`, chama
+  `runEvaluation({ contextId: next.contextId })`. Nada observa o snapshot por efeito: um re-render não
+  reavalia, e um segundo clique já vê `resolved` e não dispara nada. O `contextId` novo é o que impede
+  a avaliação automática de `useEvaluationFlow` (efeito de primeira avaliação por contexto) de rodar
+  a mesma avaliação uma segunda vez — `autoEvaluation.current` passa a ser carimbado também pelo
+  caminho explícito. Requisito ainda não atendido: nada é avaliado e o bloco segue com o requisito, as
+  versões detectadas e a mensagem do host.
+- **Falha-antes medida (host).** Com o `run.mark_stale` fora do `redetect_sdks` e o teste novo no
+  lugar, `cargo test -p openridr-host --test host -- redetect_keeps_the_old_toolchain` →
+  1 failed: `run is not stale: {… "stale":false …}`. Com a mudança: 1 passed em 4,91 s (projeto de
+  console real: evaluate → restore → evaluate → build ok → run `exited` `stale:false`; `global.json`
+  trocado para o pin impossível `99.0.1` → redetect → `sdk_missing`; trocado de volta para `8.0.408`
+  → redetect → `resolved` com `build` e `run` `stale` e `staleReason` "SDK inventory refreshed", o
+  `run` ainda `exited` e `sealed:false`).
+- **Falha-antes medida (UI).** Sem o carimbo de `autoEvaluation.current` em `runEvaluation`, o cenário
+  novo do Playwright falha em `expect(evaluations).toHaveLength(1)` com
+  `Expected length: 1 / Received length: 2 / Received array: ["evaluation.run", "evaluation.run"]` — a
+  avaliação explícita e a automática do mesmo contexto. Com o carimbo: 7 passed.
+- **Bateria.** `cargo test -p openridr-host`: 646 passed, 0 failed, 70 ignored (485 unit + 114 de
+  `host.rs` + 47 dos outros binários); `--lib -- run::tests` 18 passed (1 novo: `mark_stale` rotula um
+  programa `running` sem cancelar/selar e não toca registro com `revision == 0`).
+  `cargo fmt --all` aplicado; `cargo clippy --workspace --all-targets -- -D warnings` limpo;
+  `bunx tsc --noEmit` limpo; `bun test tests/unit` 139 passed. E2E (Chromium, portas 2920/5917):
+  `bunx playwright test tests/e2e/sdk-prerequisites.spec.ts` → 7 passed (2 novos: o clique em
+  `fixtures/MissingSdk` mantendo requisito e versões detectadas nas duas superfícies, e a transição
+  real — `global.json` do fixture reescrito para `8.0.408` e restaurado no `finally` — com 1
+  `evaluation.run`, `resolved`, `evaluation.state: "ok"` e a árvore aparecendo);
+  `tests/e2e/evaluation.spec.ts` → 7 passed (regressão do fluxo de avaliação automática).
+- **Não verificado:** `tests`/`test_run` stale com registro real — os dois `mark_stale` do
+  `redetect_sdks` já existiam desde o #302 e o teste de fronteira cobre `build` e `run`; exercitar
+  descoberta/run de teste exigiria um projeto de teste restaurado com pacotes de adaptador (rede) e
+  não foi feito. Windows e macOS Intel; app Tauri real (host + UI pura, coberto por Playwright em modo
+  web); a transição no card do Toolchain roda `evaluation.run` direto (sem o fluxo de run
+  configurations, que só existe no workspace) e foi verificada só pelo clique "ainda não atendido" —
+  o caminho com transição ali não foi exercitado.

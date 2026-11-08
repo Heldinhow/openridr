@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import fs from "node:fs";
 import path from "node:path";
 import { host } from "./environment";
 import { openToolchain } from "./disclosures";
@@ -266,6 +267,83 @@ test("with no SDK installed at all the block says so and still links the downloa
     "href",
     /\/Sdk\/8\.0\.999\/dotnet-sdk-8\.0\.999-/,
   );
+});
+
+test("Check again repeats the detection and keeps the requirement when it is still unmet", async ({
+  page,
+  request,
+}) => {
+  await openViaHost(page, missingProject);
+  await trustViaHost(page);
+  await enterWorkspace(page, missingProject);
+
+  const detected = (await call(request, "workspace.state")).data.sdk.project.detected;
+  const detectedLine = detected.length > 0 ? `Detected SDKs: ${detected.join(", ")}` : "No SDK detected";
+  const reason = page.getByTestId("eval-disabled-reason");
+  await expect(reason).toContainText("global.json requests 8.0.999");
+  await expect(reason).toContainText(detectedLine);
+
+  // The click is the only trigger: nothing watches the disk, so the same inventory comes back.
+  await page.getByTestId("sdk-check-again").click();
+  await expect(reason).toContainText("global.json requests 8.0.999");
+  await expect(reason).toContainText(detectedLine);
+  await expect(page.getByTestId("sdk-project-message")).toContainText("8.0.999");
+  // Still unmet: nothing was evaluated, so the tree stays unavailable.
+  expect((await call(request, "workspace.state")).data.evaluation.revision).toBe(0);
+
+  // The Toolchain card carries the same action; a reload lands on the welcome view.
+  await page.reload();
+  await openToolchain(page);
+  const card = page.getByTestId("sdk-project");
+  await page.getByTestId("sdk-check-again").click();
+  await expect(card).toContainText("Project SDK missing");
+  await expect(card).toContainText("global.json requests 8.0.999");
+  await expect(card).toContainText(detectedLine);
+  expect((await call(request, "workspace.state")).data.evaluation.revision).toBe(0);
+});
+
+test("Check again evaluates once when the installed SDK now satisfies the requirement", async ({
+  page,
+  request,
+}) => {
+  await openViaHost(page, missingProject);
+  await trustViaHost(page);
+  await enterWorkspace(page, missingProject);
+  const opened = (await call(request, "workspace.state")).data;
+  expect(opened.sdk.project.state).toBe("sdk_missing");
+  test.skip(
+    !opened.sdk.project.detected.includes("8.0.408"),
+    "this machine has no SDK 8.0.408; the pin cannot become satisfiable here",
+  );
+
+  const evaluations: string[] = [];
+  await page.route("**/__host/call", async (route) => {
+    const method = (route.request().postDataJSON() as { method?: string } | null)?.method;
+    if (method === "evaluation.run") evaluations.push(method);
+    await route.continue();
+  });
+
+  // Installing the SDK is what the user does outside the app; the pin now names an installed one.
+  const globalJson = path.resolve("fixtures/MissingSdk/global.json");
+  const original = fs.readFileSync(globalJson, "utf8");
+  try {
+    fs.writeFileSync(
+      globalJson,
+      `${JSON.stringify({ sdk: { version: "8.0.408", rollForward: "disable" } }, null, 2)}\n`,
+    );
+    await page.getByTestId("sdk-check-again").click();
+    // The transition evaluates by itself: the note goes away and the tree appears.
+    await expect(page.getByTestId("eval-disabled-reason")).toHaveCount(0);
+    await expect(page.getByTestId("tree")).toContainText("MissingSdk");
+    expect(evaluations).toHaveLength(1);
+    const resolved = (await call(request, "workspace.state")).data;
+    expect(resolved.sdk.project.state).toBe("resolved");
+    expect(resolved.sdk.project.resolvedVersion).toBe("8.0.408");
+    expect(resolved.evaluation.state).toBe("ok");
+    expect(resolved.evaluation.revision).toBe(1);
+  } finally {
+    fs.writeFileSync(globalJson, original);
+  }
 });
 
 test("a missing .NET 10 runtime asks for the runtime, not SDK 10", async ({ page, request }) => {

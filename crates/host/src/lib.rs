@@ -1556,6 +1556,11 @@ impl Host {
             inner
                 .test_run
                 .mark_stale("SDK inventory refreshed; these test results used another toolchain.");
+            // A program started on the old toolchain is not current either, but redetect never
+            // kills it: the user started that process and only they stop it.
+            inner
+                .run
+                .mark_stale("SDK inventory refreshed; this program ran on another toolchain.");
         }
         Ok(self.snapshot_value(&mut inner))
     }

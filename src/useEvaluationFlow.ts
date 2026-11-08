@@ -60,6 +60,8 @@ export function useEvaluationFlow(c: EvaluationFlowInput) {
   async function runEvaluation(next?: {
     configuration?: string;
     targetFramework?: string | null;
+    /** The context this explicit evaluation covers; the automatic first one must not repeat it. */
+    contextId?: number;
   }) {
     const configuration = next?.configuration ?? evaluation.context.configuration;
     const targetFramework =
@@ -87,6 +89,8 @@ export function useEvaluationFlow(c: EvaluationFlowInput) {
         });
       }
     }
+    // An explicit evaluation covers its context: the automatic first evaluation never repeats it.
+    autoEvaluation.current = next?.contextId ?? snapshot.contextId;
     await evaluateContext(configuration, targetFramework);
   }
 

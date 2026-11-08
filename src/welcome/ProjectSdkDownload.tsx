@@ -17,12 +17,15 @@ export function ProjectSdkDownload({
   surface,
   tfms = [],
   onOpenGlobalJson,
+  onCheckAgain,
 }: {
   project: ProjectSdk;
   surface: "tree" | "toolchain";
   /** The declared TargetFrameworks, when the surface has them, to name the origin concretely. */
   tfms?: string[];
   onOpenGlobalJson: () => void;
+  /** Re-runs the SDK inventory: the user installed the SDK and asks again, nothing watches the disk. */
+  onCheckAgain: () => void;
 }) {
   const { requirement, download } = project;
   const ids = testIds[surface];
@@ -68,6 +71,11 @@ export function ProjectSdkDownload({
             </a>
           </>
         )}
+      </p>
+      <p>
+        <button type="button" data-testid="sdk-check-again" onClick={onCheckAgain}>
+          Check again
+        </button>
       </p>
       <p className="muted">OpenRidr never installs an SDK and never rewrites global.json or PATH.</p>
       {project.globalJsonPath && (

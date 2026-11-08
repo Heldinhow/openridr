@@ -5,10 +5,12 @@ export function ProjectSdkBody({
   project,
   tfms,
   onOpenGlobalJson,
+  onCheckAgain,
 }: {
   project: ProjectSdk;
   tfms: string[];
   onOpenGlobalJson: () => void;
+  onCheckAgain: () => void;
 }) {
   const installLink = (
     <a href={project.instructionsUrl} target="_blank" rel="noreferrer noopener">
@@ -65,6 +67,7 @@ export function ProjectSdkBody({
             surface="toolchain"
             tfms={tfms}
             onOpenGlobalJson={onOpenGlobalJson}
+            onCheckAgain={onCheckAgain}
           />
         </>
       );

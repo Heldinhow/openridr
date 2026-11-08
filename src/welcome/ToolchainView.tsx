@@ -21,8 +21,14 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
   async function redetect() {
     setRedetecting(true);
     setToolchainError(null);
+    const wasMissing = sdk?.project.state === "sdk_missing";
     try {
-      onSnapshot(await call<Snapshot>("sdk.redetect"));
+      const next = await call<Snapshot>("sdk.redetect");
+      onSnapshot(next);
+      // Compared before and after this call, never watched: a re-render cannot evaluate again.
+      if (wasMissing && next.sdk.project.state === "resolved") {
+        onSnapshot(await call<Snapshot>("evaluation.run", {}));
+      }
     } catch (caught) {
       setToolchainError(messageOf(caught));
     } finally {
@@ -82,7 +88,12 @@ export function ToolchainView({ snapshot, onSnapshot, onOpenGlobalJson }: Props)
             <details className="tool-row" open={workspace ? true : undefined}>
               <summary><span>Project SDK</span><span className={sdk.project.state === "resolved" ? "success" : "muted"}>{sdk.project.state === "resolved" ? `✓ ${sdk.project.resolvedVersion}` : workspace ? "Review required" : "Open a workspace first"}</span></summary>
               <div data-testid="sdk-project">
-                <ProjectSdkBody project={sdk.project} tfms={tfms} onOpenGlobalJson={onOpenGlobalJson} />
+                <ProjectSdkBody
+                  project={sdk.project}
+                  tfms={tfms}
+                  onOpenGlobalJson={onOpenGlobalJson}
+                  onCheckAgain={() => void redetect()}
+                />
               </div>
             </details>
 

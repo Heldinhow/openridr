@@ -292,6 +292,19 @@ impl Run {
         data.finished_at = Some(now_ms());
     }
 
+    /// The toolchain changed under this run: its result is not current, but the process the
+    /// user started keeps running. `seal` is the boundary that stops it; this only relabels.
+    pub fn mark_stale(&self, reason: impl Into<String>) {
+        let mut data = self.data.lock().unwrap();
+        if data.revision == 0 {
+            return;
+        }
+        data.stale = true;
+        if data.stale_reason.is_none() {
+            data.stale_reason = Some(reason.into());
+        }
+    }
+
     /// A workspace boundary seals the record: a late line or exit from the old process
     /// cannot be reported as the new context's run.
     pub fn seal(&self, reason: impl Into<String>, status: Option<&ProcessStatus>) {
@@ -510,6 +523,31 @@ mod tests {
         let unknown = started();
         assert_eq!(unknown.complete(&status("exited", None, None)), "exited");
         assert_eq!(unknown.view().exit, None);
+    }
+
+    #[test]
+    fn mark_stale_relabels_a_running_program_without_stopping_it() {
+        let run = started();
+        run.note_process(42);
+        run.mark_stale("SDK inventory refreshed; this program ran on another toolchain.");
+        let view = run.view();
+        assert!(view.stale);
+        assert!(view
+            .stale_reason
+            .as_deref()
+            .unwrap()
+            .contains("SDK inventory refreshed"));
+        // The user's process keeps running: no cancel, no seal, no observed exit invented.
+        assert_eq!(view.state, "running");
+        assert!(!view.sealed);
+        assert_eq!(view.exit, None);
+        assert_eq!(run.running_process_id(), Some(42));
+        assert_eq!(run.complete(&status("exited", Some(0), None)), "exited");
+
+        // A record that never ran has nothing to relabel.
+        let idle = Run::idle();
+        idle.mark_stale("SDK inventory refreshed; this program ran on another toolchain.");
+        assert!(!idle.view().stale);
     }
 
     #[test]

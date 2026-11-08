@@ -2498,12 +2498,19 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
   }
 
   async function redetectSdks() {
+    const wasMissing = projectSdk.state === "sdk_missing";
     try {
-      onSnapshot(await call<Snapshot>("sdk.redetect"));
+      const next = await call<Snapshot>("sdk.redetect");
+      onSnapshot(next);
       setMessage({
         tone: "info",
         text: "SDK inventory refreshed. No project file was read or written by the detection.",
       });
+      // The transition is compared before and after this call, never watched: a re-render (or a
+      // second click that sees `resolved` already) cannot evaluate again.
+      if (wasMissing && next.sdk.project.state === "resolved") {
+        await runEvaluation({ contextId: next.contextId });
+      }
     } catch (error) {
       setMessage({ tone: "error", text: `SDK detection failed: ${messageOf(error)}` });
     }
@@ -4658,6 +4665,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                     project={projectSdk}
                     surface="tree"
                     onOpenGlobalJson={openGlobalJson}
+                    onCheckAgain={() => void redetectSdks()}
                   />
                   <div className="actions">
                     <button data-testid="eval-redetect" onClick={() => void redetectSdks()}>

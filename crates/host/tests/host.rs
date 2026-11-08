@@ -1707,6 +1707,65 @@ fn redetect_is_allowed_before_and_after_trust_and_touches_no_project_file() {
     assert!(artifacts.is_empty(), "redetect created {artifacts:?}");
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn redetect_keeps_the_old_toolchain_artifacts_stale_across_the_sdk_missing_to_resolved_transition()
+{
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    global_json_8(&root);
+    write_console_project(&root, "Again", "");
+
+    let host = support::host();
+    ready_project(&host, &root, "Again.csproj");
+    host.dispatch("build.start", json!({})).unwrap();
+    let built = wait_for_build(&host, Duration::from_secs(60));
+    assert_eq!(built["state"], "ok", "{}", built["log"]);
+    assert_eq!(built["stale"], false);
+    host.dispatch("run.start", json!({})).unwrap();
+    let ran = wait_for_run(&host, Duration::from_secs(60));
+    assert_eq!(ran["state"], "exited", "{}", ran["log"]);
+    assert_eq!(ran["stale"], false);
+
+    // The pin names an SDK no machine installs, so the requirement is unmet everywhere: the
+    // build and the run above were made with the toolchain that was there before.
+    fs::write(
+        root.join("global.json"),
+        "{ \"sdk\": { \"version\": \"99.0.1\", \"rollForward\": \"disable\" } }\n",
+    )
+    .unwrap();
+    let missing = host.dispatch("sdk.redetect", json!({})).unwrap();
+    assert_eq!(missing["sdk"]["project"]["state"], "sdk_missing");
+    let message = missing["sdk"]["project"]["message"].as_str().unwrap();
+    assert!(message.contains("99.0.1"), "{message}");
+
+    // Installing the SDK with the app open and pressing "Check again" is this second redetect:
+    // the requirement is met now and the artifacts of the old toolchain stay marked stale.
+    global_json_8(&root);
+    let resolved = host.dispatch("sdk.redetect", json!({})).unwrap();
+    assert_eq!(resolved["sdk"]["project"]["state"], "resolved");
+    assert_eq!(resolved["sdk"]["project"]["resolvedVersion"], "8.0.408");
+    assert_eq!(resolved["evaluation"]["stale"], true);
+    for record in ["build", "run"] {
+        assert_eq!(
+            resolved[record]["stale"], true,
+            "{record} is not stale: {}",
+            resolved[record]
+        );
+        assert!(
+            resolved[record]["staleReason"]
+                .as_str()
+                .unwrap()
+                .contains("SDK inventory refreshed"),
+            "{}",
+            resolved[record]
+        );
+    }
+    // Redetect relabels; it never cancels or seals the program the user ran.
+    assert_eq!(resolved["run"]["state"], "exited");
+    assert_eq!(resolved["run"]["sealed"], false);
+}
+
 #[cfg(unix)]
 #[test]
 fn revoke_marks_a_real_child_and_terminate_reports_the_observed_exit() {
