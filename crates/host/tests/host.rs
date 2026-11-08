@@ -1,7 +1,10 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use openridr_host::{hostroot, sdk, Host, EXECUTABLE_METHODS};
+use openridr_host::{sdk, Host, EXECUTABLE_METHODS};
+// Only the macOS host-root leaf uses it, so it is an unused import on the other targets.
+#[cfg(target_os = "macos")]
+use openridr_host::hostroot;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6462,7 +6465,6 @@ fn sleeper_project(dir: &Path) {
     .unwrap();
 }
 
-#[cfg(unix)]
 fn wait_for_run(host: &Host, timeout: Duration) -> Value {
     let deadline = Instant::now() + timeout;
     loop {

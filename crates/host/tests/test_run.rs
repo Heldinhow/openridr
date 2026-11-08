@@ -7,7 +7,10 @@ mod support;
 use openridr_host::Host;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+// Only the unix fixture helpers use it.
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 // Only the macOS/unix leaves below use it, so it is dead code on the other targets.
