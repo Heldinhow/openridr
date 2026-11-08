@@ -28,4 +28,7 @@ docs/evidence/logs/*
 .scratch/
 docs/evidence/rider-reference/
 docs/evidence/rider-compare/
+# This line only covers new files: the PNGs already tracked here stay tracked, so a capture that
+# overwrites one (a spec with OPENRIDR_SCREENSHOT_DIR pointing here on purpose) still shows up in
+# `git status` as modified.
 docs/evidence/screenshots/
