@@ -9,11 +9,14 @@ isolado), Chromium via Playwright, 1440×900.
   - em andamento: uma frase só, `Finishing restore and evaluating projects…`
     (`data-testid="eval-running"`), sem botão;
   - stale acionável: `Evaluation stale.` + motivo + botão `Re-evaluate` habilitado;
-  - stale bloqueado: o botão sai e o motivo aparece no lugar (`data-testid="eval-stale-blocked"`).
+  - stale bloqueado: o botão fica desabilitado e o motivo completo aparece ao lado
+    (`data-testid="eval-stale-blocked"`).
 - **Status bar** (`src/shell/StatusBar.tsx`): a ação de recuperação continua com o mesmo
   `data-testid` em todos os estados; bloqueada, ela fica desabilitada **e** o motivo aparece em
   texto ao lado (`eval-blocked-reason`, `status-analysis-blocked`). Nunca há botão desabilitado sem
-  motivo visível.
+  motivo visível. Enquanto a avaliação roda, a barra esconde parcial e análise e o motivo transitório
+  fica só na `title`: a frase única da faixa é o que se lê.
+  O motivo da barra é curto ("Resolve the project SDK first."); o completo fica na faixa.
 - **Problems** (`src/ProblemsPanel.tsx`): a ressalva de cobertura parcial ganhou a ação
   `Restart analysis` ao lado (`data-testid="problems-restart-analysis"`); quando o host bloqueia a
   análise, o botão fica desabilitado e o motivo aparece ao lado (`problems-restart-blocked`). O
@@ -24,8 +27,8 @@ isolado), Chromium via Playwright, 1440×900.
 | Estado | Como foi produzido | Resultado |
 |---|---|---|
 | Em andamento | `eval-run` clicado em OrderDesk | `eval-running` visível com a frase única; `eval-stale-run` ausente |
-| Stale acionável | OrderDesk avaliado | `eval-state` = `Evaluated · Debug · TFM net8.0 · revision 2`; `eval-run` presente e habilitado |
-| Bloqueado | `fixtures/MissingSdk/MissingSdk.csproj` (global.json pede 8.0.999) | `eval-blocked-reason` = "Trust the workspace and resolve the project SDK before evaluating."; `eval-run` presente e desabilitado |
+| Ação habilitada | OrderDesk avaliado (sem stale) | `eval-state` = `Evaluated · Debug · TFM net8.0 · revision 2`; `eval-run` presente e habilitado |
+| Bloqueado | `fixtures/MissingSdk/MissingSdk.csproj` (global.json pede 8.0.999) | `eval-blocked-reason` = "Resolve the project SDK first."; `eval-run` presente e desabilitado |
 | Problems parcial + bloqueado | mesmo workspace, painel Problems | `problems-partial` presente; `problems-restart-blocked` = "Resolve the project SDK before analysis."; botão desabilitado |
 | Problems parcial + habilitado | `fixtures/BrokenImport/BrokenImport.csproj` | `coverage partial`; `problems-restart-analysis` habilitado; sem `problems-restart-blocked` |
 
@@ -40,7 +43,16 @@ isolado), Chromium via Playwright, 1440×900.
   no Linux), não regressão.
 - `tests/e2e/workspace-readiness.spec.ts` — **3 passed**: em andamento sem ação, bloqueado com
   motivo ao lado do botão desabilitado, e parcial com `Restart analysis` habilitado.
+- `tests/e2e/analysis-gate.spec.ts` + `tests/e2e/disabled-states.spec.ts` — **4 passed**.
 - `tests/e2e/disabled-states.spec.ts` — verde no PR do #329 (mesma árvore de estados).
+
+## Decisão de contrato: botão bloqueado continua no DOM
+
+O ticket pede que "Re-evaluate" só apareça quando pode agir. O `AGENTS.md` trata `data-testid`
+como contrato e proíbe removê-lo. A resolução foi manter o botão com o mesmo `data-testid`,
+desabilitado, **e** o motivo em texto ao lado — que é o que o critério de aceite cobra ("nenhum
+estado mostra ação de recuperação desabilitada sem motivo visível"). O botão sai do DOM em nenhum
+estado.
 
 ## Não verificado
 

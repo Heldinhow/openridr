@@ -4059,8 +4059,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
             onOpen={(path) => void openUserFile(path)}
-            onRestartAnalysis={trusted ? () => void startAnalysis() : null}
-            restartAnalysisReason={trusted ? lspStartBlocker(snapshot) : null}
+            onRestartAnalysis={() => void startAnalysis()}
+            restartAnalysisReason={trusted ? lspStartBlocker(snapshot) : "Trust the workspace to restart analysis."}
           />
         );
       case "debug":
@@ -4204,6 +4204,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       : evaluationBusy
         ? "Wait for the current evaluation to finish."
         : null,
+    shortReason: !evaluationAvailable ? "Resolve the project SDK first." : null,
     onClick: () => void runEvaluation(),
   };
 
@@ -5454,6 +5455,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           onCheckAgain: () => void redetectSdks(),
         }}
         evaluation={{ ...evaluationStatus, reevaluate: evaluationRun }}
+        evaluationBusy={evaluationBusy}
         partial={partialWorkspace}
         restore={{
           state: restore.state,

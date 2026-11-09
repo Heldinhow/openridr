@@ -21,6 +21,9 @@ test("evaluation in flight shows one sentence and no recovery action", async ({ 
   await page.getByTestId("eval-run").click();
   await expect(page.getByTestId("eval-running")).toContainText("Finishing restore and evaluating projects");
   await expect(page.getByTestId("eval-stale-run")).toHaveCount(0);
+  // One statement while the operation runs: partial and analysis stay out of the bar.
+  await expect(page.getByTestId("status-analysis")).toHaveCount(0);
+  await expect(page.getByTestId("tree-partial")).toHaveCount(0);
   await expect(page.getByTestId("eval-state")).toContainText("Evaluated", { timeout: 120_000 });
   await expect(page.getByTestId("eval-run")).toBeEnabled();
   await expect(page.getByTestId("eval-blocked-reason")).toHaveCount(0);
@@ -29,9 +32,7 @@ test("evaluation in flight shows one sentence and no recovery action", async ({ 
 // A blocked recovery action keeps its data-testid and shows the reason next to it.
 test("blocked evaluation shows the reason next to the disabled action", async ({ page }) => {
   await openWorkspace(page, fixture("MissingSdk/MissingSdk.csproj"));
-  await expect(page.getByTestId("eval-blocked-reason")).toContainText(
-    "Trust the workspace and resolve the project SDK before evaluating.",
-  );
+  await expect(page.getByTestId("eval-blocked-reason")).toContainText("Resolve the project SDK first.");
   await expect(page.getByTestId("eval-run")).toBeDisabled();
   await page.getByTestId("toolband-problems").click();
   await expect(page.getByTestId("problems-partial")).toBeVisible();
