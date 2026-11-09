@@ -107,7 +107,9 @@ fn launch_path(args: impl IntoIterator<Item = String>, cwd: Option<&Path>) -> Op
     }
 }
 
-/// Local path of a `file://` URL; other schemes are not files this app opens.
+/// Local path of a `file://` URL; other schemes are not files this app opens. Only the macOS
+/// `RunEvent::Opened` handler and the test below use it, so the Linux build would warn.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn path_from_url(url: &Url) -> Option<String> {
     if url.scheme() != "file" {
         return None;
