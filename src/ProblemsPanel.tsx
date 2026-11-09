@@ -232,12 +232,17 @@ export function ProblemsPanel({
             "The project model or restore is incomplete; diagnostics may cover only part of the solution."}
           {onRestartAnalysis && (
             <div className="actions">
-              {restartAnalysisReason ? (
+              <button
+                type="button"
+                data-testid="problems-restart-analysis"
+                disabled={restartAnalysisReason !== null}
+                title={restartAnalysisReason ?? undefined}
+                onClick={onRestartAnalysis}
+              >
+                Restart analysis
+              </button>
+              {restartAnalysisReason && (
                 <span className="muted" data-testid="problems-restart-blocked">{restartAnalysisReason}</span>
-              ) : (
-                <button type="button" data-testid="problems-restart-analysis" onClick={onRestartAnalysis}>
-                  Restart analysis
-                </button>
               )}
             </div>
           )}

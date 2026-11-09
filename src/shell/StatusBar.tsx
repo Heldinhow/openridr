@@ -69,22 +69,24 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, ev
           )}
         </span>
       )}
-      {evaluation.reevaluate && (evaluation.reevaluate.disabledReason === null ? (
+      {evaluation.reevaluate && (
         <button
           type="button"
           className="status-evaluation-action"
           data-testid="eval-run"
           aria-label={evaluation.reevaluate.label}
-          title={evaluation.reevaluate.label}
+          title={evaluation.reevaluate.disabledReason ?? evaluation.reevaluate.label}
+          disabled={evaluation.reevaluate.disabledReason !== null}
           onClick={evaluation.reevaluate.onClick}
         >
           <Icon name="refresh" />
         </button>
-      ) : (
-        <span className="status-reason" data-testid="eval-blocked-reason" title={evaluation.reevaluate.disabledReason}>
+      )}
+      {evaluation.reevaluate?.disabledReason && (
+        <span className="status-reason" data-testid="eval-blocked-reason">
           {evaluation.reevaluate.disabledReason}
         </span>
-      ))}
+      )}
       {evaluation.testId ? (
         <span
           data-testid={evaluation.testId}
@@ -113,18 +115,18 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, ev
           {analysis.action && (
             <>
               {" "}
-              {analysis.action.disabledReason === null ? (
-                <button
-                  type="button"
-                  className="status-analysis-action"
-                  data-testid="status-analysis-action"
-                  title={analysis.action.label}
-                  onClick={analysis.action.onClick}
-                >
-                  {analysis.action.label}
-                </button>
-              ) : (
-                <span className="status-reason" data-testid="status-analysis-blocked" title={analysis.action.disabledReason}>
+              <button
+                type="button"
+                className="status-analysis-action"
+                data-testid="status-analysis-action"
+                disabled={analysis.action.disabledReason !== null}
+                title={analysis.action.disabledReason ?? analysis.action.label}
+                onClick={analysis.action.onClick}
+              >
+                {analysis.action.label}
+              </button>
+              {analysis.action.disabledReason && (
+                <span className="status-reason" data-testid="status-analysis-blocked">
                   {analysis.action.disabledReason}
                 </span>
               )}

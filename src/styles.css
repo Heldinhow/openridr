@@ -2879,7 +2879,7 @@ mark.search-hit {
 .toolband-button[aria-pressed="true"] { color: var(--fg); }
 .status { background: var(--chrome); border-top: 1px solid var(--line); }
 /* A recovery action that cannot run is replaced by its reason, never shown disabled without one. */
-.status-reason { max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.status > .status-reason { max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 /* One sentence while restore/evaluation runs; no action that cannot act yet. */
 .eval-running { color: var(--fg); }
 

@@ -4698,12 +4698,16 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                 ? "Values shown are from the previous evaluation and are not current."
                 : "Nothing is current yet."}
               <div className="actions">
-                {evaluationRun.disabledReason ? (
+                <button
+                  data-testid="eval-stale-run"
+                  disabled={evaluationRun.disabledReason !== null}
+                  title={evaluationRun.disabledReason ?? undefined}
+                  onClick={() => void runEvaluation()}
+                >
+                  Re-evaluate
+                </button>
+                {evaluationRun.disabledReason && (
                   <span className="muted" data-testid="eval-stale-blocked">{evaluationRun.disabledReason}</span>
-                ) : (
-                  <button data-testid="eval-stale-run" onClick={() => void runEvaluation()}>
-                    Re-evaluate
-                  </button>
                 )}
               </div>
             </div>
