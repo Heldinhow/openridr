@@ -2037,9 +2037,11 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `bundle.resources` com `null`. O macOS continua com o `beforeBuildCommand` e os três resources.
 - **Proteções da extração de build.** O script valida a listagem do `tar` antes de escrever:
   caminho absoluto, segmento `..`, symlink, hardlink e arquivo especial são recusados, com os
-  mesmos limites do `extract_zip` (200 entradas, 200 MiB). `tests/shell/vendor-netcoredbg.test.sh`
-  cobre cada recusa e o pino; a costura de teste do script substitui o arquivo e o digest, nunca
-  os checks.
+  mesmos limites do `extract_zip` (200 entradas, 200 MiB). A extração Linux fica em
+  `scripts/vendor-netcoredbg-linux.sh`, sourcing do script principal, para
+  `tests/shell/vendor-netcoredbg.test.sh` chamar as checagens com um arquivo controlado; o build
+  sempre passa o arquivo e o digest fixados na tabela do script, então nenhum asset é
+  substituído por ambiente.
 - **Consequência.** `crates/host/src/bundled.rs`, `crates/host/src/debugger.rs`,
   `crates/host/tests/debugger.rs`, `src/host/client.ts` (`availability: "bundled"`),
   `scripts/vendor-netcoredbg.sh`, `src-tauri/tauri.linux.conf.json`, os dois `.tar.gz` em

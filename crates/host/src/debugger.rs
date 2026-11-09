@@ -747,6 +747,28 @@ fn verify_binary(binary: &Path) -> Existing {
     }
 }
 
+/// Verifies the bundled executable once per file identity. The snapshot is polled every 400 ms,
+/// so the adapter is spawned only when the path, mtime or size changed (a reinstall or a replaced
+/// file), never on every poll.
+fn verify_bundled(data: &mut Data, binary: &Path) -> Existing {
+    let meta = fs::metadata(binary).ok();
+    let modified = meta.as_ref().and_then(|meta| meta.modified().ok());
+    let size = meta.as_ref().map(|meta| meta.len()).unwrap_or(0);
+    if let Some(check) = &data.bundled_check {
+        if check.path == binary && check.modified == modified && check.size == size {
+            return check.result.clone();
+        }
+    }
+    let result = verify_binary(binary);
+    data.bundled_check = Some(BundledCheck {
+        path: binary.to_path_buf(),
+        modified,
+        size,
+        result: result.clone(),
+    });
+    result
+}
+
 /// The Debug installer is retired for builds that ship the adapter; both entry points and the
 /// pipeline use this single refusal.
 pub fn bundled_refusal() -> HostError {
@@ -875,6 +897,15 @@ pub struct View {
     pub busy: bool,
 }
 
+/// A verified (or refused) bundled executable, with the file identity it was verified at.
+#[derive(Debug, Clone)]
+struct BundledCheck {
+    path: PathBuf,
+    modified: Option<SystemTime>,
+    size: u64,
+    result: Existing,
+}
+
 struct Data {
     revision: u64,
     state: &'static str,
@@ -899,6 +930,9 @@ struct Data {
     stale_reason: Option<String>,
     /// What the disk showed the last time it was inspected; `probed` keeps the 400 ms poll cheap.
     installed: Option<Existing>,
+    /// The bundled executable's `--version`, cached by path, mtime and size: the snapshot is
+    /// polled every 400 ms and the adapter must not be spawned on every poll.
+    bundled_check: Option<BundledCheck>,
     probed: bool,
     /// A worker thread is still running (download/extract/verify), even after a cancel request.
     active: bool,
@@ -935,6 +969,7 @@ impl Debugger {
                 sealed: false,
                 stale_reason: None,
                 installed: None,
+                bundled_check: None,
                 probed: false,
                 active: false,
             }),
@@ -961,15 +996,19 @@ impl Debugger {
         let controlled = controlled_asset();
         let gate = gate(&os, &arch, experimental, controlled.is_some());
         let bundled = bundled_for(&platform);
-        // `inspect_existing` hashes once per process; reuse it instead of hashing on every
-        // 400 ms snapshot.
-        let bundled_sha = bundled.as_ref().and_then(|binary| {
-            data.installed
-                .as_ref()
-                .filter(|existing| existing.binary == binary.to_string_lossy())
-                .and_then(|existing| existing.sha256.clone())
-                .or_else(|| sha256_file(binary))
-        });
+        // `ready` for a bundled adapter means the real executable answered --version with the
+        // approved release, never just that a file exists. The check is cached per file identity
+        // so the 400 ms snapshot does not spawn the adapter on every poll.
+        let bundled_check = bundled
+            .as_ref()
+            .map(|binary| verify_bundled(&mut data, binary));
+        let bundled_sha = bundled_check
+            .as_ref()
+            .and_then(|check| check.sha256.clone());
+        let installed = data
+            .installed
+            .as_ref()
+            .filter(|existing| matches!(existing.state, "present" | "ready"));
         let asset = asset_view(&platform, controlled.as_ref());
         let install_state = data.state;
         // `adapterMessage` always describes the platform/adapter availability; the operation
@@ -983,7 +1022,10 @@ impl Debugger {
             (install_state, gate.message.clone())
         };
         if let Some(binary) = &bundled {
-            if gate.bundled {
+            let verified = bundled_check
+                .as_ref()
+                .is_some_and(|check| check.state == "ready");
+            if gate.bundled && verified {
                 state = "ready";
                 message = format!(
                     "Bundled with OpenRidr: netcoredbg {VERSION} at {}{}. No download or install is needed; the session verifies --version before launching.",
@@ -993,15 +1035,27 @@ impl Debugger {
                         .map(|sha| format!(" · SHA-256 {sha}"))
                         .unwrap_or_default()
                 );
+            } else if gate.bundled {
+                // The build ships the adapter for this platform: one that does not answer
+                // --version with the approved release is damage, never a download.
+                state = "unavailable";
+                message = format!(
+                    "netcoredbg {VERSION} is embedded in this build, but {} did not verify ({}); nothing is downloaded. Reinstall OpenRidr and retry setup.",
+                    binary.display(),
+                    bundled_check
+                        .as_ref()
+                        .and_then(|check| check.reason.clone())
+                        .unwrap_or_else(|| "no verified version".to_string())
+                );
             } else {
                 message.push_str(&format!(
                     " netcoredbg {VERSION} is bundled with OpenRidr at {}; the experimental opt-in is what still blocks Debug.",
                     binary.display()
                 ));
             }
-        } else if gate.bundled {
-            // This build ships the adapter for this platform: a missing one is damage, never a
-            // download, and setup stays blocked until the app is reinstalled or the file returns.
+        } else if gate.bundled && installed.is_none() {
+            // No bundle and no executable anywhere: damage, never a download, and setup stays
+            // blocked until the app is reinstalled or the file returns.
             state = "unavailable";
             message = format!(
                 "netcoredbg {VERSION} is embedded in this build, but no verified executable is at {}; nothing is downloaded. Reinstall OpenRidr and retry setup.",
@@ -1010,10 +1064,6 @@ impl Debugger {
                     .unwrap_or_else(|| "the app bundle".to_string())
             );
         }
-        let installed = data
-            .installed
-            .as_ref()
-            .filter(|existing| matches!(existing.state, "present" | "ready"));
         if state != "ready" && bundled.is_none() {
             if let Some(existing) = installed {
                 message.push_str(&format!(

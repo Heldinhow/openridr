@@ -25,13 +25,15 @@ Toolchain: `bun` 1.3.9, `cargo` 1.99.0, `dotnet` com SDKs **8.0.408** e **10.0.4
 - `bun run tauri build --no-bundle` a partir do checkout limpo desta worktree (target frio):
   `beforeBuildCommand` do `tauri.linux.conf.json` rodou `bun run build` + `vendor-netcoredbg.sh`
   e **não** chamou `vendor-analysis.sh`; `tauri-build` aceitou `bundle.resources` sem
-  `resources/csharp-ls/` e `resources/dotnet/`. Binário:
-  `src-tauri/target/release/openridr`, 23.597.904 bytes, SHA-256
-  `657e2552adc5db1fbb023810acf41dfe50aa45b72c14a9033f90a392e604807c`.
+  `resources/csharp-ls/` e `resources/dotnet/`. O binário final (depois dos achados do
+  `/code-review`) é `src-tauri/target/release/openridr`, **23.597.904 bytes**, SHA-256
+  `d57e1bbaee6fba6ab2d2b8b1cf569e90afb4bc0e45be656bc08987f062b607cc`; a primeira build da sessão
+  (antes do `--version` no snapshot) era `657e2552…` e foi substituída por ela.
 - `tests/shell/vendor-netcoredbg.test.sh` sob **dash 0.5.12** (compilado em `/tmp`, porque o Arch
-  não empacota dash): 11 checks verdes — pino, reuso, digest divergente, arquivo ausente,
-  segmento `..`, caminho absoluto, symlink, arquivo especial, 201 entradas, 201 MiB e costura de
-  teste incompleta. Nenhum deles instalou o payload rejeitado.
+  não empacota dash): 10 checks verdes — pino, reuso, digest divergente, arquivo ausente,
+  segmento `..`, caminho absoluto, symlink, arquivo especial, 201 entradas e 201 MiB. Nenhum
+  deles instalou o payload rejeitado. O teste chama `vendor_netcoredbg_linux_install` com um
+  arquivo controlado; o build sempre passa o arquivo e o digest fixados no script.
 
 ## Host
 
@@ -57,6 +59,10 @@ Toolchain: `bun` 1.3.9, `cargo` 1.99.0, `dotnet` com SDKs **8.0.408** e **10.0.4
     executável volta a bloquear.
   - `bundled::tests::the_linux_resource_root_sits_beside_the_binary`: o root é
     `<exe dir>/../lib/<nome>`, nunca o `cwd`.
+  - `a_linux_bundle_is_ready_and_a_missing_one_blocks` também cobre o adaptador **danificado**:
+    um arquivo que responde `3.1.1` deixa o estado fora de `ready` com "did not verify", e o
+    `--version` é cacheado por caminho + mtime + tamanho para o poll de 400 ms não spawnar o
+    processo.
 
 ## Estado do host: setup, trust e workspace
 
@@ -128,10 +134,10 @@ saída do debuggee `Order A-104: R$ 42,00`.
 
 ## App instalado
 
-Binário instalado em `~/.local/bin/openridr` (mesmo SHA-256 do build acima) e o payload em
+Binário instalado em `~/.local/bin/openridr` (`d57e1bba…`) e o payload em
 `~/.local/lib/openridr/netcoredbg/` — o layout que `resources_root()` resolve no Linux. App
-aberto com `OPENRIDR_HOME=/tmp/openridr-318/app-home` e a fixture
-`/tmp/openridr-318/OrderDesk/OrderDesk.sln` (home novo, então o setup rodou de verdade):
+aberto com `OPENRIDR_HOME` isolado e a fixture `/tmp/openridr-318/OrderDesk/OrderDesk.sln`
+(home novo, então o setup rodou de verdade):
 
 - **Setup**: a tela "Fixed tools are part of the project setup" mostrou
   `Debug adapter · netcoredbg 3.2.0-1092 — Bundled and verified` com o caminho
@@ -143,10 +149,10 @@ aberto com `OPENRIDR_HOME=/tmp/openridr-318/app-home` e a fixture
   "Trusted mode" e a Solution Explorer com os 3 projetos.
 - **Debug**: com o breakpoint em `src/OrderDesk.Cli/Program.cs:4` (F9 na linha) e F5, o painel
   Debug do app instalado mostrou `Paused · breakpoint · 1 frame(s) · 1 thread(s)`, a thread
-  `Main Thread (233186)`, o frame `Program.<Main>$()` em `Program.cs:4` e os locais
+  `Main Thread (259931)`, o frame `Program.<Main>$()` em `Program.cs:4` e os locais
   `args = {string[0]}` e `order = OrderDesk.Core.Order`. A árvore de processos no instante da
-  parada era `openridr (231798) → ~/.local/lib/openridr/netcoredbg/netcoredbg --interpreter=vscode
-  (233175) → dotnet .../OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll (233186)`. F5 de novo
+  parada era `openridr (259422) → ~/.local/lib/openridr/netcoredbg/netcoredbg --interpreter=vscode
+  (259920) → dotnet .../OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll (259931)`. F5 de novo
   terminou a sessão (`Debug Terminated`, saída do debuggee preservada no painel).
 
 ## Não verificado

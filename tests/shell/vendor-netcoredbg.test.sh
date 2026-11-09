@@ -1,8 +1,9 @@
 #!/bin/sh
-# Focused tests for the Linux branch of scripts/vendor-netcoredbg.sh: the pinned SHA-256 gate and
+# Focused tests for the Linux half of scripts/vendor-netcoredbg.sh: the pinned SHA-256 gate and
 # the archive checks that stand in for the host's extract_zip at build time (traversal, absolute
 # path, symlink, special file, entry and size limits). The real 3.4 MB assets are not needed: the
-# script's test seam substitutes the archive and its digest, never the checks.
+# helper is sourced and called with a controlled archive and its digest, exactly as the build
+# script calls it with the pinned ones.
 #
 #   sh tests/shell/vendor-netcoredbg.test.sh
 #
@@ -15,7 +16,9 @@ if [ "$(uname -s)" != "Linux" ]; then
 fi
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
-script="$repo/scripts/vendor-netcoredbg.sh"
+
+# shellcheck source=scripts/vendor-netcoredbg-linux.sh
+. "$repo/scripts/vendor-netcoredbg-linux.sh"
 
 failures=0
 pass() { echo "ok   - $*"; }
@@ -27,26 +30,8 @@ fail() {
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/openridr-vendor-netcoredbg.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 
-# A fake repository whose scripts/ holds the real script, so ROOT and DEST stay in the scratch
-# tree and the real src-tauri/resources is never touched.
-fake_repo() {
-  mkdir -p "$1/scripts" "$1/vendor/netcoredbg"
-  cp "$script" "$1/scripts/vendor-netcoredbg.sh"
-}
-
-# run <repo> <archive> <pin>: keeps the exit code, stdout and stderr for the assertions.
-run() {
-  set +e
-  OPENRIDR_VENDOR_NETCOREDBG_ARCHIVE=$2 OPENRIDR_VENDOR_NETCOREDBG_PIN=$3 \
-    sh "$1/scripts/vendor-netcoredbg.sh" >"$scratch/out" 2>"$scratch/err"
-  code=$?
-  set -e
-  out=$(cat "$scratch/out")
-  err=$(cat "$scratch/err")
-}
-
 digest() {
-  sha256sum "$1" | awk '{print $1}'
+  vendor_netcoredbg_sha256 "$1"
 }
 
 payload() {
@@ -56,6 +41,18 @@ payload() {
   printf 'shim\n' >"$1/netcoredbg/libdbgshim.so"
 }
 
+# install <dest> <archive> <pin>: keeps the exit code, stdout and stderr for the assertions.
+install() {
+  set +e
+  (
+    vendor_netcoredbg_linux_install "$2" "$3" "$1" "$1.vendor-state"
+  ) >"$scratch/out" 2>"$scratch/err"
+  code=$?
+  set -e
+  out=$(cat "$scratch/out")
+  err=$(cat "$scratch/err")
+}
+
 # expect <pass|fail> <name> <archive> <pin> [expected stderr fragment]
 expect() {
   want=$1
@@ -63,11 +60,9 @@ expect() {
   archive=$3
   pin=$4
   fragment=${5:-}
-  dir="$scratch/repo-$name"
-  rm -rf "$dir"
-  fake_repo "$dir"
-  run "$dir" "$archive" "$pin"
-  dest="$dir/src-tauri/resources/netcoredbg"
+  dest="$scratch/dest-$name"
+  rm -rf "$dest" "$dest.vendor-state"
+  install "$dest" "$archive" "$pin"
   if [ "$want" = pass ]; then
     if [ "$code" -ne 0 ]; then
       fail "$name: exit $code, expected 0 (stderr: $err)"
@@ -102,8 +97,8 @@ tar -czf "$scratch/good.tar.gz" -C "$good" netcoredbg
 good_pin=$(digest "$scratch/good.tar.gz")
 expect pass "a pinned archive is extracted" "$scratch/good.tar.gz" "$good_pin"
 
-dir="$scratch/repo-a pinned archive is extracted"
-run "$dir" "$scratch/good.tar.gz" "$good_pin"
+dest="$scratch/dest-a pinned archive is extracted"
+install "$dest" "$scratch/good.tar.gz" "$good_pin"
 if [ "$code" -eq 0 ] && printf '%s' "$out" | grep -Fq "is current"; then
   pass "a second run reuses the extracted tree"
 else
@@ -160,19 +155,6 @@ truncate -s 201M "$scratch/big/blob"
 tar -czf "$scratch/big.tar.gz" -C "$scratch/big" blob
 expect fail "an oversized tree is refused" "$scratch/big.tar.gz" \
   "$(digest "$scratch/big.tar.gz")" "above the 209715200-byte limit"
-
-# --- the seam needs both halves -----------------------------------------------------
-set +e
-OPENRIDR_VENDOR_NETCOREDBG_ARCHIVE="$scratch/good.tar.gz" \
-  sh "$scratch/repo-a pinned archive is extracted/scripts/vendor-netcoredbg.sh" \
-  >"$scratch/out" 2>"$scratch/err"
-code=$?
-set -e
-if [ "$code" -ne 0 ] && grep -Fq "set both" "$scratch/err"; then
-  pass "half a test seam is refused"
-else
-  fail "half a test seam is refused (exit $code, stderr: $(cat "$scratch/err"))"
-fi
 
 if [ "$failures" -ne 0 ]; then
   echo "vendor-netcoredbg: $failures failure(s)"

@@ -1244,13 +1244,31 @@ fn a_linux_bundle_is_ready_and_a_missing_one_blocks_isolated() {
         .expect_err("the embedded adapter is never downloaded");
     assert_eq!(refused.code, "invalid_state");
 
-    // A bundle that lost the executable blocks again instead of falling back to a download. The
-    // version itself is checked at launch (`ready_adapter`), like the macOS bundle.
-    fs::remove_file(&binary).unwrap();
+    // A damaged adapter (a real file that does not answer --version with 3.2.0) blocks again:
+    // `ready` is never reported from the file's presence alone.
+    fs::write(
+        &binary,
+        "#!/bin/sh\nprintf 'NET Core debugger 3.1.1-1000\n'\n",
+    )
+    .unwrap();
     let damaged = state(&host);
     assert_ne!(damaged["adapterState"], "ready");
-    assert_eq!(damaged["bundled"], false);
-    assert!(damaged["adapterMessage"]
+    assert_eq!(damaged["bundled"], true);
+    assert!(
+        damaged["adapterMessage"]
+            .as_str()
+            .unwrap()
+            .contains("did not verify"),
+        "{}",
+        damaged["adapterMessage"]
+    );
+
+    // A bundle that lost the executable blocks too, instead of falling back to a download.
+    fs::remove_file(&binary).unwrap();
+    let missing_again = state(&host);
+    assert_ne!(missing_again["adapterState"], "ready");
+    assert_eq!(missing_again["bundled"], false);
+    assert!(missing_again["adapterMessage"]
         .as_str()
         .unwrap()
         .contains("nothing is downloaded"));
