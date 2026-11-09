@@ -64,14 +64,14 @@
 .tabbar .tab {
   margin-right: 4px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: transparent;
 }
 
 /* Rider: the active editor tab is a discreet blue pill; inactive tabs carry no box. */
 .tabbar .tab.active {
-  background: #263552;
-  border-color: #33496f;
+  background: var(--tab-active-surface);
+  border-color: var(--tab-active-border);
   box-shadow: none;
 }
 
@@ -95,11 +95,11 @@
 
 /* Debug state must remain visible when CodeMirror also marks the active line. */
 .cm-editor .cm-line.cm-line-breakpoint {
-  background-color: #6c2a2e66;
+  background-color: var(--debug-breakpoint-line);
 }
 
 .cm-editor .cm-line.cm-line-current {
-  background-color: #5c4a2399;
+  background-color: var(--debug-current-line-strong);
 }
 
 .workspace-tools > summary {
