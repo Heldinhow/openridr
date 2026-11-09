@@ -51,11 +51,12 @@ código procura a mensagem em inglês; com `LANG=C` a mensagem é a esperada. O 
 
 ### App real (Linux, WebKitGTK)
 
-Capturas desta sessão em `/tmp/openridr-319-evidence/` (não versionadas: `docs/evidence/screenshots/`
-só guarda arquivo já rastreado); o texto abaixo é o OCR da janela.
+As quatro capturas que provam o fluxo estão versionadas em `docs/evidence/screenshots/`:
+`welcome-linux-04-picker-dialog.png`, `welcome-linux-05-picker-chosen-setup.png`,
+`welcome-linux-06-picker-cancelled.png` e `welcome-linux-07-picker-unavailable.png`. O resto desta
+sessão ficou em `/tmp/openridr-319-evidence/`; o texto abaixo é o OCR da janela.
 
-1. **Abrir pelo botão.** Tela inicial fresca (`27-dialog-fresh.png` é o diálogo, `09-chooser-open.png`
-   a primeira abertura): quatro `Tab` a partir do corpo levam o foco ao **Open** (o diff de pixels
+1. **Abrir pelo botão.** Tela inicial fresca (a captura versionada é `welcome-linux-04-picker-dialog.png`): quatro `Tab` a partir do corpo levam o foco ao **Open** (o diff de pixels
    mostra o anel em `1815,102 137x64`, o canto superior direito) e `Enter` abre o diálogo do portal —
    janela `xdg-desktop-portal-gtk`, título `Open solution or project`, `875x600`. O combo de filtro
    mostra `Solutions and projects` e a lista de recentes. O OCR do diálogo:
@@ -69,7 +70,7 @@ só guarda arquivo já rastreado); o texto abaixo é o OCR da janela.
 
 2. **Arquivo escolhido chegando ao setup.** Com o diálogo aberto, a célula `OrderDesk.sln` da tabela
    `Arquivos` foi focada e ativada pela árvore de acessibilidade (`grab_focus` + ação `activate`); o
-   diálogo fechou e o app seguiu o fluxo normal de abertura. A tela (`28-chosen-setup.png`):
+   diálogo fechou e o app seguiu o fluxo normal de abertura. A tela (`welcome-linux-05-picker-chosen-setup.png`):
 
    ```text
    Setting up OrderDesk.sln
@@ -83,16 +84,16 @@ só guarda arquivo já rastreado); o texto abaixo é o OCR da janela.
    o brief permite. O log do app não tem `file chooser failed` nessa escolha: a resposta foi 0 com o
    caminho, não um erro.
 
-3. **Cancelar.** `Ctrl+O` abriu o diálogo de novo (`30-shortcut-dialog.png`; é também a evidência do
+3. **Cancelar.** `Ctrl+O` abriu o diálogo de novo (é também a evidência do
    atalho, que faz o mesmo que o botão) e o botão **Cancelar** foi acionado pela árvore de
    acessibilidade. O diálogo fechou, o log não ganhou nenhuma linha de erro (resposta 1 →
    `{ "path": null }`) e a tela ficou como estava: `29-welcome-before-cancel.png` e
-   `31-after-cancel.png` diferem em 141 pixels (0,0036%, o cursor de texto piscando), sem aviso e sem
+   `welcome-linux-06-picker-cancelled.png` diferem em 141 pixels (0,0036%, o cursor de texto piscando), sem aviso e sem
    banner vermelho.
 
 4. **Seletor indisponível, sem barramento de sessão.** O app subiu com
    `DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/no-such-bus-319`; `Ctrl+O` devolveu `pick_unavailable` e a
-   tela (`33-pick-unavailable.png`) mostrou a linha discreta e o campo com foco:
+   tela (`welcome-linux-07-picker-unavailable.png`) mostrou a linha discreta e o campo com foco:
 
    ```text
    No native file chooser is available here; type the path instead.
@@ -105,7 +106,7 @@ só guarda arquivo já rastreado); o texto abaixo é o OCR da janela.
    (`dbus-run-session`) com `XDG_DESKTOP_PORTAL_DIR` apontando para uma pasta vazia: o portal ativa,
    mas não tem a interface `org.freedesktop.portal.FileChooser`. `Ctrl+O` recebeu
    `org.freedesktop.DBus.Error.UnknownMethod`, que o picker mapeia para `pick_unavailable`
-   (`34-pick-nobackend.png`), com a mesma linha discreta e o campo focado. O log:
+   (sem captura versionada; a tela é a mesma da anterior), com a mesma linha discreta e o campo focado. O log:
    `openridr: file chooser unavailable: org.freedesktop.DBus.Error.UnknownMethod: Nenhuma interface
    "org.freedesktop.portal.FileChooser" no objeto ...`.
 

@@ -37,13 +37,10 @@ pub fn pick_workspace() -> HostResult<Value> {
     let handle: OwnedObjectPath = chooser
         .call("OpenFile", &("", TITLE, options(&token)))
         .map_err(open_error)?;
-    // The portal honours `handle_token` (the reply is the same path), but the reply is
-    // authoritative. The dialog is still open here, so subscribing now cannot miss the answer.
-    if handle.as_str() != expected {
-        let request =
-            Proxy::new(&connection, PORTAL, handle.as_str(), REQUEST).map_err(unavailable)?;
-        response = request.receive_signal("Response").map_err(unavailable)?;
-    }
+    // The portal honours `handle_token`, so the reply is the path the signal is already
+    // subscribed to. A different handle means the answer path is unknown: subscribing now could
+    // miss a response that was already emitted, so fail instead of waiting forever.
+    accepted_handle(&expected, handle.as_str())?;
 
     let message = response
         .next()
@@ -108,6 +105,18 @@ fn next_token() -> String {
     )
 }
 
+/// The portal is expected to answer on the request path derived from `handle_token`; anything
+/// else leaves the picker without a path to wait on.
+fn accepted_handle(expected: &str, handle: &str) -> HostResult<()> {
+    if handle == expected {
+        Ok(())
+    } else {
+        Err(failed(format!(
+            "the portal returned request {handle} instead of {expected}"
+        )))
+    }
+}
+
 /// The portal returns `file://` URIs; other schemes are not files this app opens.
 fn path_from_uri(uri: &str) -> Option<String> {
     let url = tauri::Url::parse(uri).ok()?;
@@ -169,6 +178,18 @@ mod tests {
             request_path_for(":1.7", "openridr_7_0"),
             "/org/freedesktop/portal/desktop/request/1_7/openridr_7_0"
         );
+    }
+
+    #[test]
+    fn a_handle_that_is_not_the_token_path_is_refused() {
+        let expected = request_path_for(":1.42", "openridr_7_0");
+        assert!(accepted_handle(&expected, &expected).is_ok());
+        let error = accepted_handle(
+            &expected,
+            "/org/freedesktop/portal/desktop/request/1_42/other",
+        )
+        .expect_err("a different handle has no answer path");
+        assert_eq!(error.code, "pick_failed");
     }
 
     #[test]
