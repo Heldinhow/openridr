@@ -2878,6 +2878,10 @@ mark.search-hit {
 .toolband-button.active, .toolband-button[aria-pressed="true"] { background: var(--accent-surface-strong); border-color: transparent; box-shadow: none; }
 .toolband-button[aria-pressed="true"] { color: var(--fg); }
 .status { background: var(--chrome); border-top: 1px solid var(--line); }
+/* A recovery action that cannot run is replaced by its reason, never shown disabled without one. */
+.status > .status-reason { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+/* One sentence while restore/evaluation runs; no action that cannot act yet. */
+.eval-running { color: var(--fg); }
 
 /* Rider-like Solution tree: quiet metadata, compact rows, blue selection. */
 .side { background: var(--panel); }
