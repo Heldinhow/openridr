@@ -1035,8 +1035,8 @@ impl Debugger {
                         .map(|sha| format!(" · SHA-256 {sha}"))
                         .unwrap_or_default()
                 );
-            } else if gate.bundled {
-                // The build ships the adapter for this platform: one that does not answer
+            } else if gate.bundled && !gate.installable {
+                // The bundle is the only source on this platform: one that does not answer
                 // --version with the approved release is damage, never a download.
                 state = "unavailable";
                 message = format!(
@@ -1047,15 +1047,23 @@ impl Debugger {
                         .and_then(|check| check.reason.clone())
                         .unwrap_or_else(|| "no verified version".to_string())
                 );
+            } else if gate.bundled {
+                // macOS arm64 with the opt-in: the installer is still an option, so a bundle
+                // that did not verify is reported without closing that path.
+                message.push_str(&format!(
+                    " The bundled netcoredbg at {} did not verify; installing the approved release is still available.",
+                    binary.display()
+                ));
             } else {
                 message.push_str(&format!(
                     " netcoredbg {VERSION} is bundled with OpenRidr at {}; the experimental opt-in is what still blocks Debug.",
                     binary.display()
                 ));
             }
-        } else if gate.bundled && installed.is_none() {
-            // No bundle and no executable anywhere: damage, never a download, and setup stays
-            // blocked until the app is reinstalled or the file returns.
+        } else if gate.bundled && !gate.installable && installed.is_none() {
+            // No bundle and no executable anywhere, on a platform where the bundle is the only
+            // source: damage, never a download, and setup stays blocked until the app is
+            // reinstalled or the file returns.
             state = "unavailable";
             message = format!(
                 "netcoredbg {VERSION} is embedded in this build, but no verified executable is at {}; nothing is downloaded. Reinstall OpenRidr and retry setup.",
