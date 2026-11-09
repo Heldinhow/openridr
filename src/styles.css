@@ -2873,9 +2873,6 @@ mark.search-hit {
 .toolband-button { border-radius: var(--r-md); width: 32px; height: 32px; box-shadow: none; }
 .toolband-button.active, .toolband-button[aria-pressed="true"] { background: var(--accent-surface-strong); border-color: transparent; box-shadow: none; }
 .toolband-button[aria-pressed="true"] { color: var(--fg); }
-/* The rail is 34 px wide and scrolls, so a 2 px ring at offset 2 is clipped on both sides.
-   The ring goes inset: still a full 2 px border, fully inside the button. */
-.toolband-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .status { background: var(--chrome); border-top: 1px solid var(--line); }
 
 /* Rider-like Solution tree: quiet metadata, compact rows, blue selection. */
